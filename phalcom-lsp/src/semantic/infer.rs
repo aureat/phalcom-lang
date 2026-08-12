@@ -5,13 +5,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use super::CallableSummary;
 use super::callable::SolverResult;
-use super::facts::{FieldFacts, InferredValue, LocalFacts, ParameterFacts, ValueShape, MAX_SHAPE_UNION};
-use super::ids::{CallableId, ClassId, ModuleId, CORE_MODULE_URI};
+use super::facts::{FieldFacts, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+use super::ids::{CORE_MODULE_URI, CallableId, ClassId, ModuleId};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
 use super::surface::{MemberSurface, ModuleSurface};
-use super::CallableSummary;
 use phalcom_ast::ast::{
     Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement,
     SymbolLiteralKind, TupleLiteralEntry,
@@ -320,6 +320,7 @@ pub fn parameter_facts_for_program(
 
 /// Solves source callable summaries and parameter facts without mutating the
 /// published semantic database.
+#[expect(dead_code, reason = "retained as a full-workspace solver reference for regression comparisons")]
 pub(crate) fn solve_workspace_callables(
     inputs: &[(ModuleId, Arc<phalcom_ast::ast::Program>, ModuleSurface)],
     classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
@@ -419,6 +420,121 @@ pub(crate) fn solve_workspace_callables(
         summary.returns = InferredValue::flow(ValueShape::Unknown, Default::default());
         for value in &mut summary.params {
             *value = InferredValue::flow(ValueShape::Unknown, Default::default());
+        }
+    }
+    SolverResult { summaries, parameter_facts }
+}
+
+/// Re-solves only callable surfaces owned by `inputs` while treating the
+/// supplied summaries and parameter facts as read-only boundary values.
+pub(crate) fn solve_affected_callables(
+    inputs: &[(ModuleId, Arc<phalcom_ast::ast::Program>, ModuleSurface)],
+    classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
+    graph: &ModuleGraph,
+    generation: SemanticGeneration,
+    seed_summaries: BTreeMap<CallableId, CallableSummary>,
+    base_parameters: ParameterFacts,
+) -> SolverResult {
+    if inputs.is_empty() {
+        return SolverResult {
+            summaries: seed_summaries,
+            parameter_facts: base_parameters,
+        };
+    }
+
+    let callable_count = inputs
+        .iter()
+        .map(|(_, _, surface)| surface.classes.values().map(|class| class.members.len()).sum::<usize>())
+        .sum::<usize>();
+    let slot_count = inputs
+        .iter()
+        .map(|(_, _, surface)| {
+            surface
+                .classes
+                .values()
+                .flat_map(|class| class.members.values())
+                .map(|member| member.params.len())
+                .sum::<usize>()
+        })
+        .sum::<usize>();
+    let max_rounds = (callable_count + slot_count).max(1) * (MAX_SHAPE_UNION + 2);
+    let mut summaries = seed_summaries;
+    let mut parameter_facts = base_parameters.clone();
+
+    for _ in 0..max_rounds {
+        let previous_summaries = summaries.clone();
+        let previous_parameters = parameter_facts.clone();
+        let mut next_parameters = base_parameters.clone();
+
+        for (module, program, surface) in inputs {
+            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
+            let is_constructor = |class: &ClassId, selector: &str| {
+                super::resolve_member_surface(classes, class, selector).is_some_and(|member| member.is_constructor)
+                    || (selector == "new()" && classes.contains_key(class))
+            };
+            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary: &CallableSummary| summary.returns.clone());
+            let parameter_fact = |id: &CallableId, name: &str| previous_parameters.get(id, name).cloned();
+            let resolve_member = |class: &ClassId, selector: &str| super::resolve_member_surface(classes, class, selector);
+            let facts = parameter_facts_for_program(
+                program,
+                surface,
+                module,
+                known_class,
+                is_constructor,
+                callable_return,
+                parameter_fact,
+                resolve_member,
+            );
+            next_parameters.merge_from(&facts);
+        }
+
+        let mut next_summaries = previous_summaries.clone();
+        for (module, _, surface) in inputs {
+            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
+            let is_constructor = |class: &ClassId, selector: &str| {
+                super::resolve_member_surface(classes, class, selector).is_some_and(|member| member.is_constructor)
+                    || (selector == "new()" && classes.contains_key(class))
+            };
+            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary: &CallableSummary| summary.returns.clone());
+            let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(id, name).cloned();
+            let resolve_member = |class: &ClassId, selector: &str| super::resolve_member_surface(classes, class, selector);
+            for (summary, evidence) in summaries_for_surface_with_bottom(
+                surface,
+                module,
+                known_class,
+                is_constructor,
+                callable_return,
+                parameter_fact,
+                resolve_member,
+                generation,
+            ) {
+                if evidence.is_some() {
+                    next_summaries.insert(summary.callable.clone(), summary);
+                }
+            }
+        }
+
+        let summaries_changed = next_summaries != previous_summaries;
+        let parameters_changed = next_parameters != previous_parameters;
+        summaries = next_summaries;
+        parameter_facts = next_parameters;
+        if !summaries_changed && !parameters_changed {
+            complete_missing_summaries(inputs, classes, graph, generation, &parameter_facts, &mut summaries);
+            return SolverResult { summaries, parameter_facts };
+        }
+    }
+
+    if cfg!(debug_assertions) {
+        panic!("affected callable solver failed to converge within derived budget");
+    }
+
+    parameter_facts.widen_all();
+    for summary in summaries.values_mut() {
+        if inputs.iter().any(|(module, _, _)| summary.callable.owner.module == *module) {
+            summary.returns = InferredValue::flow(ValueShape::Unknown, Default::default());
+            for value in &mut summary.params {
+                *value = InferredValue::flow(ValueShape::Unknown, Default::default());
+            }
         }
     }
     SolverResult { summaries, parameter_facts }

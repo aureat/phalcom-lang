@@ -260,6 +260,7 @@ impl Backend {
     /// async I/O or background task is warranted here (plan "Build order"
     /// step 2).
     fn scan_workspace(&self, roots: &[Url]) {
+        let mut semantic_files = Vec::new();
         for root in roots {
             let Ok(root_path) = root.to_file_path() else {
                 continue;
@@ -273,10 +274,11 @@ impl Backend {
                 };
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 self.index.update_file(uri.clone(), &parse.program);
-                self.update_semantic_for_source(&uri, crate::semantic::FileRevision(1), &parse.program);
+                semantic_files.push((uri.clone(), crate::semantic::FileRevision(1), parse.program));
                 self.record_indexed_file(uri);
             }
         }
+        self.semantic.update_files_batch(semantic_files);
         self.scan_core_source(roots);
     }
 
@@ -1078,11 +1080,7 @@ impl LanguageServer for Backend {
         }
 
         let locations = self.occurrences_to_locations(&occurrences);
-        if locations.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(locations))
-        }
+        if locations.is_empty() { Ok(None) } else { Ok(Some(locations)) }
     }
 
     /// Answers `workspace/symbol`: every indexed selector containing

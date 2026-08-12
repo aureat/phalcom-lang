@@ -1,6 +1,6 @@
 //! Import edges and lightweight module-path resolution.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use phalcom_ast::ast::{Program, Statement};
@@ -33,7 +33,7 @@ pub struct ModuleGraph {
 
 impl ModuleGraph {
     /// Replaces all import edges contributed by `module`.
-    pub fn update(&mut self, module: ModuleId, program: &Program) {
+    pub fn update(&mut self, module: ModuleId, program: &Program, available: &BTreeSet<ModuleId>) {
         let edges = program
             .statements
             .iter()
@@ -43,7 +43,7 @@ impl ModuleGraph {
                     from: module.clone(),
                     binding: import.binding.clone(),
                     path: import.path.clone(),
-                    target: resolve_import(&module, &import.path),
+                    target: resolve_import(&module, &import.path, available),
                     source_range: import.range,
                 })
             })
@@ -72,11 +72,11 @@ impl ModuleGraph {
 
     /// Re-resolves imports after a file is created, removed, or moved.
     /// Returns importers whose resolved target changed.
-    pub fn refresh_resolutions(&mut self) -> Vec<ModuleId> {
+    pub fn refresh_resolutions(&mut self, available: &BTreeSet<ModuleId>) -> Vec<ModuleId> {
         let mut changed = Vec::new();
         for (module, edges) in &mut self.edges {
             for edge in edges {
-                let target = resolve_import(module, &edge.path);
+                let target = resolve_import(module, &edge.path, available);
                 if edge.target != target {
                     edge.target = target;
                     changed.push(module.clone());
@@ -101,12 +101,18 @@ impl ModuleGraph {
     }
 }
 
-fn resolve_import(module: &ModuleId, import: &str) -> Option<ModuleId> {
+fn resolve_import(module: &ModuleId, import: &str, available: &BTreeSet<ModuleId>) -> Option<ModuleId> {
+    let candidate = import_candidate(module, import)?;
+    Some(candidate).filter(|id| available.contains(id))
+}
+
+fn import_candidate(module: &ModuleId, import: &str) -> Option<ModuleId> {
+    // TODO(module-path-common): extract this VM-free normalization into phalcom-common for compiler and LSP reuse.
     let uri = Url::parse(module.as_str()).ok()?;
     let source = uri.to_file_path().ok()?;
-    let candidate = source.parent()?.join(import).with_extension("ph");
-    if !candidate.is_file() {
-        return None;
+    let mut candidate = source.parent()?.join(import);
+    if candidate.extension().is_none() {
+        candidate.set_extension("ph");
     }
     let normalized = normalize_path(candidate);
     Url::from_file_path(normalized).ok().map(|uri| ModuleId::from_uri(&uri))
@@ -142,8 +148,18 @@ mod tests {
         let program = parse("import \"./missing\" as Missing\n", 0).program;
         let module = ModuleId::new("file:///tmp/main.ph");
         let mut graph = ModuleGraph::default();
-        graph.update(module.clone(), &program);
+        graph.update(module.clone(), &program, &BTreeSet::from([module.clone()]));
         assert_eq!(graph.imports(&module).len(), 1);
         assert!(graph.imports(&module)[0].target.is_none());
+    }
+
+    #[test]
+    fn existing_ph_extension_is_preserved() {
+        let main = ModuleId::new("file:///tmp/main.ph");
+        let provider = ModuleId::new("file:///tmp/provider.ph");
+        let program = parse("import \"./provider.ph\" as Provider\n", 0).program;
+        let mut graph = ModuleGraph::default();
+        graph.update(main.clone(), &program, &BTreeSet::from([main.clone(), provider.clone()]));
+        assert_eq!(graph.imports(&main)[0].target, Some(provider));
     }
 }
