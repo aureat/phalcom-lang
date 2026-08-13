@@ -24,6 +24,7 @@ pub(crate) struct ResolvedDispatch {
     /// Class represented by the receiver expression.
     pub receiver_class: ClassId,
     /// Dispatch side used for lookup.
+    #[expect(dead_code, reason = "retained for side-aware dispatch regression assertions")]
     pub side: DispatchSide,
 }
 

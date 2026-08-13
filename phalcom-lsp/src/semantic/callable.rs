@@ -36,6 +36,7 @@ pub struct SummaryEffects {
 
 /// Coherent result of one complete callable/parameter solve.
 #[derive(Clone, Debug, Default)]
+#[expect(dead_code, reason = "retained by the full-workspace regression solver reference")]
 pub(crate) struct SolverResult {
     /// Fixed-point callable summaries.
     pub summaries: BTreeMap<CallableId, CallableSummary>,
