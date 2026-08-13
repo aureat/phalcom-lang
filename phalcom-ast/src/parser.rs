@@ -625,7 +625,12 @@ impl<'source> Parser<'source> {
         let binding = self.expect_identifier(&["identifier"])?;
         let binding_range = (binding_start..self.prev_end).into();
         let range = (start..self.prev_end).into();
-        Ok(Statement::Import(ImportStatement { path, binding, binding_range, range }))
+        Ok(Statement::Import(ImportStatement {
+            path,
+            binding,
+            binding_range,
+            range,
+        }))
     }
 
     /// Parses `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`
@@ -1831,7 +1836,10 @@ impl<'source> Parser<'source> {
                     let label = Some(first_ident);
                     let label_range = Some(label_range);
                     any_labeled = true;
-                    if labels.insert(label.clone().expect("labeled parameter has a label"), label_range.unwrap()).is_some() {
+                    if labels
+                        .insert(label.clone().expect("labeled parameter has a label"), label_range.unwrap())
+                        .is_some()
+                    {
                         return Err(SyntaxError {
                             kind: SyntaxErrorKind::Message("duplicate parameter label in selector declaration".to_string()),
                             range: label_range.unwrap().start..label_range.unwrap().end,

@@ -65,11 +65,7 @@ impl ExcludeMatcher {
     /// Construct a matcher from user-supplied rules.
     pub fn new(user_rules: &[String]) -> Self {
         Self {
-            user_rules: user_rules
-                .iter()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
+            user_rules: user_rules.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
         }
     }
 
@@ -161,10 +157,7 @@ impl Default for ScanBudget {
 
 /// Conservative default: keeps interactive edit latency low while making
 /// steady scanning progress in quiet periods.
-pub const SCAN_BUDGET: ScanBudget = ScanBudget {
-    max_dirs: 16,
-    max_files: 32,
-};
+pub const SCAN_BUDGET: ScanBudget = ScanBudget { max_dirs: 16, max_files: 32 };
 
 // ---------------------------------------------------------------------------
 // Discovered file
@@ -346,10 +339,7 @@ mod tests {
             all.extend(batch);
         }
 
-        let names: std::collections::BTreeSet<_> = all
-            .iter()
-            .map(|f| f.path.file_name().unwrap().to_str().unwrap().to_string())
-            .collect();
+        let names: std::collections::BTreeSet<_> = all.iter().map(|f| f.path.file_name().unwrap().to_str().unwrap().to_string()).collect();
 
         assert!(names.contains("a.ph"), "missing a.ph: {names:?}");
         assert!(names.contains("b.ph"), "missing b.ph: {names:?}");
@@ -367,8 +357,7 @@ mod tests {
         fs::write(root.join("lib/main.ph"), "").unwrap();
         fs::write(root.join("tests/test.ph"), "").unwrap();
 
-        let mut scanner =
-            WorkspaceScanState::new(AnalysisMode::Local, ExcludeMatcher::new(&["tests".to_string()]));
+        let mut scanner = WorkspaceScanState::new(AnalysisMode::Local, ExcludeMatcher::new(&["tests".to_string()]));
         scanner.set_roots(vec![root.clone()], None);
 
         let mut all = Vec::new();
@@ -380,10 +369,7 @@ mod tests {
             all.extend(batch);
         }
 
-        let names: std::collections::BTreeSet<_> = all
-            .iter()
-            .map(|f| f.path.file_name().unwrap().to_str().unwrap().to_string())
-            .collect();
+        let names: std::collections::BTreeSet<_> = all.iter().map(|f| f.path.file_name().unwrap().to_str().unwrap().to_string()).collect();
 
         assert!(names.contains("main.ph"), "missing main.ph: {names:?}");
         assert!(!names.contains("test.ph"), "tests/ should be excluded: {names:?}");

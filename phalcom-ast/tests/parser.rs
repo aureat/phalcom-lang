@@ -95,21 +95,30 @@ fn member_access() {
 fn parser_retains_exact_written_member_target_ranges() {
     let source = "receiver.toString()\n";
     let program = parse_source(source, 0).expect("member call parses");
-    let Statement::Expr { expr: Expr::MethodCall(call), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::MethodCall(call), ..
+    } = &program.statements[0]
+    else {
         panic!("expected method call");
     };
     assert_eq!(source_slice(source, call.method_range.expect("written method target")), "toString");
 
     let source = "receiver.rate\n";
     let program = parse_source(source, 0).expect("getter parses");
-    let Statement::Expr { expr: Expr::GetProperty(get), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::GetProperty(get), ..
+    } = &program.statements[0]
+    else {
         panic!("expected getter access");
     };
     assert_eq!(source_slice(source, get.property_range.expect("written getter target")), "rate");
 
     let source = "receiver.rate = next\n";
     let program = parse_source(source, 0).expect("setter parses");
-    let Statement::Expr { expr: Expr::SetProperty(set), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::SetProperty(set), ..
+    } = &program.statements[0]
+    else {
         panic!("expected setter access");
     };
     assert_eq!(source_slice(source, set.property_range.expect("written setter target")), "rate");
@@ -119,7 +128,10 @@ fn parser_retains_exact_written_member_target_ranges() {
 fn parser_retains_exact_written_operator_and_subscript_ranges() {
     let source = "left + right\n";
     let program = parse_source(source, 0).expect("binary expression parses");
-    let Statement::Expr { expr: Expr::Binary(binary), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::Binary(binary), ..
+    } = &program.statements[0]
+    else {
         panic!("expected binary expression");
     };
     assert_eq!(source_slice(source, binary.op_range.expect("written operator")), "+");
@@ -140,7 +152,10 @@ fn parser_retains_exact_written_operator_and_subscript_ranges() {
 
     let source = "items[index] = next\n";
     let program = parse_source(source, 0).expect("subscript write parses");
-    let Statement::Expr { expr: Expr::SetIndex(index), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::SetIndex(index), ..
+    } = &program.statements[0]
+    else {
         panic!("expected subscript write");
     };
     assert_eq!(source_slice(source, index.selector_range.expect("written subscript")), "[index]");
@@ -191,7 +206,11 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
 
     let source = "receiver::method\n";
     let program = parse_source(source, 0).expect("method reference parses");
-    let Statement::Expr { expr: Expr::MethodRef(reference), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::MethodRef(reference),
+        ..
+    } = &program.statements[0]
+    else {
         panic!("expected method reference");
     };
     assert_eq!(source_slice(source, reference.selector_range.expect("written method reference")), "method");

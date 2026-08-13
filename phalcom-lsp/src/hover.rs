@@ -699,7 +699,13 @@ pub fn render_binding_hover(binding: &BindingInfo, value: Option<&InferredValue>
             sections.push(doc.summary.clone());
         }
         if !doc.tags.is_empty() {
-            sections.push(doc.tags.iter().map(|(tag, payload)| format!("- **@{tag}** {payload}")).collect::<Vec<_>>().join("\n"));
+            sections.push(
+                doc.tags
+                    .iter()
+                    .map(|(tag, payload)| format!("- **@{tag}** {payload}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
         }
     }
     sections.join("\n\n---\n\n")
