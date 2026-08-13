@@ -204,12 +204,18 @@ impl SemanticDb {
         generation
     }
 
-    /// Applies a file batch on a temporary engine state and publishes only if
-    /// the cooperative cancellation predicate remains false.
-    pub(crate) fn update_files_batch_with_cancel(&self, files: Vec<(Url, FileRevision, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+    /// Applies worker removals, source updates, and core replacement as one
+    /// atomically published semantic candidate.
+    pub(crate) fn apply_mutations_with_cancel(
+        &self,
+        removals: Vec<Url>,
+        files: Vec<(Url, FileRevision, Program)>,
+        core_update: Option<(FileRevision, Program)>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<SemanticGeneration> {
         let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
         let mut candidate = engine.clone();
-        let generation = candidate.update_files_batch_with_cancel(files, cancelled)?;
+        let generation = candidate.apply_mutations_with_cancel(removals, files, core_update, cancelled)?;
         *engine = candidate;
         self.publish(Arc::new(engine.snapshot()));
         Some(generation)

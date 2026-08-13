@@ -188,6 +188,10 @@ impl AnalysisService {
     /// Enqueues or updates a source file revision for background semantic processing.
     pub fn enqueue_file_update(&self, uri: Url, revision: FileRevision, program: Program) {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
+        if !self.accepts_revision(&pending, &uri, revision) {
+            return;
+        }
+        pending.removals.remove(&uri);
         if pending.file_updates.insert(uri, (revision, program)).is_some() {
             COUNTERS.source_updates_coalesced.fetch_add(1, Ordering::Relaxed);
         }
@@ -203,6 +207,10 @@ impl AnalysisService {
         }
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         for (uri, revision, program) in updates {
+            if !self.accepts_revision(&pending, &uri, revision) {
+                continue;
+            }
+            pending.removals.remove(&uri);
             if pending.file_updates.insert(uri, (revision, program)).is_some() {
                 COUNTERS.source_updates_coalesced.fetch_add(1, Ordering::Relaxed);
             }
@@ -214,11 +222,28 @@ impl AnalysisService {
 
     /// Enqueues active core module replacement.
     pub fn enqueue_core_update(&self, revision: FileRevision, program: Program) {
+        let uri = Url::parse(crate::semantic::CORE_MODULE_URI).expect("core module URI must parse");
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
+        if !self.accepts_revision(&pending, &uri, revision) {
+            return;
+        }
         pending.core_update = Some((revision, program));
         COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
         self.shared.epoch.fetch_add(1, Ordering::SeqCst);
         self.shared.condvar.notify_all();
+    }
+
+    fn accepts_revision(&self, pending: &PendingWork, uri: &Url, revision: FileRevision) -> bool {
+        if pending.file_updates.get(uri).is_some_and(|(queued, _)| *queued >= revision) {
+            return false;
+        }
+        if self.db.file_snapshot(uri).is_some_and(|file| file.revision >= revision) {
+            return false;
+        }
+        if uri.as_str() == crate::semantic::CORE_MODULE_URI && pending.core_update.as_ref().is_some_and(|(queued, _)| *queued >= revision) {
+            return false;
+        }
+        true
     }
 
     /// Enqueues file removal.
@@ -433,36 +458,23 @@ fn worker_loop(
             COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
 
             let mut latest_generation = db.generation();
-            let mut solve_cancelled = false;
-
-            // Process removals first
-            for uri in removals {
-                latest_generation = db.remove_file(&uri);
-            }
-
-            // Process file updates batch
-            if !file_updates.is_empty() {
-                let mut batch = Vec::new();
-                let mut seen = BTreeSet::new();
-                for (uri, (revision, program)) in file_updates {
-                    source_catalog.insert(canonical_uri(&uri), (revision, program.clone()));
-                    seen.insert(uri.clone());
-                    batch.push((uri.clone(), revision, program.clone()));
-                    if analysis_mode == AnalysisMode::Local {
-                        extend_import_closure(&uri, &program, &source_catalog, &mut seen, &mut batch);
-                    }
-                }
-                let cancelled = || shared.shutdown.load(Ordering::SeqCst) || shared.epoch.load(Ordering::Acquire) != batch_epoch;
-                if let Some(generation) = db.update_files_batch_with_cancel(batch, &cancelled) {
-                    latest_generation = generation;
-                } else {
-                    solve_cancelled = true;
+            let mut next_source_catalog = source_catalog.clone();
+            let mut batch = Vec::new();
+            let mut seen = BTreeSet::new();
+            for (uri, (revision, program)) in file_updates {
+                next_source_catalog.insert(canonical_uri(&uri), (revision, program.clone()));
+                seen.insert(uri.clone());
+                batch.push((uri.clone(), revision, program.clone()));
+                if analysis_mode == AnalysisMode::Local {
+                    extend_import_closure(&uri, &program, &next_source_catalog, &mut seen, &mut batch);
                 }
             }
-
-            // Process core update if enqueued
-            if !solve_cancelled && let Some((rev, prog)) = core_update {
-                latest_generation = db.update_core(rev, &prog);
+            let cancelled = || shared.shutdown.load(Ordering::SeqCst) || shared.epoch.load(Ordering::Acquire) != batch_epoch;
+            let generation = db.apply_mutations_with_cancel(removals.into_iter().collect(), batch, core_update, &cancelled);
+            let solve_cancelled = generation.is_none();
+            if let Some(generation) = generation {
+                latest_generation = generation;
+                source_catalog = next_source_catalog;
             }
 
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale

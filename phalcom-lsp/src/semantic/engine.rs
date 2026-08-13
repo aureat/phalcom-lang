@@ -93,6 +93,13 @@ impl SemanticEngine {
     }
 
     fn update_files_batch_inner(&mut self, files: Vec<(Url, FileRevision, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+        let files = files
+            .into_iter()
+            .filter(|(uri, revision, _)| {
+                let module = ModuleId::from_uri(uri);
+                self.state.files.get(&module).map_or(true, |file| *revision > file.revision)
+            })
+            .collect::<Vec<_>>();
         if files.is_empty() {
             return Some(self.state.generation);
         }
@@ -134,11 +141,14 @@ impl SemanticEngine {
                 surface,
                 scopes,
             });
-            change_kinds.push(classify_source_change(&module, old_source.as_deref(), Some(&source)));
-            self.state.classes.retain(|id, _| id.module != module);
-            self.state
-                .classes
-                .extend(source.surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
+            let change_kind = classify_source_change(&module, old_source.as_deref(), Some(&source));
+            change_kinds.push((module.clone(), change_kind));
+            if change_kind != SourceChangeKind::BodyOnly {
+                self.state.classes.retain(|id, _| id.module != module);
+                self.state
+                    .classes
+                    .extend(source.surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
+            }
             let snapshot = FileSemanticSnapshot {
                 revision,
                 module: module.clone(),
@@ -153,13 +163,18 @@ impl SemanticEngine {
         }
 
         let available = self.state.files.keys().cloned().collect::<BTreeSet<_>>();
-        for module in &updated_modules {
+        for (module, change_kind) in &change_kinds {
+            if *change_kind == SourceChangeKind::BodyOnly {
+                continue;
+            }
             if let Some(file) = self.state.files.get(module) {
                 self.state.graph.update(file.module.clone(), &file.source.program, &available);
             }
         }
-        if change_kinds.iter().any(|kind| *kind != SourceChangeKind::BodyOnly) {
-            self.state.graph.refresh_resolutions(&available);
+        for (module, change_kind) in &change_kinds {
+            if *change_kind == SourceChangeKind::FileAddedRemoved {
+                affected.extend(self.state.graph.repair_provider(module, &available));
+            }
         }
 
         for module in updated_modules {
@@ -191,6 +206,38 @@ impl SemanticEngine {
         Some(generation)
     }
 
+    /// Applies removals, ordinary files, and one logical core replacement as
+    /// one candidate transaction. Nothing reaches the live engine when
+    /// cancellation observes a newer worker epoch.
+    pub fn apply_mutations_with_cancel(
+        &mut self,
+        removals: Vec<Url>,
+        files: Vec<(Url, FileRevision, Program)>,
+        core_update: Option<(FileRevision, Program)>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<SemanticGeneration> {
+        if cancelled() {
+            return None;
+        }
+        let mut candidate = self.clone();
+        for uri in removals {
+            if cancelled() {
+                return None;
+            }
+            candidate.remove_file_with_cancel(&uri, cancelled)?;
+        }
+        if !files.is_empty() {
+            candidate.update_files_batch_inner(files, cancelled)?;
+        }
+        if let Some((revision, program)) = core_update {
+            let uri = Url::parse(CORE_MODULE_URI).expect("core module URI must parse");
+            candidate.update_files_batch_inner(vec![(uri, revision, program)], cancelled)?;
+        }
+        let generation = candidate.state.generation;
+        *self = candidate;
+        Some(generation)
+    }
+
     /// Replaces the active core library module.
     pub fn update_core(&mut self, revision: FileRevision, program: &Program) -> SemanticGeneration {
         let uri = Url::parse(CORE_MODULE_URI).expect("core module URI must parse");
@@ -199,9 +246,16 @@ impl SemanticEngine {
 
     /// Removes one source file from the active universe.
     pub fn remove_file(&mut self, uri: &Url) -> SemanticGeneration {
+        self.remove_file_with_cancel(uri, &|| false).expect("uncancelled removal must complete")
+    }
+
+    fn remove_file_with_cancel(&mut self, uri: &Url, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+        if cancelled() {
+            return None;
+        }
         let module = ModuleId::from_uri(uri);
         if self.state.files.remove(&module).is_none() {
-            return self.state.generation;
+            return Some(self.state.generation);
         }
 
         let next_generation = SemanticGeneration(self.state.generation.0 + 1);
@@ -209,7 +263,7 @@ impl SemanticEngine {
         self.state.graph.remove(&module);
 
         let available = self.state.files.keys().cloned().collect::<BTreeSet<_>>();
-        self.state.graph.refresh_resolutions(&available);
+        affected.extend(self.state.graph.repair_provider(&module, &available));
 
         let old_callables = self.state.summaries.keys().filter(|id| id.owner.module == module).cloned().collect::<Vec<_>>();
         for callable in old_callables {
@@ -241,7 +295,7 @@ impl SemanticEngine {
         self.state.generation = next_generation;
 
         if !affected.is_empty() {
-            let trace = rebuild_affected_state(&mut self.state, next_generation, affected, &|| false).expect("uncancelled rebuild must complete");
+            let trace = rebuild_affected_state(&mut self.state, next_generation, affected, cancelled)?;
             #[cfg(test)]
             {
                 self.state.last_trace = Some(trace.into());
@@ -249,7 +303,7 @@ impl SemanticEngine {
             #[cfg(not(test))]
             drop(trace);
         }
-        self.state.generation
+        Some(self.state.generation)
     }
 }
 

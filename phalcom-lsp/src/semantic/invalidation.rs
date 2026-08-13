@@ -79,6 +79,55 @@ pub struct InvalidationQueue {
     pending: BTreeSet<ModuleId>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn source(module: ModuleId, text: &str) -> FileSourceSnapshot {
+        let program = Arc::new(phalcom_ast::parser::parse(text, 0).program);
+        let surface = super::super::surface::build_module_surface(module.clone(), &program);
+        let scopes = super::super::scope::build_scope_graph(module.clone(), &program);
+        FileSourceSnapshot {
+            module,
+            program,
+            surface,
+            scopes,
+        }
+    }
+
+    #[test]
+    fn body_edit_preserves_surface_fingerprint() {
+        let module = ModuleId::new("file:///tmp/body.ph");
+        let old = source(module.clone(), "class A { run() { 1 } }\n");
+        let new = source(module.clone(), "class A { run() { 2 } }\n");
+        assert_eq!(classify_source_change(&module, Some(&old), Some(&new)), SourceChangeKind::BodyOnly);
+    }
+
+    #[test]
+    fn import_and_declaration_edits_have_distinct_kinds() {
+        let module = ModuleId::new("file:///tmp/change.ph");
+        let old = source(module.clone(), "import \"./one\" as One\nclass A { run() {} }\n");
+        let import_edit = source(module.clone(), "import \"./two\" as Two\nclass A { run() {} }\n");
+        let declaration_edit = source(module.clone(), "import \"./one\" as One\nclass A { run(_) {} }\n");
+        assert_eq!(classify_source_change(&module, Some(&old), Some(&import_edit)), SourceChangeKind::ImportSurface);
+        assert_eq!(
+            classify_source_change(&module, Some(&old), Some(&declaration_edit)),
+            SourceChangeKind::DeclarationSurface
+        );
+    }
+
+    #[test]
+    fn add_remove_and_core_keep_dedicated_kinds() {
+        let module = ModuleId::new("file:///tmp/change.ph");
+        let source = source(module.clone(), "class A {}\n");
+        assert_eq!(classify_source_change(&module, None, Some(&source)), SourceChangeKind::FileAddedRemoved);
+        assert_eq!(classify_source_change(&module, Some(&source), None), SourceChangeKind::FileAddedRemoved);
+        let core = ModuleId::new(super::super::ids::CORE_MODULE_URI);
+        assert_eq!(classify_source_change(&core, Some(&source), Some(&source)), SourceChangeKind::CoreSurface);
+    }
+}
+
 impl InvalidationQueue {
     /// Adds one changed or dependent module.
     pub fn push(&mut self, module: ModuleId) {

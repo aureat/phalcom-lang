@@ -32,12 +32,16 @@ pub struct ModuleGraph {
     forward: BTreeMap<ModuleId, Vec<ImportEdge>>,
     /// Reverse importer index keyed by resolved target module.
     reverse: BTreeMap<ModuleId, BTreeSet<ModuleId>>,
+    /// Reverse index of retained import candidates, including unresolved
+    /// edges. This lets provider creation/removal repair only possible
+    /// importers instead of rescanning every module.
+    candidates: BTreeMap<ModuleId, BTreeSet<ModuleId>>,
 }
 
 impl ModuleGraph {
     /// Replaces all import edges contributed by `module`.
     pub fn update(&mut self, module: ModuleId, program: &Program, available: &BTreeSet<ModuleId>) {
-        self.remove_reverse_edges(&module);
+        self.remove_edges(&module);
         let edges: Vec<ImportEdge> = program
             .statements
             .iter()
@@ -53,6 +57,9 @@ impl ModuleGraph {
             })
             .collect();
         for edge in &edges {
+            if let Some(candidate) = import_candidate(&module, &edge.path) {
+                self.candidates.entry(candidate).or_default().insert(module.clone());
+            }
             if let Some(target) = &edge.target {
                 self.reverse.entry(target.clone()).or_default().insert(module.clone());
             }
@@ -62,11 +69,16 @@ impl ModuleGraph {
 
     /// Removes all edges contributed by `module`.
     pub fn remove(&mut self, module: &ModuleId) {
-        self.remove_reverse_edges(module);
+        self.remove_edges(module);
         self.forward.remove(module);
         for importers in self.reverse.values_mut() {
             importers.remove(module);
         }
+        for importers in self.candidates.values_mut() {
+            importers.remove(module);
+        }
+        self.reverse.retain(|_, importers| !importers.is_empty());
+        self.candidates.retain(|_, importers| !importers.is_empty());
     }
 
     /// Returns imports declared by `module`.
@@ -79,34 +91,59 @@ impl ModuleGraph {
         self.reverse.get(target).into_iter().flatten().cloned().collect()
     }
 
-    /// Re-resolves imports after a file is created, removed, or moved.
-    /// Returns importers whose resolved target changed.
-    pub fn refresh_resolutions(&mut self, available: &BTreeSet<ModuleId>) -> Vec<ModuleId> {
-        let mut changed = Vec::new();
-        for (module, edges) in &mut self.forward {
+    /// Repairs importers whose retained path can resolve to `provider`.
+    /// Returns only importers whose resolved edge changed.
+    pub fn repair_provider(&mut self, provider: &ModuleId, available: &BTreeSet<ModuleId>) -> Vec<ModuleId> {
+        let modules = self.candidates.get(provider).cloned().unwrap_or_default();
+        let mut changed = BTreeSet::new();
+        for module in modules {
+            let Some(edges) = self.forward.get_mut(&module) else { continue };
             for edge in edges {
-                let old_target = edge.target.clone();
-                let target = resolve_import(module, &edge.path, available);
-                if edge.target != target {
-                    edge.target = target;
-                    changed.push(module.clone());
-                    if let Some(old_target) = old_target {
-                        if let Some(importers) = self.reverse.get_mut(&old_target) {
-                            importers.remove(module);
-                        }
-                    }
-                    if let Some(target) = &edge.target {
-                        self.reverse.entry(target.clone()).or_default().insert(module.clone());
-                    }
+                if import_candidate(&module, &edge.path).as_ref() != Some(provider) {
+                    continue;
                 }
+                let target = available.contains(provider).then(|| provider.clone());
+                if edge.target == target {
+                    continue;
+                }
+                if let Some(old_target) = std::mem::replace(&mut edge.target, target.clone())
+                    && let Some(importers) = self.reverse.get_mut(&old_target)
+                {
+                    importers.remove(&module);
+                }
+                if let Some(target) = target {
+                    self.reverse.entry(target).or_default().insert(module.clone());
+                }
+                changed.insert(module.clone());
             }
         }
-        changed
+        self.reverse.retain(|_, importers| !importers.is_empty());
+        changed.into_iter().collect()
     }
 
-    fn remove_reverse_edges(&mut self, module: &ModuleId) {
-        let Some(edges) = self.forward.get(module) else { return };
+    /// Compatibility helper for callers that still need a complete repair.
+    /// New mutation paths should call [`Self::repair_provider`] per changed
+    /// provider.
+    pub fn refresh_resolutions(&mut self, available: &BTreeSet<ModuleId>) -> Vec<ModuleId> {
+        let providers = self.candidates.keys().cloned().collect::<Vec<_>>();
+        let mut changed = BTreeSet::new();
+        for provider in providers {
+            changed.extend(self.repair_provider(&provider, available));
+        }
+        changed.into_iter().collect()
+    }
+
+    fn remove_edges(&mut self, module: &ModuleId) {
+        let Some(edges) = self.forward.get(module).cloned() else { return };
         for edge in edges {
+            if let Some(candidate) = import_candidate(module, &edge.path)
+                && let Some(importers) = self.candidates.get_mut(&candidate)
+            {
+                importers.remove(module);
+                if importers.is_empty() {
+                    self.candidates.remove(&candidate);
+                }
+            }
             if let Some(target) = &edge.target {
                 if let Some(importers) = self.reverse.get_mut(target) {
                     importers.remove(module);
@@ -193,5 +230,42 @@ mod tests {
         let mut graph = ModuleGraph::default();
         graph.update(main.clone(), &program, &BTreeSet::from([main.clone(), provider.clone()]));
         assert_eq!(graph.imports(&main)[0].target, Some(provider));
+    }
+
+    #[test]
+    fn provider_repair_returns_only_retained_candidate_importers() {
+        let provider = ModuleId::new("file:///tmp/provider.ph");
+        let other = ModuleId::new("file:///tmp/other.ph");
+        let consumer = ModuleId::new("file:///tmp/consumer.ph");
+        let unrelated = ModuleId::new("file:///tmp/unrelated.ph");
+        let mut graph = ModuleGraph::default();
+        graph.update(
+            consumer.clone(),
+            &parse("import \"./provider\" as Provider\n", 0).program,
+            &BTreeSet::from([consumer.clone()]),
+        );
+        graph.update(
+            unrelated.clone(),
+            &parse("import \"./other\" as Other\n", 0).program,
+            &BTreeSet::from([unrelated.clone()]),
+        );
+
+        let affected = graph.repair_provider(&provider, &BTreeSet::from([consumer.clone(), provider.clone(), other]));
+        assert_eq!(affected, vec![consumer.clone()]);
+        assert_eq!(graph.dependents_of(&provider), vec![consumer]);
+        assert!(graph.dependents_of(&ModuleId::new("file:///tmp/other.ph")).is_empty());
+    }
+
+    #[test]
+    fn replacing_imports_removes_stale_reverse_edges() {
+        let main = ModuleId::new("file:///tmp/main.ph");
+        let first = ModuleId::new("file:///tmp/first.ph");
+        let second = ModuleId::new("file:///tmp/second.ph");
+        let available = BTreeSet::from([main.clone(), first.clone(), second.clone()]);
+        let mut graph = ModuleGraph::default();
+        graph.update(main.clone(), &parse("import \"./first\" as First\n", 0).program, &available);
+        graph.update(main.clone(), &parse("import \"./second\" as Second\n", 0).program, &available);
+        assert!(graph.dependents_of(&first).is_empty());
+        assert_eq!(graph.dependents_of(&second), vec![main]);
     }
 }
