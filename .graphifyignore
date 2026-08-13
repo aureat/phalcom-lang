@@ -1,0 +1,6 @@
+# Keep generated build and editor payloads out of the code graph.
+/target/
+/graphify-out/
+tools/vsphalcom/.vscode-test/
+tools/vsphalcom/node_modules/
+tools/vsphalcom/dist/
