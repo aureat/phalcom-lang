@@ -48,9 +48,10 @@ use phalcom_ast::ast::{ClassMember, Expr, Statement};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::token::{StringSegment, Token};
 use phalcom_common::range::SourceRange;
-use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend};
+use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend, Url};
 
 use crate::line_index::LineIndex;
+use crate::semantic::{SemanticDb, SemanticOccurrenceKind};
 
 /// The semantic token types this server declares, in legend order.
 ///
@@ -74,6 +75,8 @@ const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::OPERATOR,
     SemanticTokenType::CLASS,
     SemanticTokenType::METHOD,
+    SemanticTokenType::PARAMETER,
+    SemanticTokenType::PROPERTY,
 ];
 
 /// A classified token's semantic kind, corresponding 1:1 to a slot in
@@ -114,6 +117,10 @@ enum SemanticTokenKind {
     /// [`Variable`](Self::Variable) at the declaration's own `name_range` —
     /// see the module doc's "AST-assisted refinement" section).
     Method,
+    /// A parameter declaration or reference.
+    Parameter,
+    /// A field or property declaration or reference.
+    Property,
 }
 
 impl SemanticTokenKind {
@@ -129,6 +136,8 @@ impl SemanticTokenKind {
             SemanticTokenKind::Operator => 5,
             SemanticTokenKind::Class => 6,
             SemanticTokenKind::Method => 7,
+            SemanticTokenKind::Parameter => 8,
+            SemanticTokenKind::Property => 9,
         }
     }
 }
@@ -347,11 +356,46 @@ fn push_string_interp(segments: &[StringSegment], token_start: usize, token_end:
 /// `line_index` must be built over the same `text` (callers pass a
 /// [`crate::documents::Document`]'s cached pair, which are always rebuilt
 /// together — see `documents.rs`).
-pub fn tokens_for(text: &str, line_index: &LineIndex) -> Vec<SemanticToken> {
+pub fn tokens_for(db: &SemanticDb, uri: &Url, text: &str, line_index: &LineIndex) -> Vec<SemanticToken> {
     let mut raw = Vec::new();
     collect_tokens(text, 0, &mut raw);
-    apply_decl_name_overrides(text, &mut raw);
+    apply_semantic_overrides(db, uri, text, &mut raw);
     encode(text, line_index, &raw)
+}
+
+fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut [RawToken]) {
+    if let Some(snapshot) = db.file_snapshot(uri) {
+        let mut occurrences_map = std::collections::BTreeMap::new();
+        for occurrence in snapshot.occurrences.all() {
+            occurrences_map.insert((occurrence.range.start, occurrence.range.end), occurrence.kind);
+        }
+        for token in raw.iter_mut() {
+            if let Some(kind) = occurrences_map.get(&(token.start, token.end)) {
+                match kind {
+                    SemanticOccurrenceKind::Parameter => {
+                        token.kind = SemanticTokenKind::Parameter;
+                    }
+                    SemanticOccurrenceKind::Binding => {
+                        token.kind = SemanticTokenKind::Variable;
+                    }
+                    SemanticOccurrenceKind::Field => {
+                        token.kind = SemanticTokenKind::Property;
+                    }
+                    SemanticOccurrenceKind::Member => {
+                        token.kind = SemanticTokenKind::Method;
+                    }
+                    SemanticOccurrenceKind::Class => {
+                        token.kind = SemanticTokenKind::Class;
+                    }
+                    SemanticOccurrenceKind::Operator => {
+                        token.kind = SemanticTokenKind::Operator;
+                    }
+                }
+            }
+        }
+    } else {
+        apply_decl_name_overrides(text, raw);
+    }
 }
 
 /// Upgrades every flat-pass token in `raw` whose byte range exactly matches a
@@ -617,11 +661,13 @@ mod tests {
 
     #[test]
     fn legend_index_matches_token_types_order() {
-        assert_eq!(TOKEN_TYPES.len(), 8);
+        assert_eq!(TOKEN_TYPES.len(), 10);
         assert_eq!(SemanticTokenKind::Keyword.legend_index(), 0);
         assert_eq!(SemanticTokenKind::Operator.legend_index(), 5);
         assert_eq!(SemanticTokenKind::Class.legend_index(), 6);
         assert_eq!(SemanticTokenKind::Method.legend_index(), 7);
+        assert_eq!(SemanticTokenKind::Parameter.legend_index(), 8);
+        assert_eq!(SemanticTokenKind::Property.legend_index(), 9);
     }
 
     #[test]
@@ -665,7 +711,9 @@ mod tests {
     fn tokens_for_matches_manual_encode() {
         let text = "let x = 1\n";
         let line_index = LineIndex::new(text);
-        let tokens = tokens_for(text, &line_index);
+        let db = SemanticDb::new();
+        let uri = Url::parse("file:///main.ph").unwrap();
+        let tokens = tokens_for(&db, &uri, text, &line_index);
         assert_eq!(tokens.len(), 4); // let, x, =, 1 (Newline is uncolored)
     }
 }

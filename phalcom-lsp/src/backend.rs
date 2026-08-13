@@ -48,8 +48,7 @@ use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
-use crate::semantic::SemanticDb;
-use crate::semantic::ValueShape;
+use crate::semantic::{SemanticDb, ValueShape, OccurrenceRole, SemanticTarget};
 use crate::semantic_tokens;
 
 /// Runtime configuration that affects semantic source discovery and hint UI.
@@ -1066,6 +1065,46 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
+        let offset = self.documents.with_document(&uri, |doc| doc.line_index.offset(position));
+        if let Some(offset) = offset
+            && let Some(occurrence) = self.semantic.occurrence_at(&uri, offset)
+        {
+            match &occurrence.target {
+                SemanticTarget::Binding(binding_id) => {
+                    if let Some(info) = self.semantic.binding_info(&uri, *binding_id) {
+                        let decl_uri = uri.clone();
+                        if let Some(range) = self.documents.with_document(&uri, |doc| {
+                            doc.line_index.range(info.declaration_range.start..info.declaration_range.end)
+                        }) {
+                            return Ok(Some(GotoDefinitionResponse::Array(vec![Location { uri: decl_uri, range }])));
+                        }
+                    }
+                }
+                SemanticTarget::Class(class_id) => {
+                    if let Some(class) = self.semantic.class_surface(class_id) {
+                        if let Some(loc) = self.class_definition_location(&class) {
+                            return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
+                        }
+                    }
+                }
+                SemanticTarget::Callable(callable_id) => {
+                    if let Some(member) = self.semantic.member_surface(&callable_id.owner, &callable_id.selector) {
+                        if let Some(loc) = self.member_definition_location(&member) {
+                            return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
+                        }
+                    }
+                }
+                SemanticTarget::Field { owner, name } => {
+                    if let Some(member) = self.semantic.member_surface(owner, name) {
+                        if let Some(loc) = self.member_definition_location(&member) {
+                            return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
         if let Some((class, _)) = self.semantic_class_target(&uri, position) {
             return Ok(self
                 .class_definition_location(&class)
@@ -1076,7 +1115,6 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let offset = self.documents.with_document(&uri, |doc| doc.line_index.offset(position));
         if let Some(member) = offset
             .and_then(|offset| self.semantic.member_at(&uri, offset))
             .filter(|member| member.callable.selector == selector)
@@ -1115,6 +1153,24 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
+
+        let offset = self.documents.with_document(&uri, |doc| doc.line_index.offset(position));
+        if let Some(offset) = offset
+            && let Some(occurrence) = self.semantic.occurrence_at(&uri, offset)
+        {
+            let refs = self.semantic.references_for_target(&uri, &occurrence.target);
+            let locations: Vec<Location> = refs.into_iter().filter_map(|(file_uri, range, role)| {
+                if !params.context.include_declaration && role == OccurrenceRole::Declaration {
+                    return None;
+                }
+                self.with_source_snapshot(&file_uri, |_, _, line_index| {
+                    line_index.range(range.start..range.end)
+                })
+                .map(|range| Location { uri: file_uri, range })
+            }).collect();
+            return Ok(if locations.is_empty() { None } else { Some(locations) });
+        }
+
         let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
             return Ok(None);
         };
@@ -1232,7 +1288,7 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         let data = self
             .documents
-            .with_document(&uri, |doc| semantic_tokens::tokens_for(&doc.text, &doc.line_index));
+            .with_document(&uri, |doc| semantic_tokens::tokens_for(&self.semantic, &uri, &doc.text, &doc.line_index));
         Ok(data.map(|data| SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens { result_id: None, data })))
     }
 }

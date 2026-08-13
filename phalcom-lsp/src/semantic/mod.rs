@@ -21,6 +21,7 @@ use std::sync::RwLock;
 
 use phalcom_ast::ast::Program;
 use tower_lsp::lsp_types::Url;
+use phalcom_common::range::SourceRange;
 
 pub(crate) use analyzer::{AnalysisContext, analyze_expr};
 pub use callable::{CallableSummary, SummaryEffects};
@@ -327,6 +328,41 @@ impl SemanticDb {
             .files
             .get(&module)
             .and_then(|file| file.occurrences.occurrence_at(offset).cloned())
+    }
+
+    /// Returns all references to a SemanticTarget in the workspace.
+    /// If the target is a file-local binding, only searches the given file.
+    pub fn references_for_target(&self, uri: &Url, target: &SemanticTarget) -> Vec<(Url, SourceRange, OccurrenceRole)> {
+        let state = self.state.read().expect("semantic database lock poisoned");
+        match target {
+            SemanticTarget::Binding(_) => {
+                let module = ModuleId::from_uri(uri);
+                state.files
+                    .get(&module)
+                    .map(|file| {
+                        file.occurrences
+                            .all()
+                            .iter()
+                            .filter(|occ| &occ.target == target)
+                            .map(|occ| (uri.clone(), occ.range, occ.role))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            _ => {
+                let mut results = Vec::new();
+                for (module_id, file) in &state.files {
+                    if let Ok(file_uri) = Url::parse(module_id.as_str()) {
+                        for occ in file.occurrences.all() {
+                            if &occ.target == target {
+                                results.push((file_uri.clone(), occ.range, occ.role));
+                            }
+                        }
+                    }
+                }
+                results
+            }
+        }
     }
 
     /// Returns lexical bindings visible at one source offset, nearest scope first.
