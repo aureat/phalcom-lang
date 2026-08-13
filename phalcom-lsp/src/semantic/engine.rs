@@ -10,8 +10,12 @@ use tower_lsp::lsp_types::Url;
 use super::RebuildTrace;
 use super::callable::CallableSummary;
 use super::core_source;
-use super::facts::{ContributionSource, FieldEvidenceKind, FileRevision, InferredValue, ParameterContributions, ParameterFacts, ParameterSlot, ValueShape};
-use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, FieldId, ModuleId};
+use super::facts::{ContributionSource, FileRevision, InferredValue, ParameterContributions, ParameterFacts, ParameterSlot};
+#[cfg(test)]
+use super::facts::{FieldEvidenceKind, ValueShape};
+#[cfg(test)]
+use super::ids::DispatchSide;
+use super::ids::{CORE_MODULE_URI, CallableId, ClassId, FieldId, ModuleId};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
 use super::snapshot::{FileSourceSnapshot, SemanticSnapshot};

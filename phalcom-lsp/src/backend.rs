@@ -26,7 +26,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, SourceCache, WorkspaceScanRequest};
@@ -51,7 +50,7 @@ use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
-use crate::perf::PerfSpan;
+use crate::perf::{PerfCountersHandle, PerfSpan};
 use crate::semantic::{FileRevision, OccurrenceRole, SemanticDb, SemanticTarget, ValueShape};
 use crate::semantic_tokens;
 
@@ -204,7 +203,43 @@ pub struct Backend {
     core_source_uris: RwLock<BTreeSet<Url>>,
     /// Whether client requested dynamic watched-file registration.
     watch_registration: RwLock<bool>,
-    inlay_hint_refresh_pending: Arc<AtomicBool>,
+    publication_refresh: Arc<PublicationRefresh>,
+}
+
+#[derive(Default)]
+struct PublicationRefresh {
+    state: Mutex<PublicationRefreshState>,
+}
+
+#[derive(Default)]
+struct PublicationRefreshState {
+    in_flight: bool,
+    pending: bool,
+}
+
+impl PublicationRefresh {
+    fn request(&self) -> bool {
+        let mut state = self.state.lock().expect("publication refresh lock poisoned");
+        state.pending = true;
+        if state.in_flight {
+            false
+        } else {
+            state.in_flight = true;
+            state.pending = false;
+            true
+        }
+    }
+
+    fn finished_refresh(&self) -> bool {
+        let mut state = self.state.lock().expect("publication refresh lock poisoned");
+        if state.pending {
+            state.pending = false;
+            true
+        } else {
+            state.in_flight = false;
+            false
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -219,8 +254,9 @@ impl Backend {
     /// Creates a new [`Backend`] bound to `client`, with an empty document
     /// store and an empty workspace index.
     pub fn new(client: Client) -> Self {
-        let _span = PerfSpan::start("backend_construction");
-        let db = Arc::new(SemanticDb::new());
+        let counters = Arc::new(crate::perf::PerfCounters::new());
+        let _span = PerfSpan::start_with_counters("backend_construction", counters.clone());
+        let db = Arc::new(SemanticDb::with_counters(counters));
         let index = Arc::new(WorkspaceIndex::new());
         let closed_sources = Arc::new(RwLock::new(BTreeMap::new()));
         let (analysis, event_rx) = AnalysisService::new_with_index_and_cache(db.clone(), Some(index.clone()), Some(closed_sources.clone()));
@@ -237,8 +273,14 @@ impl Backend {
             config: RwLock::new(ServerConfig::default()),
             core_source_uris: RwLock::new(BTreeSet::new()),
             watch_registration: RwLock::new(false),
-            inlay_hint_refresh_pending: Arc::new(AtomicBool::new(false)),
+            publication_refresh: Arc::new(PublicationRefresh::default()),
         }
+    }
+
+    /// Returns this backend's compact performance counters for diagnostics and
+    /// benchmark harnesses. The counters are owned by this backend's worker.
+    pub fn perf_counters(&self) -> PerfCountersHandle {
+        self.semantic.perf_counters()
     }
 
     /// Reparses the document at `uri` (already updated in the store by the
@@ -1107,7 +1149,7 @@ impl LanguageServer for Backend {
     /// only, no `range`/`delta` support yet), with the legend built by
     /// [`semantic_tokens::legend`].
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        let _span = PerfSpan::start("initialize");
+        let _span = PerfSpan::start_with_counters("initialize", self.perf_counters());
         let config = ServerConfig::from_json(params.initialization_options.as_ref());
         *self.config.write().expect("server config lock poisoned") = config;
         let dynamic_watch = params
@@ -1169,12 +1211,12 @@ impl LanguageServer for Backend {
 
     /// Logs that the server is ready and starts consuming worker events.
     async fn initialized(&self, _params: InitializedParams) {
-        let _span = PerfSpan::start("initialized");
+        let _span = PerfSpan::start_with_counters("initialized", self.perf_counters());
         if let Some(mut events) = self.analysis_events.lock().expect("analysis events lock poisoned").take() {
             let client = self.client.clone();
             let indexed_files = self.indexed_files.clone();
             let closed_sources = self.closed_sources.clone();
-            let refresh_pending = self.inlay_hint_refresh_pending.clone();
+            let publication_refresh = self.publication_refresh.clone();
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
                     match event {
@@ -1198,14 +1240,14 @@ impl LanguageServer for Backend {
                             );
                         }
                         AnalysisEvent::Published { .. } => {
-                            if refresh_pending.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                            if publication_refresh.request() {
                                 let client = client.clone();
-                                let refresh_pending = refresh_pending.clone();
+                                let publication_refresh = publication_refresh.clone();
                                 tokio::spawn(async move {
                                     loop {
-                                        refresh_pending.store(false, Ordering::Release);
                                         let _ = client.inlay_hint_refresh().await;
-                                        if !refresh_pending.swap(false, Ordering::AcqRel) {
+                                        let _ = client.semantic_tokens_refresh().await;
+                                        if !publication_refresh.finished_refresh() {
                                             break;
                                         }
                                     }
@@ -1295,7 +1337,7 @@ impl LanguageServer for Backend {
                     removals.push(change.uri.clone());
                     continue;
                 };
-                let _span = PerfSpan::start("watched_file_source_parse");
+                let _span = PerfSpan::start_with_counters("watched_file_source_parse", self.perf_counters());
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 let next_revision = self
                     .analysis
@@ -1322,7 +1364,7 @@ impl LanguageServer for Backend {
     /// refreshes its slice of the workspace index (via
     /// `Self::publish_diagnostics_for`).
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let _span = PerfSpan::start("did_open_source_parse");
+        let _span = PerfSpan::start_with_counters("did_open_source_parse", self.perf_counters());
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         self.analysis.mark_open(uri.clone());
@@ -1348,7 +1390,7 @@ impl LanguageServer for Backend {
     /// **last** entry in `content_changes` carries the complete new text;
     /// earlier entries (there should be at most one) are ignored.
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let _span = PerfSpan::start("did_change_source_parse");
+        let _span = PerfSpan::start_with_counters("did_change_source_parse", self.perf_counters());
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         let Some(change) = params.content_changes.into_iter().next_back() else {
@@ -1576,7 +1618,7 @@ impl LanguageServer for Backend {
     ///
     /// Returns `Ok(None)` if the document is not open.
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let _span = PerfSpan::start("completion");
+        let _span = PerfSpan::start_with_counters("completion", self.perf_counters());
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
@@ -1618,7 +1660,7 @@ impl LanguageServer for Backend {
     /// Cross-file source metadata comes from the worker-maintained cache, so
     /// this request never performs disk I/O or waits for semantic analysis.
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let _span = PerfSpan::start("hover");
+        let _span = PerfSpan::start_with_counters("hover", self.perf_counters());
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         Ok(self.hover_at(&uri, position))
@@ -1626,7 +1668,7 @@ impl LanguageServer for Backend {
 
     /// Answers standard inlay-hint requests from the live semantic database.
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let _span = PerfSpan::start("inlay");
+        let _span = PerfSpan::start_with_counters("inlay", self.perf_counters());
         let config = self.config.read().expect("server config lock poisoned").clone();
         let uri = params.text_document.uri.clone();
         let hints = self.documents.with_document(&uri, |doc| {
@@ -1656,8 +1698,14 @@ impl LanguageServer for Backend {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use std::fs;
+    use std::sync::Arc;
+    use tower_lsp::lsp_types::{DidChangeWatchedFilesParams, FileChangeType, FileEvent, Url};
+    use tower_lsp::{LanguageServer, LspService};
 
-    use super::{HintPolicy, ServerConfig};
+    use super::super::analysis_service::{AnalysisEvent, TestBatchGate};
+    use super::{HintPolicy, PublicationRefresh, ServerConfig};
+    use crate::semantic::{FileRevision, SemanticGeneration};
     use crate::workspace_scan::AnalysisMode;
 
     #[test]
@@ -1755,5 +1803,146 @@ mod tests {
 
         assert_eq!(base_cfg, presentation_cfg, "presentation changes should not affect analysis config");
         assert_ne!(base_cfg, analysis_cfg, "analysis mode changes should affect analysis config");
+    }
+
+    #[test]
+    fn publication_refresh_coalesces_compatible_events_and_resets() {
+        let refresh = PublicationRefresh::default();
+
+        assert!(refresh.request());
+        for _ in 0..100 {
+            assert!(!refresh.request());
+        }
+        assert!(refresh.finished_refresh(), "publication during refresh must schedule another pass");
+        assert!(!refresh.finished_refresh(), "refresh state must reset after the final pass");
+        assert!(refresh.request(), "a later publication starts a fresh refresh");
+        assert!(!refresh.finished_refresh());
+    }
+
+    #[test]
+    fn publication_refresh_requests_during_completion_are_not_lost() {
+        let refresh = Arc::new(PublicationRefresh::default());
+        assert!(refresh.request());
+
+        let during_completion = refresh.clone();
+        let thread = std::thread::spawn(move || {
+            assert!(!during_completion.request());
+        });
+        thread.join().expect("refresh request thread must complete");
+
+        assert!(refresh.finished_refresh());
+        assert!(!refresh.finished_refresh());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn construction_initialize_hover_and_inlay_do_not_wait_for_semantic_batch() {
+        let (service, _socket) = LspService::new(super::Backend::new);
+        let backend = service.inner();
+        assert_eq!(backend.semantic.generation(), SemanticGeneration(0), "construction must not analyze core");
+        assert_eq!(backend.perf_counters().snapshot().semantic_batches_started, 0);
+
+        let gate = Arc::new(TestBatchGate::default());
+        backend.analysis.install_test_batch_gate(gate.clone());
+        let uri = Url::parse("file:///blocked-request.ph").unwrap();
+        let source = "let value = 1\n";
+        let parsed = phalcom_ast::parser::parse(source, 0);
+        backend.documents.open_or_update(uri.clone(), source.to_string());
+        backend.analysis.mark_open(uri.clone());
+        backend.analysis.enqueue_file_update(uri.clone(), FileRevision(1), parsed.program);
+        gate.wait_until_before_entered();
+
+        let initialize: tower_lsp::lsp_types::InitializeParams = serde_json::from_value(json!({
+            "processId": null,
+            "rootUri": null,
+            "capabilities": {}
+        }))
+        .expect("initialize params");
+        let response = backend.initialize(initialize).await.expect("initialize response");
+        assert!(response.capabilities.inlay_hint_provider.is_some());
+        assert_eq!(
+            backend.perf_counters().snapshot().semantic_batches_started,
+            0,
+            "worker remains blocked before batch start"
+        );
+
+        let hover: tower_lsp::lsp_types::HoverParams = serde_json::from_value(json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 0, "character": 4 }
+        }))
+        .expect("hover params");
+        assert!(backend.hover(hover).await.is_ok());
+
+        let inlay: tower_lsp::lsp_types::InlayHintParams = serde_json::from_value(json!({
+            "textDocument": { "uri": uri },
+            "range": {
+                "start": { "line": 0, "character": 0 },
+                "end": { "line": 1, "character": 0 }
+            }
+        }))
+        .expect("inlay params");
+        assert!(backend.inlay_hint(inlay).await.is_ok());
+
+        gate.release_before();
+        drop(service);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn watched_file_batch_publishes_one_semantic_transaction() {
+        let root = std::env::temp_dir().join(format!("phalcom-lsp-watched-batch-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create watched-file test root");
+        let first = root.join("first.ph");
+        let second = root.join("second.ph");
+        fs::write(&first, "class First {}\n").expect("write first watched file");
+        fs::write(&second, "class Second {}\n").expect("write second watched file");
+
+        let (service, _socket) = LspService::new(super::Backend::new);
+        let backend = service.inner();
+        let mut events = backend
+            .analysis_events
+            .lock()
+            .expect("analysis events lock poisoned")
+            .take()
+            .expect("event receiver");
+        backend
+            .did_change_watched_files(DidChangeWatchedFilesParams {
+                changes: vec![
+                    FileEvent {
+                        uri: Url::from_file_path(&first).unwrap(),
+                        typ: FileChangeType::CHANGED,
+                    },
+                    FileEvent {
+                        uri: Url::from_file_path(&second).unwrap(),
+                        typ: FileChangeType::CHANGED,
+                    },
+                ],
+            })
+            .await;
+
+        backend.analysis.flush();
+        let publications = std::iter::from_fn(|| events.try_recv().ok())
+            .filter(|event| matches!(event, AnalysisEvent::Published { .. }))
+            .count();
+        assert_eq!(publications, 1, "watched-file batch must publish one transaction");
+        assert_eq!(backend.perf_counters().snapshot().semantic_batches_published, 1);
+
+        drop(service);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn presentation_configuration_does_not_rebuild_core() {
+        let (service, _socket) = LspService::new(super::Backend::new);
+        let backend = service.inner();
+        backend
+            .did_change_configuration(tower_lsp::lsp_types::DidChangeConfigurationParams {
+                settings: json!({ "phalcom": { "inlayHints": { "types": "all" } } }),
+            })
+            .await;
+        backend.analysis.flush();
+        let snapshot = backend.perf_counters().snapshot();
+        assert_eq!(snapshot.semantic_batches_started, 0, "presentation-only configuration must not rebuild core");
+        assert_eq!(backend.semantic.generation(), SemanticGeneration(0));
+        drop(service);
     }
 }

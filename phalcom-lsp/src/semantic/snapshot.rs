@@ -386,15 +386,7 @@ impl SemanticSnapshot {
             member_surface: &member_surface,
             contains_class: &contains_class,
         };
-        let res = analyze_expr(expr, &context);
-        eprintln!(
-            "[DEBUG infer_expression] module={} expr={:?} classes_len={} res={:?}",
-            module,
-            expr,
-            classes.len(),
-            res
-        );
-        res
+        analyze_expr(expr, &context)
     }
 
     /// Returns current import edges for one module.

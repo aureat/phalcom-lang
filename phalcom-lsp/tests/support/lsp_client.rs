@@ -1,3 +1,4 @@
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -10,6 +11,7 @@ use tower_lsp::lsp_types::Position;
 use tower_lsp::{LspService, Server};
 
 use phalcom_lsp::Backend;
+use phalcom_lsp::perf::{CounterSnapshot, PerfCountersHandle};
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -18,6 +20,7 @@ pub struct TestLsp {
     server_task: JoinHandle<()>,
     next_id: i64,
     next_version: i32,
+    counters: Arc<Mutex<Option<PerfCountersHandle>>>,
 }
 
 impl TestLsp {
@@ -25,7 +28,13 @@ impl TestLsp {
         let (server_end, client) = tokio::io::duplex(1 << 20);
         let (server_read, server_write) = tokio::io::split(server_end);
 
-        let (service, socket) = LspService::new(Backend::new);
+        let counters = Arc::new(Mutex::new(None));
+        let counters_for_backend = counters.clone();
+        let (service, socket) = LspService::new(move |client| {
+            let backend = Backend::new(client);
+            *counters_for_backend.lock().expect("counter capture lock poisoned") = Some(backend.perf_counters());
+            backend
+        });
         let server_task = tokio::spawn(async move {
             Server::new(server_read, server_write, socket).serve(service).await;
         });
@@ -35,10 +44,15 @@ impl TestLsp {
             server_task,
             next_id: 1,
             next_version: 1,
+            counters,
         }
     }
 
     pub async fn initialize(&mut self, root_uri: Option<&str>) -> Value {
+        self.initialize_with_options(root_uri, Value::Null).await
+    }
+
+    pub async fn initialize_with_options(&mut self, root_uri: Option<&str>, initialization_options: Value) -> Value {
         let workspace_folders = root_uri.map(|uri| vec![json!({ "uri": uri, "name": "test-workspace" })]);
 
         let response = self
@@ -68,7 +82,8 @@ impl TestLsp {
                             "didChangeWatchedFiles": { "dynamicRegistration": true }
                         }
                     },
-                    "workspaceFolders": workspace_folders
+                    "workspaceFolders": workspace_folders,
+                    "initializationOptions": initialization_options
                 }),
             )
             .await;
@@ -116,6 +131,17 @@ impl TestLsp {
         .await
     }
 
+    pub async fn hover(&mut self, uri: &str, position: Position) -> Value {
+        self.request(
+            "textDocument/hover",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": position
+            }),
+        )
+        .await
+    }
+
     pub async fn inlay_hints(&mut self, uri: &str, end_line: u32) -> Value {
         self.request(
             "textDocument/inlayHint",
@@ -133,6 +159,15 @@ impl TestLsp {
     pub async fn semantic_tokens_full(&mut self, uri: &str) -> Value {
         self.request("textDocument/semanticTokens/full", json!({ "textDocument": { "uri": uri } }))
             .await
+    }
+
+    pub fn counter_snapshot(&self) -> CounterSnapshot {
+        self.counters
+            .lock()
+            .expect("counter capture lock poisoned")
+            .as_ref()
+            .expect("backend counter handle captured during start")
+            .snapshot()
     }
 
     pub async fn request(&mut self, method: &str, params: Value) -> Value {

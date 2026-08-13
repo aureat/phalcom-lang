@@ -1,3 +1,4 @@
+mod performance;
 mod stage1_diagnostics;
 mod stage2_index;
 mod stage3_completion;

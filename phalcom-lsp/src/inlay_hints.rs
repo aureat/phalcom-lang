@@ -216,6 +216,27 @@ mod tests {
     }
 
     #[test]
+    fn revision_mismatch_rejects_semantic_hints_for_stale_document_range() {
+        let uri = Url::parse("file:///stale-range.ph").unwrap();
+        let db = SemanticDb::new();
+        let published = Document::new_with_revision("let value = 1\n".to_string(), FileRevision(1));
+        db.update_file(&uri, published.revision, &published.parse.program);
+        let current = Document::new_with_revision("let value = 1\nlet newer = 2\n".to_string(), FileRevision(2));
+
+        let hints = hints_for(
+            &db,
+            &uri,
+            &current,
+            Range {
+                start: Position::new(0, 0),
+                end: Position::new(2, 0),
+            },
+        );
+
+        assert!(hints.is_empty(), "stale semantic facts must not produce hints in current range");
+    }
+
+    #[test]
     fn method_local_binding_gets_standard_type_hint() {
         let uri = Url::parse("file:///main.ph").unwrap();
         let doc = Document::new("class Canvas { draw() { let width = 1 } }\n".to_string());
@@ -232,5 +253,46 @@ mod tests {
         );
         assert_eq!(hints.len(), 1);
         assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == ": Int"));
+    }
+
+    #[test]
+    fn stale_document_revision_returns_no_semantic_hints() {
+        let uri = Url::parse("file:///main.ph").unwrap();
+        let published = Document::new_with_revision("let text = \"hello\"\n".to_string(), FileRevision(1));
+        let live = Document::new_with_revision("let text = \"changed\"\n".to_string(), FileRevision(2));
+        let db = SemanticDb::new();
+        db.update_file(&uri, FileRevision(1), &published.parse.program);
+
+        let hints = hints_for(
+            &db,
+            &uri,
+            &live,
+            Range {
+                start: Position::new(0, 0),
+                end: Position::new(10, 0),
+            },
+        );
+
+        assert!(hints.is_empty(), "stale semantic facts must not leak into a newer document");
+    }
+
+    #[test]
+    fn out_of_range_request_returns_no_hints() {
+        let uri = Url::parse("file:///main.ph").unwrap();
+        let doc = Document::new("let text = \"hello\"\n".to_string());
+        let db = SemanticDb::new();
+        db.update_file(&uri, FileRevision(1), &doc.parse.program);
+
+        let hints = hints_for(
+            &db,
+            &uri,
+            &doc,
+            Range {
+                start: Position::new(4, 0),
+                end: Position::new(5, 0),
+            },
+        );
+
+        assert!(hints.is_empty(), "hints outside requested range must be rejected");
     }
 }

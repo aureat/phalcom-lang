@@ -103,7 +103,7 @@ pub struct WorkerShared {
 
 #[cfg(test)]
 #[derive(Default)]
-struct TestBatchGate {
+pub(crate) struct TestBatchGate {
     state: Mutex<TestBatchGateState>,
     condvar: Condvar,
 }
@@ -111,29 +111,66 @@ struct TestBatchGate {
 #[cfg(test)]
 #[derive(Default)]
 struct TestBatchGateState {
-    entered: bool,
-    released: bool,
+    before_entered: bool,
+    before_released: bool,
+    after_enabled: bool,
+    after_entered: bool,
+    after_released: bool,
 }
 
 #[cfg(test)]
 impl TestBatchGate {
-    fn wait_until_entered(&self) {
+    fn with_after() -> Self {
+        Self {
+            state: Mutex::new(TestBatchGateState {
+                after_enabled: true,
+                ..TestBatchGateState::default()
+            }),
+            condvar: Condvar::new(),
+        }
+    }
+
+    pub(crate) fn wait_until_before_entered(&self) {
         let mut state = self.state.lock().expect("test gate lock poisoned");
-        while !state.entered {
+        while !state.before_entered {
             state = self.condvar.wait(state).expect("test gate condvar poisoned");
         }
     }
 
-    fn release(&self) {
-        self.state.lock().expect("test gate lock poisoned").released = true;
+    pub(crate) fn release_before(&self) {
+        self.state.lock().expect("test gate lock poisoned").before_released = true;
         self.condvar.notify_all();
     }
 
-    fn wait(&self) {
+    fn wait_until_after_entered(&self) {
         let mut state = self.state.lock().expect("test gate lock poisoned");
-        state.entered = true;
+        while !state.after_entered {
+            state = self.condvar.wait(state).expect("test gate condvar poisoned");
+        }
+    }
+
+    fn release_after(&self) {
+        self.state.lock().expect("test gate lock poisoned").after_released = true;
         self.condvar.notify_all();
-        while !state.released {
+    }
+
+    fn wait_before(&self) {
+        let mut state = self.state.lock().expect("test gate lock poisoned");
+        state.before_entered = true;
+        self.condvar.notify_all();
+        while !state.before_released {
+            state = self.condvar.wait(state).expect("test gate condvar poisoned");
+        }
+    }
+
+    fn wait_after(&self) {
+        let mut state = self.state.lock().expect("test gate lock poisoned");
+        if !state.after_enabled {
+            return;
+        }
+        state.after_entered = true;
+        self.condvar.notify_all();
+        while !state.after_released {
             state = self.condvar.wait(state).expect("test gate condvar poisoned");
         }
     }
@@ -368,8 +405,21 @@ impl AnalysisService {
     }
 
     #[cfg(test)]
-    fn install_test_batch_gate(&self, gate: Arc<TestBatchGate>) {
+    pub(crate) fn install_test_batch_gate(&self, gate: Arc<TestBatchGate>) {
         *self.shared.test_batch_gate.lock().expect("test gate lock poisoned") = Some(gate);
+    }
+
+    #[cfg(test)]
+    fn wait_for_idle(&self) {
+        self.flush();
+    }
+
+    #[cfg(test)]
+    fn join_worker(&mut self) {
+        self.shutdown();
+        if let Some(thread) = self.worker_thread.take() {
+            let _ = thread.join();
+        }
     }
 
     /// Access to the underlying semantic database snapshot handle.
@@ -529,7 +579,7 @@ fn worker_loop(
 
             #[cfg(test)]
             if let Some(gate) = shared.test_batch_gate.lock().expect("test gate lock poisoned").clone() {
-                gate.wait();
+                gate.wait_before();
             }
 
             shared.counters.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
@@ -571,6 +621,11 @@ fn worker_loop(
             if let Some(generation) = generation {
                 latest_generation = generation;
                 source_catalog = next_source_catalog;
+            }
+
+            #[cfg(test)]
+            if let Some(gate) = shared.test_batch_gate.lock().expect("test gate lock poisoned").clone() {
+                gate.wait_after();
             }
 
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale
@@ -795,11 +850,11 @@ mod tests {
         let file_uri = uri("file:///coalesced.ph");
 
         service.enqueue_file_update(file_uri.clone(), FileRevision(1), parse("class A {}", 0).program);
-        gate.wait_until_entered();
+        gate.wait_until_before_entered();
         for revision in 2..=100 {
             service.enqueue_file_update(file_uri.clone(), FileRevision(revision), parse("class A {}", 0).program);
         }
-        gate.release();
+        gate.release_before();
 
         assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::StaleBatchDiscarded { .. })));
         assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::Published { .. })));
@@ -814,24 +869,116 @@ mod tests {
         let file_uri = uri("file:///stale.ph");
 
         service.enqueue_file_update(file_uri.clone(), FileRevision(1), parse("class A {}", 0).program);
-        gate.wait_until_entered();
+        gate.wait_until_before_entered();
         service.enqueue_file_update(file_uri.clone(), FileRevision(2), parse("class A { newer() {} }", 0).program);
-        gate.release();
+        gate.release_before();
 
         assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::StaleBatchDiscarded { .. })));
-        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::Published { .. })));
+        assert_eq!(
+            rx.blocking_recv(),
+            Some(AnalysisEvent::Published {
+                generation: SemanticGeneration(1)
+            })
+        );
         service.flush();
         assert_eq!(service.db().file_snapshot(&file_uri).unwrap().revision, FileRevision(2));
+    }
+
+    #[test]
+    fn stale_generation_never_publishes_over_newer_generation() {
+        let (service, mut rx, gate) = gated_service();
+        let file_uri = uri("file:///generation-order.ph");
+
+        service.enqueue_file_update(file_uri.clone(), FileRevision(10), parse("class A { old() {} }", 0).program);
+        gate.wait_until_before_entered();
+        service.enqueue_file_update(file_uri.clone(), FileRevision(11), parse("class A { newer() {} }", 0).program);
+        gate.release_before();
+
+        let first = rx.blocking_recv().expect("stale batch event");
+        assert!(matches!(first, AnalysisEvent::StaleBatchDiscarded { .. }));
+        let second = rx.blocking_recv().expect("newer publication event");
+        assert!(matches!(second, AnalysisEvent::Published { generation } if generation.0 >= 1));
+        service.wait_for_idle();
+        assert_eq!(service.db().file_snapshot(&file_uri).unwrap().revision, FileRevision(11));
+    }
+
+    #[test]
+    fn service_owned_counters_report_accept_coalesce_and_discard() {
+        let (service, _rx, gate) = gated_service();
+        let file_uri = uri("file:///counter-order.ph");
+
+        service.enqueue_file_update(file_uri.clone(), FileRevision(1), parse("class A {}", 0).program);
+        gate.wait_until_before_entered();
+        service.enqueue_file_update(file_uri.clone(), FileRevision(2), parse("class A {}", 0).program);
+        service.enqueue_file_update(file_uri.clone(), FileRevision(3), parse("class A {}", 0).program);
+        service.enqueue_file_update(file_uri, FileRevision(1), parse("class A {}", 0).program);
+        gate.release_before();
+
+        let snapshot = service.perf_counters().snapshot();
+        assert_eq!(snapshot.source_updates_enqueued, 3);
+        assert_eq!(snapshot.source_updates_coalesced, 1);
+        assert_eq!(snapshot.source_updates_discarded, 1);
+        service.shutdown();
+    }
+
+    #[test]
+    fn workspace_root_update_batch_publishes_one_semantic_transaction() {
+        let (service, mut rx, gate) = gated_service();
+        let first = uri("file:///workspace-root-first.ph");
+        let second = uri("file:///workspace-root-second.ph");
+
+        service.enqueue_file_updates(vec![
+            (first, FileRevision(1), parse("class First {}", 0).program),
+            (second, FileRevision(1), parse("class Second {}", 0).program),
+        ]);
+        gate.wait_until_before_entered();
+        gate.release_before();
+
+        assert_eq!(
+            rx.blocking_recv(),
+            Some(AnalysisEvent::Published {
+                generation: SemanticGeneration(1)
+            })
+        );
+        assert!(rx.try_recv().is_err(), "one workspace-root batch must emit one publication");
+        assert_eq!(service.perf_counters().snapshot().semantic_batches_published, 1);
+        service.shutdown();
+    }
+
+    #[test]
+    fn semantic_batch_gate_blocks_before_and_after_publication() {
+        let db = Arc::new(SemanticDb::new());
+        let (mut service, mut rx) = AnalysisService::new(db.clone());
+        let gate = Arc::new(TestBatchGate::with_after());
+        service.install_test_batch_gate(gate.clone());
+        let file_uri = uri("file:///two-phase-gate.ph");
+
+        service.enqueue_file_update(file_uri.clone(), FileRevision(1), parse("class A {}", 0).program);
+        gate.wait_until_before_entered();
+        assert_eq!(db.generation(), SemanticGeneration(0));
+        gate.release_before();
+        gate.wait_until_after_entered();
+        assert_eq!(db.generation(), SemanticGeneration(1));
+        assert!(rx.try_recv().is_err(), "publication must wait for after-batch gate");
+        gate.release_after();
+        assert_eq!(
+            rx.blocking_recv(),
+            Some(AnalysisEvent::Published {
+                generation: SemanticGeneration(1)
+            })
+        );
+        service.wait_for_idle();
+        service.join_worker();
     }
 
     #[test]
     fn shutdown_returns_while_gated_batch_is_blocked_and_drop_joins_after_release() {
         let (service, _rx, gate) = gated_service();
         service.enqueue_file_update(uri("file:///shutdown.ph"), FileRevision(1), parse("class A {}", 0).program);
-        gate.wait_until_entered();
+        gate.wait_until_before_entered();
 
         service.shutdown();
-        gate.release();
+        gate.release_before();
         drop(service);
     }
 
@@ -857,6 +1004,32 @@ mod tests {
 
         assert!(!index.symbols_matching("marker").is_empty());
         assert!(db.file_snapshot(&uri).is_none());
+        service.shutdown();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn workspace_scan_publishes_closed_files_for_deep_analysis() {
+        let root = std::env::temp_dir().join(format!("phalcom_lsp_workspace_scan_service_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("closed.ph");
+        fs::write(&path, "class Closed { marker() {} }\n").unwrap();
+        let uri = Url::from_file_path(&path).unwrap();
+        let db = Arc::new(SemanticDb::new());
+        let index = Arc::new(WorkspaceIndex::new());
+        let (service, _rx) = AnalysisService::new_with_index(db.clone(), Some(index));
+
+        service.configure_workspace(WorkspaceScanRequest {
+            roots: vec![root.clone()],
+            mode: AnalysisMode::Workspace,
+            excludes: Vec::new(),
+            core_source_path: None,
+        });
+        service.flush();
+
+        assert_eq!(db.file_snapshot(&uri).unwrap().revision, FileRevision(1));
+        assert_eq!(service.perf_counters().snapshot().scan_batches_published, 1);
         service.shutdown();
         let _ = fs::remove_dir_all(root);
     }
