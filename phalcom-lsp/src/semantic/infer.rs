@@ -17,6 +17,7 @@ use super::query::SemanticGeneration;
 
 use super::flow::{SolverContext, SurfaceFlowAnalysis};
 use super::snapshot::FileSourceSnapshot;
+use crate::perf::PerfCounters;
 
 #[cfg(test)]
 thread_local! {
@@ -34,10 +35,10 @@ pub(crate) fn test_solver_steps() -> u64 {
     TEST_SOLVER_STEPS.with(std::cell::Cell::get)
 }
 
-fn record_solver_round() {
+fn record_solver_round(counters: &PerfCounters) {
     #[cfg(test)]
     TEST_SOLVER_ROUNDS.with(|count| count.set(count.get() + 1));
-    crate::perf::COUNTERS.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    counters.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 fn record_solver_step() {
@@ -70,6 +71,7 @@ pub(crate) fn analyze_source(
     summaries: &BTreeMap<CallableId, CallableSummary>,
     parameters: &ParameterFacts,
     generation: SemanticGeneration,
+    counters: &PerfCounters,
 ) -> SurfaceFlowAnalysis {
     let known_class = |name: &str| super::resolve_named_class(classes, graph, &source.module, name);
     let contains_class = |class: &ClassId| classes.contains_key(class);
@@ -94,7 +96,7 @@ pub(crate) fn analyze_source(
         resolve_member: &resolve_member,
         member_surface: &member_surface,
     };
-    super::flow::analyze_surface(source, &context, generation)
+    super::flow::analyze_surface(source, &context, generation, counters)
 }
 
 /// Analyzes one callable body against the current immutable solver context.
@@ -106,6 +108,7 @@ pub(crate) fn analyze_callable_source(
     summaries: &BTreeMap<CallableId, CallableSummary>,
     parameters: &ParameterFacts,
     generation: SemanticGeneration,
+    counters: &PerfCounters,
 ) -> SurfaceFlowAnalysis {
     let known_class = |name: &str| super::resolve_named_class(classes, graph, &source.module, name);
     let contains_class = |class: &ClassId| classes.contains_key(class);
@@ -130,7 +133,7 @@ pub(crate) fn analyze_callable_source(
         resolve_member: &resolve_member,
         member_surface: &member_surface,
     };
-    super::flow::analyze_callable(source, &context, generation, callable)
+    super::flow::analyze_callable(source, &context, generation, callable, counters)
 }
 
 /// Solves source callable summaries and parameter facts without mutating the
@@ -141,6 +144,7 @@ pub(crate) fn solve_workspace_callables(
     classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
     graph: &ModuleGraph,
     generation: SemanticGeneration,
+    counters: &PerfCounters,
 ) -> SolverResult {
     let callable_count = inputs
         .iter()
@@ -172,7 +176,7 @@ pub(crate) fn solve_workspace_callables(
 
     let mut rounds = 0;
     while rounds < max_rounds && (!worklist.is_empty() || (callable_count == 0 && rounds == 0)) {
-        record_solver_round();
+        record_solver_round(counters);
         while worklist.pop().is_some() {}
         rounds += 1;
         let previous_summaries = summaries.clone();
@@ -181,7 +185,7 @@ pub(crate) fn solve_workspace_callables(
 
         let mut next_summaries = BTreeMap::new();
         for source in inputs {
-            let analysis = analyze_source(source, classes, graph, &previous_summaries, &previous_parameters, generation);
+            let analysis = analyze_source(source, classes, graph, &previous_summaries, &previous_parameters, generation, counters);
             next_parameters.merge_from(&analysis.parameter_facts);
             for (summary, evidence) in analysis.summaries {
                 if evidence {
@@ -237,7 +241,8 @@ pub(crate) fn solve_affected_callables(
     seed_summaries: BTreeMap<CallableId, CallableSummary>,
     base_parameters: ParameterFacts,
 ) -> FlowSolveResult {
-    solve_affected_callables_with_cancel(inputs, classes, graph, generation, seed_summaries, base_parameters, &|| false)
+    let counters = PerfCounters::new();
+    solve_affected_callables_with_cancel(inputs, classes, graph, generation, seed_summaries, base_parameters, &|| false, &counters)
         .expect("uncancelled callable solve must complete")
 }
 
@@ -251,6 +256,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
     seed_summaries: BTreeMap<CallableId, CallableSummary>,
     base_parameters: ParameterFacts,
     cancelled: &dyn Fn() -> bool,
+    counters: &PerfCounters,
 ) -> Option<FlowSolveResult> {
     if inputs.is_empty() {
         return Some(FlowSolveResult {
@@ -300,7 +306,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
         if cancelled() {
             return None;
         }
-        record_solver_round();
+        record_solver_round(counters);
         while let Some(callable) = worklist.pop() {
             if cancelled() {
                 return None;
@@ -311,58 +317,58 @@ pub(crate) fn solve_affected_callables_with_cancel(
                 break 'rounds;
             }
             record_solver_step();
-        let Some(source) = callable_sources.get(&callable) else { continue };
-        let previous_summary = summaries.get(&callable).cloned();
-        let analysis = analyze_callable_source(source, &callable, classes, graph, &summaries, &parameter_facts, generation);
-        if cancelled() {
-            return None;
-        }
-        let candidate = analysis
-            .summaries
-            .into_iter()
-            .find(|(summary, _)| summary.callable == callable)
-            .and_then(|(summary, evidence)| evidence.then_some(summary));
-        if let Some(summary) = candidate {
-            summaries.insert(callable.clone(), summary.clone());
-            let old_dependencies = previous_summary
-                .as_ref()
-                .map(|summary| summary.dependencies.iter().cloned().collect::<BTreeSet<_>>())
-                .unwrap_or_default();
-            let new_dependencies = summary.dependencies.iter().cloned().collect::<BTreeSet<_>>();
-            for dependency in old_dependencies.difference(&new_dependencies) {
-                if let Some(edges) = dependents.get_mut(dependency) {
-                    edges.remove(&callable);
+            let Some(source) = callable_sources.get(&callable) else { continue };
+            let previous_summary = summaries.get(&callable).cloned();
+            let analysis = analyze_callable_source(source, &callable, classes, graph, &summaries, &parameter_facts, generation, counters);
+            if cancelled() {
+                return None;
+            }
+            let candidate = analysis
+                .summaries
+                .into_iter()
+                .find(|(summary, _)| summary.callable == callable)
+                .and_then(|(summary, evidence)| evidence.then_some(summary));
+            if let Some(summary) = candidate {
+                summaries.insert(callable.clone(), summary.clone());
+                let old_dependencies = previous_summary
+                    .as_ref()
+                    .map(|summary| summary.dependencies.iter().cloned().collect::<BTreeSet<_>>())
+                    .unwrap_or_default();
+                let new_dependencies = summary.dependencies.iter().cloned().collect::<BTreeSet<_>>();
+                for dependency in old_dependencies.difference(&new_dependencies) {
+                    if let Some(edges) = dependents.get_mut(dependency) {
+                        edges.remove(&callable);
+                    }
                 }
+                for dependency in new_dependencies.difference(&old_dependencies) {
+                    dependents.entry(dependency.clone()).or_default().insert(callable.clone());
+                }
+            } else {
+                summaries.remove(&callable);
             }
-            for dependency in new_dependencies.difference(&old_dependencies) {
-                dependents.entry(dependency.clone()).or_default().insert(callable.clone());
+
+            source_facts.insert(callable.clone(), analysis.parameter_facts);
+            let previous_parameters = parameter_facts.clone();
+            parameter_facts = base_parameters.clone();
+            for facts in source_facts.values() {
+                parameter_facts.merge_from(facts);
             }
-        } else {
-            summaries.remove(&callable);
-        }
+            apply_parameter_facts_to_summaries(&mut summaries, classes, &parameter_facts);
 
-        source_facts.insert(callable.clone(), analysis.parameter_facts);
-        let previous_parameters = parameter_facts.clone();
-        parameter_facts = base_parameters.clone();
-        for facts in source_facts.values() {
-            parameter_facts.merge_from(facts);
-        }
-        apply_parameter_facts_to_summaries(&mut summaries, classes, &parameter_facts);
-
-        if previous_summary != summaries.get(&callable).cloned() || previous_parameters != parameter_facts {
-            if let Some(edges) = dependents.get(&callable) {
-                for dependent in edges {
-                    if callable_sources.contains_key(dependent) {
-                        worklist.push(dependent.clone());
+            if previous_summary != summaries.get(&callable).cloned() || previous_parameters != parameter_facts {
+                if let Some(edges) = dependents.get(&callable) {
+                    for dependent in edges {
+                        if callable_sources.contains_key(dependent) {
+                            worklist.push(dependent.clone());
+                        }
+                    }
+                }
+                for (slot, value) in parameter_facts.iter() {
+                    if previous_parameters.get(&slot.0, &slot.1) != Some(value) && callable_sources.contains_key(&slot.0) {
+                        worklist.push(slot.0.clone());
                     }
                 }
             }
-            for (slot, value) in parameter_facts.iter() {
-                if previous_parameters.get(&slot.0, &slot.1) != Some(value) && callable_sources.contains_key(&slot.0) {
-                    worklist.push(slot.0.clone());
-                }
-            }
-        }
         }
     }
 
@@ -386,7 +392,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
         if cancelled() {
             return None;
         }
-        let analysis = analyze_source(source, classes, graph, &summaries, &parameter_facts, generation);
+        let analysis = analyze_source(source, classes, graph, &summaries, &parameter_facts, generation, counters);
         source_analyses.insert(source.module.clone(), analysis);
     }
     Some(FlowSolveResult { source_analyses })
@@ -503,6 +509,7 @@ class Service {
     fn one_surface_flow_analysis_contains_all_products() {
         let source = one_pass_source();
         let classes = source.surface.classes.clone();
+        let counters = PerfCounters::new();
         let before = crate::semantic::flow::test_flow_passes();
         let analysis = analyze_source(
             &source,
@@ -511,6 +518,7 @@ class Service {
             &BTreeMap::new(),
             &ParameterFacts::default(),
             SemanticGeneration(1),
+            &counters,
         );
         let after = crate::semantic::flow::test_flow_passes();
 
@@ -539,6 +547,7 @@ class Service {
             scopes: super::super::scope::build_scope_graph(module.clone(), &parse("let value = 1\nvalue = \"ok\"\n", 0).program),
             surface,
         };
+        let counters = PerfCounters::new();
         let facts = analyze_source(
             &source,
             &BTreeMap::new(),
@@ -546,6 +555,7 @@ class Service {
             &BTreeMap::new(),
             &ParameterFacts::default(),
             SemanticGeneration(0),
+            &counters,
         )
         .local_facts;
         let scopes = &source.scopes;

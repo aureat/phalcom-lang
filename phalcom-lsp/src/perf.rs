@@ -1,10 +1,10 @@
 //! Performance instrumentation and deterministic counters for Phalcom LSP.
 
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
-/// Global performance counters for semantic analysis and server operations.
+/// Performance counters owned by one analysis service and semantic database.
 #[derive(Debug, Default)]
 pub struct PerfCounters {
     /// Count of source updates enqueued for analysis.
@@ -103,8 +103,16 @@ pub struct CounterSnapshot {
     pub callables_analyzed: u64,
 }
 
-/// Global shared performance counters instance.
-pub static COUNTERS: LazyLock<PerfCounters> = LazyLock::new(PerfCounters::new);
+/// Shared counter handle passed between the service, worker, and semantic passes.
+pub type PerfCountersHandle = Arc<PerfCounters>;
+
+/// Compatibility counter set for callers that used the original global API.
+///
+/// Production analysis owns counters through [`crate::semantic::SemanticDb`]
+/// and does not increment this set. Keeping this handle avoids breaking tools
+/// that imported `COUNTERS` while preventing their resets from affecting live
+/// services or parallel tests.
+pub static COUNTERS: LazyLock<PerfCountersHandle> = LazyLock::new(|| Arc::new(PerfCounters::new()));
 
 static PERF_ENABLED: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("PHALCOM_LSP_PERF")
@@ -121,6 +129,7 @@ pub fn is_perf_enabled() -> bool {
 pub struct PerfSpan {
     name: &'static str,
     start: Instant,
+    counters: Option<PerfCountersHandle>,
     context: Option<PerfContext>,
 }
 
@@ -139,15 +148,32 @@ impl PerfSpan {
         Self {
             name,
             start: Instant::now(),
+            counters: None,
             context: None,
         }
     }
 
-    /// Starts timing a span and emits its context and counter snapshot.
-    pub fn start_with_context(name: &'static str, context: PerfContext) -> Self {
+    /// Starts timing a span and reports the supplied counter owner's snapshot.
+    pub fn start_with_counters(name: &'static str, counters: PerfCountersHandle) -> Self {
         Self {
             name,
             start: Instant::now(),
+            counters: Some(counters),
+            context: None,
+        }
+    }
+
+    /// Starts timing a span and emits its context and legacy counter snapshot.
+    pub fn start_with_context(name: &'static str, context: PerfContext) -> Self {
+        Self::start_with_context_and_counters(name, context, COUNTERS.clone())
+    }
+
+    /// Starts timing a span with generation/epoch context and an owned counter set.
+    pub fn start_with_context_and_counters(name: &'static str, context: PerfContext, counters: PerfCountersHandle) -> Self {
+        Self {
+            name,
+            start: Instant::now(),
+            counters: Some(counters),
             context: Some(context),
         }
     }
@@ -157,7 +183,6 @@ impl Drop for PerfSpan {
     fn drop(&mut self) {
         if is_perf_enabled() {
             let elapsed = self.start.elapsed();
-            let snapshot = self.context.map(|_| COUNTERS.snapshot());
             eprint!("[phalcom-lsp perf] span={} elapsed_ms={}", self.name, elapsed.as_millis());
             if let Some(context) = self.context {
                 if let Some(generation) = context.generation {
@@ -166,15 +191,23 @@ impl Drop for PerfSpan {
                 if let Some(epoch) = context.epoch {
                     eprint!(" epoch={epoch}");
                 }
-                let counters = snapshot.expect("context snapshot");
+            }
+            if let Some(counters) = &self.counters {
+                let snapshot = counters.snapshot();
                 eprintln!(
-                    " batches={}/{} stale={} flow={} solve={} callables={}",
-                    counters.semantic_batches_started,
-                    counters.semantic_batches_published,
-                    counters.stale_batches_discarded,
-                    counters.flow_passes,
-                    counters.solver_rounds,
-                    counters.callables_analyzed
+                    " updates={}/{}/{} batches={}/{}/{} scan={}/{}/{} flow={} solve={} callables={}",
+                    snapshot.source_updates_enqueued,
+                    snapshot.source_updates_coalesced,
+                    snapshot.source_updates_discarded,
+                    snapshot.semantic_batches_started,
+                    snapshot.semantic_batches_published,
+                    snapshot.stale_batches_discarded,
+                    snapshot.scan_batches_published,
+                    snapshot.workspace_files_discovered,
+                    snapshot.workspace_files_parsed,
+                    snapshot.flow_passes,
+                    snapshot.solver_rounds,
+                    snapshot.callables_analyzed
                 );
             } else {
                 eprintln!();
@@ -188,10 +221,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_perf_counters_snapshot_and_reset() {
-        COUNTERS.reset();
+    fn perf_counters_snapshot_and_reset() {
+        let counters = PerfCounters::new();
         assert_eq!(
-            COUNTERS.snapshot(),
+            counters.snapshot(),
             CounterSnapshot {
                 source_updates_enqueued: 0,
                 source_updates_coalesced: 0,
@@ -208,15 +241,26 @@ mod tests {
             }
         );
 
-        COUNTERS.source_updates_enqueued.fetch_add(5, Ordering::Relaxed);
-        COUNTERS.flow_passes.fetch_add(12, Ordering::Relaxed);
+        counters.source_updates_enqueued.fetch_add(5, Ordering::Relaxed);
+        counters.flow_passes.fetch_add(12, Ordering::Relaxed);
 
-        let snap = COUNTERS.snapshot();
+        let snap = counters.snapshot();
         assert_eq!(snap.source_updates_enqueued, 5);
         assert_eq!(snap.flow_passes, 12);
 
-        COUNTERS.reset();
-        assert_eq!(COUNTERS.snapshot().source_updates_enqueued, 0);
-        assert_eq!(COUNTERS.snapshot().flow_passes, 0);
+        counters.reset();
+        assert_eq!(counters.snapshot().source_updates_enqueued, 0);
+        assert_eq!(counters.snapshot().flow_passes, 0);
+    }
+
+    #[test]
+    fn counter_sets_are_independent_for_parallel_services() {
+        let first = PerfCounters::new();
+        let second = PerfCounters::new();
+
+        first.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+
+        assert_eq!(first.snapshot().source_updates_enqueued, 1);
+        assert_eq!(second.snapshot().source_updates_enqueued, 0);
     }
 }

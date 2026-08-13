@@ -30,6 +30,8 @@ use phalcom_ast::ast::Program;
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
+use crate::perf::{PerfCounters, PerfCountersHandle};
+
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnShape;
 pub use facts::{
@@ -152,6 +154,7 @@ impl From<RebuildTraceData> for RebuildTrace {
 pub struct SemanticDb {
     current: RwLock<Arc<SemanticSnapshot>>,
     engine: Mutex<SemanticEngine>,
+    counters: PerfCountersHandle,
 }
 
 impl Default for SemanticDb {
@@ -161,24 +164,30 @@ impl Default for SemanticDb {
 }
 
 impl SemanticDb {
-    /// Creates a new semantic database initialized with bundled core source.
+    /// Creates a new empty semantic database at generation zero.
     pub fn new() -> Self {
-        let engine = SemanticEngine::new();
+        Self::with_counters(Arc::new(PerfCounters::new()))
+    }
+
+    /// Creates a semantic database with a caller-owned counter set.
+    pub(crate) fn with_counters(counters: PerfCountersHandle) -> Self {
+        let engine = SemanticEngine::new_with_counters(counters.clone());
         let snapshot = Arc::new(engine.snapshot());
         Self {
             current: RwLock::new(snapshot),
             engine: Mutex::new(engine),
+            counters,
         }
     }
 
     /// Creates an empty semantic database without running core analysis (generation 0).
     pub fn empty() -> Self {
-        let engine = SemanticEngine::empty();
-        let snapshot = Arc::new(engine.snapshot());
-        Self {
-            current: RwLock::new(snapshot),
-            engine: Mutex::new(engine),
-        }
+        Self::new()
+    }
+
+    /// Returns the counter set owned by this database and its analysis service.
+    pub fn perf_counters(&self) -> PerfCountersHandle {
+        self.counters.clone()
     }
 
     /// Returns the latest immutable published semantic snapshot.

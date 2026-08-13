@@ -13,7 +13,7 @@ use tower_lsp::lsp_types::Url;
 
 use crate::index::WorkspaceIndex;
 use crate::line_index::LineIndex;
-use crate::perf::COUNTERS;
+use crate::perf::{PerfContext, PerfCountersHandle, PerfSpan};
 use crate::semantic::{FileRevision, SemanticDb, SemanticGeneration};
 use crate::workspace_scan::{AnalysisMode, ExcludeMatcher, ScanBudget, WorkspaceScanState};
 
@@ -95,6 +95,8 @@ pub struct WorkerShared {
     pub open_documents: Mutex<BTreeSet<Url>>,
     /// True while a configured workspace scan still has undiscovered work.
     pub scan_in_progress: AtomicBool,
+    /// Counter set owned by the semantic database served by this worker.
+    pub counters: PerfCountersHandle,
     #[cfg(test)]
     test_batch_gate: Mutex<Option<Arc<TestBatchGate>>>,
 }
@@ -169,6 +171,7 @@ pub enum AnalysisEvent {
 /// Front-end handle for managing background semantic analysis.
 pub struct AnalysisService {
     db: Arc<SemanticDb>,
+    counters: PerfCountersHandle,
     shared: Arc<WorkerShared>,
 
     worker_thread: Option<JoinHandle<()>>,
@@ -196,6 +199,7 @@ impl AnalysisService {
         source_cache: Option<SourceCache>,
     ) -> (Self, mpsc::UnboundedReceiver<AnalysisEvent>) {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let counters = db.perf_counters();
         let shared = Arc::new(WorkerShared {
             epoch: AtomicU64::new(0),
             pending: Mutex::new(PendingWork::default()),
@@ -203,6 +207,7 @@ impl AnalysisService {
             shutdown: AtomicBool::new(false),
             open_documents: Mutex::new(BTreeSet::new()),
             scan_in_progress: AtomicBool::new(false),
+            counters: counters.clone(),
             #[cfg(test)]
             test_batch_gate: Mutex::new(None),
         });
@@ -223,6 +228,7 @@ impl AnalysisService {
         (
             Self {
                 db,
+                counters,
                 shared,
                 worker_thread: Some(worker_thread),
             },
@@ -234,14 +240,14 @@ impl AnalysisService {
     pub fn enqueue_file_update(&self, uri: Url, revision: FileRevision, program: Program) {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         if !self.accepts_revision(&pending, &uri, revision) {
-            COUNTERS.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
+            self.counters.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
             return;
         }
         pending.removals.remove(&uri);
         if pending.file_updates.insert(uri, (revision, program)).is_some() {
-            COUNTERS.source_updates_coalesced.fetch_add(1, Ordering::Relaxed);
+            self.counters.source_updates_coalesced.fetch_add(1, Ordering::Relaxed);
         }
-        COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+        self.counters.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
         self.shared.epoch.fetch_add(1, Ordering::SeqCst);
         self.shared.condvar.notify_all();
     }
@@ -254,14 +260,14 @@ impl AnalysisService {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         for (uri, revision, program) in updates {
             if !self.accepts_revision(&pending, &uri, revision) {
-                COUNTERS.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
+                self.counters.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
             pending.removals.remove(&uri);
             if pending.file_updates.insert(uri, (revision, program)).is_some() {
-                COUNTERS.source_updates_coalesced.fetch_add(1, Ordering::Relaxed);
+                self.counters.source_updates_coalesced.fetch_add(1, Ordering::Relaxed);
             }
-            COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+            self.counters.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
         }
         self.shared.epoch.fetch_add(1, Ordering::SeqCst);
         self.shared.condvar.notify_all();
@@ -272,11 +278,11 @@ impl AnalysisService {
         let uri = Url::parse(crate::semantic::CORE_MODULE_URI).expect("core module URI must parse");
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         if !self.accepts_revision(&pending, &uri, revision) {
-            COUNTERS.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
+            self.counters.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
             return;
         }
         pending.core_update = Some((revision, program));
-        COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+        self.counters.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
         self.shared.epoch.fetch_add(1, Ordering::SeqCst);
         self.shared.condvar.notify_all();
     }
@@ -299,7 +305,7 @@ impl AnalysisService {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         pending.file_updates.remove(&uri);
         pending.removals.insert(uri);
-        COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+        self.counters.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
         self.shared.epoch.fetch_add(1, Ordering::SeqCst);
         self.shared.condvar.notify_all();
     }
@@ -313,7 +319,7 @@ impl AnalysisService {
         for uri in uris {
             pending.file_updates.remove(&uri);
             pending.removals.insert(uri);
-            COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+            self.counters.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
         }
         self.shared.epoch.fetch_add(1, Ordering::SeqCst);
         self.shared.condvar.notify_all();
@@ -370,6 +376,11 @@ impl AnalysisService {
     pub fn db(&self) -> &Arc<SemanticDb> {
         &self.db
     }
+
+    /// Returns the counter set shared by this service and its semantic database.
+    pub fn perf_counters(&self) -> PerfCountersHandle {
+        self.counters.clone()
+    }
 }
 
 impl Drop for AnalysisService {
@@ -425,7 +436,14 @@ fn worker_loop(
         if !has_analysis_work(&pending) {
             drop(pending);
             if core_reselect || !core_initialized {
-                let _span = crate::perf::PerfSpan::start("core_select_analyze");
+                let _span = PerfSpan::start_with_context_and_counters(
+                    "core_select_analyze",
+                    PerfContext {
+                        generation: Some(db.generation().0),
+                        epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                    },
+                    shared.counters.clone(),
+                );
                 let core_source = crate::semantic::core_source::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
                 selected_core_uri = core_source.physical_uri().cloned();
                 let program = phalcom_ast::parser::parse(core_source.text(), 0).program;
@@ -514,13 +532,14 @@ fn worker_loop(
                 gate.wait();
             }
 
-            COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
-            let _span = crate::perf::PerfSpan::start_with_context(
+            shared.counters.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
+            let _span = PerfSpan::start_with_context_and_counters(
                 "semantic_batch",
-                crate::perf::PerfContext {
+                PerfContext {
                     generation: Some(db.generation().0),
                     epoch: Some(batch_epoch),
                 },
+                shared.counters.clone(),
             );
 
             let mut latest_generation = db.generation();
@@ -539,7 +558,14 @@ fn worker_loop(
                 }
             }
             let cancelled = || shared.shutdown.load(Ordering::SeqCst) || shared.epoch.load(Ordering::Acquire) != batch_epoch;
-            let _span = crate::perf::PerfSpan::start("semantic_solve_flow_publish");
+            let _span = PerfSpan::start_with_context_and_counters(
+                "semantic_solve_flow_publish",
+                PerfContext {
+                    generation: Some(db.generation().0),
+                    epoch: Some(batch_epoch),
+                },
+                shared.counters.clone(),
+            );
             let generation = db.apply_mutations_with_cancel(removals.into_iter().collect(), batch, core_update, &cancelled);
             let solve_cancelled = generation.is_none();
             if let Some(generation) = generation {
@@ -550,10 +576,10 @@ fn worker_loop(
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale
             let current_epoch = shared.epoch.load(Ordering::SeqCst);
             if solve_cancelled || current_epoch > batch_epoch {
-                COUNTERS.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
+                shared.counters.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::StaleBatchDiscarded { epoch: batch_epoch });
             } else {
-                COUNTERS.semantic_batches_published.fetch_add(1, Ordering::Relaxed);
+                shared.counters.semantic_batches_published.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::Published { generation: latest_generation });
             }
 
@@ -592,7 +618,14 @@ fn process_scan_batch(
         let Ok(text) = std::fs::read_to_string(&discovered.path) else {
             continue;
         };
-        let _span = crate::perf::PerfSpan::start("workspace_source_parse");
+        let _span = PerfSpan::start_with_context_and_counters(
+            "workspace_source_parse",
+            PerfContext {
+                generation: Some(db.generation().0),
+                epoch: Some(shared.epoch.load(Ordering::Acquire)),
+            },
+            shared.counters.clone(),
+        );
         let parse = phalcom_ast::parser::parse(&text, 0);
         let program = Arc::new(parse.program);
         let revision = db
@@ -613,8 +646,8 @@ fn process_scan_batch(
             );
         }
         source_catalog.insert(canonical_uri(&discovered.uri), (revision, (*program).clone()));
-        COUNTERS.workspace_files_discovered.fetch_add(1, Ordering::Relaxed);
-        COUNTERS.workspace_files_parsed.fetch_add(1, Ordering::Relaxed);
+        shared.counters.workspace_files_discovered.fetch_add(1, Ordering::Relaxed);
+        shared.counters.workspace_files_parsed.fetch_add(1, Ordering::Relaxed);
         let _ = event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
             uri: discovered.uri.clone(),
             text: Arc::from(text),
@@ -625,9 +658,16 @@ fn process_scan_batch(
         }
     }
     if !semantic_files.is_empty() {
-        let _span = crate::perf::PerfSpan::start("scan_semantic_publish");
+        let _span = PerfSpan::start_with_context_and_counters(
+            "scan_semantic_publish",
+            PerfContext {
+                generation: Some(db.generation().0),
+                epoch: Some(shared.epoch.load(Ordering::Acquire)),
+            },
+            shared.counters.clone(),
+        );
         let generation = db.update_files_batch(semantic_files);
-        COUNTERS.scan_batches_published.fetch_add(1, Ordering::Relaxed);
+        shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
         let _ = event_tx.send(AnalysisEvent::Published { generation });
     }
     if mode == AnalysisMode::Local {
@@ -645,9 +685,16 @@ fn process_scan_batch(
             }
         }
         if !batch.is_empty() {
-            let _span = crate::perf::PerfSpan::start("scan_local_publish");
+            let _span = PerfSpan::start_with_context_and_counters(
+                "scan_local_publish",
+                PerfContext {
+                    generation: Some(db.generation().0),
+                    epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                },
+                shared.counters.clone(),
+            );
             let generation = db.update_files_batch(batch);
-            COUNTERS.scan_batches_published.fetch_add(1, Ordering::Relaxed);
+            shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
             let _ = event_tx.send(AnalysisEvent::Published { generation });
         }
     }

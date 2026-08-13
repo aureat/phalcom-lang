@@ -17,6 +17,7 @@ use super::query::SemanticGeneration;
 use super::snapshot::{FileSourceSnapshot, SemanticSnapshot};
 use super::surface::{ClassSurface, build_module_surface};
 use super::{DependencySet, FileSemanticSnapshot, SourceChangeKind, classify_source_change, infer};
+use crate::perf::{PerfCounters, PerfCountersHandle};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RebuildTraceData {
@@ -42,20 +43,40 @@ pub(crate) struct SemanticState {
 }
 
 /// Mutable single-threaded semantic analysis worker engine.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct SemanticEngine {
     state: SemanticState,
+    counters: PerfCountersHandle,
+}
+
+impl Default for SemanticEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SemanticEngine {
     /// Creates a new empty semantic engine with zero state (generation 0).
     pub fn new() -> Self {
-        Self::default()
+        Self::new_with_counters(Arc::new(PerfCounters::new()))
+    }
+
+    /// Creates an engine whose semantic passes report into `counters`.
+    pub fn new_with_counters(counters: PerfCountersHandle) -> Self {
+        Self {
+            state: SemanticState::default(),
+            counters,
+        }
     }
 
     /// Creates an engine initialized with zero state.
     pub fn empty() -> Self {
-        Self::default()
+        Self::new()
+    }
+
+    /// Returns the counter set owned by this engine.
+    pub fn perf_counters(&self) -> PerfCountersHandle {
+        self.counters.clone()
     }
 
     /// Returns the current semantic generation.
@@ -182,7 +203,7 @@ impl SemanticEngine {
         }
 
         self.state.generation = next_generation;
-        let trace = rebuild_affected_state(&mut self.state, next_generation, affected, cancelled)?;
+        let trace = rebuild_affected_state(&mut self.state, next_generation, affected, cancelled, &self.counters)?;
         #[cfg(test)]
         {
             self.state.last_trace = Some(trace.into());
@@ -301,7 +322,7 @@ impl SemanticEngine {
         self.state.generation = next_generation;
 
         if !affected.is_empty() {
-            let trace = rebuild_affected_state(&mut self.state, next_generation, affected, cancelled)?;
+            let trace = rebuild_affected_state(&mut self.state, next_generation, affected, cancelled, &self.counters)?;
             #[cfg(test)]
             {
                 self.state.last_trace = Some(trace.into());
@@ -318,6 +339,7 @@ pub(crate) fn rebuild_affected_state(
     generation: SemanticGeneration,
     mut affected: BTreeSet<ModuleId>,
     cancelled: &dyn Fn() -> bool,
+    counters: &PerfCounters,
 ) -> Option<RebuildTraceData> {
     let previous_summaries = state.summaries.clone();
     let previous_parameters = state.parameter_facts.clone();
@@ -355,7 +377,7 @@ pub(crate) fn rebuild_affected_state(
                 base_parameters.merge_from(contribution);
             }
         }
-        let solved = infer::solve_affected_callables_with_cancel(&inputs, &classes, &graph, generation, seed_summaries, base_parameters, cancelled)?;
+        let solved = infer::solve_affected_callables_with_cancel(&inputs, &classes, &graph, generation, seed_summaries, base_parameters, cancelled, counters)?;
         let solved_source_analyses = solved.source_analyses;
 
         // One unified source result owns local, field, parameter, and summary
@@ -545,7 +567,9 @@ class Service {
             "Product._seed declaration initializer evidence missing"
         );
         assert!(
-            seed_evidence.iter().any(|evidence| evidence.kind == FieldEvidenceKind::ConstructorInitialization),
+            seed_evidence
+                .iter()
+                .any(|evidence| evidence.kind == FieldEvidenceKind::ConstructorInitialization),
             "Product._seed constructor initialization evidence missing"
         );
 

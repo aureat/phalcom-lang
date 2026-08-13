@@ -18,6 +18,7 @@ use super::scope::{BindingId, ScopeGraph};
 use super::snapshot::FileSourceSnapshot;
 use super::source::{field_initializer, member_body};
 use super::surface::{MemberSurface, ModuleSurface};
+use crate::perf::PerfCounters;
 use crate::selectors::{binary_selector_name, call_selector, index_selector_from_labels, setter_selector_from_name, unary_selector_name};
 
 #[cfg(test)]
@@ -184,19 +185,25 @@ pub struct SolverContext<'ctx> {
 }
 
 /// Runs one structured pass over a module and all source members.
-pub fn analyze_surface(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration) -> SurfaceFlowAnalysis {
+pub fn analyze_surface(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration, counters: &PerfCounters) -> SurfaceFlowAnalysis {
     #[cfg(test)]
     TEST_SURFACE_FLOW_PASSES.with(|count| count.set(count.get() + 1));
-    analyze_surface_for_callable(source, context, revision, None)
+    analyze_surface_for_callable(source, context, revision, None, counters)
 }
 
 /// Runs one structured flow pass for one callable. Top-level and field work is
 /// skipped so callable worklist rounds do not repeatedly traverse unrelated
 /// member bodies.
-pub fn analyze_callable(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration, callable: &CallableId) -> SurfaceFlowAnalysis {
+pub fn analyze_callable(
+    source: &FileSourceSnapshot,
+    context: &SolverContext<'_>,
+    revision: SemanticGeneration,
+    callable: &CallableId,
+    counters: &PerfCounters,
+) -> SurfaceFlowAnalysis {
     #[cfg(test)]
     TEST_CALLABLE_FLOW_PASSES.with(|count| count.set(count.get() + 1));
-    analyze_surface_for_callable(source, context, revision, Some(callable))
+    analyze_surface_for_callable(source, context, revision, Some(callable), counters)
 }
 
 fn analyze_surface_for_callable(
@@ -204,8 +211,9 @@ fn analyze_surface_for_callable(
     context: &SolverContext<'_>,
     revision: SemanticGeneration,
     target_callable: Option<&CallableId>,
+    counters: &PerfCounters,
 ) -> SurfaceFlowAnalysis {
-    crate::perf::COUNTERS.flow_passes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    counters.flow_passes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     #[cfg(test)]
     TEST_FLOW_PASSES.with(|count| count.set(count.get() + 1));
     let program = source.program.as_ref();
@@ -264,7 +272,7 @@ fn analyze_surface_for_callable(
             if target_callable.is_some_and(|target| target != &member.callable) {
                 continue;
             }
-            crate::perf::COUNTERS.callables_analyzed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            counters.callables_analyzed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let body = member_body(source, member.ast);
             if body.is_empty() {
                 continue;
