@@ -314,6 +314,9 @@ pub(crate) fn solve_affected_callables_with_cancel(
         let Some(source) = callable_sources.get(&callable) else { continue };
         let previous_summary = summaries.get(&callable).cloned();
         let analysis = analyze_callable_source(source, &callable, classes, graph, &summaries, &parameter_facts, generation);
+        if cancelled() {
+            return None;
+        }
         let candidate = analysis
             .summaries
             .into_iter()
