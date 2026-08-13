@@ -11,7 +11,7 @@ use super::scope::BindingId;
 pub const MAX_SHAPE_UNION: usize = 8;
 
 /// Advisory runtime value shape. This is deliberately not a language type.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ValueShape {
     /// No useful runtime knowledge is available.
     Unknown,
@@ -274,6 +274,20 @@ struct BindingFact {
 }
 
 impl LocalFacts {
+    /// Captures compact per-binding lengths for a speculative nested-flow pass.
+    pub(crate) fn checkpoint(&self) -> BTreeMap<BindingId, usize> {
+        self.bindings.iter().map(|(binding, facts)| (*binding, facts.len())).collect()
+    }
+
+    /// Rolls back facts recorded after a speculative nested-flow pass.
+    pub(crate) fn rollback(&mut self, checkpoint: &BTreeMap<BindingId, usize>) {
+        self.bindings.retain(|binding, facts| {
+            let Some(length) = checkpoint.get(binding) else { return false };
+            facts.truncate(*length);
+            true
+        });
+    }
+
     /// Records one binding write in source order.
     pub fn record(&mut self, binding: BindingId, range: SourceRange, value: InferredValue) {
         self.bindings.entry(binding).or_default().push(BindingFact { range, value });

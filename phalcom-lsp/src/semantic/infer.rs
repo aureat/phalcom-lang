@@ -25,6 +25,7 @@ pub fn field_facts_for_surface(
     _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     contains_class: impl Fn(&ClassId) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
     parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolver: DispatchResolver<'_>,
 ) -> FieldFacts {
@@ -36,6 +37,7 @@ pub fn field_facts_for_surface(
         &known_class,
         &contains_class,
         &callable_return,
+        &callable_effects,
         &parameter_fact,
         &field_value,
         &|receiver, selector| resolver.resolve(receiver, selector),
@@ -53,6 +55,7 @@ pub fn parameter_facts_for_program(
     _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     contains_class: impl Fn(&ClassId) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
     parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
 ) -> ParameterFacts {
@@ -64,6 +67,7 @@ pub fn parameter_facts_for_program(
         &known_class,
         &contains_class,
         &callable_return,
+        &callable_effects,
         &parameter_fact,
         &field_value,
         &resolve_member,
@@ -115,6 +119,7 @@ pub(crate) fn solve_workspace_callables(
                     || (selector == "new()" && classes.contains_key(class))
             };
             let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
+            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
             let parameter_fact = |id: &CallableId, name: &str| previous_parameters.get(id, name).cloned();
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
             let facts = parameter_facts_for_program(
@@ -125,6 +130,7 @@ pub(crate) fn solve_workspace_callables(
                 is_constructor,
                 |class| classes.contains_key(class),
                 callable_return,
+                callable_effects,
                 parameter_fact,
                 resolve_member,
             );
@@ -142,6 +148,7 @@ pub(crate) fn solve_workspace_callables(
                     || (selector == "new()" && classes.contains_key(class))
             };
             let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
+            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
             let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(id, name).cloned();
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
             for (summary, evidence) in summaries_for_surface_with_bottom(
@@ -152,6 +159,7 @@ pub(crate) fn solve_workspace_callables(
                 is_constructor,
                 |class| classes.contains_key(class),
                 callable_return,
+                callable_effects,
                 parameter_fact,
                 resolve_member,
                 generation,
@@ -239,6 +247,7 @@ pub(crate) fn solve_affected_callables(
                     || (selector == "new()" && classes.contains_key(class))
             };
             let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
+            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
             let parameter_fact = |id: &CallableId, name: &str| previous_parameters.get(id, name).cloned();
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
             let facts = parameter_facts_for_program(
@@ -249,6 +258,7 @@ pub(crate) fn solve_affected_callables(
                 is_constructor,
                 |class| classes.contains_key(class),
                 callable_return,
+                callable_effects,
                 parameter_fact,
                 resolve_member,
             );
@@ -266,6 +276,7 @@ pub(crate) fn solve_affected_callables(
                     || (selector == "new()" && classes.contains_key(class))
             };
             let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
+            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
             let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(id, name).cloned();
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
             for (summary, evidence) in summaries_for_surface_with_bottom(
@@ -276,6 +287,7 @@ pub(crate) fn solve_affected_callables(
                 is_constructor,
                 |class| classes.contains_key(class),
                 callable_return,
+                callable_effects,
                 parameter_fact,
                 resolve_member,
                 generation,
@@ -330,6 +342,7 @@ fn complete_missing_summaries(
                 || (selector == "new()" && classes.contains_key(class))
         };
         let callable_return = |id: &CallableId| super::return_for_callable(classes, summaries, id);
+        let callable_effects = |id: &CallableId| summaries.get(id).map(|summary| summary.effects.clone());
         let parameter_fact = |id: &CallableId, name: &str| parameter_facts.get(id, name).cloned();
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let generated = summaries_for_surface(
@@ -340,6 +353,7 @@ fn complete_missing_summaries(
             is_constructor,
             |class| classes.contains_key(class),
             callable_return,
+            callable_effects,
             parameter_fact,
             resolve_member,
             generation,
@@ -358,6 +372,7 @@ pub fn collect_local_facts_with_returns(
     _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     contains_class: impl Fn(&ClassId) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
     parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
 ) -> LocalFacts {
@@ -369,6 +384,7 @@ pub fn collect_local_facts_with_returns(
         &known_class,
         &contains_class,
         &callable_return,
+        &callable_effects,
         &parameter_fact,
         &field_value,
         &resolve_member,
@@ -386,6 +402,7 @@ pub fn summaries_for_surface(
     _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     contains_class: impl Fn(&ClassId) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
     parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
     revision: SemanticGeneration,
@@ -398,6 +415,7 @@ pub fn summaries_for_surface(
         &known_class,
         &contains_class,
         &callable_return,
+        &callable_effects,
         &parameter_fact,
         &field_value,
         &resolve_member,
@@ -419,6 +437,7 @@ fn summaries_for_surface_with_bottom(
     _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     contains_class: impl Fn(&ClassId) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
     parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
     revision: SemanticGeneration,
@@ -431,6 +450,7 @@ fn summaries_for_surface_with_bottom(
         &known_class,
         &contains_class,
         &callable_return,
+        &callable_effects,
         &parameter_fact,
         &field_value,
         &resolve_member,
@@ -471,6 +491,7 @@ mod tests {
             no_classes,
             |_, _| false,
             |_| false,
+            |_| None,
             |_| None,
             |_, _| None,
             |_, _| None,

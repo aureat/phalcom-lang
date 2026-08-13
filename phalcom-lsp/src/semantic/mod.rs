@@ -693,6 +693,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                     || (selector == "new()" && classes.contains_key(class))
             };
             let callable_return = |id: &CallableId| return_for_callable(&classes, &state.summaries, id);
+            let callable_effects = |id: &CallableId| state.summaries.get(id).map(|summary| summary.effects.clone());
             let parameter_fact = |id: &CallableId, name: &str| solved_parameters.get(id, name).cloned();
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
             let contribution = infer::parameter_facts_for_program(
@@ -703,6 +704,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                 is_constructor,
                 contains_class,
                 callable_return,
+                callable_effects,
                 parameter_fact,
                 resolve_member,
             );
@@ -770,6 +772,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                 || (selector == "new()" && classes.contains_key(class))
         };
         let callable_return = |id: &CallableId| return_for_callable(&classes, &summaries, id);
+        let callable_effects = |id: &CallableId| summaries.get(id).map(|summary| summary.effects.clone());
         let parameter_fact = |id: &CallableId, name: &str| state.parameter_facts.get(&(id.clone(), name.to_string())).cloned();
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         local_by_module.insert(
@@ -782,6 +785,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                 is_constructor,
                 contains_class,
                 callable_return,
+                callable_effects,
                 parameter_fact,
                 resolve_member,
             ),
@@ -796,6 +800,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                 is_constructor,
                 contains_class,
                 callable_return,
+                callable_effects,
                 parameter_fact,
                 resolver,
             ),
@@ -1171,6 +1176,91 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
             })
             .unwrap();
         assert_eq!(escaped.shape, ValueShape::Unknown);
+    }
+
+    #[test]
+    fn arbitrary_higher_order_call_propagates_literal_block_effects() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///higher-order-flow.ph");
+        let parsed = parse(
+            "class Product { @constructor new() { } }\nclass Factory { consume(_ block) { block() } forward(_ block) { self.consume(block) } choose() { self.forward { return Product.new() } } }\n",
+            0,
+        );
+        assert!(parsed.errors.is_empty(), "higher-order parse errors: {:?}", parsed.errors);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+
+        let summary = db
+            .return_for_callable(&CallableId {
+                owner: ClassId::new(ModuleId::from_uri(&uri), "Factory"),
+                selector: "choose()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .expect("higher-order summary");
+        assert!(matches!(summary.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Product"));
+    }
+
+    #[test]
+    fn escaped_block_effects_do_not_change_outer_flow() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///escaped-block-flow.ph");
+        let source = "class Product { @constructor new() { } }\nclass Factory { store(_ block) { 1 } choose() {\nlet result = 1\nself.store { result = Product.new() }\nresult\n} }\n";
+        let parsed = parse(source, 0);
+        assert!(parsed.errors.is_empty(), "escaped block parse errors: {:?}", parsed.errors);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+
+        let factory = ClassId::new(ModuleId::from_uri(&uri), "Factory");
+        let summary = db
+            .return_for_callable(&CallableId {
+                owner: factory,
+                selector: "choose()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .expect("escaped block summary");
+        assert!(matches!(summary.shape, ValueShape::Instance(ClassId { module, name }) if module == ModuleId::new(CORE_MODULE_URI) && name == "Int"));
+        let result = db
+            .binding_at(&uri, "result", source.rfind("result").expect("result use"))
+            .expect("escaped block binding fact");
+        assert!(matches!(result.shape, ValueShape::Instance(ClassId { module, name }) if module == ModuleId::new(CORE_MODULE_URI) && name == "Int"));
+    }
+
+    #[test]
+    fn loop_fixpoint_propagates_continue_carried_writes() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///loop-flow.ph");
+        let source = "class Product { @constructor new() { } }\nclass Factory { choose(_ values) {\nlet result = 1\nfor (item in values) {\nresult = Product.new()\ncontinue\n}\nresult\n} }\n";
+        let parsed = parse(source, 0);
+        assert!(parsed.errors.is_empty(), "loop parse errors: {:?}", parsed.errors);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+
+        let summary = db
+            .return_for_callable(&CallableId {
+                owner: ClassId::new(ModuleId::from_uri(&uri), "Factory"),
+                selector: "choose(_)".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .expect("loop summary");
+        assert!(matches!(summary.shape, ValueShape::Union(_)), "shape: {:?}", summary.shape);
+    }
+
+    #[test]
+    fn while_fixpoint_propagates_continue_carried_writes() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///while-flow.ph");
+        let parsed = parse(
+            "class Product { @constructor new() { } }\nclass Factory { choose() {\nlet result = 1\nlet i = 0\n|| { i < 1 }.whileTrue || {\nresult = Product.new()\ni = i + 1\ncontinue\n}\nresult\n} }\n",
+            0,
+        );
+        assert!(parsed.errors.is_empty(), "while parse errors: {:?}", parsed.errors);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+
+        let summary = db
+            .return_for_callable(&CallableId {
+                owner: ClassId::new(ModuleId::from_uri(&uri), "Factory"),
+                selector: "choose()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .expect("while summary");
+        assert!(matches!(summary.shape, ValueShape::Union(_)), "shape: {:?}", summary.shape);
     }
 
     #[test]

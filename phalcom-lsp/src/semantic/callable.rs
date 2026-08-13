@@ -1,6 +1,6 @@
 //! Callable-summary data model; solving is added in the interprocedural slice.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::facts::{InferredValue, ParameterFacts};
 use super::ids::CallableId;
@@ -23,11 +23,15 @@ pub struct CallableSummary {
     pub revision: SemanticGeneration,
 }
 
-/// Conservative effect flags retained for future invalidation precision.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Conservative callable effects used by flow propagation and invalidation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SummaryEffects {
     /// Callable contains a reflective or dynamic send.
     pub dynamic_send: bool,
+    /// Zero-based parameter positions whose callable value is invoked on a
+    /// reachable source path. Callers use this contract to propagate effects
+    /// from literal blocks passed to higher-order callables.
+    pub invokes_parameters: BTreeSet<usize>,
 }
 
 /// Coherent result of one complete callable/parameter solve.
