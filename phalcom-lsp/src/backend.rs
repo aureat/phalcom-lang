@@ -1285,10 +1285,15 @@ impl LanguageServer for Backend {
                     continue;
                 };
                 let parse = phalcom_ast::parser::parse(&text, 0);
+                let next_revision = self
+                    .analysis
+                    .db()
+                    .file_snapshot(&change.uri)
+                    .map_or(FileRevision(1), |file| FileRevision(file.revision.0.saturating_add(1)));
                 self.index.update_file(change.uri.clone(), &parse.program);
-                self.cache_source(change.uri.clone(), FileRevision(1), text, parse.program.clone());
+                self.cache_source(change.uri.clone(), next_revision, text, parse.program.clone());
                 self.record_indexed_file(change.uri.clone());
-                updates.push((change.uri, crate::semantic::FileRevision(1), parse.program));
+                updates.push((change.uri, next_revision, parse.program));
             }
         }
         self.analysis.enqueue_file_removals(removals);
