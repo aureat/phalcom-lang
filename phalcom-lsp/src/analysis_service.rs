@@ -120,6 +120,8 @@ pub enum AnalysisEvent {
         uri: Url,
         /// Source text retained for closed-file LSP metadata queries.
         text: Arc<str>,
+        /// Revision assigned to the cached source snapshot.
+        revision: FileRevision,
     },
 }
 
@@ -549,6 +551,7 @@ fn process_scan_batch(
         let _ = event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
             uri: discovered.uri.clone(),
             text: Arc::from(text),
+            revision,
         });
         if mode == AnalysisMode::Workspace {
             semantic_files.push((discovered.uri, revision, (*program).clone()));

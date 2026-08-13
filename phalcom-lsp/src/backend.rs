@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, WorkspaceScanRequest};
+use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, SourceCache, WorkspaceScanRequest};
 
 use serde_json::Value as JsonValue;
 use tower_lsp::jsonrpc::Result;
@@ -50,7 +50,7 @@ use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
-use crate::semantic::{OccurrenceRole, SemanticDb, SemanticTarget, ValueShape};
+use crate::semantic::{FileRevision, OccurrenceRole, SemanticDb, SemanticTarget, ValueShape};
 use crate::semantic_tokens;
 
 use crate::workspace_scan::AnalysisMode;
@@ -192,7 +192,7 @@ pub struct Backend {
     /// Files currently represented in the workspace index.
     indexed_files: Arc<RwLock<BTreeSet<Url>>>,
     /// Closed-file text, parse, and line metadata populated by worker/index events.
-    closed_sources: Arc<RwLock<BTreeMap<Url, CachedSource>>>,
+    closed_sources: SourceCache,
     /// Mutable server configuration.
     config: RwLock<ServerConfig>,
     /// URI for the active on-disk core source, if one replaced bundled core.
@@ -281,10 +281,17 @@ impl Backend {
         self.indexed_files.write().expect("indexed file lock poisoned").insert(uri);
     }
 
-    fn cache_source(&self, uri: Url, text: impl Into<Arc<str>>, program: impl Into<Arc<phalcom_ast::ast::Program>>) {
+    fn cache_source(
+        &self,
+        uri: Url,
+        revision: FileRevision,
+        text: impl Into<Arc<str>>,
+        program: impl Into<Arc<phalcom_ast::ast::Program>>,
+    ) {
         let text = text.into();
         let program = program.into();
         let source = CachedSource {
+            revision,
             line_index: Arc::new(LineIndex::new(&text)),
             text,
             program,
@@ -455,11 +462,7 @@ impl Backend {
                 if info.class != owner.name {
                     return false;
                 }
-                let Some(indexed_path) = info.uri.to_file_path().ok() else { return false };
-                let Some(semantic_path) = definition_uri.to_file_path().ok() else {
-                    return false;
-                };
-                std::fs::canonicalize(indexed_path).ok() == std::fs::canonicalize(semantic_path).ok()
+                info.uri == definition_uri
             })
             .map(|info| info.uri)
             .unwrap_or(definition_uri);
@@ -496,19 +499,11 @@ impl Backend {
     ///   document's own [`LineIndex`], which reflects the live/unsaved
     ///   buffer — the same text the index was last built from (Stage 2's
     ///   `did_change` wiring keeps them in lockstep).
-    /// - **Not open**: the index's byte range was computed against the file
-    ///   as last read from disk (the `initialize`-time scan, or whenever it
-    ///   was last open), so re-reading the file and building a fresh
-    ///   [`LineIndex`] on demand is correct as long as the on-disk file
-    ///   hasn't changed since. This crate deliberately does **not** cache a
-    ///   `LineIndex` per indexed-but-unopened file — that cache would need
-    ///   its own invalidation story (a filesystem watch) that Stage 2 does
-    ///   not build; re-reading a small `.ph` file on an occasional
-    ///   go-to-def/find-refs/workspace-symbol request is simple and cheap
-    ///   enough not to need one.
+    /// - **Not open**: maps through the worker-maintained [`CachedSource`]
+    ///   metadata for the indexed closed file.
     ///
-    /// Returns `None` if the file is not open and cannot be read from disk
-    /// (deleted since the last scan, or not a `file://` URI).
+    /// Returns `None` if the file is not open and has no cached source
+    /// metadata.
     fn occurrence_to_location(&self, occurrence: &Occurrence) -> Option<Location> {
         if let Some(range) = self
             .documents
@@ -520,15 +515,10 @@ impl Backend {
             });
         }
 
-        let line_index = self
-            .closed_sources
-            .read()
-            .expect("closed source cache lock poisoned")
-            .get(&occurrence.uri)
-            .map(|source| Arc::clone(&source.line_index))?;
+        let source = self.cached_source(&occurrence.uri)?;
         Some(Location {
             uri: occurrence.uri.clone(),
-            range: line_index.range(occurrence.range.start..occurrence.range.end),
+            range: source.line_index.range(occurrence.range.start..occurrence.range.end),
         })
     }
 
@@ -539,28 +529,41 @@ impl Backend {
         occurrences.iter().filter_map(|occ| self.occurrence_to_location(occ)).collect()
     }
 
+    fn cached_source(&self, uri: &Url) -> Option<CachedSource> {
+        let source = self
+            .closed_sources
+            .read()
+            .expect("closed source cache lock poisoned")
+            .get(uri)
+            .cloned()?;
+        let module = crate::semantic::ModuleId::new(uri.to_string());
+        if let Some(revision) = self.semantic.snapshot().file_revision(&module)
+            && revision != source.revision
+        {
+            return None;
+        }
+        Some(source)
+    }
+
     /// Runs `f` against a snapshot of `uri`'s source text, parsed
-    /// [`phalcom_ast::ast::Program`], and [`LineIndex`] — the same "open or
-    /// on-disk" dual path [`Self::occurrence_to_location`] uses, generalized
+    /// [`phalcom_ast::ast::Program`], and [`LineIndex`] — the same live or
+    /// cached path [`Self::occurrence_to_location`] uses, generalized
     /// so Stage 4's cross-file Phaldoc harvest ([`Self::member_phaldoc`]) can
     /// inspect a declaration's *defining* file even when that file is not the one currently open
     /// under the cursor:
     ///
     /// - **Open**: borrows the live/unsaved buffer straight out of the
     ///   [`DocumentStore`] (no reparse).
-    /// - **Not open**: reads the file from disk and parses it fresh, on the
-    ///   same "small `.ph` file, occasional request" cost basis
-    ///   [`Self::occurrence_to_location`] already accepts — no cache is kept
-    ///   for the on-disk path.
+    /// - **Not open**: reads the worker-maintained [`CachedSource`] entry.
     ///
-    /// Returns `None` if `uri` is not open and cannot be read from disk.
+    /// Returns `None` if `uri` is not open and has no cached source entry.
     fn with_source_snapshot<R>(&self, uri: &Url, f: impl FnOnce(&str, &phalcom_ast::ast::Program, &LineIndex) -> R) -> Option<R> {
         let is_open = self.documents.with_document(uri, |_| ()).is_some();
         if is_open {
             return self.documents.with_document(uri, |doc| f(&doc.text, &doc.parse.program, &doc.line_index));
         }
 
-        let source = self.closed_sources.read().expect("closed source cache lock poisoned").get(uri).cloned()?;
+        let source = self.cached_source(uri)?;
         Some(f(&source.text, &source.program, &source.line_index))
     }
 
@@ -617,7 +620,7 @@ impl Backend {
         let cache = self.closed_sources.read().expect("closed source cache lock poisoned");
         let mut infos = Vec::new();
         for (uri, source) in cache.iter() {
-            let module = crate::semantic::ModuleId::from_uri(uri);
+            let module = crate::semantic::ModuleId::new(uri.to_string());
             let surface = crate::semantic::build_module_surface(module, &source.program);
             for class in surface.classes.values() {
                 for member in class.members_by_side.values().filter(|member| member.callable.selector == selector) {
@@ -1178,13 +1181,14 @@ impl LanguageServer for Backend {
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
                     match event {
-                        AnalysisEvent::WorkspaceFileIndexed { uri, text } => {
+                        AnalysisEvent::WorkspaceFileIndexed { uri, text, revision } => {
                             let cached_uri = uri.clone();
                             let program = Arc::new(phalcom_ast::parser::parse(&text, 0).program);
                             indexed_files.write().expect("indexed file lock poisoned").insert(uri);
                             closed_sources.write().expect("closed source cache lock poisoned").insert(
                                 cached_uri,
                                 CachedSource {
+                                    revision,
                                     line_index: Arc::new(LineIndex::new(&text)),
                                     text,
                                     program,
@@ -1282,7 +1286,7 @@ impl LanguageServer for Backend {
                 };
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 self.index.update_file(change.uri.clone(), &parse.program);
-                self.cache_source(change.uri.clone(), text, parse.program.clone());
+                self.cache_source(change.uri.clone(), FileRevision(1), text, parse.program.clone());
                 self.record_indexed_file(change.uri.clone());
                 updates.push((change.uri, crate::semantic::FileRevision(1), parse.program));
             }
@@ -1309,7 +1313,7 @@ impl LanguageServer for Backend {
         if let Some((revision, program)) = self.documents.with_document(&uri, |doc| {
             let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
             let program = recovered.map(|p| p.program).unwrap_or_else(|| doc.parse.program.clone());
-            self.cache_source(uri.clone(), doc.text.clone(), Arc::new(program.clone()));
+            self.cache_source(uri.clone(), doc.revision, doc.text.clone(), Arc::new(program.clone()));
             (doc.revision, program)
         }) {
             self.update_semantic_for_source(&uri, revision, &program);
@@ -1336,7 +1340,7 @@ impl LanguageServer for Backend {
         if let Some((revision, program)) = self.documents.with_document(&uri, |doc| {
             let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
             let program = recovered.map(|p| p.program).unwrap_or_else(|| doc.parse.program.clone());
-            self.cache_source(uri.clone(), doc.text.clone(), Arc::new(program.clone()));
+            self.cache_source(uri.clone(), doc.revision, doc.text.clone(), Arc::new(program.clone()));
             (doc.revision, program)
         }) {
             self.update_semantic_for_source(&uri, revision, &program);
@@ -1360,7 +1364,7 @@ impl LanguageServer for Backend {
             if let Ok(text) = std::fs::read_to_string(path) {
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 self.index.update_file(uri.clone(), &parse.program);
-                self.cache_source(uri.clone(), text, parse.program.clone());
+                self.cache_source(uri.clone(), revision, text, parse.program.clone());
                 self.update_semantic_for_source(&uri, revision, &parse.program);
                 self.record_indexed_file(uri.clone());
             } else {
