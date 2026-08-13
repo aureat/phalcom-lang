@@ -363,7 +363,9 @@ impl FlowAnalyzer<'_> {
     fn seed_member(&mut self, member: &MemberSurface) -> FlowState {
         let mut state = FlowState::default();
         for (index, param) in member.params.iter().enumerate() {
-            let value = (self.parameter_fact)(&member.callable, &param.name).unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, param.source_range));
+            let value = (self.parameter_fact)(&member.callable, &param.name)
+                .or_else(|| self.parameter_facts.get(&member.callable, &param.name).cloned())
+                .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, param.source_range));
             if let Some(binding) = self.scopes.binding_for_declaration(param.name_range) {
                 state.bindings.insert(binding, value.clone());
                 self.local_facts.record(binding, param.name_range, value);
