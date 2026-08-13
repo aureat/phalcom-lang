@@ -29,6 +29,11 @@ pub(crate) fn test_solver_rounds() -> u64 {
     TEST_SOLVER_ROUNDS.with(std::cell::Cell::get)
 }
 
+#[cfg(test)]
+pub(crate) fn test_solver_steps() -> u64 {
+    TEST_SOLVER_STEPS.with(std::cell::Cell::get)
+}
+
 fn record_solver_round() {
     #[cfg(test)]
     TEST_SOLVER_ROUNDS.with(|count| count.set(count.get() + 1));

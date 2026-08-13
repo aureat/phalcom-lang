@@ -10,8 +10,8 @@ use tower_lsp::lsp_types::Url;
 use super::RebuildTrace;
 use super::callable::CallableSummary;
 use super::core_source;
-use super::facts::{ContributionSource, FileRevision, InferredValue, ParameterContributions, ParameterFacts, ParameterSlot};
-use super::ids::{CORE_MODULE_URI, CallableId, ClassId, FieldId, ModuleId};
+use super::facts::{ContributionSource, FieldEvidenceKind, FileRevision, InferredValue, ParameterContributions, ParameterFacts, ParameterSlot, ValueShape};
+use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, FieldId, ModuleId};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
 use super::snapshot::{FileSourceSnapshot, SemanticSnapshot};
@@ -496,6 +496,7 @@ class Service {
     fn engine_uses_one_unified_surface_flow_result() {
         let before_flow = crate::semantic::flow::test_flow_passes();
         let before_solver = infer::test_solver_rounds();
+        let before_solver_steps = infer::test_solver_steps();
         let mut engine = SemanticEngine::empty();
         let uri = Url::parse("file:///one-pass-engine.ph").expect("fixture URI");
         engine.update_file(&uri, FileRevision(1), &parse(ONE_PASS_FIXTURE, 0).program);
@@ -504,14 +505,17 @@ class Service {
         let source_passes = after_flow.1 - before_flow.1;
         let callable_passes = after_flow.2 - before_flow.2;
         let solver_rounds = infer::test_solver_rounds() - before_solver;
+        let solver_steps = infer::test_solver_steps() - before_solver_steps;
 
         assert!(callable_passes > 0, "callable worklist did not enter analyze_callable");
-        assert_eq!(callable_passes, solver_rounds, "each solver step must account for one callable flow pass");
+        assert!(solver_rounds > 0, "callable solver did not enter a round");
+        assert_ne!(solver_rounds, solver_steps, "solver rounds and callable steps must remain distinct");
+        assert_eq!(callable_passes, solver_steps, "each callable step must account for one callable flow pass");
         let allowed_final_stabilized_passes = 1;
         assert_eq!(source_passes, allowed_final_stabilized_passes);
         assert!(
-            flow_passes <= solver_rounds + allowed_final_stabilized_passes,
-            "duplicate unified traversal: flow_passes={flow_passes}, solver_rounds={solver_rounds}, allowed_final={allowed_final_stabilized_passes}"
+            flow_passes <= solver_steps + allowed_final_stabilized_passes,
+            "duplicate unified traversal: flow_passes={flow_passes}, solver_steps={solver_steps}, allowed_final={allowed_final_stabilized_passes}"
         );
 
         let module = ModuleId::from_uri(&uri);
@@ -527,6 +531,30 @@ class Service {
         assert!(file.local_facts.facts_for(local_binding).next().is_some(), "local product missing");
         assert!(file.field_facts.iter().next().is_some(), "field product missing");
         assert!(file.parameter_facts.iter().next().is_some(), "parameter product missing");
+
+        let product = ClassId::new(module.clone(), "Product");
+        let seed_evidence = file.field_facts.evidence(&product, "_seed", DispatchSide::Instance);
+        assert!(
+            seed_evidence.iter().any(|evidence| evidence.kind == FieldEvidenceKind::DeclarationInitializer),
+            "Product._seed declaration initializer evidence missing"
+        );
+        assert!(
+            seed_evidence.iter().any(|evidence| evidence.kind == FieldEvidenceKind::ConstructorInitialization),
+            "Product._seed constructor initialization evidence missing"
+        );
+
+        let service = ClassId::new(module.clone(), "Service");
+        let consume = engine
+            .state
+            .classes
+            .get(&service)
+            .and_then(|class| class.members_by_side.get(&("consume(_)".to_string(), DispatchSide::Class)))
+            .expect("Service.consume(_) member");
+        let input = file
+            .parameter_facts
+            .get(&consume.callable, "input")
+            .expect("Service.consume(_) input parameter fact");
+        assert_eq!(input.shape, ValueShape::Instance(ClassId::new(ModuleId::new(CORE_MODULE_URI), "Int")));
         assert!(
             engine.state.summaries.values().any(|summary| summary.callable.owner.module == module),
             "summary product missing"
