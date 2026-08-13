@@ -95,6 +95,46 @@ pub struct WorkerShared {
     pub open_documents: Mutex<BTreeSet<Url>>,
     /// True while a configured workspace scan still has undiscovered work.
     pub scan_in_progress: AtomicBool,
+    #[cfg(test)]
+    test_batch_gate: Mutex<Option<Arc<TestBatchGate>>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestBatchGate {
+    state: Mutex<TestBatchGateState>,
+    condvar: Condvar,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestBatchGateState {
+    entered: bool,
+    released: bool,
+}
+
+#[cfg(test)]
+impl TestBatchGate {
+    fn wait_until_entered(&self) {
+        let mut state = self.state.lock().expect("test gate lock poisoned");
+        while !state.entered {
+            state = self.condvar.wait(state).expect("test gate condvar poisoned");
+        }
+    }
+
+    fn release(&self) {
+        self.state.lock().expect("test gate lock poisoned").released = true;
+        self.condvar.notify_all();
+    }
+
+    fn wait(&self) {
+        let mut state = self.state.lock().expect("test gate lock poisoned");
+        state.entered = true;
+        self.condvar.notify_all();
+        while !state.released {
+            state = self.condvar.wait(state).expect("test gate condvar poisoned");
+        }
+    }
 }
 
 /// Events emitted by the background analysis worker thread.
@@ -163,6 +203,8 @@ impl AnalysisService {
             shutdown: AtomicBool::new(false),
             open_documents: Mutex::new(BTreeSet::new()),
             scan_in_progress: AtomicBool::new(false),
+            #[cfg(test)]
+            test_batch_gate: Mutex::new(None),
         });
 
         let db_clone = db.clone();
@@ -319,6 +361,11 @@ impl AnalysisService {
         self.shared.condvar.notify_all();
     }
 
+    #[cfg(test)]
+    fn install_test_batch_gate(&self, gate: Arc<TestBatchGate>) {
+        *self.shared.test_batch_gate.lock().expect("test gate lock poisoned") = Some(gate);
+    }
+
     /// Access to the underlying semantic database snapshot handle.
     pub fn db(&self) -> &Arc<SemanticDb> {
         &self.db
@@ -462,6 +509,11 @@ fn worker_loop(
 
             // Release lock during heavy semantic execution
             drop(pending);
+
+            #[cfg(test)]
+            if let Some(gate) = shared.test_batch_gate.lock().expect("test gate lock poisoned").clone() {
+                gate.wait();
+            }
 
             COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
             let _span = crate::perf::PerfSpan::start("semantic_batch");
@@ -648,6 +700,14 @@ mod tests {
         Url::parse(value).unwrap()
     }
 
+    fn gated_service() -> (AnalysisService, mpsc::UnboundedReceiver<AnalysisEvent>, Arc<TestBatchGate>) {
+        let db = Arc::new(SemanticDb::new());
+        let (service, rx) = AnalysisService::new(db);
+        let gate = Arc::new(TestBatchGate::default());
+        service.install_test_batch_gate(gate.clone());
+        (service, rx, gate)
+    }
+
     #[test]
     fn analysis_service_coalesces_edits_and_publishes_generation() {
         let db = Arc::new(SemanticDb::new());
@@ -675,6 +735,52 @@ mod tests {
         let db = Arc::new(SemanticDb::new());
         let (service, _rx) = AnalysisService::new(db);
         service.shutdown();
+    }
+
+    #[test]
+    fn gated_revisions_one_through_one_hundred_publish_only_one_hundred() {
+        let (service, mut rx, gate) = gated_service();
+        let file_uri = uri("file:///coalesced.ph");
+
+        service.enqueue_file_update(file_uri.clone(), FileRevision(1), parse("class A {}", 0).program);
+        gate.wait_until_entered();
+        for revision in 2..=100 {
+            service.enqueue_file_update(file_uri.clone(), FileRevision(revision), parse("class A {}", 0).program);
+        }
+        gate.release();
+
+        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::StaleBatchDiscarded { .. })));
+        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::Published { .. })));
+        assert!(rx.try_recv().is_err());
+        service.flush();
+        assert_eq!(service.db().file_snapshot(&file_uri).unwrap().revision, FileRevision(100));
+    }
+
+    #[test]
+    fn gated_stale_batch_is_discarded_and_newer_batch_publishes() {
+        let (service, mut rx, gate) = gated_service();
+        let file_uri = uri("file:///stale.ph");
+
+        service.enqueue_file_update(file_uri.clone(), FileRevision(1), parse("class A {}", 0).program);
+        gate.wait_until_entered();
+        service.enqueue_file_update(file_uri.clone(), FileRevision(2), parse("class A { newer() {} }", 0).program);
+        gate.release();
+
+        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::StaleBatchDiscarded { .. })));
+        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::Published { .. })));
+        service.flush();
+        assert_eq!(service.db().file_snapshot(&file_uri).unwrap().revision, FileRevision(2));
+    }
+
+    #[test]
+    fn shutdown_returns_while_gated_batch_is_blocked_and_drop_joins_after_release() {
+        let (service, _rx, gate) = gated_service();
+        service.enqueue_file_update(uri("file:///shutdown.ph"), FileRevision(1), parse("class A {}", 0).program);
+        gate.wait_until_entered();
+
+        service.shutdown();
+        gate.release();
+        drop(service);
     }
 
     #[test]
