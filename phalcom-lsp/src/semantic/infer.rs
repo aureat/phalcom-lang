@@ -21,6 +21,7 @@ use super::snapshot::FileSourceSnapshot;
 #[cfg(test)]
 thread_local! {
     static TEST_SOLVER_ROUNDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_SOLVER_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -32,6 +33,20 @@ fn record_solver_round() {
     #[cfg(test)]
     TEST_SOLVER_ROUNDS.with(|count| count.set(count.get() + 1));
     crate::perf::COUNTERS.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn record_solver_step() {
+    #[cfg(test)]
+    TEST_SOLVER_STEPS.with(|count| count.set(count.get() + 1));
+}
+
+fn solver_budget(callable_count: usize, slot_count: usize) -> usize {
+    let possible_dependency_edges = callable_count.saturating_mul(callable_count);
+    callable_count
+        .saturating_add(slot_count)
+        .saturating_add(possible_dependency_edges)
+        .max(1)
+        .saturating_mul(MAX_SHAPE_UNION + 2)
 }
 
 /// Coherent products from one bounded callable solve and its final source flow
@@ -138,7 +153,7 @@ pub(crate) fn solve_workspace_callables(
                 .sum::<usize>()
         })
         .sum::<usize>();
-    let max_rounds = (callable_count + slot_count).max(1) * (MAX_SHAPE_UNION + 2);
+    let max_rounds = solver_budget(callable_count, slot_count);
     let mut summaries = BTreeMap::new();
     let mut parameter_facts = ParameterFacts::default();
     let mut worklist = CallableWorklist::default();
@@ -150,12 +165,11 @@ pub(crate) fn solve_workspace_callables(
         }
     }
 
-    for _ in 0..max_rounds {
-        if worklist.is_empty() && callable_count > 0 {
-            break;
-        }
-        while worklist.pop().is_some() {}
+    let mut rounds = 0;
+    while rounds < max_rounds && (!worklist.is_empty() || (callable_count == 0 && rounds == 0)) {
         record_solver_round();
+        while worklist.pop().is_some() {}
+        rounds += 1;
         let previous_summaries = summaries.clone();
         let previous_parameters = parameter_facts.clone();
         let mut next_parameters = ParameterFacts::default();
@@ -260,7 +274,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
                 .sum::<usize>()
         })
         .sum::<usize>();
-    let max_steps = (callable_count + slot_count).max(1) * (MAX_SHAPE_UNION + 2);
+    let max_steps = solver_budget(callable_count, slot_count);
     let mut summaries = seed_summaries;
     let mut parameter_facts = base_parameters.clone();
     let mut source_facts = BTreeMap::<CallableId, ParameterFacts>::new();
@@ -276,15 +290,22 @@ pub(crate) fn solve_affected_callables_with_cancel(
     }
 
     let mut steps = 0;
-    while let Some(callable) = worklist.pop() {
+    let mut exceeded_budget = false;
+    'rounds: while !worklist.is_empty() {
         if cancelled() {
             return None;
         }
-        steps += 1;
-        if steps > max_steps {
-            break;
-        }
         record_solver_round();
+        while let Some(callable) = worklist.pop() {
+            if cancelled() {
+                return None;
+            }
+            steps += 1;
+            if steps > max_steps {
+                exceeded_budget = true;
+                break 'rounds;
+            }
+            record_solver_step();
         let Some(source) = callable_sources.get(&callable) else { continue };
         let previous_summary = summaries.get(&callable).cloned();
         let analysis = analyze_callable_source(source, &callable, classes, graph, &summaries, &parameter_facts, generation);
@@ -334,9 +355,10 @@ pub(crate) fn solve_affected_callables_with_cancel(
                 }
             }
         }
+        }
     }
 
-    if steps > max_steps {
+    if exceeded_budget {
         parameter_facts.widen_all();
         for summary in summaries.values_mut() {
             if callable_sources.contains_key(&summary.callable) {
