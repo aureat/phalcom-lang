@@ -99,6 +99,8 @@ pub struct WorkerShared {
     pub counters: PerfCountersHandle,
     #[cfg(test)]
     test_batch_gate: Mutex<Option<Arc<TestBatchGate>>>,
+    #[cfg(test)]
+    test_scan_gate: Mutex<Option<Arc<TestScanGate>>>,
 }
 
 #[cfg(test)]
@@ -176,6 +178,44 @@ impl TestBatchGate {
     }
 }
 
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct TestScanGate {
+    state: Mutex<TestScanGateState>,
+    condvar: Condvar,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestScanGateState {
+    entered: bool,
+    released: bool,
+}
+
+#[cfg(test)]
+impl TestScanGate {
+    pub(crate) fn wait_until_entered(&self) {
+        let mut state = self.state.lock().expect("test scan gate lock poisoned");
+        while !state.entered {
+            state = self.condvar.wait(state).expect("test scan gate condvar poisoned");
+        }
+    }
+
+    pub(crate) fn release(&self) {
+        self.state.lock().expect("test scan gate lock poisoned").released = true;
+        self.condvar.notify_all();
+    }
+
+    fn wait(&self) {
+        let mut state = self.state.lock().expect("test scan gate lock poisoned");
+        state.entered = true;
+        self.condvar.notify_all();
+        while !state.released {
+            state = self.condvar.wait(state).expect("test scan gate condvar poisoned");
+        }
+    }
+}
+
 /// Events emitted by the background analysis worker thread.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AnalysisEvent {
@@ -247,6 +287,8 @@ impl AnalysisService {
             counters: counters.clone(),
             #[cfg(test)]
             test_batch_gate: Mutex::new(None),
+            #[cfg(test)]
+            test_scan_gate: Mutex::new(None),
         });
 
         let db_clone = db.clone();
@@ -407,6 +449,11 @@ impl AnalysisService {
     #[cfg(test)]
     pub(crate) fn install_test_batch_gate(&self, gate: Arc<TestBatchGate>) {
         *self.shared.test_batch_gate.lock().expect("test gate lock poisoned") = Some(gate);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_test_scan_gate(&self, gate: Arc<TestScanGate>) {
+        *self.shared.test_scan_gate.lock().expect("test scan gate lock poisoned") = Some(gate);
     }
 
     #[cfg(test)]
@@ -662,6 +709,11 @@ fn process_scan_batch(
     source_catalog: &mut BTreeMap<Url, (FileRevision, Program)>,
     selected_core_uri: Option<&Url>,
 ) {
+    #[cfg(test)]
+    if let Some(gate) = shared.test_scan_gate.lock().expect("test scan gate lock poisoned").clone() {
+        gate.wait();
+    }
+
     let mut semantic_files = Vec::new();
     for discovered in files {
         if Some(&discovered.uri) == selected_core_uri {

@@ -188,7 +188,7 @@ pub struct SolverContext<'ctx> {
 pub fn analyze_surface(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration, counters: &PerfCounters) -> SurfaceFlowAnalysis {
     #[cfg(test)]
     TEST_SURFACE_FLOW_PASSES.with(|count| count.set(count.get() + 1));
-    analyze_surface_for_callable(source, context, revision, None, counters)
+    analyze_surface_for_callable(source, context, revision, None, false, counters)
 }
 
 /// Runs one structured flow pass for one callable. Top-level and field work is
@@ -199,11 +199,12 @@ pub fn analyze_callable(
     context: &SolverContext<'_>,
     revision: SemanticGeneration,
     callable: &CallableId,
+    include_top_level: bool,
     counters: &PerfCounters,
 ) -> SurfaceFlowAnalysis {
     #[cfg(test)]
     TEST_CALLABLE_FLOW_PASSES.with(|count| count.set(count.get() + 1));
-    analyze_surface_for_callable(source, context, revision, Some(callable), counters)
+    analyze_surface_for_callable(source, context, revision, Some(callable), include_top_level, counters)
 }
 
 fn analyze_surface_for_callable(
@@ -211,6 +212,7 @@ fn analyze_surface_for_callable(
     context: &SolverContext<'_>,
     revision: SemanticGeneration,
     target_callable: Option<&CallableId>,
+    include_top_level: bool,
     counters: &PerfCounters,
 ) -> SurfaceFlowAnalysis {
     counters.flow_passes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -244,7 +246,7 @@ fn analyze_surface_for_callable(
         summaries: Vec::new(),
     };
 
-    if target_callable.is_none() {
+    if target_callable.is_none() || include_top_level {
         let mut top_state = FlowState::default();
         let _ = analyzer.analyze_statements(&program.statements, &mut top_state, None, None, None);
         analyzer.parameter_facts_from_events();

@@ -34,6 +34,17 @@ fn elapsed_ms(start: Instant) -> u128 {
     start.elapsed().as_millis()
 }
 
+async fn wait_for_discovered(lsp: &TestLsp, minimum: u64) {
+    let deadline = Instant::now() + std::time::Duration::from_secs(30);
+    while Instant::now() < deadline {
+        if lsp.counter_snapshot().workspace_files_discovered >= minimum {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("workspace scan did not discover {minimum} files within the 30-second yield budget");
+}
+
 #[tokio::test]
 #[ignore = "performance measurement harness"]
 async fn perf_local_and_workspace_convergence() {
@@ -104,13 +115,14 @@ async fn perf_local_and_workspace_convergence() {
 #[ignore = "performance measurement harness"]
 async fn perf_hover_during_progressive_scan() {
     let root = perf_root("busy");
-    let root_uri = populate_workspace(&root, 256);
+    let root_uri = populate_workspace(&root, 2048);
     let leaf_uri = Url::from_file_path(root.join("leaf.ph")).unwrap().to_string();
 
     let mut lsp = TestLsp::start().await;
     let initialize_start = Instant::now();
     lsp.initialize(Some(&root_uri)).await;
     lsp.open(&leaf_uri, "class Leaf { value() { 1 } }\n").await;
+    wait_for_discovered(&lsp, 1).await;
     let hover_start = Instant::now();
     let response = lsp.hover(&leaf_uri, Position::new(0, 7)).await;
     assert!(response.get("result").is_some());

@@ -11,6 +11,7 @@
 //! verification).
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -63,6 +64,64 @@ async fn read_response(r: &mut (impl AsyncReadExt + Unpin), id: i64) -> Value {
         }
     }
     panic!("did not observe a response to id {id} within the read budget");
+}
+
+async fn wait_for_symbol(client: &mut tokio::io::DuplexStream, id: &mut i64) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut last_response = Value::Null;
+    while Instant::now() < deadline {
+        *id += 1;
+        let request_id = *id;
+        write_message(
+            client,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "workspace/symbol",
+                "params": { "query": "move" }
+            }),
+        )
+        .await;
+        let response = read_response(client, request_id).await;
+        last_response = response.clone();
+        if response["result"]
+            .as_array()
+            .is_some_and(|symbols| symbols.iter().any(|symbol| symbol["name"] == json!("move(_,to,duration)")))
+        {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("workspace symbol did not become available within the 30-second yield budget: {last_response:#?}");
+}
+
+async fn wait_for_definition(client: &mut tokio::io::DuplexStream, id: &mut i64, uri: &str, line: usize, character: usize) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut last_response = Value::Null;
+    while Instant::now() < deadline {
+        *id += 1;
+        let request_id = *id;
+        write_message(
+            client,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "textDocument/definition",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "position": { "line": line, "character": character }
+                }
+            }),
+        )
+        .await;
+        let response = read_response(client, request_id).await;
+        last_response = response.clone();
+        if response["result"].as_array().is_some_and(|locations| !locations.is_empty()) {
+            return response;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("definition did not become available within the 30-second yield budget: {last_response:#?}");
 }
 
 /// A scratch directory on disk holding a small multi-file `.ph` fixture, so
@@ -175,46 +234,24 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     // skipped, but draining keeps the stream tidy).
     let _ = read_message(&mut client_end).await;
 
+    // Wait for progressive scan publication to install the closed-file
+    // index/cache before querying cross-file locations.
+    let mut next_request_id = 3;
+    wait_for_symbol(&mut client_end, &mut next_request_id).await;
+
     // textDocument/definition from the call site (`m.move(...)` in
     // main.ph) must resolve to `move`'s declaration in mover.ph.
     let call_site_offset = main_text.rfind("move").unwrap();
     let call_site_line = main_text[..call_site_offset].matches('\n').count();
     let call_site_col = call_site_offset - main_text[..call_site_offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
 
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "textDocument/definition",
-            "params": {
-                "textDocument": { "uri": main_uri },
-                "position": { "line": call_site_line, "character": call_site_col }
-            }
-        }),
-    )
-    .await;
-    let def_response = read_response(&mut client_end, 2).await;
+    let def_response = wait_for_definition(&mut client_end, &mut next_request_id, &main_uri, call_site_line, call_site_col).await;
     let locations = def_response["result"].as_array().expect("locations array");
     assert_eq!(locations.len(), 1, "{def_response:#?}");
-    let expected_def_uri = url::Url::from_file_path(&def_path).unwrap().to_string();
+    let expected_def_uri = url::Url::from_file_path(def_path.canonicalize().unwrap()).unwrap().to_string();
     assert_eq!(locations[0]["uri"], json!(expected_def_uri));
 
     // workspace/symbol for "move" must find the declaration.
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "workspace/symbol",
-            "params": { "query": "move" }
-        }),
-    )
-    .await;
-    let symbol_response = read_response(&mut client_end, 3).await;
-    let symbols = symbol_response["result"].as_array().expect("symbols array");
-    assert!(symbols.iter().any(|s| s["name"] == json!("move(_,to,duration)")), "{symbols:#?}");
-
     drop(client_end);
     let _ = server_task.await;
 }

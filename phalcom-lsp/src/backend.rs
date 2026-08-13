@@ -1703,7 +1703,7 @@ mod tests {
     use tower_lsp::lsp_types::{DidChangeWatchedFilesParams, FileChangeType, FileEvent, Url};
     use tower_lsp::{LanguageServer, LspService};
 
-    use super::super::analysis_service::{AnalysisEvent, TestBatchGate};
+    use super::super::analysis_service::{AnalysisEvent, TestBatchGate, TestScanGate};
     use super::{HintPolicy, PublicationRefresh, ServerConfig};
     use crate::semantic::{FileRevision, SemanticGeneration};
     use crate::workspace_scan::AnalysisMode;
@@ -1884,6 +1884,39 @@ mod tests {
 
         gate.release_before();
         drop(service);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn initialize_returns_before_recursive_scan_or_deep_solve() {
+        let root = std::env::temp_dir().join(format!("phalcom-lsp-initialize-scan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create initialize test root");
+        fs::write(root.join("closed.ph"), "class Closed { marker() {} }\n").expect("write closed source");
+
+        let (service, _socket) = LspService::new(super::Backend::new);
+        let backend = service.inner();
+        let gate = Arc::new(TestScanGate::default());
+        backend.analysis.install_test_scan_gate(gate.clone());
+        let root_uri = Url::from_directory_path(&root).expect("root URI");
+        let params: tower_lsp::lsp_types::InitializeParams = serde_json::from_value(json!({
+            "processId": null,
+            "rootUri": root_uri,
+            "workspaceFolders": [{ "uri": root_uri, "name": "scan-test" }],
+            "capabilities": {}
+        }))
+        .expect("initialize params");
+
+        let response = backend.initialize(params).await.expect("initialize response");
+        assert!(response.capabilities.workspace_symbol_provider.is_some());
+        gate.wait_until_entered();
+        let counters = backend.perf_counters().snapshot();
+        assert_eq!(counters.semantic_batches_started, 0, "initialize must not wait for deep solving");
+        assert_eq!(counters.workspace_files_discovered, 0, "recursive scan must remain on worker after response");
+
+        gate.release();
+        backend.analysis.flush();
+        drop(service);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

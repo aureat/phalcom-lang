@@ -440,6 +440,12 @@ pub(crate) fn rebuild_affected_state(
                 if let Some(dependents) = state.callable_dependents.get(callable) {
                     additions.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
                 }
+                additions.extend(
+                    state
+                        .parameter_contributions
+                        .iter()
+                        .filter_map(|(module, contribution)| contribution.get(callable, name).is_some().then_some(module.clone())),
+                );
             }
         }
         for ((callable, name), after) in state.parameter_facts.iter() {
@@ -448,6 +454,12 @@ pub(crate) fn rebuild_affected_state(
                 if let Some(dependents) = state.callable_dependents.get(callable) {
                     additions.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
                 }
+                additions.extend(
+                    state
+                        .parameter_contributions
+                        .iter()
+                        .filter_map(|(module, contribution)| contribution.get(callable, name).is_some().then_some(module.clone())),
+                );
             }
         }
         additions.retain(|module| state.files.contains_key(module) && !affected.contains(module));

@@ -15,6 +15,7 @@
 //!   Phaldoc section).
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -65,6 +66,49 @@ async fn read_response(r: &mut (impl AsyncReadExt + Unpin), id: i64) -> Value {
         }
     }
     panic!("did not observe a response to id {id} within the read budget");
+}
+
+async fn wait_for_workspace_symbol(client: &mut tokio::io::DuplexStream, id: &mut i64) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        *id += 1;
+        let request_id = *id;
+        write_message(
+            client,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "workspace/symbol",
+                "params": { "query": "move" }
+            }),
+        )
+        .await;
+        let response = read_response(client, request_id).await;
+        if response["result"]
+            .as_array()
+            .is_some_and(|symbols| symbols.iter().any(|symbol| symbol["name"] == json!("move(_)")))
+        {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("workspace symbol did not become available within the 30-second yield budget");
+}
+
+async fn wait_for_hover(client: &mut tokio::io::DuplexStream, id: &mut i64, uri: &str, text: &str, position_needle: &str, content_needle: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        *id += 1;
+        let response = hover_at(client, *id, uri, text, position_needle).await;
+        if response["result"]["contents"]["value"]
+            .as_str()
+            .is_some_and(|value| value.contains(content_needle))
+        {
+            return response;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("cross-file hover did not become available within the 30-second yield budget");
 }
 
 /// A scratch directory on disk holding a small multi-file `.ph` fixture, so
@@ -296,7 +340,9 @@ async fn cross_file_hover_resolves_the_doc_from_the_declaring_file() {
 
     // Hover the call site `m.move(1)` in main.ph — the doc lives in
     // mover.ph, a file never opened by the client.
-    let response = hover_at(&mut client_end, 2, &main_uri, main_text, "move(1)").await;
+    let mut next_request_id = 1;
+    wait_for_workspace_symbol(&mut client_end, &mut next_request_id).await;
+    let response = wait_for_hover(&mut client_end, &mut next_request_id, &main_uri, main_text, "move(1)", "Moves the mover by").await;
     let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("Moves the mover by `x`."), "{value:?}");
     assert!(value.contains("method on Mover"), "{value:?}");
@@ -317,7 +363,8 @@ async fn builtin_hover_has_kind_and_selector_but_no_phaldoc_section() {
     let text = "let x = true.ifTrue || { 1 };\n";
     did_open(&mut client_end, uri, text).await;
 
-    let response = hover_at(&mut client_end, 2, uri, text, "ifTrue").await;
+    let mut next_request_id = 1;
+    let response = wait_for_hover(&mut client_end, &mut next_request_id, uri, text, "ifTrue", "ifTrue").await;
     let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("ifTrue(_)"), "{value:?}");
     assert!(value.contains("on Bool"), "{value:?}");

@@ -9,7 +9,7 @@ async fn same_named_classes_in_different_modules_keep_distinct_identity() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&main_uri, &main.text).await;
+    lsp.open_and_wait(&main_uri, &main.text).await;
 
     let a = completion_labels(&lsp.completion(&main_uri, main.position("a")).await);
     let b = completion_labels(&lsp.completion(&main_uri, main.position("b")).await);
@@ -37,13 +37,15 @@ async fn editing_an_imported_provider_invalidates_consumer_completion() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&provider_uri, &before).await;
-    lsp.open(&consumer_uri, &consumer.text).await;
+    lsp.open_and_wait(&provider_uri, &before).await;
+    lsp.open_and_wait(&consumer_uri, &consumer.text).await;
 
     let old_labels = completion_labels(&lsp.completion(&consumer_uri, consumer.position("product")).await);
     assert!(old_labels.iter().any(|x| x == "oldMethod()"), "{old_labels:#?}");
 
+    let before_change = lsp.counter_snapshot();
     lsp.change(&provider_uri, &after).await;
+    lsp.wait_for_semantic_publication_after(before_change).await;
 
     let new_labels = completion_labels(&lsp.completion(&consumer_uri, consumer.position("product")).await);
     assert!(new_labels.iter().any(|x| x == "newMethod()"), "{new_labels:#?}");
@@ -65,8 +67,8 @@ async fn parameter_facts_from_multiple_consumer_modules_join_instead_of_overwrit
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&a_uri, &a.text).await;
-    lsp.open(&b_uri, &b.text).await;
+    lsp.open_and_wait(&a_uri, &a.text).await;
+    lsp.open_and_wait(&b_uri, &b.text).await;
 
     let a_labels = completion_labels(&lsp.completion(&a_uri, a.position("result")).await);
     assert!(
@@ -99,7 +101,7 @@ async fn inferred_parameter_facts_propagate_through_forwarding_calls() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&consumer_uri, &consumer.text).await;
+    lsp.open_and_wait(&consumer_uri, &consumer.text).await;
 
     let labels = completion_labels(&lsp.completion(&consumer_uri, consumer.position("result")).await);
     assert!(
@@ -118,7 +120,7 @@ async fn inherited_hover_reports_the_defining_owner_not_the_receiver_class() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&uri, &source.text).await;
+    lsp.open_and_wait(&uri, &source.text).await;
 
     let response = lsp
         .request(
@@ -151,7 +153,7 @@ async fn phaldoc_is_attached_to_the_resolved_declaration_not_the_first_matching_
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&uri, &source.text).await;
+    lsp.open_and_wait(&uri, &source.text).await;
 
     let response = lsp
         .request(
@@ -180,7 +182,7 @@ async fn class_hover_surfaces_adjacent_class_phaldoc() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&uri, &source.text).await;
+    lsp.open_and_wait(&uri, &source.text).await;
 
     let response = lsp
         .request(
@@ -206,7 +208,7 @@ async fn receiver_qualified_definition_does_not_fall_back_to_every_global_select
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&uri, &source.text).await;
+    lsp.open_and_wait(&uri, &source.text).await;
 
     let response = lsp
         .request(
@@ -233,7 +235,7 @@ async fn unimported_workspace_class_is_not_semantic_authority_for_hover() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
-    lsp.open(&uri, &source.text).await;
+    lsp.open_and_wait(&uri, &source.text).await;
 
     let response = lsp
         .request(

@@ -108,6 +108,7 @@ pub(crate) fn analyze_callable_source(
     summaries: &BTreeMap<CallableId, CallableSummary>,
     parameters: &ParameterFacts,
     generation: SemanticGeneration,
+    include_top_level: bool,
     counters: &PerfCounters,
 ) -> SurfaceFlowAnalysis {
     let known_class = |name: &str| super::resolve_named_class(classes, graph, &source.module, name);
@@ -133,7 +134,7 @@ pub(crate) fn analyze_callable_source(
         resolve_member: &resolve_member,
         member_surface: &member_surface,
     };
-    super::flow::analyze_callable(source, &context, generation, callable, counters)
+    super::flow::analyze_callable(source, &context, generation, callable, include_top_level, counters)
 }
 
 /// Solves source callable summaries and parameter facts without mutating the
@@ -289,6 +290,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
     let mut summaries = seed_summaries;
     let mut parameter_facts = base_parameters.clone();
     let mut source_facts = BTreeMap::<CallableId, ParameterFacts>::new();
+    let mut top_level_sources = BTreeSet::new();
     let mut dependents = BTreeMap::<CallableId, BTreeSet<CallableId>>::new();
     for summary in summaries.values() {
         for dependency in &summary.dependencies {
@@ -318,8 +320,19 @@ pub(crate) fn solve_affected_callables_with_cancel(
             }
             record_solver_step();
             let Some(source) = callable_sources.get(&callable) else { continue };
+            let include_top_level = top_level_sources.insert(source.module.clone());
             let previous_summary = summaries.get(&callable).cloned();
-            let analysis = analyze_callable_source(source, &callable, classes, graph, &summaries, &parameter_facts, generation, counters);
+            let analysis = analyze_callable_source(
+                source,
+                &callable,
+                classes,
+                graph,
+                &summaries,
+                &parameter_facts,
+                generation,
+                include_top_level,
+                counters,
+            );
             if cancelled() {
                 return None;
             }

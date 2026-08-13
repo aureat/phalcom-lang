@@ -10,7 +10,7 @@ async fn completion_and_inlay_hints_share_the_same_semantic_fact() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(None).await;
-    lsp.open(&uri, &fixture.text).await;
+    lsp.open_and_wait(&uri, &fixture.text).await;
 
     let completion = lsp.completion(&uri, fixture.position("completion")).await;
     let labels = completion_labels(&completion);
@@ -33,7 +33,7 @@ async fn local_binding_definition_and_references_are_precise() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(None).await;
-    lsp.open(&uri, &fixture.text).await;
+    lsp.open_and_wait(&uri, &fixture.text).await;
 
     // Go to definition of "value" reference
     let def_response = lsp

@@ -1072,6 +1072,47 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     }
 
     #[test]
+    fn parameter_facts_from_two_consumers_join_across_sequential_updates() {
+        let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
+        let provider = uri("file:///join-provider.ph");
+        let first = uri("file:///join-first.ph");
+        let second = uri("file:///join-second.ph");
+        db.update_file(&provider, FileRevision(1), &parse("class Service { consume(_ value) { value } }\n", 0).program);
+        db.update_file(
+            &first,
+            FileRevision(1),
+            &parse(
+                "import \"./join-provider\" as Provider\nclass Cat { catOnly() { } }\nProvider.Service.new().consume(Cat.new())\n",
+                0,
+            )
+            .program,
+        );
+        db.update_file(
+            &second,
+            FileRevision(1),
+            &parse(
+                "import \"./join-provider\" as Provider\nclass Dog { dogOnly() { } }\nProvider.Service.new().consume(Dog.new())\n",
+                0,
+            )
+            .program,
+        );
+        let service = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&provider), "Service"),
+            selector: "consume(_)".to_string(),
+            side: DispatchSide::Instance,
+        };
+        let shape = db.parameter_at(&service, "value").expect("joined parameter fact").shape;
+        assert!(
+            matches!(shape, ValueShape::Union(ref shapes) if shapes.iter().any(|shape| matches!(shape, ValueShape::Instance(ClassId { name, .. }) if name == "Cat")))
+        );
+        assert!(
+            matches!(shape, ValueShape::Union(ref shapes) if shapes.iter().any(|shape| matches!(shape, ValueShape::Instance(ClassId { name, .. }) if name == "Dog")))
+        );
+    }
+
+    #[test]
     fn unimported_unique_workspace_class_does_not_resolve() {
         let db = SemanticDb::new();
         let bundled = core_source::bundled_parse();

@@ -108,6 +108,12 @@ impl TestLsp {
         .await;
     }
 
+    pub async fn open_and_wait(&mut self, uri: &str, text: &str) {
+        let before = self.counter_snapshot();
+        self.open(uri, text).await;
+        self.wait_for_semantic_publication_after(before).await;
+    }
+
     pub async fn change(&mut self, uri: &str, text: &str) {
         let version = self.bump_version();
         self.notify(
@@ -183,6 +189,21 @@ impl TestLsp {
         }
         panic!(
             "analysis worker did not publish within the 30-second yield budget: {:?}",
+            self.counter_snapshot()
+        );
+    }
+
+    pub async fn wait_for_semantic_publication_after(&self, before: CounterSnapshot) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            let current = self.counter_snapshot();
+            if current.semantic_batches_published > before.semantic_batches_published {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!(
+            "semantic worker did not publish within the 30-second yield budget: {:?}",
             self.counter_snapshot()
         );
     }
