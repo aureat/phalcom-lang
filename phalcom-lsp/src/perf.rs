@@ -1,7 +1,7 @@
 //! Performance instrumentation and deterministic counters for Phalcom LSP.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 /// Global performance counters for semantic analysis and server operations.
@@ -11,10 +11,14 @@ pub struct PerfCounters {
     pub source_updates_enqueued: AtomicU64,
     /// Count of intermediate source updates coalesced before processing.
     pub source_updates_coalesced: AtomicU64,
+    /// Count of source mutations rejected as stale or duplicate.
+    pub source_updates_discarded: AtomicU64,
     /// Count of semantic analysis batches started.
     pub semantic_batches_started: AtomicU64,
     /// Count of semantic analysis generations published.
     pub semantic_batches_published: AtomicU64,
+    /// Count of workspace scan batches that published semantic state.
+    pub scan_batches_published: AtomicU64,
     /// Count of completed analysis batches discarded because a newer epoch superseded them.
     pub stale_batches_discarded: AtomicU64,
     /// Count of workspace files discovered by scanner.
@@ -39,8 +43,10 @@ impl PerfCounters {
     pub fn reset(&self) {
         self.source_updates_enqueued.store(0, Ordering::Relaxed);
         self.source_updates_coalesced.store(0, Ordering::Relaxed);
+        self.source_updates_discarded.store(0, Ordering::Relaxed);
         self.semantic_batches_started.store(0, Ordering::Relaxed);
         self.semantic_batches_published.store(0, Ordering::Relaxed);
+        self.scan_batches_published.store(0, Ordering::Relaxed);
         self.stale_batches_discarded.store(0, Ordering::Relaxed);
         self.workspace_files_discovered.store(0, Ordering::Relaxed);
         self.workspace_files_parsed.store(0, Ordering::Relaxed);
@@ -54,8 +60,10 @@ impl PerfCounters {
         CounterSnapshot {
             source_updates_enqueued: self.source_updates_enqueued.load(Ordering::Relaxed),
             source_updates_coalesced: self.source_updates_coalesced.load(Ordering::Relaxed),
+            source_updates_discarded: self.source_updates_discarded.load(Ordering::Relaxed),
             semantic_batches_started: self.semantic_batches_started.load(Ordering::Relaxed),
             semantic_batches_published: self.semantic_batches_published.load(Ordering::Relaxed),
+            scan_batches_published: self.scan_batches_published.load(Ordering::Relaxed),
             stale_batches_discarded: self.stale_batches_discarded.load(Ordering::Relaxed),
             workspace_files_discovered: self.workspace_files_discovered.load(Ordering::Relaxed),
             workspace_files_parsed: self.workspace_files_parsed.load(Ordering::Relaxed),
@@ -73,10 +81,14 @@ pub struct CounterSnapshot {
     pub source_updates_enqueued: u64,
     /// Count of source updates coalesced.
     pub source_updates_coalesced: u64,
+    /// Count of source mutations rejected as stale or duplicate.
+    pub source_updates_discarded: u64,
     /// Count of semantic batches started.
     pub semantic_batches_started: u64,
     /// Count of semantic batches published.
     pub semantic_batches_published: u64,
+    /// Count of workspace scan batches that published semantic state.
+    pub scan_batches_published: u64,
     /// Count of stale batches discarded.
     pub stale_batches_discarded: u64,
     /// Count of workspace files discovered.
@@ -114,10 +126,7 @@ pub struct PerfSpan {
 impl PerfSpan {
     /// Starts timing a named performance span.
     pub fn start(name: &'static str) -> Self {
-        Self {
-            name,
-            start: Instant::now(),
-        }
+        Self { name, start: Instant::now() }
     }
 }
 
@@ -125,11 +134,7 @@ impl Drop for PerfSpan {
     fn drop(&mut self) {
         if is_perf_enabled() {
             let elapsed = self.start.elapsed();
-            eprintln!(
-                "[phalcom-lsp perf] span={} elapsed_ms={}",
-                self.name,
-                elapsed.as_millis()
-            );
+            eprintln!("[phalcom-lsp perf] span={} elapsed_ms={}", self.name, elapsed.as_millis());
         }
     }
 }
@@ -141,18 +146,23 @@ mod tests {
     #[test]
     fn test_perf_counters_snapshot_and_reset() {
         COUNTERS.reset();
-        assert_eq!(COUNTERS.snapshot(), CounterSnapshot {
-            source_updates_enqueued: 0,
-            source_updates_coalesced: 0,
-            semantic_batches_started: 0,
-            semantic_batches_published: 0,
-            stale_batches_discarded: 0,
-            workspace_files_discovered: 0,
-            workspace_files_parsed: 0,
-            flow_passes: 0,
-            solver_rounds: 0,
-            callables_analyzed: 0,
-        });
+        assert_eq!(
+            COUNTERS.snapshot(),
+            CounterSnapshot {
+                source_updates_enqueued: 0,
+                source_updates_coalesced: 0,
+                source_updates_discarded: 0,
+                semantic_batches_started: 0,
+                semantic_batches_published: 0,
+                scan_batches_published: 0,
+                stale_batches_discarded: 0,
+                workspace_files_discovered: 0,
+                workspace_files_parsed: 0,
+                flow_passes: 0,
+                solver_rounds: 0,
+                callables_analyzed: 0,
+            }
+        );
 
         COUNTERS.source_updates_enqueued.fetch_add(5, Ordering::Relaxed);
         COUNTERS.flow_passes.fetch_add(12, Ordering::Relaxed);

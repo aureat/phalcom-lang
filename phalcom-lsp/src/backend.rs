@@ -50,6 +50,7 @@ use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
+use crate::perf::PerfSpan;
 use crate::semantic::{FileRevision, OccurrenceRole, SemanticDb, SemanticTarget, ValueShape};
 use crate::semantic_tokens;
 
@@ -216,6 +217,7 @@ impl Backend {
     /// Creates a new [`Backend`] bound to `client`, with an empty document
     /// store and an empty workspace index.
     pub fn new(client: Client) -> Self {
+        let _span = PerfSpan::start("backend_construction");
         let db = Arc::new(SemanticDb::new());
         let index = Arc::new(WorkspaceIndex::new());
         let closed_sources = Arc::new(RwLock::new(BTreeMap::new()));
@@ -281,13 +283,7 @@ impl Backend {
         self.indexed_files.write().expect("indexed file lock poisoned").insert(uri);
     }
 
-    fn cache_source(
-        &self,
-        uri: Url,
-        revision: FileRevision,
-        text: impl Into<Arc<str>>,
-        program: impl Into<Arc<phalcom_ast::ast::Program>>,
-    ) {
+    fn cache_source(&self, uri: Url, revision: FileRevision, text: impl Into<Arc<str>>, program: impl Into<Arc<phalcom_ast::ast::Program>>) {
         let text = text.into();
         let program = program.into();
         let source = CachedSource {
@@ -530,12 +526,7 @@ impl Backend {
     }
 
     fn cached_source(&self, uri: &Url) -> Option<CachedSource> {
-        let source = self
-            .closed_sources
-            .read()
-            .expect("closed source cache lock poisoned")
-            .get(uri)
-            .cloned()?;
+        let source = self.closed_sources.read().expect("closed source cache lock poisoned").get(uri).cloned()?;
         let module = crate::semantic::ModuleId::new(uri.to_string());
         if let Some(revision) = self.semantic.snapshot().file_revision(&module)
             && revision != source.revision
@@ -1113,6 +1104,7 @@ impl LanguageServer for Backend {
     /// only, no `range`/`delta` support yet), with the legend built by
     /// [`semantic_tokens::legend`].
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        let _span = PerfSpan::start("initialize");
         let config = ServerConfig::from_json(params.initialization_options.as_ref());
         *self.config.write().expect("server config lock poisoned") = config;
         let dynamic_watch = params
@@ -1174,6 +1166,7 @@ impl LanguageServer for Backend {
 
     /// Logs that the server is ready and starts consuming worker events.
     async fn initialized(&self, _params: InitializedParams) {
+        let _span = PerfSpan::start("initialized");
         if let Some(mut events) = self.analysis_events.lock().expect("analysis events lock poisoned").take() {
             let client = self.client.clone();
             let indexed_files = self.indexed_files.clone();
@@ -1562,6 +1555,7 @@ impl LanguageServer for Backend {
     ///
     /// Returns `Ok(None)` if the document is not open.
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let _span = PerfSpan::start("completion");
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
@@ -1603,6 +1597,7 @@ impl LanguageServer for Backend {
     /// Cross-file source metadata comes from the worker-maintained cache, so
     /// this request never performs disk I/O or waits for semantic analysis.
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let _span = PerfSpan::start("hover");
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         Ok(self.hover_at(&uri, position))
@@ -1610,6 +1605,7 @@ impl LanguageServer for Backend {
 
     /// Answers standard inlay-hint requests from the live semantic database.
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let _span = PerfSpan::start("inlay");
         let config = self.config.read().expect("server config lock poisoned").clone();
         let uri = params.text_document.uri.clone();
         let hints = self.documents.with_document(&uri, |doc| {

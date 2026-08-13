@@ -192,6 +192,7 @@ impl AnalysisService {
     pub fn enqueue_file_update(&self, uri: Url, revision: FileRevision, program: Program) {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         if !self.accepts_revision(&pending, &uri, revision) {
+            COUNTERS.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
             return;
         }
         pending.removals.remove(&uri);
@@ -211,6 +212,7 @@ impl AnalysisService {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         for (uri, revision, program) in updates {
             if !self.accepts_revision(&pending, &uri, revision) {
+                COUNTERS.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
             pending.removals.remove(&uri);
@@ -228,6 +230,7 @@ impl AnalysisService {
         let uri = Url::parse(crate::semantic::CORE_MODULE_URI).expect("core module URI must parse");
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         if !self.accepts_revision(&pending, &uri, revision) {
+            COUNTERS.source_updates_discarded.fetch_add(1, Ordering::Relaxed);
             return;
         }
         pending.core_update = Some((revision, program));
@@ -339,6 +342,7 @@ fn worker_loop(
     shared: Arc<WorkerShared>,
     event_tx: mpsc::UnboundedSender<AnalysisEvent>,
 ) {
+    let _span = crate::perf::PerfSpan::start("analysis_worker");
     let mut scanner = None;
     let mut selected_core_uri = None;
     let mut core_initialized = false;
@@ -375,6 +379,7 @@ fn worker_loop(
         if !has_analysis_work(&pending) {
             drop(pending);
             if core_reselect || !core_initialized {
+                let _span = crate::perf::PerfSpan::start("core_select_analyze");
                 let core_source = crate::semantic::core_source::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
                 selected_core_uri = core_source.physical_uri().cloned();
                 let program = phalcom_ast::parser::parse(core_source.text(), 0).program;
@@ -458,8 +463,8 @@ fn worker_loop(
             // Release lock during heavy semantic execution
             drop(pending);
 
-COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
-let _span = crate::perf::PerfSpan::start("semantic_batch");
+            COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
+            let _span = crate::perf::PerfSpan::start("semantic_batch");
 
             let mut latest_generation = db.generation();
             let mut next_source_catalog = source_catalog.clone();
@@ -477,6 +482,7 @@ let _span = crate::perf::PerfSpan::start("semantic_batch");
                 }
             }
             let cancelled = || shared.shutdown.load(Ordering::SeqCst) || shared.epoch.load(Ordering::Acquire) != batch_epoch;
+            let _span = crate::perf::PerfSpan::start("semantic_solve_flow_publish");
             let generation = db.apply_mutations_with_cancel(removals.into_iter().collect(), batch, core_update, &cancelled);
             let solve_cancelled = generation.is_none();
             if let Some(generation) = generation {
@@ -518,6 +524,7 @@ fn process_scan_batch(
     source_catalog: &mut BTreeMap<Url, (FileRevision, Program)>,
     selected_core_uri: Option<&Url>,
 ) {
+    let _span = crate::perf::PerfSpan::start("workspace_discovery_parse");
     let mut semantic_files = Vec::new();
     for discovered in files {
         if Some(&discovered.uri) == selected_core_uri {
@@ -561,7 +568,9 @@ fn process_scan_batch(
         }
     }
     if !semantic_files.is_empty() {
+        let _span = crate::perf::PerfSpan::start("scan_semantic_publish");
         let generation = db.update_files_batch(semantic_files);
+        COUNTERS.scan_batches_published.fetch_add(1, Ordering::Relaxed);
         let _ = event_tx.send(AnalysisEvent::Published { generation });
     }
     if mode == AnalysisMode::Local {
@@ -579,7 +588,9 @@ fn process_scan_batch(
             }
         }
         if !batch.is_empty() {
+            let _span = crate::perf::PerfSpan::start("scan_local_publish");
             let generation = db.update_files_batch(batch);
+            COUNTERS.scan_batches_published.fetch_add(1, Ordering::Relaxed);
             let _ = event_tx.send(AnalysisEvent::Published { generation });
         }
     }
