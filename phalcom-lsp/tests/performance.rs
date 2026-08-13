@@ -51,10 +51,12 @@ async fn perf_local_and_workspace_convergence() {
     assert!(init["result"]["capabilities"].is_object());
 
     let open_start = Instant::now();
+    let before_open = local.counter_snapshot();
     local.open(&leaf_uri, "class Leaf { value() { 1 } }\n").await;
     let shallow_open_ms = elapsed_ms(open_start);
     let local_inlay_start = Instant::now();
     let _ = local.inlay_hints(&leaf_uri, 20).await;
+    local.wait_for_publication_after(before_open).await;
     let local_convergence_ms = elapsed_ms(local_inlay_start);
 
     let leaf_edit_start = Instant::now();
@@ -66,9 +68,11 @@ async fn perf_local_and_workspace_convergence() {
     let class_edit_start = Instant::now();
     local.change(&surface_uri, "class Surface { newer() { 4 } }\n").await;
     let class_edit_ms = elapsed_ms(class_edit_start);
+    let before_rapid_edits = local.counter_snapshot();
     for edit in 0..20 {
         local.change(&leaf_uri, &format!("class Leaf {{ value() {{ {edit} }} }}\n")).await;
     }
+    local.wait_for_publication_after(before_rapid_edits).await;
     let hover = local.hover(&leaf_uri, Position::new(0, 7)).await;
     assert!(hover.get("result").is_some());
     println!(
@@ -82,8 +86,10 @@ async fn perf_local_and_workspace_convergence() {
     workspace
         .initialize_with_options(Some(&root_uri), json!({ "phalcom": { "analysis": { "mode": "workspace" } } }))
         .await;
+    let before_workspace_open = workspace.counter_snapshot();
     workspace.open(&leaf_uri, "class Leaf { value() { 1 } }\n").await;
     let _ = workspace.inlay_hints(&leaf_uri, 20).await;
+    workspace.wait_for_publication_after(before_workspace_open).await;
     println!(
         "perf_workspace convergence_ms={} counters={:?}",
         elapsed_ms(workspace_start),

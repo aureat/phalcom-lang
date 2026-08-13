@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::{
@@ -168,6 +168,23 @@ impl TestLsp {
             .as_ref()
             .expect("backend counter handle captured during start")
             .snapshot()
+    }
+
+    pub async fn wait_for_publication_after(&self, before: CounterSnapshot) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            let current = self.counter_snapshot();
+            let before_publications = before.semantic_batches_published + before.scan_batches_published;
+            let current_publications = current.semantic_batches_published + current.scan_batches_published;
+            if current_publications > before_publications {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!(
+            "analysis worker did not publish within the 30-second yield budget: {:?}",
+            self.counter_snapshot()
+        );
     }
 
     pub async fn request(&mut self, method: &str, params: Value) -> Value {
