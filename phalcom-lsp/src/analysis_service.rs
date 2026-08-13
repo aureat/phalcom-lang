@@ -457,7 +457,8 @@ fn worker_loop(
             // Release lock during heavy semantic execution
             drop(pending);
 
-            COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
+COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
+let _span = crate::perf::PerfSpan::start("semantic_batch");
 
             let mut latest_generation = db.generation();
             let mut next_source_catalog = source_catalog.clone();
