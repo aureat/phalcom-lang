@@ -10,7 +10,7 @@
 //! program's output hasn't silently changed", not "this program does what
 //! the spec says it should".
 //!
-//! ## Why only two of `examples/*.ph` are here
+//! ## Why only four of `examples/*.ph` are here
 //!
 //! `examples/core_new.ph`, `examples/person2.ph`, `examples/person.ph`, and
 //! `examples/calculator.ph` run to completion without panicking. The remaining
@@ -78,16 +78,9 @@ fn example_person2() {
 
 #[test]
 fn example_person() {
-    // Unblocked by the U0 trailing-newline fix (the file ends in `\n`).
-    // Exercises instance creation, field getters/setters, and `+=`; unset
-    // fields read back as the surface `None` value (U6 removed surface `nil`;
-    // ADR-0007), matching `example_person2`'s behavior. `<Person>` is the
-    // `Object#toString` message default (U-CORE-4, ADR-0015) — this example
-    // never sends `.toString` explicitly, but `System.print` on a bare
-    // instance now routes through the same `toString` send (U-ERR-FIX
-    // PRINT-TOSTRING), so the two agree instead of the old debug-form
-    // fallback (`"<Person instance>"`, `Value::to_debug`) diverging from it.
-    assert_golden("../examples/person.ph", "<Person>\nAnonymous\nNone\nAlice\nNone\nBob\n30\n31\n");
+    // The current example constructs a named person and exercises its
+    // accessors plus the custom `toString` presentation.
+    assert_golden("../examples/person.ph", "Person(name: Bob, age: 30)\n");
 }
 
 #[test]
