@@ -138,7 +138,7 @@ impl TestBatchGate {
 }
 
 /// Events emitted by the background analysis worker thread.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum AnalysisEvent {
     /// A new semantic snapshot generation was published.
     Published {
@@ -161,6 +161,8 @@ pub enum AnalysisEvent {
         uri: Url,
         /// Source text retained for closed-file LSP metadata queries.
         text: Arc<str>,
+        /// Parsed source tree produced by the scan worker.
+        program: Arc<Program>,
         /// Revision assigned to the cached source snapshot.
         revision: FileRevision,
     },
@@ -618,6 +620,7 @@ fn process_scan_batch(
         let _ = event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
             uri: discovered.uri.clone(),
             text: Arc::from(text),
+            program: program.clone(),
             revision,
         });
         if mode == AnalysisMode::Workspace {

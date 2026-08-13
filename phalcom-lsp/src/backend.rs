@@ -26,6 +26,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, SourceCache, WorkspaceScanRequest};
@@ -203,6 +204,7 @@ pub struct Backend {
     core_source_uris: RwLock<BTreeSet<Url>>,
     /// Whether client requested dynamic watched-file registration.
     watch_registration: RwLock<bool>,
+    inlay_hint_refresh_pending: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug)]
@@ -235,6 +237,7 @@ impl Backend {
             config: RwLock::new(ServerConfig::default()),
             core_source_uris: RwLock::new(BTreeSet::new()),
             watch_registration: RwLock::new(false),
+            inlay_hint_refresh_pending: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1171,13 +1174,12 @@ impl LanguageServer for Backend {
             let client = self.client.clone();
             let indexed_files = self.indexed_files.clone();
             let closed_sources = self.closed_sources.clone();
+            let refresh_pending = self.inlay_hint_refresh_pending.clone();
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
                     match event {
-                        AnalysisEvent::WorkspaceFileIndexed { uri, text, revision } => {
+                        AnalysisEvent::WorkspaceFileIndexed { uri, text, program, revision } => {
                             let cached_uri = uri.clone();
-                            let _span = PerfSpan::start("workspace_indexed_source_parse");
-                            let program = Arc::new(phalcom_ast::parser::parse(&text, 0).program);
                             indexed_files.write().expect("indexed file lock poisoned").insert(uri);
                             closed_sources.write().expect("closed source cache lock poisoned").insert(
                                 cached_uri,
@@ -1190,10 +1192,19 @@ impl LanguageServer for Backend {
                             );
                         }
                         AnalysisEvent::Published { .. } => {
-                            let client = client.clone();
-                            tokio::spawn(async move {
-                                let _ = client.inlay_hint_refresh().await;
-                            });
+                            if refresh_pending.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                                let client = client.clone();
+                                let refresh_pending = refresh_pending.clone();
+                                tokio::spawn(async move {
+                                    loop {
+                                        refresh_pending.store(false, Ordering::Release);
+                                        let _ = client.inlay_hint_refresh().await;
+                                        if !refresh_pending.swap(false, Ordering::AcqRel) {
+                                            break;
+                                        }
+                                    }
+                                });
+                            }
                         }
                         AnalysisEvent::StaleBatchDiscarded { .. } | AnalysisEvent::Error { .. } => {}
                     }
