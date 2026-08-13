@@ -43,6 +43,10 @@ function readInitializationOptions() {
             lsp: {
                 sysrootPath: config.get<string>("lsp.sysrootPath", "")
             },
+            analysis: {
+                mode: config.get<string>("analysis.mode", "local"),
+                exclude: config.get<string[]>("analysis.exclude", [])
+            },
             inlayHints: {
                 types: config.get<string>("inlayHints.types", "stable"),
                 suppressObvious: config.get<boolean>("inlayHints.suppressObvious", true)

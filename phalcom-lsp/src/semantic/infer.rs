@@ -105,6 +105,9 @@ pub(crate) fn solve_workspace_callables(
     let mut parameter_facts = ParameterFacts::default();
 
     for _ in 0..max_rounds {
+        crate::perf::COUNTERS
+            .solver_rounds
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let previous_summaries = summaries.clone();
         let previous_parameters = parameter_facts.clone();
         let mut next_parameters = ParameterFacts::default();
@@ -233,6 +236,9 @@ pub(crate) fn solve_affected_callables(
     let mut parameter_facts = base_parameters.clone();
 
     for _ in 0..max_rounds {
+        crate::perf::COUNTERS
+            .solver_rounds
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let previous_summaries = summaries.clone();
         let previous_parameters = parameter_facts.clone();
         let mut next_parameters = base_parameters.clone();

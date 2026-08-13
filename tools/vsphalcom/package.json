@@ -95,8 +95,14 @@
         "phalcom.analysis.mode": {
           "type": "string",
           "enum": ["local", "workspace"],
-          "default": "workspace",
+          "default": "local",
           "description": "Semantic analysis scope."
+        },
+        "phalcom.analysis.exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Glob-style workspace paths excluded from Phalcom source indexing/analysis."
         },
         "phalcom.inlayHints.types": {
           "type": "string",

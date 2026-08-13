@@ -32,6 +32,9 @@ pub fn hints_for_with_policy(db: &SemanticDb, uri: &Url, doc: &Document, visible
     let Some(snapshot) = db.file_snapshot(uri) else {
         return Vec::new();
     };
+    if snapshot.revision != doc.revision {
+        return Vec::new();
+    }
     let mut hints = Vec::new();
     for binding in snapshot.scopes.bindings.values() {
         if binding.kind == SemanticBindingKind::Import {

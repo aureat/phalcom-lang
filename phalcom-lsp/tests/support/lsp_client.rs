@@ -188,8 +188,17 @@ impl TestLsp {
     async fn read_response(&mut self, id: i64) -> Value {
         for _ in 0..64 {
             let message = self.read_message().await;
-            if message.get("id").and_then(Value::as_i64) == Some(id) {
+            if message.get("id").and_then(Value::as_i64) == Some(id) && message.get("method").is_none() {
                 return message;
+            }
+            if let Some(req_id) = message.get("id") {
+                if message.get("method").is_some() {
+                    let resp = json!({ "jsonrpc": "2.0", "id": req_id, "result": null });
+                    let body = serde_json::to_string(&resp).expect("serialize JSON-RPC response");
+                    let header = format!("Content-Length: {}\r\n\r\n", body.len());
+                    let _ = self.client.write_all(header.as_bytes()).await;
+                    let _ = self.client.write_all(body.as_bytes()).await;
+                }
             }
         }
         panic!("did not observe response id {id} within message budget");

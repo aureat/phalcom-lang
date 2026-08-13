@@ -159,6 +159,9 @@ pub fn analyze_surface(
     resolve_member: &dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
     revision: SemanticGeneration,
 ) -> SurfaceFlowAnalysis {
+    crate::perf::COUNTERS
+        .flow_passes
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let scopes = super::scope::build_scope_graph(module.clone(), program);
     let mut analyzer = FlowAnalyzer {
         surface,

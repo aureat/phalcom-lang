@@ -4,6 +4,7 @@ mod analyzer;
 mod callable;
 pub(crate) mod core_source;
 mod dispatch;
+pub(crate) mod engine;
 mod facts;
 mod flow;
 mod ids;
@@ -13,20 +14,21 @@ mod module_graph;
 mod occurrence;
 mod query;
 mod scope;
+pub(crate) mod snapshot;
 mod surface;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex, RwLock};
+
+pub use engine::SemanticEngine;
+pub use snapshot::SemanticSnapshot;
 
 use phalcom_ast::ast::Program;
 use tower_lsp::lsp_types::Url;
 use phalcom_common::range::SourceRange;
 
-pub(crate) use analyzer::{AnalysisContext, analyze_expr};
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnShape;
-pub(crate) use dispatch::{DispatchReceiver, DispatchResolver};
 pub use facts::{
     Confidence, FactOrigin, FieldEvidence, FieldEvidenceKind, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape,
 };
@@ -123,26 +125,7 @@ pub struct DependencySet {
     pub imports: Vec<ModuleId>,
 }
 
-#[derive(Default)]
-struct SemanticState {
-    generation: SemanticGeneration,
-    files: BTreeMap<ModuleId, FileSemanticSnapshot>,
-    classes: BTreeMap<ClassId, ClassSurface>,
-    summaries: BTreeMap<CallableId, CallableSummary>,
-    field_facts: BTreeMap<FieldId, InferredValue>,
-    parameter_facts: BTreeMap<(CallableId, String), InferredValue>,
-    parameter_contributions: BTreeMap<ModuleId, ParameterFacts>,
-    callable_dependents: BTreeMap<CallableId, std::collections::BTreeSet<CallableId>>,
-    graph: ModuleGraph,
-    #[cfg(test)]
-    last_trace: Option<RebuildTrace>,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct RebuildTraceData {
-    modules_recomputed: BTreeSet<ModuleId>,
-    callables_recomputed: BTreeSet<CallableId>,
-}
+pub(crate) use engine::RebuildTraceData;
 
 #[cfg(test)]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -164,21 +147,53 @@ impl From<RebuildTraceData> for RebuildTrace {
     }
 }
 
-/// Thread-safe semantic state owned by [`crate::backend::Backend`].
-#[derive(Default)]
+/// Thread-safe published semantic database wrapper owned by [`crate::backend::Backend`].
 pub struct SemanticDb {
-    state: RwLock<SemanticState>,
+    current: RwLock<Arc<SemanticSnapshot>>,
+    engine: Mutex<SemanticEngine>,
+}
+
+impl Default for SemanticDb {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SemanticDb {
-    /// Creates an empty semantic database.
+    /// Creates a new semantic database initialized with bundled core source.
     pub fn new() -> Self {
-        let db = Self::default();
-        let bundled = core_source::bundled_parse();
-        db.update_core(FileRevision(1), &bundled.program);
-        // Bundled core is the initial baseline, not a workspace mutation.
-        db.state.write().expect("semantic database lock poisoned").generation = SemanticGeneration(0);
-        db
+        let engine = SemanticEngine::new();
+        let snapshot = Arc::new(engine.snapshot());
+        Self {
+            current: RwLock::new(snapshot),
+            engine: Mutex::new(engine),
+        }
+    }
+
+    /// Creates an empty semantic database without running core analysis (generation 0).
+    pub fn empty() -> Self {
+        let engine = SemanticEngine::empty();
+        let snapshot = Arc::new(engine.snapshot());
+        Self {
+            current: RwLock::new(snapshot),
+            engine: Mutex::new(engine),
+        }
+    }
+
+    /// Returns the latest immutable published semantic snapshot.
+    pub fn snapshot(&self) -> Arc<SemanticSnapshot> {
+        self.current
+            .read()
+            .expect("semantic publication lock poisoned")
+            .clone()
+    }
+
+    /// Atomically publishes a new immutable snapshot.
+    pub(crate) fn publish(&self, snapshot: Arc<SemanticSnapshot>) {
+        *self
+            .current
+            .write()
+            .expect("semantic publication lock poisoned") = snapshot;
     }
 
     /// Replaces one file contribution and publishes one coherent generation.
@@ -188,683 +203,155 @@ impl SemanticDb {
 
     /// Replaces several file contributions and publishes one coherent generation.
     pub fn update_files_batch(&self, files: Vec<(Url, FileRevision, Program)>) -> SemanticGeneration {
-        if files.is_empty() {
-            return self.generation();
-        }
-        let mut state = self.state.write().expect("semantic database lock poisoned");
-        let next_generation = SemanticGeneration(state.generation.0 + 1);
-
-        let mut affected = BTreeSet::new();
-        for (uri, _, _) in &files {
-            let module = ModuleId::from_uri(uri);
-            affected.insert(module.clone());
-            affected.extend(state.graph.dependent_closure(&module));
-            let old_callables = state.summaries.keys().filter(|id| id.owner.module == module).cloned().collect::<Vec<_>>();
-            for callable in old_callables {
-                if let Some(dependents) = state.callable_dependents.get(&callable) {
-                    affected.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
-                }
-            }
-        }
-
-        let updated_modules = files.iter().map(|(uri, _, _)| ModuleId::from_uri(uri)).collect::<Vec<_>>();
-        for (uri, revision, program) in files {
-            let module = ModuleId::from_uri(&uri);
-            let surface = if module.as_str() == CORE_MODULE_URI {
-                core_source::build_core_surface(&program)
-            } else {
-                build_module_surface(module.clone(), &program)
-            };
-            let scopes = scope::build_scope_graph(module.clone(), &program);
-            let occurrences = occurrence::build_occurrence_index(module.clone(), &program, &surface, &scopes);
-            state.parameter_contributions.remove(&module);
-            state.files.insert(
-                module.clone(),
-                FileSemanticSnapshot {
-                    revision,
-                    module: module.clone(),
-                    program: Arc::new(program),
-                    surface,
-                    scopes,
-                    occurrences,
-                    local_facts: LocalFacts::default(),
-                    field_facts: FieldFacts::default(),
-                    parameter_facts: ParameterFacts::default(),
-                    dependencies: DependencySet::default(),
-                },
-            );
-        }
-
-        let available = state.files.keys().cloned().collect::<BTreeSet<_>>();
-        for module in updated_modules {
-            if let Some(program) = state.files.get(&module).map(|file| file.program.clone()) {
-                state.graph.update(module, &program, &available);
-            }
-        }
-        let changed_importers = state.graph.refresh_resolutions(&available);
-        affected.extend(changed_importers);
-        let current = affected.clone();
-        for module in current {
-            affected.extend(state.graph.dependent_closure(&module));
-        }
-
-        let trace = rebuild_affected_state(&mut state, next_generation, affected);
-        state.generation = next_generation;
-        #[cfg(test)]
-        {
-            state.last_trace = Some(trace.into());
-        }
-        #[cfg(not(test))]
-        drop(trace);
-        state.generation
+        let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
+        let generation = engine.update_files_batch(files);
+        self.publish(Arc::new(engine.snapshot()));
+        generation
     }
 
-    /// Replaces the live source-authored core module while keeping its stable
-    /// semantic identity. Workspace/open-buffer callers use this instead of
-    /// publishing a file-qualified duplicate core namespace.
+    /// Replaces the active core library module.
     pub fn update_core(&self, revision: FileRevision, program: &Program) -> SemanticGeneration {
-        let uri = Url::parse(CORE_MODULE_URI).expect("core semantic URI must be valid");
-        self.update_file(&uri, revision, program)
+        let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
+        let generation = engine.update_core(revision, program);
+        self.publish(Arc::new(engine.snapshot()));
+        generation
     }
 
-    /// Removes one file contribution and publishes one coherent generation.
+    /// Removes one source file from the active universe.
     pub fn remove_file(&self, uri: &Url) -> SemanticGeneration {
-        let module = ModuleId::from_uri(uri);
-        let mut state = self.state.write().expect("semantic database lock poisoned");
-        let mut affected = BTreeSet::from([module.clone()]);
-        affected.extend(state.graph.dependent_closure(&module));
-        let old_callables = state.summaries.keys().filter(|id| id.owner.module == module).cloned().collect::<Vec<_>>();
-        for callable in old_callables {
-            if let Some(dependents) = state.callable_dependents.get(&callable) {
-                affected.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
-            }
-        }
-        state.files.remove(&module);
-        state.parameter_contributions.remove(&module);
-        state.field_facts.retain(|field, _| field.owner.module != module);
-        state.graph.remove(&module);
-        let available = state.files.keys().cloned().collect::<BTreeSet<_>>();
-        let changed_importers = state.graph.refresh_resolutions(&available);
-        affected.extend(changed_importers);
-        let current = affected.clone();
-        for changed in current {
-            affected.extend(state.graph.dependent_closure(&changed));
-        }
-        let next_generation = SemanticGeneration(state.generation.0 + 1);
-        let trace = rebuild_affected_state(&mut state, next_generation, affected);
-        state.generation = next_generation;
-        #[cfg(test)]
-        {
-            state.last_trace = Some(trace.into());
-        }
-        #[cfg(not(test))]
-        drop(trace);
-        state.generation
+        let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
+        let generation = engine.remove_file(uri);
+        self.publish(Arc::new(engine.snapshot()));
+        generation
     }
 
     #[cfg(test)]
-    /// Returns the last semantic rebuild frontier.
+    /// Returns the last semantic rebuild trace.
     pub fn last_rebuild_trace(&self) -> Option<RebuildTrace> {
-        self.state.read().expect("semantic database lock poisoned").last_trace.clone()
+        self.engine.lock().expect("semantic engine lock poisoned").last_rebuild_trace()
     }
 
     /// Returns the current semantic generation.
     pub fn generation(&self) -> SemanticGeneration {
-        self.state.read().expect("semantic database lock poisoned").generation
+        self.snapshot().generation()
     }
 
     /// Returns an immutable clone of one file's semantic snapshot.
     pub fn file_snapshot(&self, uri: &Url) -> Option<FileSemanticSnapshot> {
-        let module = ModuleId::from_uri(uri);
-        self.state.read().expect("semantic database lock poisoned").files.get(&module).cloned()
+        self.snapshot().file_snapshot(uri)
     }
 
     /// Returns the exact semantic occurrence covering one source offset.
     pub fn occurrence_at(&self, uri: &Url, offset: usize) -> Option<SemanticOccurrence> {
-        let module = ModuleId::from_uri(uri);
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .files
-            .get(&module)
-            .and_then(|file| file.occurrences.occurrence_at(offset).cloned())
+        self.snapshot().occurrence_at(uri, offset)
     }
 
     /// Returns all references to a SemanticTarget in the workspace.
-    /// If the target is a file-local binding, only searches the given file.
     pub fn references_for_target(&self, uri: &Url, target: &SemanticTarget) -> Vec<(Url, SourceRange, OccurrenceRole)> {
-        let state = self.state.read().expect("semantic database lock poisoned");
-        match target {
-            SemanticTarget::Binding(_) => {
-                let module = ModuleId::from_uri(uri);
-                state.files
-                    .get(&module)
-                    .map(|file| {
-                        file.occurrences
-                            .all()
-                            .iter()
-                            .filter(|occ| &occ.target == target)
-                            .map(|occ| (uri.clone(), occ.range, occ.role))
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            }
-            _ => {
-                let mut results = Vec::new();
-                for (module_id, file) in &state.files {
-                    if let Ok(file_uri) = Url::parse(module_id.as_str()) {
-                        for occ in file.occurrences.all() {
-                            if &occ.target == target {
-                                results.push((file_uri.clone(), occ.range, occ.role));
-                            }
-                        }
-                    }
-                }
-                results
-            }
-        }
+        self.snapshot().references_for_target(uri, target)
     }
 
     /// Returns lexical bindings visible at one source offset, nearest scope first.
     pub fn visible_bindings_at(&self, uri: &Url, offset: usize) -> Vec<BindingInfo> {
-        let module = ModuleId::from_uri(uri);
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .files
-            .get(&module)
-            .map(|file| file.scopes.visible_bindings_at(offset))
-            .unwrap_or_default()
+        self.snapshot().visible_bindings_at(uri, offset)
     }
 
     /// Returns one binding's declaration metadata from a file-local identity.
     pub fn binding_info(&self, uri: &Url, binding: BindingId) -> Option<BindingInfo> {
-        let module = ModuleId::from_uri(uri);
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .files
-            .get(&module)
-            .and_then(|file| file.scopes.bindings.get(&binding).cloned())
+        self.snapshot().binding_info(uri, binding)
     }
 
     /// Returns one class surface by module-qualified identity.
     pub fn class_surface(&self, id: &ClassId) -> Option<ClassSurface> {
-        self.state.read().expect("semantic database lock poisoned").classes.get(id).cloned()
+        self.snapshot().class_surface(id)
     }
 
     /// Returns one module-qualified member surface by canonical selector.
     pub fn member_surface(&self, class: &ClassId, selector: &str) -> Option<MemberSurface> {
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .classes
-            .get(class)
-            .and_then(|surface| surface.members.get(selector))
-            .cloned()
+        self.snapshot().member_surface(class, selector)
     }
 
     /// Resolves one receiver-qualified member, including inherited members.
     pub fn receiver_member(&self, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
-        let state = self.state.read().expect("semantic database lock poisoned");
-        let receiver = match side {
-            DispatchSide::Instance => DispatchReceiver::Instance(class.clone()),
-            DispatchSide::Class => DispatchReceiver::ClassObject(class.clone()),
-        };
-        DispatchResolver::new(&state.classes)
-            .resolve(&receiver, selector)
-            .map(|resolved| resolved.member)
+        self.snapshot().receiver_member(class, selector, side)
     }
 
     /// Returns inherited, de-duplicated members for one live class surface.
     pub fn completion_members(&self, class: &ClassId, side: DispatchSide) -> Vec<CompletionMember> {
-        let state = self.state.read().expect("semantic database lock poisoned");
-        let mut current = Some(class.clone());
-        let mut seen = std::collections::BTreeSet::new();
-        let mut visited = std::collections::BTreeSet::new();
-        let mut members = Vec::new();
-        while let Some(id) = current.take() {
-            if !visited.insert(id.clone()) {
-                break;
-            }
-            let Some(surface) = state.classes.get(&id) else { break };
-            for ((selector, member_side), member) in &surface.members_by_side {
-                if *member_side == side && seen.insert(selector.clone()) {
-                    members.push(CompletionMember {
-                        selector: selector.clone(),
-                        kind: member.kind,
-                        owner: id.clone(),
-                        visibility: member.visibility,
-                        side,
-                    });
-                }
-            }
-            current = surface
-                .superclass
-                .clone()
-                .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
-        }
-        members.sort_by(|left, right| left.selector.cmp(&right.selector));
-        members
+        self.snapshot().completion_members(class, side)
     }
 
     /// Returns every declared live member, de-duplicated by selector.
     pub fn all_completion_members(&self) -> Vec<CompletionMember> {
-        let state = self.state.read().expect("semantic database lock poisoned");
-        let mut members = BTreeMap::new();
-        for (class_id, surface) in &state.classes {
-            for (selector, member) in &surface.members_by_side {
-                let selector = &selector.0;
-                members.entry(selector.clone()).or_insert_with(|| CompletionMember {
-                    selector: selector.clone(),
-                    kind: member.kind,
-                    owner: class_id.clone(),
-                    visibility: member.visibility,
-                    side: member.side,
-                });
-            }
-        }
-        members.into_values().collect()
+        self.snapshot().all_completion_members()
     }
 
     /// Tests module-qualified class ancestry for visibility filtering.
     pub fn is_same_or_subclass(&self, child: &ClassId, ancestor: &ClassId) -> bool {
-        let state = self.state.read().expect("semantic database lock poisoned");
-        let mut current = Some(child.clone());
-        let mut visited = std::collections::BTreeSet::new();
-        while let Some(id) = current.take() {
-            if !visited.insert(id.clone()) {
-                return false;
-            }
-            if &id == ancestor {
-                return true;
-            }
-            let Some(surface) = state.classes.get(&id) else { return false };
-            current = surface
-                .superclass
-                .clone()
-                .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
-        }
-        false
+        self.snapshot().is_same_or_subclass(child, ancestor)
     }
 
     /// Returns a source callable summary from the current semantic generation.
     pub fn callable_summary(&self, id: &CallableId) -> Option<CallableSummary> {
-        self.state.read().expect("semantic database lock poisoned").summaries.get(id).cloned()
+        self.snapshot().callable_summary(id)
     }
 
     /// Returns a callable's target-specific return summary.
     pub fn return_for_callable(&self, id: &CallableId) -> Option<InferredValue> {
-        let state = self.state.read().expect("semantic database lock poisoned");
-        return_for_callable(&state.classes, &state.summaries, id)
+        self.snapshot().return_for_callable(id)
     }
 
     /// Returns the joined call-site fact observed for one callable parameter.
     pub fn parameter_at(&self, id: &CallableId, name: &str) -> Option<InferredValue> {
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .parameter_facts
-            .get(&(id.clone(), name.to_string()))
-            .cloned()
+        self.snapshot().parameter_at(id, name)
     }
 
     /// Resolves a class name in its module, with the stable core namespace as
     /// a fallback for primitive/runtime classes.
     pub fn class_for_name(&self, uri: &Url, name: &str) -> Option<ClassId> {
-        let module = ModuleId::from_uri(uri);
-        let state = self.state.read().expect("semantic database lock poisoned");
-        resolve_named_class(&state.classes, &state.graph, &module, name)
+        self.snapshot().class_for_name(uri, name)
     }
 
     /// Returns the class whose declaration contains a byte offset in `uri`.
     pub fn class_at(&self, uri: &Url, offset: usize) -> Option<ClassId> {
-        let module = ModuleId::from_uri(uri);
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .files
-            .get(&module)?
-            .surface
-            .classes
-            .values()
-            .find(|class| class.source_range.contains(offset))
-            .map(|class| class.id.clone())
+        self.snapshot().class_at(uri, offset)
     }
 
     /// Returns the source-authored class whose name range contains `offset`.
     pub fn class_name_at(&self, uri: &Url, offset: usize) -> Option<ClassSurface> {
-        let module = ModuleId::from_uri(uri);
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .files
-            .get(&module)?
-            .surface
-            .classes
-            .values()
-            .find(|class| class.name_range.contains(offset))
-            .cloned()
+        self.snapshot().class_name_at(uri, offset)
     }
 
     /// Returns the declared callable enclosing a source offset.
     pub fn member_at(&self, uri: &Url, offset: usize) -> Option<MemberSurface> {
-        let module = ModuleId::from_uri(uri);
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .files
-            .get(&module)?
-            .surface
-            .classes
-            .values()
-            .flat_map(|class| class.members_by_side.values())
-            .find(|member| member.source_range.contains(offset))
-            .cloned()
+        self.snapshot().member_at(uri, offset)
     }
 
     /// Joins return summaries for a bounded set of receiver candidates.
     pub fn returns_for_callables(&self, ids: impl IntoIterator<Item = CallableId>) -> Option<InferredValue> {
-        let state = self.state.read().expect("semantic database lock poisoned");
-        ids.into_iter()
-            .filter_map(|id| return_for_callable(&state.classes, &state.summaries, &id))
-            .reduce(|left, right| left.join(&right))
+        self.snapshot().returns_for_callables(ids)
     }
 
     /// Returns the fact visible for a local binding at a byte offset.
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
-        let module = ModuleId::from_uri(uri);
-        let state = self.state.read().expect("semantic database lock poisoned");
-        let file = state.files.get(&module)?;
-        let binding = match file.scopes.resolve(file.scopes.scope_at(offset), name, offset) {
-            NameResolution::Binding(binding) => binding,
-            _ => return None,
-        };
-        file.local_facts.value_before(binding, offset).cloned()
+        self.snapshot().binding_at(uri, name, offset)
     }
 
     /// Infers a parsed receiver expression against the coherent current
     /// semantic generation.
     pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
-        let module = ModuleId::from_uri(uri);
-        let state = self.state.read().expect("semantic database lock poisoned");
-        let mut environment = BTreeMap::new();
-        let known_classes = |name: &str| resolve_named_class(&state.classes, &state.graph, &module, name);
-        let callable_return = |id: &CallableId| return_for_callable(&state.classes, &state.summaries, id);
-        let field_value = |class: &ClassId, name: &str, side: DispatchSide| {
-            let mut current = Some(class.clone());
-            let mut seen = BTreeSet::new();
-            while let Some(owner) = current {
-                if !seen.insert(owner.clone()) {
-                    break;
-                }
-                if let Some(value) = state.field_facts.get(&FieldId {
-                    owner: owner.clone(),
-                    name: name.to_string(),
-                    side,
-                }) {
-                    return Some(value.clone());
-                }
-                current = state.classes.get(&owner).and_then(|surface| surface.superclass.clone());
-            }
-            None
-        };
-        let current_class = state
-            .files
-            .get(&module)
-            .and_then(|file| file.surface.classes.values().find(|class| class.source_range.contains(offset)))
-            .map(|class| class.id.clone());
-        if let Some(class) = current_class.as_ref() {
-            if let Some(file) = state.files.get(&module) {
-                if let Some(member) = file
-                    .surface
-                    .classes
-                    .get(class)
-                    .and_then(|class| class.members_by_side.values().find(|member| member.source_range.contains(offset)))
-                {
-                    for param in &member.params {
-                        if let Some(value) = state.parameter_facts.get(&(member.callable.clone(), param.name.clone())) {
-                            environment.insert(param.name.clone(), value.clone());
-                        }
-                    }
-                }
-            }
-        }
-        let dispatch_side = current_class.as_ref().and_then(|class| {
-            state
-                .files
-                .get(&module)
-                .and_then(|file| file.surface.classes.get(class))
-                .and_then(|surface| surface.members_by_side.values().find(|member| member.source_range.contains(offset)))
-                .map(|member| member.side)
-        });
-        let local_facts = state.files.get(&module).map(|file| &file.local_facts);
-        let scopes = state.files.get(&module).map(|file| &file.scopes);
-        let resolver = DispatchResolver::new(&state.classes);
-        let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-        let contains_class = |class: &ClassId| resolver.contains_class(class);
-        let context = AnalysisContext {
-            current_class: current_class.as_ref(),
-            dispatch_side,
-            query_offset: offset,
-            environment: &environment,
-            local_facts,
-            binding_values: None,
-            scopes,
-            known_class: &known_classes,
-            callable_return: &callable_return,
-            field_value: &field_value,
-            resolver: &resolve_member,
-            contains_class: &contains_class,
-        };
-        let inferred = analyze_expr(expr, &context);
-        inferred
+        self.snapshot().infer_expression(uri, expr, offset)
     }
 
     /// Returns current import edges for one module.
     pub fn imports(&self, uri: &Url) -> Vec<ImportEdge> {
-        let module = ModuleId::from_uri(uri);
-        self.state.read().expect("semantic database lock poisoned").graph.imports(&module).to_vec()
+        self.snapshot().imports(uri)
     }
 
     /// Returns a coherent revision/generation stamp for one file.
     pub fn stamp(&self, uri: &Url) -> Option<SnapshotStamp> {
-        let module = ModuleId::from_uri(uri);
-        let state = self.state.read().expect("semantic database lock poisoned");
-        Some(SnapshotStamp {
-            revision: state.files.get(&module)?.revision,
-            generation: state.generation,
-        })
+        self.snapshot().stamp(uri)
     }
-}
-
-fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGeneration, mut affected: BTreeSet<ModuleId>) -> RebuildTraceData {
-    let previous_summaries = state.summaries.clone();
-    let previous_parameters = state.parameter_facts.clone();
-    let previous_dependents = state.callable_dependents.clone();
-    let mut trace = RebuildTraceData::default();
-
-    loop {
-        for module in &affected {
-            state.parameter_contributions.remove(module);
-        }
-
-        let mut classes = BTreeMap::new();
-        for file in state.files.values() {
-            classes.extend(file.surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
-        }
-        let graph = state.graph.clone();
-        state.classes = classes.clone();
-
-        let inputs = state
-            .files
-            .values()
-            .filter(|file| affected.contains(&file.module))
-            .map(|file| (file.module.clone(), file.program.clone(), file.surface.clone()))
-            .collect::<Vec<_>>();
-        let seed_summaries = state
-            .summaries
-            .iter()
-            .filter(|(id, _)| !affected.contains(&id.owner.module))
-            .map(|(id, summary)| (id.clone(), summary.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let mut base_parameters = ParameterFacts::default();
-        for (module, contribution) in &state.parameter_contributions {
-            if !affected.contains(module) {
-                base_parameters.merge_from(contribution);
-            }
-        }
-        let solved = infer::solve_affected_callables(&inputs, &classes, &graph, generation, seed_summaries, base_parameters);
-        state.summaries = solved.summaries;
-
-        let solved_parameters = solved.parameter_facts;
-        for (module, program, surface) in &inputs {
-            let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
-            let contains_class = |class: &ClassId| classes.contains_key(class);
-            let resolver = DispatchResolver::new(&classes);
-            let is_constructor = |class: &ClassId, selector: &str| {
-                resolver
-                    .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
-                    .is_some_and(|resolved| resolved.member.is_constructor)
-                    || (selector == "new()" && classes.contains_key(class))
-            };
-            let callable_return = |id: &CallableId| return_for_callable(&classes, &state.summaries, id);
-            let callable_effects = |id: &CallableId| state.summaries.get(id).map(|summary| summary.effects.clone());
-            let parameter_fact = |id: &CallableId, name: &str| solved_parameters.get(id, name).cloned();
-            let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-            let contribution = infer::parameter_facts_for_program(
-                program,
-                surface,
-                module,
-                known_class,
-                is_constructor,
-                contains_class,
-                callable_return,
-                callable_effects,
-                parameter_fact,
-                resolve_member,
-            );
-            state.parameter_contributions.insert(module.clone(), contribution);
-        }
-
-        let mut aggregate_parameters = ParameterFacts::default();
-        for contribution in state.parameter_contributions.values() {
-            aggregate_parameters.merge_from(contribution);
-        }
-        state.parameter_facts = aggregate_parameters.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
-
-        let mut additions = BTreeSet::new();
-        for id in previous_summaries.keys().chain(state.summaries.keys()) {
-            if previous_summaries.get(id) != state.summaries.get(id) {
-                trace.callables_recomputed.insert(id.clone());
-                if let Some(dependents) = previous_dependents.get(id) {
-                    additions.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
-                }
-            }
-        }
-        for ((callable, name), before) in previous_parameters.iter() {
-            if state.parameter_facts.get(&(callable.clone(), name.clone())) != Some(before) {
-                additions.insert(callable.owner.module.clone());
-                if let Some(dependents) = previous_dependents.get(callable) {
-                    additions.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
-                }
-            }
-        }
-        for ((callable, name), after) in state.parameter_facts.iter() {
-            if previous_parameters.get(&(callable.clone(), name.clone())) != Some(after) {
-                additions.insert(callable.owner.module.clone());
-                if let Some(dependents) = previous_dependents.get(callable) {
-                    additions.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
-                }
-            }
-        }
-        additions.retain(|module| state.files.contains_key(module) && !affected.contains(module));
-        if additions.is_empty() {
-            trace.modules_recomputed = affected.clone();
-            break;
-        }
-        affected.extend(additions);
-    }
-
-    let classes = state.classes.clone();
-    let graph = state.graph.clone();
-    let summaries = state.summaries.clone();
-    let existing_modules = affected
-        .iter()
-        .filter(|module| state.files.contains_key(*module))
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let mut local_by_module = BTreeMap::new();
-    let mut fields_by_module = BTreeMap::new();
-    for module in &existing_modules {
-        let Some(file) = state.files.get(module) else { continue };
-        let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
-        let contains_class = |class: &ClassId| classes.contains_key(class);
-        let resolver = DispatchResolver::new(&classes);
-        let is_constructor = |class: &ClassId, selector: &str| {
-            resolver
-                .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
-                .is_some_and(|resolved| resolved.member.is_constructor)
-                || (selector == "new()" && classes.contains_key(class))
-        };
-        let callable_return = |id: &CallableId| return_for_callable(&classes, &summaries, id);
-        let callable_effects = |id: &CallableId| summaries.get(id).map(|summary| summary.effects.clone());
-        let parameter_fact = |id: &CallableId, name: &str| state.parameter_facts.get(&(id.clone(), name.to_string())).cloned();
-        let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-        local_by_module.insert(
-            module.clone(),
-            infer::collect_local_facts_with_returns(
-                &file.program,
-                &file.surface,
-                module,
-                known_class,
-                is_constructor,
-                contains_class,
-                callable_return,
-                callable_effects,
-                parameter_fact,
-                resolve_member,
-            ),
-        );
-        fields_by_module.insert(
-            module.clone(),
-            infer::field_facts_for_surface(
-                &file.program,
-                &file.surface,
-                module,
-                known_class,
-                is_constructor,
-                contains_class,
-                callable_return,
-                callable_effects,
-                parameter_fact,
-                resolver,
-            ),
-        );
-    }
-
-    state.field_facts.retain(|field, _| !affected.contains(&field.owner.module));
-    for facts in fields_by_module.values() {
-        state.field_facts.extend(facts.iter().map(|(key, value)| (key.clone(), value.clone())));
-    }
-    state.classes = classes;
-    let mut callable_dependents: BTreeMap<CallableId, BTreeSet<CallableId>> = BTreeMap::new();
-    for summary in state.summaries.values() {
-        for dependency in &summary.dependencies {
-            callable_dependents.entry(dependency.clone()).or_default().insert(summary.callable.clone());
-        }
-    }
-    state.callable_dependents = callable_dependents;
-    for module in existing_modules {
-        let Some(file) = state.files.get_mut(&module) else { continue };
-        file.local_facts = local_by_module.remove(&module).unwrap_or_default();
-        file.field_facts = fields_by_module.remove(&module).unwrap_or_default();
-        file.parameter_facts = state.parameter_contributions.get(&module).cloned().unwrap_or_default();
-        file.dependencies = DependencySet {
-            imports: state.graph.imports(&module).iter().filter_map(|edge| edge.target.clone()).collect(),
-        };
-    }
-    trace
 }
 
 fn resolve_named_class(classes: &BTreeMap<ClassId, ClassSurface>, graph: &ModuleGraph, module: &ModuleId, name: &str) -> Option<ClassId> {
@@ -914,6 +401,14 @@ mod tests {
 
     fn uri(value: &str) -> Url {
         Url::parse(value).unwrap()
+    }
+
+    #[test]
+    fn empty_semantic_db_has_generation_zero_and_no_files() {
+        let db = SemanticDb::empty();
+        assert_eq!(db.generation(), SemanticGeneration(0));
+        assert!(db.snapshot().files.is_empty());
+        assert!(db.snapshot().classes.is_empty());
     }
 
     #[test]

@@ -38,6 +38,7 @@
 
 #![warn(missing_docs)]
 
+pub mod analysis_service;
 pub mod backend;
 pub mod completion;
 pub mod diagnostics;
@@ -46,8 +47,10 @@ pub mod hover;
 pub mod index;
 pub mod inlay_hints;
 pub mod line_index;
+pub mod perf;
 pub mod selectors;
 pub mod semantic;
 pub mod semantic_tokens;
+pub mod workspace_scan;
 
 pub use backend::Backend;
