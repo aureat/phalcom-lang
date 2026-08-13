@@ -610,7 +610,7 @@ fn worker_loop(
         }
 
         // Process pending work batch
-        while has_analysis_work(&pending) && !shared.shutdown.load(Ordering::SeqCst) {
+        if has_analysis_work(&pending) && !shared.shutdown.load(Ordering::SeqCst) {
             // Take snapshot of work batch under lock
             let batch_epoch = shared.epoch.load(Ordering::SeqCst);
 
@@ -689,7 +689,6 @@ fn worker_loop(
             pending = shared.pending.lock().expect("worker pending lock poisoned");
             pending.is_processing = false;
             shared.condvar.notify_all();
-            break;
         }
     }
 }
