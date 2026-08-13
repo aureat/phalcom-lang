@@ -267,6 +267,62 @@ pub struct ParameterFacts {
     params: BTreeMap<(CallableId, String), InferredValue>,
 }
 
+/// Stable identity of one callable parameter slot.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ParameterSlot {
+    /// Callable owning the parameter.
+    pub callable: CallableId,
+    /// Source parameter name.
+    pub name: String,
+}
+
+/// Source of one parameter fact contribution.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ContributionSource {
+    /// Evidence emitted while analyzing another callable.
+    Callable(CallableId),
+    /// Evidence emitted by a module-level statement.
+    TopLevel(ModuleId),
+}
+
+/// Contribution-indexed parameter evidence. Joining happens only within one
+/// slot, so replacing one caller can remove exactly its old contribution.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ParameterContributions {
+    values: BTreeMap<ParameterSlot, BTreeMap<ContributionSource, InferredValue>>,
+}
+
+impl ParameterContributions {
+    /// Replaces all evidence from one source and returns affected slots.
+    pub fn replace_source(
+        &mut self,
+        source: ContributionSource,
+        facts: impl IntoIterator<Item = (ParameterSlot, InferredValue)>,
+    ) -> BTreeMap<ParameterSlot, InferredValue> {
+        for contributions in self.values.values_mut() {
+            contributions.remove(&source);
+        }
+        for (slot, value) in facts {
+            self.values.entry(slot).or_default().insert(source.clone(), value);
+        }
+        self.joined()
+    }
+
+    /// Joins current contributions into ordinary parameter facts.
+    pub fn joined(&self) -> BTreeMap<ParameterSlot, InferredValue> {
+        self.values
+            .iter()
+            .filter_map(|(slot, contributions)| {
+                contributions
+                    .values()
+                    .cloned()
+                    .reduce(|left, right| left.join(&right))
+                    .map(|value| (slot.clone(), value))
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BindingFact {
     range: SourceRange,

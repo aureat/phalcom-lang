@@ -1,6 +1,6 @@
 //! Callable-summary data model; solving is added in the interprocedural slice.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::facts::{InferredValue, ParameterFacts};
 use super::ids::CallableId;
@@ -41,4 +41,32 @@ pub(crate) struct SolverResult {
     pub summaries: BTreeMap<CallableId, CallableSummary>,
     /// Joined call-site parameter facts.
     pub parameter_facts: ParameterFacts,
+}
+
+/// Deduplicating callable work queue used by incremental solver rounds.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CallableWorklist {
+    queue: VecDeque<CallableId>,
+    queued: BTreeSet<CallableId>,
+}
+
+impl CallableWorklist {
+    /// Adds a callable once until it is popped.
+    pub(crate) fn push(&mut self, callable: CallableId) {
+        if self.queued.insert(callable.clone()) {
+            self.queue.push_back(callable);
+        }
+    }
+
+    /// Pops the next dirty callable in deterministic insertion order.
+    pub(crate) fn pop(&mut self) -> Option<CallableId> {
+        let callable = self.queue.pop_front()?;
+        self.queued.remove(&callable);
+        Some(callable)
+    }
+
+    /// Returns whether no callable remains dirty.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
 }

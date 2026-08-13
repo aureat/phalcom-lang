@@ -86,20 +86,56 @@ impl ExcludeMatcher {
         }
         // User-supplied exclusions (path component match or substring).
         if !self.user_rules.is_empty() {
-            let path_str = path.to_string_lossy();
+            let path_str = path.to_string_lossy().replace('\\', "/");
             for rule in &self.user_rules {
+                let normalized_rule = rule.replace('\\', "/");
                 // Exact path component match
                 if path.components().any(|c| c.as_os_str().to_str() == Some(rule.as_str())) {
                     return true;
                 }
-                // Substring fallback for glob-style partial patterns
-                if path_str.contains(rule.as_str()) {
+                // Treat common `**/name/**` forms as path-fragment rules.
+                let fragment = normalized_rule.trim_matches('/').trim_matches('*').trim_matches('/');
+                if !fragment.is_empty() && path_str.contains(fragment) {
+                    return true;
+                }
+                // A terminal `*.ph` rule applies to matching file names.
+                if let Some(file_pattern) = normalized_rule.rsplit('/').next()
+                    && file_pattern.contains('*')
+                    && wildcard_match(name, file_pattern)
+                {
                     return true;
                 }
             }
         }
         false
     }
+}
+
+fn wildcard_match(value: &str, pattern: &str) -> bool {
+    let (mut value_index, mut pattern_index) = (0, 0);
+    let (mut star, mut retry) = (None, 0);
+    let value = value.as_bytes();
+    let pattern = pattern.as_bytes();
+    while value_index < value.len() {
+        if pattern_index < pattern.len() && (pattern[pattern_index] == value[value_index] || pattern[pattern_index] == b'?') {
+            value_index += 1;
+            pattern_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            star = Some(pattern_index);
+            retry = value_index;
+            pattern_index += 1;
+        } else if let Some(star_index) = star {
+            pattern_index = star_index + 1;
+            retry += 1;
+            value_index = retry;
+        } else {
+            return false;
+        }
+    }
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+    pattern_index == pattern.len()
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +233,7 @@ impl WorkspaceScanState {
         self.roots = roots;
         self.pending_dirs.clear();
         self.pending_files.clear();
-        self.core_physical_path = core_physical_path;
+        self.core_physical_path = core_physical_path.map(|path| path.canonicalize().unwrap_or(path));
         // Seed dirs from roots.
         for root in &self.roots {
             if root.is_dir() && !self.excluded.is_excluded(root) {
@@ -256,11 +292,8 @@ impl WorkspaceScanState {
                 break;
             };
             // Skip selected physical core path — registered under CORE_MODULE_URI separately.
-            if self
-                .core_physical_path
-                .as_deref()
-                .is_some_and(|cp| cp == path.as_path())
-            {
+            let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
+            if self.core_physical_path.as_deref().is_some_and(|cp| cp == canonical_path.as_path()) {
                 continue;
             }
             if let Ok(uri) = Url::from_file_path(&path) {
@@ -409,5 +442,12 @@ mod tests {
         assert!(matcher.is_excluded(Path::new("tests/fixtures")));
         assert!(matcher.is_excluded(Path::new("generated/output.ph")));
         assert!(!matcher.is_excluded(Path::new("src/main.ph")));
+    }
+
+    #[test]
+    fn exclude_matcher_accepts_common_glob_fragments() {
+        let matcher = ExcludeMatcher::new(&["**/generated/**".to_string(), "**/*.gen.ph".to_string()]);
+        assert!(matcher.is_excluded(Path::new("src/generated/output.ph")));
+        assert!(matcher.is_excluded(Path::new("src/output.gen.ph")));
     }
 }

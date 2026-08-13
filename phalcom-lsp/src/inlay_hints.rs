@@ -1,10 +1,11 @@
 //! Standard LSP runtime-value inlay hints.
 
+use phalcom_ast::ast::{Expr, Pattern, Statement};
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent, MarkupKind, Range, Url};
 
 use crate::documents::Document;
-use crate::semantic::{Confidence, SemanticDb, ValueShape, SemanticBindingKind};
+use crate::semantic::{Confidence, SemanticBindingKind, SemanticDb, ValueShape};
 
 /// Server policy for runtime-value inlay hints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,13 +31,13 @@ pub fn hints_for_with_policy(db: &SemanticDb, uri: &Url, doc: &Document, visible
     let visible_start = doc.line_index.offset(visible.start);
     let visible_end = doc.line_index.offset(visible.end);
     let Some(snapshot) = db.file_snapshot(uri) else {
-        return Vec::new();
+        return shallow_hints(doc, uri, visible_start, visible_end, policy, suppress_obvious);
     };
     if snapshot.revision != doc.revision {
         return Vec::new();
     }
     let mut hints = Vec::new();
-    for binding in snapshot.scopes.bindings.values() {
+    for binding in snapshot.source.scopes.bindings.values() {
         if binding.kind == SemanticBindingKind::Import {
             continue;
         }
@@ -71,6 +72,62 @@ pub fn hints_for_with_policy(db: &SemanticDb, uri: &Url, doc: &Document, visible
     }
     hints.sort_by_key(|hint| (hint.position.line, hint.position.character));
     hints
+}
+
+/// Produces exact source-local facts while the worker has not published the
+/// first semantic file snapshot. Once a snapshot exists, callers must use its
+/// revision-matched facts or receive no hints.
+fn shallow_hints(doc: &Document, uri: &Url, visible_start: usize, visible_end: usize, policy: HintPolicy, suppress_obvious: bool) -> Vec<InlayHint> {
+    let module = crate::semantic::ModuleId::from_uri(uri);
+    let mut hints = Vec::new();
+    for statement in &doc.parse.program.statements {
+        let Statement::Let(binding) = statement else { continue };
+        let Pattern::Name { .. } = &binding.pattern else { continue };
+        let Some(value) = binding.value.as_ref() else { continue };
+        let Some(shape) = shallow_expression_shape(value, &module) else { continue };
+        if binding.range.end < visible_start || binding.range.start > visible_end || !should_render(policy, &Confidence::Exact, &shape) {
+            continue;
+        }
+        if suppress_obvious && obvious_initializer(doc, binding.range) {
+            continue;
+        }
+        let rendered = render_shape(&shape);
+        hints.push(InlayHint {
+            position: doc.line_index.position(binding.range.end),
+            label: InlayHintLabel::String(format!(": {rendered}")),
+            kind: Some(InlayHintKind::TYPE),
+            text_edits: None,
+            tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: format!("Inferred runtime value: {rendered}\n\nConfidence: exact\n\nThis is editor inference, not a Phalcom type annotation."),
+            })),
+            padding_left: Some(true),
+            padding_right: None,
+            data: None,
+        });
+    }
+    hints.sort_by_key(|hint| (hint.position.line, hint.position.character));
+    hints
+}
+
+fn shallow_expression_shape(expr: &Expr, module: &crate::semantic::ModuleId) -> Option<ValueShape> {
+    let core = |name| {
+        ValueShape::Instance(crate::semantic::ClassId::new(
+            crate::semantic::ModuleId::new(crate::semantic::CORE_MODULE_URI),
+            name,
+        ))
+    };
+    match expr {
+        Expr::Int { .. } => Some(core("Int")),
+        Expr::Float { .. } => Some(core("Float")),
+        Expr::String { .. } => Some(core("String")),
+        Expr::Boolean { .. } => Some(core("Bool")),
+        Expr::MethodCall(call) if call.method == "new" => match &call.object {
+            Expr::Var { value, .. } => Some(ValueShape::Instance(crate::semantic::ClassId::new(module.clone(), value.clone()))),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Answers an inlay-hint request using an open document snapshot.

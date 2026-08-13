@@ -1,17 +1,46 @@
 //! Asynchronous semantic analysis service with latest-wins edit coalescing and background worker thread.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use phalcom_ast::ast::Program;
+use phalcom_ast::ast::{Program, Statement};
 use tokio::sync::mpsc;
 use tower_lsp::lsp_types::Url;
 
+use crate::index::WorkspaceIndex;
+use crate::line_index::LineIndex;
 use crate::perf::COUNTERS;
 use crate::semantic::{FileRevision, SemanticDb, SemanticGeneration};
+use crate::workspace_scan::{AnalysisMode, ExcludeMatcher, ScanBudget, WorkspaceScanState};
+
+/// Closed-file source metadata populated by the worker before it publishes
+/// semantic state. Query handlers can read this cache without waiting for the
+/// asynchronous event notification task.
+#[derive(Clone)]
+pub(crate) struct CachedSource {
+    pub(crate) text: Arc<str>,
+    pub(crate) program: Arc<Program>,
+    pub(crate) line_index: Arc<LineIndex>,
+}
+
+pub(crate) type SourceCache = Arc<RwLock<BTreeMap<Url, CachedSource>>>;
+
+/// Latest workspace discovery configuration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceScanRequest {
+    /// Filesystem roots to discover.
+    pub roots: Vec<PathBuf>,
+    /// Deep-analysis policy for discovered files.
+    pub mode: AnalysisMode,
+    /// User-configured path exclusions.
+    pub excludes: Vec<String>,
+    /// Selected physical core source, kept out of ordinary indexing.
+    pub core_source_path: Option<PathBuf>,
+}
 
 /// Pending work batch coalesced by the worker loop before execution.
 #[derive(Default)]
@@ -26,6 +55,8 @@ pub struct PendingWork {
     pub full_workspace_rebuild_requested: bool,
     /// Active execution in progress flag.
     pub is_processing: bool,
+    /// Latest workspace scan request. New roots/config replace older requests.
+    pub workspace_scan: Option<WorkspaceScanRequest>,
 }
 
 impl PendingWork {
@@ -35,13 +66,7 @@ impl PendingWork {
             && self.removals.is_empty()
             && !self.full_workspace_rebuild_requested
             && !self.is_processing
-    }
-
-    fn is_empty(&self) -> bool {
-        self.file_updates.is_empty()
-            && self.core_update.is_none()
-            && self.removals.is_empty()
-            && !self.full_workspace_rebuild_requested
+            && self.workspace_scan.is_none()
     }
 
     #[allow(dead_code)]
@@ -51,6 +76,7 @@ impl PendingWork {
         self.removals.clear();
         self.full_workspace_rebuild_requested = false;
         self.is_processing = false;
+        self.workspace_scan = None;
     }
 }
 
@@ -64,6 +90,10 @@ pub struct WorkerShared {
     pub condvar: Condvar,
     /// Nonblocking shutdown signal.
     pub shutdown: AtomicBool,
+    /// Open documents whose live buffers have priority over disk discovery.
+    pub open_documents: Mutex<BTreeSet<Url>>,
+    /// True while a configured workspace scan still has undiscovered work.
+    pub scan_in_progress: AtomicBool,
 }
 
 /// Events emitted by the background analysis worker thread.
@@ -84,6 +114,13 @@ pub enum AnalysisEvent {
         /// Error description message.
         message: String,
     },
+    /// A source file was shallow-indexed by progressive workspace discovery.
+    WorkspaceFileIndexed {
+        /// URL of the discovered file.
+        uri: Url,
+        /// Source text retained for closed-file LSP metadata queries.
+        text: Arc<str>,
+    },
 }
 
 /// Front-end handle for managing background semantic analysis.
@@ -100,22 +137,41 @@ impl AnalysisService {
 
     /// Creates a new `AnalysisService` with a dedicated background worker thread.
     pub fn new(db: Arc<SemanticDb>) -> (Self, mpsc::UnboundedReceiver<AnalysisEvent>) {
+        Self::new_with_index(db, None)
+    }
+
+    /// Creates an analysis service that also maintains a concurrent shallow
+    /// workspace index while scanning.
+    pub fn new_with_index(db: Arc<SemanticDb>, workspace_index: Option<Arc<WorkspaceIndex>>) -> (Self, mpsc::UnboundedReceiver<AnalysisEvent>) {
+        Self::new_with_index_and_cache(db, workspace_index, None)
+    }
+
+    /// Creates an analysis service with a worker-owned closed-source cache.
+    pub(crate) fn new_with_index_and_cache(
+        db: Arc<SemanticDb>,
+        workspace_index: Option<Arc<WorkspaceIndex>>,
+        source_cache: Option<SourceCache>,
+    ) -> (Self, mpsc::UnboundedReceiver<AnalysisEvent>) {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(WorkerShared {
             epoch: AtomicU64::new(0),
             pending: Mutex::new(PendingWork::default()),
             condvar: Condvar::new(),
             shutdown: AtomicBool::new(false),
+            open_documents: Mutex::new(BTreeSet::new()),
+            scan_in_progress: AtomicBool::new(false),
         });
 
         let db_clone = db.clone();
+        let index_clone = workspace_index.clone();
+        let source_cache_clone = source_cache.clone();
         let shared_clone = shared.clone();
         let event_tx_clone = event_tx.clone();
 
         let worker_thread = thread::Builder::new()
             .name("phalcom-lsp-analyzer".to_string())
             .spawn(move || {
-                worker_loop(db_clone, shared_clone, event_tx_clone);
+                worker_loop(db_clone, index_clone, source_cache_clone, shared_clone, event_tx_clone);
             })
             .expect("failed to spawn phalcom-lsp analyzer thread");
 
@@ -140,6 +196,22 @@ impl AnalysisService {
         self.shared.condvar.notify_all();
     }
 
+    /// Enqueues one coalesced batch of source replacements.
+    pub fn enqueue_file_updates(&self, updates: Vec<(Url, FileRevision, Program)>) {
+        if updates.is_empty() {
+            return;
+        }
+        let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
+        for (uri, revision, program) in updates {
+            if pending.file_updates.insert(uri, (revision, program)).is_some() {
+                COUNTERS.source_updates_coalesced.fetch_add(1, Ordering::Relaxed);
+            }
+            COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+        }
+        self.shared.epoch.fetch_add(1, Ordering::SeqCst);
+        self.shared.condvar.notify_all();
+    }
+
     /// Enqueues active core module replacement.
     pub fn enqueue_core_update(&self, revision: FileRevision, program: Program) {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
@@ -159,6 +231,21 @@ impl AnalysisService {
         self.shared.condvar.notify_all();
     }
 
+    /// Enqueues one coalesced batch of source removals.
+    pub fn enqueue_file_removals(&self, uris: Vec<Url>) {
+        if uris.is_empty() {
+            return;
+        }
+        let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
+        for uri in uris {
+            pending.file_updates.remove(&uri);
+            pending.removals.insert(uri);
+            COUNTERS.source_updates_enqueued.fetch_add(1, Ordering::Relaxed);
+        }
+        self.shared.epoch.fetch_add(1, Ordering::SeqCst);
+        self.shared.condvar.notify_all();
+    }
+
     /// Requests a full workspace re-analysis pass.
     pub fn request_full_workspace_rebuild(&self) {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
@@ -167,10 +254,30 @@ impl AnalysisService {
         self.shared.condvar.notify_all();
     }
 
+    /// Replaces pending workspace discovery with the newest configuration.
+    pub fn configure_workspace(&self, request: WorkspaceScanRequest) {
+        let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
+        pending.workspace_scan = Some(request);
+        self.shared.scan_in_progress.store(true, Ordering::SeqCst);
+        self.shared.epoch.fetch_add(1, Ordering::SeqCst);
+        self.shared.condvar.notify_all();
+    }
+
+    /// Marks a document as live so disk discovery cannot overwrite its
+    /// unsaved shallow index or semantic contribution.
+    pub fn mark_open(&self, uri: Url) {
+        self.shared.open_documents.lock().expect("open document lock poisoned").insert(uri);
+    }
+
+    /// Allows subsequent disk discovery for a closed document.
+    pub fn mark_closed(&self, uri: &Url) {
+        self.shared.open_documents.lock().expect("open document lock poisoned").remove(uri);
+    }
+
     /// Flushes and waits for all currently enqueued pending work to be processed by the worker.
     pub fn flush(&self) {
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
-        while !pending.is_idle() && !self.shared.shutdown.load(Ordering::SeqCst) {
+        while (!pending.is_idle() || self.shared.scan_in_progress.load(Ordering::SeqCst)) && !self.shared.shutdown.load(Ordering::SeqCst) {
             pending = self.shared.condvar.wait(pending).expect("worker condvar wait poisoned");
         }
     }
@@ -199,14 +306,23 @@ impl Drop for AnalysisService {
 /// Worker loop running on the dedicated background thread.
 fn worker_loop(
     db: Arc<SemanticDb>,
+    workspace_index: Option<Arc<WorkspaceIndex>>,
+    source_cache: Option<SourceCache>,
     shared: Arc<WorkerShared>,
     event_tx: mpsc::UnboundedSender<AnalysisEvent>,
 ) {
+    let mut scanner = None;
+    let mut selected_core_uri = None;
+    let mut core_initialized = false;
+    let mut analysis_mode = AnalysisMode::Local;
+    let mut source_catalog = BTreeMap::new();
+    let mut workspace_roots = Vec::new();
+    let mut configured_sysroot = None;
+
     loop {
         let mut pending = shared.pending.lock().expect("worker pending lock poisoned");
 
-        // Wait for work or shutdown signal
-        while pending.is_empty() && !shared.shutdown.load(Ordering::SeqCst) {
+        while !has_analysis_work(&pending) && pending.workspace_scan.is_none() && scanner.is_none() && !shared.shutdown.load(Ordering::SeqCst) {
             pending = shared.condvar.wait(pending).expect("worker condvar wait poisoned");
         }
 
@@ -214,10 +330,83 @@ fn worker_loop(
             break;
         }
 
-        // Check if any enqueued file is unindexed (first analysis): if so, analyze immediately without debounce
-        let is_first_time = pending.file_updates.keys().any(|uri| db.file_snapshot(uri).is_none())
-            || pending.core_update.is_some()
-            || pending.full_workspace_rebuild_requested;
+        let mut core_reselect = false;
+        if let Some(request) = pending.workspace_scan.take() {
+            let mut next = WorkspaceScanState::new(request.mode, ExcludeMatcher::new(&request.excludes));
+            next.set_roots(request.roots.clone(), request.core_source_path.clone());
+            analysis_mode = request.mode;
+            scanner = Some(next);
+            workspace_roots = request.roots;
+            if configured_sysroot != request.core_source_path {
+                configured_sysroot = request.core_source_path;
+                core_reselect = true;
+            }
+        }
+
+        // Interactive semantic work always wins over one background scan chunk.
+        if !has_analysis_work(&pending) {
+            drop(pending);
+            if core_reselect || !core_initialized {
+                let core_source = crate::semantic::core_source::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
+                selected_core_uri = core_source.physical_uri().cloned();
+                let program = phalcom_ast::parser::parse(core_source.text(), 0).program;
+                let generation = db.update_core(FileRevision(1), &program);
+                core_initialized = true;
+                let _ = event_tx.send(AnalysisEvent::Published { generation });
+                continue;
+            }
+            if let Some(scan) = scanner.as_mut() {
+                let batch = scan.step(ScanBudget::default());
+                process_scan_batch(
+                    &db,
+                    workspace_index.as_ref(),
+                    source_cache.as_ref(),
+                    &shared,
+                    &event_tx,
+                    scan.mode,
+                    batch,
+                    &mut source_catalog,
+                    selected_core_uri.as_ref(),
+                );
+                if !scan.has_work() {
+                    scanner = None;
+                    shared.scan_in_progress.store(false, Ordering::SeqCst);
+                    shared.condvar.notify_all();
+                }
+            }
+            continue;
+        }
+
+        // Shallow discovery feeds hover/navigation and import-closure
+        // resolution. Give it one bounded turn before deep analysis of an
+        // open document; otherwise a large first semantic batch can leave
+        // cross-file declarations unavailable to interactive queries.
+        if scanner.is_some() && !pending.file_updates.is_empty() {
+            drop(pending);
+            if let Some(scan) = scanner.as_mut() {
+                let batch = scan.step(ScanBudget::default());
+                process_scan_batch(
+                    &db,
+                    workspace_index.as_ref(),
+                    source_cache.as_ref(),
+                    &shared,
+                    &event_tx,
+                    scan.mode,
+                    batch,
+                    &mut source_catalog,
+                    selected_core_uri.as_ref(),
+                );
+                if !scan.has_work() {
+                    scanner = None;
+                    shared.scan_in_progress.store(false, Ordering::SeqCst);
+                    shared.condvar.notify_all();
+                }
+            }
+            continue;
+        }
+
+        let is_first_time =
+            pending.file_updates.keys().any(|uri| db.file_snapshot(uri).is_none()) || pending.core_update.is_some() || pending.full_workspace_rebuild_requested;
 
         if !is_first_time {
             // Debounce / edit coalescing: wait for edits to settle
@@ -227,7 +416,7 @@ fn worker_loop(
         }
 
         // Process pending work batch
-        while !pending.is_empty() && !shared.shutdown.load(Ordering::SeqCst) {
+        while has_analysis_work(&pending) && !shared.shutdown.load(Ordering::SeqCst) {
             // Take snapshot of work batch under lock
             let batch_epoch = shared.epoch.load(Ordering::SeqCst);
 
@@ -244,6 +433,7 @@ fn worker_loop(
             COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
 
             let mut latest_generation = db.generation();
+            let mut solve_cancelled = false;
 
             // Process removals first
             for uri in removals {
@@ -252,28 +442,37 @@ fn worker_loop(
 
             // Process file updates batch
             if !file_updates.is_empty() {
-                let batch = file_updates
-                    .into_iter()
-                    .map(|(uri, (rev, prog))| (uri, rev, prog))
-                    .collect::<Vec<_>>();
-                latest_generation = db.update_files_batch(batch);
+                let mut batch = Vec::new();
+                let mut seen = BTreeSet::new();
+                for (uri, (revision, program)) in file_updates {
+                    source_catalog.insert(canonical_uri(&uri), (revision, program.clone()));
+                    seen.insert(uri.clone());
+                    batch.push((uri.clone(), revision, program.clone()));
+                    if analysis_mode == AnalysisMode::Local {
+                        extend_import_closure(&uri, &program, &source_catalog, &mut seen, &mut batch);
+                    }
+                }
+                let cancelled = || shared.shutdown.load(Ordering::SeqCst) || shared.epoch.load(Ordering::Acquire) != batch_epoch;
+                if let Some(generation) = db.update_files_batch_with_cancel(batch, &cancelled) {
+                    latest_generation = generation;
+                } else {
+                    solve_cancelled = true;
+                }
             }
 
             // Process core update if enqueued
-            if let Some((rev, prog)) = core_update {
+            if !solve_cancelled && let Some((rev, prog)) = core_update {
                 latest_generation = db.update_core(rev, &prog);
             }
 
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale
             let current_epoch = shared.epoch.load(Ordering::SeqCst);
-            if current_epoch > batch_epoch {
+            if solve_cancelled || current_epoch > batch_epoch {
                 COUNTERS.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::StaleBatchDiscarded { epoch: batch_epoch });
             } else {
                 COUNTERS.semantic_batches_published.fetch_add(1, Ordering::Relaxed);
-                let _ = event_tx.send(AnalysisEvent::Published {
-                    generation: latest_generation,
-                });
+                let _ = event_tx.send(AnalysisEvent::Published { generation: latest_generation });
             }
 
             // Re-acquire lock and notify any flush callers
@@ -285,10 +484,132 @@ fn worker_loop(
     }
 }
 
+fn has_analysis_work(pending: &PendingWork) -> bool {
+    !pending.file_updates.is_empty() || pending.core_update.is_some() || !pending.removals.is_empty() || pending.full_workspace_rebuild_requested
+}
+
+fn process_scan_batch(
+    db: &SemanticDb,
+    workspace_index: Option<&Arc<WorkspaceIndex>>,
+    source_cache: Option<&SourceCache>,
+    shared: &WorkerShared,
+    event_tx: &mpsc::UnboundedSender<AnalysisEvent>,
+    mode: AnalysisMode,
+    files: Vec<crate::workspace_scan::DiscoveredFile>,
+    source_catalog: &mut BTreeMap<Url, (FileRevision, Program)>,
+    selected_core_uri: Option<&Url>,
+) {
+    let mut semantic_files = Vec::new();
+    for discovered in files {
+        if Some(&discovered.uri) == selected_core_uri {
+            continue;
+        }
+        if shared.open_documents.lock().expect("open document lock poisoned").contains(&discovered.uri) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&discovered.path) else {
+            continue;
+        };
+        let parse = phalcom_ast::parser::parse(&text, 0);
+        let program = Arc::new(parse.program);
+        let revision = db
+            .file_snapshot(&discovered.uri)
+            .map_or(FileRevision(1), |file| FileRevision(file.revision.0.saturating_add(1)));
+        if let Some(index) = workspace_index {
+            index.update_file(discovered.uri.clone(), &program);
+        }
+        if let Some(cache) = source_cache {
+            cache.write().expect("closed source cache lock poisoned").insert(
+                canonical_uri(&discovered.uri),
+                CachedSource {
+                    line_index: Arc::new(LineIndex::new(&text)),
+                    text: Arc::from(text.clone()),
+                    program: program.clone(),
+                },
+            );
+        }
+        source_catalog.insert(canonical_uri(&discovered.uri), (revision, (*program).clone()));
+        COUNTERS.workspace_files_discovered.fetch_add(1, Ordering::Relaxed);
+        COUNTERS.workspace_files_parsed.fetch_add(1, Ordering::Relaxed);
+        let _ = event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
+            uri: discovered.uri.clone(),
+            text: Arc::from(text),
+        });
+        if mode == AnalysisMode::Workspace {
+            semantic_files.push((discovered.uri, revision, (*program).clone()));
+        }
+    }
+    if !semantic_files.is_empty() {
+        let generation = db.update_files_batch(semantic_files);
+        let _ = event_tx.send(AnalysisEvent::Published { generation });
+    }
+    if mode == AnalysisMode::Local {
+        let open_documents = shared.open_documents.lock().expect("open document lock poisoned").clone();
+        let mut batch = Vec::new();
+        let mut seen = BTreeSet::new();
+        for uri in open_documents {
+            let catalog_uri = canonical_uri(&uri);
+            let Some((revision, program)) = source_catalog.get(&catalog_uri) else {
+                continue;
+            };
+            if seen.insert(uri.clone()) {
+                batch.push((uri.clone(), *revision, program.clone()));
+                extend_import_closure(&uri, program, source_catalog, &mut seen, &mut batch);
+            }
+        }
+        if !batch.is_empty() {
+            let generation = db.update_files_batch(batch);
+            let _ = event_tx.send(AnalysisEvent::Published { generation });
+        }
+    }
+}
+
+fn extend_import_closure(
+    uri: &Url,
+    program: &Program,
+    source_catalog: &BTreeMap<Url, (FileRevision, Program)>,
+    seen: &mut BTreeSet<Url>,
+    batch: &mut Vec<(Url, FileRevision, Program)>,
+) {
+    for statement in &program.statements {
+        let Statement::Import(import) = statement else {
+            continue;
+        };
+        let Some(import_uri) = resolve_source_import(uri, &import.path) else {
+            continue;
+        };
+        let Some((revision, imported_program)) = source_catalog.get(&import_uri) else {
+            continue;
+        };
+        if seen.insert(import_uri.clone()) {
+            batch.push((import_uri.clone(), *revision, imported_program.clone()));
+            extend_import_closure(&import_uri, imported_program, source_catalog, seen, batch);
+        }
+    }
+}
+
+fn resolve_source_import(uri: &Url, import: &str) -> Option<Url> {
+    let source = uri.to_file_path().ok()?;
+    let mut candidate = source.parent()?.join(import);
+    if candidate.extension().is_none() {
+        candidate.set_extension("ph");
+    }
+    Url::from_file_path(candidate.canonicalize().ok()?).ok()
+}
+
+fn canonical_uri(uri: &Url) -> Url {
+    uri.to_file_path()
+        .ok()
+        .and_then(|path| path.canonicalize().ok())
+        .and_then(|path| Url::from_file_path(path).ok())
+        .unwrap_or_else(|| uri.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use phalcom_ast::parser::parse;
+    use std::fs;
     use tower_lsp::lsp_types::Url;
 
     fn uri(value: &str) -> Url {
@@ -322,5 +643,31 @@ mod tests {
         let db = Arc::new(SemanticDb::new());
         let (service, _rx) = AnalysisService::new(db);
         service.shutdown();
+    }
+
+    #[test]
+    fn local_workspace_scan_indexes_closed_files_without_deep_analysis() {
+        let root = std::env::temp_dir().join(format!("phalcom_lsp_scan_service_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("closed.ph");
+        fs::write(&path, "class Closed { marker() {} }\n").unwrap();
+        let uri = Url::from_file_path(&path).unwrap();
+        let db = Arc::new(SemanticDb::new());
+        let index = Arc::new(WorkspaceIndex::new());
+        let (service, _rx) = AnalysisService::new_with_index(db.clone(), Some(index.clone()));
+
+        service.configure_workspace(WorkspaceScanRequest {
+            roots: vec![root.clone()],
+            mode: AnalysisMode::Local,
+            excludes: Vec::new(),
+            core_source_path: None,
+        });
+        service.flush();
+
+        assert!(!index.symbols_matching("marker").is_empty());
+        assert!(db.file_snapshot(&uri).is_none());
+        service.shutdown();
+        let _ = fs::remove_dir_all(root);
     }
 }

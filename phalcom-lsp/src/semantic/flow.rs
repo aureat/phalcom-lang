@@ -12,9 +12,11 @@ use super::analyzer::{AnalysisContext, analyze_expr};
 use super::callable::CallableSummary;
 use super::dispatch::{DispatchReceiver, ResolvedDispatch};
 use super::facts::{FieldFacts, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
-use super::ids::{CallableId, ClassId, DispatchSide, FieldId, ModuleId};
+use super::ids::{CallableId, ClassId, DispatchSide, FieldId};
 use super::query::SemanticGeneration;
 use super::scope::{BindingId, ScopeGraph};
+use super::snapshot::FileSourceSnapshot;
+use super::source::{field_initializer, member_body};
 use super::surface::{MemberSurface, ModuleSurface};
 use crate::selectors::{binary_selector_name, call_selector, index_selector_from_labels, setter_selector_from_name, unary_selector_name};
 
@@ -145,34 +147,59 @@ fn join_reachable_values(values: impl IntoIterator<Item = InferredValue>) -> Inf
     if known.is_empty() { join_values(values) } else { join_values(known) }
 }
 
+/// Immutable inputs shared by one structured flow pass.
+pub struct SolverContext<'ctx> {
+    /// Resolves source-visible class names.
+    pub known_class: &'ctx dyn Fn(&str) -> Option<ClassId>,
+    /// Tests whether a class is part of the current semantic universe.
+    pub contains_class: &'ctx dyn Fn(&ClassId) -> bool,
+    /// Reads the latest callable return summary.
+    pub callable_return: &'ctx dyn Fn(&CallableId) -> Option<InferredValue>,
+    /// Reads the latest callable effects summary.
+    pub callable_effects: &'ctx dyn Fn(&CallableId) -> Option<super::callable::SummaryEffects>,
+    /// Reads the latest parameter fact.
+    pub parameter_fact: &'ctx dyn Fn(&CallableId, &str) -> Option<InferredValue>,
+    /// Reads a previously established field fact.
+    pub field_value: &'ctx dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
+    /// Resolves a receiver send without allocating a copied surface.
+    pub resolve_member: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
+    /// Looks up member metadata by callable identity.
+    pub member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
+}
+
 /// Runs one structured pass over a module and all source members.
-pub fn analyze_surface(
-    program: &phalcom_ast::ast::Program,
-    surface: &ModuleSurface,
-    module: &ModuleId,
-    known_class: &dyn Fn(&str) -> Option<ClassId>,
-    contains_class: &dyn Fn(&ClassId) -> bool,
-    callable_return: &dyn Fn(&CallableId) -> Option<InferredValue>,
-    callable_effects: &dyn Fn(&CallableId) -> Option<super::callable::SummaryEffects>,
-    parameter_fact: &dyn Fn(&CallableId, &str) -> Option<InferredValue>,
-    field_value: &dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
-    resolve_member: &dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
+pub fn analyze_surface(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration) -> SurfaceFlowAnalysis {
+    analyze_surface_for_callable(source, context, revision, None)
+}
+
+/// Runs one structured flow pass for one callable. Top-level and field work is
+/// skipped so callable worklist rounds do not repeatedly traverse unrelated
+/// member bodies.
+pub fn analyze_callable(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration, callable: &CallableId) -> SurfaceFlowAnalysis {
+    analyze_surface_for_callable(source, context, revision, Some(callable))
+}
+
+fn analyze_surface_for_callable(
+    source: &FileSourceSnapshot,
+    context: &SolverContext<'_>,
     revision: SemanticGeneration,
+    target_callable: Option<&CallableId>,
 ) -> SurfaceFlowAnalysis {
-    crate::perf::COUNTERS
-        .flow_passes
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let scopes = super::scope::build_scope_graph(module.clone(), program);
+    crate::perf::COUNTERS.flow_passes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let program = source.program.as_ref();
+    let surface = &source.surface;
+    let scopes = &source.scopes;
     let mut analyzer = FlowAnalyzer {
         surface,
         scopes: &scopes,
-        known_class,
-        contains_class,
-        callable_return,
-        parameter_fact,
-        field_value,
-        resolve_member,
-        callable_effects,
+        known_class: context.known_class,
+        contains_class: context.contains_class,
+        callable_return: context.callable_return,
+        parameter_fact: context.parameter_fact,
+        field_value: context.field_value,
+        resolve_member: context.resolve_member,
+        callable_effects: context.callable_effects,
+        member_surface: context.member_surface,
         local_facts: LocalFacts::default(),
         field_facts: FieldFacts::default(),
         parameter_facts: ParameterFacts::default(),
@@ -187,28 +214,37 @@ pub fn analyze_surface(
         summaries: Vec::new(),
     };
 
-    let mut top_state = FlowState::default();
-    let _ = analyzer.analyze_statements(&program.statements, &mut top_state, None, None, None);
-    analyzer.parameter_facts_from_events();
+    if target_callable.is_none() {
+        let mut top_state = FlowState::default();
+        let _ = analyzer.analyze_statements(&program.statements, &mut top_state, None, None, None);
+        analyzer.parameter_facts_from_events();
+    }
 
     for class in surface.classes.values() {
-        for field in class.fields.values() {
-            if let Some(initializer) = &field.initializer {
-                let state = FlowState::default();
-                let value = analyzer.value(initializer, &state, Some(&class.id), Some(field_side(field.is_class_side)));
-                analyzer.field_facts.record_evidence(
-                    class.id.clone(),
-                    field.name.clone(),
-                    field_side(field.is_class_side),
-                    super::facts::FieldEvidenceKind::DeclarationInitializer,
-                    initializer.range(),
-                    value,
-                );
+        if target_callable.is_none() {
+            for field in class.fields.values() {
+                if let Some(initializer) = field_initializer(source, field.ast) {
+                    let state = FlowState::default();
+                    let value = analyzer.value(initializer, &state, Some(&class.id), Some(field_side(field.is_class_side)));
+                    analyzer.field_facts.record_evidence(
+                        class.id.clone(),
+                        field.name.clone(),
+                        field_side(field.is_class_side),
+                        super::facts::FieldEvidenceKind::DeclarationInitializer,
+                        initializer.range(),
+                        value,
+                    );
+                }
             }
         }
 
         for member in class.members_by_side.values() {
-            if member.body.is_empty() {
+            if target_callable.is_some_and(|target| target != &member.callable) {
+                continue;
+            }
+            crate::perf::COUNTERS.callables_analyzed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let body = member_body(source, member.ast);
+            if body.is_empty() {
                 continue;
             }
             analyzer.events.clear();
@@ -219,7 +255,7 @@ pub fn analyze_surface(
             analyzer.pending_returns.clear();
             analyzer.pending_writes.clear();
             let mut state = analyzer.seed_member(member);
-            let flow = analyzer.analyze_statements(&member.body, &mut state, Some(&class.id), Some(member.side), Some(&member.callable));
+            let flow = analyzer.analyze_statements(body, &mut state, Some(&class.id), Some(member.side), Some(&member.callable));
             let mut return_values = flow.returns.iter().map(|evidence| evidence.value.clone()).collect::<Vec<_>>();
             if let Some(tail) = flow.normal.as_ref().and_then(|_| flow.tail_value.clone()) {
                 return_values.push(tail);
@@ -286,6 +322,7 @@ struct FlowAnalyzer<'ctx> {
     field_value: &'ctx dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
     resolve_member: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
     callable_effects: &'ctx dyn Fn(&CallableId) -> Option<super::callable::SummaryEffects>,
+    member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
     local_facts: LocalFacts,
     field_facts: FieldFacts,
     parameter_facts: ParameterFacts,
@@ -336,6 +373,7 @@ impl FlowAnalyzer<'_> {
             callable_return: self.callable_return,
             field_value: &field_value,
             resolver: &resolve_member,
+            member_surface: self.member_surface,
             contains_class: &contains_class,
         };
         analyze_expr(expr, &context)
@@ -882,7 +920,7 @@ impl FlowAnalyzer<'_> {
                             let Some(resolved) = (self.resolve_member)(&target, &selector) else {
                                 continue;
                             };
-                            self.record_call(resolved.member.callable, call.range, args.clone(), state);
+                            self.record_call(resolved.callable, call.range, args.clone(), state);
                         }
                     }
                     Some(_) => {}
@@ -893,7 +931,7 @@ impl FlowAnalyzer<'_> {
                         });
                         if let Some(target) = target {
                             if let Some(resolved) = (self.resolve_member)(&target, &selector) {
-                                self.record_call(resolved.member.callable, call.range, args, state);
+                                self.record_call(resolved.callable, call.range, args, state);
                             }
                         } else {
                             let mut candidates = self
@@ -1020,7 +1058,7 @@ impl FlowAnalyzer<'_> {
                     for target in receiver_targets(&reference.receiver, &receiver.shape, current_class, side) {
                         if let Some(resolved) = (self.resolve_member)(&target, &selector) {
                             self.events.push(AnalysisEvent::Call(ResolvedCall {
-                                target: resolved.member.callable,
+                                target: resolved.callable,
                                 site: reference.range,
                                 args: Vec::new(),
                                 dynamic: false,
@@ -1228,7 +1266,7 @@ impl FlowAnalyzer<'_> {
         }
         for target in receiver_targets(object, &receiver.shape, current_class, side) {
             let Some(resolved) = (self.resolve_member)(&target, selector) else { continue };
-            self.record_call(resolved.member.callable, site, args.clone(), state);
+            self.record_call(resolved.callable, site, args.clone(), state);
         }
     }
 
@@ -1287,7 +1325,8 @@ impl FlowAnalyzer<'_> {
             let Some(resolved) = (self.resolve_member)(&receiver, &call.target.selector) else {
                 continue;
             };
-            record_parameter_arguments(&mut self.parameter_facts, &resolved.member, call);
+            let Some(member) = (self.member_surface)(&resolved.callable) else { continue };
+            record_parameter_arguments(&mut self.parameter_facts, &member, call);
         }
     }
 }

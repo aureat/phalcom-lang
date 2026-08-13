@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::ids::{ClassId, DispatchSide};
+use super::ids::{CallableId, ClassId, DispatchSide};
 use super::surface::{ClassSurface, MemberSurface};
 
 /// Receiver target used by semantic dispatch.
@@ -19,12 +19,11 @@ pub(crate) enum DispatchReceiver {
 /// One member resolved through inheritance and dispatch side.
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedDispatch {
-    /// Actual declaration surface, including its declaring callable owner.
-    pub member: MemberSurface,
+    /// Callable ID of the actual declaration.
+    pub callable: CallableId,
     /// Class represented by the receiver expression.
     pub receiver_class: ClassId,
     /// Dispatch side used for lookup.
-    #[allow(dead_code)]
     pub side: DispatchSide,
 }
 
@@ -39,6 +38,12 @@ impl<'a> DispatchResolver<'a> {
     /// Creates a resolver over one coherent class-surface snapshot.
     pub(crate) fn new(classes: &'a BTreeMap<ClassId, ClassSurface>) -> Self {
         Self { classes }
+    }
+
+    pub(crate) fn member(&self, callable: &CallableId) -> Option<&'a MemberSurface> {
+        self.classes
+            .get(&callable.owner)
+            .and_then(|class| class.members_by_side.get(&(callable.selector.clone(), callable.side)))
     }
 
     /// Reports whether a receiver class exists in this semantic surface.
@@ -66,7 +71,7 @@ impl<'a> DispatchResolver<'a> {
             let surface = self.classes.get(&class)?;
             if let Some(member) = surface.members_by_side.get(&(selector.to_string(), side)) {
                 return Some(ResolvedDispatch {
-                    member: member.clone(),
+                    callable: member.callable.clone(),
                     receiver_class,
                     side,
                 });
@@ -106,7 +111,7 @@ mod tests {
 
         let resolved = resolver.resolve(&DispatchReceiver::Instance(child), "value()").expect("inherited member");
 
-        assert_eq!(resolved.member.callable.owner.name, "Parent");
+        assert_eq!(resolved.callable.owner.name, "Parent");
         assert_eq!(resolved.side, DispatchSide::Instance);
     }
 
@@ -121,9 +126,9 @@ mod tests {
             .expect("instance member");
         let class = resolver.resolve(&DispatchReceiver::ClassObject(widget), "make()").expect("class member");
 
-        assert_eq!(instance.member.side, DispatchSide::Instance);
-        assert_eq!(class.member.side, DispatchSide::Class);
-        assert_ne!(instance.member.callable, class.member.callable);
+        assert_eq!(instance.side, DispatchSide::Instance);
+        assert_eq!(class.side, DispatchSide::Class);
+        assert_ne!(instance.callable, class.callable);
     }
 
     #[test]
@@ -151,8 +156,8 @@ mod tests {
             )
             .expect("super class member");
 
-        assert_eq!(instance.member.callable.owner.name, "Parent");
-        assert_eq!(class.member.callable.owner.name, "Parent");
+        assert_eq!(instance.callable.owner.name, "Parent");
+        assert_eq!(class.callable.owner.name, "Parent");
         assert_eq!(instance.side, DispatchSide::Instance);
         assert_eq!(class.side, DispatchSide::Class);
     }

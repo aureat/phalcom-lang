@@ -3,11 +3,13 @@
 //! Recovery stays deliberately syntax-light so a dangling dot or incomplete
 //! chained send remains useful while the editor buffer is not parseable.
 
-use phalcom_ast::ast::{Pattern, Program, Statement};
+use phalcom_ast::ast::{ClassMember, Expr, MethodDef, PackItem, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
+use phalcom_native_surface::{NATIVE_MEMBERS, NativeDispatch, NativeMemberKind, NativeVisibility};
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
 use crate::documents::Document;
+use crate::index::WorkspaceIndex;
 use crate::semantic::{ClassId, CompletionMember, DispatchSide, MemberKind, MemberVisibility, SemanticDb};
 
 /// Whether a resolved receiver is an instance or a class object.
@@ -38,6 +40,399 @@ pub struct CompletionTarget {
 /// Recovers a member target at an LSP position with delimiter-balanced scans.
 pub fn target_at(doc: &Document, position: Position) -> Option<CompletionTarget> {
     target_at_offset(&doc.text, doc.line_index.offset(position))
+}
+
+/// Supplies immediate receiver completion from shallow source/index data
+/// while the background semantic snapshot is still catching up.
+/// Same bounded completion fallback using a request-local recovery parse for
+/// buffers whose dangling member dot prevented the normal parse from
+/// reaching later declarations.
+pub(crate) fn shallow_receiver_completions_from_program(
+    index: &WorkspaceIndex,
+    uri: &Url,
+    doc: &Document,
+    program: &Program,
+    position: Position,
+) -> Option<Vec<CompletionItem>> {
+    let target = target_at(doc, position)?;
+    let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?.trim();
+    if receiver.is_empty() {
+        return None;
+    }
+    let classes = shallow_receiver_classes(program, receiver, target.receiver_range.end);
+    if classes.is_empty() {
+        return None;
+    }
+    let side = shallow_receiver_side(receiver);
+
+    let module = crate::semantic::ModuleId::from_uri(uri);
+    let local_surface = crate::semantic::build_module_surface(module.clone(), program);
+    let candidates = classes
+        .iter()
+        .map(|class| shallow_class_items(index, uri, &local_surface, &module, class, side))
+        .collect::<Vec<_>>();
+    Some(shallow_union_items(candidates))
+}
+
+/// Resolves only source-local constructor shapes needed to keep completion
+/// useful before the worker publishes its first semantic generation. This is
+/// intentionally bounded: it walks the current program, never the workspace.
+fn shallow_receiver_classes(program: &Program, receiver: &str, offset: usize) -> Vec<String> {
+    let mut classes = std::collections::BTreeSet::new();
+
+    if receiver.contains('.') || receiver.contains('(') {
+        if let Some(expr) = phalcom_ast::parser::parse(receiver, 0)
+            .program
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            })
+        {
+            collect_expression_classes(program, expr, offset, &mut classes);
+        }
+    }
+
+    if receiver == "self" {
+        if let Some((class, _)) = enclosing_method(program, offset) {
+            classes.insert(class.name.clone());
+        }
+    } else if receiver == "super" {
+        if let Some((class, _)) = enclosing_method(program, offset) {
+            if let Some(parent) = &class.superclass {
+                classes.insert(parent.name.clone());
+            }
+        }
+    } else if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+        if program
+            .statements
+            .iter()
+            .any(|statement| matches!(statement, Statement::Class(class) if class.name == receiver))
+        {
+            classes.insert(receiver.to_string());
+        }
+    }
+
+    for statement in &program.statements {
+        if let Statement::Let(binding) = statement {
+            if let Pattern::Name { name, .. } = &binding.pattern {
+                if name == receiver && binding.range.start < offset {
+                    if let Some(class) = constructor_class(binding.value.as_ref()) {
+                        classes.insert(class);
+                    }
+                }
+            }
+        }
+    }
+
+    let Some((class, method)) = enclosing_method(program, offset) else {
+        return classes.into_iter().collect();
+    };
+
+    if receiver.starts_with('_') {
+        for member in &class.members {
+            if let Some(body) = member_body(member) {
+                collect_field_constructor_assignments(body, receiver, &mut classes);
+            }
+        }
+    }
+
+    if let Some(method) = method {
+        if method.params.iter().any(|param| param.name == receiver) {
+            for statement in &program.statements {
+                collect_argument_constructor_classes(statement, &method.name, receiver, &mut classes);
+            }
+        }
+    }
+
+    classes.into_iter().collect()
+}
+
+fn shallow_receiver_side(receiver: &str) -> DispatchSide {
+    if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+        DispatchSide::Class
+    } else {
+        DispatchSide::Instance
+    }
+}
+
+fn collect_expression_classes(program: &Program, expr: &Expr, offset: usize, classes: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        Expr::MethodCall(call) if call.method == "new" => {
+            if let Expr::Var { value, .. } = &call.object {
+                classes.insert(value.clone());
+            }
+        }
+        Expr::MethodCall(call) => {
+            let mut receivers = std::collections::BTreeSet::new();
+            collect_expression_classes(program, &call.object, offset, &mut receivers);
+            for receiver in receivers {
+                if let Some(class) = find_method_return_class(program, &receiver, &call.method) {
+                    classes.insert(class);
+                }
+            }
+        }
+        Expr::Var { value, .. } => {
+            for statement in &program.statements {
+                let Statement::Let(binding) = statement else { continue };
+                let Pattern::Name { name, .. } = &binding.pattern else { continue };
+                if name == value {
+                    if let Some(value) = binding.value.as_ref() {
+                        collect_expression_classes(program, value, offset, classes);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn find_method_return_class(program: &Program, class_name: &str, method_name: &str) -> Option<String> {
+    let class = program.statements.iter().find_map(|statement| match statement {
+        Statement::Class(class) if class.name == class_name => Some(class),
+        _ => None,
+    })?;
+    let body = class.members.iter().find_map(|member| match member {
+        ClassMember::Method(method) if method.name == method_name => Some(method.body.as_slice()),
+        _ => None,
+    })?;
+    body.iter().rev().find_map(|statement| match statement {
+        Statement::Return(return_statement) => constructor_class(return_statement.value.as_ref()),
+        Statement::Expr { expr, .. } => constructor_class(Some(expr)),
+        _ => None,
+    })
+}
+
+fn constructor_class(value: Option<&Expr>) -> Option<String> {
+    let Expr::MethodCall(call) = value? else { return None };
+    if call.method != "new" {
+        return None;
+    }
+    let Expr::Var { value, .. } = &call.object else { return None };
+    Some(value.clone())
+}
+
+fn enclosing_method(program: &Program, offset: usize) -> Option<(&phalcom_ast::ast::ClassDef, Option<&MethodDef>)> {
+    program.statements.iter().find_map(|statement| {
+        let Statement::Class(class) = statement else { return None };
+        if !class.range.contains(offset) {
+            return None;
+        }
+        let method = class.members.iter().find_map(|member| match member {
+            ClassMember::Method(method) if method.range.contains(offset) => Some(method),
+            _ => None,
+        });
+        Some((class, method))
+    })
+}
+
+fn member_body(member: &ClassMember) -> Option<&[Statement]> {
+    match member {
+        ClassMember::Method(method) => Some(&method.body),
+        ClassMember::Getter(getter) => Some(&getter.body),
+        ClassMember::Setter(setter) => Some(&setter.body),
+        ClassMember::Index(index) => Some(&index.body),
+        ClassMember::Field(_) | ClassMember::Variant(_) => None,
+    }
+}
+
+fn collect_field_constructor_assignments(statements: &[Statement], field: &str, classes: &mut std::collections::BTreeSet<String>) {
+    for statement in statements {
+        match statement {
+            Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => collect_field_constructor_expr(expr, field, classes),
+            Statement::Return(return_statement) => {
+                if let Some(expr) = &return_statement.value {
+                    collect_field_constructor_expr(expr, field, classes);
+                }
+            }
+            Statement::For(for_statement) => {
+                collect_field_constructor_expr(&for_statement.iter, field, classes);
+                collect_field_constructor_assignments(&for_statement.body, field, classes);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_field_constructor_expr(expr: &Expr, field: &str, classes: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        Expr::Assignment(assignment) => {
+            if let Expr::Field { value, .. } = assignment.name.as_ref() {
+                if value == field {
+                    if let Some(class) = constructor_class(Some(&assignment.value)) {
+                        classes.insert(class);
+                    }
+                }
+            }
+            collect_field_constructor_expr(&assignment.value, field, classes);
+        }
+        Expr::Block(block) => collect_field_constructor_assignments(&block.body, field, classes),
+        Expr::MethodCall(call) => {
+            collect_field_constructor_expr(&call.object, field, classes);
+            for item in &call.args {
+                collect_field_constructor_pack(item, field, classes);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_field_constructor_pack(item: &PackItem, field: &str, classes: &mut std::collections::BTreeSet<String>) {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_field_constructor_expr(expr, field, classes),
+        PackItem::Labeled { value, .. } => collect_field_constructor_expr(value, field, classes),
+    }
+}
+
+fn collect_argument_constructor_classes(statement: &Statement, method_name: &str, parameter: &str, classes: &mut std::collections::BTreeSet<String>) {
+    match statement {
+        Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => collect_argument_constructor_expr(expr, method_name, parameter, classes),
+        Statement::Return(return_statement) => {
+            if let Some(expr) = &return_statement.value {
+                collect_argument_constructor_expr(expr, method_name, parameter, classes);
+            }
+        }
+        Statement::For(for_statement) => {
+            collect_argument_constructor_expr(&for_statement.iter, method_name, parameter, classes);
+            for nested in &for_statement.body {
+                collect_argument_constructor_classes(nested, method_name, parameter, classes);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_argument_constructor_expr(expr: &Expr, method_name: &str, parameter: &str, classes: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        Expr::UnqualifiedCall(call) if call.name == method_name => {
+            for item in &call.args {
+                let PackItem::Positional { expr, .. } = item else { continue };
+                if let Some(class) = constructor_class(Some(expr)) {
+                    classes.insert(class);
+                }
+                let _ = parameter;
+            }
+        }
+        Expr::MethodCall(call) => {
+            collect_argument_constructor_expr(&call.object, method_name, parameter, classes);
+            for item in &call.args {
+                let expr = match item {
+                    PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } | PackItem::Labeled { value: expr, .. } => expr,
+                };
+                collect_argument_constructor_expr(expr, method_name, parameter, classes);
+            }
+        }
+        Expr::Block(block) => {
+            for statement in &block.body {
+                collect_argument_constructor_classes(statement, method_name, parameter, classes);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn shallow_class_items(
+    index: &WorkspaceIndex,
+    uri: &Url,
+    local_surface: &crate::semantic::ModuleSurface,
+    module: &crate::semantic::ModuleId,
+    class: &str,
+    side: DispatchSide,
+) -> Vec<CompletionItem> {
+    let mut items = Vec::new();
+    let mut current = Some(class.to_string());
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(class_name) = current.take() {
+        if !visited.insert(class_name.clone()) {
+            break;
+        }
+        if let Some(surface) = local_surface.classes.get(&crate::semantic::ClassId::new(module.clone(), class_name.clone())) {
+            for member in surface.members_by_side.values().filter(|member| member.side == side) {
+                items.push(semantic_to_completion_item(&CompletionMember {
+                    selector: member.callable.selector.clone(),
+                    kind: member.kind,
+                    owner: member.callable.owner.clone(),
+                    visibility: member.visibility,
+                    side: member.side,
+                }));
+            }
+            current = surface
+                .superclass
+                .as_ref()
+                .and_then(|parent| (parent.module == *module).then(|| parent.name.clone()));
+        } else {
+            for member in index.class_members(uri, &class_name) {
+                if (side == DispatchSide::Class) == member.is_class_side {
+                    items.push(shallow_member_item(&member.selector, member.kind, &member.owner));
+                }
+            }
+            current = index.class_parent(uri, &class_name);
+        }
+    }
+    if side == DispatchSide::Instance && !visited.contains("Object") {
+        items.extend(native_object_items());
+    }
+    items.sort_by(|left, right| left.label.cmp(&right.label));
+    items.dedup_by(|left, right| left.label == right.label);
+    items
+}
+
+fn shallow_union_items(candidates: Vec<Vec<CompletionItem>>) -> Vec<CompletionItem> {
+    let total = candidates.len();
+    let mut by_label = std::collections::BTreeMap::<String, (CompletionItem, usize)>::new();
+    for items in candidates {
+        for item in items {
+            by_label
+                .entry(item.label.to_string())
+                .and_modify(|(_, coverage)| *coverage += 1)
+                .or_insert((item, 1));
+        }
+    }
+    let mut items = by_label
+        .into_values()
+        .map(|(mut item, coverage)| {
+            let owner = item.detail.unwrap_or_else(|| "shallow receiver".to_string());
+            item.detail = Some(format!("{owner} — available on {coverage}/{total} candidates"));
+            item.sort_text = Some(format!("{:02}:{}", total.saturating_sub(coverage), item.label));
+            item
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| left.sort_text.cmp(&right.sort_text).then_with(|| left.label.cmp(&right.label)));
+    items
+}
+
+fn native_object_items() -> Vec<CompletionItem> {
+    NATIVE_MEMBERS
+        .iter()
+        .filter(|member| member.class == "Object" && member.side == NativeDispatch::Instance && member.visibility == NativeVisibility::Public)
+        .map(|member| {
+            let kind = match member.kind {
+                NativeMemberKind::Getter => crate::index::MemberKind::Getter,
+                NativeMemberKind::Setter => crate::index::MemberKind::Setter,
+                NativeMemberKind::Method => crate::index::MemberKind::Method,
+            };
+            shallow_member_item(member.selector, kind, "Object")
+        })
+        .collect()
+}
+
+fn shallow_member_item(selector: &str, kind: crate::index::MemberKind, owner: &str) -> CompletionItem {
+    let (item_kind, insert_text, insert_text_format) = match kind {
+        crate::index::MemberKind::Getter => (CompletionItemKind::PROPERTY, selector.to_string(), InsertTextFormat::PLAIN_TEXT),
+        crate::index::MemberKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(selector), InsertTextFormat::SNIPPET),
+        crate::index::MemberKind::Method | crate::index::MemberKind::StaticMethod | crate::index::MemberKind::Construct => {
+            (CompletionItemKind::METHOD, method_snippet(selector), InsertTextFormat::SNIPPET)
+        }
+    };
+    CompletionItem {
+        label: selector.to_string(),
+        detail: Some(owner.to_string()),
+        kind: Some(item_kind),
+        insert_text: Some(insert_text),
+        insert_text_format: Some(insert_text_format),
+        ..CompletionItem::default()
+    }
 }
 
 fn target_at_offset(text: &str, offset: usize) -> Option<CompletionTarget> {
@@ -166,12 +561,16 @@ pub(crate) fn semantic_contextual_completions(db: &SemanticDb, context: Semantic
         if let Some(class) = context.lexical_class {
             items.extend(semantic_class_completions(db, class, ReceiverKind::Instance, Some(class), context.privileged));
         }
-        items.extend(visible_names_at(db, context.uri, context.program, context.offset).into_iter().map(|name| CompletionItem {
-            label: name.clone(),
-            kind: Some(CompletionItemKind::VARIABLE),
-            insert_text: Some(name),
-            ..CompletionItem::default()
-        }));
+        items.extend(
+            visible_names_at(db, context.uri, context.program, context.offset)
+                .into_iter()
+                .map(|name| CompletionItem {
+                    label: name.clone(),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    insert_text: Some(name),
+                    ..CompletionItem::default()
+                }),
+        );
     }
     items.sort_by(|left, right| left.label.cmp(&right.label));
     items.dedup_by(|left, right| left.label == right.label);
@@ -343,5 +742,35 @@ mod tests {
     fn snippets_preserve_selector_shape() {
         assert_eq!(method_snippet("move(_,to,duration)"), "move(${1:_}, to: ${2:_}, duration: ${3:_})");
         assert_eq!(setter_snippet("x=(put)"), "x = ${1:value}");
+    }
+
+    #[test]
+    fn shallow_completion_reads_live_constructor_surface_before_worker_publish() {
+        let uri = Url::parse("file:///completion.ph").unwrap();
+        let source = "class Animal { move() {} }\nclass Dog is Animal { bark() {} }\nconst dog = Dog.new()\ndog.bark()\n";
+        let doc = Document::new(source.to_string());
+        let index = WorkspaceIndex::new();
+        index.update_file(uri.clone(), &doc.parse.program);
+        let items = shallow_receiver_completions_from_program(&index, &uri, &doc, &doc.parse.program, Position { line: 3, character: 4 }).unwrap();
+        let labels = items.into_iter().map(|item| item.label.to_string()).collect::<Vec<_>>();
+        assert!(labels.contains(&"bark()".to_string()), "{labels:?}");
+        assert!(labels.contains(&"move()".to_string()), "{labels:?}");
+    }
+
+    #[test]
+    fn shallow_receiver_resolves_constructor_assigned_field() {
+        let source =
+            "class Client {\n  send() { }\n}\nclass Service {\n  @constructor new() { _client = Client.new() }\n  run() {\n    _client.send()\n  }\n}\n";
+        let program = phalcom_ast::parser::parse(source, 0).program;
+        let offset = source.find("_client.send").unwrap() + "_client.".len();
+        assert_eq!(shallow_receiver_classes(&program, "_client", offset), vec!["Client"]);
+    }
+
+    #[test]
+    fn shallow_receiver_resolves_parameter_constructor_union() {
+        let source = "class Circle { stroke() { } }\nclass Rectangle { fill() { } }\nclass Canvas { draw(_ shape) {\n    shape.stroke()\n  }\n}\ndraw(Circle.new())\ndraw(Rectangle.new())\n";
+        let program = phalcom_ast::parser::parse(source, 0).program;
+        let offset = source.find("shape.stroke").unwrap() + "shape.".len();
+        assert_eq!(shallow_receiver_classes(&program, "shape", offset), vec!["Circle", "Rectangle"]);
     }
 }

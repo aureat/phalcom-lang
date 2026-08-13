@@ -85,6 +85,21 @@ function startLspClient(context: ExtensionContext): LanguageClient {
     return client
 }
 
+/** Stops the previous client even when graceful shutdown fails, then starts a replacement. */
+export async function restartLspClient(context: ExtensionContext): Promise<void> {
+    const previous = lspClient
+    lspClient = undefined
+    if (previous) {
+        try {
+            await previous.stop()
+        } catch (error) {
+            lspOutput?.appendLine(`Language server stop failed; disposing client: ${String(error)}`)
+            previous.dispose()
+        }
+    }
+    lspClient = startLspClient(context)
+}
+
 export function activate(context: ExtensionContext) {
     registerRunFile(context)
 
@@ -92,14 +107,25 @@ export function activate(context: ExtensionContext) {
     context.subscriptions.push(lspOutput)
 
     context.subscriptions.push(commands.registerCommand("phalcom.restartLanguageServer", async () => {
-        await lspClient?.stop()
-        lspClient = startLspClient(context)
+        await restartLspClient(context)
     }))
     context.subscriptions.push(commands.registerCommand("phalcom.showLanguageServerOutput", () => lspOutput?.show()))
     context.subscriptions.push(workspace.onDidChangeConfiguration(async event => {
         if (event.affectsConfiguration("phalcom.lsp.enabled") || event.affectsConfiguration("phalcom.lsp.serverPath")) {
-            await lspClient?.stop()
-            lspClient = workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", true) ? startLspClient(context) : undefined
+            if (workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", true)) {
+                await restartLspClient(context)
+            } else {
+                const previous = lspClient
+                lspClient = undefined
+                if (previous) {
+                    try {
+                        await previous.stop()
+                    } catch (error) {
+                        lspOutput?.appendLine(`Language server stop failed; disposing client: ${String(error)}`)
+                        previous.dispose()
+                    }
+                }
+            }
         }
     }))
 

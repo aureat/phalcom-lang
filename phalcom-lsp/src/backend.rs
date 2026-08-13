@@ -24,11 +24,11 @@
 //! `textDocument/semanticTokens/full`, a flat lexer-driven token-coloring
 //! pass ([`crate::semantic_tokens`]).
 
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::analysis_service::{AnalysisEvent, AnalysisService};
+use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, WorkspaceScanRequest};
 
 use serde_json::Value as JsonValue;
 use tower_lsp::jsonrpc::Result;
@@ -50,7 +50,7 @@ use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
-use crate::semantic::{SemanticDb, ValueShape, OccurrenceRole, SemanticTarget};
+use crate::semantic::{OccurrenceRole, SemanticDb, SemanticTarget, ValueShape};
 use crate::semantic_tokens;
 
 use crate::workspace_scan::AnalysisMode;
@@ -180,7 +180,7 @@ pub struct Backend {
     /// selector. Backed by a concurrent map internally, so it can be read
     /// and written from concurrent `&self` handlers without a server-wide
     /// lock — no `Arc`/`Mutex` wrapper needed around it here.
-    index: WorkspaceIndex,
+    index: Arc<WorkspaceIndex>,
     /// Live VM-free semantic state snapshot reader.
     semantic: Arc<SemanticDb>,
     /// Background semantic analysis service.
@@ -190,7 +190,9 @@ pub struct Backend {
     /// Current workspace roots advertised by the client.
     workspace_roots: RwLock<Vec<Url>>,
     /// Files currently represented in the workspace index.
-    indexed_files: RwLock<BTreeSet<Url>>,
+    indexed_files: Arc<RwLock<BTreeSet<Url>>>,
+    /// Closed-file text, parse, and line metadata populated by worker/index events.
+    closed_sources: Arc<RwLock<BTreeMap<Url, CachedSource>>>,
     /// Mutable server configuration.
     config: RwLock<ServerConfig>,
     /// URI for the active on-disk core source, if one replaced bundled core.
@@ -215,16 +217,19 @@ impl Backend {
     /// store and an empty workspace index.
     pub fn new(client: Client) -> Self {
         let db = Arc::new(SemanticDb::new());
-        let (analysis, event_rx) = AnalysisService::new(db.clone());
+        let index = Arc::new(WorkspaceIndex::new());
+        let closed_sources = Arc::new(RwLock::new(BTreeMap::new()));
+        let (analysis, event_rx) = AnalysisService::new_with_index_and_cache(db.clone(), Some(index.clone()), Some(closed_sources.clone()));
         Self {
             client,
             documents: DocumentStore::new(),
-            index: WorkspaceIndex::new(),
+            index,
             semantic: db,
             analysis,
             analysis_events: Mutex::new(Some(event_rx)),
             workspace_roots: RwLock::new(Vec::new()),
-            indexed_files: RwLock::new(BTreeSet::new()),
+            indexed_files: Arc::new(RwLock::new(BTreeSet::new())),
+            closed_sources,
             config: RwLock::new(ServerConfig::default()),
             core_source_uris: RwLock::new(BTreeSet::new()),
             watch_registration: RwLock::new(false),
@@ -276,13 +281,34 @@ impl Backend {
         self.indexed_files.write().expect("indexed file lock poisoned").insert(uri);
     }
 
+    fn cache_source(&self, uri: Url, text: impl Into<Arc<str>>, program: impl Into<Arc<phalcom_ast::ast::Program>>) {
+        let text = text.into();
+        let program = program.into();
+        let source = CachedSource {
+            line_index: Arc::new(LineIndex::new(&text)),
+            text,
+            program,
+        };
+        let canonical = uri
+            .to_file_path()
+            .ok()
+            .and_then(|path| path.canonicalize().ok())
+            .and_then(|path| Url::from_file_path(path).ok());
+        let mut cache = self.closed_sources.write().expect("closed source cache lock poisoned");
+        cache.insert(uri, source.clone());
+        if let Some(canonical) = canonical {
+            cache.insert(canonical, source);
+        }
+    }
+
     fn remove_indexed_file(&self, uri: &Url) {
         self.index.remove_file(uri);
         self.analysis.enqueue_file_removal(uri.clone());
+        self.closed_sources.write().expect("closed source cache lock poisoned").remove(uri);
         self.indexed_files.write().expect("indexed file lock poisoned").remove(uri);
     }
 
-    fn scan_core_source(&self, roots: &[Url]) {
+    fn selected_core_source_path(&self, roots: &[Url]) -> Option<PathBuf> {
         let configured = self.config.read().expect("server config lock poisoned").sysroot_path.clone();
         let mut candidates = Vec::new();
         if let Some(path) = configured {
@@ -297,75 +323,26 @@ impl Backend {
                 candidates.extend([path.join("phalcom-core/core/core.ph"), path.join("core/core.ph")]);
             }
         }
-        if let Some((path, text)) = candidates
-            .into_iter()
-            .find_map(|path| std::fs::read_to_string(&path).ok().map(|text| (path, text)))
-        {
-            let parse = phalcom_ast::parser::parse(&text, 0);
-            self.analysis.enqueue_core_update(crate::semantic::FileRevision(1), parse.program);
-            if let Ok(uri) = Url::from_file_path(path) {
-                self.set_core_source_uri(uri.clone());
-                self.record_indexed_file(uri);
-            }
-        }
+        candidates.into_iter().find(|path| path.is_file())
     }
 
-    /// Scans every `.ph` file under `roots` and (re)builds the workspace
-    /// index from scratch.
-    ///
-    /// Called once from `initialize`. A synchronous filesystem walk —
-    /// Stage 2's scan is a one-time startup cost, not a hot path, so no
-    /// async I/O or background task is warranted here (plan "Build order"
-    /// step 2).
-    fn scan_workspace(&self, roots: &[Url]) {
-        let (mode, exclude) = {
-            let cfg = self.config.read().expect("server config lock poisoned");
-            (cfg.analysis_mode, cfg.analysis_exclude.clone())
-        };
-        for root in roots {
-            let Ok(root_path) = root.to_file_path() else {
-                continue;
-            };
-            for file in collect_ph_files(&root_path) {
-                let file_str = file.to_string_lossy();
-                if exclude.iter().any(|pattern| !pattern.is_empty() && file_str.contains(pattern)) {
-                    continue;
-                }
-                let Ok(text) = std::fs::read_to_string(&file) else {
-                    continue;
-                };
-                let Ok(uri) = Url::from_file_path(&file) else {
-                    continue;
-                };
-                let parse = phalcom_ast::parser::parse(&text, 0);
-                self.index.update_file(uri.clone(), &parse.program);
-                if mode == AnalysisMode::Workspace {
-                    self.analysis.enqueue_file_update(uri.clone(), crate::semantic::FileRevision(1), parse.program);
-                }
-                self.record_indexed_file(uri);
+    fn schedule_workspace_scan(&self, roots: &[Url]) {
+        let config = self.config.read().expect("server config lock poisoned").clone();
+        let core_source_path = self.selected_core_source_path(roots);
+        if let Some(path) = core_source_path.as_ref() {
+            if let Ok(uri) = Url::from_file_path(path.canonicalize().unwrap_or_else(|_| path.clone())) {
+                self.set_core_source_uri(uri);
             }
+        } else {
+            self.clear_core_source_uris();
         }
-        self.scan_core_source(roots);
-    }
-
-    fn refresh_closed_file(&self, uri: &Url) {
-        if self.documents.with_document(uri, |_| ()).is_some() {
-            return;
-        }
-        let Ok(path) = uri.to_file_path() else { return };
-        let Ok(text) = std::fs::read_to_string(path) else {
-            self.remove_indexed_file(uri);
-            if self.is_core_source_uri(uri) {
-                let bundled = crate::semantic::core_source::bundled_parse();
-                self.analysis.enqueue_core_update(crate::semantic::FileRevision(1), bundled.program);
-                self.clear_core_source_uris();
-            }
-            return;
-        };
-        let parse = phalcom_ast::parser::parse(&text, 0);
-        self.index.update_file(uri.clone(), &parse.program);
-        self.update_semantic_for_source(uri, crate::semantic::FileRevision(1), &parse.program);
-        self.record_indexed_file(uri.clone());
+        let filesystem_roots = roots.iter().filter_map(|root| root.to_file_path().ok()).collect();
+        self.analysis.configure_workspace(WorkspaceScanRequest {
+            roots: filesystem_roots,
+            mode: config.analysis_mode,
+            excludes: config.analysis_exclude,
+            core_source_path,
+        });
     }
 
     fn remove_workspace_root(&self, root: &Url) -> bool {
@@ -379,9 +356,15 @@ impl Backend {
             .cloned()
             .collect::<Vec<_>>();
         let removed_core_source = files.iter().any(|uri| self.is_core_source_uri(uri));
-        for uri in files {
-            self.remove_indexed_file(&uri);
+        for uri in &files {
+            self.index.remove_file(uri);
+            self.closed_sources.write().expect("closed source cache lock poisoned").remove(uri);
         }
+        self.indexed_files
+            .write()
+            .expect("indexed file lock poisoned")
+            .retain(|uri| !files.contains(uri));
+        self.analysis.enqueue_file_removals(files);
         removed_core_source
     }
 
@@ -537,9 +520,12 @@ impl Backend {
             });
         }
 
-        let path = occurrence.uri.to_file_path().ok()?;
-        let text = std::fs::read_to_string(path).ok()?;
-        let line_index = LineIndex::new(&text);
+        let line_index = self
+            .closed_sources
+            .read()
+            .expect("closed source cache lock poisoned")
+            .get(&occurrence.uri)
+            .map(|source| Arc::clone(&source.line_index))?;
         Some(Location {
             uri: occurrence.uri.clone(),
             range: line_index.range(occurrence.range.start..occurrence.range.end),
@@ -574,11 +560,8 @@ impl Backend {
             return self.documents.with_document(uri, |doc| f(&doc.text, &doc.parse.program, &doc.line_index));
         }
 
-        let path = uri.to_file_path().ok()?;
-        let text = std::fs::read_to_string(path).ok()?;
-        let parse = phalcom_ast::parser::parse(&text, 0);
-        let line_index = LineIndex::new(&text);
-        Some(f(&text, &parse.program, &line_index))
+        let source = self.closed_sources.read().expect("closed source cache lock poisoned").get(uri).cloned()?;
+        Some(f(&source.text, &source.program, &source.line_index))
     }
 
     fn semantic_class_target(&self, uri: &Url, position: Position) -> Option<(crate::semantic::ClassSurface, tower_lsp::lsp_types::Range)> {
@@ -626,6 +609,36 @@ impl Backend {
         .flatten()
     }
 
+    /// Harvests shallow declaration metadata from closed sources that have
+    /// already been loaded by the progressive worker. The workspace index is
+    /// updated before its notification is delivered, but keeping this cache
+    /// fallback here also makes hover independent of notification scheduling.
+    fn cached_definition_info(&self, selector: &str) -> Vec<crate::index::DefinitionInfo> {
+        let cache = self.closed_sources.read().expect("closed source cache lock poisoned");
+        let mut infos = Vec::new();
+        for (uri, source) in cache.iter() {
+            let module = crate::semantic::ModuleId::from_uri(uri);
+            let surface = crate::semantic::build_module_surface(module, &source.program);
+            for class in surface.classes.values() {
+                for member in class.members_by_side.values().filter(|member| member.callable.selector == selector) {
+                    let kind = hover_member_kind(member);
+                    if !infos
+                        .iter()
+                        .any(|info: &crate::index::DefinitionInfo| info.uri == *uri && info.range == member.source_range)
+                    {
+                        infos.push(crate::index::DefinitionInfo {
+                            uri: uri.clone(),
+                            range: member.source_range,
+                            class: class.id.name.clone(),
+                            kind,
+                        });
+                    }
+                }
+            }
+        }
+        infos
+    }
+
     /// Answers `textDocument/hover` (Stage 4): the pluggable composition of
     /// [`crate::hover`]'s sources.
     ///
@@ -652,8 +665,12 @@ impl Backend {
     /// known selector, or a documented top-level binding.
     fn hover_at(&self, uri: &Url, position: Position) -> Option<Hover> {
         let offset = self.documents.with_document(uri, |doc| doc.line_index.offset(position))?;
-        let occurrence = self.semantic.occurrence_at(uri, offset)?;
-        let span = self.documents.with_document(uri, |doc| doc.line_index.range(occurrence.range.start..occurrence.range.end))?;
+        let Some(occurrence) = self.semantic.occurrence_at(uri, offset) else {
+            return self.legacy_hover_at(uri, position, offset);
+        };
+        let span = self
+            .documents
+            .with_document(uri, |doc| doc.line_index.range(occurrence.range.start..occurrence.range.end))?;
 
         match occurrence.target {
             crate::semantic::SemanticTarget::Binding(binding) => {
@@ -730,6 +747,52 @@ impl Backend {
                     return None;
                 }
                 let targets = self.semantic_member_targets(uri, position, &selector)?;
+                if targets.is_empty() {
+                    let receiver_targeted = self
+                        .documents
+                        .with_document(uri, |doc| completion::target_at(doc, position).is_some())
+                        .unwrap_or(false);
+                    if receiver_targeted {
+                        return None;
+                    }
+                    let mut infos = self.index.definition_info(&selector);
+                    if infos.is_empty() {
+                        infos = self.cached_definition_info(&selector);
+                    }
+                    let mut sites = Vec::new();
+                    let mut docs = Vec::new();
+                    for info in infos {
+                        sites.push(SelectorSite {
+                            owner: crate::semantic::ClassId::new(crate::semantic::ModuleId::from_uri(&info.uri), info.class.clone()),
+                            receiver: None,
+                            kind: info.kind,
+                        });
+                        if let Some(doc) = self
+                            .with_source_snapshot(&info.uri, |text, program, line_index| {
+                                hover::harvest_doc_for_declaration(
+                                    text,
+                                    line_index,
+                                    hover::DeclarationDocTarget::Member {
+                                        declaration: info.range,
+                                        name: info.range,
+                                    },
+                                )
+                                .or_else(|| hover::harvest_pinned_doc_for_member(text, program, &info.class, &selector, info.range))
+                            })
+                            .flatten()
+                        {
+                            if !docs.contains(&doc) {
+                                docs.push(doc);
+                            }
+                        }
+                    }
+                    let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
+                    let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), None)?;
+                    return Some(Hover {
+                        contents: markdown_contents(value),
+                        range: Some(span),
+                    });
+                }
                 let mut sites = Vec::new();
                 let mut ids = Vec::new();
                 let mut docs = Vec::new();
@@ -759,6 +822,166 @@ impl Backend {
         }
     }
 
+    /// Serves hover from live source/index/cache data while semantic analysis
+    /// is still pending. This path performs no inference and keeps requests
+    /// useful during the publication gap.
+    fn legacy_hover_at(&self, uri: &Url, _position: Position, offset: usize) -> Option<Hover> {
+        let (text, program, line_index) = self
+            .documents
+            .with_document(uri, |doc| (doc.text.clone(), doc.parse.program.clone(), doc.line_index.clone()))?;
+        if let Some((selector, selector_range)) = index::selector_at_offset(&program, offset) {
+            let mut infos = self.index.definition_info(&selector);
+            if infos.is_empty() {
+                infos = self.cached_definition_info(&selector);
+            }
+            let receiver = text[..selector_range.start]
+                .trim_end()
+                .strip_suffix('.')
+                .and_then(|prefix| prefix.rsplit(|character: char| !character.is_ascii_alphanumeric() && character != '_').next());
+            let infos = if let Some(receiver) = receiver {
+                infos.into_iter().filter(|info| info.class == receiver).collect::<Vec<_>>()
+            } else {
+                let local = infos
+                    .iter()
+                    .filter(|info| info.uri == *uri && info.range.contains(offset))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if local.is_empty() { infos } else { local }
+            };
+            let mut sites = Vec::new();
+            let mut docs = Vec::new();
+            for info in infos {
+                sites.push(SelectorSite {
+                    owner: crate::semantic::ClassId::new(crate::semantic::ModuleId::from_uri(&info.uri), info.class.clone()),
+                    receiver: None,
+                    kind: info.kind,
+                });
+                if let Some(doc) = self
+                    .with_source_snapshot(&info.uri, |source, program, line_index| {
+                        hover::harvest_doc_for_selector(source, program, line_index, &selector)
+                            .or_else(|| hover::harvest_pinned_doc_for_member(source, program, &info.class, &selector, info.range))
+                    })
+                    .flatten()
+                {
+                    if !docs.contains(&doc) {
+                        docs.push(doc);
+                    }
+                }
+            }
+            if sites.is_empty() {
+                let module = crate::semantic::ModuleId::from_uri(uri);
+                let surface = crate::semantic::build_module_surface(module, &program);
+                for member in surface
+                    .classes
+                    .values()
+                    .flat_map(|class| class.members_by_side.values())
+                    .filter(|member| member.callable.selector == selector)
+                {
+                    sites.push(SelectorSite {
+                        owner: member.callable.owner.clone(),
+                        receiver: None,
+                        kind: hover_member_kind(member),
+                    });
+                }
+                if !sites.is_empty() {
+                    if let Some(doc) = hover::harvest_doc_for_selector(&text, &program, &line_index, &selector) {
+                        docs.push(doc);
+                    }
+                }
+            }
+            if sites.is_empty() {
+                if let Some(native) = phalcom_native_surface::NATIVE_MEMBERS.iter().find(|member| member.selector == selector) {
+                    let kind = match native.kind {
+                        phalcom_native_surface::NativeMemberKind::Getter => crate::index::MemberKind::Getter,
+                        phalcom_native_surface::NativeMemberKind::Setter => crate::index::MemberKind::Setter,
+                        phalcom_native_surface::NativeMemberKind::Method => crate::index::MemberKind::Method,
+                    };
+                    sites.push(SelectorSite {
+                        owner: crate::semantic::ClassId::new(crate::semantic::ModuleId::new(crate::semantic::CORE_MODULE_URI), native.class),
+                        receiver: None,
+                        kind,
+                    });
+                }
+            }
+            let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
+            let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), None)?;
+            return Some(Hover {
+                contents: markdown_contents(value),
+                range: Some(line_index.range(selector_range.start..selector_range.end)),
+            });
+        }
+
+        let Some((name, range)) = hover::identifier_at_offset(&text, offset) else {
+            return None;
+        };
+        if index::top_level_binding_at_offset(&program, offset).is_some() {
+            let phaldoc = hover::harvest_doc_for_selector(&text, &program, &line_index, &name);
+            return Some(Hover {
+                contents: markdown_contents(format!(
+                    "`{name}` — mutable binding{}",
+                    phaldoc.map(|doc| format!("\n\n{}", doc.summary)).unwrap_or_default()
+                )),
+                range: Some(line_index.range(range)),
+            });
+        }
+        if shallow_parameter_at(&program, &name, offset) {
+            return Some(Hover {
+                contents: markdown_contents(format!("`{name}` — parameter")),
+                range: Some(line_index.range(range)),
+            });
+        }
+        if shallow_local_binding_at(&program, &name, offset) {
+            return Some(Hover {
+                contents: markdown_contents(format!("`{name}` — mutable binding")),
+                range: Some(line_index.range(range)),
+            });
+        }
+        None
+    }
+}
+
+fn shallow_parameter_at(program: &phalcom_ast::ast::Program, name: &str, offset: usize) -> bool {
+    program.statements.iter().any(|statement| {
+        let phalcom_ast::ast::Statement::Class(class) = statement else { return false };
+        class.members.iter().any(|member| match member {
+            phalcom_ast::ast::ClassMember::Method(method) => method.range.contains(offset) && method.params.iter().any(|param| param.name == name),
+            _ => false,
+        })
+    })
+}
+
+fn shallow_local_binding_at(program: &phalcom_ast::ast::Program, name: &str, offset: usize) -> bool {
+    program.statements.iter().any(|statement| {
+        let phalcom_ast::ast::Statement::Class(class) = statement else { return false };
+        class.members.iter().any(|member| match member {
+            phalcom_ast::ast::ClassMember::Method(method) => {
+                method.range.contains(offset) && method.body.iter().any(|statement| statement_has_binding(statement, name))
+            }
+            _ => false,
+        })
+    })
+}
+
+fn statement_has_binding(statement: &phalcom_ast::ast::Statement, name: &str) -> bool {
+    match statement {
+        phalcom_ast::ast::Statement::Let(binding) => {
+            matches!(&binding.pattern, phalcom_ast::ast::Pattern::Name { name: binding_name, .. } if binding_name == name)
+        }
+        phalcom_ast::ast::Statement::For(for_statement) => for_statement.body.iter().any(|statement| statement_has_binding(statement, name)),
+        phalcom_ast::ast::Statement::Expr { expr, .. } | phalcom_ast::ast::Statement::Throw { expr, .. } => expr_has_binding(expr, name),
+        phalcom_ast::ast::Statement::Return(_)
+        | phalcom_ast::ast::Statement::Class(_)
+        | phalcom_ast::ast::Statement::Import(_)
+        | phalcom_ast::ast::Statement::Break { .. }
+        | phalcom_ast::ast::Statement::Continue { .. } => false,
+    }
+}
+
+fn expr_has_binding(expr: &phalcom_ast::ast::Expr, name: &str) -> bool {
+    match expr {
+        phalcom_ast::ast::Expr::Block(block) => block.body.iter().any(|statement| statement_has_binding(statement, name)),
+        _ => false,
+    }
 }
 
 /// Recovers semantic structure lost when a live member-access expression ends
@@ -869,32 +1092,6 @@ fn markdown_contents(value: String) -> HoverContents {
 /// `Cargo.toml` intentionally carries no new dependency for this (U-LSP
 /// plan, "do NOT add a new heavy dependency without checking `Cargo.toml`
 /// first").
-fn collect_ph_files(root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    collect_ph_files_into(root, &mut files);
-    files
-}
-
-/// The recursive worker behind [`collect_ph_files`], accumulating into
-/// `out` rather than returning per-call `Vec`s.
-fn collect_ph_files_into(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let skip = name.starts_with('.') || name == "target" || name == "node_modules";
-            if !skip {
-                collect_ph_files_into(&path, out);
-            }
-        } else if path.extension().and_then(|e| e.to_str()) == Some("ph") {
-            out.push(path);
-        }
-    }
-}
-
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     /// Advertises Stage 1 + Stage 2 capabilities: full-document sync
@@ -905,10 +1102,9 @@ impl LanguageServer for Backend {
     /// `workspace_symbol_provider`, Stage 3's `completion_provider` (with
     /// `.` as a trigger character), and Stage 4's `hover_provider`.
     ///
-    /// Also performs Stage 2's one-time workspace scan
-    /// (`Self::scan_workspace`) over every root named in `params`
-    /// (`root_uri` and/or `workspace_folders` — plan "P4": no single-root
-    /// assumption, every named root is scanned).
+    /// Schedules progressive workspace discovery for every root named in
+    /// `params`; discovery continues on the analysis worker after this
+    /// response is returned.
     ///
     /// Also advertises Stage 5's `semanticTokensProvider` (full-document
     /// only, no `range`/`delta` support yet), with the legend built by
@@ -932,7 +1128,7 @@ impl LanguageServer for Backend {
             }
         }
         *self.workspace_roots.write().expect("workspace root lock poisoned") = roots.clone();
-        self.scan_workspace(&roots);
+        self.schedule_workspace_scan(&roots);
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -973,19 +1169,35 @@ impl LanguageServer for Backend {
         })
     }
 
-    /// Logs that the server is ready. The workspace scan already ran in
-    /// [`Self::initialize`] (per the LSP spec, `initialize` may do this kind
-    /// of setup work before responding).
+    /// Logs that the server is ready and starts consuming worker events.
     async fn initialized(&self, _params: InitializedParams) {
         if let Some(mut events) = self.analysis_events.lock().expect("analysis events lock poisoned").take() {
             let client = self.client.clone();
+            let indexed_files = self.indexed_files.clone();
+            let closed_sources = self.closed_sources.clone();
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
-                    if let AnalysisEvent::Published { .. } = event {
-                        let client = client.clone();
-                        tokio::spawn(async move {
-                            let _ = client.inlay_hint_refresh().await;
-                        });
+                    match event {
+                        AnalysisEvent::WorkspaceFileIndexed { uri, text } => {
+                            let cached_uri = uri.clone();
+                            let program = Arc::new(phalcom_ast::parser::parse(&text, 0).program);
+                            indexed_files.write().expect("indexed file lock poisoned").insert(uri);
+                            closed_sources.write().expect("closed source cache lock poisoned").insert(
+                                cached_uri,
+                                CachedSource {
+                                    line_index: Arc::new(LineIndex::new(&text)),
+                                    text,
+                                    program,
+                                },
+                            );
+                        }
+                        AnalysisEvent::Published { .. } => {
+                            let client = client.clone();
+                            tokio::spawn(async move {
+                                let _ = client.inlay_hint_refresh().await;
+                            });
+                        }
+                        AnalysisEvent::StaleBatchDiscarded { .. } | AnalysisEvent::Error { .. } => {}
                     }
                 }
             });
@@ -1014,11 +1226,8 @@ impl LanguageServer for Backend {
         *self.config.write().expect("server config lock poisoned") = new_config;
 
         if old_analysis_config != new_analysis_config {
-            self.clear_core_source_uris();
-            let bundled = crate::semantic::core_source::bundled_parse();
-            self.analysis.enqueue_core_update(crate::semantic::FileRevision(1), bundled.program);
             let roots = self.workspace_roots.read().expect("workspace root lock poisoned").clone();
-            self.scan_core_source(&roots);
+            self.schedule_workspace_scan(&roots);
         }
     }
 
@@ -1042,28 +1251,44 @@ impl LanguageServer for Backend {
             self.clear_core_source_uris();
             let bundled = crate::semantic::core_source::bundled_parse();
             self.analysis.enqueue_core_update(crate::semantic::FileRevision(1), bundled.program);
-            self.scan_core_source(&roots);
         }
-        let added = params.event.added.iter().map(|folder| folder.uri.clone()).collect::<Vec<_>>();
-        self.scan_workspace(&added);
+        self.schedule_workspace_scan(&roots);
     }
 
     /// Refreshes closed-file contributions for watched `.ph` changes.
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        let mut removals = Vec::new();
+        let mut updates = Vec::new();
         for change in params.changes {
             if change.typ == FileChangeType::DELETED {
-                self.remove_indexed_file(&change.uri);
+                self.index.remove_file(&change.uri);
+                self.closed_sources.write().expect("closed source cache lock poisoned").remove(&change.uri);
+                self.indexed_files.write().expect("indexed file lock poisoned").remove(&change.uri);
                 if self.is_core_source_uri(&change.uri) {
                     let bundled = crate::semantic::core_source::bundled_parse();
                     self.analysis.enqueue_core_update(crate::semantic::FileRevision(1), bundled.program);
                     self.clear_core_source_uris();
                 } else {
-                    self.analysis.enqueue_file_removal(change.uri.clone());
+                    removals.push(change.uri.clone());
                 }
             } else {
-                self.refresh_closed_file(&change.uri);
+                if self.documents.with_document(&change.uri, |_| ()).is_some() {
+                    continue;
+                }
+                let Ok(path) = change.uri.to_file_path() else { continue };
+                let Ok(text) = std::fs::read_to_string(path) else {
+                    removals.push(change.uri.clone());
+                    continue;
+                };
+                let parse = phalcom_ast::parser::parse(&text, 0);
+                self.index.update_file(change.uri.clone(), &parse.program);
+                self.cache_source(change.uri.clone(), text, parse.program.clone());
+                self.record_indexed_file(change.uri.clone());
+                updates.push((change.uri, crate::semantic::FileRevision(1), parse.program));
             }
         }
+        self.analysis.enqueue_file_removals(removals);
+        self.analysis.enqueue_file_updates(updates);
     }
 
     /// Reports readiness to shut down.
@@ -1078,10 +1303,13 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
+        self.analysis.mark_open(uri.clone());
+        self.closed_sources.write().expect("closed source cache lock poisoned").remove(&uri);
         self.documents.open_or_update(uri.clone(), params.text_document.text);
         if let Some((revision, program)) = self.documents.with_document(&uri, |doc| {
             let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
             let program = recovered.map(|p| p.program).unwrap_or_else(|| doc.parse.program.clone());
+            self.cache_source(uri.clone(), doc.text.clone(), Arc::new(program.clone()));
             (doc.revision, program)
         }) {
             self.update_semantic_for_source(&uri, revision, &program);
@@ -1104,9 +1332,11 @@ impl LanguageServer for Backend {
             return;
         };
         self.documents.open_or_update(uri.clone(), change.text);
+        self.analysis.mark_open(uri.clone());
         if let Some((revision, program)) = self.documents.with_document(&uri, |doc| {
             let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
             let program = recovered.map(|p| p.program).unwrap_or_else(|| doc.parse.program.clone());
+            self.cache_source(uri.clone(), doc.text.clone(), Arc::new(program.clone()));
             (doc.revision, program)
         }) {
             self.update_semantic_for_source(&uri, revision, &program);
@@ -1124,11 +1354,13 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.close(&uri);
+        self.analysis.mark_closed(&uri);
         let revision = self.documents.bump_revision(&uri);
         if let Ok(path) = uri.to_file_path() {
             if let Ok(text) = std::fs::read_to_string(path) {
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 self.index.update_file(uri.clone(), &parse.program);
+                self.cache_source(uri.clone(), text, parse.program.clone());
                 self.update_semantic_for_source(&uri, revision, &parse.program);
                 self.record_indexed_file(uri.clone());
             } else {
@@ -1158,7 +1390,6 @@ impl LanguageServer for Backend {
     /// method — the index only covers user `.ph` source; `core-table.json`
     /// lookup is a later stage, plan DEC-LSP-B).
     async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
-        self.analysis.flush();
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
@@ -1170,9 +1401,10 @@ impl LanguageServer for Backend {
                 SemanticTarget::Binding(binding_id) => {
                     if let Some(info) = self.semantic.binding_info(&uri, *binding_id) {
                         let decl_uri = uri.clone();
-                        if let Some(range) = self.documents.with_document(&uri, |doc| {
-                            doc.line_index.range(info.declaration_range.start..info.declaration_range.end)
-                        }) {
+                        if let Some(range) = self
+                            .documents
+                            .with_document(&uri, |doc| doc.line_index.range(info.declaration_range.start..info.declaration_range.end))
+                        {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![Location { uri: decl_uri, range }])));
                         }
                     }
@@ -1248,7 +1480,6 @@ impl LanguageServer for Backend {
     /// definition site(s) too when `context.include_declaration` is set
     /// (the LSP `references` convention).
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        self.analysis.flush();
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
@@ -1257,15 +1488,16 @@ impl LanguageServer for Backend {
             && let Some(occurrence) = self.semantic.occurrence_at(&uri, offset)
         {
             let refs = self.semantic.references_for_target(&uri, &occurrence.target);
-            let locations: Vec<Location> = refs.into_iter().filter_map(|(file_uri, range, role)| {
-                if !params.context.include_declaration && role == OccurrenceRole::Declaration {
-                    return None;
-                }
-                self.with_source_snapshot(&file_uri, |_, _, line_index| {
-                    line_index.range(range.start..range.end)
+            let locations: Vec<Location> = refs
+                .into_iter()
+                .filter_map(|(file_uri, range, role)| {
+                    if !params.context.include_declaration && role == OccurrenceRole::Declaration {
+                        return None;
+                    }
+                    self.with_source_snapshot(&file_uri, |_, _, line_index| line_index.range(range.start..range.end))
+                        .map(|range| Location { uri: file_uri, range })
                 })
-                .map(|range| Location { uri: file_uri, range })
-            }).collect();
+                .collect();
             return Ok(if locations.is_empty() { None } else { Some(locations) });
         }
 
@@ -1293,7 +1525,6 @@ impl LanguageServer for Backend {
     /// (hover, Stage 4, already needs that per-kind rendering and is the
     /// natural place to add it once).
     async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
-        self.analysis.flush();
         let matches = self.index.symbols_matching(&params.query);
         let symbols: Vec<SymbolInformation> = matches
             .into_iter()
@@ -1322,11 +1553,12 @@ impl LanguageServer for Backend {
     ///
     /// Returns `Ok(None)` if the document is not open.
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        self.analysis.flush();
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
         let items: Option<Vec<CompletionItem>> = self.documents.with_document(&uri, |doc| {
+            let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
+            let source_program = recovered.as_ref().map(|parse| &parse.program).unwrap_or(&doc.parse.program);
             let resolved = self.semantic_receiver(&uri, doc, position);
             let offset = doc.line_index.offset(position);
             let privileged = self.is_core_source_uri(&uri);
@@ -1343,6 +1575,9 @@ impl LanguageServer for Backend {
                     offset,
                 },
             );
+            if let Some(shallow) = completion::shallow_receiver_completions_from_program(&self.index, &uri, doc, source_program, position) {
+                items = shallow;
+            }
             if let Some(target) = completion::target_at(doc, position) {
                 if !target.partial_member.is_empty() {
                     items.retain(|item| item.label.starts_with(&target.partial_member));
@@ -1355,12 +1590,10 @@ impl LanguageServer for Backend {
     }
 
     /// Answers `textDocument/hover` (Stage 4). See `Self::hover_at` for the
-    /// resolution/composition logic; this is a thin `async` shim over it, as
-    /// `hover_at`'s I/O (an on-disk read for a not-currently-open defining
-    /// file) is synchronous, small, and occasional, matching every other
-    /// cross-file lookup in this backend (`Self::occurrence_to_location`).
+    /// resolution/composition logic; this is a thin `async` shim over it.
+    /// Cross-file source metadata comes from the worker-maintained cache, so
+    /// this request never performs disk I/O or waits for semantic analysis.
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        self.analysis.flush();
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         Ok(self.hover_at(&uri, position))
@@ -1368,7 +1601,6 @@ impl LanguageServer for Backend {
 
     /// Answers standard inlay-hint requests from the live semantic database.
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        self.analysis.flush();
         let config = self.config.read().expect("server config lock poisoned").clone();
         let uri = params.text_document.uri.clone();
         let hints = self.documents.with_document(&uri, |doc| {
@@ -1400,6 +1632,7 @@ mod tests {
     use serde_json::json;
 
     use super::{HintPolicy, ServerConfig};
+    use crate::workspace_scan::AnalysisMode;
 
     #[test]
     fn server_config_parses_nested_stable_hint_policy_and_sysroot_directory() {
@@ -1442,5 +1675,59 @@ mod tests {
 
         assert_eq!(config.inlay_hints, HintPolicy::All);
         assert!(config.suppress_obvious);
+    }
+
+    #[test]
+    fn server_config_defaults_to_local_analysis() {
+        let config = ServerConfig::from_json(None);
+
+        assert_eq!(config.analysis_mode, AnalysisMode::Local);
+        assert!(config.analysis_exclude.is_empty());
+    }
+
+    #[test]
+    fn server_config_parses_analysis_mode_and_exclusions() {
+        let settings = serde_json::json!({
+            "phalcom": {
+                "analysis": {
+                    "mode": "workspace",
+                    "exclude": ["**/generated/**", "fixtures"]
+                }
+            }
+        });
+
+        let config = ServerConfig::from_json(Some(&settings));
+
+        assert_eq!(config.analysis_mode, AnalysisMode::Workspace);
+        assert_eq!(config.analysis_exclude, ["**/generated/**", "fixtures"]);
+    }
+
+    #[test]
+    fn analysis_config_diffing_ignores_presentation_settings() {
+        let base = json!({
+            "phalcom": {
+                "analysis": { "mode": "local" },
+                "inlayHints": { "types": "stable" }
+            }
+        });
+        let changed_presentation = json!({
+            "phalcom": {
+                "analysis": { "mode": "local" },
+                "inlayHints": { "types": "all" }
+            }
+        });
+        let changed_analysis = json!({
+            "phalcom": {
+                "analysis": { "mode": "workspace" },
+                "inlayHints": { "types": "stable" }
+            }
+        });
+
+        let base_cfg = ServerConfig::from_json(Some(&base)).analysis_config();
+        let presentation_cfg = ServerConfig::from_json(Some(&changed_presentation)).analysis_config();
+        let analysis_cfg = ServerConfig::from_json(Some(&changed_analysis)).analysis_config();
+
+        assert_eq!(base_cfg, presentation_cfg, "presentation changes should not affect analysis config");
+        assert_ne!(base_cfg, analysis_cfg, "analysis mode changes should affect analysis config");
     }
 }

@@ -15,26 +15,30 @@ mod occurrence;
 mod query;
 mod scope;
 pub(crate) mod snapshot;
+pub(crate) mod source;
 mod surface;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+#[cfg(test)]
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, RwLock};
 
 pub use engine::SemanticEngine;
-pub use snapshot::SemanticSnapshot;
+pub use snapshot::{FileSourceSnapshot, SemanticSnapshot};
 
 use phalcom_ast::ast::Program;
-use tower_lsp::lsp_types::Url;
 use phalcom_common::range::SourceRange;
+use tower_lsp::lsp_types::Url;
 
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnShape;
 pub use facts::{
-    Confidence, FactOrigin, FieldEvidence, FieldEvidenceKind, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape,
+    Confidence, ContributionSource, FactOrigin, FieldEvidence, FieldEvidenceKind, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION,
+    ParameterContributions, ParameterFacts, ParameterSlot, ValueShape,
 };
 pub use flow::join_values;
 pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, FieldId, ModuleId};
-pub use invalidation::InvalidationQueue;
+pub use invalidation::{InvalidationQueue, SourceChangeKind, classify_source_change};
 pub use module_graph::{ImportEdge, ModuleGraph};
 pub use occurrence::{OccurrenceIndex, OccurrenceRole, SemanticOccurrence, SemanticOccurrenceKind, SemanticTarget};
 pub use query::{SemanticGeneration, SnapshotStamp};
@@ -99,12 +103,8 @@ pub struct FileSemanticSnapshot {
     pub revision: FileRevision,
     /// Module identity.
     pub module: ModuleId,
-    /// Recovered source program retained for dependent recomputation.
-    pub program: Arc<Program>,
-    /// Source-authored class/member surface.
-    pub surface: ModuleSurface,
-    /// Lexical binding and scope identities.
-    pub scopes: ScopeGraph,
+    /// Immutable source products shared by semantic passes and read queries.
+    pub source: Arc<FileSourceSnapshot>,
     /// Exact source semantic occurrences.
     pub occurrences: OccurrenceIndex,
     /// Exact and local-flow facts.
@@ -125,6 +125,7 @@ pub struct DependencySet {
     pub imports: Vec<ModuleId>,
 }
 
+#[cfg(test)]
 pub(crate) use engine::RebuildTraceData;
 
 #[cfg(test)]
@@ -182,18 +183,12 @@ impl SemanticDb {
 
     /// Returns the latest immutable published semantic snapshot.
     pub fn snapshot(&self) -> Arc<SemanticSnapshot> {
-        self.current
-            .read()
-            .expect("semantic publication lock poisoned")
-            .clone()
+        self.current.read().expect("semantic publication lock poisoned").clone()
     }
 
     /// Atomically publishes a new immutable snapshot.
     pub(crate) fn publish(&self, snapshot: Arc<SemanticSnapshot>) {
-        *self
-            .current
-            .write()
-            .expect("semantic publication lock poisoned") = snapshot;
+        *self.current.write().expect("semantic publication lock poisoned") = snapshot;
     }
 
     /// Replaces one file contribution and publishes one coherent generation.
@@ -207,6 +202,17 @@ impl SemanticDb {
         let generation = engine.update_files_batch(files);
         self.publish(Arc::new(engine.snapshot()));
         generation
+    }
+
+    /// Applies a file batch on a temporary engine state and publishes only if
+    /// the cooperative cancellation predicate remains false.
+    pub(crate) fn update_files_batch_with_cancel(&self, files: Vec<(Url, FileRevision, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+        let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
+        let mut candidate = engine.clone();
+        let generation = candidate.update_files_batch_with_cancel(files, cancelled)?;
+        *engine = candidate;
+        self.publish(Arc::new(engine.snapshot()));
+        Some(generation)
     }
 
     /// Replaces the active core library module.
@@ -414,10 +420,12 @@ mod tests {
     #[test]
     fn update_publishes_revisioned_local_facts() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///main.ph");
         let parse = parse("let text = \"hello\"\n", 0);
         let generation = db.update_file(&uri, FileRevision(7), &parse.program);
-        assert_eq!(generation.0, 1);
+        assert_eq!(generation.0, 2);
         assert_eq!(db.file_snapshot(&uri).unwrap().revision, FileRevision(7));
         assert!(matches!(db.binding_at(&uri, "text", 20).unwrap().shape, ValueShape::Instance(ClassId { name, .. }) if name == "String"));
     }
@@ -425,6 +433,8 @@ mod tests {
     #[test]
     fn same_named_classes_are_isolated() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let one = uri("file:///one.ph");
         let two = uri("file:///two.ph");
         let parse = parse("class Point { move() { } }", 0);
@@ -438,6 +448,8 @@ mod tests {
     #[test]
     fn callable_summary_tracks_constructor_return() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///factory.ph");
         let parse = parse("class Point { @constructor new() { } }\nclass Factory { make() { Point.new() } }\n", 0);
         db.update_file(&uri, FileRevision(1), &parse.program);
@@ -454,6 +466,8 @@ mod tests {
     #[test]
     fn bundled_core_source_is_queryable_without_core_table() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let string = ClassId::new(ModuleId::new(CORE_MODULE_URI), "String");
         let members = db.completion_members(&string, DispatchSide::Instance);
         assert!(members.iter().any(|member| member.selector == "size"));
@@ -463,6 +477,8 @@ mod tests {
     #[test]
     fn live_core_replacement_updates_semantic_surface() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let parse = parse("class String { liveEditorMember() { } }", 0);
         db.update_core(FileRevision(2), &parse.program);
         let string = ClassId::new(ModuleId::new(CORE_MODULE_URI), "String");
@@ -481,6 +497,8 @@ mod tests {
     #[test]
     fn explicit_receiver_expression_uses_callable_return_summary() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///factory.ph");
         let parsed = parse(
             "class Point { @constructor new() { } }\nclass Factory { @constructor new() { } make() { Point.new() } }\nlet factory = Factory.new()\n",
@@ -503,6 +521,8 @@ mod tests {
     #[test]
     fn open_method_reference_invokes_against_call_site_selector() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///family.ph");
         let source = "class Box { @constructor new() { } value() { 1 } }\nlet family = Box.new()::value\n";
         let parsed = parse(source, 0);
@@ -542,6 +562,8 @@ mod tests {
     #[test]
     fn direct_expression_inference_uses_native_return_contracts() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///native-contract.ph");
         let expression = parse("1 < 2", 0)
             .program
@@ -560,6 +582,8 @@ mod tests {
     #[test]
     fn field_expression_uses_constructor_assignment_fact() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///service.ph");
         let parsed = parse(
             "class Client { send() { } }\nclass Service { @constructor new() { _client = Client.new() } run() { _client } }\n",
@@ -582,6 +606,8 @@ mod tests {
     #[test]
     fn inherited_field_read_uses_defining_field_fact() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///inherited-field.ph");
         let source = "class Client { send() { } }
 class Base { const _client = Client.new() }
@@ -606,6 +632,8 @@ class Child is Base { run() { _client } }
     #[test]
     fn parameter_expression_uses_resolved_call_site_fact() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///canvas.ph");
         let parsed = parse(
             "class Circle { stroke() { } }\nclass Canvas { draw(_ shape) { shape } }\ndraw(Circle.new())\n",
@@ -634,6 +662,8 @@ class Child is Base { run() { _client } }
     #[test]
     fn recursive_callable_summaries_terminate_at_unknown() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///recursive.ph");
         let parsed = parse("class Loop { loop() { loop() } }", 0);
         db.update_file(&uri, FileRevision(1), &parsed.program);
@@ -648,6 +678,8 @@ class Child is Base { run() { _client } }
     #[test]
     fn mutually_recursive_callable_summaries_terminate_at_unknown() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///mutual-recursive.ph");
         let parsed = parse("class Loop { first() { second() } second() { first() } }", 0);
         db.update_file(&uri, FileRevision(1), &parsed.program);
@@ -662,6 +694,8 @@ class Child is Base { run() { _client } }
     #[test]
     fn explicit_multiple_returns_join_into_a_bounded_union() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///returns.ph");
         let parsed = parse(
             "class A { @constructor new() { } }\nclass B { @constructor new() { } }\nclass Factory { choose() { return A.new()\nreturn B.new() } }",
@@ -679,6 +713,8 @@ class Child is Base { run() { _client } }
     #[test]
     fn invoked_literal_block_contributes_nonlocal_return() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///block-flow.ph");
         let parsed = parse(
             "class Product { @constructor new() { } }
@@ -712,6 +748,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn arbitrary_higher_order_call_propagates_literal_block_effects() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///higher-order-flow.ph");
         let parsed = parse(
             "class Product { @constructor new() { } }\nclass Factory { consume(_ block) { block() } forward(_ block) { self.consume(block) } choose() { self.forward { return Product.new() } } }\n",
@@ -733,6 +771,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn escaped_block_effects_do_not_change_outer_flow() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///escaped-block-flow.ph");
         let source = "class Product { @constructor new() { } }\nclass Factory { store(_ block) { 1 } choose() {\nlet result = 1\nself.store { result = Product.new() }\nresult\n} }\n";
         let parsed = parse(source, 0);
@@ -757,6 +797,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn loop_fixpoint_propagates_continue_carried_writes() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///loop-flow.ph");
         let source = "class Product { @constructor new() { } }\nclass Factory { choose(_ values) {\nlet result = 1\nfor (item in values) {\nresult = Product.new()\ncontinue\n}\nresult\n} }\n";
         let parsed = parse(source, 0);
@@ -776,6 +818,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn while_fixpoint_propagates_continue_carried_writes() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///while-flow.ph");
         let parsed = parse(
             "class Product { @constructor new() { } }\nclass Factory { choose() {\nlet result = 1\nlet i = 0\n|| { i < 1 }.whileTrue || {\nresult = Product.new()\ni = i + 1\ncontinue\n}\nresult\n} }\n",
@@ -797,6 +841,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn three_step_return_forwarding_converges() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///chain.ph");
         let parsed = parse(
             "class Product { @constructor new() { } }\nclass Chain { a() { b() } b() { c() } c() { Product.new() } }",
@@ -818,6 +864,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn recursive_scc_with_concrete_evidence_converges() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///recursive-concrete.ph");
         let parsed = parse(
             "class Product { @constructor new() { } }\nclass Loop { run() { return run()\nreturn Product.new() } }",
@@ -839,6 +887,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn nine_incompatible_return_shapes_widen_to_unknown() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///wide.ph");
         let mut source = String::new();
         for name in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] {
@@ -858,6 +908,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn same_selector_different_classes_have_independent_summaries() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///same-selector.ph");
         let parsed = parse(
             "class AValue { @constructor new() { } }\nclass BValue { @constructor new() { } }\nclass A { value() { AValue.new() } }\nclass B { value() { BValue.new() } }",
@@ -896,6 +948,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
         let provider_uri = Url::from_file_path(&provider_path).unwrap();
         let consumer_uri = Url::from_file_path(&consumer_path).unwrap();
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         db.update_file(&provider_uri, FileRevision(1), &parse(provider_text, 0).program);
         db.update_file(&consumer_uri, FileRevision(1), &parse(consumer_text, 0).program);
 
@@ -913,6 +967,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn leaf_edit_does_not_recompute_unrelated_module() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let left = uri("file:///left.ph");
         let right = uri("file:///right.ph");
         db.update_files_batch(vec![
@@ -927,6 +983,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn provider_edit_recomputes_transitive_consumers() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let provider = uri("file:///provider.ph");
         let consumer = uri("file:///consumer.ph");
         db.update_files_batch(vec![
@@ -946,6 +1004,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn provider_creation_repairs_previously_unresolved_import() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let provider = uri("file:///created-provider.ph");
         let consumer = uri("file:///created-consumer.ph");
         db.update_file(&consumer, FileRevision(1), &parse("import \"./created-provider\" as Provider\n", 0).program);
@@ -957,6 +1017,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn provider_removal_invalidates_existing_importer() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let provider = uri("file:///removed-provider.ph");
         let consumer = uri("file:///removed-consumer.ph");
         db.update_files_batch(vec![
@@ -975,6 +1037,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn caller_edit_removes_stale_parameter_contribution() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let provider = uri("file:///parameter-provider.ph");
         let caller = uri("file:///parameter-caller.ph");
         let provider_text = "class Cat { catOnly() { } }\nclass Dog { dogOnly() { } }\nclass Service { consume(_ value) { value } }\n";
@@ -995,6 +1059,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn unimported_unique_workspace_class_does_not_resolve() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let provider = uri("file:///unique-provider.ph");
         let consumer = uri("file:///unique-consumer.ph");
         db.update_file(&provider, FileRevision(1), &parse("class Product { }", 0).program);
@@ -1010,6 +1076,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn same_named_imported_classes_remain_module_qualified() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let first = uri("file:///first-user.ph");
         let second = uri("file:///second-user.ph");
         let consumer = uri("file:///qualified-consumer.ph");
@@ -1034,6 +1102,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
     #[test]
     fn cyclic_import_graph_terminates_without_panic() {
         let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
         let first = uri("file:///cycle-a.ph");
         let second = uri("file:///cycle-b.ph");
         db.update_files_batch(vec![

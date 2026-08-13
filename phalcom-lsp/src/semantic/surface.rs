@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use phalcom_ast::ast::{AttrKind, Attribute, ClassMember, Expr, IndexAccessor, ParameterDef, Program, Statement};
+use phalcom_ast::ast::{AttrKind, Attribute, ClassMember, IndexAccessor, ParameterDef, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_native_surface::NativeReturnShape;
 
@@ -58,8 +58,8 @@ pub struct MemberSurface {
     pub name_range: SourceRange,
     /// Parameter surface.
     pub params: Vec<ParamSurface>,
-    /// Body retained for later callable-summary inference.
-    pub body: Vec<Statement>,
+    /// Reference to this member's AST in the source program.
+    pub ast: MemberAstRef,
 }
 
 /// One declared field.
@@ -75,8 +75,8 @@ pub struct FieldSurface {
     pub source_range: SourceRange,
     /// Exact field-name token span.
     pub name_range: SourceRange,
-    /// Optional source initializer.
-    pub initializer: Option<Expr>,
+    /// Reference to the field's AST for initializer lookup.
+    pub ast: MemberAstRef,
 }
 
 /// Parameter metadata used by callable inference and completion.
@@ -92,6 +92,15 @@ pub struct ParamSurface {
     pub name_range: SourceRange,
     /// Exact external label token span, if written.
     pub label_range: Option<SourceRange>,
+}
+
+/// Reference to a member's AST in the parent program.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MemberAstRef {
+    /// Index into `Program::statements`.
+    pub class_stmt_idx: usize,
+    /// Index into `ClassDef::members`.
+    pub member_idx: usize,
 }
 
 /// Source-level member category.
@@ -139,7 +148,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
         module: module.clone(),
         classes: BTreeMap::new(),
     };
-    for statement in &program.statements {
+    for (class_stmt_idx, statement) in program.statements.iter().enumerate() {
         let Statement::Class(class) = statement else { continue };
         let id = ClassId::new(module.clone(), class.name.clone());
         let superclass = class.superclass.as_ref().map(|parent| ClassId::new(module.clone(), parent.name.clone()));
@@ -158,14 +167,15 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
             source_range: (class_start..class.range.end).into(),
             name_range: class.name_range,
         };
-        for member in &class.members {
+        for (member_idx, member) in class.members.iter().enumerate() {
             let selector = crate::selectors::class_member_selector(member);
-            let (kind, side, constructor, params, body, source_range, name_range) = member_parts(member);
+            let (kind, side, constructor, params, source_range, name_range) = member_parts(member);
             let declaration_start = member_attributes(member)
                 .iter()
                 .map(|attribute| attribute.range.start)
                 .min()
                 .unwrap_or(source_range.start);
+            let ast = MemberAstRef { class_stmt_idx, member_idx };
             if let ClassMember::Field(field) = member {
                 class_surface.fields.insert(
                     field.name.clone(),
@@ -179,7 +189,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                         is_class_side: field.is_static,
                         source_range: field.range,
                         name_range: field.name_range,
-                        initializer: field.default.clone(),
+                        ast,
                     },
                 );
             }
@@ -197,7 +207,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                 source_range: (declaration_start..source_range.end).into(),
                 name_range,
                 params,
-                body,
+                ast,
             };
             class_surface.members_by_side.insert((selector.clone(), side), member_surface.clone());
             class_surface.members.entry(selector).or_insert(member_surface);
@@ -207,7 +217,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
     surface
 }
 
-fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<ParamSurface>, Vec<Statement>, SourceRange, SourceRange) {
+fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<ParamSurface>, SourceRange, SourceRange) {
     match member {
         ClassMember::Method(method) => (
             MemberKind::Method,
@@ -218,7 +228,6 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
             },
             method.is_constructor || has_builtin(&method.attributes, "constructor"),
             params(&method.params),
-            method.body.clone(),
             method.range,
             method.name_range,
         ),
@@ -231,7 +240,6 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
             },
             false,
             Vec::new(),
-            getter.body.clone(),
             getter.range,
             getter.name_range,
         ),
@@ -250,7 +258,6 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
                 name_range: setter.param.name_range,
                 label_range: setter.param.label_range,
             }],
-            setter.body.clone(),
             setter.range,
             setter.name_range,
         ),
@@ -258,7 +265,6 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
             MemberKind::Field,
             if field.is_static { DispatchSide::Class } else { DispatchSide::Instance },
             false,
-            Vec::new(),
             Vec::new(),
             field.range,
             field.name_range,
@@ -268,7 +274,6 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
             DispatchSide::Instance,
             false,
             Vec::new(),
-            Vec::new(),
             variant.range,
             variant.name_range,
         ),
@@ -277,15 +282,7 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
                 IndexAccessor::Get => params(&index.params),
                 IndexAccessor::Set { put } => index.params.iter().chain(std::iter::once(put)).map(param).collect(),
             };
-            (
-                MemberKind::Index,
-                DispatchSide::Instance,
-                false,
-                params,
-                index.body.clone(),
-                index.range,
-                index.name_range,
-            )
+            (MemberKind::Index, DispatchSide::Instance, false, params, index.range, index.name_range)
         }
     }
 }

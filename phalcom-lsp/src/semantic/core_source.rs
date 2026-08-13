@@ -12,6 +12,7 @@ use phalcom_native_surface::{NATIVE_CLASSES, NATIVE_MEMBERS, NativeDispatch, Nat
 use super::ids::{CORE_MODULE_URI, ClassId, DispatchSide, ModuleId};
 use super::surface::{ClassSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, build_module_surface};
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
 
@@ -45,6 +46,43 @@ pub enum CoreSource {
 }
 
 impl CoreSource {
+    /// Selects the best available core source based on precedence rules.
+    ///
+    /// 1. Explicitly configured sysroot/core path.
+    /// 2. Workspace conventional `phalcom-core/core/core.ph`.
+    /// 3. Workspace conventional `core/core.ph`.
+    /// 4. Bundled core source.
+    pub fn select(configured_path: Option<&Path>, workspace_roots: &[PathBuf]) -> Self {
+        if let Some(path) = configured_path {
+            if let Some(source) = Self::load_from_path(path, true) {
+                return source;
+            }
+        }
+
+        for root in workspace_roots {
+            if let Some(source) = Self::load_from_path(&root.join("phalcom-core/core/core.ph"), false) {
+                return source;
+            }
+            if let Some(source) = Self::load_from_path(&root.join("core/core.ph"), false) {
+                return source;
+            }
+        }
+
+        Self::Bundled { text: BUNDLED_CORE_SOURCE }
+    }
+
+    fn load_from_path(path: &Path, is_configured: bool) -> Option<Self> {
+        let text = std::fs::read_to_string(path).ok()?;
+        let uri = Url::from_file_path(path.canonicalize().unwrap_or_else(|_| path.to_path_buf())).ok()?;
+        let text = Arc::from(text);
+
+        if is_configured {
+            Some(Self::Configured { physical_uri: uri, text })
+        } else {
+            Some(Self::Workspace { physical_uri: uri, text })
+        }
+    }
+
     /// Returns the source text of the core module.
     pub fn text(&self) -> &str {
         match self {
@@ -119,7 +157,10 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             source_range: Default::default(),
             name_range: Default::default(),
             params: Vec::new(),
-            body: Vec::new(),
+            ast: super::surface::MemberAstRef {
+                class_stmt_idx: usize::MAX,
+                member_idx: usize::MAX,
+            },
         };
         class.members_by_side.insert((native.selector.to_string(), member.side), member.clone());
         class.members.entry(native.selector.to_string()).or_insert(member);
@@ -132,19 +173,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn core_source_precedence_and_uri_accessors() {
-        let uri = Url::parse("file:///custom/core.ph").unwrap();
-        let configured = CoreSource::Configured {
-            physical_uri: uri.clone(),
-            text: Arc::from("class Core {}"),
-        };
-        assert_eq!(configured.text(), "class Core {}");
-        assert_eq!(configured.physical_uri(), Some(&uri));
+    fn core_source_precedence_selection() {
+        let root = std::env::temp_dir().join(format!("phalcom-core-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("phalcom-core/core")).unwrap();
+        std::fs::create_dir_all(root.join("core")).unwrap();
 
-        let bundled = CoreSource::Bundled {
-            text: "class BundledCore {}",
-        };
-        assert_eq!(bundled.text(), "class BundledCore {}");
-        assert_eq!(bundled.physical_uri(), None);
+        let workspace_core = root.join("phalcom-core/core/core.ph");
+        std::fs::write(&workspace_core, "class WorkspaceCore {}").unwrap();
+
+        let root_core = root.join("core/core.ph");
+        std::fs::write(&root_core, "class RootCore {}").unwrap();
+
+        // 1. Configured wins
+        let configured_path = root.join("custom-core.ph");
+        std::fs::write(&configured_path, "class CustomCore {}").unwrap();
+        let selected = CoreSource::select(Some(&configured_path), &[root.clone()]);
+        assert_eq!(selected.text(), "class CustomCore {}");
+        assert!(matches!(selected, CoreSource::Configured { .. }));
+
+        // 2. phalcom-core/core/core.ph wins over core/core.ph
+        let selected = CoreSource::select(None, &[root.clone()]);
+        assert_eq!(selected.text(), "class WorkspaceCore {}");
+        assert!(matches!(selected, CoreSource::Workspace { .. }));
+
+        // 3. core/core.ph wins if phalcom-core not present
+        std::fs::remove_file(&workspace_core).unwrap();
+        let selected = CoreSource::select(None, &[root.clone()]);
+        assert_eq!(selected.text(), "class RootCore {}");
+        assert!(matches!(selected, CoreSource::Workspace { .. }));
+
+        // 4. Bundled fallback
+        std::fs::remove_file(&root_core).unwrap();
+        let selected = CoreSource::select(None, &[root.clone()]);
+        assert_eq!(selected.text(), BUNDLED_CORE_SOURCE);
+        assert!(matches!(selected, CoreSource::Bundled { .. }));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

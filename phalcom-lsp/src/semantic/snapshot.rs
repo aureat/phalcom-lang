@@ -18,6 +18,23 @@ use super::scope::{BindingId, BindingInfo, NameResolution};
 use super::surface::{ClassSurface, MemberSurface};
 use super::{CompletionMember, FileSemanticSnapshot, resolve_named_class, return_for_callable};
 
+/// Immutable source products shared by every semantic pass for one file.
+///
+/// The worker builds this once when a file changes. Flow analysis borrows these
+/// products instead of rebuilding lexical scopes or cloning the parsed AST for
+/// each fact family.
+#[derive(Clone, Debug)]
+pub struct FileSourceSnapshot {
+    /// Module identity.
+    pub module: ModuleId,
+    /// Parsed source retained for AST-backed member lookup.
+    pub program: Arc<phalcom_ast::ast::Program>,
+    /// Source-authored semantic surface.
+    pub surface: super::surface::ModuleSurface,
+    /// Lexical scope graph built for this parsed source.
+    pub scopes: super::scope::ScopeGraph,
+}
+
 /// Immutable published generation of all workspace semantic facts.
 #[derive(Clone, Debug, Default)]
 pub struct SemanticSnapshot {
@@ -57,9 +74,7 @@ impl SemanticSnapshot {
     /// Returns the exact semantic occurrence covering one source offset.
     pub fn occurrence_at(&self, uri: &Url, offset: usize) -> Option<SemanticOccurrence> {
         let module = ModuleId::from_uri(uri);
-        self.files
-            .get(&module)
-            .and_then(|file| file.occurrences.occurrence_at(offset).cloned())
+        self.files.get(&module).and_then(|file| file.occurrences.occurrence_at(offset).cloned())
     }
 
     /// Returns all references to a `SemanticTarget` in the workspace.
@@ -100,16 +115,14 @@ impl SemanticSnapshot {
         let module = ModuleId::from_uri(uri);
         self.files
             .get(&module)
-            .map(|file| file.scopes.visible_bindings_at(offset))
+            .map(|file| file.source.scopes.visible_bindings_at(offset))
             .unwrap_or_default()
     }
 
     /// Returns one binding's declaration metadata from a file-local identity.
     pub fn binding_info(&self, uri: &Url, binding: BindingId) -> Option<BindingInfo> {
         let module = ModuleId::from_uri(uri);
-        self.files
-            .get(&module)
-            .and_then(|file| file.scopes.bindings.get(&binding).cloned())
+        self.files.get(&module).and_then(|file| file.source.scopes.bindings.get(&binding).cloned())
     }
 
     /// Returns one class surface by module-qualified identity.
@@ -119,10 +132,7 @@ impl SemanticSnapshot {
 
     /// Returns one module-qualified member surface by canonical selector.
     pub fn member_surface(&self, class: &ClassId, selector: &str) -> Option<MemberSurface> {
-        self.classes
-            .get(class)
-            .and_then(|surface| surface.members.get(selector))
-            .cloned()
+        self.classes.get(class).and_then(|surface| surface.members.get(selector)).cloned()
     }
 
     /// Resolves one receiver-qualified member, including inherited members.
@@ -136,9 +146,10 @@ impl SemanticSnapshot {
             .iter()
             .map(|(id, surface)| (id.clone(), (**surface).clone()))
             .collect::<BTreeMap<_, _>>();
-        DispatchResolver::new(&classes)
+        let resolver = DispatchResolver::new(&classes);
+        resolver
             .resolve(&receiver, selector)
-            .map(|resolved| resolved.member)
+            .and_then(|resolved| resolver.member(&resolved.callable).cloned())
     }
 
     /// Returns inherited, de-duplicated members for one live class surface.
@@ -217,34 +228,20 @@ impl SemanticSnapshot {
 
     /// Returns a callable's target-specific return summary.
     pub fn return_for_callable(&self, id: &CallableId) -> Option<InferredValue> {
-        let classes = self
-            .classes
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect::<BTreeMap<_, _>>();
-        let summaries = self
-            .summaries
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect::<BTreeMap<_, _>>();
+        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
+        let summaries = self.summaries.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
         return_for_callable(&classes, &summaries, id)
     }
 
     /// Returns the joined call-site fact observed for one callable parameter.
     pub fn parameter_at(&self, id: &CallableId, name: &str) -> Option<InferredValue> {
-        self.parameter_facts
-            .get(&(id.clone(), name.to_string()))
-            .cloned()
+        self.parameter_facts.get(&(id.clone(), name.to_string())).cloned()
     }
 
     /// Resolves a class name in its module, with the stable core namespace as a fallback.
     pub fn class_for_name(&self, uri: &Url, name: &str) -> Option<ClassId> {
         let module = ModuleId::from_uri(uri);
-        let classes = self
-            .classes
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect::<BTreeMap<_, _>>();
+        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
         resolve_named_class(&classes, &self.graph, &module, name)
     }
 
@@ -253,6 +250,7 @@ impl SemanticSnapshot {
         let module = ModuleId::from_uri(uri);
         self.files
             .get(&module)?
+            .source
             .surface
             .classes
             .values()
@@ -265,6 +263,7 @@ impl SemanticSnapshot {
         let module = ModuleId::from_uri(uri);
         self.files
             .get(&module)?
+            .source
             .surface
             .classes
             .values()
@@ -277,6 +276,7 @@ impl SemanticSnapshot {
         let module = ModuleId::from_uri(uri);
         self.files
             .get(&module)?
+            .source
             .surface
             .classes
             .values()
@@ -287,16 +287,8 @@ impl SemanticSnapshot {
 
     /// Joins return summaries for a bounded set of receiver candidates.
     pub fn returns_for_callables(&self, ids: impl IntoIterator<Item = CallableId>) -> Option<InferredValue> {
-        let classes = self
-            .classes
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect::<BTreeMap<_, _>>();
-        let summaries = self
-            .summaries
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect::<BTreeMap<_, _>>();
+        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
+        let summaries = self.summaries.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
         ids.into_iter()
             .filter_map(|id| return_for_callable(&classes, &summaries, &id))
             .reduce(|left, right| left.join(&right))
@@ -306,7 +298,7 @@ impl SemanticSnapshot {
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
         let module = ModuleId::from_uri(uri);
         let file = self.files.get(&module)?;
-        let binding = match file.scopes.resolve(file.scopes.scope_at(offset), name, offset) {
+        let binding = match file.source.scopes.resolve(file.source.scopes.scope_at(offset), name, offset) {
             NameResolution::Binding(binding) => binding,
             _ => return None,
         };
@@ -316,16 +308,8 @@ impl SemanticSnapshot {
     /// Infers a parsed receiver expression against the coherent current semantic snapshot.
     pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
         let module = ModuleId::from_uri(uri);
-        let classes = self
-            .classes
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect::<BTreeMap<_, _>>();
-        let summaries = self
-            .summaries
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect::<BTreeMap<_, _>>();
+        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
+        let summaries = self.summaries.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
 
         let mut environment = BTreeMap::new();
         let known_classes = |name: &str| resolve_named_class(&classes, &self.graph, &module, name);
@@ -351,11 +335,12 @@ impl SemanticSnapshot {
         let current_class = self
             .files
             .get(&module)
-            .and_then(|file| file.surface.classes.values().find(|class| class.source_range.contains(offset)))
+            .and_then(|file| file.source.surface.classes.values().find(|class| class.source_range.contains(offset)))
             .map(|class| class.id.clone());
         if let Some(class) = current_class.as_ref() {
             if let Some(file) = self.files.get(&module) {
                 if let Some(member) = file
+                    .source
                     .surface
                     .classes
                     .get(class)
@@ -372,14 +357,19 @@ impl SemanticSnapshot {
         let dispatch_side = current_class.as_ref().and_then(|class| {
             self.files
                 .get(&module)
-                .and_then(|file| file.surface.classes.get(class))
+                .and_then(|file| file.source.surface.classes.get(class))
                 .and_then(|surface| surface.members_by_side.values().find(|member| member.source_range.contains(offset)))
                 .map(|member| member.side)
         });
         let local_facts = self.files.get(&module).map(|file| &file.local_facts);
-        let scopes = self.files.get(&module).map(|file| &file.scopes);
+        let scopes = self.files.get(&module).map(|file| &file.source.scopes);
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+        let member_surface = |id: &CallableId| {
+            classes
+                .get(&id.owner)
+                .and_then(|class| class.members_by_side.get(&(id.selector.clone(), id.side)).cloned())
+        };
         let contains_class = |class: &ClassId| resolver.contains_class(class);
         let context = AnalysisContext {
             current_class: current_class.as_ref(),
@@ -393,10 +383,17 @@ impl SemanticSnapshot {
             callable_return: &callable_return,
             field_value: &field_value,
             resolver: &resolve_member,
+            member_surface: &member_surface,
             contains_class: &contains_class,
         };
         let res = analyze_expr(expr, &context);
-        eprintln!("[DEBUG infer_expression] module={} expr={:?} classes_len={} res={:?}", module, expr, classes.len(), res);
+        eprintln!(
+            "[DEBUG infer_expression] module={} expr={:?} classes_len={} res={:?}",
+            module,
+            expr,
+            classes.len(),
+            res
+        );
         res
     }
 

@@ -28,13 +28,17 @@ pub struct ImportEdge {
 /// Current import graph for indexed modules.
 #[derive(Clone, Debug, Default)]
 pub struct ModuleGraph {
-    edges: BTreeMap<ModuleId, Vec<ImportEdge>>,
+    /// Forward imports contributed by each module.
+    forward: BTreeMap<ModuleId, Vec<ImportEdge>>,
+    /// Reverse importer index keyed by resolved target module.
+    reverse: BTreeMap<ModuleId, BTreeSet<ModuleId>>,
 }
 
 impl ModuleGraph {
     /// Replaces all import edges contributed by `module`.
     pub fn update(&mut self, module: ModuleId, program: &Program, available: &BTreeSet<ModuleId>) {
-        let edges = program
+        self.remove_reverse_edges(&module);
+        let edges: Vec<ImportEdge> = program
             .statements
             .iter()
             .filter_map(|statement| {
@@ -48,42 +52,70 @@ impl ModuleGraph {
                 })
             })
             .collect();
-        self.edges.insert(module, edges);
+        for edge in &edges {
+            if let Some(target) = &edge.target {
+                self.reverse.entry(target.clone()).or_default().insert(module.clone());
+            }
+        }
+        self.forward.insert(module, edges);
     }
 
     /// Removes all edges contributed by `module`.
     pub fn remove(&mut self, module: &ModuleId) {
-        self.edges.remove(module);
+        self.remove_reverse_edges(module);
+        self.forward.remove(module);
+        for importers in self.reverse.values_mut() {
+            importers.remove(module);
+        }
     }
 
     /// Returns imports declared by `module`.
     pub fn imports(&self, module: &ModuleId) -> &[ImportEdge] {
-        self.edges.get(module).map(Vec::as_slice).unwrap_or(&[])
+        self.forward.get(module).map(Vec::as_slice).unwrap_or(&[])
     }
 
     /// Returns modules whose imports point at `target`.
     pub fn dependents_of(&self, target: &ModuleId) -> Vec<ModuleId> {
-        self.edges
-            .iter()
-            .filter(|(_, edges)| edges.iter().any(|edge| edge.target.as_ref() == Some(target)))
-            .map(|(module, _)| module.clone())
-            .collect()
+        self.reverse.get(target).into_iter().flatten().cloned().collect()
     }
 
     /// Re-resolves imports after a file is created, removed, or moved.
     /// Returns importers whose resolved target changed.
     pub fn refresh_resolutions(&mut self, available: &BTreeSet<ModuleId>) -> Vec<ModuleId> {
         let mut changed = Vec::new();
-        for (module, edges) in &mut self.edges {
+        for (module, edges) in &mut self.forward {
             for edge in edges {
+                let old_target = edge.target.clone();
                 let target = resolve_import(module, &edge.path, available);
                 if edge.target != target {
                     edge.target = target;
                     changed.push(module.clone());
+                    if let Some(old_target) = old_target {
+                        if let Some(importers) = self.reverse.get_mut(&old_target) {
+                            importers.remove(module);
+                        }
+                    }
+                    if let Some(target) = &edge.target {
+                        self.reverse.entry(target.clone()).or_default().insert(module.clone());
+                    }
                 }
             }
         }
         changed
+    }
+
+    fn remove_reverse_edges(&mut self, module: &ModuleId) {
+        let Some(edges) = self.forward.get(module) else { return };
+        for edge in edges {
+            if let Some(target) = &edge.target {
+                if let Some(importers) = self.reverse.get_mut(target) {
+                    importers.remove(module);
+                    if importers.is_empty() {
+                        self.reverse.remove(target);
+                    }
+                }
+            }
+        }
     }
 
     /// Returns all transitive import dependents of `target`.

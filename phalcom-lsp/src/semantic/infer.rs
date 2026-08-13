@@ -2,97 +2,128 @@
 
 #![allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::CallableSummary;
-use super::callable::SolverResult;
-use super::dispatch::{DispatchReceiver, DispatchResolver, ResolvedDispatch};
-use super::facts::{FieldFacts, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+use super::callable::{CallableWorklist, SolverResult};
+use super::dispatch::{DispatchReceiver, DispatchResolver};
+use super::facts::{FieldFacts, InferredValue, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
 #[cfg(test)]
 use super::ids::CORE_MODULE_URI;
-use super::ids::{CallableId, ClassId, DispatchSide, ModuleId};
+#[cfg(test)]
+use super::ids::ModuleId;
+use super::ids::{CallableId, ClassId, DispatchSide};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
-use super::surface::ModuleSurface;
 
-/// Collects constructor-assigned field facts from one module's source surface.
-pub fn field_facts_for_surface(
-    program: &phalcom_ast::ast::Program,
-    surface: &ModuleSurface,
-    module: &ModuleId,
-    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
-    _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    contains_class: impl Fn(&ClassId) -> bool + Copy,
-    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
-    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
-    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
-    resolver: DispatchResolver<'_>,
-) -> FieldFacts {
-    let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
-    super::flow::analyze_surface(
-        program,
-        surface,
-        module,
-        &known_class,
-        &contains_class,
-        &callable_return,
-        &callable_effects,
-        &parameter_fact,
-        &field_value,
-        &|receiver, selector| resolver.resolve(receiver, selector),
-        SemanticGeneration(0),
-    )
-    .field_facts
+use super::flow::{SolverContext, SurfaceFlowAnalysis};
+use super::snapshot::FileSourceSnapshot;
+
+/// Selects parameter facts from an already-computed unified flow result.
+pub(crate) fn parameter_facts_from_analysis(analysis: &SurfaceFlowAnalysis) -> ParameterFacts {
+    analysis.parameter_facts.clone()
 }
 
-/// Collects parameter facts from unambiguous call sites in one source module.
-pub fn parameter_facts_for_program(
-    program: &phalcom_ast::ast::Program,
-    surface: &ModuleSurface,
-    module: &ModuleId,
-    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
-    _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    contains_class: impl Fn(&ClassId) -> bool + Copy,
-    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
-    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
-    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
-    resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
-) -> ParameterFacts {
+/// Selects local facts from an already-computed unified flow result.
+pub(crate) fn local_facts_from_analysis(analysis: &SurfaceFlowAnalysis) -> super::facts::LocalFacts {
+    analysis.local_facts.clone()
+}
+
+/// Selects field facts from an already-computed unified flow result.
+pub(crate) fn field_facts_from_analysis(analysis: &SurfaceFlowAnalysis) -> FieldFacts {
+    analysis.field_facts.clone()
+}
+
+/// Builds the immutable solver context for one source-backed flow pass.
+pub(crate) fn analyze_source(
+    source: &FileSourceSnapshot,
+    classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
+    graph: &ModuleGraph,
+    summaries: &BTreeMap<CallableId, CallableSummary>,
+    parameters: &ParameterFacts,
+    generation: SemanticGeneration,
+) -> SurfaceFlowAnalysis {
+    let known_class = |name: &str| super::resolve_named_class(classes, graph, &source.module, name);
+    let contains_class = |class: &ClassId| classes.contains_key(class);
+    let callable_return = |id: &CallableId| super::return_for_callable(classes, summaries, id);
+    let callable_effects = |id: &CallableId| summaries.get(id).map(|summary| summary.effects.clone());
+    let parameter_fact = |id: &CallableId, name: &str| parameters.get(id, name).cloned();
     let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
-    super::flow::analyze_surface(
-        program,
-        surface,
-        module,
-        &known_class,
-        &contains_class,
-        &callable_return,
-        &callable_effects,
-        &parameter_fact,
-        &field_value,
-        &resolve_member,
-        SemanticGeneration(0),
-    )
-    .parameter_facts
+    let resolver = DispatchResolver::new(classes);
+    let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+    let member_surface = |id: &CallableId| {
+        classes
+            .get(&id.owner)
+            .and_then(|class| class.members_by_side.get(&(id.selector.clone(), id.side)).cloned())
+    };
+    let context = SolverContext {
+        known_class: &known_class,
+        contains_class: &contains_class,
+        callable_return: &callable_return,
+        callable_effects: &callable_effects,
+        parameter_fact: &parameter_fact,
+        field_value: &field_value,
+        resolve_member: &resolve_member,
+        member_surface: &member_surface,
+    };
+    super::flow::analyze_surface(source, &context, generation)
+}
+
+/// Analyzes one callable body against the current immutable solver context.
+pub(crate) fn analyze_callable_source(
+    source: &FileSourceSnapshot,
+    callable: &CallableId,
+    classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
+    graph: &ModuleGraph,
+    summaries: &BTreeMap<CallableId, CallableSummary>,
+    parameters: &ParameterFacts,
+    generation: SemanticGeneration,
+) -> SurfaceFlowAnalysis {
+    let known_class = |name: &str| super::resolve_named_class(classes, graph, &source.module, name);
+    let contains_class = |class: &ClassId| classes.contains_key(class);
+    let callable_return = |id: &CallableId| super::return_for_callable(classes, summaries, id);
+    let callable_effects = |id: &CallableId| summaries.get(id).map(|summary| summary.effects.clone());
+    let parameter_fact = |id: &CallableId, name: &str| parameters.get(id, name).cloned();
+    let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
+    let resolver = DispatchResolver::new(classes);
+    let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+    let member_surface = |id: &CallableId| {
+        classes
+            .get(&id.owner)
+            .and_then(|class| class.members_by_side.get(&(id.selector.clone(), id.side)).cloned())
+    };
+    let context = SolverContext {
+        known_class: &known_class,
+        contains_class: &contains_class,
+        callable_return: &callable_return,
+        callable_effects: &callable_effects,
+        parameter_fact: &parameter_fact,
+        field_value: &field_value,
+        resolve_member: &resolve_member,
+        member_surface: &member_surface,
+    };
+    super::flow::analyze_callable(source, &context, generation, callable)
 }
 
 /// Solves source callable summaries and parameter facts without mutating the
 /// published semantic database.
 #[expect(dead_code, reason = "retained as a full-workspace solver reference for regression comparisons")]
 pub(crate) fn solve_workspace_callables(
-    inputs: &[(ModuleId, Arc<phalcom_ast::ast::Program>, ModuleSurface)],
+    inputs: &[Arc<FileSourceSnapshot>],
     classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
     graph: &ModuleGraph,
     generation: SemanticGeneration,
 ) -> SolverResult {
     let callable_count = inputs
         .iter()
-        .map(|(_, _, surface)| surface.classes.values().map(|class| class.members_by_side.len()).sum::<usize>())
+        .map(|source| source.surface.classes.values().map(|class| class.members_by_side.len()).sum::<usize>())
         .sum::<usize>();
     let slot_count = inputs
         .iter()
-        .map(|(_, _, surface)| {
-            surface
+        .map(|source| {
+            source
+                .surface
                 .classes
                 .values()
                 .flat_map(|class| class.members_by_side.values())
@@ -103,83 +134,53 @@ pub(crate) fn solve_workspace_callables(
     let max_rounds = (callable_count + slot_count).max(1) * (MAX_SHAPE_UNION + 2);
     let mut summaries = BTreeMap::new();
     let mut parameter_facts = ParameterFacts::default();
+    let mut worklist = CallableWorklist::default();
+    for source in inputs {
+        for class in source.surface.classes.values() {
+            for member in class.members_by_side.values() {
+                worklist.push(member.callable.clone());
+            }
+        }
+    }
 
     for _ in 0..max_rounds {
-        crate::perf::COUNTERS
-            .solver_rounds
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if worklist.is_empty() && callable_count > 0 {
+            break;
+        }
+        while worklist.pop().is_some() {}
+        crate::perf::COUNTERS.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let previous_summaries = summaries.clone();
         let previous_parameters = parameter_facts.clone();
         let mut next_parameters = ParameterFacts::default();
 
-        for (module, program, surface) in inputs {
-            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
-            let resolver = DispatchResolver::new(classes);
-            let is_constructor = |class: &ClassId, selector: &str| {
-                resolver
-                    .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
-                    .is_some_and(|resolved| resolved.member.is_constructor)
-                    || (selector == "new()" && classes.contains_key(class))
-            };
-            let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
-            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
-            let parameter_fact = |id: &CallableId, name: &str| previous_parameters.get(id, name).cloned();
-            let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-            let facts = parameter_facts_for_program(
-                program,
-                surface,
-                module,
-                known_class,
-                is_constructor,
-                |class| classes.contains_key(class),
-                callable_return,
-                callable_effects,
-                parameter_fact,
-                resolve_member,
-            );
-            next_parameters.merge_from(&facts);
-        }
-
         let mut next_summaries = BTreeMap::new();
-        for (module, program, surface) in inputs {
-            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
-            let resolver = DispatchResolver::new(classes);
-            let is_constructor = |class: &ClassId, selector: &str| {
-                resolver
-                    .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
-                    .is_some_and(|resolved| resolved.member.is_constructor)
-                    || (selector == "new()" && classes.contains_key(class))
-            };
-            let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
-            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
-            let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(id, name).cloned();
-            let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-            for (summary, evidence) in summaries_for_surface_with_bottom(
-                program,
-                surface,
-                module,
-                known_class,
-                is_constructor,
-                |class| classes.contains_key(class),
-                callable_return,
-                callable_effects,
-                parameter_fact,
-                resolve_member,
-                generation,
-            ) {
-                if evidence.is_some() {
+        for source in inputs {
+            let analysis = analyze_source(source, classes, graph, &previous_summaries, &previous_parameters, generation);
+            next_parameters.merge_from(&analysis.parameter_facts);
+            for (summary, evidence) in analysis.summaries {
+                if evidence {
                     next_summaries.insert(summary.callable.clone(), summary);
                 }
             }
         }
+        apply_parameter_facts_to_summaries(&mut next_summaries, classes, &next_parameters);
 
         let summaries_changed = next_summaries != previous_summaries;
         let parameters_changed = next_parameters != previous_parameters;
         summaries = next_summaries;
         parameter_facts = next_parameters;
         if !summaries_changed && !parameters_changed {
-            complete_missing_summaries(inputs, classes, graph, generation, &parameter_facts, &mut summaries);
+            complete_missing_summaries(inputs, classes, generation, &parameter_facts, &mut summaries);
             return SolverResult { summaries, parameter_facts };
+        }
+        if summaries_changed || parameters_changed {
+            for source in inputs {
+                for class in source.surface.classes.values() {
+                    for member in class.members_by_side.values() {
+                        worklist.push(member.callable.clone());
+                    }
+                }
+            }
         }
     }
 
@@ -201,29 +202,51 @@ pub(crate) fn solve_workspace_callables(
 
 /// Re-solves only callable surfaces owned by `inputs` while treating the
 /// supplied summaries and parameter facts as read-only boundary values.
+#[allow(dead_code)]
 pub(crate) fn solve_affected_callables(
-    inputs: &[(ModuleId, Arc<phalcom_ast::ast::Program>, ModuleSurface)],
+    inputs: &[Arc<FileSourceSnapshot>],
     classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
     graph: &ModuleGraph,
     generation: SemanticGeneration,
     seed_summaries: BTreeMap<CallableId, CallableSummary>,
     base_parameters: ParameterFacts,
 ) -> SolverResult {
+    solve_affected_callables_with_cancel(inputs, classes, graph, generation, seed_summaries, base_parameters, &|| false)
+        .expect("uncancelled callable solve must complete")
+}
+
+/// Incremental callable solve with cooperative cancellation between worklist
+/// items. No partial result is returned when the caller's epoch is stale.
+pub(crate) fn solve_affected_callables_with_cancel(
+    inputs: &[Arc<FileSourceSnapshot>],
+    classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
+    graph: &ModuleGraph,
+    generation: SemanticGeneration,
+    seed_summaries: BTreeMap<CallableId, CallableSummary>,
+    base_parameters: ParameterFacts,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<SolverResult> {
     if inputs.is_empty() {
-        return SolverResult {
+        return Some(SolverResult {
             summaries: seed_summaries,
             parameter_facts: base_parameters,
-        };
+        });
     }
 
-    let callable_count = inputs
-        .iter()
-        .map(|(_, _, surface)| surface.classes.values().map(|class| class.members_by_side.len()).sum::<usize>())
-        .sum::<usize>();
+    let mut callable_sources = BTreeMap::new();
+    for source in inputs {
+        for class in source.surface.classes.values() {
+            for member in class.members_by_side.values() {
+                callable_sources.insert(member.callable.clone(), source.clone());
+            }
+        }
+    }
+    let callable_count = callable_sources.len();
     let slot_count = inputs
         .iter()
-        .map(|(_, _, surface)| {
-            surface
+        .map(|source| {
+            source
+                .surface
                 .classes
                 .values()
                 .flat_map(|class| class.members_by_side.values())
@@ -231,244 +254,162 @@ pub(crate) fn solve_affected_callables(
                 .sum::<usize>()
         })
         .sum::<usize>();
-    let max_rounds = (callable_count + slot_count).max(1) * (MAX_SHAPE_UNION + 2);
+    let max_steps = (callable_count + slot_count).max(1) * (MAX_SHAPE_UNION + 2);
     let mut summaries = seed_summaries;
     let mut parameter_facts = base_parameters.clone();
+    let mut source_facts = BTreeMap::<CallableId, ParameterFacts>::new();
+    let mut dependents = BTreeMap::<CallableId, BTreeSet<CallableId>>::new();
+    for summary in summaries.values() {
+        for dependency in &summary.dependencies {
+            dependents.entry(dependency.clone()).or_default().insert(summary.callable.clone());
+        }
+    }
+    let mut worklist = CallableWorklist::default();
+    for callable in callable_sources.keys() {
+        worklist.push(callable.clone());
+    }
 
-    for _ in 0..max_rounds {
-        crate::perf::COUNTERS
-            .solver_rounds
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let previous_summaries = summaries.clone();
-        let previous_parameters = parameter_facts.clone();
-        let mut next_parameters = base_parameters.clone();
-
-        for (module, program, surface) in inputs {
-            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
-            let resolver = DispatchResolver::new(classes);
-            let is_constructor = |class: &ClassId, selector: &str| {
-                resolver
-                    .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
-                    .is_some_and(|resolved| resolved.member.is_constructor)
-                    || (selector == "new()" && classes.contains_key(class))
-            };
-            let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
-            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
-            let parameter_fact = |id: &CallableId, name: &str| previous_parameters.get(id, name).cloned();
-            let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-            let facts = parameter_facts_for_program(
-                program,
-                surface,
-                module,
-                known_class,
-                is_constructor,
-                |class| classes.contains_key(class),
-                callable_return,
-                callable_effects,
-                parameter_fact,
-                resolve_member,
-            );
-            next_parameters.merge_from(&facts);
+    let mut steps = 0;
+    while let Some(callable) = worklist.pop() {
+        if cancelled() {
+            return None;
+        }
+        steps += 1;
+        if steps > max_steps {
+            break;
+        }
+        crate::perf::COUNTERS.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let Some(source) = callable_sources.get(&callable) else { continue };
+        let previous_summary = summaries.get(&callable).cloned();
+        let analysis = analyze_callable_source(source, &callable, classes, graph, &summaries, &parameter_facts, generation);
+        let candidate = analysis
+            .summaries
+            .into_iter()
+            .find(|(summary, _)| summary.callable == callable)
+            .and_then(|(summary, evidence)| evidence.then_some(summary));
+        if let Some(summary) = candidate {
+            summaries.insert(callable.clone(), summary.clone());
+            let old_dependencies = previous_summary
+                .as_ref()
+                .map(|summary| summary.dependencies.iter().cloned().collect::<BTreeSet<_>>())
+                .unwrap_or_default();
+            let new_dependencies = summary.dependencies.iter().cloned().collect::<BTreeSet<_>>();
+            for dependency in old_dependencies.difference(&new_dependencies) {
+                if let Some(edges) = dependents.get_mut(dependency) {
+                    edges.remove(&callable);
+                }
+            }
+            for dependency in new_dependencies.difference(&old_dependencies) {
+                dependents.entry(dependency.clone()).or_default().insert(callable.clone());
+            }
+        } else {
+            summaries.remove(&callable);
         }
 
-        let mut next_summaries = previous_summaries.clone();
-        for (module, program, surface) in inputs {
-            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
-            let resolver = DispatchResolver::new(classes);
-            let is_constructor = |class: &ClassId, selector: &str| {
-                resolver
-                    .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
-                    .is_some_and(|resolved| resolved.member.is_constructor)
-                    || (selector == "new()" && classes.contains_key(class))
-            };
-            let callable_return = |id: &CallableId| super::return_for_callable(classes, &previous_summaries, id);
-            let callable_effects = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.effects.clone());
-            let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(id, name).cloned();
-            let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-            for (summary, evidence) in summaries_for_surface_with_bottom(
-                program,
-                surface,
-                module,
-                known_class,
-                is_constructor,
-                |class| classes.contains_key(class),
-                callable_return,
-                callable_effects,
-                parameter_fact,
-                resolve_member,
-                generation,
-            ) {
-                if evidence.is_some() {
-                    next_summaries.insert(summary.callable.clone(), summary);
+        source_facts.insert(callable.clone(), analysis.parameter_facts);
+        let previous_parameters = parameter_facts.clone();
+        parameter_facts = base_parameters.clone();
+        for facts in source_facts.values() {
+            parameter_facts.merge_from(facts);
+        }
+        apply_parameter_facts_to_summaries(&mut summaries, classes, &parameter_facts);
+
+        if previous_summary != summaries.get(&callable).cloned() || previous_parameters != parameter_facts {
+            if let Some(edges) = dependents.get(&callable) {
+                for dependent in edges {
+                    if callable_sources.contains_key(dependent) {
+                        worklist.push(dependent.clone());
+                    }
+                }
+            }
+            for (slot, value) in parameter_facts.iter() {
+                if previous_parameters.get(&slot.0, &slot.1) != Some(value) && callable_sources.contains_key(&slot.0) {
+                    worklist.push(slot.0.clone());
                 }
             }
         }
-
-        let summaries_changed = next_summaries != previous_summaries;
-        let parameters_changed = next_parameters != previous_parameters;
-        summaries = next_summaries;
-        parameter_facts = next_parameters;
-        if !summaries_changed && !parameters_changed {
-            complete_missing_summaries(inputs, classes, graph, generation, &parameter_facts, &mut summaries);
-            return SolverResult { summaries, parameter_facts };
-        }
     }
 
-    if cfg!(debug_assertions) {
-        panic!("affected callable solver failed to converge within derived budget");
-    }
-
-    parameter_facts.widen_all();
-    for summary in summaries.values_mut() {
-        if inputs.iter().any(|(module, _, _)| summary.callable.owner.module == *module) {
-            summary.returns = InferredValue::flow(ValueShape::Unknown, Default::default());
-            for value in &mut summary.params {
-                *value = InferredValue::flow(ValueShape::Unknown, Default::default());
+    if steps > max_steps {
+        parameter_facts.widen_all();
+        for summary in summaries.values_mut() {
+            if callable_sources.contains_key(&summary.callable) {
+                summary.returns = InferredValue::flow(ValueShape::Unknown, Default::default());
+                for value in &mut summary.params {
+                    *value = InferredValue::flow(ValueShape::Unknown, Default::default());
+                }
             }
         }
     }
-    SolverResult { summaries, parameter_facts }
+    complete_missing_summaries(inputs, classes, generation, &parameter_facts, &mut summaries);
+    if cancelled() {
+        return None;
+    }
+    Some(SolverResult { summaries, parameter_facts })
+}
+
+fn apply_parameter_facts_to_summaries(
+    summaries: &mut BTreeMap<CallableId, CallableSummary>,
+    classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
+    parameters: &ParameterFacts,
+) {
+    for summary in summaries.values_mut() {
+        let Some(class) = classes.get(&summary.callable.owner) else { continue };
+        let Some(member) = class.members_by_side.get(&(summary.callable.selector.clone(), summary.callable.side)) else {
+            continue;
+        };
+        summary.params = member
+            .params
+            .iter()
+            .map(|param| {
+                parameters
+                    .get(&summary.callable, &param.name)
+                    .cloned()
+                    .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, param.source_range))
+            })
+            .collect();
+    }
 }
 
 fn complete_missing_summaries(
-    inputs: &[(ModuleId, Arc<phalcom_ast::ast::Program>, ModuleSurface)],
+    inputs: &[Arc<FileSourceSnapshot>],
     classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
-    graph: &ModuleGraph,
     generation: SemanticGeneration,
     parameter_facts: &ParameterFacts,
     summaries: &mut BTreeMap<CallableId, CallableSummary>,
 ) {
-    for (module, program, surface) in inputs {
-        let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
-        let resolver = DispatchResolver::new(classes);
-        let is_constructor = |class: &ClassId, selector: &str| {
-            resolver
-                .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
-                .is_some_and(|resolved| resolved.member.is_constructor)
-                || (selector == "new()" && classes.contains_key(class))
-        };
-        let callable_return = |id: &CallableId| super::return_for_callable(classes, summaries, id);
-        let callable_effects = |id: &CallableId| summaries.get(id).map(|summary| summary.effects.clone());
-        let parameter_fact = |id: &CallableId, name: &str| parameter_facts.get(id, name).cloned();
-        let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-        let generated = summaries_for_surface(
-            program,
-            surface,
-            module,
-            known_class,
-            is_constructor,
-            |class| classes.contains_key(class),
-            callable_return,
-            callable_effects,
-            parameter_fact,
-            resolve_member,
-            generation,
-        );
-        for summary in generated {
-            summaries.entry(summary.callable.clone()).or_insert(summary);
+    for source in inputs {
+        for class in source.surface.classes.values() {
+            for member in class.members_by_side.values() {
+                if summaries.contains_key(&member.callable) {
+                    continue;
+                }
+                let params = member
+                    .params
+                    .iter()
+                    .map(|param| {
+                        parameter_facts
+                            .get(&member.callable, &param.name)
+                            .cloned()
+                            .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, param.source_range))
+                    })
+                    .collect();
+                let returns = super::return_for_callable(classes, summaries, &member.callable)
+                    .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, member.source_range));
+                summaries.insert(
+                    member.callable.clone(),
+                    CallableSummary {
+                        callable: member.callable.clone(),
+                        params,
+                        returns,
+                        dependencies: Vec::new(),
+                        effects: Default::default(),
+                        revision: generation,
+                    },
+                );
+            }
         }
     }
-}
-
-pub fn collect_local_facts_with_returns(
-    program: &phalcom_ast::ast::Program,
-    surface: &ModuleSurface,
-    module: &ModuleId,
-    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
-    _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    contains_class: impl Fn(&ClassId) -> bool + Copy,
-    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
-    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
-    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
-    resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
-) -> LocalFacts {
-    let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
-    super::flow::analyze_surface(
-        program,
-        surface,
-        module,
-        &known_class,
-        &contains_class,
-        &callable_return,
-        &callable_effects,
-        &parameter_fact,
-        &field_value,
-        &resolve_member,
-        SemanticGeneration(0),
-    )
-    .local_facts
-}
-
-/// Computes one-pass callable return summaries for a source module surface.
-pub fn summaries_for_surface(
-    program: &phalcom_ast::ast::Program,
-    surface: &ModuleSurface,
-    module: &ModuleId,
-    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
-    _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    contains_class: impl Fn(&ClassId) -> bool + Copy,
-    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
-    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
-    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
-    resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
-    revision: SemanticGeneration,
-) -> Vec<CallableSummary> {
-    let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
-    super::flow::analyze_surface(
-        program,
-        surface,
-        module,
-        &known_class,
-        &contains_class,
-        &callable_return,
-        &callable_effects,
-        &parameter_fact,
-        &field_value,
-        &resolve_member,
-        revision,
-    )
-    .summaries
-    .into_iter()
-    .filter_map(|(summary, evidence)| evidence.then_some(summary))
-    .collect()
-}
-
-type SummaryEvidence = Option<InferredValue>;
-
-fn summaries_for_surface_with_bottom(
-    program: &phalcom_ast::ast::Program,
-    surface: &ModuleSurface,
-    module: &ModuleId,
-    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
-    _is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    contains_class: impl Fn(&ClassId) -> bool + Copy,
-    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
-    callable_effects: impl Fn(&CallableId) -> Option<super::SummaryEffects> + Copy,
-    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
-    resolve_member: impl Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch> + Copy,
-    revision: SemanticGeneration,
-) -> Vec<(CallableSummary, SummaryEvidence)> {
-    let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
-    super::flow::analyze_surface(
-        program,
-        surface,
-        module,
-        &known_class,
-        &contains_class,
-        &callable_return,
-        &callable_effects,
-        &parameter_fact,
-        &field_value,
-        &resolve_member,
-        revision,
-    )
-    .summaries
-    .into_iter()
-    .map(|(summary, evidence)| {
-        let returns = summary.returns.clone();
-        (summary, evidence.then_some(returns))
-    })
-    .collect()
 }
 
 #[cfg(test)]
@@ -481,28 +422,27 @@ mod tests {
     use super::*;
     use phalcom_ast::parser::parse;
 
-    fn no_classes(_: &str) -> Option<ClassId> {
-        None
-    }
-
     #[test]
     fn literals_and_reassignment_are_queryable() {
         let program = parse("let value = 1\nvalue = \"ok\"\n", 0).program;
         let module = ModuleId::new("file:///main.ph");
         let surface = super::super::surface::build_module_surface(module.clone(), &program);
-        let facts = collect_local_facts_with_returns(
-            &program,
-            &surface,
-            &module,
-            no_classes,
-            |_, _| false,
-            |_| false,
-            |_| None,
-            |_| None,
-            |_, _| None,
-            |_, _| None,
-        );
-        let scopes = super::super::scope::build_scope_graph(module, &program);
+        let source = FileSourceSnapshot {
+            module: module.clone(),
+            program: Arc::new(program),
+            scopes: super::super::scope::build_scope_graph(module.clone(), &parse("let value = 1\nvalue = \"ok\"\n", 0).program),
+            surface,
+        };
+        let facts = analyze_source(
+            &source,
+            &BTreeMap::new(),
+            &ModuleGraph::default(),
+            &BTreeMap::new(),
+            &ParameterFacts::default(),
+            SemanticGeneration(0),
+        )
+        .local_facts;
+        let scopes = &source.scopes;
         let binding = match scopes.resolve(scopes.scope_at(10), "value", 10) {
             super::super::scope::NameResolution::Binding(binding) => binding,
             other => panic!("expected binding, got {other:?}"),

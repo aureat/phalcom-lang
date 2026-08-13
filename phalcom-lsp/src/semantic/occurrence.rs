@@ -1,8 +1,6 @@
 //! Exact source occurrences shared by hover, navigation, and semantic tokens.
 
-use phalcom_ast::ast::{
-    BinaryOp, ClassMember, Expr, IndexAccessor, MethodRefKind, Pattern, Program, Statement, UnaryOp,
-};
+use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, IndexAccessor, MethodRefKind, Pattern, Program, Statement, UnaryOp};
 use phalcom_common::range::SourceRange;
 
 use super::ids::{CallableId, ClassId, ModuleId};
@@ -83,6 +81,7 @@ pub struct SemanticOccurrence {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OccurrenceIndex {
     occurrences: Vec<SemanticOccurrence>,
+    max_end_prefix: Vec<usize>,
 }
 
 impl OccurrenceIndex {
@@ -93,16 +92,41 @@ impl OccurrenceIndex {
 
     /// Selects the shortest semantic range containing `offset`.
     pub fn occurrence_at(&self, offset: usize) -> Option<&SemanticOccurrence> {
-        self.occurrences
-            .iter()
-            .filter(|occurrence| occurrence.range.contains(offset))
-            .min_by(|left, right| {
-                left.range
+        let mut low = 0;
+        let mut high = self.occurrences.len();
+        while low < high {
+            let middle = (low + high) / 2;
+            if self.occurrences[middle].range.start <= offset {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        let mut best = None;
+        let mut index = low;
+        while index > 0 {
+            index -= 1;
+            if self.max_end_prefix.get(index).copied().unwrap_or(0) <= offset {
+                break;
+            }
+            let occurrence = &self.occurrences[index];
+            if !occurrence.range.contains(offset) {
+                continue;
+            }
+            let replace = best.is_none_or(|best: &SemanticOccurrence| {
+                occurrence
+                    .range
                     .len()
-                    .cmp(&right.range.len())
-                    .then_with(|| occurrence_priority(left.kind).cmp(&occurrence_priority(right.kind)))
-                    .then_with(|| left.range.start.cmp(&right.range.start))
-            })
+                    .cmp(&best.range.len())
+                    .then_with(|| occurrence_priority(occurrence.kind).cmp(&occurrence_priority(best.kind)))
+                    .then_with(|| occurrence.range.start.cmp(&best.range.start))
+                    .is_lt()
+            });
+            if replace {
+                best = Some(occurrence);
+            }
+        }
+        best
     }
 }
 
@@ -122,8 +146,18 @@ pub fn build_occurrence_index(module: ModuleId, program: &Program, surface: &Mod
             .then_with(|| left.range.len().cmp(&right.range.len()))
             .then_with(|| occurrence_priority(left.kind).cmp(&occurrence_priority(right.kind)))
     });
+    let mut max_end = 0;
+    let max_end_prefix = builder
+        .occurrences
+        .iter()
+        .map(|occurrence| {
+            max_end = max_end.max(occurrence.range.end);
+            max_end
+        })
+        .collect();
     OccurrenceIndex {
         occurrences: builder.occurrences,
+        max_end_prefix,
     }
 }
 
@@ -147,7 +181,12 @@ impl OccurrenceBuilder<'_> {
             match statement {
                 Statement::Class(class) => {
                     let class_id = ClassId::new(self.module.clone(), class.name.clone());
-                    self.push(class.name_range, SemanticOccurrenceKind::Class, OccurrenceRole::Declaration, SemanticTarget::Class(class_id.clone()));
+                    self.push(
+                        class.name_range,
+                        SemanticOccurrenceKind::Class,
+                        OccurrenceRole::Declaration,
+                        SemanticTarget::Class(class_id.clone()),
+                    );
                     for member in &class.members {
                         self.visit_member(&class_id, member);
                     }
@@ -199,7 +238,9 @@ impl OccurrenceBuilder<'_> {
     }
 
     fn visit_member(&mut self, class: &ClassId, member: &ClassMember) {
-        let Some(member_surface) = self.member_surface(class, member).cloned() else { return };
+        let Some(member_surface) = self.member_surface(class, member).cloned() else {
+            return;
+        };
         let scope = self.scopes.scope_at(member_surface.name_range.start);
         match member {
             ClassMember::Method(method) => {
@@ -293,7 +334,12 @@ impl OccurrenceBuilder<'_> {
         match pattern {
             Pattern::Name { range, .. } => {
                 if let Some(binding) = self.scopes.binding_for_declaration(*range) {
-                    self.push(*range, SemanticOccurrenceKind::Binding, OccurrenceRole::Declaration, SemanticTarget::Binding(binding));
+                    self.push(
+                        *range,
+                        SemanticOccurrenceKind::Binding,
+                        OccurrenceRole::Declaration,
+                        SemanticTarget::Binding(binding),
+                    );
                 }
             }
             Pattern::Tuple { elements, .. } => {
@@ -348,13 +394,23 @@ impl OccurrenceBuilder<'_> {
             }
             Expr::Unary(unary) => {
                 if let Some(range) = unary.op_range {
-                    self.push(range, SemanticOccurrenceKind::Operator, OccurrenceRole::Reference, SemanticTarget::Operator(unary_name(&unary.op)));
+                    self.push(
+                        range,
+                        SemanticOccurrenceKind::Operator,
+                        OccurrenceRole::Reference,
+                        SemanticTarget::Operator(unary_name(&unary.op)),
+                    );
                 }
                 self.visit_expr(&unary.expr, scope);
             }
             Expr::Binary(binary) => {
                 if let Some(range) = binary.op_range {
-                    self.push(range, SemanticOccurrenceKind::Operator, OccurrenceRole::Reference, SemanticTarget::Operator(binary_name(&binary.op)));
+                    self.push(
+                        range,
+                        SemanticOccurrenceKind::Operator,
+                        OccurrenceRole::Reference,
+                        SemanticTarget::Operator(binary_name(&binary.op)),
+                    );
                 }
                 self.visit_expr(&binary.left, scope);
                 self.visit_expr(&binary.right, scope);
@@ -387,7 +443,9 @@ impl OccurrenceBuilder<'_> {
                         range,
                         SemanticOccurrenceKind::Member,
                         OccurrenceRole::Read,
-                        SemanticTarget::Member { name: property.property.clone() },
+                        SemanticTarget::Member {
+                            name: property.property.clone(),
+                        },
                     );
                 }
                 self.visit_expr(&property.object, scope);
@@ -398,7 +456,9 @@ impl OccurrenceBuilder<'_> {
                         range,
                         SemanticOccurrenceKind::Member,
                         OccurrenceRole::Write,
-                        SemanticTarget::Member { name: property.property.clone() },
+                        SemanticTarget::Member {
+                            name: property.property.clone(),
+                        },
                     );
                 }
                 self.visit_expr(&property.object, scope);
@@ -433,13 +493,23 @@ impl OccurrenceBuilder<'_> {
                 let block_scope = self.scopes.scope_at(block.range.start);
                 for parameter in &block.params.fixed {
                     if let Some(binding) = self.scopes.binding_for_declaration(parameter.range) {
-                        self.push(parameter.range, SemanticOccurrenceKind::Parameter, OccurrenceRole::Declaration, SemanticTarget::Binding(binding));
+                        self.push(
+                            parameter.range,
+                            SemanticOccurrenceKind::Parameter,
+                            OccurrenceRole::Declaration,
+                            SemanticTarget::Binding(binding),
+                        );
                     }
                 }
                 if let Some(parameter) = &block.params.positional_rest
                     && let Some(binding) = self.scopes.binding_for_declaration(parameter.range)
                 {
-                    self.push(parameter.range, SemanticOccurrenceKind::Parameter, OccurrenceRole::Declaration, SemanticTarget::Binding(binding));
+                    self.push(
+                        parameter.range,
+                        SemanticOccurrenceKind::Parameter,
+                        OccurrenceRole::Declaration,
+                        SemanticTarget::Binding(binding),
+                    );
                 }
                 self.visit_statements(&block.body, block_scope);
             }
@@ -448,31 +518,39 @@ impl OccurrenceBuilder<'_> {
                     let name = match &reference.kind {
                         MethodRefKind::Open { name } | MethodRefKind::Pinned { name, .. } => name.clone(),
                     };
-                    self.push(range, SemanticOccurrenceKind::Member, OccurrenceRole::Reference, SemanticTarget::Member { name });
+                    self.push(
+                        range,
+                        SemanticOccurrenceKind::Member,
+                        OccurrenceRole::Reference,
+                        SemanticTarget::Member { name },
+                    );
                 }
                 self.visit_expr(&reference.receiver, scope);
             }
             Expr::SetLiteral(set) => {
                 for entry in &set.entries {
                     match entry {
-                        phalcom_ast::ast::SetLiteralEntry::Element { expr, .. }
-                        | phalcom_ast::ast::SetLiteralEntry::Expansion { expr, .. } => self.visit_expr(expr, scope),
+                        phalcom_ast::ast::SetLiteralEntry::Element { expr, .. } | phalcom_ast::ast::SetLiteralEntry::Expansion { expr, .. } => {
+                            self.visit_expr(expr, scope)
+                        }
                     }
                 }
             }
             Expr::ListLiteral(list) => {
                 for element in &list.elements {
                     match element {
-                        phalcom_ast::ast::ListLiteralElement::Element { expr, .. }
-                        | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => self.visit_expr(expr, scope),
+                        phalcom_ast::ast::ListLiteralElement::Element { expr, .. } | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => {
+                            self.visit_expr(expr, scope)
+                        }
                     }
                 }
             }
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {
                     match entry {
-                        phalcom_ast::ast::TupleLiteralEntry::Positional { expr, .. }
-                        | phalcom_ast::ast::TupleLiteralEntry::Expand { expr, .. } => self.visit_expr(expr, scope),
+                        phalcom_ast::ast::TupleLiteralEntry::Positional { expr, .. } | phalcom_ast::ast::TupleLiteralEntry::Expand { expr, .. } => {
+                            self.visit_expr(expr, scope)
+                        }
                         phalcom_ast::ast::TupleLiteralEntry::Labeled { value, .. } => self.visit_expr(value, scope),
                     }
                 }
@@ -523,7 +601,10 @@ impl OccurrenceBuilder<'_> {
         match self.scopes.resolve(scope, name, range.start) {
             super::scope::NameResolution::Binding(binding) => Some(SemanticTarget::Binding(binding)),
             super::scope::NameResolution::Class(class) => Some(SemanticTarget::Class(class)),
-            super::scope::NameResolution::Global(_) | super::scope::NameResolution::Module(_) | super::scope::NameResolution::ImplicitSelf | super::scope::NameResolution::Unresolved => None,
+            super::scope::NameResolution::Global(_)
+            | super::scope::NameResolution::Module(_)
+            | super::scope::NameResolution::ImplicitSelf
+            | super::scope::NameResolution::Unresolved => None,
         }
     }
 

@@ -100,18 +100,42 @@ pub struct ScopeGraph {
     pub scopes: BTreeMap<ScopeId, ScopeInfo>,
     /// All bindings, including declarations in nested scopes.
     pub bindings: BTreeMap<BindingId, BindingInfo>,
+    /// Scope IDs sorted by start offset for bounded interval lookup.
+    scope_order: Vec<ScopeId>,
+    /// Prefix maximum end offset for `scope_order`.
+    scope_max_end_prefix: Vec<usize>,
+    /// Direct declaration lookup by exact source range.
+    declarations: BTreeMap<(usize, usize), BindingId>,
     classes: BTreeMap<String, ClassId>,
 }
 
 impl ScopeGraph {
     /// Finds the innermost scope containing `offset`.
     pub fn scope_at(&self, offset: usize) -> ScopeId {
-        self.scopes
-            .values()
-            .filter(|scope| scope.range.contains(offset))
-            .min_by_key(|scope| scope.range.len())
-            .map(|scope| scope.id)
-            .unwrap_or(self.root)
+        let mut low = 0;
+        let mut high = self.scope_order.len();
+        while low < high {
+            let middle = (low + high) / 2;
+            let scope = &self.scopes[&self.scope_order[middle]];
+            if scope.range.start <= offset {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        let mut best = None;
+        let mut index = low;
+        while index > 0 {
+            index -= 1;
+            if self.scope_max_end_prefix.get(index).copied().unwrap_or(0) <= offset {
+                break;
+            }
+            let scope = &self.scopes[&self.scope_order[index]];
+            if scope.range.contains(offset) && best.is_none_or(|best: &ScopeInfo| scope.range.len() < best.range.len()) {
+                best = Some(scope);
+            }
+        }
+        best.map(|scope| scope.id).unwrap_or(self.root)
     }
 
     /// Resolves one spelling from the nearest lexical scope outward.
@@ -139,10 +163,7 @@ impl ScopeGraph {
 
     /// Returns the binding declared at exactly `range`, if any.
     pub fn binding_for_declaration(&self, range: SourceRange) -> Option<BindingId> {
-        self.bindings
-            .values()
-            .find(|binding| binding.declaration_range == range)
-            .map(|binding| binding.id)
+        self.declarations.get(&(range.start, range.end)).copied()
     }
 
     /// Returns bindings visible at a source offset, nearest scope first and
@@ -176,6 +197,9 @@ pub fn build_scope_graph(module: ModuleId, program: &Program) -> ScopeGraph {
             root,
             scopes: BTreeMap::new(),
             bindings: BTreeMap::new(),
+            scope_order: Vec::new(),
+            scope_max_end_prefix: Vec::new(),
+            declarations: BTreeMap::new(),
             classes: BTreeMap::new(),
         },
         next_scope: 1,
@@ -199,6 +223,21 @@ pub fn build_scope_graph(module: ModuleId, program: &Program) -> ScopeGraph {
         }
     }
     builder.visit_statements(root, &program.statements, true);
+    builder.graph.scope_order = builder.graph.scopes.keys().copied().collect();
+    builder
+        .graph
+        .scope_order
+        .sort_by_key(|id| (builder.graph.scopes[id].range.start, builder.graph.scopes[id].range.end));
+    let mut max_end = 0;
+    builder.graph.scope_max_end_prefix = builder
+        .graph
+        .scope_order
+        .iter()
+        .map(|id| {
+            max_end = max_end.max(builder.graph.scopes[id].range.end);
+            max_end
+        })
+        .collect();
     builder.graph
 }
 
@@ -241,6 +280,7 @@ impl ScopeBuilder {
                 mutable,
             },
         );
+        self.graph.declarations.insert((range.start, range.end), id);
         self.graph.scopes.get_mut(&scope).expect("scope exists").bindings.insert(name, id);
         id
     }
@@ -272,9 +312,19 @@ impl ScopeBuilder {
 
     fn visit_member(&mut self, parent: ScopeId, member: &ClassMember) {
         let (range, params, body, parameter_kind) = match member {
-            ClassMember::Method(method) => (method.range, method.params.as_slice(), method.body.as_slice(), SemanticBindingKind::MethodParameter),
+            ClassMember::Method(method) => (
+                method.range,
+                method.params.as_slice(),
+                method.body.as_slice(),
+                SemanticBindingKind::MethodParameter,
+            ),
             ClassMember::Getter(getter) => (getter.range, &[][..], getter.body.as_slice(), SemanticBindingKind::MethodParameter),
-            ClassMember::Setter(setter) => (setter.range, std::slice::from_ref(&setter.param), setter.body.as_slice(), SemanticBindingKind::SetterParameter),
+            ClassMember::Setter(setter) => (
+                setter.range,
+                std::slice::from_ref(&setter.param),
+                setter.body.as_slice(),
+                SemanticBindingKind::SetterParameter,
+            ),
             ClassMember::Index(index) => {
                 let mut all = index.params.clone();
                 if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
@@ -381,8 +431,9 @@ impl ScopeBuilder {
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {
                     match entry {
-                        phalcom_ast::ast::TupleLiteralEntry::Positional { expr, .. }
-                        | phalcom_ast::ast::TupleLiteralEntry::Expand { expr, .. } => self.visit_expr(scope, expr),
+                        phalcom_ast::ast::TupleLiteralEntry::Positional { expr, .. } | phalcom_ast::ast::TupleLiteralEntry::Expand { expr, .. } => {
+                            self.visit_expr(scope, expr)
+                        }
                         phalcom_ast::ast::TupleLiteralEntry::Labeled { label, value, .. } => {
                             self.visit_product_label(scope, label);
                             self.visit_expr(scope, value);
@@ -417,16 +468,18 @@ impl ScopeBuilder {
             Expr::SetLiteral(set) => {
                 for entry in &set.entries {
                     match entry {
-                        phalcom_ast::ast::SetLiteralEntry::Element { expr, .. }
-                        | phalcom_ast::ast::SetLiteralEntry::Expansion { expr, .. } => self.visit_expr(scope, expr),
+                        phalcom_ast::ast::SetLiteralEntry::Element { expr, .. } | phalcom_ast::ast::SetLiteralEntry::Expansion { expr, .. } => {
+                            self.visit_expr(scope, expr)
+                        }
                     }
                 }
             }
             Expr::ListLiteral(list) => {
                 for element in &list.elements {
                     match element {
-                        phalcom_ast::ast::ListLiteralElement::Element { expr, .. }
-                        | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => self.visit_expr(scope, expr),
+                        phalcom_ast::ast::ListLiteralElement::Element { expr, .. } | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => {
+                            self.visit_expr(scope, expr)
+                        }
                     }
                 }
             }
@@ -472,7 +525,11 @@ impl ScopeBuilder {
 }
 
 fn statements_range(statements: &[Statement]) -> SourceRange {
-    statements.iter().map(statement_range).reduce(|left, right| left.merge(&right)).unwrap_or_default()
+    statements
+        .iter()
+        .map(statement_range)
+        .reduce(|left, right| left.merge(&right))
+        .unwrap_or_default()
 }
 
 fn statement_range(statement: &Statement) -> SourceRange {

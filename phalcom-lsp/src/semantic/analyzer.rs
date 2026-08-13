@@ -12,6 +12,7 @@ use super::dispatch::{DispatchReceiver, ResolvedDispatch};
 use super::facts::{InferredValue, LocalFacts, ValueShape};
 use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
 use super::scope::{BindingId, ScopeGraph};
+use super::surface::MemberSurface;
 use crate::selectors::{binary_selector_name, call_selector, index_selector_from_labels, unary_selector_name};
 
 /// Inputs shared by every recursive expression-analysis arm.
@@ -29,6 +30,7 @@ pub(crate) struct AnalysisContext<'ctx> {
     pub callable_return: &'ctx dyn Fn(&CallableId) -> Option<InferredValue>,
     pub field_value: &'ctx dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
     pub resolver: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
+    pub member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
     pub contains_class: &'ctx dyn Fn(&ClassId) -> bool,
 }
 
@@ -277,7 +279,7 @@ fn analyze_method_ref(reference: &phalcom_ast::ast::MethodRefExpr, range: phalco
             let receivers = receiver_targets(&reference.receiver, &receiver.shape, context);
             let callables = receivers
                 .into_iter()
-                .filter_map(|target| (context.resolver)(&target, &selector).map(|resolved| resolved.member.callable));
+                .filter_map(|target| (context.resolver)(&target, &selector).map(|resolved| resolved.callable));
             let shapes = callables.map(ValueShape::Callable).collect::<Vec<_>>();
             exact(ValueShape::bounded_union(shapes), range)
         }
@@ -313,7 +315,19 @@ fn analyze_resolved_targets(
         let resolved = (context.resolver)(target, selector);
         match target {
             DispatchReceiver::ClassObject(class) if selector == "new()" && (context.contains_class)(class) => ValueShape::Instance(class.clone()),
-            DispatchReceiver::ClassObject(class) if resolved.as_ref().is_some_and(|member| member.member.is_constructor) => ValueShape::Instance(class.clone()),
+            DispatchReceiver::ClassObject(class) => {
+                let is_constructor = resolved
+                    .as_ref()
+                    .and_then(|r| (context.member_surface)(&r.callable))
+                    .is_some_and(|m| m.is_constructor);
+                if is_constructor {
+                    ValueShape::Instance(class.clone())
+                } else {
+                    resolved
+                        .map(|member| resolved_return_shape(target, &member, context))
+                        .unwrap_or(ValueShape::Unknown)
+                }
+            }
             _ => resolved
                 .map(|member| resolved_return_shape(target, &member, context))
                 .unwrap_or(ValueShape::Unknown),
@@ -323,10 +337,13 @@ fn analyze_resolved_targets(
 }
 
 fn resolved_return_shape(target: &DispatchReceiver, resolved: &ResolvedDispatch, context: &AnalysisContext<'_>) -> ValueShape {
-    if let Some(value) = (context.callable_return)(&resolved.member.callable) {
+    if let Some(value) = (context.callable_return)(&resolved.callable) {
         return value.shape;
     }
-    let Some(native) = resolved.member.native_return else {
+    let Some(member) = (context.member_surface)(&resolved.callable) else {
+        return ValueShape::Unknown;
+    };
+    let Some(native) = member.native_return else {
         return ValueShape::Unknown;
     };
     match native {
@@ -533,6 +550,7 @@ mod tests {
             callable_return: &returns,
             field_value: &fields,
             resolver: &resolve_member,
+            member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
         };
 
@@ -586,6 +604,7 @@ mod tests {
             callable_return: &returns,
             field_value: &fields,
             resolver: &resolve_member,
+            member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
         };
 
@@ -621,6 +640,7 @@ mod tests {
             callable_return: &returns,
             field_value: &fields,
             resolver: &resolve_member,
+            member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
         };
 
@@ -673,6 +693,7 @@ mod tests {
             callable_return: &callable_return,
             field_value: &fields,
             resolver: &resolve_member,
+            member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
         };
         analyze_expr(&expression, &context)
@@ -773,6 +794,7 @@ mod tests {
                 callable_return: &returns,
                 field_value: &fields,
                 resolver: &resolve_member,
+                member_surface: &|id: &CallableId| resolver.member(id).cloned(),
                 contains_class: &contains_class,
             };
             analyze_expr(&expression, &context).shape
