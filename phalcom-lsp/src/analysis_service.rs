@@ -389,7 +389,6 @@ fn worker_loop(
     shared: Arc<WorkerShared>,
     event_tx: mpsc::UnboundedSender<AnalysisEvent>,
 ) {
-    let _span = crate::perf::PerfSpan::start("analysis_worker");
     let mut scanner = None;
     let mut selected_core_uri = None;
     let mut core_initialized = false;
@@ -516,7 +515,13 @@ fn worker_loop(
             }
 
             COUNTERS.semantic_batches_started.fetch_add(1, Ordering::Relaxed);
-            let _span = crate::perf::PerfSpan::start("semantic_batch");
+            let _span = crate::perf::PerfSpan::start_with_context(
+                "semantic_batch",
+                crate::perf::PerfContext {
+                    generation: Some(db.generation().0),
+                    epoch: Some(batch_epoch),
+                },
+            );
 
             let mut latest_generation = db.generation();
             let mut next_source_catalog = source_catalog.clone();
@@ -576,7 +581,6 @@ fn process_scan_batch(
     source_catalog: &mut BTreeMap<Url, (FileRevision, Program)>,
     selected_core_uri: Option<&Url>,
 ) {
-    let _span = crate::perf::PerfSpan::start("workspace_discovery_parse");
     let mut semantic_files = Vec::new();
     for discovered in files {
         if Some(&discovered.uri) == selected_core_uri {
@@ -588,6 +592,7 @@ fn process_scan_batch(
         let Ok(text) = std::fs::read_to_string(&discovered.path) else {
             continue;
         };
+        let _span = crate::perf::PerfSpan::start("workspace_source_parse");
         let parse = phalcom_ast::parser::parse(&text, 0);
         let program = Arc::new(parse.program);
         let revision = db

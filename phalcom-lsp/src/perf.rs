@@ -121,12 +121,35 @@ pub fn is_perf_enabled() -> bool {
 pub struct PerfSpan {
     name: &'static str,
     start: Instant,
+    context: Option<PerfContext>,
+}
+
+/// Optional generation and source-epoch context for a performance span.
+#[derive(Debug, Clone, Copy)]
+pub struct PerfContext {
+    /// Semantic generation observed when span started.
+    pub generation: Option<u64>,
+    /// Source epoch associated with work batch.
+    pub epoch: Option<u64>,
 }
 
 impl PerfSpan {
     /// Starts timing a named performance span.
     pub fn start(name: &'static str) -> Self {
-        Self { name, start: Instant::now() }
+        Self {
+            name,
+            start: Instant::now(),
+            context: None,
+        }
+    }
+
+    /// Starts timing a span and emits its context and counter snapshot.
+    pub fn start_with_context(name: &'static str, context: PerfContext) -> Self {
+        Self {
+            name,
+            start: Instant::now(),
+            context: Some(context),
+        }
     }
 }
 
@@ -134,7 +157,28 @@ impl Drop for PerfSpan {
     fn drop(&mut self) {
         if is_perf_enabled() {
             let elapsed = self.start.elapsed();
-            eprintln!("[phalcom-lsp perf] span={} elapsed_ms={}", self.name, elapsed.as_millis());
+            let snapshot = self.context.map(|_| COUNTERS.snapshot());
+            eprint!("[phalcom-lsp perf] span={} elapsed_ms={}", self.name, elapsed.as_millis());
+            if let Some(context) = self.context {
+                if let Some(generation) = context.generation {
+                    eprint!(" generation={generation}");
+                }
+                if let Some(epoch) = context.epoch {
+                    eprint!(" epoch={epoch}");
+                }
+                let counters = snapshot.expect("context snapshot");
+                eprintln!(
+                    " batches={}/{} stale={} flow={} solve={} callables={}",
+                    counters.semantic_batches_started,
+                    counters.semantic_batches_published,
+                    counters.stale_batches_discarded,
+                    counters.flow_passes,
+                    counters.solver_rounds,
+                    counters.callables_analyzed
+                );
+            } else {
+                eprintln!();
+            }
         }
     }
 }

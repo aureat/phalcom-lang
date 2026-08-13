@@ -1176,6 +1176,7 @@ impl LanguageServer for Backend {
                     match event {
                         AnalysisEvent::WorkspaceFileIndexed { uri, text, revision } => {
                             let cached_uri = uri.clone();
+                            let _span = PerfSpan::start("workspace_indexed_source_parse");
                             let program = Arc::new(phalcom_ast::parser::parse(&text, 0).program);
                             indexed_files.write().expect("indexed file lock poisoned").insert(uri);
                             closed_sources.write().expect("closed source cache lock poisoned").insert(
@@ -1277,6 +1278,7 @@ impl LanguageServer for Backend {
                     removals.push(change.uri.clone());
                     continue;
                 };
+                let _span = PerfSpan::start("watched_file_source_parse");
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 let next_revision = self
                     .analysis
@@ -1303,6 +1305,7 @@ impl LanguageServer for Backend {
     /// refreshes its slice of the workspace index (via
     /// `Self::publish_diagnostics_for`).
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let _span = PerfSpan::start("did_open_source_parse");
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         self.analysis.mark_open(uri.clone());
@@ -1328,6 +1331,7 @@ impl LanguageServer for Backend {
     /// **last** entry in `content_changes` carries the complete new text;
     /// earlier entries (there should be at most one) are ignored.
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let _span = PerfSpan::start("did_change_source_parse");
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         let Some(change) = params.content_changes.into_iter().next_back() else {
