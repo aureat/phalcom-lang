@@ -20,6 +20,75 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } f
 let lspClient: LanguageClient | undefined
 let lspOutput: OutputChannel | undefined
 
+export interface LspClientLifecycleHandle {
+    stop(): Promise<void>
+    dispose(): void
+}
+
+interface LspClientLifecycleOptions<T extends LspClientLifecycleHandle> {
+    getClient(): T | undefined
+    setClient(client: T | undefined): void
+    isEnabled(): boolean
+    start(): T
+    log(message: string): void
+}
+
+export interface LspClientLifecycle<T extends LspClientLifecycleHandle> {
+    startIfEnabled(): Promise<void>
+    restart(): Promise<void>
+    stop(): Promise<void>
+    dispose(): void
+}
+
+/** Serializes client replacement and makes failed graceful shutdown recoverable. */
+export function createLspClientLifecycle<T extends LspClientLifecycleHandle>(
+    options: LspClientLifecycleOptions<T>
+): LspClientLifecycle<T> {
+    let transition: Promise<void> = Promise.resolve()
+
+    const stopCurrent = async (): Promise<void> => {
+        const previous = options.getClient()
+        options.setClient(undefined)
+        if (!previous) {
+            return
+        }
+
+        try {
+            await previous.stop()
+        } catch (error) {
+            options.log(`Language server stop failed; disposing client: ${String(error)}`)
+        } finally {
+            previous.dispose()
+        }
+    }
+
+    const enqueue = (operation: () => Promise<void>): Promise<void> => {
+        const result = transition.then(operation, operation)
+        transition = result.catch(() => undefined)
+        return result
+    }
+
+    return {
+        startIfEnabled: () => enqueue(async () => {
+            if (options.isEnabled() && !options.getClient()) {
+                options.setClient(options.start())
+            }
+        }),
+        restart: () => enqueue(async () => {
+            await stopCurrent()
+            if (options.isEnabled()) {
+                options.setClient(options.start())
+            }
+        }),
+        stop: () => enqueue(stopCurrent),
+        dispose: () => {
+            const previous = options.getClient()
+            options.setClient(undefined)
+            previous?.dispose()
+        }
+    }
+}
+
 /**
  * Resolves the `phalcom-lsp` server binary the same way `run.ts` resolves
  * the `phalcom` CLI: reads the `phalcom.lsp.serverPath` setting, defaulting
@@ -79,25 +148,30 @@ function startLspClient(context: ExtensionContext): LanguageClient {
 
     const client = new LanguageClient("phalcomLsp", "Phalcom Language Server", serverOptions, clientOptions)
 
-    context.subscriptions.push(client)
     void client.start()
 
     return client
 }
 
-/** Stops the previous client even when graceful shutdown fails, then starts a replacement. */
-export async function restartLspClient(context: ExtensionContext): Promise<void> {
-    const previous = lspClient
-    lspClient = undefined
-    if (previous) {
-        try {
-            await previous.stop()
-        } catch (error) {
-            lspOutput?.appendLine(`Language server stop failed; disposing client: ${String(error)}`)
-            previous.dispose()
-        }
+function ensureLspClientLifecycle(context: ExtensionContext): LspClientLifecycle<LanguageClient> {
+    if (!lspLifecycle) {
+        lspLifecycle = createLspClientLifecycle({
+            getClient: () => lspClient,
+            setClient: client => { lspClient = client },
+            isEnabled: () => workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", true),
+            start: () => startLspClient(context),
+            log: message => lspOutput?.appendLine(message)
+        })
+        context.subscriptions.push(lspLifecycle)
     }
-    lspClient = startLspClient(context)
+    return lspLifecycle
+}
+
+let lspLifecycle: LspClientLifecycle<LanguageClient> | undefined
+
+/** Stops the previous client even when graceful shutdown fails, then starts a replacement. */
+export function restartLspClient(context: ExtensionContext): Promise<void> {
+    return ensureLspClientLifecycle(context).restart()
 }
 
 export function activate(context: ExtensionContext) {
@@ -105,6 +179,7 @@ export function activate(context: ExtensionContext) {
 
     lspOutput = window.createOutputChannel("Phalcom Language Server")
     context.subscriptions.push(lspOutput)
+    ensureLspClientLifecycle(context)
 
     context.subscriptions.push(commands.registerCommand("phalcom.restartLanguageServer", async () => {
         await restartLspClient(context)
@@ -112,28 +187,13 @@ export function activate(context: ExtensionContext) {
     context.subscriptions.push(commands.registerCommand("phalcom.showLanguageServerOutput", () => lspOutput?.show()))
     context.subscriptions.push(workspace.onDidChangeConfiguration(async event => {
         if (event.affectsConfiguration("phalcom.lsp.enabled") || event.affectsConfiguration("phalcom.lsp.serverPath")) {
-            if (workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", true)) {
-                await restartLspClient(context)
-            } else {
-                const previous = lspClient
-                lspClient = undefined
-                if (previous) {
-                    try {
-                        await previous.stop()
-                    } catch (error) {
-                        lspOutput?.appendLine(`Language server stop failed; disposing client: ${String(error)}`)
-                        previous.dispose()
-                    }
-                }
-            }
+            await restartLspClient(context)
         }
     }))
 
-    if (workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", true)) {
-        lspClient = startLspClient(context)
-    }
+    void ensureLspClientLifecycle(context).startIfEnabled()
 }
 
 export function deactivate(): Thenable<void> | undefined {
-    return lspClient?.stop()
+    return lspLifecycle?.stop()
 }
