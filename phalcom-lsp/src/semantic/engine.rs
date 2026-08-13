@@ -202,6 +202,9 @@ impl SemanticEngine {
         }
         let mut candidate = self.clone();
         let generation = candidate.update_files_batch_inner(files, cancelled)?;
+        if cancelled() {
+            return None;
+        }
         *self = candidate;
         Some(generation)
     }
@@ -234,6 +237,9 @@ impl SemanticEngine {
             candidate.update_files_batch_inner(vec![(uri, revision, program)], cancelled)?;
         }
         let generation = candidate.state.generation;
+        if cancelled() {
+            return None;
+        }
         *self = candidate;
         Some(generation)
     }
