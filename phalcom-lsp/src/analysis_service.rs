@@ -879,9 +879,16 @@ mod tests {
         service.enqueue_file_update(file_uri.clone(), FileRevision(1), parse1.program);
         service.enqueue_file_update(file_uri.clone(), FileRevision(2), parse2.program);
 
-        // Wait for Published event from worker
-        let event = rx.blocking_recv().expect("expected event from analysis service");
-        assert!(matches!(event, AnalysisEvent::Published { .. }));
+        // A stale discard may legitimately precede the final publication if
+        // the worker starts the first revision before the second is queued.
+        // Consume events until the latest snapshot is published.
+        loop {
+            let event = rx.blocking_recv().expect("expected event from analysis service");
+            if matches!(event, AnalysisEvent::Published { .. }) {
+                break;
+            }
+            assert!(matches!(event, AnalysisEvent::StaleBatchDiscarded { .. }));
+        }
 
         assert!(db.file_snapshot(&file_uri).is_some());
         assert_eq!(db.file_snapshot(&file_uri).unwrap().revision, FileRevision(2));
