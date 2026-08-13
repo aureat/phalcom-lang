@@ -20,6 +20,22 @@ use super::source::{field_initializer, member_body};
 use super::surface::{MemberSurface, ModuleSurface};
 use crate::selectors::{binary_selector_name, call_selector, index_selector_from_labels, setter_selector_from_name, unary_selector_name};
 
+#[cfg(test)]
+thread_local! {
+    static TEST_FLOW_PASSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_SURFACE_FLOW_PASSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static TEST_CALLABLE_FLOW_PASSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn test_flow_passes() -> (u64, u64, u64) {
+    (
+        TEST_FLOW_PASSES.with(std::cell::Cell::get),
+        TEST_SURFACE_FLOW_PASSES.with(std::cell::Cell::get),
+        TEST_CALLABLE_FLOW_PASSES.with(std::cell::Cell::get),
+    )
+}
+
 /// Abstract lexical state at one reachable program point.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FlowState {
@@ -169,6 +185,8 @@ pub struct SolverContext<'ctx> {
 
 /// Runs one structured pass over a module and all source members.
 pub fn analyze_surface(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration) -> SurfaceFlowAnalysis {
+    #[cfg(test)]
+    TEST_SURFACE_FLOW_PASSES.with(|count| count.set(count.get() + 1));
     analyze_surface_for_callable(source, context, revision, None)
 }
 
@@ -176,6 +194,8 @@ pub fn analyze_surface(source: &FileSourceSnapshot, context: &SolverContext<'_>,
 /// skipped so callable worklist rounds do not repeatedly traverse unrelated
 /// member bodies.
 pub fn analyze_callable(source: &FileSourceSnapshot, context: &SolverContext<'_>, revision: SemanticGeneration, callable: &CallableId) -> SurfaceFlowAnalysis {
+    #[cfg(test)]
+    TEST_CALLABLE_FLOW_PASSES.with(|count| count.set(count.get() + 1));
     analyze_surface_for_callable(source, context, revision, Some(callable))
 }
 
@@ -186,6 +206,8 @@ fn analyze_surface_for_callable(
     target_callable: Option<&CallableId>,
 ) -> SurfaceFlowAnalysis {
     crate::perf::COUNTERS.flow_passes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(test)]
+    TEST_FLOW_PASSES.with(|count| count.set(count.get() + 1));
     let program = source.program.as_ref();
     let surface = &source.surface;
     let scopes = &source.scopes;

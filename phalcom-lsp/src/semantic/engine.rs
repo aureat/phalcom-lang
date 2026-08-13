@@ -262,8 +262,7 @@ pub(crate) fn rebuild_affected_state(
     let previous_summaries = state.summaries.clone();
     let previous_parameters = state.parameter_facts.clone();
     let mut trace = RebuildTraceData::default();
-
-    loop {
+    let mut analysis_by_module = loop {
         if cancelled() {
             return None;
         }
@@ -297,15 +296,15 @@ pub(crate) fn rebuild_affected_state(
             }
         }
         let solved = infer::solve_affected_callables_with_cancel(&inputs, &classes, &graph, generation, seed_summaries, base_parameters, cancelled)?;
-        state.summaries = solved.summaries;
+        let solved_source_analyses = solved.source_analyses;
 
-        let solved_parameters = solved.parameter_facts;
-        for source in &inputs {
-            let analysis = infer::analyze_source(source, &classes, &graph, &state.summaries, &solved_parameters, generation);
-            let facts = infer::parameter_facts_from_analysis(&analysis);
-            state.parameter_contributions.insert(source.module.clone(), facts.clone());
+        // One unified source result owns local, field, parameter, and summary
+        // products. Do not re-enter flow for individual fact families.
+        for (module, analysis) in &solved_source_analyses {
+            let facts = analysis.parameter_facts.clone();
+            state.parameter_contributions.insert(module.clone(), facts.clone());
             state.parameter_contribution_slots.replace_source(
-                ContributionSource::TopLevel(source.module.clone()),
+                ContributionSource::TopLevel(module.clone()),
                 facts.iter().map(|((callable, name), value)| {
                     (
                         ParameterSlot {
@@ -323,6 +322,22 @@ pub(crate) fn rebuild_affected_state(
             aggregate_parameters.merge_from(contribution);
         }
         state.parameter_facts = aggregate_parameters.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+
+        // Callable worklist summaries are solver inputs for the final source
+        // pass, not an independent publication product. Publish summaries
+        // emitted by that same source-backed analysis and retain only
+        // unaffected summaries from the previous state.
+        let mut published_summaries = state.summaries.clone();
+        published_summaries.retain(|id, _| !affected.contains(&id.owner.module));
+        for analysis in solved_source_analyses.values() {
+            for (summary, evidence) in &analysis.summaries {
+                if *evidence {
+                    published_summaries.insert(summary.callable.clone(), summary.clone());
+                }
+            }
+        }
+        infer::complete_missing_summaries(&inputs, &classes, generation, &aggregate_parameters, &mut published_summaries);
+        state.summaries = published_summaries;
 
         let mut additions = BTreeSet::new();
         for id in previous_summaries.keys().chain(state.summaries.keys()) {
@@ -352,30 +367,16 @@ pub(crate) fn rebuild_affected_state(
         additions.retain(|module| state.files.contains_key(module) && !affected.contains(module));
         if additions.is_empty() {
             trace.modules_recomputed = affected.clone();
-            break;
+            break solved_source_analyses;
         }
         affected.extend(additions);
-    }
+    };
 
-    let classes = state.classes.clone();
-    let graph = state.graph.clone();
-    let summaries = state.summaries.clone();
     let existing_modules = affected
         .iter()
         .filter(|module| state.files.contains_key(*module))
         .cloned()
         .collect::<BTreeSet<_>>();
-    let mut current_parameters = ParameterFacts::default();
-    for ((callable, name), value) in &state.parameter_facts {
-        current_parameters.record(callable.clone(), name.clone(), value.clone());
-    }
-    let mut analysis_by_module = BTreeMap::new();
-    for module in &existing_modules {
-        let Some(file) = state.files.get(module) else { continue };
-        let analysis = infer::analyze_source(file.source.as_ref(), &classes, &graph, &summaries, &current_parameters, generation);
-        analysis_by_module.insert(module.clone(), analysis);
-    }
-
     state.field_facts.retain(|field, _| !affected.contains(&field.owner.module));
     for analysis in analysis_by_module.values() {
         state
@@ -397,20 +398,86 @@ pub(crate) fn rebuild_affected_state(
             }),
         );
     }
-    state.classes = classes;
     update_callable_edges(state);
     for module in existing_modules {
         let Some(file) = state.files.get_mut(&module) else { continue };
         if let Some(analysis) = analysis_by_module.remove(&module) {
-            file.local_facts = infer::local_facts_from_analysis(&analysis);
-            file.field_facts = infer::field_facts_from_analysis(&analysis);
-            file.parameter_facts = infer::parameter_facts_from_analysis(&analysis);
+            file.local_facts = analysis.local_facts.clone();
+            file.field_facts = analysis.field_facts.clone();
+            file.parameter_facts = analysis.parameter_facts.clone();
         }
         file.dependencies = DependencySet {
             imports: state.graph.imports(&module).iter().filter_map(|edge| edge.target.clone()).collect(),
         };
     }
     Some(trace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phalcom_ast::parser::parse;
+
+    const ONE_PASS_FIXTURE: &str = r#"
+let local = 1
+
+class Product {
+  const _seed = 1
+
+  @constructor
+  new(_ value) { _seed = value }
+
+  result() { _seed }
+}
+
+class Service {
+  @class
+  consume(_ input) { input }
+
+  call() { Service.consume(1) }
+}
+"#;
+
+    #[test]
+    fn engine_uses_one_unified_surface_flow_result() {
+        let before_flow = crate::semantic::flow::test_flow_passes();
+        let before_solver = infer::test_solver_rounds();
+        let mut engine = SemanticEngine::empty();
+        let uri = Url::parse("file:///one-pass-engine.ph").expect("fixture URI");
+        engine.update_file(&uri, FileRevision(1), &parse(ONE_PASS_FIXTURE, 0).program);
+        let after_flow = crate::semantic::flow::test_flow_passes();
+        let flow_passes = after_flow.0 - before_flow.0;
+        let source_passes = after_flow.1 - before_flow.1;
+        let callable_passes = after_flow.2 - before_flow.2;
+        let solver_rounds = infer::test_solver_rounds() - before_solver;
+
+        assert!(callable_passes > 0, "callable worklist did not enter analyze_callable");
+        assert_eq!(callable_passes, solver_rounds, "each solver step must account for one callable flow pass");
+        let allowed_final_stabilized_passes = 1;
+        assert_eq!(source_passes, allowed_final_stabilized_passes);
+        assert!(
+            flow_passes <= solver_rounds + allowed_final_stabilized_passes,
+            "duplicate unified traversal: flow_passes={flow_passes}, solver_rounds={solver_rounds}, allowed_final={allowed_final_stabilized_passes}"
+        );
+
+        let module = ModuleId::from_uri(&uri);
+        let file = engine.state.files.get(&module).expect("fixture file published");
+        let local_binding = file
+            .source
+            .scopes
+            .bindings
+            .values()
+            .find(|binding| binding.name == "local")
+            .expect("fixture local binding")
+            .id;
+        assert!(file.local_facts.facts_for(local_binding).next().is_some(), "local product missing");
+        assert!(file.field_facts.iter().next().is_some(), "field product missing");
+        assert!(file.parameter_facts.iter().next().is_some(), "parameter product missing");
+        assert!(
+            engine.state.summaries.values().any(|summary| summary.callable.owner.module == module),
+            "summary product missing"
+        );
+    }
 }
 
 /// Diffs callable dependency edges against the currently published working

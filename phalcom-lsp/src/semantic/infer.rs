@@ -8,31 +8,38 @@ use std::sync::Arc;
 use super::CallableSummary;
 use super::callable::{CallableWorklist, SolverResult};
 use super::dispatch::{DispatchReceiver, DispatchResolver};
-use super::facts::{FieldFacts, InferredValue, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+use super::facts::{InferredValue, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
 #[cfg(test)]
 use super::ids::CORE_MODULE_URI;
-#[cfg(test)]
-use super::ids::ModuleId;
-use super::ids::{CallableId, ClassId, DispatchSide};
+use super::ids::{CallableId, ClassId, DispatchSide, ModuleId};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
 
 use super::flow::{SolverContext, SurfaceFlowAnalysis};
 use super::snapshot::FileSourceSnapshot;
 
-/// Selects parameter facts from an already-computed unified flow result.
-pub(crate) fn parameter_facts_from_analysis(analysis: &SurfaceFlowAnalysis) -> ParameterFacts {
-    analysis.parameter_facts.clone()
+#[cfg(test)]
+thread_local! {
+    static TEST_SOLVER_ROUNDS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-/// Selects local facts from an already-computed unified flow result.
-pub(crate) fn local_facts_from_analysis(analysis: &SurfaceFlowAnalysis) -> super::facts::LocalFacts {
-    analysis.local_facts.clone()
+#[cfg(test)]
+pub(crate) fn test_solver_rounds() -> u64 {
+    TEST_SOLVER_ROUNDS.with(std::cell::Cell::get)
 }
 
-/// Selects field facts from an already-computed unified flow result.
-pub(crate) fn field_facts_from_analysis(analysis: &SurfaceFlowAnalysis) -> FieldFacts {
-    analysis.field_facts.clone()
+fn record_solver_round() {
+    #[cfg(test)]
+    TEST_SOLVER_ROUNDS.with(|count| count.set(count.get() + 1));
+    crate::perf::COUNTERS.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Coherent products from one bounded callable solve and its final source flow
+/// pass. Engine publication consumes these analyses directly.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FlowSolveResult {
+    /// One unified product per affected source module.
+    pub source_analyses: BTreeMap<ModuleId, SurfaceFlowAnalysis>,
 }
 
 /// Builds the immutable solver context for one source-backed flow pass.
@@ -148,7 +155,7 @@ pub(crate) fn solve_workspace_callables(
             break;
         }
         while worklist.pop().is_some() {}
-        crate::perf::COUNTERS.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        record_solver_round();
         let previous_summaries = summaries.clone();
         let previous_parameters = parameter_facts.clone();
         let mut next_parameters = ParameterFacts::default();
@@ -210,7 +217,7 @@ pub(crate) fn solve_affected_callables(
     generation: SemanticGeneration,
     seed_summaries: BTreeMap<CallableId, CallableSummary>,
     base_parameters: ParameterFacts,
-) -> SolverResult {
+) -> FlowSolveResult {
     solve_affected_callables_with_cancel(inputs, classes, graph, generation, seed_summaries, base_parameters, &|| false)
         .expect("uncancelled callable solve must complete")
 }
@@ -225,11 +232,10 @@ pub(crate) fn solve_affected_callables_with_cancel(
     seed_summaries: BTreeMap<CallableId, CallableSummary>,
     base_parameters: ParameterFacts,
     cancelled: &dyn Fn() -> bool,
-) -> Option<SolverResult> {
+) -> Option<FlowSolveResult> {
     if inputs.is_empty() {
-        return Some(SolverResult {
-            summaries: seed_summaries,
-            parameter_facts: base_parameters,
+        return Some(FlowSolveResult {
+            source_analyses: BTreeMap::new(),
         });
     }
 
@@ -278,7 +284,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
         if steps > max_steps {
             break;
         }
-        crate::perf::COUNTERS.solver_rounds.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        record_solver_round();
         let Some(source) = callable_sources.get(&callable) else { continue };
         let previous_summary = summaries.get(&callable).cloned();
         let analysis = analyze_callable_source(source, &callable, classes, graph, &summaries, &parameter_facts, generation);
@@ -345,7 +351,15 @@ pub(crate) fn solve_affected_callables_with_cancel(
     if cancelled() {
         return None;
     }
-    Some(SolverResult { summaries, parameter_facts })
+    let mut source_analyses = BTreeMap::new();
+    for source in inputs {
+        if cancelled() {
+            return None;
+        }
+        let analysis = analyze_source(source, classes, graph, &summaries, &parameter_facts, generation);
+        source_analyses.insert(source.module.clone(), analysis);
+    }
+    Some(FlowSolveResult { source_analyses })
 }
 
 fn apply_parameter_facts_to_summaries(
@@ -371,7 +385,7 @@ fn apply_parameter_facts_to_summaries(
     }
 }
 
-fn complete_missing_summaries(
+pub(crate) fn complete_missing_summaries(
     inputs: &[Arc<FileSourceSnapshot>],
     classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
     generation: SemanticGeneration,
@@ -421,6 +435,68 @@ fn core_class(name: &str) -> ClassId {
 mod tests {
     use super::*;
     use phalcom_ast::parser::parse;
+
+    const ONE_PASS_FIXTURE: &str = r#"
+let local = 1
+
+class Product {
+  const _seed = 1
+
+  @constructor
+  new(_ value) { _seed = value }
+
+  result() { _seed }
+}
+
+class Service {
+  @class
+  consume(_ input) { input }
+
+  call() { Service.consume(1) }
+}
+"#;
+
+    fn one_pass_source() -> FileSourceSnapshot {
+        let module = ModuleId::new("file:///one-pass.ph");
+        let program = Arc::new(parse(ONE_PASS_FIXTURE, 0).program);
+        let surface = super::super::surface::build_module_surface(module.clone(), &program);
+        let scopes = super::super::scope::build_scope_graph(module.clone(), &program);
+        FileSourceSnapshot {
+            module,
+            program,
+            surface,
+            scopes,
+        }
+    }
+
+    #[test]
+    fn one_surface_flow_analysis_contains_all_products() {
+        let source = one_pass_source();
+        let classes = source.surface.classes.clone();
+        let before = crate::semantic::flow::test_flow_passes();
+        let analysis = analyze_source(
+            &source,
+            &classes,
+            &ModuleGraph::default(),
+            &BTreeMap::new(),
+            &ParameterFacts::default(),
+            SemanticGeneration(1),
+        );
+        let after = crate::semantic::flow::test_flow_passes();
+
+        assert_eq!(after.0 - before.0, 1, "one source analysis must run one flow pass");
+        let local_binding = source
+            .scopes
+            .bindings
+            .values()
+            .find(|binding| binding.name == "local")
+            .expect("fixture local binding")
+            .id;
+        assert!(!analysis.local_facts.facts_for(local_binding).next().is_none());
+        assert!(analysis.field_facts.iter().next().is_some(), "field initializer/write product missing");
+        assert!(analysis.parameter_facts.iter().next().is_some(), "parameter call product missing");
+        assert!(analysis.summaries.iter().any(|(_, evidence)| *evidence), "callable summary product missing");
+    }
 
     #[test]
     fn literals_and_reassignment_are_queryable() {
