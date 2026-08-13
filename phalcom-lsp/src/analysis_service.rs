@@ -459,6 +459,9 @@ fn worker_loop(
 
             let mut latest_generation = db.generation();
             let mut next_source_catalog = source_catalog.clone();
+            for uri in &removals {
+                next_source_catalog.remove(&canonical_uri(uri));
+            }
             let mut batch = Vec::new();
             let mut seen = BTreeSet::new();
             for (uri, (revision, program)) in file_updates {
