@@ -20,8 +20,9 @@ use crate::workspace_scan::{AnalysisMode, ExcludeMatcher, ScanBudget, WorkspaceS
 /// Closed-file source metadata populated by the worker before it publishes
 /// semantic state. Query handlers can read this cache without waiting for the
 /// asynchronous event notification task.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct CachedSource {
+    pub(crate) revision: FileRevision,
     pub(crate) text: Arc<str>,
     pub(crate) program: Arc<Program>,
     pub(crate) line_index: Arc<LineIndex>,
@@ -540,6 +541,7 @@ fn process_scan_batch(
             cache.write().expect("closed source cache lock poisoned").insert(
                 canonical_uri(&discovered.uri),
                 CachedSource {
+                    revision,
                     line_index: Arc::new(LineIndex::new(&text)),
                     text: Arc::from(text.clone()),
                     program: program.clone(),
