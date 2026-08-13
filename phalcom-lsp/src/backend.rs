@@ -1178,8 +1178,14 @@ impl LanguageServer for Backend {
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
                     match event {
-                        AnalysisEvent::WorkspaceFileIndexed { uri, text, program, revision } => {
+                        AnalysisEvent::WorkspaceFileIndexed { uri, text, revision } => {
                             let cached_uri = uri.clone();
+                            let program = closed_sources
+                                .read()
+                                .expect("closed source cache lock poisoned")
+                                .get(&cached_uri)
+                                .map(|source| source.program.clone())
+                                .unwrap_or_else(|| Arc::new(phalcom_ast::parser::parse(&text, 0).program));
                             indexed_files.write().expect("indexed file lock poisoned").insert(uri);
                             closed_sources.write().expect("closed source cache lock poisoned").insert(
                                 cached_uri,
