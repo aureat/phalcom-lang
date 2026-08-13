@@ -1,3 +1,4 @@
+import * as os from 'os';
 import * as path from 'path';
 
 import { runTests } from '@vscode/test-electron';
@@ -13,7 +14,15 @@ async function main() {
 		const extensionTestsPath = path.resolve(__dirname, './suite/index');
 
 		// Download VS Code, unzip it and run the integration test
-		await runTests({ extensionDevelopmentPath, extensionTestsPath });
+		// macOS limits the IPC socket path to 103 characters. Worktrees can be
+		// nested deeply enough that the runner's default user-data directory
+		// exceeds that limit before any extension test starts.
+		const userDataDir = path.join(os.tmpdir(), 'phalcom-vscode-test');
+		await runTests({
+			extensionDevelopmentPath,
+			extensionTestsPath,
+			launchArgs: [`--user-data-dir=${userDataDir}`],
+		});
 	} catch (err) {
 		console.error('Failed to run tests', err);
 		process.exit(1);
