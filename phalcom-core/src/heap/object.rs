@@ -138,6 +138,9 @@ pub enum Object {
     /// selector pattern. The pattern and captured method handles are retained so
     /// later method replacement cannot change this value's routing.
     MethodFamily(Box<MethodFamilyObject>),
+    /// A captured `MethodFamily` closed over a receiver. It selects only from
+    /// the immutable snapshot and never performs live receiver lookup.
+    BoundMethodFamily(BoundMethodFamilyObject),
     /// An arbitrary-precision integer ([`num_bigint::BigInt`]).
     /// Normalization guarantees this is never representable as `i64`.
     LargeInt(num_bigint::BigInt),
@@ -186,6 +189,13 @@ pub struct MethodFamilyObject {
     pub pattern: ObjRef,
     pub exact_methods: IndexMap<Symbol, ObjRef>,
     pub rest_candidates: Box<[ObjRef]>,
+}
+
+/// A captured method-family snapshot closed over an explicit receiver.
+#[derive(Debug, Clone, Copy)]
+pub struct BoundMethodFamilyObject {
+    pub family: ObjRef,
+    pub receiver: Value,
 }
 
 /// The payload of an [`Object::BoundMethod`] — a reified [`MethodObject`]

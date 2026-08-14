@@ -222,6 +222,7 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
         }
         Object::SelectorPattern(_) => {}
         Object::MethodFamily(family) => {
+            push(family.source_behavior);
             push(family.pattern);
             for method in family.exact_methods.values() {
                 push(*method);
@@ -229,6 +230,10 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             for method in &family.rest_candidates {
                 push(*method);
             }
+        }
+        Object::BoundMethodFamily(family) => {
+            push(family.family);
+            trace_value(family.receiver, push);
         }
         // `LargeInt` holds an arbitrary-precision integer, no `Value` handles.
         Object::LargeInt(_) => {}

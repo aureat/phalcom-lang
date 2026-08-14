@@ -492,6 +492,7 @@ impl VM {
             Object::Closure(_) => self.activate_closure_call(receiver, id, None, view, source_range),
             Object::BoundMethod(bound) => self.activate_bound_method(*bound, view, source_range),
             Object::Family(family) => self.activate_family_with_kind(view, FamilyInvocationKind::Method, source_range),
+            Object::BoundMethodFamily(bound) => self.activate_bound_method_family(*bound, view, source_range),
             _ => Err(RuntimeError::Type {
                 expected: "Function",
                 found: receiver.type_name(),
@@ -610,6 +611,71 @@ impl VM {
             Some((view.positional_count(), view.labeled_count())),
             source_range,
             view.caller_authority(),
+        )
+    }
+
+    fn selector_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<(Symbol, Vec<Symbol>)> {
+        let pattern = match self.heap.get(pattern_id) {
+            Object::SelectorPattern(pattern) => pattern.pattern.clone(),
+            _ => return Err(RuntimeError::Internal("MethodFamily pattern handle is not a selector pattern".into()).into()),
+        };
+        let base = match pattern.base {
+            phalcom_common::selector::SelectorBase::Named(base) => base,
+            phalcom_common::selector::SelectorBase::Subscript => {
+                return Err(RuntimeError::Message("subscript selector patterns require index activation".into()).into());
+            }
+        };
+        let labels = view.labels(self);
+        let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
+        slots.extend(std::iter::repeat_n(None, view.positional_count()));
+        slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+        let selector = self.get_or_intern(&crate::method::encode_selector(
+            &base,
+            &slots,
+            SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                found: slots.len(),
+                limit: u8::MAX as usize,
+            })?),
+        ));
+        let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
+        if !pattern.matches(&structural) {
+            return Err(RuntimeError::Message("captured MethodFamily does not accept this call shape".into()).into());
+        }
+        Ok((selector, labels))
+    }
+
+    fn activate_bound_method_family(
+        &mut self,
+        bound: crate::heap::BoundMethodFamilyObject,
+        view: ArgumentView,
+        source_range: SourceRange,
+    ) -> PhResult<CallOutcome> {
+        let family = self.heap.method_family(bound.family).clone();
+        let (selector, labels) = self.selector_for_bound_method_family(family.pattern, view)?;
+        let method = family
+            .exact_methods
+            .get(&selector)
+            .copied()
+            .or_else(|| {
+                family.rest_candidates.iter().copied().find(|method| {
+                    self.heap
+                        .method(*method)
+                        .signature
+                        .rest
+                        .as_ref()
+                        .is_some_and(|rest| rest.accepts(view.positional_count(), &labels))
+                })
+            })
+            .ok_or_else(|| RuntimeError::Message("captured MethodFamily has no method for this call shape".into()))?;
+
+        let shaped = view.with_selector(selector, view.positional_count(), labels.len());
+        self.activate_bound_method(
+            crate::heap::BoundMethodObject {
+                method,
+                receiver: bound.receiver,
+            },
+            shaped,
+            source_range,
         )
     }
 

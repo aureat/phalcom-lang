@@ -80,6 +80,8 @@ impl Universe {
         let closure_class = make_core_class(heap, "Closure", function_class, metaclass_class);
         let bound_method_class = make_core_class(heap, "BoundMethod", function_class, metaclass_class);
         let family_class = make_core_class(heap, "Family", function_class, metaclass_class);
+        let method_family_class = make_core_class(heap, "MethodFamily", object_class, metaclass_class);
+        let bound_method_family_class = make_core_class(heap, "BoundMethodFamily", function_class, metaclass_class);
         let method_class = make_core_class(heap, "Method", object_class, metaclass_class);
         let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class);
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
@@ -183,6 +185,8 @@ impl Universe {
             function_class,
             closure_class,
             bound_method_class,
+            method_family_class,
+            bound_method_family_class,
             symbol_class,
             module_class,
             system_class,
@@ -232,6 +236,8 @@ impl Universe {
             res.module_class,
             res.closure_class,
             res.bound_method_class,
+            res.method_family_class,
+            res.bound_method_family_class,
             res.function_class,
             res.family_class,
             res.class_class,
@@ -321,6 +327,10 @@ pub struct CoreClasses {
     pub closure_class: ClassId,
     /// `BoundMethod`.
     pub bound_method_class: ClassId,
+    /// `MethodFamily`, an immutable captured selector-pattern snapshot.
+    pub method_family_class: ClassId,
+    /// `BoundMethodFamily`, a Function-like captured snapshot bound to a receiver.
+    pub bound_method_family_class: ClassId,
     /// `Symbol`.
     pub symbol_class: ClassId,
     /// `Module`.
@@ -454,6 +464,8 @@ impl CoreClasses {
             function_class,
             closure_class,
             bound_method_class,
+            method_family_class,
+            bound_method_family_class,
             symbol_class,
             module_class,
             system_class,
@@ -496,6 +508,8 @@ impl CoreClasses {
             function_class,
             closure_class,
             bound_method_class,
+            method_family_class,
+            bound_method_family_class,
             symbol_class,
             module_class,
             system_class,

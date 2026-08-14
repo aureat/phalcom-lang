@@ -130,6 +130,10 @@ pub const NATIVE_CLASSES: &[NativeClass] = &[
         superclass: Some("Object"),
     },
     NativeClass {
+        name: "MethodFamily",
+        superclass: Some("Object"),
+    },
+    NativeClass {
         name: "Function",
         superclass: Some("Object"),
     },
@@ -318,6 +322,7 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Family", "isExact", Getter, Instance, Public),
     native!("Family", "get()", Method, Instance, Public),
     native!("Family", "set(_)", Method, Instance, Public),
+    native!("MethodFamily", "bind(_)", Method, Instance, Public),
     native!("Function", "arity", Getter, Instance, Public),
     native!("Function", "name", Getter, Instance, Public),
     native!("Function", "callWith(_)", Method, Instance, Public),

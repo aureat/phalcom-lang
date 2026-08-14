@@ -3,6 +3,7 @@ use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::heap::Object;
 use phalcom_core::method::{MethodObject, SignatureKind};
 use phalcom_core::primitive::class::behavior_extract;
+use phalcom_core::primitive::method_family::method_family_bind;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
@@ -77,4 +78,19 @@ fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
     let Value::Obj(second_id) = second else { panic!("second extraction must return a MethodFamily") };
     assert_eq!(vm.heap.method_family(first_id).exact_methods.get(&selector), Some(&old_method));
     assert_eq!(vm.heap.method_family(second_id).exact_methods.get(&selector), Some(&replacement_method));
+}
+
+#[test]
+fn method_family_bind_captures_receiver_without_live_selection() {
+    let mut vm = VM::new();
+    let object_class = vm.universe.classes.object_class;
+    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(phalcom_core::heap::SelectorPatternObject {
+        pattern: SelectorPattern::named("name", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+    })));
+    let family = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
+    let bound = method_family_bind(&mut vm, &family, &[Value::Int(42)]).expect("family binding");
+    let Value::Obj(bound_id) = bound else { panic!("binding must return BoundMethodFamily") };
+    let Object::BoundMethodFamily(bound) = vm.heap.get(bound_id) else { panic!("wrong bound-family heap variant") };
+    assert_eq!(bound.family, family.as_obj().expect("family handle"));
+    assert_eq!(bound.receiver, Value::Int(42));
 }
