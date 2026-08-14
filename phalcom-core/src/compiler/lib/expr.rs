@@ -1244,9 +1244,15 @@ impl<'vm> Compiler<'vm> {
     }
 
     fn compile_selector_spec_constant(&mut self, spec: &SelectorSpecSyntax) -> Result<(u16, FamilySpecKind), CompilerError> {
-        let normalized = spec
-            .normalize()
-            .map_err(|error| CompilerError::Message(format!("invalid selector specification: {error}")))?;
+        let normalized = spec.normalize().map_err(|error| match error {
+            phalcom_common::selector::SelectorError::TooManySlots => CompilerError::ArityLimit {
+                subject: "pinned selector",
+                found: selector_spec_slot_count(spec),
+                limit: u8::MAX,
+                span: spec.range(),
+            },
+            error => CompilerError::Message(format!("invalid selector specification: {error}")),
+        })?;
         match normalized {
             NormalizedSelectorSpec::Exact(selector) => {
                 let symbol = self.vm.interner.intern(&selector.encode());
@@ -1272,6 +1278,13 @@ impl<'vm> Compiler<'vm> {
             SymbolLiteralKind::Pattern(_) => return Err(CompilerError::Message("selector patterns are not product labels".into())),
         };
         Ok(self.vm.interner.intern(&canonical))
+    }
+}
+
+fn selector_spec_slot_count(spec: &SelectorSpecSyntax) -> usize {
+    match spec {
+        SelectorSpecSyntax::Exact(exact) => exact.slots.len(),
+        SelectorSpecSyntax::Pattern(pattern) => pattern.prefix.len() + pattern.suffix.len() + 1,
     }
 }
 
