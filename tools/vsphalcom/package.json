@@ -115,12 +115,6 @@
           "default": true,
           "description": "Hide hints whose literal initializer makes the value obvious."
         },
-        "phalcom.completion.unknownReceiver": {
-          "type": "string",
-          "enum": ["off", "constrained", "workspace"],
-          "default": "constrained",
-          "description": "Completion breadth when receiver value knowledge is unknown."
-        },
         "phalcom.trace.server": {
           "type": "string",
           "enum": ["off", "messages", "verbose"],
