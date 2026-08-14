@@ -4,3 +4,5 @@
 tools/vsphalcom/.vscode-test/
 tools/vsphalcom/node_modules/
 tools/vsphalcom/dist/
+
+# tools/viz

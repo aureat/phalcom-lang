@@ -8,45 +8,25 @@
 /// comparisons, and rendering.
 class CellValue {
   /// Subclasses must override all arithmetic operations.
-  plus(_ other) {
-    return ErrorVal.typeError
-  }
+  plus(_ other) { ErrorVal.typeError }
 
-  minus(_ other) {
-    return ErrorVal.typeError
-  }
+  minus(_ other) { ErrorVal.typeError }
 
-  times(_ other) {
-    return ErrorVal.typeError
-  }
+  times(_ other) { ErrorVal.typeError }
 
-  dividedBy(_ other) {
-    return ErrorVal.typeError
-  }
+  dividedBy(_ other) { ErrorVal.typeError }
 
-  modulo(_ other) {
-    return ErrorVal.typeError
-  }
+  modulo(_ other) { ErrorVal.typeError }
 
-  lessThan(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThan(_ other) { ErrorVal.typeError }
 
-  lessThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThanOrEqual(_ other) { ErrorVal.typeError }
 
-  greaterThan(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThan(_ other) { ErrorVal.typeError }
 
-  greaterThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThanOrEqual(_ other) { ErrorVal.typeError }
 
-  isError {
-    return false
-  }
+  isError { false }
 }
 
 /// A numeric cell value. Stores an f64.
@@ -57,118 +37,128 @@ class CellNum is CellValue {
   }
 
   @class
-  of(_ n) {
-    return CellNum.new(n)
-  }
+  of(_ n) { CellNum.new(n) }
 
-  value {
-    return _n
-  }
+  value { _n }
 
   plus(_ other) {
     if (other.isError) {
       return other
     }
+
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
-    return CellNum.of(_n + other.value)
+
+    CellNum.of(_n + other.value)
   }
 
   minus(_ other) {
     if (other.isError) {
       return other
     }
-    if (not (other is CellNum)) {
+
+    if (other is not CellNum) {
       return ErrorVal.typeError
     }
-    return CellNum.of(_n - other.value)
+
+    CellNum.of(_n - other.value)
   }
 
   times(_ other) {
     if (other.isError) {
       return other
     }
-    if (not (other is CellNum)) {
+
+    if (not (other.is(CellNum))) {
       return ErrorVal.typeError
     }
-    return CellNum.of(_n * other.value)
+
+    CellNum.of(_n * other.value)
   }
 
   dividedBy(_ other) {
     if (other.isError) {
       return other
     }
-    if (not (other is CellNum)) {
+
+    if (not (other.is(CellNum))) {
       return ErrorVal.typeError
     }
+
     const on = other.value
     if (on == 0) {
       return ErrorVal.divByZero
     }
-    return CellNum.of(_n / on)
+
+    CellNum.of(_n / on)
   }
 
   modulo(_ other) {
     if (other.isError) {
       return other
     }
+
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
+
     const on = other.value
     if (on == 0) {
       return ErrorVal.divByZero
     }
-    return CellNum.of(_n % on)
+
+    CellNum.of(_n % on)
   }
 
   lessThan(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
-    return _n < other.value
+
+    _n < other.value
   }
 
   lessThanOrEqual(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
-    return _n <= other.value
+
+    _n <= other.value
   }
 
   greaterThan(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
-    return _n > other.value
+
+    _n > other.value
   }
 
   greaterThanOrEqual(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
-    return _n >= other.value
+
+    _n >= other.value
   }
 
-  asNumber {
-    return _n
-  }
+  asNumber { _n }
 
   toString {
-    const s = _n.toString
-    return s
+    _n.toString
   }
 
   hash {
-    return _n.hash
+    _n.hash
   }
 
   ==(_ other) {
     if (not (other is CellNum)) {
       return false
     }
-    return _n == other.value
+
+    _n == other.value
   }
 }
 
@@ -180,66 +170,44 @@ class CellText is CellValue {
   }
 
   @class
-  of(_ s) {
-    return CellText.new(s)
-  }
+  of(_ s) { CellText.new(s) }
 
-  value {
-    return _s
-  }
+  value { _s }
 
   plus(_ other) {
     if (other.isError) {
       return other
     }
-    return CellText.of(_s + other.toString)
+
+    CellText.of(_s + other.toString)
   }
 
-  minus(_ other) {
-    return ErrorVal.typeError
-  }
+  minus(_ other) { ErrorVal.typeError }
 
-  times(_ other) {
-    return ErrorVal.typeError
-  }
+  times(_ other) { ErrorVal.typeError }
 
-  dividedBy(_ other) {
-    return ErrorVal.typeError
-  }
+  dividedBy(_ other) { ErrorVal.typeError }
 
-  modulo(_ other) {
-    return ErrorVal.typeError
-  }
+  modulo(_ other) { ErrorVal.typeError }
 
-  lessThan(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThan(_ other) { ErrorVal.typeError }
 
-  lessThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThanOrEqual(_ other) { ErrorVal.typeError }
 
-  greaterThan(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThan(_ other) { ErrorVal.typeError }
 
-  greaterThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThanOrEqual(_ other) { ErrorVal.typeError }
 
-  toString {
-    return _s
-  }
+  toString { _s }
 
-  hash {
-    return _s.hash
-  }
+  hash { _s.hash }
 
   ==(_ other) {
     if (not (other is CellText)) {
       return false
     }
-    return _s == other.value
+
+    _s == other.value
   }
 }
 
@@ -251,165 +219,146 @@ class CellBool is CellValue {
   }
 
   @class
-  of(_ b) {
-    return CellBool.new(b)
-  }
+  of(_ b) { CellBool.new(b) }
 
-  value {
-    return _b
-  }
+  value { _b }
 
-  plus(_ other) {
-    return ErrorVal.typeError
-  }
+  plus(_ other) { ErrorVal.typeError }
 
-  minus(_ other) {
-    return ErrorVal.typeError
-  }
+  minus(_ other) { ErrorVal.typeError }
 
-  times(_ other) {
-    return ErrorVal.typeError
-  }
+  times(_ other) { ErrorVal.typeError }
 
-  dividedBy(_ other) {
-    return ErrorVal.typeError
-  }
+  dividedBy(_ other) { ErrorVal.typeError }
 
-  modulo(_ other) {
-    return ErrorVal.typeError
-  }
+  modulo(_ other) { ErrorVal.typeError }
 
-  lessThan(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThan(_ other) { ErrorVal.typeError }
 
-  lessThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThanOrEqual(_ other) { ErrorVal.typeError }
 
-  greaterThan(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThan(_ other) { ErrorVal.typeError }
 
-  greaterThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThanOrEqual(_ other) { ErrorVal.typeError }
 
   toString {
     if (_b) {
       return "true"
     }
-    return "false"
+
+    "false"
   }
 
-  hash {
-    return _b.hash
-  }
+  hash { _b.hash }
 
   ==(_ other) {
     if (other == nil) {
       return false
     }
+
     if (not (other is CellBool)) {
       return false
     }
-    return _b == other.value
+
+    _b == other.value
   }
 }
 
 /// Empty cell (no value entered).
 class CellEmpty is CellValue {
   @constructor
-  new() {
-  }
+  new() {}
 
   @class
-  of {
-    return CellEmpty.new()
-  }
+  of { CellEmpty.new() }
 
   plus(_ other) {
     if (other.isError) {
       return other
     }
+
     if (other is CellEmpty) {
       return CellEmpty.of
     }
-    return other
+
+    other
   }
 
   minus(_ other) {
     if (other.isError) {
       return other
     }
+
     if (other is CellEmpty) {
       return CellNum.of(0)
     }
-    return ErrorVal.typeError
+
+    ErrorVal.typeError
   }
 
   times(_ other) {
     if (other.isError) {
       return other
     }
-    return CellNum.of(0)
+
+    CellNum.of(0)
   }
 
   dividedBy(_ other) {
     if (other.isError) {
       return other
     }
+
     if (other is CellEmpty) {
       return ErrorVal.divByZero
     }
+
     const on = other.asNumber
     if (on == nil) {
       return ErrorVal.typeError
     }
+
     if (on == 0) {
       return ErrorVal.divByZero
     }
-    return CellNum.of(0)
+
+    CellNum.of(0)
   }
 
   modulo(_ other) {
     if (other.isError) {
       return other
     }
-    return CellNum.of(0)
+
+    CellNum.of(0)
   }
 
-  lessThan(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThan(_ other) { typeError }
 
-  lessThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  lessThanOrEqual(_ other) { ErrorVal.typeError }
 
-  greaterThan(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThan(_ other) { ErrorVal.typeError }
 
-  greaterThanOrEqual(_ other) {
-    return ErrorVal.typeError
-  }
+  greaterThanOrEqual(_ other) { ErrorVal.typeError }
 
-  toString {
-    return ""
-  }
+  toString { "" }
 
-  hash {
-    return 0
-  }
+  hash { 0 }
 
   ==(_ other) {
     if (other == nil) {
       return false
     }
-    return other is CellEmpty
+
+    other is CellEmpty
   }
 }
+
+let x = CellNum.of(10)
+let y = CellNum.of(5)
+let z = CellEmpty.new()
+let result1 = x.minus(y)
+let result2 = z.minus(x)
 
 /// An error cell value. Stores a symbol like #DIV0 and display name.
 class ErrorVal is CellValue {
@@ -420,88 +369,54 @@ class ErrorVal is CellValue {
   }
 
   @class
-  typeError {
-    return ErrorVal.new(#TYPE, "#VALUE!")
-  }
+  typeError { ErrorVal.new(#TYPE, "#VALUE!") }
 
   @class
-  divByZero {
-    return ErrorVal.new(#DIV0, "#DIV/0!")
-  }
+  divByZero { ErrorVal.new(#DIV0, "#DIV/0!") }
 
   @class
-  circRef {
-    return ErrorVal.new(#CIRC, "#CIRC!")
-  }
+  circRef { ErrorVal.new(#CIRC, "#CIRC!") }
 
   @class
-  nameError {
-    return ErrorVal.new(#NAME, "#NAME?")
-  }
+  nameError { ErrorVal.new(#NAME, "#NAME?") }
 
-  symbol {
-    return _sym
-  }
+  symbol { _sym }
 
-  displayName {
-    return _display
-  }
+  displayName { _display }
 
-  isError {
-    return true
-  }
+  isError { true }
 
-  plus(_ other) {
-    return self
-  }
+  plus(_ other) { self }
 
-  minus(_ other) {
-    return self
-  }
+  minus(_ other) { self }
 
-  times(_ other) {
-    return self
-  }
+  times(_ other) { self }
 
-  dividedBy(_ other) {
-    return self
-  }
+  dividedBy(_ other) { self }
 
-  modulo(_ other) {
-    return self
-  }
+  modulo(_ other) { self }
 
-  lessThan(_ other) {
-    return self
-  }
+  lessThan(_ other) { self }
 
-  lessThanOrEqual(_ other) {
-    return self
-  }
+  lessThanOrEqual(_ other) { self }
 
-  greaterThan(_ other) {
-    return self
-  }
+  greaterThan(_ other) { self }
 
-  greaterThanOrEqual(_ other) {
-    return self
-  }
+  greaterThanOrEqual(_ other) { self }
 
-  toString {
-    return _display
-  }
+  toString { _display }
 
-  hash {
-    return _sym.hash
-  }
+  hash { _sym.hash }
 
   ==(_ other) {
     if (other == nil) {
       return false
     }
+
     if (not (other is ErrorVal)) {
       return false
     }
-    return _sym == other.symbol
+
+    _sym == other.symbol
   }
 }

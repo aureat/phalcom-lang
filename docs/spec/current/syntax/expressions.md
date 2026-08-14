@@ -247,7 +247,7 @@ in the superclass of the method's holder, not the receiver's class.
 
 **Spread `*`.** `*expr` is legal only in call arguments, collection element
 lists, and parameter lists. Everywhere else `*` is the multiply operator (tier
-12) — see [Lexical Structure §8](../lexical-structure.md#8).
+1) — see [Lexical Structure §8](../lexical-structure.md#8).
 
 ## 5. No cascades
 

@@ -12,12 +12,4 @@ Stop: "stop caveman" or "normal mode"
 
 Auto-Clarity: drop caveman for security warnings, irreversible actions, user confused. Resume after.
 
-Boundaries: code/commits/PRs written normal.
-
-<claude-mem-context>
-# claude-mem: Cross-Session Memory
-
-*No context yet. Complete your first session and context will appear here.*
-
-Use claude-mem's MCP search tools for manual memory queries.
-</claude-mem-context>
+Boundaries: code/commits/docs/PRs written normal.

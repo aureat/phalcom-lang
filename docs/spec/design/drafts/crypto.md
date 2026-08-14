@@ -331,7 +331,7 @@ mechanism that would let any of this be a guarantee rather than a hope.**
   Cortex-A, and is weakly sourced. Do not assert "some ARM cores have data-dependent
   multiplier timing" without a TRM cite (**C-6**).
 - **And the ground moves.** **Hertzbleed** (<https://www.hertzbleed.com/>, USENIX Sec
-  2022) — DVFS turns power channels into remote timing: "even when implemented correctly as
+  1) — DVFS turns power channels into remote timing: "even when implemented correctly as
   constant time, cryptographic code can still leak via remote timing analysis."
   **GoFetch** (<https://gofetch.fail/>, USENIX Sec 2024) — Apple M-series data
   memory-dependent prefetcher: "even if a victim correctly separates data from addresses by

@@ -267,23 +267,23 @@ or a separate doc-sync commit updates the ledger, never this unit's code diff).
   only the `Object` decl) and split Win B to a follow-on.
 
 ## 5. Build order (small, independently-green diffs)
-0. **Step 0 — re-ground the normative tables against HEAD. DONE 2026-07-14** (see Provenance): §2.1 root set
+1. **Step 0 — re-ground the normative tables against HEAD. DONE 2026-07-14** (see Provenance): §2.1 root set
    and §2.3 edge table regenerated in [memory-management.md](../../../spec/current/memory-management.md); §7
    size ladder measured; this plan's drifts annotated. Doc-only, no code. **Do not start step 1 from the
    pre-step-0 tables** — they carry two live free-a-live-object bugs (`Block.closure`, `Upvalue::Open.fiber`).
-1. **Win A — `Box` fat variants.** Ladder already measured (§3.6) — box the six named variants, not
+2. **Win A — `Box` fat variants.** Ladder already measured (§3.6) — box the six named variants, not
    `Instance`; fix constructors/accessors; re-measure `size_of::<Object>()`. Green + record the number.
    *(Standalone; no collector.)*
-2. **Trace + collect (no scheduling yet).** `Value::as_obj`; `trace_object`; `Heap::collect`;
+3. **Trace + collect (no scheduling yet).** `Value::as_obj`; `trace_object`; `Heap::collect`;
    `Roots::each_handle`. Drive it from a **test-only** `vm.force_gc()` — no automatic triggering yet.
    Goldens: allocate-then-drop-root frees; a cycle is collected; the kernel survives; a deep chain
    collects without stack overflow. Green.
-3. **`System.gc`.** Wire the `gc` primitive to `force_gc`; `.ph` test that `System.gc` returns `None` and a
+4. **`System.gc`.** Wire the `gc` primitive to `force_gc`; `.ph` test that `System.gc` returns `None` and a
    dropped object count drops. Green.
-4. **Safepoint automation + temp-root audit.** `gc_pending` latch in `alloc`; service at the loop back-edge;
+5. **Safepoint automation + temp-root audit.** `gc_pending` latch in `alloc`; service at the loop back-edge;
    `temp_roots` + the §3.4 audited push/pop scopes; the **temp-root stress test** (forced GC across a
    re-entrant send). `verify_invariants()` post-GC kernel assert. Green — **this is the gating commit.**
-5. **Win B — fiber-stack pool** (or split to follow-on). Pool return-on-death; a Skynet-shaped allocation
+6. **Win B — fiber-stack pool** (or split to follow-on). Pool return-on-death; a Skynet-shaped allocation
    test shows reuse; semantics unchanged. Green.
 
 Each step is a self-verifiable commit; never commit a non-compiling tree.

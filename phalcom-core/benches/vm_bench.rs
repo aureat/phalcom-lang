@@ -37,11 +37,11 @@ use phalcom_core::value::Value;
 use std::hint::black_box;
 
 /// Dispatch-bound source: `benchmarks/vm/bare_send.ph`, a static
-/// argument-free send in a 200,000-iteration loop.
+/// argument-free send in a 200 thousand-iteration loop.
 const BARE_SEND: &str = include_str!("../../benchmarks/vm/bare_send.ph");
 
 /// Allocation-bound source: `benchmarks/vm/arith_send.ph`, a primitive
-/// `1 + 2` send in a 200,000-iteration loop (same send count as
+/// `1 + 2` send in a 200 thousand-iteration loop (same send count as
 /// [`BARE_SEND`]).
 const ARITH_SEND: &str = include_str!("../../benchmarks/vm/arith_send.ph");
 
@@ -49,7 +49,7 @@ const ARITH_SEND: &str = include_str!("../../benchmarks/vm/arith_send.ph");
 /// spawn/yield/call cycle in a 20,000-iteration loop.
 const FIBER_SPAWN: &str = include_str!("../../benchmarks/vm/fiber_spawn.ph");
 
-/// Rest-fallback source: `benchmarks/vm/rest_fallback_send.ph`, 2,000,000 sends
+/// Rest-fallback source: `benchmarks/vm/rest_fallback_send.ph`, two million sends
 /// to a `sum(*args)` method. Each concrete multi-argument selector misses the
 /// exact table and exercises F.3 rest-family fallback. Fixture filename stays
 /// stable for existing benchmark scripts.
@@ -108,8 +108,8 @@ fn run_program(src: &str, checks: &[(&str, f64)]) {
 
 /// Benchmarks the dispatch-bound program ([`BARE_SEND`]).
 ///
-/// Checks: the loop ran all 200,000 times, and `acc` holds the value the
-/// dispatched `Empty.noop` returns — i.e. every send resolved to the intended
+/// Checks: the loop ran all 200 thousand times, and `acc` holds the value the
+/// dispatched `Empty.noop` returns — i.e., every send resolved to the intended
 /// method body.
 fn bench_bare_send(c: &mut Criterion) {
     c.bench_function("bare_send", |b| b.iter(|| run_program(black_box(BARE_SEND), &[("i", 200_000.0), ("acc", 0.0)])));
@@ -117,7 +117,7 @@ fn bench_bare_send(c: &mut Criterion) {
 
 /// Benchmarks the allocation-bound program ([`ARITH_SEND`]).
 ///
-/// Checks: the loop ran all 200,000 times, and `acc` holds `1 + 2` — i.e. the
+/// Checks: the loop ran all 200 thousand times, and `acc` holds `1 + 2` — i.e., the
 /// `Number` `+` primitive received its argument and returned the sum.
 fn bench_arith_send(c: &mut Criterion) {
     c.bench_function("arith_send", |b| {
@@ -128,7 +128,7 @@ fn bench_arith_send(c: &mut Criterion) {
 /// Benchmarks the fiber spawn/yield program ([`FIBER_SPAWN`]).
 ///
 /// Checks: the loop ran all 20,000 times, and `acc` holds the value the last
-/// fiber yielded back through `call()` — i.e. the fibers actually ran and
+/// fiber yielded back through `call()` — i.e., the fibers actually ran and
 /// delivered their result to the resumer, rather than being spawned and
 /// abandoned.
 fn bench_fiber_spawn(c: &mut Criterion) {
@@ -139,8 +139,8 @@ fn bench_fiber_spawn(c: &mut Criterion) {
 
 /// Benchmarks the rest-fallback program ([`REST_FALLBACK_SEND`]).
 ///
-/// Checks: the loop ran all 2,000,000 times, and `acc` is `2_000_000 * 3` —
-/// i.e. every call captured its three trailing arguments in a Tuple and the
+/// Checks: the loop ran all two million times, and `acc` is `2_000_000 * 3` —
+/// i.e., every call captured its three trailing arguments in a Tuple and the
 /// rest-family fallback resolved, rather than falling through to `dNU`.
 fn bench_rest_fallback_send(c: &mut Criterion) {
     c.bench_function("rest_fallback_send", |b| {
