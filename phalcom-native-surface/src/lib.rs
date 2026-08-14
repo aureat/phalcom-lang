@@ -142,6 +142,10 @@ pub const NATIVE_CLASSES: &[NativeClass] = &[
         superclass: Some("Function"),
     },
     NativeClass {
+        name: "Family",
+        superclass: Some("Function"),
+    },
+    NativeClass {
         name: "System",
         superclass: Some("Object"),
     },

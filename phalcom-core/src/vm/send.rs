@@ -31,7 +31,13 @@ impl VM {
     ) -> PhResult<crate::heap::MethodFamilyObject> {
         let pattern = match self.heap.get(pattern_id) {
             Object::SelectorPattern(pattern) => pattern.pattern.clone(),
-            _ => return Err(RuntimeError::Type { expected: "SelectorPattern", found: "object" }.into()),
+            _ => {
+                return Err(RuntimeError::Type {
+                    expected: "SelectorPattern",
+                    found: "object",
+                }
+                .into());
+            }
         };
 
         let mut hierarchy = Vec::new();
@@ -153,12 +159,8 @@ impl VM {
 
     pub(crate) fn guard_foreign_layout_access(&self, receiver: Value, guard: crate::frame::ForeignReceiverGuard) -> PhResult<()> {
         let compatible = match receiver {
-            Value::Obj(id) if self.heap.as_instance(id).is_some() => {
-                self.is_subclass_of(self.heap.instance(id).class, guard.layout_owner)
-            }
-            Value::Obj(id) if self.heap.as_class(id).is_some() => {
-                self.is_subclass_of(self.heap.class(id).class, guard.layout_owner)
-            }
+            Value::Obj(id) if self.heap.as_instance(id).is_some() => self.is_subclass_of(self.heap.instance(id).class, guard.layout_owner),
+            Value::Obj(id) if self.heap.as_class(id).is_some() => self.is_subclass_of(self.heap.class(id).class, guard.layout_owner),
             _ => false,
         };
         if compatible {
@@ -627,17 +629,20 @@ impl VM {
                     .collect(),
             ),
         };
-        let actual_selector = if let Some(rest) = self.heap.method(method).signature.rest.as_ref() {
+        let rest_layout = self.heap.method(method).signature.rest.clone();
+        let actual_selector = if let Some(rest) = rest_layout.as_ref() {
             let mut slots = Vec::with_capacity(view.positional_count() + actual_labels.len());
             slots.extend(std::iter::repeat_n(None, view.positional_count()));
             slots.extend(actual_labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
             let selector = self.get_or_intern(&crate::method::encode_selector(
                 &base,
                 &slots,
-                SignatureKind::Method(u8::try_from(view.positional_count() + actual_labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                    found: view.positional_count() + actual_labels.len(),
-                    limit: u8::MAX as usize,
-                })?),
+                SignatureKind::Method(
+                    u8::try_from(view.positional_count() + actual_labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                        found: view.positional_count() + actual_labels.len(),
+                        limit: u8::MAX as usize,
+                    })?,
+                ),
             ));
             if !rest.accepts(view.positional_count(), &actual_labels) {
                 return Err(RuntimeError::Arity {
@@ -664,34 +669,33 @@ impl VM {
         self.stack[receiver_idx] = receiver;
         let total = view.positional_count() + view.labeled_count();
         let before = self.frames.len();
-        let outcome = if self.heap.method(method).signature.rest.is_some()
-            && !matches!(self.heap.method(method).kind, MethodKind::Primitive(PrimitiveFn::Shape(_)))
-        {
-            self.call_rest_method_as(
-                &receiver,
-                method,
-                receiver_idx,
-                view.positional_count(),
-                &actual_labels,
-                source_range,
-                view.caller_authority(),
-            )?;
-            if self.frames.len() > before {
-                CallOutcome::EnteredFrame
+        let outcome =
+            if self.heap.method(method).signature.rest.is_some() && !matches!(self.heap.method(method).kind, MethodKind::Primitive(PrimitiveFn::Shape(_))) {
+                self.call_rest_method_as(
+                    &receiver,
+                    method,
+                    receiver_idx,
+                    view.positional_count(),
+                    &actual_labels,
+                    source_range,
+                    view.caller_authority(),
+                )?;
+                if self.frames.len() > before {
+                    CallOutcome::EnteredFrame
+                } else {
+                    CallOutcome::Returned(*self.stack.last().unwrap_or(&Value::Nil))
+                }
             } else {
-                CallOutcome::Returned(*self.stack.last().unwrap_or(&Value::Nil))
-            }
-        } else {
-            self.dispatch_selected_method_as(
-                &receiver,
-                method,
-                total,
-                actual_selector,
-                Some((view.positional_count(), view.labeled_count())),
-                source_range,
-                view.caller_authority(),
-            )?
-        };
+                self.dispatch_selected_method_as(
+                    &receiver,
+                    method,
+                    total,
+                    actual_selector,
+                    Some((view.positional_count(), view.labeled_count())),
+                    source_range,
+                    view.caller_authority(),
+                )?
+            };
 
         if self.frames.len() > before
             && matches!(self.heap.method(method).kind, MethodKind::Closure(_))

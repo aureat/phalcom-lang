@@ -1016,11 +1016,7 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(
-        expected.len(),
-        154,
-        "census must enumerate exactly 154 bindings after MethodFamily reflection"
-    );
+    assert_eq!(expected.len(), 154, "census must enumerate exactly 154 bindings after MethodFamily reflection");
     assert_eq!(live.len(), 154, "the live floor must be exactly 154 bindings");
 }
 

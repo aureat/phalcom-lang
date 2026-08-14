@@ -1,17 +1,17 @@
+use indexmap::IndexMap;
+use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
 use phalcom_core::bytecode::{Bytecode, FamilySpecKind};
 use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::heap::{BoundMethodFamilyObject, InstanceObject, MethodFamilyObject, Object, SelectorPatternObject};
 use phalcom_core::method::{MethodObject, SignatureKind};
-use phalcom_core::primitive::class::{behavior_extract, class_new_};
 use phalcom_core::primitive::block::block_call;
+use phalcom_core::primitive::class::{behavior_extract, class_new_};
 use phalcom_core::primitive::method::method_bind;
 use phalcom_core::primitive::method_family::{method_family_bind, method_family_method_for, method_family_selectors, method_family_size};
 use phalcom_core::primitive::object::object_method_for;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
-use indexmap::IndexMap;
-use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
 
 #[test]
 fn make_family_uses_explicit_exact_discriminator_and_allows_future_method() {
@@ -67,8 +67,17 @@ fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
     })));
 
     let first = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
-    let Value::Obj(first_id) = first else { panic!("pattern extraction must return a MethodFamily") };
-    let old_method = vm.heap.method_family(first_id).exact_methods.values().next().copied().expect("Object defines name");
+    let Value::Obj(first_id) = first else {
+        panic!("pattern extraction must return a MethodFamily")
+    };
+    let old_method = vm
+        .heap
+        .method_family(first_id)
+        .exact_methods
+        .values()
+        .next()
+        .copied()
+        .expect("Object defines name");
 
     let selector = vm.get_or_intern("name");
     let replacement_method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
@@ -80,7 +89,9 @@ fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
     vm.heap.class_mut(object_class).add_method(selector, replacement_method);
 
     let second = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("second pattern extraction");
-    let Value::Obj(second_id) = second else { panic!("second extraction must return a MethodFamily") };
+    let Value::Obj(second_id) = second else {
+        panic!("second extraction must return a MethodFamily")
+    };
     assert_eq!(vm.heap.method_family(first_id).exact_methods.get(&selector), Some(&old_method));
     assert_eq!(vm.heap.method_family(second_id).exact_methods.get(&selector), Some(&replacement_method));
 }
@@ -94,8 +105,12 @@ fn method_family_bind_captures_receiver_without_live_selection() {
     })));
     let family = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
     let bound = method_family_bind(&mut vm, &family, &[Value::Int(42)]).expect("family binding");
-    let Value::Obj(bound_id) = bound else { panic!("binding must return BoundMethodFamily") };
-    let Object::BoundMethodFamily(bound) = vm.heap.get(bound_id) else { panic!("wrong bound-family heap variant") };
+    let Value::Obj(bound_id) = bound else {
+        panic!("binding must return BoundMethodFamily")
+    };
+    let Object::BoundMethodFamily(bound) = vm.heap.get(bound_id) else {
+        panic!("wrong bound-family heap variant")
+    };
     assert_eq!(bound.family, family.as_obj().expect("family handle"));
     assert_eq!(bound.receiver, Value::Int(42));
 }
@@ -156,7 +171,10 @@ fn captured_method_allows_subclass_layout_and_lexical_super() {
     let read_selector = vm.get_or_intern("read");
     let read_method = object_method_for(&mut vm, &source, &[Value::Symbol(read_selector)]).expect("read method should exist");
     let bound_read = method_bind(&mut vm, &read_method, &[child]).expect("subclass receiver should bind");
-    assert_eq!(block_call(&mut vm, &bound_read, &[]).expect("subclass field access should succeed"), Value::Int(42));
+    assert_eq!(
+        block_call(&mut vm, &bound_read, &[]).expect("subclass field access should succeed"),
+        Value::Int(42)
+    );
 
     let super_selector = vm.get_or_intern("viaSuper");
     let super_method = object_method_for(&mut vm, &source, &[Value::Symbol(super_selector)]).expect("super method should exist");

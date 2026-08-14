@@ -87,12 +87,7 @@ pub fn method_family_method_for_shape(vm: &mut VM, receiver: Value, args: Argume
     Ok(CallOutcome::Returned(value))
 }
 
-fn method_family_method_for_as(
-    vm: &mut VM,
-    receiver: &Value,
-    args: &[Value],
-    caller_authority: (Option<crate::heap::ClassId>, bool),
-) -> PhResult<Value> {
+fn method_family_method_for_as(vm: &mut VM, receiver: &Value, args: &[Value], caller_authority: (Option<crate::heap::ClassId>, bool)) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let selector = match args.first() {
         Some(Value::Symbol(selector)) => *selector,
@@ -101,7 +96,7 @@ fn method_family_method_for_as(
                 expected: "Symbol",
                 found: other.type_name(),
             }
-            .into())
+            .into());
         }
         None => {
             return Err(RuntimeError::Arity {
@@ -109,7 +104,7 @@ fn method_family_method_for_as(
                 expected: 1,
                 found: 0,
             }
-            .into())
+            .into());
         }
     };
 

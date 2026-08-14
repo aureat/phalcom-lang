@@ -158,11 +158,7 @@ pub enum RuntimeError {
     NotAllowed(String),
 
     #[error("method `{selector}` requires layout `{required}` but receiver has `{found}`")]
-    IncompatibleMethodLayout {
-        selector: String,
-        required: String,
-        found: String,
-    },
+    IncompatibleMethodLayout { selector: String, required: String, found: String },
 
     #[error("Invalid argument: {0}")]
     ArgumentError(String),
