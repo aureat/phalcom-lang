@@ -10,9 +10,9 @@ use tower_lsp::lsp_types::Url;
 use super::RebuildTrace;
 use super::callable::CallableSummary;
 use super::core_source;
-use super::facts::{ContributionSource, FileRevision, InferredValue, ParameterContributions, ParameterFacts, ParameterSlot};
 #[cfg(test)]
 use super::facts::{FieldEvidenceKind, ValueShape};
+use super::facts::{FileRevision, InferredValue, ParameterContributions, ParameterFacts, ParameterSlot};
 #[cfg(test)]
 use super::ids::DispatchSide;
 use super::ids::{CORE_MODULE_URI, CallableId, ClassId, FieldId, ModuleId};
@@ -226,6 +226,11 @@ impl SemanticEngine {
                 affected.extend(Arc::make_mut(&mut self.state.graph).repair_provider(module, &available));
             }
         }
+        for (module, delta) in &change_kinds {
+            if delta.kind != SourceChangeKind::BodyOnly {
+                affected.extend(self.state.graph.dependent_closure(module));
+            }
+        }
 
         self.state.generation = next_generation;
         let trace = rebuild_affected_state(
@@ -285,6 +290,23 @@ impl SemanticEngine {
         core_update: Option<(FileRevision, Program)>,
         cancelled: &dyn Fn() -> bool,
     ) -> Option<SemanticGeneration> {
+        let files = files
+            .into_iter()
+            .map(|(uri, revision, program)| (uri, revision, Arc::from(""), program))
+            .collect();
+        let core_update = core_update.map(|(revision, program)| (revision, Arc::from(""), program));
+        self.apply_mutations_with_source_cancel(removals, files, core_update, cancelled)
+    }
+
+    /// Applies one worker-ingested batch while retaining source text for exact
+    /// callable invalidation.
+    pub fn apply_mutations_with_source_cancel(
+        &mut self,
+        removals: Vec<Url>,
+        files: Vec<(Url, FileRevision, Arc<str>, Program)>,
+        core_update: Option<(FileRevision, Arc<str>, Program)>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<SemanticGeneration> {
         if cancelled() {
             return None;
         }
@@ -296,15 +318,11 @@ impl SemanticEngine {
             candidate.remove_file_with_cancel(&uri, cancelled)?;
         }
         if !files.is_empty() {
-            let files = files
-                .into_iter()
-                .map(|(uri, revision, program)| (uri, revision, Arc::from(""), program))
-                .collect();
             candidate.update_files_batch_inner(files, cancelled)?;
         }
-        if let Some((revision, program)) = core_update {
+        if let Some((revision, text, program)) = core_update {
             let uri = Url::parse(CORE_MODULE_URI).expect("core module URI must parse");
-            candidate.update_files_batch_inner(vec![(uri, revision, Arc::from(""), program)], cancelled)?;
+            candidate.update_files_batch_inner(vec![(uri, revision, text, program)], cancelled)?;
         }
         let generation = candidate.state.generation;
         if cancelled() {
@@ -357,10 +375,8 @@ impl SemanticEngine {
             }
         }
         Arc::make_mut(&mut self.state.parameter_contributions).remove(&module);
-        Arc::make_mut(&mut self.state.parameter_contribution_slots).replace_source(
-            ContributionSource::TopLevel(module.clone()),
-            std::iter::empty::<(ParameterSlot, InferredValue)>(),
-        );
+        let deltas = Arc::make_mut(&mut self.state.parameter_contribution_slots).remove_module(&module);
+        record_parameter_deltas(&self.counters, 0, &deltas);
         Arc::make_mut(&mut self.state.classes).retain(|id, _| id.module != module);
         Arc::make_mut(&mut self.state.summaries).retain(|id, _| id.owner.module != module);
 
@@ -402,6 +418,16 @@ fn record_product_reuse(previous: &SemanticState, next: &SemanticState, counters
     }
 }
 
+fn record_parameter_deltas(counters: &PerfCounters, touched_slots: usize, deltas: &[super::facts::ParameterFactDelta]) {
+    counters.parameter_sources_replaced.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    counters
+        .parameter_slots_touched
+        .fetch_add(touched_slots as u64, std::sync::atomic::Ordering::Relaxed);
+    counters
+        .parameter_slots_changed
+        .fetch_add(deltas.len() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
 pub(crate) fn rebuild_affected_state(
     state: &mut SemanticState,
     generation: SemanticGeneration,
@@ -420,10 +446,8 @@ pub(crate) fn rebuild_affected_state(
         }
         for module in &affected {
             Arc::make_mut(&mut state.parameter_contributions).remove(module);
-            Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
-                ContributionSource::TopLevel(module.clone()),
-                std::iter::empty::<(ParameterSlot, InferredValue)>(),
-            );
+            let deltas = Arc::make_mut(&mut state.parameter_contribution_slots).remove_module(module);
+            record_parameter_deltas(counters, 0, &deltas);
         }
 
         let classes = state
@@ -445,12 +469,7 @@ pub(crate) fn rebuild_affected_state(
             .filter(|(id, _)| !affected.contains(&id.owner.module))
             .map(|(id, summary)| (id.clone(), (**summary).clone()))
             .collect::<BTreeMap<_, _>>();
-        let mut base_parameters = ParameterFacts::default();
-        for (module, contribution) in state.parameter_contributions.iter() {
-            if !affected.contains(module) {
-                base_parameters.merge_from(contribution);
-            }
-        }
+        let base_contributions = state.parameter_contribution_slots.as_ref().clone();
         let seeds = dirty_callables.as_ref();
         let solved = infer::solve_affected_callables_with_cancel(
             &inputs,
@@ -458,7 +477,7 @@ pub(crate) fn rebuild_affected_state(
             graph.as_ref(),
             generation,
             seed_summaries,
-            base_parameters,
+            base_contributions,
             seeds,
             cancelled,
             counters,
@@ -473,24 +492,30 @@ pub(crate) fn rebuild_affected_state(
         for (module, analysis) in &solved_source_analyses {
             let facts = analysis.parameter_facts.clone();
             Arc::make_mut(&mut state.parameter_contributions).insert(module.clone(), facts.clone());
-            Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
-                ContributionSource::TopLevel(module.clone()),
-                facts.iter().map(|((callable, name), value)| {
-                    (
-                        ParameterSlot {
-                            callable: callable.clone(),
-                            name: name.clone(),
-                        },
-                        value.clone(),
-                    )
-                }),
-            );
+            for (source, contribution) in &analysis.parameter_contributions {
+                let deltas = Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
+                    source.clone(),
+                    contribution.iter().map(|((callable, name), value)| {
+                        (
+                            ParameterSlot {
+                                callable: callable.clone(),
+                                name: name.clone(),
+                            },
+                            value.clone(),
+                        )
+                    }),
+                );
+                record_parameter_deltas(counters, contribution.iter().count(), &deltas);
+            }
         }
 
-        let mut aggregate_parameters = ParameterFacts::default();
-        for contribution in state.parameter_contributions.values() {
-            aggregate_parameters.merge_from(contribution);
-        }
+        let aggregate_parameters = state
+            .parameter_contribution_slots
+            .joined_iter()
+            .fold(ParameterFacts::default(), |mut facts, (slot, value)| {
+                facts.record(slot.callable.clone(), slot.name.clone(), value.clone());
+                facts
+            });
         state.parameter_facts = Arc::new(aggregate_parameters.iter().map(|(key, value)| (key.clone(), value.clone())).collect());
 
         // Callable worklist summaries are solver inputs for the final source
@@ -592,18 +617,21 @@ pub(crate) fn rebuild_affected_state(
     }
     for (module, analysis) in &analysis_by_module {
         Arc::make_mut(&mut state.parameter_contributions).insert(module.clone(), analysis.parameter_facts.clone());
-        Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
-            ContributionSource::TopLevel(module.clone()),
-            analysis.parameter_facts.iter().map(|((callable, name), value)| {
-                (
-                    ParameterSlot {
-                        callable: callable.clone(),
-                        name: name.clone(),
-                    },
-                    value.clone(),
-                )
-            }),
-        );
+        for (source, contribution) in &analysis.parameter_contributions {
+            let deltas = Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
+                source.clone(),
+                contribution.iter().map(|((callable, name), value)| {
+                    (
+                        ParameterSlot {
+                            callable: callable.clone(),
+                            name: name.clone(),
+                        },
+                        value.clone(),
+                    )
+                }),
+            );
+            record_parameter_deltas(counters, contribution.iter().count(), &deltas);
+        }
     }
     update_callable_edges(state);
     for module in existing_modules {

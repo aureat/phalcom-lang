@@ -31,6 +31,12 @@ pub struct PerfCounters {
     pub solver_rounds: AtomicU64,
     /// Count of individual callables analyzed.
     pub callables_analyzed: AtomicU64,
+    /// Count of callable bodies seeded into incremental solving.
+    pub dirty_callables_seeded: AtomicU64,
+    /// Count of callable worklist entries actually visited.
+    pub solver_callables_visited: AtomicU64,
+    /// Count of visited callables whose summaries changed.
+    pub solver_callables_changed: AtomicU64,
     /// Count of speculative semantic candidate state clones.
     pub semantic_candidate_state_clones: AtomicU64,
     /// Count of published file products reused by pointer identity.
@@ -39,6 +45,30 @@ pub struct PerfCounters {
     pub published_class_products_reused: AtomicU64,
     /// Count of published callable summaries reused by pointer identity.
     pub published_summary_products_reused: AtomicU64,
+    /// Whole class tables materialized by query code; should stay zero.
+    pub query_class_table_materializations: AtomicU64,
+    /// Whole summary tables materialized by query code; should stay zero.
+    pub query_summary_table_materializations: AtomicU64,
+    /// Filesystem canonicalization calls made from query paths.
+    pub query_filesystem_canonicalizations: AtomicU64,
+    /// Disk reads made from query paths.
+    pub query_disk_reads: AtomicU64,
+    /// Product-specific inlay refresh requests.
+    pub inlay_refresh_requests: AtomicU64,
+    /// Product-specific semantic-token refresh requests.
+    pub semantic_token_refresh_requests: AtomicU64,
+    /// Count of source contribution replacements.
+    pub parameter_sources_replaced: AtomicU64,
+    /// Count of parameter slots touched by replacements.
+    pub parameter_slots_touched: AtomicU64,
+    /// Count of parameter slots whose joined value changed.
+    pub parameter_slots_changed: AtomicU64,
+    /// Count of directory entries consumed by progressive scanning.
+    pub scan_directory_entries_consumed: AtomicU64,
+    /// Count of scan results rejected after source freshness checks.
+    pub scan_results_discarded_as_stale: AtomicU64,
+    /// Count of scan results rejected because a live document won the race.
+    pub scan_results_discarded_for_open_document: AtomicU64,
 }
 
 impl PerfCounters {
@@ -61,10 +91,25 @@ impl PerfCounters {
         self.flow_passes.store(0, Ordering::Relaxed);
         self.solver_rounds.store(0, Ordering::Relaxed);
         self.callables_analyzed.store(0, Ordering::Relaxed);
+        self.dirty_callables_seeded.store(0, Ordering::Relaxed);
+        self.solver_callables_visited.store(0, Ordering::Relaxed);
+        self.solver_callables_changed.store(0, Ordering::Relaxed);
         self.semantic_candidate_state_clones.store(0, Ordering::Relaxed);
         self.published_file_products_reused.store(0, Ordering::Relaxed);
         self.published_class_products_reused.store(0, Ordering::Relaxed);
         self.published_summary_products_reused.store(0, Ordering::Relaxed);
+        self.query_class_table_materializations.store(0, Ordering::Relaxed);
+        self.query_summary_table_materializations.store(0, Ordering::Relaxed);
+        self.query_filesystem_canonicalizations.store(0, Ordering::Relaxed);
+        self.query_disk_reads.store(0, Ordering::Relaxed);
+        self.inlay_refresh_requests.store(0, Ordering::Relaxed);
+        self.semantic_token_refresh_requests.store(0, Ordering::Relaxed);
+        self.parameter_sources_replaced.store(0, Ordering::Relaxed);
+        self.parameter_slots_touched.store(0, Ordering::Relaxed);
+        self.parameter_slots_changed.store(0, Ordering::Relaxed);
+        self.scan_directory_entries_consumed.store(0, Ordering::Relaxed);
+        self.scan_results_discarded_as_stale.store(0, Ordering::Relaxed);
+        self.scan_results_discarded_for_open_document.store(0, Ordering::Relaxed);
     }
 
     /// Captures a snapshot of current counter values.
@@ -82,10 +127,25 @@ impl PerfCounters {
             flow_passes: self.flow_passes.load(Ordering::Relaxed),
             solver_rounds: self.solver_rounds.load(Ordering::Relaxed),
             callables_analyzed: self.callables_analyzed.load(Ordering::Relaxed),
+            dirty_callables_seeded: self.dirty_callables_seeded.load(Ordering::Relaxed),
+            solver_callables_visited: self.solver_callables_visited.load(Ordering::Relaxed),
+            solver_callables_changed: self.solver_callables_changed.load(Ordering::Relaxed),
             semantic_candidate_state_clones: self.semantic_candidate_state_clones.load(Ordering::Relaxed),
             published_file_products_reused: self.published_file_products_reused.load(Ordering::Relaxed),
             published_class_products_reused: self.published_class_products_reused.load(Ordering::Relaxed),
             published_summary_products_reused: self.published_summary_products_reused.load(Ordering::Relaxed),
+            query_class_table_materializations: self.query_class_table_materializations.load(Ordering::Relaxed),
+            query_summary_table_materializations: self.query_summary_table_materializations.load(Ordering::Relaxed),
+            query_filesystem_canonicalizations: self.query_filesystem_canonicalizations.load(Ordering::Relaxed),
+            query_disk_reads: self.query_disk_reads.load(Ordering::Relaxed),
+            inlay_refresh_requests: self.inlay_refresh_requests.load(Ordering::Relaxed),
+            semantic_token_refresh_requests: self.semantic_token_refresh_requests.load(Ordering::Relaxed),
+            parameter_sources_replaced: self.parameter_sources_replaced.load(Ordering::Relaxed),
+            parameter_slots_touched: self.parameter_slots_touched.load(Ordering::Relaxed),
+            parameter_slots_changed: self.parameter_slots_changed.load(Ordering::Relaxed),
+            scan_directory_entries_consumed: self.scan_directory_entries_consumed.load(Ordering::Relaxed),
+            scan_results_discarded_as_stale: self.scan_results_discarded_as_stale.load(Ordering::Relaxed),
+            scan_results_discarded_for_open_document: self.scan_results_discarded_for_open_document.load(Ordering::Relaxed),
         }
     }
 }
@@ -117,6 +177,12 @@ pub struct CounterSnapshot {
     pub solver_rounds: u64,
     /// Count of callables analyzed.
     pub callables_analyzed: u64,
+    /// Count of callable bodies seeded into incremental solving.
+    pub dirty_callables_seeded: u64,
+    /// Count of callable worklist entries actually visited.
+    pub solver_callables_visited: u64,
+    /// Count of visited callables whose summaries changed.
+    pub solver_callables_changed: u64,
     /// Count of speculative semantic candidate state clones.
     pub semantic_candidate_state_clones: u64,
     /// Count of published file products reused by pointer identity.
@@ -125,6 +191,30 @@ pub struct CounterSnapshot {
     pub published_class_products_reused: u64,
     /// Count of published callable summaries reused by pointer identity.
     pub published_summary_products_reused: u64,
+    /// Whole class tables materialized by query code.
+    pub query_class_table_materializations: u64,
+    /// Whole summary tables materialized by query code.
+    pub query_summary_table_materializations: u64,
+    /// Query-path filesystem canonicalization calls.
+    pub query_filesystem_canonicalizations: u64,
+    /// Query-path disk reads.
+    pub query_disk_reads: u64,
+    /// Inlay refresh requests.
+    pub inlay_refresh_requests: u64,
+    /// Semantic-token refresh requests.
+    pub semantic_token_refresh_requests: u64,
+    /// Count of source contribution replacements.
+    pub parameter_sources_replaced: u64,
+    /// Count of parameter slots touched by replacements.
+    pub parameter_slots_touched: u64,
+    /// Count of parameter slots whose joined value changed.
+    pub parameter_slots_changed: u64,
+    /// Count of directory entries consumed by progressive scanning.
+    pub scan_directory_entries_consumed: u64,
+    /// Count of scan results rejected after source freshness checks.
+    pub scan_results_discarded_as_stale: u64,
+    /// Count of scan results rejected because a live document won the race.
+    pub scan_results_discarded_for_open_document: u64,
 }
 
 /// Shared counter handle passed between the service, worker, and semantic passes.
@@ -266,10 +356,25 @@ mod tests {
                 flow_passes: 0,
                 solver_rounds: 0,
                 callables_analyzed: 0,
+                dirty_callables_seeded: 0,
+                solver_callables_visited: 0,
+                solver_callables_changed: 0,
                 semantic_candidate_state_clones: 0,
                 published_file_products_reused: 0,
                 published_class_products_reused: 0,
                 published_summary_products_reused: 0,
+                query_class_table_materializations: 0,
+                query_summary_table_materializations: 0,
+                query_filesystem_canonicalizations: 0,
+                query_disk_reads: 0,
+                inlay_refresh_requests: 0,
+                semantic_token_refresh_requests: 0,
+                parameter_sources_replaced: 0,
+                parameter_slots_touched: 0,
+                parameter_slots_changed: 0,
+                scan_directory_entries_consumed: 0,
+                scan_results_discarded_as_stale: 0,
+                scan_results_discarded_for_open_document: 0,
             }
         );
 

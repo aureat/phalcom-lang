@@ -11,7 +11,7 @@ use phalcom_common::range::SourceRange;
 use super::analyzer::{AnalysisContext, analyze_expr};
 use super::callable::CallableSummary;
 use super::dispatch::{DispatchReceiver, ResolvedDispatch};
-use super::facts::{FieldFacts, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+use super::facts::{ContributionSource, FieldFacts, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
 use super::ids::{CallableId, ClassId, DispatchSide, FieldId};
 use super::query::SemanticGeneration;
 use super::scope::{BindingId, ScopeGraph};
@@ -138,6 +138,8 @@ pub struct SurfaceFlowAnalysis {
     pub field_facts: FieldFacts,
     /// Call-site parameter evidence.
     pub parameter_facts: ParameterFacts,
+    /// Source-indexed call-site evidence for contribution-local propagation.
+    pub parameter_contributions: BTreeMap<ContributionSource, ParameterFacts>,
     /// Callable summaries and whether each has reachable return evidence.
     pub summaries: Vec<(CallableSummary, bool)>,
 }
@@ -248,11 +250,14 @@ fn analyze_surface_for_callable(
         pending_writes: BTreeMap::new(),
         summaries: Vec::new(),
     };
+    let mut parameter_contributions = BTreeMap::new();
 
     if target_callable.is_none() || include_top_level {
         let mut top_state = FlowState::default();
         let _ = analyzer.analyze_statements(&program.statements, &mut top_state, None, None, None);
         analyzer.parameter_facts_from_events();
+        let facts = std::mem::take(&mut analyzer.parameter_facts);
+        parameter_contributions.insert(ContributionSource::TopLevel(source.module.clone()), facts);
     }
 
     for class in surface.classes.values() {
@@ -282,6 +287,7 @@ fn analyze_surface_for_callable(
             counters.callables_analyzed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let body = member_body(source, member.ast);
             if body.is_empty() {
+                parameter_contributions.insert(ContributionSource::Callable(member.callable.clone()), ParameterFacts::default());
                 continue;
             }
             analyzer.events.clear();
@@ -316,6 +322,8 @@ fn analyze_surface_for_callable(
                 .into_iter()
                 .collect();
             analyzer.parameter_facts_from_events();
+            let facts = std::mem::take(&mut analyzer.parameter_facts);
+            parameter_contributions.insert(ContributionSource::Callable(member.callable.clone()), facts);
             analyzer.summaries.push((
                 CallableSummary {
                     callable: member.callable.clone(),
@@ -344,7 +352,11 @@ fn analyze_surface_for_callable(
     SurfaceFlowAnalysis {
         local_facts: analyzer.local_facts,
         field_facts: analyzer.field_facts,
-        parameter_facts: analyzer.parameter_facts,
+        parameter_facts: parameter_contributions.values().fold(ParameterFacts::default(), |mut joined, facts| {
+            joined.merge_from(facts);
+            joined
+        }),
+        parameter_contributions,
         summaries: analyzer.summaries,
     }
 }

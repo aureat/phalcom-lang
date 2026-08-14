@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::CallableSummary;
 use super::callable::{CallableWorklist, SolverResult};
 use super::dispatch::{DispatchReceiver, DispatchResolver};
-use super::facts::{InferredValue, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+use super::facts::{ContributionSource, InferredValue, MAX_SHAPE_UNION, ParameterContributions, ParameterFacts, ValueShape};
 #[cfg(test)]
 use super::ids::CORE_MODULE_URI;
 use super::ids::{CallableId, ClassId, DispatchSide, ModuleId};
@@ -53,6 +53,23 @@ fn solver_budget(callable_count: usize, slot_count: usize) -> usize {
         .saturating_add(possible_dependency_edges)
         .max(1)
         .saturating_mul(MAX_SHAPE_UNION + 2)
+}
+
+fn joined_parameter_facts(contributions: &ParameterContributions) -> ParameterFacts {
+    contributions.joined_iter().fold(ParameterFacts::default(), |mut facts, (slot, value)| {
+        facts.record(slot.callable.clone(), slot.name.clone(), value.clone());
+        facts
+    })
+}
+
+fn record_parameter_replacement(counters: &PerfCounters, replacement_slots: usize, deltas: &[super::facts::ParameterFactDelta]) {
+    counters.parameter_sources_replaced.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    counters
+        .parameter_slots_touched
+        .fetch_add(replacement_slots as u64, std::sync::atomic::Ordering::Relaxed);
+    counters
+        .parameter_slots_changed
+        .fetch_add(deltas.len() as u64, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Coherent products from one bounded callable solve and its final source flow
@@ -243,8 +260,31 @@ pub(crate) fn solve_affected_callables(
     base_parameters: ParameterFacts,
 ) -> FlowSolveResult {
     let counters = PerfCounters::new();
-    solve_affected_callables_with_cancel(inputs, classes, graph, generation, seed_summaries, base_parameters, None, &|| false, &counters)
-        .expect("uncancelled callable solve must complete")
+    let mut base_contributions = ParameterContributions::default();
+    base_contributions.replace_source(
+        ContributionSource::TopLevel(ModuleId::new("memory://base-parameters")),
+        base_parameters.iter().map(|((callable, name), value)| {
+            (
+                super::facts::ParameterSlot {
+                    callable: callable.clone(),
+                    name: name.clone(),
+                },
+                value.clone(),
+            )
+        }),
+    );
+    solve_affected_callables_with_cancel(
+        inputs,
+        classes,
+        graph,
+        generation,
+        seed_summaries,
+        base_contributions,
+        None,
+        &|| false,
+        &counters,
+    )
+    .expect("uncancelled callable solve must complete")
 }
 
 /// Incremental callable solve with cooperative cancellation between worklist
@@ -255,7 +295,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
     graph: &ModuleGraph,
     generation: SemanticGeneration,
     seed_summaries: BTreeMap<CallableId, CallableSummary>,
-    base_parameters: ParameterFacts,
+    base_contributions: ParameterContributions,
     dirty_callables: Option<&BTreeSet<CallableId>>,
     cancelled: &dyn Fn() -> bool,
     counters: &PerfCounters,
@@ -291,8 +331,8 @@ pub(crate) fn solve_affected_callables_with_cancel(
         .sum::<usize>();
     let max_steps = solver_budget(callable_count, slot_count);
     let mut summaries = seed_summaries;
-    let mut parameter_facts = base_parameters.clone();
-    let mut source_facts = BTreeMap::<CallableId, ParameterFacts>::new();
+    let mut contributions = base_contributions;
+    let mut parameter_facts = joined_parameter_facts(&contributions);
     let mut top_level_sources = BTreeSet::new();
     let mut dependents = BTreeMap::<CallableId, BTreeSet<CallableId>>::new();
     for summary in summaries.values() {
@@ -306,6 +346,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
             for callable in dirty {
                 if callable_sources.contains_key(callable) {
                     worklist.push(callable.clone());
+                    counters.dirty_callables_seeded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         }
@@ -337,6 +378,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
             record_solver_step();
             let Some(source) = callable_sources.get(&callable) else { continue };
             callables_visited.insert(callable.clone());
+            counters.solver_callables_visited.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let include_top_level = top_level_sources.insert(source.module.clone());
             let previous_summary = summaries.get(&callable).cloned();
             let analysis = analyze_callable_source(
@@ -377,19 +419,38 @@ pub(crate) fn solve_affected_callables_with_cancel(
                 summaries.remove(&callable);
             }
 
-            source_facts.insert(callable.clone(), analysis.parameter_facts);
-            let previous_parameters = parameter_facts.clone();
-            parameter_facts = base_parameters.clone();
-            for facts in source_facts.values() {
-                parameter_facts.merge_from(facts);
+            let emitted_contributions = analysis.parameter_contributions;
+            let mut parameter_deltas = Vec::new();
+            for (source, facts) in emitted_contributions {
+                let before_slots = facts.iter().count();
+                let deltas = contributions.replace_source(
+                    source,
+                    facts.iter().map(|((target, name), value)| {
+                        (
+                            super::facts::ParameterSlot {
+                                callable: target.clone(),
+                                name: name.clone(),
+                            },
+                            value.clone(),
+                        )
+                    }),
+                );
+                record_parameter_replacement(counters, before_slots, &deltas);
+                parameter_deltas.extend(deltas);
             }
+            parameter_facts = joined_parameter_facts(&contributions);
             apply_parameter_facts_to_summaries(&mut summaries, classes, &parameter_facts);
 
             let summary_changed = callable_summary_changed(previous_summary.as_ref(), summaries.get(&callable));
             if summary_changed {
                 callables_changed.insert(callable.clone());
+                counters.solver_callables_changed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
-            if summary_changed || previous_parameters != parameter_facts {
+            let changed_parameter_callables = parameter_deltas
+                .iter()
+                .filter_map(|delta| (delta.before != delta.after).then_some(delta.slot.callable.clone()))
+                .collect::<BTreeSet<_>>();
+            if summary_changed || !changed_parameter_callables.is_empty() {
                 if let Some(edges) = dependents.get(&callable) {
                     for dependent in edges {
                         if callable_sources.contains_key(dependent) {
@@ -397,9 +458,9 @@ pub(crate) fn solve_affected_callables_with_cancel(
                         }
                     }
                 }
-                for (slot, value) in parameter_facts.iter() {
-                    if previous_parameters.get(&slot.0, &slot.1) != Some(value) && callable_sources.contains_key(&slot.0) {
-                        worklist.push(slot.0.clone());
+                for changed_callable in changed_parameter_callables {
+                    if callable_sources.contains_key(&changed_callable) {
+                        worklist.push(changed_callable);
                     }
                 }
             }

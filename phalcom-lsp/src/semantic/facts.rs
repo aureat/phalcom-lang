@@ -384,6 +384,24 @@ impl ParameterContributions {
         self.replace_source(source.clone(), std::iter::empty())
     }
 
+    /// Removes every contribution owned by one module.
+    pub fn remove_module(&mut self, module: &ModuleId) -> Vec<ParameterFactDelta> {
+        let sources = self
+            .slots_by_source
+            .keys()
+            .filter(|source| match source {
+                ContributionSource::Callable(callable) => &callable.owner.module == module,
+                ContributionSource::TopLevel(owner) => owner == module,
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut deltas = Vec::new();
+        for source in sources {
+            deltas.extend(self.remove_source(&source));
+        }
+        deltas
+    }
+
     /// Returns the cached joined fact for one parameter slot.
     pub fn get(&self, slot: &ParameterSlot) -> Option<&InferredValue> {
         self.joined.get(slot)
@@ -651,9 +669,11 @@ mod tests {
         let mut contributions = ParameterContributions::default();
 
         contributions.replace_source(source.clone(), [(second.clone(), value.clone()), (first.clone(), value.clone())]);
-        assert!(contributions
-            .replace_source(source, [(first.clone(), value.clone()), (second.clone(), value)])
-            .is_empty());
+        assert!(
+            contributions
+                .replace_source(source, [(first.clone(), value.clone()), (second.clone(), value)])
+                .is_empty()
+        );
 
         let ordered = contributions.joined_iter().map(|(slot, _)| slot.clone()).collect::<Vec<_>>();
         assert_eq!(ordered, vec![first, second]);

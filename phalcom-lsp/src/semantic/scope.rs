@@ -1,6 +1,6 @@
 //! Lexical scopes and source-local binding identities.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use phalcom_ast::ast::{BindingKind, BlockExpr, ClassMember, Expr, ForStatement, LetBinding, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
@@ -169,22 +169,23 @@ impl ScopeGraph {
     /// Returns bindings visible at a source offset, nearest scope first and
     /// with shadowed spellings removed.
     pub fn visible_bindings_at(&self, offset: usize) -> Vec<BindingInfo> {
-        let mut visible = BTreeMap::new();
+        let mut seen = BTreeSet::new();
+        let mut visible = Vec::new();
         let mut current = Some(self.scope_at(offset));
         while let Some(scope_id) = current {
             let Some(scope) = self.scopes.get(&scope_id) else { break };
             for (name, binding_id) in &scope.bindings {
-                if visible.contains_key(name) {
+                if !seen.insert(name.clone()) {
                     continue;
                 }
                 let Some(binding) = self.bindings.get(binding_id) else { continue };
                 if binding.declaration_range.start <= offset {
-                    visible.insert(name.clone(), binding.clone());
+                    visible.push(binding.clone());
                 }
             }
             current = scope.parent;
         }
-        visible.into_values().collect()
+        visible
     }
 }
 

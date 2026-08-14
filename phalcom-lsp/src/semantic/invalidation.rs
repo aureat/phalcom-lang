@@ -269,6 +269,17 @@ mod tests {
     }
 
     #[test]
+    fn top_level_executable_change_is_separate_from_callable_body_delta() {
+        let module = ModuleId::new("file:///tmp/top-level.ph");
+        let old = source(module.clone(), "class A { run() { 1 } }\nlet value = 1\n");
+        let new = source(module.clone(), "class A { run() { 1 } }\nlet value = 2\n");
+        let delta = classify_source_delta(&module, Some(&old), Some(&new));
+        assert_eq!(delta.kind, SourceChangeKind::BodyOnly);
+        assert!(delta.changed_callables.is_empty());
+        assert!(delta.top_level_changed);
+    }
+
+    #[test]
     fn import_and_declaration_edits_have_distinct_kinds() {
         let module = ModuleId::new("file:///tmp/change.ph");
         let old = source(module.clone(), "import \"./one\" as One\nclass A { run() {} }\n");

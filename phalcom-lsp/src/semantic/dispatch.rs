@@ -1,9 +1,52 @@
 //! Canonical VM-free member dispatch for semantic analysis.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
+use super::callable::CallableSummary;
 use super::ids::{CallableId, ClassId, DispatchSide};
 use super::surface::{ClassSurface, MemberSurface};
+
+pub(crate) trait ClassTable {
+    fn class(&self, id: &ClassId) -> Option<&ClassSurface>;
+    fn contains_class(&self, id: &ClassId) -> bool;
+}
+
+impl ClassTable for BTreeMap<ClassId, ClassSurface> {
+    fn class(&self, id: &ClassId) -> Option<&ClassSurface> {
+        self.get(id)
+    }
+
+    fn contains_class(&self, id: &ClassId) -> bool {
+        self.contains_key(id)
+    }
+}
+
+impl ClassTable for BTreeMap<ClassId, Arc<ClassSurface>> {
+    fn class(&self, id: &ClassId) -> Option<&ClassSurface> {
+        self.get(id).map(Arc::as_ref)
+    }
+
+    fn contains_class(&self, id: &ClassId) -> bool {
+        self.contains_key(id)
+    }
+}
+
+pub(crate) trait SummaryTable {
+    fn summary(&self, id: &CallableId) -> Option<&CallableSummary>;
+}
+
+impl SummaryTable for BTreeMap<CallableId, CallableSummary> {
+    fn summary(&self, id: &CallableId) -> Option<&CallableSummary> {
+        self.get(id)
+    }
+}
+
+impl SummaryTable for BTreeMap<CallableId, Arc<CallableSummary>> {
+    fn summary(&self, id: &CallableId) -> Option<&CallableSummary> {
+        self.get(id).map(Arc::as_ref)
+    }
+}
 
 /// Receiver target used by semantic dispatch.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,23 +74,23 @@ pub(crate) struct ResolvedDispatch {
 /// Resolves members using the same side-aware inheritance walk for every
 /// semantic consumer.
 #[derive(Clone, Copy)]
-pub(crate) struct DispatchResolver<'a> {
-    classes: &'a BTreeMap<ClassId, ClassSurface>,
+pub(crate) struct DispatchResolver<'a, T: ?Sized> {
+    classes: &'a T,
 }
 
-impl<'a> DispatchResolver<'a> {
+impl<'a, T: ClassTable + ?Sized> DispatchResolver<'a, T> {
     /// Creates a resolver over one coherent class-surface snapshot.
-    pub(crate) fn new(classes: &'a BTreeMap<ClassId, ClassSurface>) -> Self {
+    pub(crate) fn new(classes: &'a T) -> Self {
         Self { classes }
     }
 
     pub(crate) fn member(&self, callable: &CallableId) -> Option<&'a MemberSurface> {
-        self.classes.get(&callable.owner).and_then(|class| class.member_by_id(callable))
+        self.classes.class(&callable.owner).and_then(|class| class.member_by_id(callable))
     }
 
     /// Reports whether a receiver class exists in this semantic surface.
     pub(crate) fn contains_class(&self, class: &ClassId) -> bool {
-        self.classes.contains_key(class)
+        self.classes.contains_class(class)
     }
 
     /// Resolves `selector` and returns the actual declaration owner.
@@ -67,7 +110,7 @@ impl<'a> DispatchResolver<'a> {
             if !visited.insert(class.clone()) {
                 return None;
             }
-            let surface = self.classes.get(&class)?;
+            let surface = self.classes.class(&class)?;
             if let Some(member) = surface.member(selector, side) {
                 return Some(ResolvedDispatch {
                     callable: member.callable.clone(),
@@ -81,7 +124,7 @@ impl<'a> DispatchResolver<'a> {
     }
 
     fn superclass_of(&self, class: &ClassId) -> Option<ClassId> {
-        let surface = self.classes.get(class)?;
+        let surface = self.classes.class(class)?;
         surface
             .superclass
             .clone()

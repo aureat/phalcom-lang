@@ -149,13 +149,13 @@ impl SemanticSnapshot {
     }
 
     /// Returns one class surface by module-qualified identity.
-    pub fn class_surface(&self, id: &ClassId) -> Option<ClassSurface> {
-        self.classes.get(id).map(|c| (**c).clone())
+    pub fn class_surface(&self, id: &ClassId) -> Option<&ClassSurface> {
+        self.classes.get(id).map(Arc::as_ref)
     }
 
     /// Returns one member surface by its complete callable identity.
-    pub fn member_surface(&self, callable: &CallableId) -> Option<MemberSurface> {
-        self.classes.get(&callable.owner).and_then(|surface| surface.member_by_id(callable)).cloned()
+    pub fn member_surface(&self, callable: &CallableId) -> Option<&MemberSurface> {
+        self.classes.get(&callable.owner).and_then(|surface| surface.member_by_id(callable))
     }
 
     /// Resolves one receiver-qualified member, including inherited members.
@@ -164,12 +164,7 @@ impl SemanticSnapshot {
             DispatchSide::Instance => DispatchReceiver::Instance(class.clone()),
             DispatchSide::Class => DispatchReceiver::ClassObject(class.clone()),
         };
-        let classes = self
-            .classes
-            .iter()
-            .map(|(id, surface)| (id.clone(), (**surface).clone()))
-            .collect::<BTreeMap<_, _>>();
-        let resolver = DispatchResolver::new(&classes);
+        let resolver = DispatchResolver::new(self.classes.as_ref());
         resolver
             .resolve(&receiver, selector)
             .and_then(|resolved| resolver.member(&resolved.callable).cloned())
@@ -245,15 +240,13 @@ impl SemanticSnapshot {
     }
 
     /// Returns a source callable summary from the current semantic generation.
-    pub fn callable_summary(&self, id: &CallableId) -> Option<CallableSummary> {
-        self.summaries.get(id).map(|s| (**s).clone())
+    pub fn callable_summary(&self, id: &CallableId) -> Option<&CallableSummary> {
+        self.summaries.get(id).map(Arc::as_ref)
     }
 
     /// Returns a callable's target-specific return summary.
     pub fn return_for_callable(&self, id: &CallableId) -> Option<InferredValue> {
-        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
-        let summaries = self.summaries.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
-        return_for_callable(&classes, &summaries, id)
+        return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), id)
     }
 
     /// Returns the joined call-site fact observed for one callable parameter.
@@ -264,8 +257,7 @@ impl SemanticSnapshot {
     /// Resolves a class name in its module, with the stable core namespace as a fallback.
     pub fn class_for_name(&self, uri: &Url, name: &str) -> Option<ClassId> {
         let module = ModuleId::from_uri(uri);
-        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
-        resolve_named_class(&classes, &self.graph, &module, name)
+        resolve_named_class(self.classes.as_ref(), &self.graph, &module, name)
     }
 
     /// Returns the class whose declaration contains a byte offset in `uri`.
@@ -310,10 +302,8 @@ impl SemanticSnapshot {
 
     /// Joins return summaries for a bounded set of receiver candidates.
     pub fn returns_for_callables(&self, ids: impl IntoIterator<Item = CallableId>) -> Option<InferredValue> {
-        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
-        let summaries = self.summaries.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
         ids.into_iter()
-            .filter_map(|id| return_for_callable(&classes, &summaries, &id))
+            .filter_map(|id| return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), &id))
             .reduce(|left, right| left.join(&right))
     }
 
@@ -331,12 +321,10 @@ impl SemanticSnapshot {
     /// Infers a parsed receiver expression against the coherent current semantic snapshot.
     pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
         let module = ModuleId::from_uri(uri);
-        let classes = self.classes.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
-        let summaries = self.summaries.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect::<BTreeMap<_, _>>();
 
         let mut environment = BTreeMap::new();
-        let known_classes = |name: &str| resolve_named_class(&classes, &self.graph, &module, name);
-        let callable_return = |id: &CallableId| return_for_callable(&classes, &summaries, id);
+        let known_classes = |name: &str| resolve_named_class(self.classes.as_ref(), &self.graph, &module, name);
+        let callable_return = |id: &CallableId| return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), id);
         let field_value = |class: &ClassId, name: &str, side: DispatchSide| {
             let mut current = Some(class.clone());
             let mut seen = BTreeSet::new();
@@ -386,11 +374,11 @@ impl SemanticSnapshot {
         });
         let local_facts = self.files.get(&module).map(|file| &file.local_facts);
         let scopes = self.files.get(&module).map(|file| &file.source.scopes);
-        let resolver = DispatchResolver::new(&classes);
+        let resolver = DispatchResolver::new(self.classes.as_ref());
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-        let member_surface = |id: &CallableId| classes.get(&id.owner).and_then(|class| class.member_by_id(id).cloned());
+        let member_surface = |id: &CallableId| resolver.member(id).cloned();
         let contains_class = |class: &ClassId| resolver.contains_class(class);
-        let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(&classes, child, ancestor);
+        let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(self.classes.as_ref(), child, ancestor);
         let context = AnalysisContext {
             current_class: current_class.as_ref(),
             dispatch_side,

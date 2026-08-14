@@ -18,10 +18,10 @@ pub(crate) mod snapshot;
 pub(crate) mod source;
 mod surface;
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, RwLock};
+use std::collections::BTreeSet;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::{Arc, RwLock};
 
 pub use engine::SemanticEngine;
 pub use snapshot::{FileSourceSnapshot, SemanticSnapshot};
@@ -35,6 +35,7 @@ use crate::perf::{PerfCounters, PerfCountersHandle};
 
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnShape;
+use dispatch::{ClassTable, SummaryTable};
 pub use facts::{
     Confidence, ContributionSource, FactOrigin, FieldEvidence, FieldEvidenceKind, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION,
     ParameterContributions, ParameterFacts, ParameterSlot, ValueShape,
@@ -274,12 +275,12 @@ impl SemanticDb {
 
     /// Returns one class surface by module-qualified identity.
     pub fn class_surface(&self, id: &ClassId) -> Option<ClassSurface> {
-        self.snapshot().class_surface(id)
+        self.snapshot().class_surface(id).cloned()
     }
 
     /// Returns one member surface by its complete callable identity.
     pub fn member_surface(&self, callable: &CallableId) -> Option<MemberSurface> {
-        self.snapshot().member_surface(callable)
+        self.snapshot().member_surface(callable).cloned()
     }
 
     /// Resolves one receiver-qualified member, including inherited members.
@@ -304,7 +305,7 @@ impl SemanticDb {
 
     /// Returns a source callable summary from the current semantic generation.
     pub fn callable_summary(&self, id: &CallableId) -> Option<CallableSummary> {
-        self.snapshot().callable_summary(id)
+        self.snapshot().callable_summary(id).cloned()
     }
 
     /// Returns a callable's target-specific return summary.
@@ -365,7 +366,7 @@ impl SemanticDb {
     }
 }
 
-fn resolve_named_class(classes: &BTreeMap<ClassId, ClassSurface>, graph: &ModuleGraph, module: &ModuleId, name: &str) -> Option<ClassId> {
+fn resolve_named_class<C: ClassTable + ?Sized>(classes: &C, graph: &ModuleGraph, module: &ModuleId, name: &str) -> Option<ClassId> {
     if let Some((binding, class_name)) = name.split_once('.') {
         let imported = graph
             .imports(module)
@@ -373,17 +374,17 @@ fn resolve_named_class(classes: &BTreeMap<ClassId, ClassSurface>, graph: &Module
             .find(|edge| edge.binding == binding)
             .and_then(|edge| edge.target.as_ref())?;
         let class = ClassId::new(imported.clone(), class_name);
-        return classes.contains_key(&class).then_some(class);
+        return classes.contains_class(&class).then_some(class);
     }
     let local = ClassId::new(module.clone(), name);
-    if classes.contains_key(&local) {
+    if classes.contains_class(&local) {
         return Some(local);
     }
     let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
-    classes.contains_key(&core).then_some(core)
+    classes.contains_class(&core).then_some(core)
 }
 
-fn is_same_or_subclass(classes: &BTreeMap<ClassId, ClassSurface>, child: &ClassId, ancestor: &ClassId) -> bool {
+fn is_same_or_subclass<C: ClassTable + ?Sized>(classes: &C, child: &ClassId, ancestor: &ClassId) -> bool {
     let mut current = Some(child.clone());
     let mut visited = BTreeSet::new();
     while let Some(id) = current.take() {
@@ -393,7 +394,7 @@ fn is_same_or_subclass(classes: &BTreeMap<ClassId, ClassSurface>, child: &ClassI
         if &id == ancestor {
             return true;
         }
-        let Some(surface) = classes.get(&id) else { return false };
+        let Some(surface) = classes.class(&id) else { return false };
         current = surface
             .superclass
             .clone()
@@ -402,13 +403,13 @@ fn is_same_or_subclass(classes: &BTreeMap<ClassId, ClassSurface>, child: &ClassI
     false
 }
 
-fn return_for_callable(classes: &BTreeMap<ClassId, ClassSurface>, summaries: &BTreeMap<CallableId, CallableSummary>, id: &CallableId) -> Option<InferredValue> {
-    let class = classes.get(&id.owner)?;
+fn return_for_callable<C: ClassTable + ?Sized, S: SummaryTable + ?Sized>(classes: &C, summaries: &S, id: &CallableId) -> Option<InferredValue> {
+    let class = classes.class(&id.owner)?;
     let member = class.member(&id.selector, id.side);
     if id.side == DispatchSide::Class && (id.selector == "new()" || member.is_some_and(|member| member.is_constructor)) {
         return Some(InferredValue::flow(ValueShape::Instance(id.owner.clone()), Default::default()));
     }
-    if let Some(summary) = summaries.get(id) {
+    if let Some(summary) = summaries.summary(id) {
         return Some(summary.returns.clone());
     }
     let member = member?;

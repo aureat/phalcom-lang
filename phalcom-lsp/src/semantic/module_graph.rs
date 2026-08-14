@@ -172,7 +172,16 @@ impl ModuleGraph {
 
 fn resolve_import(module: &ModuleId, import: &str, available: &BTreeSet<ModuleId>) -> Option<ModuleId> {
     let candidate = import_candidate(module, import)?;
-    Some(candidate).filter(|id| available.contains(id))
+    if available.contains(&candidate) {
+        return Some(candidate);
+    }
+    let canonical = Url::parse(candidate.as_str())
+        .ok()
+        .and_then(|uri| uri.to_file_path().ok())
+        .and_then(|path| path.canonicalize().ok())
+        .and_then(|path| Url::from_file_path(path).ok())
+        .map(|uri| ModuleId::from_uri(&uri));
+    canonical.filter(|id| available.contains(id))
 }
 
 fn import_candidate(module: &ModuleId, import: &str) -> Option<ModuleId> {
@@ -184,7 +193,6 @@ fn import_candidate(module: &ModuleId, import: &str) -> Option<ModuleId> {
         candidate.set_extension("ph");
     }
     let normalized = normalize_path(candidate);
-    let normalized = normalized.canonicalize().unwrap_or(normalized);
     Url::from_file_path(normalized).ok().map(|uri| ModuleId::from_uri(&uri))
 }
 
