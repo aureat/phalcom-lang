@@ -468,6 +468,10 @@ impl Heap {
     }
 
     /// Borrows the immutable [`MethodFamilyObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::MethodFamily`].
     pub fn method_family(&self, id: ObjRef) -> &MethodFamilyObject {
         match self.get(id) {
             Object::MethodFamily(family) => family,
@@ -476,6 +480,10 @@ impl Heap {
     }
 
     /// Borrows the immutable [`BoundMethodFamilyObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::BoundMethodFamily`].
     pub fn bound_method_family(&self, id: ObjRef) -> &BoundMethodFamilyObject {
         match self.get(id) {
             Object::BoundMethodFamily(family) => family,

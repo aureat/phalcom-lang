@@ -185,16 +185,22 @@ pub struct SelectorPatternObject {
 /// candidates preserve subclass-to-superclass fallback order.
 #[derive(Debug, Clone)]
 pub struct MethodFamilyObject {
+    /// Behavior whose effective method dictionaries were scanned at capture.
     pub source_behavior: ClassId,
+    /// Immutable selector-pattern object used to define the snapshot.
     pub pattern: ObjRef,
+    /// Exact, non-rest methods keyed by canonical selector in capture order.
     pub exact_methods: IndexMap<Symbol, ObjRef>,
+    /// Rest methods in subclass-to-superclass precedence order.
     pub rest_candidates: Box<[ObjRef]>,
 }
 
 /// A captured method-family snapshot closed over an explicit receiver.
 #[derive(Debug, Clone, Copy)]
 pub struct BoundMethodFamilyObject {
+    /// Immutable MethodFamily snapshot handle.
     pub family: ObjRef,
+    /// Receiver supplied by `MethodFamily#bind(_)`.
     pub receiver: Value,
 }
 

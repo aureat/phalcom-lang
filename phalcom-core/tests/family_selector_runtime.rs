@@ -1,15 +1,16 @@
 use phalcom_core::bytecode::{Bytecode, FamilySpecKind};
 use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::error::{PhError, RuntimeError};
-use phalcom_core::heap::Object;
+use phalcom_core::heap::{BoundMethodFamilyObject, InstanceObject, MethodFamilyObject, Object, SelectorPatternObject};
 use phalcom_core::method::{MethodObject, SignatureKind};
-use phalcom_core::primitive::class::behavior_extract;
+use phalcom_core::primitive::class::{behavior_extract, class_new_};
 use phalcom_core::primitive::block::block_call;
 use phalcom_core::primitive::method::method_bind;
-use phalcom_core::primitive::method_family::method_family_bind;
+use phalcom_core::primitive::method_family::{method_family_bind, method_family_method_for, method_family_selectors, method_family_size};
 use phalcom_core::primitive::object::object_method_for;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use indexmap::IndexMap;
 use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
 
 #[test]
@@ -181,4 +182,87 @@ fn captured_primitive_method_accepts_foreign_receiver() {
     let method_value = Value::Obj(method);
     let bound = method_bind(&mut vm, &method_value, &[Value::Int(3)]).expect("primitive method should bind");
     assert_eq!(block_call(&mut vm, &bound, &[]).expect("primitive method should activate"), Value::Int(17));
+}
+
+#[test]
+fn method_family_reflection_exposes_snapshot_routes_without_allocation_access() {
+    let mut vm = VM::new();
+    let object_class = vm.universe.classes.object_class;
+    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
+        pattern: SelectorPattern::named("name", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+    })));
+    let family = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
+
+    let size = method_family_size(&mut vm, &family, &[]).expect("size should be readable");
+    let selectors = method_family_selectors(&mut vm, &family, &[]).expect("selectors should be readable");
+    let selector_values = match selectors {
+        Value::Obj(id) => vm.heap.list(id).elements().to_vec(),
+        other => panic!("selectors should return List, got {other:?}"),
+    };
+    assert_eq!(size, Value::Int(selector_values.len() as i64));
+    assert!(selector_values.contains(&Value::Symbol(vm.get_or_intern("name"))));
+
+    let name_selector = vm.get_or_intern("name");
+    let method = method_family_method_for(&mut vm, &family, &[Value::Symbol(name_selector)]).expect("methodFor should be readable");
+    assert!(matches!(method, Value::Obj(id) if matches!(vm.heap.get(id), Object::Method(_))));
+
+    let method_family_class = Value::Obj(vm.universe.classes.method_family_class);
+    assert!(matches!(
+        class_new_(&mut vm, &method_family_class, &[]),
+        Err(PhError::Runtime(RuntimeError::Type { .. }))
+    ));
+    let bound_method_family_class = Value::Obj(vm.universe.classes.bound_method_family_class);
+    assert!(matches!(
+        class_new_(&mut vm, &bound_method_family_class, &[]),
+        Err(PhError::Runtime(RuntimeError::Type { .. }))
+    ));
+}
+
+#[test]
+fn method_family_and_bound_receiver_are_gc_edges() {
+    fn constant(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> phalcom_core::error::PhResult<Value> {
+        Ok(Value::Int(1))
+    }
+
+    let mut vm = VM::new();
+    vm.force_gc();
+    let object_class = vm.universe.classes.object_class;
+    let selector = vm.get_or_intern("captured");
+    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
+        pattern: SelectorPattern::named("captured", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+    })));
+    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+        selector,
+        SignatureKind::Getter,
+        constant,
+        object_class,
+    ))));
+    let mut exact_methods = IndexMap::new();
+    exact_methods.insert(selector, method);
+    let family = vm.heap.alloc(Object::MethodFamily(Box::new(MethodFamilyObject {
+        source_behavior: object_class,
+        pattern,
+        exact_methods,
+        rest_candidates: Box::new([]),
+    })));
+    let receiver = vm.heap.alloc(Object::Instance(InstanceObject::new(object_class, 0)));
+    let bound = vm.heap.alloc(Object::BoundMethodFamily(BoundMethodFamilyObject {
+        family,
+        receiver: Value::Obj(receiver),
+    }));
+
+    vm.push_root_for_test(Value::Obj(bound));
+    vm.force_gc();
+    assert!(vm.heap.try_get(family).is_some());
+    assert!(vm.heap.try_get(method).is_some());
+    assert!(vm.heap.try_get(pattern).is_some());
+    assert!(vm.heap.try_get(receiver).is_some());
+
+    vm.pop_root_for_test();
+    vm.force_gc();
+    assert!(vm.heap.try_get(bound).is_none());
+    assert!(vm.heap.try_get(family).is_none());
+    assert!(vm.heap.try_get(method).is_none());
+    assert!(vm.heap.try_get(pattern).is_none());
+    assert!(vm.heap.try_get(receiver).is_none());
 }

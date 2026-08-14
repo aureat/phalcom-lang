@@ -20,7 +20,7 @@ use crate::primitive::int::{
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
-use crate::primitive::method_family::method_family_bind;
+use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_call, some_new};
 use crate::primitive::number::{
@@ -290,6 +290,9 @@ impl Universe {
         primitive_shape!(vm, family_cls, "set", SignatureKind::Method(1), family_set);
 
         let method_family_cls = vm.universe.classes.method_family_class;
+        primitive!(vm, method_family_cls, "selectors", SignatureKind::Getter, method_family_selectors);
+        primitive!(vm, method_family_cls, "size", SignatureKind::Getter, method_family_size);
+        primitive_shape!(vm, method_family_cls, "methodFor", SignatureKind::Method(1), method_family_method_for_shape);
         primitive!(vm, method_family_cls, "bind", SignatureKind::Method(1), method_family_bind);
 
         let function_cls = vm.universe.classes.function_class;
@@ -552,6 +555,8 @@ fn validate_native_surface(vm: &VM) {
         classes.function_class,
         classes.closure_class,
         classes.bound_method_class,
+        classes.method_family_class,
+        classes.bound_method_family_class,
         classes.symbol_class,
         classes.module_class,
         classes.system_class,

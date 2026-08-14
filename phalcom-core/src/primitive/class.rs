@@ -93,6 +93,12 @@ pub fn behavior_methods(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 ///
 /// This remains an ordinary polymorphic operator. `Int#>>(_)` keeps its
 /// arithmetic meaning; only behavior receivers reach this reflection method.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Arity`] for a missing selector-spec, a visibility
+/// error for an inaccessible effective method, or [`RuntimeError::Type`] for a
+/// non-`Symbol`/non-`SelectorPattern` spec.
 pub fn behavior_extract(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let behavior = expect_class(vm, receiver)?;
     let rhs = args.first().ok_or_else(|| RuntimeError::Arity {

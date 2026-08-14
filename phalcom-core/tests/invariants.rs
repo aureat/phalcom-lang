@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 33] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 35] {
     let c = vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -62,6 +62,8 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 33] {
         ("Function", c.function_class),
         ("Closure", c.closure_class),
         ("BoundMethod", c.bound_method_class),
+        ("MethodFamily", c.method_family_class),
+        ("BoundMethodFamily", c.bound_method_family_class),
         ("Symbol", c.symbol_class),
         ("Module", c.module_class),
         ("System", c.system_class),
@@ -838,6 +840,11 @@ fn floor_census_matches_installed_bindings() {
         (c.method_class, false, "bind(_)"),         // NEW (ADR-0028)
         (c.method_class, false, "selector"),        // NEW (ADR-0028)
         (c.method_class, false, "holder"),          // NEW (ADR-0028)
+        // §2.9 MethodFamily
+        (c.method_family_class, false, "selectors"),
+        (c.method_family_class, false, "size"),
+        (c.method_family_class, false, "methodFor(_)"),
+        (c.method_family_class, false, "bind(_)"),
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
@@ -1011,10 +1018,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        150,
-        "census must enumerate exactly 150 bindings after the immediate Option amendment"
+        154,
+        "census must enumerate exactly 154 bindings after MethodFamily reflection"
     );
-    assert_eq!(live.len(), 150, "the live floor must be exactly 150 bindings");
+    assert_eq!(live.len(), 154, "the live floor must be exactly 154 bindings");
 }
 
 #[test]
