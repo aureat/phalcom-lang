@@ -1,10 +1,8 @@
 // area: family
-// spec: selectors.md §3 error table ("Empty family, but class defines
-//   doesNotUnderstand" — not an error); ADR-0047
+// spec: docs/spec/callables/family.md §1 and §3
 // status: PASS
-// A class overriding `doesNotUnderstand(_:)` makes every family callable
-// even when no base name matches — the reference-time check is
-// `empty && no DNU hook`, so `p::typo` is NOT an error here.
+// Family construction never probes the receiver. A missing exact getter can
+// still be called through a receiver-side doesNotUnderstand hook.
 
 class Proxy {
   doesNotUnderstand(_ msg) {
@@ -13,4 +11,4 @@ class Proxy {
 }
 const p = Proxy.new()
 const f = p::typo
-System.print(f())
+System.print(f.get())

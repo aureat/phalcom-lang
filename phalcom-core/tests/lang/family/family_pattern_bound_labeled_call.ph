@@ -1,9 +1,8 @@
 // area: family
-// spec: selectors.md §3 (Open form); ADR-0047
+// spec: docs/spec/callables/family.md §3
 // status: PASS
-// `obj::name` produces an Open callable Family bound to `obj`; calling it
-// builds the selector from the family's base name plus the call site's
-// argument labels, then performs an ordinary send (selectors.md §3).
+// A named structural pattern keeps the receiver bound and selects the
+// labeled route at call time.
 
 class Point {
   @constructor
@@ -13,5 +12,5 @@ class Point {
   }
 }
 const p = Point.new(1, 0)
-const f = p::move
+const f = p::move(...)
 System.print(f(to: 5, duration: 2)) // moved to 5 from 1, 0 in 2

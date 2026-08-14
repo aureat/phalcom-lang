@@ -1,8 +1,6 @@
 // area: family/negative
-// spec: selectors.md §3 (Pinned form, U16-Pinned) — a Pinned family's call
-//   ignores the call site's own labels but still validates its argument
-//   *count* against the pinned selector's arity; a mismatch is a hard error,
-//   never a silent wrong dispatch.
+// spec: docs/spec/callables/family.md §2 — an exact Family rejects a call
+// whose incoming shape does not satisfy its retained selector.
 // status: NEGATIVE
 
 class Point {
