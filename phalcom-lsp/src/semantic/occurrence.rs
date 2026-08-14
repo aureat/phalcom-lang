@@ -3,7 +3,7 @@
 use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, IndexAccessor, MethodRefKind, Pattern, Program, Statement, UnaryOp};
 use phalcom_common::range::SourceRange;
 
-use super::ids::{CallableId, ClassId, ModuleId};
+use super::ids::{CallableId, ClassId, DispatchSide, FieldId, ModuleId};
 use super::scope::{BindingId, ScopeGraph};
 use super::surface::{MemberSurface, ModuleSurface};
 
@@ -48,13 +48,8 @@ pub enum SemanticTarget {
     Class(ClassId),
     /// Resolved callable declaration.
     Callable(CallableId),
-    /// Field identity, ready for later field facts.
-    Field {
-        /// Class owning field.
-        owner: ClassId,
-        /// Field spelling.
-        name: String,
-    },
+    /// Field identity, including owning class, spelling, and storage side.
+    Field(FieldId),
     /// Member name awaiting Spec 2 dispatch enrichment.
     Member {
         /// Unresolved selector spelling.
@@ -137,6 +132,7 @@ pub fn build_occurrence_index(module: ModuleId, program: &Program, surface: &Mod
         surface,
         scopes,
         occurrences: Vec::new(),
+        current_side: None,
     };
     builder.visit_statements(&program.statements, scopes.root);
     builder.occurrences.sort_by(|left, right| {
@@ -166,6 +162,7 @@ struct OccurrenceBuilder<'a> {
     surface: &'a ModuleSurface,
     scopes: &'a ScopeGraph,
     occurrences: Vec<SemanticOccurrence>,
+    current_side: Option<DispatchSide>,
 }
 
 impl OccurrenceBuilder<'_> {
@@ -242,6 +239,8 @@ impl OccurrenceBuilder<'_> {
             return;
         };
         let scope = self.scopes.scope_at(member_surface.name_range.start);
+        let previous_side = self.current_side;
+        self.current_side = Some(member_surface.side);
         match member {
             ClassMember::Method(method) => {
                 self.push_callable_declaration(&member_surface);
@@ -270,10 +269,11 @@ impl OccurrenceBuilder<'_> {
                     field.name_range,
                     SemanticOccurrenceKind::Field,
                     OccurrenceRole::Declaration,
-                    SemanticTarget::Field {
+                    SemanticTarget::Field(FieldId {
                         owner: class.clone(),
                         name: field.name.clone(),
-                    },
+                        side: member_surface.side,
+                    }),
                 );
                 if let Some(default) = &field.default {
                     self.visit_expr(default, scope);
@@ -288,6 +288,7 @@ impl OccurrenceBuilder<'_> {
                 );
             }
         }
+        self.current_side = previous_side;
     }
 
     fn member_surface(&self, class: &ClassId, member: &ClassMember) -> Option<&MemberSurface> {
@@ -299,12 +300,7 @@ impl OccurrenceBuilder<'_> {
             ClassMember::Variant(item) => item.name_range,
             ClassMember::Index(item) => item.name_range,
         };
-        self.surface
-            .classes
-            .get(class)?
-            .members_by_side
-            .values()
-            .find(|member| member.name_range == name_range)
+        self.surface.classes.get(class)?.all_members().find(|member| member.name_range == name_range)
     }
 
     fn push_callable_declaration(&mut self, member: &MemberSurface) {
@@ -366,16 +362,8 @@ impl OccurrenceBuilder<'_> {
                 }
             }
             Expr::Field { value, range, kind } => {
-                if let Some(class) = self.enclosing_class(*range) {
-                    self.push(
-                        *range,
-                        SemanticOccurrenceKind::Field,
-                        OccurrenceRole::Read,
-                        SemanticTarget::Field {
-                            owner: class,
-                            name: value.clone(),
-                        },
-                    );
+                if let Some(field) = self.field_id(value, *range) {
+                    self.push(*range, SemanticOccurrenceKind::Field, OccurrenceRole::Read, SemanticTarget::Field(field));
                 } else {
                     let _ = kind;
                 }
@@ -588,13 +576,27 @@ impl OccurrenceBuilder<'_> {
     }
 
     fn visit_assignment_target(&mut self, expr: &Expr, scope: super::scope::ScopeId) {
-        if let Expr::Var { value, range } = expr {
-            if let Some(target) = self.name_target(value, *range, scope) {
-                self.push(*range, target_kind(&target), OccurrenceRole::Write, target);
+        match expr {
+            Expr::Var { value, range } => {
+                if let Some(target) = self.name_target(value, *range, scope) {
+                    self.push(*range, target_kind(&target), OccurrenceRole::Write, target);
+                }
             }
-        } else {
-            self.visit_expr(expr, scope);
+            Expr::Field { value, range, .. } => {
+                if let Some(field) = self.field_id(value, *range) {
+                    self.push(*range, SemanticOccurrenceKind::Field, OccurrenceRole::Write, SemanticTarget::Field(field));
+                }
+            }
+            _ => self.visit_expr(expr, scope),
         }
+    }
+
+    fn field_id(&self, name: &str, range: SourceRange) -> Option<FieldId> {
+        Some(FieldId {
+            owner: self.enclosing_class(range)?,
+            name: name.to_string(),
+            side: self.current_side.unwrap_or(DispatchSide::Instance),
+        })
     }
 
     fn name_target(&self, name: &str, range: SourceRange, scope: super::scope::ScopeId) -> Option<SemanticTarget> {
@@ -632,7 +634,7 @@ fn target_kind(target: &SemanticTarget) -> SemanticOccurrenceKind {
         SemanticTarget::Binding(_) => SemanticOccurrenceKind::Binding,
         SemanticTarget::Class(_) => SemanticOccurrenceKind::Class,
         SemanticTarget::Callable(_) | SemanticTarget::Member { .. } => SemanticOccurrenceKind::Member,
-        SemanticTarget::Field { .. } => SemanticOccurrenceKind::Field,
+        SemanticTarget::Field(_) => SemanticOccurrenceKind::Field,
         SemanticTarget::Operator(_) => SemanticOccurrenceKind::Operator,
     }
 }
@@ -731,5 +733,51 @@ mod tests {
         let index = build_occurrence_index(module, &parsed.program, &surface, &scopes);
         assert!(index.occurrence_at(source.find("let").unwrap()).is_none());
         assert!(index.occurrence_at(source.find('1').unwrap()).is_none());
+    }
+
+    #[test]
+    fn field_occurrences_preserve_instance_and_class_side_identity() {
+        let source = r#"
+class Widget {
+  _count
+  _count
+  read() { _count }
+  write() { _count = 1 }
+  @class
+  readClass() { _count }
+  @class
+  writeClass() { _count = 2 }
+}
+"#;
+        let parsed = parse(source, 0);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let mut program = parsed.program;
+        let phalcom_ast::ast::Statement::Class(class) = &mut program.statements[0] else {
+            panic!("expected class");
+        };
+        let phalcom_ast::ast::ClassMember::Field(class_field) = &mut class.members[1] else {
+            panic!("expected field");
+        };
+        class_field.is_static = true;
+
+        let module = ModuleId::new("file:///widget-fields.ph");
+        let surface = build_module_surface(module.clone(), &program);
+        let scopes = super::super::scope::build_scope_graph(module.clone(), &program);
+        let index = build_occurrence_index(module.clone(), &program, &surface, &scopes);
+
+        let field_targets: Vec<_> = index
+            .all()
+            .iter()
+            .filter_map(|occurrence| match &occurrence.target {
+                SemanticTarget::Field(field) => Some((occurrence.role, field.side)),
+                _ => None,
+            })
+            .collect();
+        assert!(field_targets.contains(&(OccurrenceRole::Declaration, DispatchSide::Instance)));
+        assert!(field_targets.contains(&(OccurrenceRole::Declaration, DispatchSide::Class)));
+        assert!(field_targets.contains(&(OccurrenceRole::Read, DispatchSide::Instance)));
+        assert!(field_targets.contains(&(OccurrenceRole::Read, DispatchSide::Class)));
+        assert!(field_targets.contains(&(OccurrenceRole::Write, DispatchSide::Instance)));
+        assert!(field_targets.contains(&(OccurrenceRole::Write, DispatchSide::Class)));
     }
 }

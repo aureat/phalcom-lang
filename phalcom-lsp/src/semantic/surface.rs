@@ -24,17 +24,102 @@ pub struct ClassSurface {
     pub id: ClassId,
     /// Explicit superclass, if written.
     pub superclass: Option<ClassId>,
-    /// Members keyed by canonical selector.
-    pub members: BTreeMap<String, MemberSurface>,
-    /// Members keyed by selector and dispatch side. This preserves distinct
-    /// class-side and instance-side declarations that share one selector.
-    pub members_by_side: BTreeMap<(String, DispatchSide), MemberSurface>,
-    /// Fields keyed by source field name.
-    pub fields: BTreeMap<String, FieldSurface>,
+    /// Members keyed by canonical selector, preserving both dispatch sides.
+    pub members: BTreeMap<String, MemberSides>,
+    /// Fields keyed by source field name, preserving both storage sides.
+    pub fields: BTreeMap<String, FieldSides>,
     /// Source span of the class declaration.
     pub source_range: SourceRange,
     /// Source span of the class name.
     pub name_range: SourceRange,
+}
+
+/// The two dispatch-side declarations for one selector.
+#[derive(Clone, Debug, Default)]
+pub struct MemberSides {
+    /// Instance-side declaration, if present.
+    pub instance: Option<MemberSurface>,
+    /// Class-side declaration, if present.
+    pub class: Option<MemberSurface>,
+}
+
+impl MemberSides {
+    /// Returns declaration for one dispatch side.
+    pub fn get(&self, side: DispatchSide) -> Option<&MemberSurface> {
+        match side {
+            DispatchSide::Instance => self.instance.as_ref(),
+            DispatchSide::Class => self.class.as_ref(),
+        }
+    }
+
+    /// Returns mutable declaration slot for one dispatch side.
+    pub fn get_mut(&mut self, side: DispatchSide) -> Option<&mut MemberSurface> {
+        match side {
+            DispatchSide::Instance => self.instance.as_mut(),
+            DispatchSide::Class => self.class.as_mut(),
+        }
+    }
+
+    fn insert(&mut self, side: DispatchSide, member: MemberSurface) {
+        match side {
+            DispatchSide::Instance => self.instance = Some(member),
+            DispatchSide::Class => self.class = Some(member),
+        }
+    }
+}
+
+/// The two storage-side declarations for one field name.
+#[derive(Clone, Debug, Default)]
+pub struct FieldSides {
+    /// Instance-side declaration, if present.
+    pub instance: Option<FieldSurface>,
+    /// Class-side declaration, if present.
+    pub class: Option<FieldSurface>,
+}
+
+impl FieldSides {
+    fn get(&self, side: DispatchSide) -> Option<&FieldSurface> {
+        match side {
+            DispatchSide::Instance => self.instance.as_ref(),
+            DispatchSide::Class => self.class.as_ref(),
+        }
+    }
+
+    fn get_mut(&mut self, side: DispatchSide) -> &mut Option<FieldSurface> {
+        match side {
+            DispatchSide::Instance => &mut self.instance,
+            DispatchSide::Class => &mut self.class,
+        }
+    }
+}
+
+impl ClassSurface {
+    /// Returns declaration for selector and dispatch side.
+    pub fn member(&self, selector: &str, side: DispatchSide) -> Option<&MemberSurface> {
+        self.members.get(selector).and_then(|members| members.get(side))
+    }
+
+    /// Returns declaration identified by its complete callable identity.
+    pub fn member_by_id(&self, callable: &CallableId) -> Option<&MemberSurface> {
+        (self.id == callable.owner).then(|| self.member(&callable.selector, callable.side)).flatten()
+    }
+
+    /// Returns field declaration for name and storage side.
+    pub fn field(&self, name: &str, side: DispatchSide) -> Option<&FieldSurface> {
+        self.fields.get(name).and_then(|fields| fields.get(side))
+    }
+
+    /// Iterates declarations installed on one dispatch side.
+    pub fn members_on(&self, side: DispatchSide) -> impl Iterator<Item = &MemberSurface> {
+        self.members.values().filter_map(move |members| members.get(side))
+    }
+
+    /// Iterates all declarations on both dispatch sides.
+    pub fn all_members(&self) -> impl Iterator<Item = &MemberSurface> {
+        self.members
+            .values()
+            .flat_map(|members| [members.instance.as_ref(), members.class.as_ref()].into_iter().flatten())
+    }
 }
 
 /// One callable or field-like class member.
@@ -162,7 +247,6 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
             id: id.clone(),
             superclass,
             members: BTreeMap::new(),
-            members_by_side: BTreeMap::new(),
             fields: BTreeMap::new(),
             source_range: (class_start..class.range.end).into(),
             name_range: class.name_range,
@@ -177,21 +261,19 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                 .unwrap_or(source_range.start);
             let ast = MemberAstRef { class_stmt_idx, member_idx };
             if let ClassMember::Field(field) = member {
-                class_surface.fields.insert(
-                    field.name.clone(),
-                    FieldSurface {
-                        name: field.name.clone(),
-                        kind: if field.name.starts_with("_$") {
-                            FieldKind::Implementation
-                        } else {
-                            FieldKind::Source
-                        },
-                        is_class_side: field.is_static,
-                        source_range: field.range,
-                        name_range: field.name_range,
-                        ast,
+                let field_surface = FieldSurface {
+                    name: field.name.clone(),
+                    kind: if field.name.starts_with("_$") {
+                        FieldKind::Implementation
+                    } else {
+                        FieldKind::Source
                     },
-                );
+                    is_class_side: field.is_static,
+                    source_range: field.range,
+                    name_range: field.name_range,
+                    ast,
+                };
+                class_surface.fields.entry(field.name.clone()).or_default().get_mut(side).replace(field_surface);
             }
             let member_surface = MemberSurface {
                 callable: CallableId {
@@ -209,8 +291,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                 params,
                 ast,
             };
-            class_surface.members_by_side.insert((selector.clone(), side), member_surface.clone());
-            class_surface.members.entry(selector).or_insert(member_surface);
+            class_surface.members.entry(selector).or_default().insert(side, member_surface);
         }
         surface.classes.insert(id, class_surface);
     }
@@ -356,8 +437,57 @@ mod tests {
         let program = parse("class Point { @constructor new() { } x { } }", 0).program;
         let surface = build_module_surface(ModuleId::new("file:///point.ph"), &program);
         let class = surface.classes.values().next().unwrap();
-        assert_eq!(class.members["new()"].side, DispatchSide::Class);
-        assert!(class.members["new()"].is_constructor);
-        assert_eq!(class.members["x"].kind, MemberKind::Getter);
+        let constructor = class.member("new()", DispatchSide::Class).unwrap();
+        assert_eq!(constructor.side, DispatchSide::Class);
+        assert!(constructor.is_constructor);
+        assert_eq!(class.member("x", DispatchSide::Instance).unwrap().kind, MemberKind::Getter);
+    }
+
+    #[test]
+    fn instance_and_class_members_with_same_selector_remain_distinct() {
+        let program = parse(
+            r#"
+class Widget {
+  make() { 1 }
+
+  @class
+  make() { 2 }
+}
+"#,
+            0,
+        )
+        .program;
+
+        let module = ModuleId::new("file:///widget.ph");
+        let surface = build_module_surface(module.clone(), &program);
+        let class = &surface.classes[&ClassId::new(module, "Widget")];
+
+        let instance = class.member("make()", DispatchSide::Instance).expect("instance make");
+        let class_side = class.member("make()", DispatchSide::Class).expect("class make");
+
+        assert_ne!(instance.callable, class_side.callable);
+        assert_eq!(class.members_on(DispatchSide::Instance).count(), 1);
+        assert_eq!(class.members_on(DispatchSide::Class).count(), 1);
+        assert_eq!(class.all_members().count(), 2);
+    }
+
+    #[test]
+    fn field_sides_preserve_same_name_storage_lanes() {
+        let program = parse("class Widget { _count\n _count\n }", 0).program;
+        let mut program = program;
+        let phalcom_ast::ast::Statement::Class(class) = &mut program.statements[0] else {
+            panic!("expected class");
+        };
+        let phalcom_ast::ast::ClassMember::Field(class_field) = &mut class.members[1] else {
+            panic!("expected field");
+        };
+        class_field.is_static = true;
+
+        let module = ModuleId::new("file:///widget-fields.ph");
+        let surface = build_module_surface(module.clone(), &program);
+        let class = &surface.classes[&ClassId::new(module, "Widget")];
+
+        assert_eq!(class.field("_count", DispatchSide::Instance).unwrap().is_class_side, false);
+        assert_eq!(class.field("_count", DispatchSide::Class).unwrap().is_class_side, true);
     }
 }

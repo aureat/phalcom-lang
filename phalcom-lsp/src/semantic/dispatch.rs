@@ -42,9 +42,7 @@ impl<'a> DispatchResolver<'a> {
     }
 
     pub(crate) fn member(&self, callable: &CallableId) -> Option<&'a MemberSurface> {
-        self.classes
-            .get(&callable.owner)
-            .and_then(|class| class.members_by_side.get(&(callable.selector.clone(), callable.side)))
+        self.classes.get(&callable.owner).and_then(|class| class.member_by_id(callable))
     }
 
     /// Reports whether a receiver class exists in this semantic surface.
@@ -70,7 +68,7 @@ impl<'a> DispatchResolver<'a> {
                 return None;
             }
             let surface = self.classes.get(&class)?;
-            if let Some(member) = surface.members_by_side.get(&(selector.to_string(), side)) {
+            if let Some(member) = surface.member(selector, side) {
                 return Some(ResolvedDispatch {
                     callable: member.callable.clone(),
                     receiver_class,
