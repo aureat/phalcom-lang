@@ -499,10 +499,10 @@ as a `Function` descendant it answers the shared call protocol in §2.10.
 
 ### 2.10 `Function` / `Block` — callables ([ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md), [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md))
 
-`Closure` (the runtime value for a Block literal), `BoundMethod`, and `Family`
-are subclasses of `Function`; the shared callable protocol is installed on
-`Function`, so every concrete Function reaches one gateway. `Closure` retains
-only its block-specific control-flow primitives.
+`Closure` (the runtime value for a Block literal), `BoundMethod`, `Family`, and
+`BoundMethodFamily` are subclasses of `Function`; the shared callable protocol
+is installed on `Function`, so every concrete Function reaches one gateway.
+`Closure` retains only its block-specific control-flow primitives.
 
 | Selector | Side | Class(es) | Native fn | Sacred? |
 |---|---|---|---|---|
@@ -518,9 +518,10 @@ only its block-specific control-flow primitives.
 `Object::Method` receiver (reading
 `signature.positional_arity`/`signature.selector` directly) and an
 `Object::BoundMethod` receiver (delegating to the wrapped method). The common
-Function gateway activates Closure, BoundMethod, and Family values directly,
-so `bound.call(***args) ≡ method.invokeOn(recv, ***args)` holds by construction
-(R-INV-3.3).
+Function gateway activates Closure, BoundMethod, Family, and BoundMethodFamily
+values directly, so `bound.call(***args) ≡ method.invokeOn(recv, ***args)` holds
+by construction (R-INV-3.3). MethodFamily remains the immutable reflection
+snapshot that BoundMethodFamily closes over.
 
 ### 2.11 `System` — I/O floor
 
@@ -657,11 +658,13 @@ inherits `message`/`raise` from `Error`.
 
 ### 2.16 `Family` — `::` method-reference Function value ([selectors.md §3](../selectors.md#3-method-references-))
 
-`Family` remains a native heap representation under `Object`. `obj::name`
-and `Type::name` create open or pinned references; their calls enter through
-the shared Function gateway, which reconstructs the selected shape and
-dispatches it directly. Family installs no `doesNotUnderstand(_)` router
-primitive.
+`Family` remains a native heap representation under `Object`. `obj::name` is
+an exact getter reference, `obj::name()` is an exact nullary-method reference,
+and ellipsis forms are structural-pattern references; unbound `Type::name`
+forms do not exist. Calls enter through the shared Function gateway: exact
+Families retain selector identity, while pattern Families match their stored
+predicate against the current method table. Family installs no
+`doesNotUnderstand(_)` router primitive.
 
 ### 2.17 `Fiber` — cooperative coroutine (U-FIBER / U-FIBER-REFLECT, [ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md))
 
