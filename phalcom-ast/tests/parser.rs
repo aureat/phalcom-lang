@@ -22,7 +22,7 @@ use phalcom_ast::{
     parse_source,
 };
 
-fn source_slice<'a>(source: &'a str, range: phalcom_common::range::SourceRange) -> &'a str {
+fn source_slice(source: &str, range: phalcom_common::range::SourceRange) -> &str {
     &source[range.start..range.end]
 }
 

@@ -1832,23 +1832,19 @@ impl<'source> Parser<'source> {
                     let name_start = self.cur_start();
                     let local_ident = self.expect_identifier(&["parameter name"])?;
                     let name_range = (name_start..self.prev_end).into();
-                    let label = Some(first_ident);
-                    let label_range = Some(label_range);
+                    let label = first_ident;
                     any_labeled = true;
-                    if labels
-                        .insert(label.clone().expect("labeled parameter has a label"), label_range.unwrap())
-                        .is_some()
-                    {
+                    if labels.insert(label.clone(), label_range).is_some() {
                         return Err(SyntaxError {
                             kind: SyntaxErrorKind::Message("duplicate parameter label in selector declaration".to_string()),
-                            range: label_range.unwrap().start..label_range.unwrap().end,
+                            range: label_range.start..label_range.end,
                         });
                     }
                     params.push(ParameterDef {
                         name: local_ident,
                         name_range,
-                        label,
-                        label_range,
+                        label: Some(label),
+                        label_range: Some(label_range),
                         rest_mode: RestMode::None,
                         range: (start..self.prev_end).into(),
                     });

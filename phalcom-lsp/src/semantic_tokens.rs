@@ -65,8 +65,7 @@ use crate::semantic::{SemanticDb, SemanticOccurrenceKind};
 /// `"selector"` is a server-defined custom token type (legal per the LSP
 /// spec — `SemanticTokensLegend.token_types` is server-declared, not
 /// restricted to the standard set) for Phalcom's `#name`/`#sel(...)` symbol
-/// literals ([`Token::NameSymbol`], [`Token::SelectorSymbol`]), which have no
-/// natural fit among the standard LSP token types.
+/// literals, which have no natural fit among the standard LSP token types.
 const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::KEYWORD,
     SemanticTokenType::VARIABLE,
@@ -98,10 +97,9 @@ enum SemanticTokenKind {
     String,
     /// A [`Token::Number`] literal.
     Number,
-    /// A `#name` or `#sel(...)` symbol literal ([`Token::NameSymbol`],
-    /// [`Token::SelectorSymbol`]), emitted as **one** token spanning the
-    /// whole literal — never split into a `#`-punctuation token plus an
-    /// identifier.
+    /// A selector/symbol prefix (`Token::Hash`) or quoted symbol, emitted as
+    /// a selector token. The parser owns selector-spec components following
+    /// the hash and gives them their own source ranges.
     Selector,
     /// A binary/unary/compound-assignment operator (`+`, `==`, `+=`, `??`,
     /// …). Structural punctuation (parens, braces, brackets, comma, dot,
@@ -198,7 +196,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
 
         Token::Int { .. } | Token::Float(_) => Some(Number),
 
-        Token::NameSymbol(_) | Token::SelectorSymbol { .. } | Token::QuotedSymbol(_) => Some(Selector),
+        Token::Hash | Token::QuotedSymbol(_) => Some(Selector),
 
         Token::Equal
         | Token::EqualEqual
@@ -605,13 +603,21 @@ mod tests {
     }
 
     #[test]
-    fn bare_name_symbol_is_one_selector_token() {
-        assert_eq!(kinds("#move"), vec![SemanticTokenKind::Selector]);
+    fn bare_name_symbol_emits_hash_and_base_tokens() {
+        assert_eq!(kinds("#move"), vec![SemanticTokenKind::Selector, SemanticTokenKind::Variable]);
     }
 
     #[test]
-    fn selector_symbol_with_labels_is_one_selector_token() {
-        assert_eq!(kinds("#move(_,to,duration)"), vec![SemanticTokenKind::Selector]);
+    fn selector_symbol_with_labels_emits_component_tokens() {
+        assert_eq!(
+            kinds("#move(_,to,duration)"),
+            vec![
+                SemanticTokenKind::Selector,
+                SemanticTokenKind::Variable,
+                SemanticTokenKind::Variable,
+                SemanticTokenKind::Variable,
+            ]
+        );
     }
 
     #[test]
