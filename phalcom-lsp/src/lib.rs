@@ -48,6 +48,7 @@ pub mod index;
 pub mod inlay_hints;
 pub mod line_index;
 pub mod perf;
+pub mod request_context;
 pub mod selectors;
 pub mod semantic;
 pub mod semantic_tokens;
