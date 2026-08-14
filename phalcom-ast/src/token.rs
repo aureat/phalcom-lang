@@ -19,8 +19,7 @@ use std::ops::Range;
 ///
 /// Produced by [`crate::lexer::Lexer`] and matched by [`crate::parser`]. The
 /// data-carrying variants ([`Token::Identifier`], [`Token::String`],
-/// [`Token::StringInterp`], [`Token::Number`], [`Token::NameSymbol`],
-/// [`Token::SelectorSymbol`], [`Token::QuotedSymbol`]) hold the already-decoded literal value; every
+/// [`Token::StringInterp`], [`Token::Number`], [`Token::QuotedSymbol`]) hold the already-decoded literal value; every
 /// other variant is a fixed keyword, operator, or punctuation mark.
 ///
 /// The [`Debug`] representation is stable and is snapshotted by the lexer tests
@@ -127,27 +126,11 @@ pub enum Token {
     /// A floating-point literal payload.
     Float(f64),
 
-    /// A bare `#name` **name symbol** (selectors.md §2) — identifies a
-    /// method-name *family*, not a complete method identity. Used for map
-    /// keys, `respondsTo`, and other reflection queries that key on a base
-    /// name. Distinct from [`Token::SelectorSymbol`], which carries a full
-    /// signature; `#move` alone (no adjacent `(`) always lexes here, never as
-    /// a zero-argument selector.
-    NameSymbol(String),
-    /// A `#`-prefixed **selector symbol** (selectors.md §2) — a complete
-    /// method identity, either a paren-list form (`#move(_,to,duration)`,
-    /// `#size()`) or a bare operator form (`#+`, `#==`). `labels[i]` is
-    /// `Some(label)` for a keyword slot and `None` for the positional
-    /// placeholder `_`; `labels.len()` is the selector's arity. R2
-    /// (positionals precede labels) is validated at lex time — an interior
-    /// positional after a label is a [`LexicalError::InvalidToken`].
-    SelectorSymbol {
-        /// The selector's base name (`"move"`, `"size"`, `"+"`, `"=="`, ...).
-        name: String,
-        /// Per-argument labels in declared order; `None` is the positional
-        /// placeholder `_`.
-        labels: Vec<Option<String>>,
-    },
+    /// The `#` selector/symbol prefix. The parser owns the selector-spec
+    /// grammar, so the lexer leaves following identifiers, slots, labels,
+    /// ellipses, accessors, and operators as ordinary tokens with their own
+    /// source ranges.
+    Hash,
     /// A double-quoted `#"..."` **quoted symbol**.
     ///
     /// Unlike [`Token::String`], quoted symbols never interpolate `\(...)`;

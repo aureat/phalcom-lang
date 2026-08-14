@@ -114,42 +114,43 @@ fn modulo_operator() {
 
 #[test]
 fn symbol_name_literal() {
-    // selectors.md §2: a bare `#name` is a `Token::NameSymbol`, not tied to
-    // any selector shape.
+    // The lexer emits the hash prefix and leaves name parsing to the parser.
     insta::assert_debug_snapshot!(tokens("#move #size #_field"));
 }
 
 #[test]
 fn symbol_selector_literal_with_whitespace() {
-    // Whitespace inside the parens is free and does not affect the parsed
-    // labels (selectors.md §2); `_` is a positional slot, a bare identifier
-    // is a label.
+    // Selector components retain ordinary token boundaries. Newline
+    // suppression after `(` still applies, while parser adjacency remains
+    // observable from the component spans.
     insta::assert_debug_snapshot!(tokens("#move(_,to,duration) #move(\n  _,\n  to,\n  duration\n) #size()"));
 }
 
 #[test]
 fn symbol_operator_selectors() {
-    // Bare operator symbols (`#+`, `#==`, ...) always lex as a one-argument
-    // `Token::SelectorSymbol` — every operator method definition takes
-    // exactly one parameter.
+    // Operator spellings are ordinary operator tokens after `Token::Hash`.
     insta::assert_debug_snapshot!(tokens("#+ #- #* #/ #% #== #!= #< #<= #> #>="));
 }
 
 #[test]
 fn symbol_adjacency_required_for_selector_form() {
-    // selectors.md §2 ASI-hazard guard: `(` must be immediately adjacent to
-    // the name to form a selector symbol. `#move (a, b)` lexes as the name
-    // symbol `#move` followed by a separate `(` token, not one greedy
-    // selector symbol.
+    // Whitespace adjacency is now visible to the parser because the lexer
+    // does not consume the selector body.
     insta::assert_debug_snapshot!(tokens("#move (a, b)"));
 }
 
 #[test]
-fn symbol_bare_hash_is_not_a_symbol() {
-    // `# move` (whitespace between `#` and the name) is not a symbol at all —
-    // the lone `#` fails to lex.
-    let items: Vec<_> = Lexer::new("# move").collect();
-    assert!(matches!(items[0], Err(phalcom_ast::token::LexicalError::InvalidToken(ref span)) if span.start == 0 && span.end == 1));
+fn symbol_bare_hash_is_standalone_token() {
+    // A hash is valid on its own; selector-shape validation belongs to the
+    // parser.
+    assert_eq!(tokens("# move"), vec![Token::Hash, Token::Identifier("move".into()), Token::Eof]);
+}
+
+#[test]
+fn selector_spec_components() {
+    insta::assert_debug_snapshot!(tokens(
+        "#name #name() #name(_) #name(foo) #name... #name(...) #name(_, ..., foo) #name=... #+ #== #{ key: value } #\"quoted\""
+    ));
 }
 
 #[test]
@@ -160,12 +161,11 @@ fn shebang_at_offset_zero_is_skipped() {
 }
 
 #[test]
-fn hash_not_at_offset_zero_is_a_symbol_not_a_shebang() {
-    // The shebang carve-out is offset-0-only: a `#!` appearing later in the
-    // source is not special-cased (`!` is not a valid symbol-name start, so
-    // this still fails to lex as a symbol — proving no shebang skip fired).
-    let items: Vec<_> = Lexer::new("let x = 1\n#!oops").collect();
-    assert!(items.iter().any(std::result::Result::is_err));
+fn hash_not_at_offset_zero_is_not_a_shebang() {
+    // The shebang carve-out is offset-0-only. Later `#!` is tokenized by the
+    // ordinary lexer as `Hash`, `Bang`, and an identifier.
+    let items = tokens("let x = 1\n#!oops");
+    assert!(items.contains(&Token::Hash));
 }
 
 #[test]

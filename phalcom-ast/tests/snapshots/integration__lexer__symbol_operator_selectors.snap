@@ -3,71 +3,27 @@ source: phalcom-ast/tests/lexer.rs
 expression: "tokens(\"#+ #- #* #/ #% #== #!= #< #<= #> #>=\")"
 ---
 [
-    SelectorSymbol {
-        name: "+",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "-",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "*",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "/",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "%",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "==",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "!=",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "<",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: "<=",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: ">",
-        labels: [
-            None,
-        ],
-    },
-    SelectorSymbol {
-        name: ">=",
-        labels: [
-            None,
-        ],
-    },
+    Hash,
+    Plus,
+    Hash,
+    Minus,
+    Hash,
+    Asterisk,
+    Hash,
+    Slash,
+    Hash,
+    Percent,
+    Hash,
+    EqualEqual,
+    Hash,
+    BangEqual,
+    Hash,
+    Less,
+    Hash,
+    LessEqual,
+    Hash,
+    Greater,
+    Hash,
+    GreaterEqual,
     Eof,
 ]

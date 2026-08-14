@@ -3,7 +3,8 @@ source: phalcom-ast/tests/lexer.rs
 expression: "tokens(\"#move (a, b)\")"
 ---
 [
-    NameSymbol(
+    Hash,
+    Identifier(
         "move",
     ),
     LParen,

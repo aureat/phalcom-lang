@@ -976,8 +976,7 @@ impl<'source> Parser<'source> {
                 | Token::Identifier(_)
                 | Token::FieldIdentifier(_)
                 | Token::ImplementationFieldIdentifier(_)
-                | Token::NameSymbol(_)
-                | Token::SelectorSymbol { .. }
+                | Token::Hash
                 | Token::SelfKw
                 | Token::Super
                 | Token::LParen
@@ -2180,8 +2179,7 @@ impl<'source> Parser<'source> {
                 | Token::Float(_)
                 | Token::String(_)
                 | Token::StringInterp(_)
-                | Token::NameSymbol(_)
-                | Token::SelectorSymbol { .. }
+                | Token::Hash
                 | Token::QuotedSymbol(_)
                 | Token::Identifier(_)
                 | Token::SelfKw
@@ -2603,15 +2601,17 @@ impl<'source> Parser<'source> {
                 //     is rebuilt from labels at call time.
                 // Uniform for both `obj::` and `Type::` — the receiver
                 // expression is whatever postfix chain preceded `::`.
-                let kind = match self.peek().clone() {
-                    Token::SelectorSymbol { name, labels } => {
-                        self.advance();
-                        MethodRefKind::Pinned { name, labels }
-                    }
-                    Token::NameSymbol(_) => {
-                        return Err(self.error_here(strs(&[
-                            "a selector form `::#name(...)` (a pinned method reference requires the full selector; use `::name` for an open reference)",
-                        ])));
+                let kind = match self.peek() {
+                    Token::Hash => {
+                        let selector = self.parse_hash_symbol()?;
+                        match selector {
+                            SymbolLiteralKind::Selector { name, labels } => MethodRefKind::Pinned { name, labels },
+                            SymbolLiteralKind::Name(_) => {
+                                return Err(self.error_here(strs(&[
+                                    "a selector form `::#name(...)` (a pinned method reference requires the full selector; use `::name` for an open reference)",
+                                ])));
+                            }
+                        }
                     }
                     _ => {
                         let selector_start = self.cur_start();
@@ -3173,18 +3173,11 @@ impl<'source> Parser<'source> {
                 self.advance();
                 self.desugar_string_interp(segments, range)
             }
-            Token::NameSymbol(name) => {
-                self.advance();
+            Token::Hash => {
+                let kind = self.parse_hash_symbol()?;
                 Ok(Expr::Symbol(Box::new(SymbolExpr {
-                    kind: SymbolLiteralKind::Name(name),
-                    range,
-                })))
-            }
-            Token::SelectorSymbol { name, labels } => {
-                self.advance();
-                Ok(Expr::Symbol(Box::new(SymbolExpr {
-                    kind: SymbolLiteralKind::Selector { name, labels },
-                    range,
+                    kind,
+                    range: (start..self.prev_end).into(),
                 })))
             }
             Token::QuotedSymbol(value) => {
@@ -3416,9 +3409,8 @@ impl<'source> Parser<'source> {
     fn product_label_start(&self) -> Option<ProductLabelStart> {
         match self.peek() {
             Token::LBracket if self.looks_like_delimited_label(&Token::LBracket, &Token::RBracket) => Some(ProductLabelStart::Computed),
-            Token::NameSymbol(_) | Token::SelectorSymbol { .. } | Token::QuotedSymbol(_) if matches!(self.peek_next(), Token::Colon) => {
-                Some(ProductLabelStart::ExplicitSymbol)
-            }
+            Token::Hash if self.hash_symbol_has_label_colon() => Some(ProductLabelStart::ExplicitSymbol),
+            Token::QuotedSymbol(_) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::ExplicitSymbol),
             Token::Identifier(name) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::BareName(name.clone())),
             Token::Identifier(name)
                 if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
@@ -3454,10 +3446,20 @@ impl<'source> Parser<'source> {
                 self.advance();
                 break;
             }
-            let slot = self.expect_identifier(&["label slot"])?;
-            if slot == "_" {
+            let positional = matches!(self.peek(), Token::Underscore);
+            let slot = if positional {
+                self.advance();
+                "_".to_string()
+            } else {
+                self.expect_identifier(&["label slot"])?
+            };
+            if positional {
                 if seen_label {
-                    return Err(self.error_here(strs(&["label slot"])));
+                    let range = self.tokens[self.pos.saturating_sub(1)].start..self.prev_end;
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::InvalidToken,
+                        range,
+                    });
                 }
                 labels.push(None);
             } else {
@@ -3480,6 +3482,109 @@ impl<'source> Parser<'source> {
         Ok(labels)
     }
 
+    /// Parses the legacy symbol AST shape from component tokens while Task 3
+    /// is still pending. The lexer deliberately exposes every selector piece
+    /// separately; this compatibility bridge keeps existing parser clients
+    /// working until the range-rich `SelectorSpec` AST replaces these fields.
+    fn parse_hash_symbol(&mut self) -> ParserResult<SymbolLiteralKind> {
+        self.expect(&Token::Hash, &["\"#\""])?;
+        let base_start = self.cur_start();
+        if self.prev_end != base_start {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::InvalidToken,
+                range: self.prev_end.saturating_sub(1)..self.prev_end,
+            });
+        }
+
+        let (name, is_operator) = match self.peek().clone() {
+            Token::Identifier(name)
+            | Token::FieldIdentifier(name)
+            | Token::ImplementationFieldIdentifier(name)
+            | Token::ImplementationSelectorIdentifier(name) => {
+                self.advance();
+                (name, false)
+            }
+            Token::Underscore => {
+                self.advance();
+                ("_".to_string(), false)
+            }
+            Token::Plus
+            | Token::Minus
+            | Token::Asterisk
+            | Token::DoubleAsterisk
+            | Token::TripleAsterisk
+            | Token::Slash
+            | Token::SlashTilde
+            | Token::Percent
+            | Token::EqualEqual
+            | Token::BangEqual
+            | Token::Less
+            | Token::LessEqual
+            | Token::Greater
+            | Token::GreaterEqual => (self.parse_property_name()?, true),
+            _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
+        };
+
+        if is_operator {
+            return Ok(SymbolLiteralKind::Selector { name, labels: vec![None] });
+        }
+
+        let adjacent_paren = matches!(self.peek(), Token::LParen) && self.prev_end == self.cur_start();
+        if adjacent_paren {
+            self.advance();
+            let labels = self.parse_selector_label_slots()?;
+            return Ok(SymbolLiteralKind::Selector { name, labels });
+        }
+        Ok(SymbolLiteralKind::Name(name))
+    }
+
+    /// Returns whether a component-token hash symbol ends immediately before
+    /// a product-label colon. This lookahead keeps `#name: value` distinct
+    /// from an ordinary hash expression followed by another token.
+    fn hash_symbol_has_label_colon(&self) -> bool {
+        if !matches!(self.peek(), Token::Hash) {
+            return false;
+        }
+        let Some(hash) = self.tokens.get(self.pos) else { return false };
+        let Some(base) = self.tokens.get(self.pos + 1) else { return false };
+        if hash.end != base.start {
+            return false;
+        }
+
+        let mut next = self.pos + 2;
+        if matches!(
+            &base.token,
+            Token::Identifier(_)
+                | Token::FieldIdentifier(_)
+                | Token::ImplementationFieldIdentifier(_)
+                | Token::ImplementationSelectorIdentifier(_)
+                | Token::Underscore
+        ) {
+            if let Some(open) = self.tokens.get(next) {
+                if matches!(open.token, Token::LParen) && base.end == open.start {
+                    let mut depth = 0usize;
+                    while let Some(lexeme) = self.tokens.get(next) {
+                        match &lexeme.token {
+                            Token::LParen => depth += 1,
+                            Token::RParen => {
+                                depth = depth.saturating_sub(1);
+                                if depth == 0 {
+                                    next += 1;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        next += 1;
+                    }
+                }
+            }
+        } else {
+            next = self.pos + 2;
+        }
+        matches!(self.tokens.get(next).map(|lexeme| &lexeme.token), Some(Token::Colon))
+    }
+
     fn parse_product_label(&mut self) -> ParserResult<Option<ProductLabel>> {
         let Some(start_kind) = self.product_label_start() else {
             return Ok(None);
@@ -3498,14 +3603,7 @@ impl<'source> Parser<'source> {
             }
             ProductLabelStart::ExplicitSymbol => {
                 let symbol = match self.peek().clone() {
-                    Token::NameSymbol(name) => {
-                        self.advance();
-                        SymbolLiteralKind::Name(name)
-                    }
-                    Token::SelectorSymbol { name, labels } => {
-                        self.advance();
-                        SymbolLiteralKind::Selector { name, labels }
-                    }
+                    Token::Hash => self.parse_hash_symbol()?,
                     Token::QuotedSymbol(value) => {
                         self.advance();
                         SymbolLiteralKind::Name(value)
