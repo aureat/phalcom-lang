@@ -1,9 +1,10 @@
 //! Progressive workspace source scanner.
 //!
 //! Implements chunked, yieldable discovery of `.ph` files under workspace roots.
-//! The scanner processes a bounded budget of directories and files per step,
-//! returning control to the worker loop between steps so that interactive
-//! (open-document) work can preempt background scanning.
+//! The scanner processes bounded budgets of directory starts, directory
+//! entries, and files per step, returning control to the worker loop between
+//! steps so that interactive (open-document) work can preempt background
+//! scanning.
 //!
 //! Exclusion rules:
 //! - Built-in: hidden directories (`.`-prefixed), `target`, `node_modules`.
@@ -143,8 +144,10 @@ fn wildcard_match(value: &str, pattern: &str) -> bool {
 /// pending work so that open-document updates preempt background scanning.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScanBudget {
-    /// Maximum number of directories to read entries from in one step.
-    pub max_dirs: usize,
+    /// Maximum number of directories to start reading in one step.
+    pub max_dirs_started: usize,
+    /// Maximum number of directory entries to consume in one step.
+    pub max_entries: usize,
     /// Maximum number of `.ph` files to collect in one step.
     pub max_files: usize,
 }
@@ -157,7 +160,11 @@ impl Default for ScanBudget {
 
 /// Conservative default: keeps interactive edit latency low while making
 /// steady scanning progress in quiet periods.
-pub const SCAN_BUDGET: ScanBudget = ScanBudget { max_dirs: 16, max_files: 32 };
+pub const SCAN_BUDGET: ScanBudget = ScanBudget {
+    max_dirs_started: 16,
+    max_entries: 256,
+    max_files: 32,
+};
 
 // ---------------------------------------------------------------------------
 // Discovered file
@@ -185,6 +192,8 @@ pub struct DiscoveredFile {
 pub struct WorkspaceScanState {
     /// Directories yet to be traversed.
     pending_dirs: Vec<PathBuf>,
+    /// Directory currently being consumed, if any.
+    active_dir: Option<std::fs::ReadDir>,
     /// `.ph` files found but not yet emitted.
     pending_files: VecDeque<PathBuf>,
     /// Workspace roots provided by the client.
@@ -205,6 +214,7 @@ impl WorkspaceScanState {
     pub fn new(mode: AnalysisMode, excluded: ExcludeMatcher) -> Self {
         Self {
             pending_dirs: Vec::new(),
+            active_dir: None,
             pending_files: VecDeque::new(),
             roots: Vec::new(),
             excluded,
@@ -215,7 +225,7 @@ impl WorkspaceScanState {
 
     /// Returns `true` if there is pending scanning work remaining.
     pub fn has_work(&self) -> bool {
-        !self.pending_dirs.is_empty() || !self.pending_files.is_empty()
+        self.active_dir.is_some() || !self.pending_dirs.is_empty() || !self.pending_files.is_empty()
     }
 
     /// Set workspace roots and reset scanner state.
@@ -225,6 +235,7 @@ impl WorkspaceScanState {
     pub fn set_roots(&mut self, roots: Vec<PathBuf>, core_physical_path: Option<PathBuf>) {
         self.roots = roots;
         self.pending_dirs.clear();
+        self.active_dir = None;
         self.pending_files.clear();
         self.core_physical_path = core_physical_path.map(|path| path.canonicalize().unwrap_or(path));
         // Seed dirs from roots.
@@ -243,39 +254,55 @@ impl WorkspaceScanState {
 
     /// Advance scanner by up to `budget` work units.
     ///
-    /// Expands pending directories (up to `budget.max_dirs`), collecting
-    /// `.ph` file entries, then emits up to `budget.max_files` files.
+    /// Starts up to `budget.max_dirs_started` directories, consumes up to
+    /// `budget.max_entries` entries, then emits up to `budget.max_files` files.
+    ///
+    /// The open directory iterator is retained between calls, so a wide
+    /// directory cannot monopolize one scanner step.
     ///
     /// Returns an empty `Vec` when [`Self::has_work`] is also `false`.
     pub fn step(&mut self, budget: ScanBudget) -> Vec<DiscoveredFile> {
-        let mut dirs_processed = 0;
+        let mut dirs_started = 0;
+        let mut entries_consumed = 0;
 
-        // Expand directories.
-        while dirs_processed < budget.max_dirs {
-            let Some(dir) = self.pending_dirs.pop() else {
-                break;
-            };
-            if self.excluded.is_excluded(&dir) {
-                dirs_processed += 1;
-                continue;
-            }
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                dirs_processed += 1;
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if !self.excluded.is_excluded(&path) {
-                        self.pending_dirs.push(path);
-                    }
-                } else if path.extension().and_then(|ext| ext.to_str()) == Some("ph") {
-                    if !self.excluded.is_excluded(&path) {
-                        self.pending_files.push_back(path);
-                    }
+        // Expand directories. Keep the current ReadDir alive when the entry
+        // budget is exhausted so the next step resumes at the same entry.
+        while entries_consumed < budget.max_entries {
+            if self.active_dir.is_none() {
+                if dirs_started >= budget.max_dirs_started {
+                    break;
                 }
+                let Some(dir) = self.pending_dirs.pop() else {
+                    break;
+                };
+                dirs_started += 1;
+                if self.excluded.is_excluded(&dir) {
+                    continue;
+                }
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                self.active_dir = Some(entries);
             }
-            dirs_processed += 1;
+
+            let next_entry = self.active_dir.as_mut().and_then(|entries| entries.next());
+            let Some(next_entry) = next_entry else {
+                self.active_dir = None;
+                continue;
+            };
+            entries_consumed += 1;
+
+            let Ok(entry) = next_entry else {
+                continue;
+            };
+            let path = entry.path();
+            if path.is_dir() {
+                if !self.excluded.is_excluded(&path) {
+                    self.pending_dirs.push(path);
+                }
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("ph") && !self.excluded.is_excluded(&path) {
+                self.pending_files.push_back(path);
+            }
         }
 
         // Emit files.
@@ -401,6 +428,41 @@ mod tests {
         let paths: std::collections::BTreeSet<_> = all.iter().map(|f| f.path.clone()).collect();
         assert!(!paths.contains(&core_path), "core.ph should be skipped from ordinary scan");
         assert!(paths.contains(&other_path), "other.ph should be discovered");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn scanner_bounds_wide_directory_entries_and_finishes_later() {
+        let root = tmpdir("wide_directory");
+        let file_count = 2_048;
+        for index in 0..file_count {
+            fs::write(root.join(format!("file_{index:04}.ph")), "").unwrap();
+        }
+
+        let mut scanner = WorkspaceScanState::new(AnalysisMode::Local, ExcludeMatcher::new(&[]));
+        scanner.set_roots(vec![root.clone()], None);
+        let budget = ScanBudget {
+            max_dirs_started: 1,
+            max_entries: 16,
+            max_files: 8,
+        };
+
+        let first = scanner.step(budget);
+        assert_eq!(first.len(), budget.max_files);
+        assert!(first.len() + scanner.pending_files.len() <= budget.max_entries);
+        assert!(scanner.has_work(), "wide directory must remain resumable");
+
+        let mut discovered = first;
+        let mut steps = 0;
+        while scanner.has_work() {
+            discovered.extend(scanner.step(budget));
+            steps += 1;
+            assert!(steps <= file_count, "scanner failed to make progress");
+        }
+
+        let paths: std::collections::BTreeSet<_> = discovered.into_iter().map(|file| file.path).collect();
+        assert_eq!(paths.len(), file_count);
 
         let _ = fs::remove_dir_all(&root);
     }
