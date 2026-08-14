@@ -63,7 +63,14 @@ fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
     let mut vm = VM::new();
     let object_class = vm.universe.classes.object_class;
     let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(phalcom_core::heap::SelectorPatternObject {
-        pattern: SelectorPattern::named("name", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+        pattern: SelectorPattern::named(
+            "name",
+            SelectorKindPattern::AnyNamed,
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            true,
+        )
+        .expect("valid pattern"),
     })));
 
     let first = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
@@ -101,7 +108,14 @@ fn method_family_bind_captures_receiver_without_live_selection() {
     let mut vm = VM::new();
     let object_class = vm.universe.classes.object_class;
     let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(phalcom_core::heap::SelectorPatternObject {
-        pattern: SelectorPattern::named("name", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+        pattern: SelectorPattern::named(
+            "name",
+            SelectorKindPattern::AnyNamed,
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            true,
+        )
+        .expect("valid pattern"),
     })));
     let family = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
     let bound = method_family_bind(&mut vm, &family, &[Value::Int(42)]).expect("family binding");
@@ -150,7 +164,7 @@ fn captured_method_rejects_foreign_field_layout_before_slot_access() {
     let bound = method_bind(&mut vm, &method, &[target]).expect("foreign receiver should bind");
     let result = block_call(&mut vm, &bound, &[]);
     assert!(
-        matches!(result, Err(PhError::Runtime(RuntimeError::IncompatibleMethodLayout { selector, .. })) if selector == "read"),
+        matches!(&result, Err(PhError::Runtime(RuntimeError::IncompatibleMethodLayout { selector, .. })) if selector == "read"),
         "foreign field access should fail with layout error, got {result:?}"
     );
 }
@@ -207,7 +221,14 @@ fn method_family_reflection_exposes_snapshot_routes_without_allocation_access() 
     let mut vm = VM::new();
     let object_class = vm.universe.classes.object_class;
     let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
-        pattern: SelectorPattern::named("name", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+        pattern: SelectorPattern::named(
+            "name",
+            SelectorKindPattern::AnyNamed,
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            true,
+        )
+        .expect("valid pattern"),
     })));
     let family = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
 
@@ -247,7 +268,14 @@ fn method_family_and_bound_receiver_are_gc_edges() {
     let object_class = vm.universe.classes.object_class;
     let selector = vm.get_or_intern("captured");
     let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
-        pattern: SelectorPattern::named("captured", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+        pattern: SelectorPattern::named(
+            "captured",
+            SelectorKindPattern::AnyNamed,
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            true,
+        )
+        .expect("valid pattern"),
     })));
     let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
         selector,

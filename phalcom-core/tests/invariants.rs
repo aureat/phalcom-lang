@@ -695,8 +695,9 @@ fn floor_census_matches_installed_bindings() {
     // an ordinary send over the module's own globals table; the only way to
     // reach it from a message send (floor-census.md §2.12).
     // U16-Open's former Family dNU router (ADR-0047) is superseded by the
-    // shared shape-aware Function gateway. Family now contributes no native
-    // floor binding; its call activation rebuilds the target selector directly.
+    // shared shape-aware Function gateway. Family's six reflective protocol
+    // bindings remain native; its call activation rebuilds the target selector
+    // directly.
     // U-SCHED (floor-census.md amendment, ADR-0030 §Consequences): the
     // native ready-queue scheduler seam admits **+2** bindings (113 -> 115):
     // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
@@ -785,6 +786,7 @@ fn floor_census_matches_installed_bindings() {
         (c.behavior_class, false, "superclass=(put)"),
         (c.behavior_class, false, "name"),    // NEW (ADR-0023)
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
+        (c.behavior_class, false, ">>(_)"),   // selector-pattern reflection
         // §2.3 Class
         (c.class_class, false, "+(_)"),
         (c.class_class, false, "_$new()"),
@@ -845,6 +847,13 @@ fn floor_census_matches_installed_bindings() {
         (c.method_family_class, false, "size"),
         (c.method_family_class, false, "methodFor(_)"),
         (c.method_family_class, false, "bind(_)"),
+        // §2.10 Family
+        (c.family_class, false, "receiver"),
+        (c.family_class, false, "selector"),
+        (c.family_class, false, "pattern"),
+        (c.family_class, false, "isExact"),
+        (c.family_class, false, "get()"),
+        (c.family_class, false, "set(_)"),
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
@@ -1016,8 +1025,12 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(expected.len(), 154, "census must enumerate exactly 154 bindings after MethodFamily reflection");
-    assert_eq!(live.len(), 154, "the live floor must be exactly 154 bindings");
+    assert_eq!(
+        expected.len(),
+        161,
+        "census must enumerate exactly 161 bindings after Family and MethodFamily reflection"
+    );
+    assert_eq!(live.len(), 161, "the live floor must be exactly 161 bindings");
 }
 
 #[test]
@@ -1422,7 +1435,7 @@ fn bind_allows_foreign_receiver_for_representation_independent_method() {
     let selector = vm.get_or_intern("greet(_)");
     let method = object_method_for(&mut vm, &g, &[Value::Symbol(selector)]).expect("methodFor should return Greeter#greet(_)");
     let bound = method_bind(&mut vm, &method, &[Value::Int(3)]).expect("foreign receiver should bind");
-    let result = block_call(&mut vm, &bound, &[]).expect("representation-independent method should activate");
+    let result = block_call(&mut vm, &bound, &[Value::Int(3)]).expect("representation-independent method should activate");
     assert_eq!(result, Value::Int(3));
 }
 
