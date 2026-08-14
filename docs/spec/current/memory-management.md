@@ -124,7 +124,9 @@ Tracing visits, per `Object` variant, every handle and every `Value` it stores.
 | **Record** | each `values` `Value` | labels are interned Symbols, not heap edges |
 | **PackBuilder** (private compiler/VM object) | each positional and labeled `Value` | labels are interned Symbols, not heap edges |
 | **Range** | `start`, `end` | `inclusive: bool` |
-| **Family** | `recv` | `selector: Symbol`, `open: bool` |
+| **Family** | `receiver`; pattern `spec` handle when present | exact `spec` Symbol or `FamilySpec` discriminant |
+| **MethodFamily** | `source_behavior`, `pattern`, each exact-method handle, each rest-method handle | selector Symbols and ordering metadata |
+| **BoundMethodFamily** | `family`, `receiver` | — |
 | **LargeInt** | **none** — arbitrary-precision integer only | the integer contains no Phalcom handle |
 | **RecordLiteralBuilder** (private compiler/VM object) | each entry `value` | entry labels are interned Symbols, not heap edges |
 

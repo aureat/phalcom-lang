@@ -185,9 +185,9 @@ supplied receiver. [Method](method.md#4-exact-invocation) and
 
 Similarly, a BoundMethod stores an exact Method and receiver, whereas an exact
 Family stores a selector and receiver and a pattern Family stores an immutable
-MethodFamily route snapshot. Exact lookup or captured-route selection returns
-to ordinary activation after its routing step. Family construction itself
-never probes receiver behavior.
+structural predicate with its receiver. Exact lookup or live pattern routing
+returns to ordinary activation after its routing step. Family construction
+itself never probes receiver behavior.
 
 ## 7. `super` is a different send origin
 

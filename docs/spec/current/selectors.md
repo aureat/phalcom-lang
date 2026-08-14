@@ -180,22 +180,23 @@ not a dispatch key, and does not reorder labels or invent positional slots.
 ### Call and mutation laws
 
 At call time an exact Family derives the selector from its stored identity,
-while a pattern Family selects from its captured effective exact and rest
-routes. The selected Method is then activated exactly; the bound receiver does
-not participate in route selection.
+while a pattern Family derives a candidate selector from its predicate and
+incoming shape. The selected Method is then activated through current
+ordinary dispatch; the bound receiver does not participate in route selection.
 
     let family = object::#render(_)
     // Replacing object/render(_) after this line changes the next family call.
     family(value)
 
     let family = object::render(...)
-    // Adding/removing matching methods after capture does not change the snapshot.
+    // Adding/replacing matching methods after construction affects the next call.
     family(value)
 
-A pattern Family omits inaccessible routes for the initiating caller. Its
-captured route set is immutable; `MethodFamily#selectors`, `size`, and
-`methodFor(_)` expose only that snapshot. A missing route reaches ordinary
-`doesNotUnderstand(_)` at call time. No empty-family reference-time error exists.
+A pattern Family applies the current caller's access authority during ordinary
+dispatch. `MethodFamily#selectors`, `size`, and `methodFor(_)` belong to the
+separate immutable snapshot returned by `Behavior#>>(pattern)`; a missing
+Family route reaches ordinary `doesNotUnderstand(_)` at call time. No
+empty-family reference-time error exists.
 
 The old `MethodRefKind::Open`/`Pinned` split, `::#selector` pinned-only
 interpretation, string-punctuation heuristic, and empty-family construction
@@ -349,7 +350,7 @@ Explicitly **rejected**: JS-style `#field` privates (would give `#` two meanings
 | --- | --- |
 | Interned selector Symbols | Canonical exact identity, ordered positional/labeled slots, and selector kind. |
 | `MakeFamily` | Stores the evaluated receiver plus exact Symbol or immutable SelectorPattern specification. |
-| Family call gateway | Derives exact shape or searches captured MethodFamily routes, then activates the selected Method directly. |
+| Family call gateway | Derives exact shape or matches a live structural predicate, then activates the selected Method directly. |
 | MethodFamily | Immutable exact map plus captured compatible rest chain; inaccessible routes are omitted during capture. |
 | Compiler specialization | Only immediately-called, exact, statically shape-matched MethodRefs may lower to an ordinary direct send. |
 | Old Open/Pinned and empty-family rules | Retired; they are not compatibility semantics. |

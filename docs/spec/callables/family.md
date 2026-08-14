@@ -38,33 +38,35 @@ The Family did not capture a Method; it captured selector identity.
 
 ## 3. Pattern Family calls
 
-Pattern Families capture an immutable MethodFamily snapshot at construction:
+Pattern Families retain an immutable structural predicate and the receiver:
 
-    exact_methods: effective exact selector -> Method
-    rest_candidates: captured compatible rest Methods in hierarchy order
+    receiver: bound target
+    pattern: SelectorPattern
 
-Capture walks the receiver behavior hierarchy once. It applies the initiating
-caller's access authority and omits inaccessible matching routes. It does not
-invoke the receiver, probe a selector, allocate a Message, or call
-doesNotUnderstand. A later method-table mutation does not change the snapshot.
+The predicate is created at reference construction, but method lookup remains
+live. At each call the incoming shape is normalized, matched against the
+predicate, and dispatched through the current method table on the stored
+receiver. Construction does not invoke the receiver, probe a selector,
+allocate a Message, or call `doesNotUnderstand`.
 
-At call time the incoming shape is matched against the captured routes. Named
-AnyNamed patterns consider getter, setter, and method forms; exact getter and
-setter forms retain their own zero- and one-value shapes. Subscript patterns
-retain their index labels and assigned-value lane. The chosen captured Method
-is activated exactly on the stored receiver.
+Named AnyNamed patterns consider getter, setter, and method forms; exact getter
+and setter forms retain their own zero- and one-value shapes. Subscript
+patterns retain their index labels and assigned-value lane. Replacing or
+adding a matching method after Family construction is visible to the next
+call.
 
     let family = object::render(...)
     family(value)
 
-Adding or replacing matching methods after the second line does not change the
-captured route set. A call with no captured route reaches ordinary
-doesNotUnderstand at the target call boundary.
+Adding or replacing matching methods after the second line changes the target
+selected by the next call. A call with no matching route reaches ordinary
+`doesNotUnderstand` at the target call boundary.
 
 ## 4. Function and reflection surface
 
-Family participates in the shared Function call gateway. MethodFamily is the
-immutable reflection payload for a pattern Family and exposes:
+Family participates in the shared Function call gateway. MethodFamily is a
+separate immutable reflection payload returned by `Behavior#>>` for a pattern
+and exposes:
 
     family.selectors
     family.size
@@ -80,11 +82,12 @@ it does not inspect receiver behavior or re-capture routes.
 
     Family construction
         -> immutable receiver + selector specification
-        -> exact lookup or captured-route selection at call
+        -> exact lookup or live pattern selection at call
         -> exact Method activation
 
-The stored receiver affects only target layout and dynamic self inside the
-selected body. It never changes a pattern's route set. Ordinary sends inside
+The structural predicate remains immutable. The stored receiver determines the
+current method table, target layout, and dynamic self inside the selected body,
+so method-table changes can change the selected route. Ordinary sends inside
 the body remain dynamically dispatched on that receiver. Lexical super keeps
 the selected Method's defining holder.
 

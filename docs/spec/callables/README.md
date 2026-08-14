@@ -31,7 +31,9 @@ The class chapters are deliberately separate:
 | Complete VM-backed callable root | [Function](function.md) |
 | Lexically captured executable value | [Closure](closure.md) |
 | Exact Method paired with a receiver | [BoundMethod](bound-method.md) |
-| Bound `::` late-dispatch reference | [Family](family.md) |
+| Bound exact/pattern `::` reference | [Family](family.md) |
+| Immutable reflection route snapshot | [Reflection](reflection.md) |
+| Snapshot route plus receiver | [Reflection](reflection.md) |
 
 ## Normative vocabulary
 
@@ -43,8 +45,10 @@ lexical captures. A **Method** is reified holder-owned behavior requiring an
 explicit receiver. A **BoundMethod** is an exact Method paired with a captured
 receiver. A **Function** is a sealed abstract VM-backed callable
 whose remaining runtime inputs are only explicitly supplied call arguments. A
-**Family** is a bound `::` method-family reference that performs lookup when
-called.
+**Family** is a bound `::` exact-selector or structural-pattern reference
+that performs lookup when called. A **MethodFamily** is an immutable reflection
+snapshot of matching Methods. A **BoundMethodFamily** is a MethodFamily
+snapshot paired with a receiver and is a Function descendant.
 
 `()` is Unit: successful completion with no payload and the empty product.
 `None` is absence. They are different values with different meanings.
@@ -54,17 +58,20 @@ called.
 ```text
 Object
 ├── Method                         sealed/final core class
+├── MethodFamily                   immutable reflection snapshot
 └── Function                       abstract, sealed core class
     ├── Closure                    sealed/final
     ├── BoundMethod                sealed/final
-    └── Family                     sealed/final
+    ├── Family                     sealed/final
+    └── BoundMethodFamily           sealed/final
 ```
 
-`Method` is deliberately outside `Function`. It carries exact behavior but is
-not complete: a receiver must still be supplied. `Closure` captures its own
-lexical environment, `BoundMethod` already stores a receiver, and `Family`
-already stores reference context; each therefore needs only explicit call
-arguments and is a Function.
+`Method` and `MethodFamily` are deliberately outside `Function`. `Method`
+carries exact behavior but is not complete: a receiver must still be supplied.
+`MethodFamily` is a reflection snapshot and becomes callable only after
+`bind(_)`. `Closure` captures its own lexical environment, `BoundMethod`
+already stores a receiver, and `Family` already stores reference context; each
+therefore needs only explicit call arguments and is a Function.
 
 The sealed hierarchy is not the whole callable universe. Any ordinary object
 may define a method named `call` and then participate in application syntax.

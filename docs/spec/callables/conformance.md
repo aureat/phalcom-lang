@@ -57,7 +57,8 @@ Family       → direct selector routing, then ordinary target dispatch
 - Closure positional rest captures `()` for zero residual values and Tuple for one or more.
 - BoundMethod must not clone its Method or synthesize a Closure wrapper.
 - Exact Family routing retains selector identity and validates supplied shape.
-- Pattern Family routing uses its immutable captured exact/rest route snapshot.
+- Pattern Family routing uses its immutable structural predicate and the
+  receiver's current exact/rest method table.
 
 ## 5. Frame, authority, and control-flow invariants
 
@@ -82,7 +83,7 @@ Changes to callable code should retain focused coverage in these lanes:
 | Closure | literal forms, captures, local return, positional rest Unit/Tuple capture, label rejection |
 | Method | arbitrary receiver, field representation guard, exact invocation, `super`, visibility |
 | BoundMethod | capture, exact stored Method execution, field guard, no rebinding surface |
-| Family | exact/pattern references, captured routes, mutation, labels, direct routing |
+| Family | exact/pattern references, live routing, mutation, labels, direct routing |
 | forwarding | `callWith`, `perform`, `invokeOn`, flat frame entry, authority preservation |
 | values | final expression, Unit versus None, bare return, constructor return restriction |
 

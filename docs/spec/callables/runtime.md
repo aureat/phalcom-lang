@@ -205,11 +205,11 @@ allocating a rest product when a native implementation does not need one.
 
 ## 9. Family routing is direct
 
-Family activation already has the caller's shape. An open Family derives a
-selector from its stored base name plus that shape. A pinned Family retains its
-stored selector after validating the supplied total arity. The VM replaces the
-window's Family receiver with the stored target receiver and calls shaped
-ordinary dispatch.
+Family activation already has the caller's shape. An exact Family retains its
+stored selector after validating the supplied shape. A pattern Family derives
+a selector from its stored predicate plus that shape, then uses shaped
+ordinary dispatch against the current method table. The VM replaces the
+window's Family receiver with the stored target receiver.
 
 No deliberate `doesNotUnderstand` round trip is needed to recover the original
 labels. [Family](family.md) describes the public distinction and
