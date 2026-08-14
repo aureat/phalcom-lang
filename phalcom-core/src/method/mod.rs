@@ -10,6 +10,7 @@ mod object;
 pub use object::{ArgumentView, CallOutcome, LegacyPrimitiveFn, MethodKind, MethodObject, PrimitiveFn};
 
 use crate::interner::Symbol;
+use phalcom_common::selector as common_selector;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemberVisibility {
@@ -132,27 +133,22 @@ impl Signature {
 /// `comma_form_slots` every keyword method uses, just bracket- rather than
 /// paren-delimited and with no leading name.
 pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKind) -> String {
-    match kind {
-        SignatureKind::Method(0) => format!("{name}()"),
-        SignatureKind::Method(_) => format!("{name}({})", comma_form_slots(labels)),
-        SignatureKind::Getter => name.to_string(),
-        SignatureKind::Setter => format!("{name}=(put)"),
-        SignatureKind::SubscriptGet(_) => format!("[{}]", comma_form_slots(labels)),
-        SignatureKind::SubscriptSet(_) => format!("[{}]=(put)", comma_form_slots(labels)),
-    }
-}
-
-/// Joins `labels` into a comma-form slot list: `_` for a positional
-/// argument, the label text for a keyword argument.
-fn comma_form_slots(labels: &[Option<String>]) -> String {
-    labels
+    let common_kind = common_kind(kind);
+    let slots = labels
         .iter()
         .map(|label| match label {
-            None => "_".to_string(),
-            Some(text) => encode_label_component(text),
+            None => common_selector::SelectorSlot::Positional,
+            Some(text) => common_selector::SelectorSlot::Label(text.clone()),
         })
         .collect::<Vec<_>>()
-        .join(",")
+        .into_boxed_slice();
+    common_selector::Selector::new(common_base(kind, name), common_kind, slots.clone())
+        .unwrap_or(common_selector::Selector {
+            base: common_base(kind, name),
+            kind: common_kind,
+            slots,
+        })
+        .encode()
 }
 
 /// Encodes a Symbol label for safe embedding in comma-form selector slots.
@@ -161,50 +157,13 @@ fn comma_form_slots(labels: &[Option<String>]) -> String {
 /// that could be mistaken for slot markers or delimiters are `~` + lowercase
 /// hexadecimal bytes, while legacy self-delimiting labels remain readable.
 pub fn encode_label_component(symbol_text: &str) -> String {
-    let reserved = matches!(symbol_text, "_" | "*" | "**" | "***");
-    let safe = !symbol_text.is_empty()
-        && !symbol_text.starts_with('~')
-        && !reserved
-        && symbol_text.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
-                || matches!(
-                    byte,
-                    b'_' | b'?' | b'!' | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'&' | b'|' | b'^' | b'~' | b'%'
-                )
-        });
-    if safe {
-        symbol_text.to_string()
-    } else {
-        let mut encoded = String::with_capacity(1 + symbol_text.len() * 2);
-        encoded.push('~');
-        for byte in symbol_text.bytes() {
-            use std::fmt::Write;
-            write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
-        }
-        encoded
-    }
+    common_selector::encode_label_component(symbol_text)
 }
 
 /// Decodes an escaped selector-label component. Malformed components remain
 /// raw, keeping selector reflection total for arbitrary user Symbols.
 pub fn decode_label_component(component: &str) -> String {
-    let Some(hex) = component.strip_prefix('~') else {
-        return component.to_string();
-    };
-    if hex.is_empty() || hex.len() % 2 != 0 {
-        return component.to_string();
-    }
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for pair in hex.as_bytes().chunks_exact(2) {
-        let Some(high) = (pair[0] as char).to_digit(16) else {
-            return component.to_string();
-        };
-        let Some(low) = (pair[1] as char).to_digit(16) else {
-            return component.to_string();
-        };
-        bytes.push((high * 16 + low) as u8);
-    }
-    String::from_utf8(bytes).unwrap_or_else(|_| component.to_string())
+    common_selector::decode_label_component(component)
 }
 
 /// Decomposes an encoded selector string back into `(name, labels, kind)` —
@@ -233,76 +192,52 @@ pub fn decode_label_component(component: &str) -> String {
 /// subscripts).
 ///
 pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, SignatureKind) {
-    // Subscript forms start with `[` and end with `]`
-    if let Some(rest) = selector.strip_prefix('[') {
-        if let Some(inner) = rest.strip_suffix("]=(put)") {
-            let labels = parse_labels(inner);
-            let n = labels.len() as u8;
-            return ("[]=".to_string(), labels, SignatureKind::SubscriptSet(n));
-        }
-        if let Some(inner) = rest.strip_suffix(']') {
-            let labels = parse_labels(inner);
-            let n = labels.len() as u8;
-            return ("[]".to_string(), labels, SignatureKind::SubscriptGet(n));
-        }
-        // Malformed subscript-like string: fall through to the getter default.
-    }
-
-    // Argumentful forms contain a `(`; everything else is a bare getter.
-    let Some(open) = selector.find('(') else {
-        return (selector.to_string(), Vec::new(), SignatureKind::Getter);
+    let decoded = common_selector::Selector::decode(selector);
+    let name = match &decoded.base {
+        common_selector::SelectorBase::Named(name) => name.clone(),
+        common_selector::SelectorBase::Subscript => match decoded.kind {
+            common_selector::SelectorKind::SubscriptSet => "[]=".to_string(),
+            _ => "[]".to_string(),
+        },
     };
-
-    if !selector.ends_with(')') || open + 1 > selector.len() - 1 {
-        return (selector.to_string(), Vec::new(), SignatureKind::Getter);
-    }
-    let head = &selector[..open];
-    let inner = &selector[open + 1..selector.len() - 1];
-
-    // Setter: canonical `name=(put)`.
-    if inner == "put" {
-        if let Some(name) = head.strip_suffix('=') {
-            if is_identifier(name) {
-                return (name.to_string(), vec![Some("put".to_string())], SignatureKind::Setter);
-            }
-        }
-    }
-
-    // Historical `init ` prefixes are accepted on input for generated hidden
-    // initializer selectors, but carry no distinct runtime signature kind.
-    let name = head.strip_prefix("init ").unwrap_or(head).to_string();
-
-    let labels = parse_labels(inner);
-    let arity = labels.len() as u8;
-    (name, labels, SignatureKind::Method(arity))
-}
-
-/// Parses a method/initializer paren body (`"to,duration"`, `"_,_"`, `""`)
-/// into its per-argument labels: `Some(label)` for a keyword, `None` for the
-/// positional placeholder `_`.
-fn parse_labels(inner: &str) -> Vec<Option<String>> {
-    if inner.is_empty() {
-        return Vec::new();
-    }
-    inner
-        .split(',')
-        .map(|token| match token {
-            "_" | "*" | "**" | "***" => None,
-            _ => Some(decode_label_component(token)),
+    let labels = decoded
+        .slots
+        .iter()
+        .map(|slot| match slot {
+            common_selector::SelectorSlot::Positional => None,
+            common_selector::SelectorSlot::Label(label) => Some(label.clone()),
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let kind = match decoded.kind {
+        common_selector::SelectorKind::Getter => SignatureKind::Getter,
+        common_selector::SelectorKind::Setter => SignatureKind::Setter,
+        common_selector::SelectorKind::Method => SignatureKind::Method(u8::try_from(decoded.slots.len()).unwrap_or(u8::MAX)),
+        common_selector::SelectorKind::SubscriptGet => SignatureKind::SubscriptGet(u8::try_from(decoded.slots.len()).unwrap_or(u8::MAX)),
+        common_selector::SelectorKind::SubscriptSet => SignatureKind::SubscriptSet(u8::try_from(decoded.slots.len()).unwrap_or(u8::MAX)),
+    };
+    let labels = if matches!(kind, SignatureKind::Setter) {
+        vec![Some("put".to_string())]
+    } else {
+        labels
+    };
+    (name, labels, kind)
 }
 
-/// Returns whether `s` is a non-empty Phalcom identifier (leading letter or
-/// `_`, then letters/digits/`_`), used to tell a setter from an operator
-/// selector during [`decode_selector`].
-fn is_identifier(s: &str) -> bool {
-    let mut chars = s.chars();
-    match chars.next() {
-        Some(c) if c.is_alphabetic() || c == '_' => {}
-        _ => return false,
+fn common_base(kind: SignatureKind, name: &str) -> common_selector::SelectorBase {
+    match kind {
+        SignatureKind::SubscriptGet(_) | SignatureKind::SubscriptSet(_) => common_selector::SelectorBase::Subscript,
+        SignatureKind::Method(_) | SignatureKind::Getter | SignatureKind::Setter => common_selector::SelectorBase::Named(name.to_string()),
     }
-    chars.all(|c| c.is_alphanumeric() || c == '_')
+}
+
+fn common_kind(kind: SignatureKind) -> common_selector::SelectorKind {
+    match kind {
+        SignatureKind::Method(_) => common_selector::SelectorKind::Method,
+        SignatureKind::Getter => common_selector::SelectorKind::Getter,
+        SignatureKind::Setter => common_selector::SelectorKind::Setter,
+        SignatureKind::SubscriptGet(_) => common_selector::SelectorKind::SubscriptGet,
+        SignatureKind::SubscriptSet(_) => common_selector::SelectorKind::SubscriptSet,
+    }
 }
 
 /// Turns a base `name` plus a [`SignatureKind`] into its textual signature.

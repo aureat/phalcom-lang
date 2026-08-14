@@ -20,3 +20,4 @@
 //! reference type lives in this crate anymore.
 
 pub mod range;
+pub mod selector;
