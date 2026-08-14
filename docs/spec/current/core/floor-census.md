@@ -209,7 +209,7 @@ row, not the count, is what makes the freeze real.
 > not a bound selector; it adds nothing to either count. R-INV-0.1 audits this
 > set.
 >
-> **U16-Open amendment — superseded by Task Set 3.** The former Family call
+> **Former U16 Family amendment — superseded by Task Set 3.** The former Family call
 > router was removed. Family calls now enter through the shared Function
 > gateway, which rebuilds and dispatches the selected shape directly; no
 > Family floor binding remains.
@@ -217,7 +217,7 @@ row, not the count, is what makes the freeze real.
 > ---
 >
 > _The five banners below were **written 2026-07-15** (DEFERRED #34), long after their
-> amendments landed. The chain above stopped at U16-Open/113 while the code went to 125;
+> amendments landed. The chain above stopped at the former Family amendment/113 while the code went to 125;
 > §1.1 stayed consistent with the chain, which is exactly why it never looked wrong. All
 > five are reconstructed from the test's constants and the install site — see §1.3._
 >
@@ -288,7 +288,7 @@ row, not the count, is what makes the freeze real.
 > bindings / distinct fns / floor-carrying classes / sacred selectors) are the current
 > **audited** floor (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
 > post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
-> **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-U16-Open,
+> **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-former Family amendment,
 > **112 / 97 / 21 / 7** post-U15, **111 / 96 / 21 / 7** post-U-ERR,
 > **109 / 94 / 21 / 7** post-U-COLLTYPES-Phase-3, **105 / 90 / 20 / 7** post-Phase-2,
 > **102 / 87 / 19 / 7** post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6; and
@@ -306,7 +306,7 @@ row, not the count, is what makes the freeze real.
 > +2 (86 → 88, ADR-0037), U-COLLTYPES Phase 1 added +14 (88 → 102, ADR-0039),
 > U-COLLTYPES Phase 2 added +3 (102 → 105, ADR-0039), U-COLLTYPES Phase 3
 > added +4 (105 → 109, ADR-0039), U-ERR added +2 (109 → 111, ADR-0038),
-> U15 added +1 (111 → 112, ADR-0045), U16-Open added +1 (112 → 113, ADR-0047),
+> U15 added +1 (111 → 112, ADR-0045), the former Family amendment added +1 (112 → 113, ADR-0047),
 > U-SCHED added +2 (113 → 115, ADR-0030), U-ANNOT-CONTRACTS added +2
 > (115 → 117, ADR-0052), M-ATTR-ROOT added +3 (117 → 120, no ADR), U-GC added
 > +1 (120 → 121, ADR-0050), and U-STRING added +4 (121 → 125, ADR-0049)**. **U-FIBER
@@ -660,8 +660,8 @@ inherits `message`/`raise` from `Error`.
 
 `Family` remains a native heap representation under `Object`. `obj::name` is
 an exact getter reference, `obj::name()` is an exact nullary-method reference,
-and ellipsis forms are structural-pattern references; unbound `Type::name`
-forms do not exist. Calls enter through the shared Function gateway: exact
+and ellipsis forms are structural-pattern references; unbound type-qualified
+references do not exist. Calls enter through the shared Function gateway: exact
 Families retain selector identity, while pattern Families match their stored
 predicate against the current method table. Family installs no
 `doesNotUnderstand(_)` router primitive.
@@ -813,7 +813,7 @@ user code by construction.
 
 Because the floor is frozen (ADR-0019), this census is a **contract**:
 
-1. **To add/remove a primitive** — open an ADR amending 0019, justify why the
+1. **To add/remove a primitive** — create an ADR amending 0019, justify why the
    capability fails the §1 derivability test, then update this file in the same
    change.
 2. **Audit hook (R-INV-0.1, landed U-CORE-1):**
