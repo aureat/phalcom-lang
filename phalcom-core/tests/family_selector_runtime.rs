@@ -55,6 +55,27 @@ fn make_family_compiles_pattern_object_without_punctuation_heuristic() {
 }
 
 #[test]
+fn immediately_called_exact_method_ref_uses_direct_send_shape() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "<family-specialization>");
+    let closure = vm
+        .compile_closure(module, "let result = 1::future(_)(2)\n")
+        .expect("immediate exact MethodRef compiles");
+    let selector = vm.get_or_intern("future(_)");
+    let chunk = &vm.heap.closure(closure).callable.chunk;
+    assert!(
+        !chunk.code.iter().any(|opcode| matches!(opcode, Bytecode::MakeFamily { .. })),
+        "specialized call must not allocate Family"
+    );
+    assert!(chunk.code.iter().any(|opcode| {
+        let Bytecode::Invoke(1, selector_idx) = opcode else {
+            return false;
+        };
+        matches!(chunk.constants[*selector_idx as usize], Value::Symbol(symbol) if symbol == selector)
+    }));
+}
+
+#[test]
 fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
     fn replacement(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> phalcom_core::error::PhResult<Value> {
         Ok(Value::Int(9))
