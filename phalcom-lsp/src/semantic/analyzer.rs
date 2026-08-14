@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use phalcom_ast::ast::{
-    BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralEntry, SetLiteralEntry,
-    SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
+    BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralEntry,
+    SelectorPatternSyntax, SetLiteralEntry, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 
 use super::NativeReturnShape;
@@ -555,6 +555,10 @@ fn product_label(label: &ProductLabel) -> String {
         }
         | ProductLabel::Static {
             symbol: SymbolLiteralKind::Selector { name, .. },
+            ..
+        }
+        | ProductLabel::Static {
+            symbol: SymbolLiteralKind::Pattern(SelectorPatternSyntax { base: name, .. }),
             ..
         } => name.clone(),
         ProductLabel::Computed { .. } => "?".to_string(),

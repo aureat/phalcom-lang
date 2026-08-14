@@ -8,6 +8,7 @@
 //! (see [`crate::parser`]).
 
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::{Selector, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
 
 #[derive(Debug, Default)]
 pub struct Module {
@@ -925,13 +926,89 @@ pub struct GetPropertyExpr {
 pub struct MethodRefExpr {
     /// The expression evaluated to produce the family's bound receiver.
     pub receiver: Expr,
-    /// Which of the two reference shapes this is — Open (`::name`) or
-    /// Pinned (`::#sel(...)`). See [`MethodRefKind`].
+    /// The exact selector or structural pattern written after `::`.
+    pub spec: SelectorSpecSyntax,
+    /// Compatibility view retained for existing semantic consumers while
+    /// they migrate to [`Self::spec`].
     pub kind: MethodRefKind,
     /// The written selector portion after `::`, if present.
     pub selector_range: Option<SourceRange>,
     /// The source span from the start of `receiver` through the name/selector.
     pub range: SourceRange,
+}
+
+/// Source-oriented selector specification. Unlike the runtime selector model,
+/// this keeps component ranges so diagnostics and editor features can point at
+/// the base, slots, labels, and gap independently.
+#[derive(Debug, Clone)]
+pub enum SelectorSpecSyntax {
+    Exact(ExactSelectorSyntax),
+    Pattern(SelectorPatternSyntax),
+}
+
+#[derive(Debug, Clone)]
+pub struct ExactSelectorSyntax {
+    pub base: String,
+    pub kind: SelectorKind,
+    pub slots: Vec<SelectorSlotSyntax>,
+    pub base_range: SourceRange,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectorPatternSyntax {
+    pub base: String,
+    pub kind: SelectorKindPattern,
+    pub prefix: Vec<SelectorSlotSyntax>,
+    pub suffix: Vec<SelectorSlotSyntax>,
+    pub gap_range: SourceRange,
+    pub base_range: SourceRange,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectorSlotSyntax {
+    pub slot: SelectorSlot,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum NormalizedSelectorSpec {
+    Exact(Selector),
+    Pattern(SelectorPattern),
+}
+
+impl SelectorSpecSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Exact(spec) => spec.range,
+            Self::Pattern(spec) => spec.range,
+        }
+    }
+
+    pub fn base(&self) -> &str {
+        match self {
+            Self::Exact(spec) => &spec.base,
+            Self::Pattern(spec) => &spec.base,
+        }
+    }
+
+    pub fn normalize(&self) -> Result<NormalizedSelectorSpec, SelectorError> {
+        match self {
+            Self::Exact(spec) => Ok(NormalizedSelectorSpec::Exact(Selector::new(
+                phalcom_common::selector::SelectorBase::Named(spec.base.clone()),
+                spec.kind,
+                spec.slots.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+            )?)),
+            Self::Pattern(spec) => Ok(NormalizedSelectorSpec::Pattern(SelectorPattern::new(
+                phalcom_common::selector::SelectorBase::Named(spec.base.clone()),
+                spec.kind.clone(),
+                spec.prefix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+                spec.suffix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+                true,
+            )?)),
+        }
+    }
 }
 
 /// The two `::` method-reference shapes (selectors.md §3), carried by
@@ -992,6 +1069,10 @@ pub enum SymbolLiteralKind {
         /// placeholder `_`.
         labels: Vec<Option<String>>,
     },
+    /// A structural selector pattern such as `#name(...)` or
+    /// `#name(_, ..., tail)`. It remains an AST value until the compiler
+    /// materializes its immutable runtime pattern object.
+    Pattern(SelectorPatternSyntax),
 }
 
 /// A product-label syntax family for tuple entries and record fields.

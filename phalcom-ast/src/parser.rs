@@ -50,6 +50,7 @@ use std::ops::Range;
 /// class-level attributes, and its standalone `@invariant(...)` predicates
 /// (DEC-ANNOT-B).
 type ClassBodyParts = (Vec<ClassMember>, Vec<Attribute>, Vec<(Expr, SourceRange)>);
+type SelectorSpecSlots = (Vec<SelectorSlotSyntax>, Vec<SelectorSlotSyntax>, Option<SourceRange>, usize);
 
 enum ProductLabelStart {
     Computed,
@@ -2585,52 +2586,18 @@ impl<'source> Parser<'source> {
                 expr = self.parse_optional_send(expr, start)?;
                 trailing_target = TrailingTarget::None;
             } else if self.eat(&Token::ColonColon) {
-                // `::` method reference (selectors.md §3, U16-Open +
-                // U16-Pinned). Ambiguity rule (LOCKED): peek the token right
-                // after `::` —
-                //   - a selector-form symbol (`#name(...)`) -> Pinned, the
-                //     full identity is pinned at this reference site;
-                //   - a bare name-form symbol (`#name`, no parens) -> reject:
-                //     Pinned is callable-only-by-full-identity (Q14), there is
-                //     no "pinned base name" shape;
-                //   - an identifier/keyword -> Open (unchanged), the selector
-                //     is rebuilt from labels at call time.
-                // Uniform for both `obj::` and `Type::` — the receiver
-                // expression is whatever postfix chain preceded `::`.
-                let kind = match self.peek() {
-                    Token::Hash => {
-                        let selector = self.parse_hash_symbol()?;
-                        match selector {
-                            SymbolLiteralKind::Selector { name, labels } => MethodRefKind::Pinned { name, labels },
-                            SymbolLiteralKind::Name(_) => {
-                                return Err(self.error_here(strs(&[
-                                    "a selector form `::#name(...)` (a pinned method reference requires the full selector; use `::name` for an open reference)",
-                                ])));
-                            }
-                        }
-                    }
-                    _ => {
-                        let selector_start = self.cur_start();
-                        let name = self.parse_property_name()?;
-                        let selector_range = Some((selector_start..self.prev_end).into());
-                        let range = (start..self.prev_end).into();
-                        expr = Expr::MethodRef(Box::new(MethodRefExpr {
-                            receiver: expr,
-                            kind: MethodRefKind::Open { name },
-                            selector_range,
-                            range,
-                        }));
-                        trailing_target = TrailingTarget::None;
-                        continue;
-                    }
-                };
+                // `::` owns its selector syntax. In particular, the parens in
+                // `obj::name()` belong to the exact selector, while `obj::name`
+                // remains an exact getter and `obj::name(...)` is a structural
+                // pattern with a gap.
+                let selector_start = self.cur_start();
+                let spec = self.parse_selector_spec_after_colon_colon()?;
                 let range = (start..self.prev_end).into();
-                let selector_range = match &kind {
-                    MethodRefKind::Pinned { .. } => Some((self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into()),
-                    MethodRefKind::Open { .. } => None,
-                };
+                let selector_range = Some((selector_start..self.prev_end).into());
+                let kind = legacy_method_ref_kind(&spec);
                 expr = Expr::MethodRef(Box::new(MethodRefExpr {
                     receiver: expr,
+                    spec,
                     kind,
                     selector_range,
                     range,
@@ -3170,7 +3137,29 @@ impl<'source> Parser<'source> {
                 self.desugar_string_interp(segments, range)
             }
             Token::Hash => {
-                let kind = self.parse_hash_symbol()?;
+                let spec = self.parse_selector_spec_after_hash()?;
+                let kind = match spec {
+                    SelectorSpecSyntax::Exact(exact) => match exact.kind {
+                        phalcom_common::selector::SelectorKind::Getter => SymbolLiteralKind::Name(exact.base),
+                        phalcom_common::selector::SelectorKind::Method => SymbolLiteralKind::Selector {
+                            name: exact.base,
+                            labels: exact
+                                .slots
+                                .into_iter()
+                                .map(|slot| match slot.slot {
+                                    phalcom_common::selector::SelectorSlot::Positional => None,
+                                    phalcom_common::selector::SelectorSlot::Label(label) => Some(label),
+                                })
+                                .collect(),
+                        },
+                        phalcom_common::selector::SelectorKind::Setter => SymbolLiteralKind::Selector {
+                            name: format!("{}=", exact.base),
+                            labels: vec![Some("put".to_string())],
+                        },
+                        _ => return Err(self.error_here(strs(&["a named selector symbol"]))),
+                    },
+                    SelectorSpecSyntax::Pattern(pattern) => SymbolLiteralKind::Pattern(SelectorPatternSyntax { ..pattern }),
+                };
                 Ok(Expr::Symbol(Box::new(SymbolExpr {
                     kind,
                     range: (start..self.prev_end).into(),
@@ -3478,60 +3467,164 @@ impl<'source> Parser<'source> {
         Ok(labels)
     }
 
-    /// Parses the legacy symbol AST shape from component tokens while Task 3
-    /// is still pending. The lexer deliberately exposes every selector piece
-    /// separately; this compatibility bridge keeps existing parser clients
-    /// working until the range-rich `SelectorSpec` AST replaces these fields.
     fn parse_hash_symbol(&mut self) -> ParserResult<SymbolLiteralKind> {
+        match self.parse_selector_spec_after_hash()? {
+            SelectorSpecSyntax::Exact(exact) => Ok(exact_symbol_kind(exact)),
+            SelectorSpecSyntax::Pattern(pattern) => Ok(SymbolLiteralKind::Pattern(pattern)),
+        }
+    }
+
+    fn parse_selector_spec_after_hash(&mut self) -> ParserResult<SelectorSpecSyntax> {
         self.expect(&Token::Hash, &["\"#\""])?;
-        let base_start = self.cur_start();
-        if self.prev_end != base_start {
-            return Err(SyntaxError {
-                kind: SyntaxErrorKind::InvalidToken,
-                range: self.prev_end.saturating_sub(1)..self.prev_end,
-            });
-        }
+        self.parse_selector_spec_body()
+    }
 
-        let (name, is_operator) = match self.peek().clone() {
-            Token::Identifier(name)
-            | Token::FieldIdentifier(name)
-            | Token::ImplementationFieldIdentifier(name)
-            | Token::ImplementationSelectorIdentifier(name) => {
-                self.advance();
-                (name, false)
-            }
-            Token::Underscore => {
-                self.advance();
-                ("_".to_string(), false)
-            }
-            Token::Plus
-            | Token::Minus
-            | Token::Asterisk
-            | Token::DoubleAsterisk
-            | Token::TripleAsterisk
-            | Token::Slash
-            | Token::SlashTilde
-            | Token::Percent
-            | Token::EqualEqual
-            | Token::BangEqual
-            | Token::Less
-            | Token::LessEqual
-            | Token::Greater
-            | Token::GreaterEqual => (self.parse_property_name()?, true),
-            _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
-        };
-
-        if is_operator {
-            return Ok(SymbolLiteralKind::Selector { name, labels: vec![None] });
-        }
-
-        let adjacent_paren = matches!(self.peek(), Token::LParen) && self.prev_end == self.cur_start();
-        if adjacent_paren {
+    fn parse_selector_spec_after_colon_colon(&mut self) -> ParserResult<SelectorSpecSyntax> {
+        if matches!(self.peek(), Token::Hash) {
             self.advance();
-            let labels = self.parse_selector_label_slots()?;
-            return Ok(SymbolLiteralKind::Selector { name, labels });
         }
-        Ok(SymbolLiteralKind::Name(name))
+        self.parse_selector_spec_body()
+    }
+
+    fn parse_selector_spec_body(&mut self) -> ParserResult<SelectorSpecSyntax> {
+        let base_start = self.cur_start();
+        let base = self.parse_property_name()?;
+        let base_range = (base_start..self.prev_end).into();
+
+        // Operators are complete one-positional selectors in source syntax.
+        if is_selector_operator(&base) {
+            let range = (base_start..self.prev_end).into();
+            return Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                base,
+                kind: phalcom_common::selector::SelectorKind::Method,
+                slots: vec![SelectorSlotSyntax {
+                    slot: phalcom_common::selector::SelectorSlot::Positional,
+                    range: base_range,
+                }],
+                base_range,
+                range,
+            }));
+        }
+
+        if matches!(self.peek(), Token::LParen) && self.prev_end == self.cur_start() {
+            self.advance();
+            let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots()?;
+            let range = (base_start..end).into();
+            if let Some(gap_range) = gap_range {
+                return Ok(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                    base,
+                    kind: phalcom_common::selector::SelectorKindPattern::Exact(phalcom_common::selector::SelectorKind::Method),
+                    prefix,
+                    suffix,
+                    gap_range,
+                    base_range,
+                    range,
+                }));
+            }
+            let mut slots = prefix;
+            slots.extend(suffix);
+            return Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                base,
+                kind: phalcom_common::selector::SelectorKind::Method,
+                slots,
+                base_range,
+                range,
+            }));
+        }
+
+        if self.eat(&Token::Equal) {
+            let marker_start = self.tokens[self.pos.saturating_sub(1)].start;
+            if self.eat(&Token::DotDotDot) {
+                let gap_range = (marker_start..self.prev_end).into();
+                let range = (base_start..self.prev_end).into();
+                return Ok(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                    base,
+                    kind: phalcom_common::selector::SelectorKindPattern::Exact(phalcom_common::selector::SelectorKind::Setter),
+                    prefix: Vec::new(),
+                    suffix: Vec::new(),
+                    gap_range,
+                    base_range,
+                    range,
+                }));
+            }
+            self.expect(&Token::LParen, &["\"(put)\""])?;
+            let put = self.expect_identifier(&["\"put\""])?;
+            if put != "put" {
+                return Err(self.error_here(strs(&["\"put\""])));
+            }
+            self.expect(&Token::RParen, &["\")\""])?;
+            let range = (base_start..self.prev_end).into();
+            return Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                base,
+                kind: phalcom_common::selector::SelectorKind::Setter,
+                slots: Vec::new(),
+                base_range,
+                range,
+            }));
+        }
+
+        if self.eat(&Token::DotDotDot) {
+            let gap_range = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
+            let range = (base_start..self.prev_end).into();
+            return Ok(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                base,
+                kind: phalcom_common::selector::SelectorKindPattern::AnyNamed,
+                prefix: Vec::new(),
+                suffix: Vec::new(),
+                gap_range,
+                base_range,
+                range,
+            }));
+        }
+
+        let range = (base_start..self.prev_end).into();
+        Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+            base,
+            kind: phalcom_common::selector::SelectorKind::Getter,
+            slots: Vec::new(),
+            base_range,
+            range,
+        }))
+    }
+
+    fn parse_selector_spec_slots(&mut self) -> ParserResult<SelectorSpecSlots> {
+        let mut prefix = Vec::new();
+        let mut suffix = Vec::new();
+        let mut gap_range = None;
+        let mut after_gap = false;
+        loop {
+            self.skip_newlines();
+            if self.eat(&Token::RParen) {
+                return Ok((prefix, suffix, gap_range, self.prev_end));
+            }
+            let slot_start = self.cur_start();
+            if self.eat(&Token::DotDotDot) {
+                if gap_range.is_some() {
+                    return Err(self.error_here(strs(&["one selector gap"])));
+                }
+                gap_range = Some((slot_start..self.prev_end).into());
+                after_gap = true;
+            } else {
+                let slot = if self.eat(&Token::Underscore) {
+                    phalcom_common::selector::SelectorSlot::Positional
+                } else {
+                    phalcom_common::selector::SelectorSlot::Label(self.expect_identifier(&["label slot"])?)
+                };
+                let target = if after_gap { &mut suffix } else { &mut prefix };
+                target.push(SelectorSlotSyntax {
+                    slot,
+                    range: (slot_start..self.prev_end).into(),
+                });
+            }
+            self.skip_newlines();
+            if self.eat(&Token::Comma) {
+                continue;
+            }
+            if self.eat(&Token::RParen) {
+                return Ok((prefix, suffix, gap_range, self.prev_end));
+            }
+            return Err(self.error_here(strs(&["\",\"", "\")\""])));
+        }
     }
 
     /// Returns whether a component-token hash symbol ends immediately before
@@ -3998,6 +4091,50 @@ fn symbol_text(symbol: &SymbolLiteralKind) -> String {
                 .join(",");
             format!("{name}({slots})")
         }
+        SymbolLiteralKind::Pattern(pattern) => pattern.base.clone(),
+    }
+}
+
+fn is_selector_operator(name: &str) -> bool {
+    matches!(name, "+" | "-" | "*" | "**" | "***" | "/" | "~/" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">=")
+}
+
+fn exact_symbol_kind(spec: ExactSelectorSyntax) -> SymbolLiteralKind {
+    match spec.kind {
+        phalcom_common::selector::SelectorKind::Getter => SymbolLiteralKind::Name(spec.base),
+        phalcom_common::selector::SelectorKind::Setter => SymbolLiteralKind::Selector {
+            name: format!("{}=", spec.base),
+            labels: vec![Some("put".to_string())],
+        },
+        _ => SymbolLiteralKind::Selector {
+            name: spec.base,
+            labels: spec
+                .slots
+                .into_iter()
+                .map(|slot| match slot.slot {
+                    phalcom_common::selector::SelectorSlot::Positional => None,
+                    phalcom_common::selector::SelectorSlot::Label(label) => Some(label),
+                })
+                .collect(),
+        },
+    }
+}
+
+fn legacy_method_ref_kind(spec: &SelectorSpecSyntax) -> MethodRefKind {
+    match spec {
+        SelectorSpecSyntax::Exact(exact) if matches!(exact.kind, phalcom_common::selector::SelectorKind::Method) => MethodRefKind::Pinned {
+            name: exact.base.clone(),
+            labels: exact
+                .slots
+                .iter()
+                .map(|slot| match &slot.slot {
+                    phalcom_common::selector::SelectorSlot::Positional => None,
+                    phalcom_common::selector::SelectorSlot::Label(label) => Some(label.clone()),
+                })
+                .collect(),
+        },
+        SelectorSpecSyntax::Exact(exact) => MethodRefKind::Open { name: exact.base.clone() },
+        SelectorSpecSyntax::Pattern(pattern) => MethodRefKind::Open { name: pattern.base.clone() },
     }
 }
 

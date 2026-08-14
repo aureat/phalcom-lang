@@ -18,7 +18,7 @@
 //! grows, so their snapshots act as executable TODOs.
 
 use phalcom_ast::{
-    ast::{ClassMember, Expr, RecordLiteralEntry, Statement},
+    ast::{ClassMember, Expr, RecordLiteralEntry, SelectorSpecSyntax, Statement, SymbolLiteralKind},
     parse_source,
 };
 
@@ -224,6 +224,51 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
         panic!("expected variant");
     };
     assert_eq!(source_slice(source, variant.name_range), "Circle");
+}
+
+#[test]
+fn selector_spec_owns_method_parens_and_preserves_pattern_components() {
+    let source = "receiver::method()\n";
+    let program = parse_source(source, 0).expect("exact selector method parses");
+    let Statement::Expr {
+        expr: Expr::MethodRef(reference),
+        ..
+    } = &program.statements[0]
+    else {
+        panic!("expected MethodRef");
+    };
+    assert!(matches!(reference.spec, SelectorSpecSyntax::Exact(ref exact) if exact.base == "method" && exact.slots.is_empty()));
+    assert_eq!(source_slice(source, reference.selector_range.expect("selector range")), "method()");
+
+    let source = "receiver::method(_, ..., tail)\n";
+    let program = parse_source(source, 0).expect("pattern selector parses");
+    let Statement::Expr {
+        expr: Expr::MethodRef(reference),
+        ..
+    } = &program.statements[0]
+    else {
+        panic!("expected MethodRef");
+    };
+    let SelectorSpecSyntax::Pattern(pattern) = &reference.spec else {
+        panic!("expected patterned selector");
+    };
+    assert_eq!(pattern.prefix.len(), 1);
+    assert_eq!(pattern.suffix.len(), 1);
+    assert_eq!(source_slice(source, pattern.gap_range), "...");
+    assert_eq!(source_slice(source, pattern.suffix[0].range), "tail");
+}
+
+#[test]
+fn first_class_selector_pattern_is_distinct_from_exact_symbol() {
+    let source = "let pattern = #name(...)\n";
+    let program = parse_source(source, 0).expect("selector pattern parses");
+    let Statement::Let(binding) = &program.statements[0] else {
+        panic!("expected binding");
+    };
+    let Some(Expr::Symbol(symbol)) = &binding.value else {
+        panic!("expected symbol expression");
+    };
+    assert!(matches!(symbol.kind, SymbolLiteralKind::Pattern(_)));
 }
 
 #[test]
