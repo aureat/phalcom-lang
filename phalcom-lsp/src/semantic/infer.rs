@@ -482,12 +482,13 @@ pub(crate) fn solve_affected_callables_with_cancel(
     if cancelled() {
         return None;
     }
-    // The first coherent source pass can refine callable summaries that were
-    // seeded by the worklist. Re-run once with those summaries so top-level
-    // binding facts and callable facts share the same final dispatch view.
+    // Source flow can discover more precise argument facts once callable
+    // summaries resolve (for example, a factory call becomes a concrete
+    // instance). Allow one bounded feedback cycle for those facts and one
+    // final source pass so binding facts and callable facts share one view.
     let mut final_summaries = summaries;
     let mut source_analyses = BTreeMap::new();
-    for _ in 0..2 {
+    for _ in 0..3 {
         source_analyses.clear();
         for source in inputs {
             if cancelled() {
@@ -503,7 +504,23 @@ pub(crate) fn solve_affected_callables_with_cancel(
                     next_summaries.insert(summary.callable.clone(), summary.clone());
                 }
             }
+            for (source, facts) in &analysis.parameter_contributions {
+                contributions.replace_source(
+                    source.clone(),
+                    facts.iter().map(|((callable, name), value)| {
+                        (
+                            super::facts::ParameterSlot {
+                                callable: callable.clone(),
+                                name: name.clone(),
+                            },
+                            value.clone(),
+                        )
+                    }),
+                );
+            }
         }
+        parameter_facts = joined_parameter_facts(&contributions);
+        apply_parameter_facts_to_summaries(&mut next_summaries, classes, &parameter_facts);
         if summaries_semantically_equal(&next_summaries, &final_summaries) {
             break;
         }
