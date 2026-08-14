@@ -39,9 +39,9 @@ A **block** is a brace-delimited syntactic and lexical region. A block is not,
 by itself, a runtime callable value.
 
 A **Closure** is a first-class executable value carrying compiled code and its
-lexical captures. A **Method** is reified holder-owned behavior requiring a
-compatible receiver. A **BoundMethod** is an exact Method paired with a
-compatible receiver. A **Function** is a sealed abstract VM-backed callable
+lexical captures. A **Method** is reified holder-owned behavior requiring an
+explicit receiver. A **BoundMethod** is an exact Method paired with a captured
+receiver. A **Function** is a sealed abstract VM-backed callable
 whose remaining runtime inputs are only explicitly supplied call arguments. A
 **Family** is a bound `::` method-family reference that performs lookup when
 called.

@@ -4,7 +4,7 @@
 
 A `Method` is reified, holder-owned exact behavior. It is an object that can be
 inspected, authorized, bound, and invoked exactly. It is not a `Function`,
-because it still requires a compatible receiver before it can execute.
+because it still requires an explicit receiver before it can execute.
 
 ## 1. Semantic record
 
@@ -103,13 +103,15 @@ const describe = Base.methodFor(#describe())
 describe.invokeOn(Derived.new(), ***())
 ```
 
-This runs `Base#describe` exactly when `Derived` is compatible with `Base`. It
-does not select a possible `Derived#describe` override as the entry body.
+This runs `Base#describe` exactly. It does not select a possible
+`Derived#describe` override as the entry body. If the body accesses fields,
+the runtime checks the supplied receiver's layout at each guarded field
+access; a foreign layout raises `IncompatibleMethodLayout`.
 
 ## 5. Exact body, dynamic sends
 
 Exact invocation fixes the entry behavior, not the entire dispatch universe.
-For an exact Method defined on `Base` and activated on a compatible `Derived`
+For an exact Method defined on `Base` and activated on a supplied `Derived`
 instance:
 
 ```text
@@ -132,9 +134,9 @@ changes `self`, not the defining holder. See
 const bound = method.bind(receiver)
 ```
 
-validates receiver compatibility before constructing a
+captures the receiver without nominal holder compatibility before constructing a
 [BoundMethod](bound-method.md). The resulting Function stores only the exact
-Method and validated receiver. It contains no cloned Method, synthetic Closure,
+Method and captured receiver. It contains no cloned Method, synthetic Closure,
 or nested rebinding wrapper.
 
 ```phalcom
@@ -143,9 +145,10 @@ bound(***arguments)
 ```
 
 are equivalent exact activations after the receiver has been supplied. Binding
-is the reusable form; `invokeOn` is the one-shot form. The current runtime also
-defensively rechecks a stored pair at activation, but that check is an internal
-invariant guard, not a second receiver lookup or a source-visible redispatch.
+is the reusable form; `invokeOn` is the one-shot form. The current runtime
+rechecks access and parameter shape at activation. Bytecode field access also
+uses a representation guard; primitive Methods have no field-layout
+requirement.
 
 ## 7. Access and reflection
 

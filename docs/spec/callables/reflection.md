@@ -3,9 +3,9 @@
 [Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Method](method.md) · [BoundMethod](bound-method.md) · [Family](family.md) · [Function](function.md)
 
 Reflection exposes Method structure without erasing the distinction between a
-resolved Method, a future Family dispatch, and a message sent to a concrete
-object. This chapter defines that boundary and the callable operations that
-cross it.
+resolved Method, a captured MethodFamily snapshot, and a message sent to a
+concrete object. This chapter defines that boundary and the callable
+operations that cross it.
 
 ## 1. Structural reflection versus object execution
 
@@ -63,7 +63,8 @@ is exact invocation, not a send of the Method's selector to `receiver`. It:
 
 1. confirms that `method` is a reified Method;
 2. authorizes the original caller against that Method;
-3. validates holder/subclass compatibility of `receiver`;
+3. accepts any receiver value; bytecode field access installs a representation
+   guard requiring the Method holder layout or a subclass layout;
 4. removes the explicit receiver from the complete argument shape;
 5. validates the exact Method's parameter shape;
 6. activates that exact Method without selector redispatch.
@@ -78,7 +79,7 @@ The shape-aware native implementation follows this outline:
 let method_id = expect_method(vm, &receiver)?;
 let target = args.positional(vm, 0)?;
 vm.authorize_method_access_as(method_id, caller, internal)?;
-if !vm.method_receiver_compatible(method_id, target) { /* reject */ }
+validate_captured_method_shape(method_id, residual_shape)?;
 // remove target from the argument window, then activate method_id exactly
 ```
 
@@ -92,10 +93,14 @@ The operation does not use a packed List intermediary and returns a flat
 const bound = method.bind(receiver)
 ```
 
-validates the same compatibility relation and creates a
+captures the receiver without a nominal compatibility check and creates a
 [BoundMethod](bound-method.md): one exact Method handle plus one receiver
 value. It does not clone the Method, synthesize a Closure, or manufacture
 per-arity call Methods.
+
+If the Method body accesses fields, the same representation guard is applied
+at activation. A foreign layout raises `IncompatibleMethodLayout` before the
+field slot is read or written; primitive Methods have no field-layout guard.
 
 The resulting `bound(***arguments)` and
 `method.invokeOn(receiver, ***arguments)` are semantic siblings: both activate
@@ -163,8 +168,8 @@ late()
 ```
 
 The first activation executes the Method returned by lookup. The second derives
-or uses a Family selector and performs an ordinary target send. Neither value
-should be described as the other.
+or uses an exact getter Family selector and performs target lookup at call time.
+Neither value should be described as the other.
 
 ## 8. Function reflection boundary
 

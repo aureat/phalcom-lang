@@ -2,98 +2,107 @@
 
 [Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Runtime and activation](runtime.md) · [Reflection](reflection.md) · [Function](function.md) · [Method](method.md)
 
-`Family` is a sealed/final `Function` made by a bound `::` method-family reference. It stores receiver/reference context, but it is not an exact Method and does not pre-bind one implementation in the open form.
+Family is a sealed Function created by a bound method-reference expression.
+It stores one receiver and one selector specification. It is not a Method:
+construction never resolves or authorizes a target implementation.
 
-## 1. Reference forms
+## 1. Selector specifications
 
-```phalcom
-object::move
-object::#move(_,to,duration)
-```
+    object::name
+    object::name()
+    object::#name(_,to)
+    object::name(...)
+    object::#name(...,to)
 
-The first is an **open Family**. It stores a bare base name and derives a full target selector from actual call shape. The second is a **pinned Family**. It stores a full selector that remains authoritative.
+The bare form object::name is an exact getter selector. The parenthesized
+object::name() is an exact nullary method selector. A hash-prefixed selector
+specifies its exact kind and slots. An ellipsis creates a structural pattern
+with fixed prefix/suffix slots.
 
-The left-hand receiver expression is evaluated once at Family creation and stored in the resulting value. A Family is therefore complete enough to be a Function, but differs from BoundMethod:
+The old Open/Pinned MethodRefKind split, pinned-only hash syntax, and
+reference-time empty-family rejection are retired. There are no unbound
+Type::name forms. The receiver expression is evaluated once and retained.
 
-```text
-BoundMethod  exact Method already selected + receiver
-Family       receiver/reference stored + target lookup remains at call time
-```
+## 2. Exact Family calls
 
-## 2. Open Family call
+Exact Families retain selector identity and derive no replacement selector
+from the call's labels. The incoming argument shape must satisfy that exact
+selector. The runtime then looks up that selector on the stored receiver and
+activates the selected Method using ordinary access and rest rules.
 
-```phalcom
-const move = object::move
-move(to: point, duration: 10)
-```
+    let family = object::#render(_)
+    family(value)
 
-Application first becomes `move.call(to: point, duration: 10)`. The Function gateway combines the Family's stored base name with the actual lanes:
+Replacing render(_) after Family construction is visible to the next call.
+The Family did not capture a Method; it captured selector identity.
 
-```text
-stored base name + actual call shape
-    → complete target selector
-    → ordinary message send to stored receiver
-```
+## 3. Pattern Family calls
 
-The target selected is exactly the target of an ordinary send with that selector. An open Family does not capture a Method at reference creation, so actual shape remains dispatch identity.
+Pattern Families capture an immutable MethodFamily snapshot at construction:
 
-## 3. Pinned Family call
+    exact_methods: effective exact selector -> Method
+    rest_candidates: captured compatible rest Methods in hierarchy order
 
-```phalcom
-const exact = object::#move(_,to,duration)
-exact(value, to: point, duration: 10)
-```
+Capture walks the receiver behavior hierarchy once. It applies the initiating
+caller's access authority and omits inaccessible matching routes. It does not
+invoke the receiver, probe a selector, allocate a Message, or call
+doesNotUnderstand. A later method-table mutation does not change the snapshot.
 
-A pinned Family retains the selector from its reference. Supplied values must satisfy the pinned total slot count; they do not replace its labels with a newly derived arrangement. The VM then performs ordinary dispatch of that pinned selector on the stored receiver.
+At call time the incoming shape is matched against the captured routes. Named
+AnyNamed patterns consider getter, setter, and method forms; exact getter and
+setter forms retain their own zero- and one-value shapes. Subscript patterns
+retain their index labels and assigned-value lane. The chosen captured Method
+is activated exactly on the stored receiver.
 
-Pinned means selector identity is fixed. It does not mean a Method object is frozen into the Family. Method lookup, authorization, and ordinary target dispatch still occur at call time.
+    let family = object::render(...)
+    family(value)
 
-## 4. Arguments and rest
+Adding or replacing matching methods after the second line does not change the
+captured route set. A call with no captured route reaches ordinary
+doesNotUnderstand at the target call boundary.
 
-Phalcom uses only:
+## 4. Function and reflection surface
 
-```text
-*      positional rest/spread
-**     labeled rest/spread
-***    complete rest/spread
-```
+Family participates in the shared Function call gateway. MethodFamily is the
+immutable reflection payload for a pattern Family and exposes:
 
-```phalcom
-family(*values)
-family(**labels)
-family(***arguments)
-```
+    family.selectors
+    family.size
+    family.methodFor(selector)
+    family.bind(receiver)
 
-The spelling `args...` is never rest/spread syntax in Phalcom. `...` is not a spread operator.
+selectors returns a fresh List of canonical captured selectors. size counts
+exact and rest routes. methodFor returns only a captured route and applies the
+current caller's access authority. bind stores the snapshot plus a receiver;
+it does not inspect receiver behavior or re-capture routes.
 
-A Family preserves complete shape while routing. An open Family encodes it into a target selector. A pinned Family validates it against pinned slots. The eventual target Method then applies ordinary exact or rest-family acceptance. See [Arguments and rest](arguments.md) and [Dispatch and lowering](dispatch.md).
+## 5. Mutation and dispatch law
 
-## 5. Creation and reference-time check
+    Family construction
+        -> immutable receiver + selector specification
+        -> exact lookup or captured-route selection at call
+        -> exact Method activation
 
-The compiler evaluates the receiver, interns either a bare base name or a full pinned selector, and emits `MakeFamily`. The VM creates an immutable payload:
+The stored receiver affects only target layout and dynamic self inside the
+selected body. It never changes a pattern's route set. Ordinary sends inside
+the body remain dynamically dispatched on that receiver. Lexical super keeps
+the selected Method's defining holder.
 
-```rust
-pub struct FamilyObject {
-    pub recv: Value,
-    pub selector: Symbol,
-    pub open: bool,
-}
-```
+## 6. Implementation boundary
 
-At reference creation the VM can reject an empty family with no matching base name and no applicable custom miss behavior. This early diagnostic does not turn a later Family call into a dNU probe.
+The compiler emits MakeFamily for general references. A narrow
+semantics-preserving specialization may lower an immediately-called exact
+MethodRef whose static call shape is identical to an ordinary direct send.
+Escaping references, structural patterns, mismatched shapes, and dynamic packs
+retain Family construction and the shared runtime gateway.
 
-## 6. No intentional dNU router
+See vm/send.rs, heap/object.rs, primitive/method_family.rs, and
+compiler/lib/expr.rs for the implementation paths.
 
-Family calling must not deliberately miss `call(...)`, inspect a reified Message, and reconstruct target dispatch. The gateway already has exact call shape. It routes directly to ordinary target dispatch. A genuine final target miss can still reach `doesNotUnderstand(_)`, preserving proxy semantics without making dNU part of normal callable execution.
+## 7. Related chapters
 
-## 7. Implementation note
-
-The current VM selects a target selector, replaces the Family receiver in the existing stack window with `family.recv`, then calls shaped ordinary dispatch. Open routing uses `encode_selector` on base name plus actual slots. Pinned routing retains the stored selector after arity validation. The operation returns `CallOutcome`, so it is flat with Function forwarding rather than recursive interpreter execution. See [`vm/send.rs`](../../../phalcom-core/src/vm/send.rs) and [`heap/object.rs`](../../../phalcom-core/src/heap/object.rs).
-
-## 8. Related chapters
-
-- [Function](function.md) — Family's shared call gateway
-- [Dispatch and lowering](dispatch.md) — selector identity and target sends
-- [Method](method.md) — exact behavior contrasted with late lookup
-- [Reflection](reflection.md) — Family versus Method reflection
-- [Runtime and activation](runtime.md) — direct routing implementation
+- Function — shared call gateway
+- Dispatch and lowering — selector identity and target sends
+- Method — exact behavior and arbitrary receiver guards
+- Reflection — MethodFamily and exact invocation
+- Runtime and activation — direct routing implementation

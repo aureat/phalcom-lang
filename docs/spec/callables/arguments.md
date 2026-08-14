@@ -249,8 +249,8 @@ receiver.perform(selector, ***arguments)
 ```
 
 `invokeOn` removes its explicit receiver argument from the transported shape,
-checks the exact Method's compatibility and acceptance, then activates that
-Method without selector redispatch. `perform` removes its selector argument,
+checks the exact Method's acceptance and any field representation guard, then
+activates that Method without selector redispatch. `perform` removes its selector argument,
 then performs ordinary shaped dispatch on the supplied receiver. Neither
 operation may flatten labels into a positional List. See
 [Reflection and exact invocation](reflection.md).

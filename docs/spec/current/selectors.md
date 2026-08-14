@@ -127,10 +127,13 @@ All three intern to the same `u32`.
 
 ---
 
-## 3. Method references (`::`) — **PARTIALLY IMPLEMENTED** (U16-Open: Open bound form; U16-Pinned: Pinned bound form; unbound `Type::name`/`Type::#sel(...)` deferred)
+## 3. Method references (`::`) and selector patterns — **IMPLEMENTED**
 
-`::` produces a **Family** — a callable value. Two forms:
+`::` always creates a bound `Family` value. The receiver expression is
+evaluated once and stored; construction never probes receiver behavior and
+never rejects an absent selector.
 
+<!--
 ```
 obj::move                     // Open family   — receiver bound, name only
 obj::#move(_,to,duration)     // Pinned family — receiver bound, selector fixed
@@ -139,7 +142,67 @@ Point::#move(_,to,duration)   // Pinned, unbound
 ```
 
 Grammar is LR(1)-clean: after `::`, peek for `#`.
+-->
 
+The current exact and pattern forms are:
+
+    obj::name          // exact getter selector `name`
+    obj::name()        // exact nullary method selector `name()`
+    obj::#name(_)      // exact method selector `name(_)`
+    obj::name(...)     // named structural pattern
+    obj::#name(...,_)  // structural pattern with fixed prefix/suffix
+
+`obj::name` is not an old open-family base-name reference. The parser and
+compiler normalize it to exact getter selector `name`. `obj::name()` is a
+distinct exact nullary method selector and its `()` belongs to the `::`
+selector specification. There are no unbound `Type::...` forms in this
+runtime.
+
+An exact Family stores selector identity and the receiver. A pattern Family
+stores an immutable structural predicate. Both defer method lookup until each
+call, so method replacement after Family construction is observable.
+
+### Selector-pattern grammar and laws
+
+    selector_spec := exact_selector | pattern_selector
+    exact_selector := name | name "(" [ slot { "," slot } ] ")"
+    pattern_selector := name "(" pattern_slots ")"
+    pattern_slots := slot { "," slot } [ "," "..." ] | "..."
+    slot := "_" | label
+
+The concrete parser accepts its canonical `...` gap spelling and preserves
+fixed prefix/suffix slots around that gap. Matching requires the same base and
+kind, exact kind for an exact pattern, and ordered slot equality for every
+fixed prefix/suffix slot. `AnyNamed` patterns match named getters, setters,
+and methods; they never match subscripts. Pattern matching is a predicate,
+not a dispatch key, and does not reorder labels or invent positional slots.
+
+### Call and mutation laws
+
+At call time an exact Family derives the selector from its stored identity,
+while a pattern Family selects from its captured effective exact and rest
+routes. The selected Method is then activated exactly; the bound receiver does
+not participate in route selection.
+
+    let family = object::#render(_)
+    // Replacing object/render(_) after this line changes the next family call.
+    family(value)
+
+    let family = object::render(...)
+    // Adding/removing matching methods after capture does not change the snapshot.
+    family(value)
+
+A pattern Family omits inaccessible routes for the initiating caller. Its
+captured route set is immutable; `MethodFamily#selectors`, `size`, and
+`methodFor(_)` expose only that snapshot. A missing route reaches ordinary
+`doesNotUnderstand(_)` at call time. No empty-family reference-time error exists.
+
+The old `MethodRefKind::Open`/`Pinned` split, `::#selector` pinned-only
+interpretation, string-punctuation heuristic, and empty-family construction
+rule are retired and superseded by exact selector versus structural pattern
+normalization.
+
+<!--
 ### Representation
 
 ```rust
@@ -232,6 +295,8 @@ ordinary hierarchy lookup for that one selector
 
 ---
 
+-->
+
 ## 4. Attributes (`@`)
 
 `@` is **reserved for attributes/decorators**. Attributes compile to ordinary method-table entries — they are macros over the method table, not new machinery.
@@ -278,17 +343,16 @@ Explicitly **rejected**: JS-style `#field` privates (would give `#` two meanings
 
 ---
 
-## 6. Consequences for the current codebase
+## 6. Current implementation boundary
 
-| Current | Change |
+| Current | Status |
 | --- | --- |
-| `SignatureKind::Method(u8)` — arity only | Replace with an interned selector `Symbol` in canonical form. Arity is derivable from slot count. |
-| Call opcodes carry arity | Call opcodes carry the interned selector. |
-| Interner | Must canonicalize (whitespace-strip, R2-validate) at intern time. |
-| Lexer (Logos) | Add atomic `#`-symbol token + operator branch; add shebang special-case at offset 0. |
-| Parser (hand-written, `phalcom-ast`) | Add postfix `::` with `#`-lookahead. (LALRPOP is being removed per [ADR-0016](../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md); the parser is hand-written — see [Implementation Status](implementation-status.md).) |
-| Class finalization | Build the `base_names` index. |
-| AST | Add `Expr::MethodRef { receiver: Option<Box<Expr>>, target: NameOrSelector }`. |
+| Interned selector Symbols | Canonical exact identity, ordered positional/labeled slots, and selector kind. |
+| `MakeFamily` | Stores the evaluated receiver plus exact Symbol or immutable SelectorPattern specification. |
+| Family call gateway | Derives exact shape or searches captured MethodFamily routes, then activates the selected Method directly. |
+| MethodFamily | Immutable exact map plus captured compatible rest chain; inaccessible routes are omitted during capture. |
+| Compiler specialization | Only immediately-called, exact, statically shape-matched MethodRefs may lower to an ordinary direct send. |
+| Old Open/Pinned and empty-family rules | Retired; they are not compatibility semantics. |
 
 ---
 
@@ -300,4 +364,3 @@ These were raised and deliberately deferred. They are **not** part of this spec.
 2. **`ifTrue` / `ifFalse` returning `Option`.** Chaining is unsound: `cond.ifTrue { a }.ifFalse { b }` sends `ifFalse` to an `Option`, not a `Bool`; and `ifTrue { None }` is indistinguishable from the branch not being taken. A paired `ifTrue(_)ifFalse(_)`-style selector as primary, with single-branch forms as `Option`-returning sugar, resolves both.
 3. **Default arguments.** Largely incompatible with selector-identity dispatch: a call omitting a defaulted argument produces a *different* selector, so lookup misses. Options are arity-family expansion (combinatorial) or static callee knowledge (unavailable). **Decide before shipping** — retrofitting is expensive.
 4. **`Option` bootstrap.** If `Option` is a plain stdlib class and fields default to `None`, constructing `None` requires a class whose fields default to `None`. `Option` likely needs to be VM-blessed / niche-encoded in `Value`, which also removes an allocation from every optional.
-5. **Family introspection.** Whether `Family` exposes arity, candidate lists, etc. as a first-class reflective object, beyond its role in error messages.

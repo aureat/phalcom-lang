@@ -177,15 +177,17 @@ invocation instead begins with behavior that has already been selected:
 method.invokeOn(receiver, ***arguments)
 ```
 
-It checks access, receiver compatibility, and parameter acceptance, then
+It checks access, parameter acceptance, and any field representation guard, then
 executes that exact Method. It does not look up the Method's selector again.
 However, ordinary sends *inside* that Method still dispatch dynamically on the
 supplied receiver. [Method](method.md#4-exact-invocation) and
 [Reflection](reflection.md) cover the distinction in detail.
 
-Similarly, a BoundMethod stores an exact Method and receiver, whereas a Family
-stores a reference context and performs target lookup at call time. A Family
-therefore returns to ordinary dispatch after its routing step.
+Similarly, a BoundMethod stores an exact Method and receiver, whereas an exact
+Family stores a selector and receiver and a pattern Family stores an immutable
+MethodFamily route snapshot. Exact lookup or captured-route selection returns
+to ordinary activation after its routing step. Family construction itself
+never probes receiver behavior.
 
 ## 7. `super` is a different send origin
 
@@ -221,7 +223,15 @@ redefinition and authorization behavior. The cache cannot make a failed lookup
 permanent because `doesNotUnderstand` and open method dictionaries remain
 observable.
 
-## 10. Related chapters
+## 10. Reflection operator dispatch
+
+`>>(_)` remains an ordinary selector and ordinary dynamic dispatch. Behavior
+implements it as reflective exact/pattern extraction; Int implements its own
+shift operation. The operator spelling does not grant either implementation a
+special parser or VM dispatch path, and reflection must preserve the original
+caller authority when Behavior extracts a Method or MethodFamily.
+
+## 11. Related chapters
 
 - [Arguments and rest](arguments.md) — shape construction and rest acceptance
 - [Runtime and activation](runtime.md) — what happens after selection

@@ -83,7 +83,10 @@ The underlying exact Method accepts or rejects the transported shape, including 
 
 ## 5. No rebinding API
 
-There is initially no direct rebinding operation. To pair a Method with another receiver, use the Method's ordinary `bind` operation and its compatibility checks. This preserves one simple representation and avoids wrapper chains with competing receiver and authority rules.
+There is initially no direct rebinding operation. To pair a Method with another
+receiver, use the Method's ordinary `bind` operation. Field-bearing bytecode
+checks layout at access time, which preserves one simple representation and
+avoids wrapper chains with competing receiver and authority rules.
 
 ## 6. Implementation note
 
@@ -100,7 +103,7 @@ Function activation replaces the call-window receiver with `receiver`, validates
 
 ## 7. Related chapters
 
-- [Method](method.md) — exact behavior and receiver compatibility
+- [Method](method.md) — exact behavior and receiver representation guards
 - [Function](function.md) — shared call gateway
 - [Reflection](reflection.md) — `bind` and `invokeOn`
 - [Execution contexts](execution.md) — dynamic `self` and lexical `super`
