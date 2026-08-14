@@ -6,7 +6,7 @@ use crate::primitive::bytes::{
     bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill, bytes_raw_set, bytes_raw_size,
     bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
 };
-use crate::primitive::class::{behavior_extract, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
+use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::{family_get, family_is_exact, family_pattern, family_receiver, family_selector, family_set};
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
@@ -121,7 +121,7 @@ impl Universe {
         // `Class` and `Metaclass` both inherit them (mirrors `superclass`).
         primitive!(vm, behavior_cls, "name", SignatureKind::Getter, behavior_name);
         primitive!(vm, behavior_cls, "methods", SignatureKind::Getter, behavior_methods);
-        primitive!(vm, behavior_cls, ">>", SignatureKind::Method(1), behavior_extract);
+        primitive_shape!(vm, behavior_cls, ">>", SignatureKind::Method(1), behavior_extract_shape);
 
         let class_cls = vm.universe.classes.class_class;
         primitive!(vm, class_cls, "+", SignatureKind::Method(1), class_add);

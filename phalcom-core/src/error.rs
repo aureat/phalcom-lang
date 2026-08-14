@@ -157,8 +157,17 @@ pub enum RuntimeError {
     #[error("{0}")]
     NotAllowed(String),
 
-    #[error("method `{selector}` requires layout `{required}` but receiver has `{found}`")]
-    IncompatibleMethodLayout { selector: String, required: String, found: String },
+    /// A transplanted bytecode Method attempted to access fields through an
+    /// incompatible receiver layout.
+    #[error("method `{selector}` requires layout `{required}` but receiver has `{found}")]
+    IncompatibleMethodLayout {
+        /// Selector of the transplanted method.
+        selector: String,
+        /// Layout required by the method holder.
+        required: String,
+        /// Layout observed on the receiver.
+        found: String,
+    },
 
     #[error("Invalid argument: {0}")]
     ArgumentError(String),

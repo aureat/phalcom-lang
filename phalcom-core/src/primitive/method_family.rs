@@ -24,6 +24,11 @@ pub(crate) fn expect_method_family(vm: &VM, receiver: &Value) -> PhResult<ObjRef
 /// `MethodFamily#bind(_)` closes an immutable snapshot over a receiver. The
 /// receiver is intentionally not inspected: selection belongs entirely to the
 /// captured snapshot and happens only when the bound value is called.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] for a non-family receiver and
+/// [`RuntimeError::Arity`] when the receiver argument is missing.
 pub fn method_family_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let bound_receiver = args.first().copied().ok_or_else(|| RuntimeError::Arity {
@@ -37,9 +42,11 @@ pub fn method_family_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     }))))
 }
 
-/// `MethodFamily#selectors` returns the immutable snapshot's canonical selector
-/// symbols in capture order. Rest candidates appear after exact bindings;
-/// callers receive a fresh mutable `List`, never the routing tables themselves.
+/// Returns captured selector metadata as a fresh mutable list.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `receiver` is not a `MethodFamily`.
 pub fn method_family_selectors(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let selectors = {
@@ -56,7 +63,11 @@ pub fn method_family_selectors(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     Ok(Value::Obj(vm.heap.alloc_list(selectors)))
 }
 
-/// `MethodFamily#size` reports the number of captured exact and rest routes.
+/// Reports the number of captured exact and rest routes.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `receiver` is not a `MethodFamily`.
 pub fn method_family_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let size = {
@@ -68,6 +79,11 @@ pub fn method_family_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 
 /// `MethodFamily#methodFor(_)` returns a captured Method for its canonical
 /// selector, subject to the caller's current visibility authority.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] for a non-family receiver or non-symbol
+/// selector, and [`RuntimeError::Arity`] when the selector is missing.
 pub fn method_family_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let caller_authority = (vm.current_access_class(), vm.current_has_internal_privilege());
     method_family_method_for_as(vm, receiver, args, caller_authority)
@@ -77,6 +93,10 @@ pub fn method_family_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -
 /// context is the MethodFamily implementation itself, so the original caller
 /// authority must come from the incoming argument view rather than from the
 /// current native frame.
+///
+/// # Errors
+///
+/// Propagates the same type and arity errors as [`method_family_method_for`].
 pub fn method_family_method_for_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     let selector = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
         signature: "methodFor",

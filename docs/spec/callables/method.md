@@ -85,14 +85,18 @@ order:
 
 1. `method` must be a reified Method value.
 2. The initiating caller must be authorized to enter it.
-3. The supplied receiver must be compatible with the Method holder.
+3. The supplied receiver may be any runtime value. If the exact bytecode body
+   accesses instance or static fields, activation installs a representation
+   guard requiring the receiver's layout owner to be the Method holder or a
+   subclass; incompatible access raises `IncompatibleMethodLayout` before slot
+   access. Primitive Methods have no field layout requirement.
 4. The residual complete argument shape must satisfy the exact Method.
 5. The VM activates the exact bytecode or native implementation.
 
-For instance-side Methods, compatibility requires the receiver's runtime class
-to be the holder or one of its subclasses. For class-side Methods, the same
-rule uses metaclass ancestry. A holderless Method is not publicly bindable or
-invokable until a later specification introduces a safe holderless category.
+The receiver is not pre-filtered by holder ancestry. For class-side Methods,
+the same layout guard uses metaclass ancestry when the body accesses static
+fields. A holderless Method is not publicly bindable or invokable until a later
+specification introduces a safe holderless category.
 
 ```phalcom
 const describe = Base.methodFor(#describe())

@@ -8,6 +8,7 @@
 use std::rc::Rc;
 
 use crate::callable::Callable;
+use crate::frame::ForeignReceiverGuard;
 use crate::heap::{ClassId, ObjRef};
 
 /// A compiled closure: its code, its defining module handle, and its upvalues.
@@ -36,4 +37,7 @@ pub struct ClosureObject {
     /// Source class whose lexical privileges this code carries. Blocks copy
     /// this from their template closure when materialized.
     pub lexical_class: Option<ClassId>,
+    /// Representation guard inherited by a nested block created in a
+    /// transplanted Method activation.
+    pub(crate) foreign_receiver_guard: Option<ForeignReceiverGuard>,
 }

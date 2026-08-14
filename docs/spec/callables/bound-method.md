@@ -5,7 +5,7 @@
 `BoundMethod` is a sealed/final `Function` with one exact semantic identity:
 
 ```text
-BoundMethod = exact Method + validated receiver
+BoundMethod = exact Method + captured receiver
 ```
 
 It completes a Method's missing receiver. It is neither a cloned Method, a synthetic Closure, a nested binding wrapper, nor a late-dispatch Family.
@@ -17,7 +17,12 @@ const method = Person.methodFor(#greet())
 const bound = method.bind(person)
 ```
 
-`bind` validates `person` against the Method holder before construction. Instance-side compatibility means holder or subclass. Class-side compatibility follows metaclass ancestry. Holderless public Methods cannot be bound until a later specification defines a safe category.
+`bind` captures `person` without requiring holder compatibility. Bytecode
+field access is guarded when the bound Method runs: the receiver must have the
+Method holder's layout or a subclass layout, otherwise the runtime raises
+`IncompatibleMethodLayout` before slot access. Primitive Methods have no layout
+requirement. Holderless public Methods cannot be bound until a later
+specification defines a safe category.
 
 Binding captures the exact Method chosen at that moment. It does not look up its selector again at each call. The VM may defensively verify the stored pair at activation, but that is an invariant check, not a second receiver lookup or method-family dispatch.
 

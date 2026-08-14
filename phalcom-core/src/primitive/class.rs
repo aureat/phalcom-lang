@@ -5,6 +5,7 @@ use crate::error::RuntimeError;
 use crate::heap::InstanceObject;
 use crate::heap::Object;
 use crate::heap::lookup_method_in_hierarchy;
+use crate::method::{ArgumentView, CallOutcome};
 use crate::primitive::expect_class;
 use crate::value::Value;
 use crate::vm::VM;
@@ -106,17 +107,35 @@ pub fn behavior_extract(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
         expected: 1,
         found: 0,
     })?;
+    let caller_authority = (vm.current_access_class(), vm.current_has_internal_privilege());
+    behavior_extract_as(vm, behavior, rhs, caller_authority)
+}
+
+/// Shape-aware gateway for `Behavior#>>(_)`. It preserves the authority of the
+/// caller that initiated reflection instead of treating the Behavior primitive
+/// itself as the caller.
+pub fn behavior_extract_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let behavior = expect_class(vm, &receiver)?;
+    let rhs = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: ">>",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let value = behavior_extract_as(vm, behavior, &rhs, args.caller_authority())?;
+    Ok(CallOutcome::Returned(value))
+}
+
+fn behavior_extract_as(vm: &mut VM, behavior: crate::heap::ClassId, rhs: &Value, caller_authority: (Option<crate::heap::ClassId>, bool)) -> PhResult<Value> {
     match rhs {
         Value::Symbol(selector) => match lookup_method_in_hierarchy(&vm.heap, behavior, *selector) {
             Some(method) => {
-                vm.authorize_method_access(method)?;
+                vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
                 Ok(Value::Obj(method))
             }
             None => Ok(vm.none_value()),
         },
         Value::Obj(pattern) if matches!(vm.heap.get(*pattern), Object::SelectorPattern(_)) => {
-            let authority = (vm.current_access_class(), vm.current_has_internal_privilege());
-            let family = vm.capture_method_family(behavior, *pattern, authority)?;
+            let family = vm.capture_method_family(behavior, *pattern, caller_authority)?;
             Ok(Value::Obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))))
         }
         other => Err(RuntimeError::Type {

@@ -60,8 +60,7 @@ impl VM {
                     continue;
                 }
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
-                if pattern.matches(&structural) {
-                    self.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
+                if pattern.matches(&structural) && self.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() {
                     exact_methods.insert(selector, method);
                 }
             }
@@ -82,8 +81,9 @@ impl VM {
                     continue;
                 };
                 if seen.insert(method) {
-                    self.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
-                    rest_candidates.push(method);
+                    if self.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() {
+                        rest_candidates.push(method);
+                    }
                 }
             }
         }
@@ -584,22 +584,15 @@ impl VM {
         };
         let mut frame = self.new_call_frame(closure_id, context, 0, receiver_idx, Some(source_range));
         frame.home_frame_token = home_frame_token;
+        frame.foreign_receiver_guard = self.heap.closure(closure_id).foreign_receiver_guard;
         self.push_frame(frame)?;
         Ok(CallOutcome::EnteredFrame)
     }
 
-    pub(crate) fn activate_captured_method_as(
-        &mut self,
-        receiver: Value,
-        method: ObjRef,
-        view: ArgumentView,
-        source_range: SourceRange,
-    ) -> PhResult<CallOutcome> {
-        self.authorize_method_access_as(method, view.caller_authority().0, view.caller_authority().1)?;
+    pub(crate) fn validate_captured_method_shape(&mut self, method: ObjRef, positional_count: usize, actual_labels: &[Symbol]) -> PhResult<Symbol> {
         let method_selector = self.heap.method(method).signature.selector;
         let selector_text = self.resolve_symbol(method_selector).to_owned();
         let (base, expected_slots, _) = decode_selector(&selector_text);
-        let actual_labels = view.labels(self);
         let signature_kind = self.heap.method(method).signature.kind;
         let (expected_positional, expected_labels) = match signature_kind {
             SignatureKind::Getter => (0, Vec::new()),
@@ -630,41 +623,53 @@ impl VM {
             ),
         };
         let rest_layout = self.heap.method(method).signature.rest.clone();
-        let actual_selector = if let Some(rest) = rest_layout.as_ref() {
-            let mut slots = Vec::with_capacity(view.positional_count() + actual_labels.len());
-            slots.extend(std::iter::repeat_n(None, view.positional_count()));
+        if let Some(rest) = rest_layout.as_ref() {
+            let mut slots = Vec::with_capacity(positional_count + actual_labels.len());
+            slots.extend(std::iter::repeat_n(None, positional_count));
             slots.extend(actual_labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
             let selector = self.get_or_intern(&crate::method::encode_selector(
                 &base,
                 &slots,
                 SignatureKind::Method(
-                    u8::try_from(view.positional_count() + actual_labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                        found: view.positional_count() + actual_labels.len(),
+                    u8::try_from(positional_count + actual_labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                        found: positional_count + actual_labels.len(),
                         limit: u8::MAX as usize,
                     })?,
                 ),
             ));
-            if !rest.accepts(view.positional_count(), &actual_labels) {
+            if !rest.accepts(positional_count, actual_labels) {
                 return Err(RuntimeError::Arity {
                     signature: "call",
                     expected: expected_positional,
-                    found: view.positional_count() + view.labeled_count(),
+                    found: positional_count + actual_labels.len(),
                 }
                 .into());
             }
-            selector
-        } else {
-            let accepted = expected_positional == view.positional_count() && expected_labels == actual_labels;
-            if !accepted {
-                return Err(RuntimeError::Arity {
-                    signature: "call",
-                    expected: expected_positional,
-                    found: view.positional_count() + view.labeled_count(),
-                }
-                .into());
+            return Ok(selector);
+        }
+
+        if expected_positional != positional_count || expected_labels != actual_labels {
+            return Err(RuntimeError::Arity {
+                signature: "call",
+                expected: expected_positional,
+                found: positional_count + actual_labels.len(),
             }
-            method_selector
-        };
+            .into());
+        }
+        Ok(method_selector)
+    }
+
+    pub(crate) fn activate_captured_method_as(
+        &mut self,
+        receiver: Value,
+        method: ObjRef,
+        view: ArgumentView,
+        source_range: SourceRange,
+    ) -> PhResult<CallOutcome> {
+        self.authorize_method_access_as(method, view.caller_authority().0, view.caller_authority().1)?;
+        let method_selector = self.heap.method(method).signature.selector;
+        let actual_labels = view.labels(self);
+        let actual_selector = self.validate_captured_method_shape(method, view.positional_count(), &actual_labels)?;
         let receiver_idx = view.receiver_index();
         self.stack[receiver_idx] = receiver;
         let total = view.positional_count() + view.labeled_count();
@@ -715,14 +720,28 @@ impl VM {
         self.activate_captured_method_as(bound.receiver, bound.method, view, source_range)
     }
 
-    fn selector_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<(Symbol, Vec<Symbol>)> {
+    fn selectors_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<Vec<(Symbol, usize, Vec<Symbol>)>> {
         let pattern = match self.heap.get(pattern_id) {
             Object::SelectorPattern(pattern) => pattern.pattern.clone(),
             _ => return Err(RuntimeError::Internal("MethodFamily pattern handle is not a selector pattern".into()).into()),
         };
         let labels = view.labels(self);
-        let (selector, structural) = match (&pattern.base, &pattern.kind) {
-            (SelectorBase::Named(base), SelectorKindPattern::AnyNamed | SelectorKindPattern::Exact(SelectorKind::Method)) => {
+        let mut candidates = Vec::new();
+        match (&pattern.base, &pattern.kind) {
+            (SelectorBase::Named(base), SelectorKindPattern::AnyNamed) => {
+                if view.positional_count() == 0 && labels.is_empty() {
+                    let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Getter));
+                    let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
+                    if pattern.matches(&structural) {
+                        candidates.push((selector, 0, Vec::new()));
+                    }
+                } else if view.positional_count() == 1 && labels.is_empty() {
+                    let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Setter));
+                    let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
+                    if pattern.matches(&structural) {
+                        candidates.push((selector, 1, Vec::new()));
+                    }
+                }
                 let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
                 slots.extend(std::iter::repeat_n(None, view.positional_count()));
                 slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
@@ -732,7 +751,23 @@ impl VM {
                 })?;
                 let selector = self.get_or_intern(&crate::method::encode_selector(base, &slots, SignatureKind::Method(arity)));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
-                (selector, structural)
+                if pattern.matches(&structural) {
+                    candidates.push((selector, view.positional_count(), labels.clone()));
+                }
+            }
+            (SelectorBase::Named(base), SelectorKindPattern::Exact(SelectorKind::Method)) => {
+                let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
+                slots.extend(std::iter::repeat_n(None, view.positional_count()));
+                slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+                let arity = u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                    found: slots.len(),
+                    limit: u8::MAX as usize,
+                })?;
+                let selector = self.get_or_intern(&crate::method::encode_selector(base, &slots, SignatureKind::Method(arity)));
+                let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
+                if pattern.matches(&structural) {
+                    candidates.push((selector, view.positional_count(), labels.clone()));
+                }
             }
             (SelectorBase::Named(base), SelectorKindPattern::Exact(SelectorKind::Getter)) => {
                 if view.positional_count() != 0 || !labels.is_empty() {
@@ -745,7 +780,9 @@ impl VM {
                 }
                 let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Getter));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
-                (selector, structural)
+                if pattern.matches(&structural) {
+                    candidates.push((selector, 0, Vec::new()));
+                }
             }
             (SelectorBase::Named(base), SelectorKindPattern::Exact(SelectorKind::Setter)) => {
                 if view.positional_count() != 1 || !labels.is_empty() {
@@ -758,7 +795,9 @@ impl VM {
                 }
                 let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Setter));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
-                (selector, structural)
+                if pattern.matches(&structural) {
+                    candidates.push((selector, 1, Vec::new()));
+                }
             }
             (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptGet | SelectorKind::SubscriptSet)) => {
                 let is_setter = matches!(&pattern.kind, SelectorKindPattern::Exact(SelectorKind::SubscriptSet));
@@ -782,16 +821,18 @@ impl VM {
                 };
                 let selector = self.get_or_intern(&crate::method::encode_selector("[]", &slots, kind));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
-                (selector, structural)
+                if pattern.matches(&structural) {
+                    candidates.push((selector, view.positional_count(), labels.clone()));
+                }
             }
             _ => {
                 return Err(RuntimeError::Message("captured MethodFamily selector pattern has incompatible base and kind".into()).into());
             }
-        };
-        if !pattern.matches(&structural) {
+        }
+        if candidates.is_empty() {
             return Err(RuntimeError::Message("captured MethodFamily does not accept this call shape".into()).into());
         }
-        Ok((selector, labels))
+        Ok(candidates)
     }
 
     fn activate_bound_method_family(
@@ -801,25 +842,24 @@ impl VM {
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
         let family = self.heap.method_family(bound.family).clone();
-        let (selector, labels) = self.selector_for_bound_method_family(family.pattern, view)?;
-        let method = family
-            .exact_methods
-            .get(&selector)
-            .copied()
-            .or_else(|| {
+        for (selector, positional_count, labels) in self.selectors_for_bound_method_family(family.pattern, view)? {
+            let method = family.exact_methods.get(&selector).copied().or_else(|| {
                 family.rest_candidates.iter().copied().find(|method| {
                     self.heap
                         .method(*method)
                         .signature
                         .rest
                         .as_ref()
-                        .is_some_and(|rest| rest.accepts(view.positional_count(), &labels))
+                        .is_some_and(|rest| rest.accepts(positional_count, &labels))
                 })
-            })
-            .ok_or_else(|| RuntimeError::Message("captured MethodFamily has no method for this call shape".into()))?;
-
-        let shaped = view.with_selector(selector, view.positional_count(), labels.len());
-        self.activate_captured_method_as(bound.receiver, method, shaped, source_range)
+            });
+            let Some(method) = method else {
+                continue;
+            };
+            let shaped = view.with_selector(selector, positional_count, labels.len());
+            return self.activate_captured_method_as(bound.receiver, method, shaped, source_range);
+        }
+        Err(RuntimeError::Message("captured MethodFamily has no method for this call shape".into()).into())
     }
 
     pub(crate) fn activate_family_with_kind(

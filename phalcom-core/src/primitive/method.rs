@@ -12,7 +12,7 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{BoundMethodObject, Object};
-use crate::method::{ArgumentView, CallOutcome, SignatureKind, decode_selector, encode_selector};
+use crate::method::{ArgumentView, CallOutcome};
 use crate::primitive::expect_method;
 use crate::value::Value;
 use crate::vm::VM;
@@ -41,37 +41,7 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
         expected: 1,
         found: args.positional_count(),
     })?;
-    let method_selector = vm.heap.method(method_id).signature.selector;
-    let (base, expected_slots, _kind) = decode_selector(vm.resolve_symbol(method_selector));
-    let actual_selector = if vm.heap.method(method_id).signature.rest.is_some() {
-        let mut slots = Vec::with_capacity(residual_positionals + labels.len());
-        slots.extend(std::iter::repeat_n(None, residual_positionals));
-        slots.extend(labels.iter().map(|label| Some(vm.resolve_symbol(*label).to_owned())));
-        vm.get_or_intern(&encode_selector(
-            &base,
-            &slots,
-            SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                found: slots.len(),
-                limit: u8::MAX as usize,
-            })?),
-        ))
-    } else {
-        let expected_labels = expected_slots
-            .iter()
-            .filter_map(|slot| slot.as_ref())
-            .map(|label| vm.interner.intern(label))
-            .collect::<Vec<_>>();
-        let expected_positionals = expected_slots.iter().filter(|slot| slot.is_none()).count();
-        if expected_positionals != residual_positionals || expected_labels != labels {
-            return Err(RuntimeError::Arity {
-                signature: "invokeOn",
-                expected: expected_positionals + expected_labels.len(),
-                found: residual_positionals + labels.len(),
-            }
-            .into());
-        }
-        method_selector
-    };
+    let actual_selector = vm.validate_captured_method_shape(method_id, residual_positionals, &labels)?;
 
     let receiver_index = args.receiver_index();
     let residual = vm.stack[receiver_index + 2..].to_vec();

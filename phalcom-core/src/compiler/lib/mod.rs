@@ -384,6 +384,7 @@ impl<'vm> Compiler<'vm> {
             module: self.module,
             upvalues: Vec::new(),
             lexical_class: None,
+            foreign_receiver_guard: None,
         })));
         Ok(closure)
     }
@@ -432,6 +433,7 @@ impl<'vm> Compiler<'vm> {
             module: self.module,
             upvalues: Vec::new(),
             lexical_class: None,
+            foreign_receiver_guard: None,
         })));
 
         let module_obj = self.vm.heap.module_mut(self.module);

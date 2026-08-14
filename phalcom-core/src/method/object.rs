@@ -116,11 +116,6 @@ impl ArgumentView {
         (self.caller_access, self.caller_internal)
     }
 
-    /// Returns the incoming concrete selector when this is a shaped view.
-    pub(crate) fn selector(self) -> Option<Symbol> {
-        self.selector
-    }
-
     /// Returns a view with a newly encoded call-site selector and shape.
     pub(crate) fn with_selector(self, selector: Symbol, positional_count: usize, labeled_count: usize) -> Self {
         Self {
