@@ -80,10 +80,8 @@ impl VM {
                 let Some(method) = self.heap.class(*class).get_rest_method(base) else {
                     continue;
                 };
-                if seen.insert(method) {
-                    if self.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() {
-                        rest_candidates.push(method);
-                    }
+                if seen.insert(method) && self.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() {
+                    rest_candidates.push(method);
                 }
             }
         }

@@ -102,7 +102,7 @@ pub fn behavior_methods(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 /// non-`Symbol`/non-`SelectorPattern` spec.
 pub fn behavior_extract(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let behavior = expect_class(vm, receiver)?;
-    let rhs = args.first().ok_or_else(|| RuntimeError::Arity {
+    let rhs = args.first().ok_or(RuntimeError::Arity {
         signature: ">>",
         expected: 1,
         found: 0,

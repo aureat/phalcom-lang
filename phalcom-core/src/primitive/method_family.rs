@@ -31,7 +31,7 @@ pub(crate) fn expect_method_family(vm: &VM, receiver: &Value) -> PhResult<ObjRef
 /// [`RuntimeError::Arity`] when the receiver argument is missing.
 pub fn method_family_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
-    let bound_receiver = args.first().copied().ok_or_else(|| RuntimeError::Arity {
+    let bound_receiver = args.first().copied().ok_or(RuntimeError::Arity {
         signature: "bind",
         expected: 1,
         found: 0,
