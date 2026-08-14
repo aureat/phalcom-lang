@@ -227,6 +227,7 @@ impl Value {
                 // `Value::Family` arm (ADR-0010 keeps `Value` minimal).
                 Object::Family(_) => vm.universe.classes.family_class,
                 Object::SelectorPattern(_) => vm.universe.classes.object_class,
+                Object::MethodFamily(_) => vm.universe.classes.object_class,
                 Object::LargeInt(_) => vm.universe.classes.int_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
                 Object::PackBuilder(_) => panic!("pack builders are not surface values"),
@@ -278,6 +279,7 @@ impl Value {
                 | Object::Range(_)
                 | Object::Family(_)
                 | Object::SelectorPattern(_)
+                | Object::MethodFamily(_)
                 | Object::LargeInt(_) => CallContext::Instance { instance: *id },
                 Object::PackBuilder(_) => panic!("pack builders are not surface receivers"),
                 Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface receivers"),

@@ -4,6 +4,7 @@ use crate::error::PhResult;
 use crate::error::RuntimeError;
 use crate::heap::InstanceObject;
 use crate::heap::Object;
+use crate::heap::lookup_method_in_hierarchy;
 use crate::primitive::expect_class;
 use crate::value::Value;
 use crate::vm::VM;
@@ -85,6 +86,39 @@ pub fn behavior_methods(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     let class_id = expect_class(vm, receiver)?;
     let selectors: Vec<Value> = vm.heap.class(class_id).methods.keys().map(|selector| Value::Symbol(*selector)).collect();
     Ok(Value::Obj(vm.heap.alloc_list(selectors)))
+}
+
+/// Signature: `Behavior#>>(_)` — extracts either one effective exact `Method`
+/// or an immutable `MethodFamily` snapshot from a selector-spec value.
+///
+/// This remains an ordinary polymorphic operator. `Int#>>(_)` keeps its
+/// arithmetic meaning; only behavior receivers reach this reflection method.
+pub fn behavior_extract(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let behavior = expect_class(vm, receiver)?;
+    let rhs = args.first().ok_or_else(|| RuntimeError::Arity {
+        signature: ">>",
+        expected: 1,
+        found: 0,
+    })?;
+    match rhs {
+        Value::Symbol(selector) => match lookup_method_in_hierarchy(&vm.heap, behavior, *selector) {
+            Some(method) => {
+                vm.authorize_method_access(method)?;
+                Ok(Value::Obj(method))
+            }
+            None => Ok(vm.none_value()),
+        },
+        Value::Obj(pattern) if matches!(vm.heap.get(*pattern), Object::SelectorPattern(_)) => {
+            let authority = (vm.current_access_class(), vm.current_has_internal_privilege());
+            let family = vm.capture_method_family(behavior, *pattern, authority)?;
+            Ok(Value::Obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))))
+        }
+        other => Err(RuntimeError::Type {
+            expected: "Symbol or SelectorPattern",
+            found: other.type_name(),
+        }
+        .into()),
+    }
 }
 
 /// Signature: `Class::+(_)` — concatenates the two classes' names into a string.

@@ -57,7 +57,7 @@ pub use instance::InstanceObject;
 pub use list::ListObject;
 pub use map::MapObject;
 pub use module::{CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleObject, next_module_id};
-pub use object::{BoundMethodObject, FamilyObject, FamilySpec, Object, SelectorPatternObject};
+pub use object::{BoundMethodObject, FamilyObject, FamilySpec, MethodFamilyObject, Object, SelectorPatternObject};
 pub use pack_builder::{ArgumentPackBuilderObject, PackBuilderError};
 pub use range::RangeObject;
 pub use record::RecordObject;
@@ -319,6 +319,7 @@ impl Heap {
             Some(Object::Range(_)) => "Range",
             Some(Object::Family(_)) => "Family",
             Some(Object::SelectorPattern(_)) => "SelectorPattern",
+            Some(Object::MethodFamily(_)) => "MethodFamily",
             Some(Object::LargeInt(_)) => "LargeInt",
             Some(Object::PackBuilder(_)) => "PackBuilder",
             Some(Object::RecordLiteralBuilder(_)) => "RecordLiteralBuilder",

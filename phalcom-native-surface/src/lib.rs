@@ -239,6 +239,7 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Behavior", "superclass=(put)", Setter, Instance, Public),
     native!("Behavior", "name", Getter, Instance, Public),
     native!("Behavior", "methods", Getter, Instance, Public),
+    native!("Behavior", ">>(_)", Method, Instance, Public),
     native!("Class", "+(_)", Method, Instance, Public),
     native!("Class", "_$new()", Method, Instance, Internal),
     native!("Number", "+(_)", Method, Instance, Public),

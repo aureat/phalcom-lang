@@ -1,8 +1,11 @@
 use phalcom_core::bytecode::{Bytecode, FamilySpecKind};
 use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::heap::Object;
+use phalcom_core::method::{MethodObject, SignatureKind};
+use phalcom_core::primitive::class::behavior_extract;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
 
 #[test]
 fn make_family_uses_explicit_exact_discriminator_and_allows_future_method() {
@@ -43,4 +46,35 @@ fn make_family_compiles_pattern_object_without_punctuation_heuristic() {
         }
     )));
     vm.run_cell(module, closure).expect("pattern family construction succeeds");
+}
+
+#[test]
+fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
+    fn replacement(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> phalcom_core::error::PhResult<Value> {
+        Ok(Value::Int(9))
+    }
+
+    let mut vm = VM::new();
+    let object_class = vm.universe.classes.object_class;
+    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(phalcom_core::heap::SelectorPatternObject {
+        pattern: SelectorPattern::named("name", SelectorKindPattern::AnyNamed, Box::new([]), Box::new([]), true).expect("valid pattern"),
+    })));
+
+    let first = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
+    let Value::Obj(first_id) = first else { panic!("pattern extraction must return a MethodFamily") };
+    let old_method = vm.heap.method_family(first_id).exact_methods.values().next().copied().expect("Object defines name");
+
+    let selector = vm.get_or_intern("name");
+    let replacement_method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
+        selector,
+        SignatureKind::Getter,
+        replacement,
+        object_class,
+    ))));
+    vm.heap.class_mut(object_class).add_method(selector, replacement_method);
+
+    let second = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("second pattern extraction");
+    let Value::Obj(second_id) = second else { panic!("second extraction must return a MethodFamily") };
+    assert_eq!(vm.heap.method_family(first_id).exact_methods.get(&selector), Some(&old_method));
+    assert_eq!(vm.heap.method_family(second_id).exact_methods.get(&selector), Some(&replacement_method));
 }

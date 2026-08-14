@@ -3,6 +3,7 @@ use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
 use crate::method::{ArgumentView, CallOutcome, MemberVisibility, MethodKind, PrimitiveFn, SignatureKind, decode_selector};
 use crate::value::Value;
+use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
 
 use super::VM;
@@ -15,6 +16,73 @@ pub(crate) enum FamilyInvocationKind {
 }
 
 impl VM {
+    /// Captures the currently effective methods selected by `pattern`.
+    ///
+    /// This is deliberately a VM operation rather than primitive-local lookup:
+    /// it walks live method dictionaries, applies the same visibility relation
+    /// used by reflection, and snapshots both exact bindings and rest fallback
+    /// candidates without invoking the receiver or `doesNotUnderstand`.
+    pub(crate) fn capture_method_family(
+        &mut self,
+        behavior: ClassId,
+        pattern_id: ObjRef,
+        caller_authority: (Option<ClassId>, bool),
+    ) -> PhResult<crate::heap::MethodFamilyObject> {
+        let pattern = match self.heap.get(pattern_id) {
+            Object::SelectorPattern(pattern) => pattern.pattern.clone(),
+            _ => return Err(RuntimeError::Type { expected: "SelectorPattern", found: "object" }.into()),
+        };
+
+        let mut hierarchy = Vec::new();
+        let mut current = Some(behavior);
+        while let Some(class) = current {
+            hierarchy.push(class);
+            current = self.heap.class(class).superclass;
+        }
+
+        let mut exact_methods = IndexMap::new();
+        for class in &hierarchy {
+            let methods = self.heap.class(*class).methods.values().copied().collect::<Vec<_>>();
+            for method in methods {
+                let selector = self.heap.method(method).signature.selector;
+                if exact_methods.contains_key(&selector) {
+                    continue;
+                }
+                let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
+                if pattern.matches(&structural) && self.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() {
+                    exact_methods.insert(selector, method);
+                }
+            }
+        }
+
+        let mut rest_candidates = Vec::new();
+        if let phalcom_common::selector::SelectorBase::Named(base) = &pattern.base
+            && matches!(
+                pattern.kind,
+                phalcom_common::selector::SelectorKindPattern::AnyNamed
+                    | phalcom_common::selector::SelectorKindPattern::Exact(phalcom_common::selector::SelectorKind::Method)
+            )
+        {
+            let base = self.interner.intern(base);
+            let mut seen = std::collections::HashSet::new();
+            for class in &hierarchy {
+                let Some(method) = self.heap.class(*class).get_rest_method(base) else {
+                    continue;
+                };
+                if seen.insert(method) && self.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() {
+                    rest_candidates.push(method);
+                }
+            }
+        }
+
+        Ok(crate::heap::MethodFamilyObject {
+            source_behavior: behavior,
+            pattern: pattern_id,
+            exact_methods,
+            rest_candidates: rest_candidates.into_boxed_slice(),
+        })
+    }
+
     /// Checks whether `receiver` can execute a method held by its defining
     /// class. Class-side methods use the receiver's metaclass automatically
     /// because `Value::class` returns that class for class values.
