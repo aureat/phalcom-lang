@@ -55,7 +55,7 @@ It starts lookup above the lexically defining Method holder.
 
 ```text
 exact Method body selected     → remains the reified Method body
-self                           → supplied compatible receiver
+self                           → supplied receiver; field access may require holder layout
 ordinary receiver sends        → lookup from receiver's runtime class
 super sends                    → lookup above lexical defining holder
 ```

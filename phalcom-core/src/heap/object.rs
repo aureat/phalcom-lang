@@ -14,10 +14,11 @@ use crate::heap::Upvalue;
 use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::value::Value;
+use indexmap::IndexMap;
 use phalcom_common::selector::SelectorPattern;
 
 use super::ArgumentPackBuilderObject;
-use super::{FiberObject, ObjRef, RecordLiteralBuilderObject};
+use super::{ClassId, FiberObject, ObjRef, RecordLiteralBuilderObject};
 
 /// The tagged payload stored at each live [`ObjRef`] in the [`super::Heap`].
 ///
@@ -133,6 +134,13 @@ pub enum Object {
     /// selector-spec literal. It is boxed so selector metadata does not grow
     /// every arena slot.
     SelectorPattern(Box<SelectorPatternObject>),
+    /// An immutable snapshot of the effective methods selected by a structural
+    /// selector pattern. The pattern and captured method handles are retained so
+    /// later method replacement cannot change this value's routing.
+    MethodFamily(Box<MethodFamilyObject>),
+    /// A captured `MethodFamily` closed over a receiver. It selects only from
+    /// the immutable snapshot and never performs live receiver lookup.
+    BoundMethodFamily(BoundMethodFamilyObject),
     /// An arbitrary-precision integer ([`num_bigint::BigInt`]).
     /// Normalization guarantees this is never representable as `i64`.
     LargeInt(num_bigint::BigInt),
@@ -170,6 +178,30 @@ pub enum FamilySpec {
 #[derive(Debug, Clone)]
 pub struct SelectorPatternObject {
     pub pattern: SelectorPattern,
+}
+
+/// The immutable result of extracting a structural selector pattern from a
+/// behavior. Exact bindings preserve declaration/inheritance order; rest
+/// candidates preserve subclass-to-superclass fallback order.
+#[derive(Debug, Clone)]
+pub struct MethodFamilyObject {
+    /// Behavior whose effective method dictionaries were scanned at capture.
+    pub source_behavior: ClassId,
+    /// Immutable selector-pattern object used to define the snapshot.
+    pub pattern: ObjRef,
+    /// Exact, non-rest methods keyed by canonical selector in capture order.
+    pub exact_methods: IndexMap<Symbol, ObjRef>,
+    /// Rest methods in subclass-to-superclass precedence order.
+    pub rest_candidates: Box<[ObjRef]>,
+}
+
+/// A captured method-family snapshot closed over an explicit receiver.
+#[derive(Debug, Clone, Copy)]
+pub struct BoundMethodFamilyObject {
+    /// Immutable MethodFamily snapshot handle.
+    pub family: ObjRef,
+    /// Receiver supplied by `MethodFamily#bind(_)`.
+    pub receiver: Value,
 }
 
 /// The payload of an [`Object::BoundMethod`] — a reified [`MethodObject`]

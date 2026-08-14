@@ -178,7 +178,8 @@ impl VM {
             | RuntimeError::TypeConversion { .. }
             | RuntimeError::Arity { .. }
             | RuntimeError::InstantiateNonClass { .. }
-            | RuntimeError::AccessFieldsNonInstance { .. } => "type",
+            | RuntimeError::AccessFieldsNonInstance { .. }
+            | RuntimeError::IncompatibleMethodLayout { .. } => "type",
             _ => return None,
         };
         let sym = self.interner.intern(sym_str);

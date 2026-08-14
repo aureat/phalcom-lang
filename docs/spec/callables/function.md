@@ -95,8 +95,16 @@ does not require a public Tuple or List allocation before each call.
 | Function representation | Context already stored | Acceptance after gateway |
 | --- | --- | --- |
 | [Closure](closure.md) | compiled code and lexical captures | fixed positional parameters plus optional positional rest; labels rejected |
-| [BoundMethod](bound-method.md) | exact Method and validated receiver | underlying Method parameter shape |
-| [Family](family.md) | receiver/reference and open-or-pinned selector state | route, then selected target parameter shape |
+| [BoundMethod](bound-method.md) | exact Method and captured receiver | underlying Method parameter shape plus field guard |
+| [Family](family.md) | receiver plus exact selector or structural pattern | exact lookup or live pattern routing, then target parameter shape |
+
+Family application routes through the same final `call(***arguments)` gateway.
+An exact Family retains its selector; a pattern Family retains an immutable
+structural predicate and routes through the receiver's current method table.
+MethodFamily is a separate immutable reflection snapshot returned by
+`Behavior#>>`; BoundMethodFamily is that snapshot plus a captured receiver.
+BoundMethodFamily does not consult the receiver's current method table to
+choose a different route.
 
 For example:
 

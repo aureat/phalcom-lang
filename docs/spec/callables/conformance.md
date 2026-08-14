@@ -39,7 +39,9 @@ The spelling `args...` is never rest/spread syntax in Phalcom. `...` is not a sp
 - At most one rest-capable Method may occupy one base-name family on one class.
 - Native and bytecode Methods must have the same rest acceptance and capture semantics.
 - Exact invocation must run the reified Method itself, never redispatch its selector.
-- Exact invocation and binding must reject incompatible receivers before entering user code.
+- Exact invocation and binding accept arbitrary receivers; bytecode field
+  access must reject an incompatible representation with
+  `IncompatibleMethodLayout` before entering the field operation.
 
 ## 4. Function routing
 
@@ -54,8 +56,9 @@ Family       → direct selector routing, then ordinary target dispatch
 - A Closure rejects any non-empty labeled lane.
 - Closure positional rest captures `()` for zero residual values and Tuple for one or more.
 - BoundMethod must not clone its Method or synthesize a Closure wrapper.
-- Open Family routing derives selector from base name plus actual shape.
-- Pinned Family routing retains its selector identity and validates supplied slot count.
+- Exact Family routing retains selector identity and validates supplied shape.
+- Pattern Family routing uses its immutable structural predicate and the
+  receiver's current exact/rest method table.
 
 ## 5. Frame, authority, and control-flow invariants
 
@@ -78,9 +81,9 @@ Changes to callable code should retain focused coverage in these lanes:
 | selector and packs | positional/labeled ordering, dynamic expansion, duplicate labels, boundedness |
 | lookup | exact-before-rest across inheritance, native rest, final dNU miss |
 | Closure | literal forms, captures, local return, positional rest Unit/Tuple capture, label rejection |
-| Method | holder/subclass compatibility, class-side compatibility, exact invocation, `super`, visibility |
-| BoundMethod | bind validation, exact stored Method execution, no rebinding surface |
-| Family | open and pinned references, inherited target dispatch, labels, direct routing |
+| Method | arbitrary receiver, field representation guard, exact invocation, `super`, visibility |
+| BoundMethod | capture, exact stored Method execution, field guard, no rebinding surface |
+| Family | exact/pattern references, live routing, mutation, labels, direct routing |
 | forwarding | `callWith`, `perform`, `invokeOn`, flat frame entry, authority preservation |
 | values | final expression, Unit versus None, bare return, constructor return restriction |
 

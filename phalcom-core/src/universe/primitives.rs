@@ -6,7 +6,7 @@ use crate::primitive::bytes::{
     bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill, bytes_raw_set, bytes_raw_size,
     bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
 };
-use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
+use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::{family_get, family_is_exact, family_pattern, family_receiver, family_selector, family_set};
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
@@ -20,6 +20,7 @@ use crate::primitive::int::{
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
+use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_call, some_new};
 use crate::primitive::number::{
@@ -120,6 +121,7 @@ impl Universe {
         // `Class` and `Metaclass` both inherit them (mirrors `superclass`).
         primitive!(vm, behavior_cls, "name", SignatureKind::Getter, behavior_name);
         primitive!(vm, behavior_cls, "methods", SignatureKind::Getter, behavior_methods);
+        primitive_shape!(vm, behavior_cls, ">>", SignatureKind::Method(1), behavior_extract_shape);
 
         let class_cls = vm.universe.classes.class_class;
         primitive!(vm, class_cls, "+", SignatureKind::Method(1), class_add);
@@ -286,6 +288,12 @@ impl Universe {
         primitive!(vm, family_cls, "isExact", SignatureKind::Getter, family_is_exact);
         primitive_shape!(vm, family_cls, "get", SignatureKind::Method(0), family_get);
         primitive_shape!(vm, family_cls, "set", SignatureKind::Method(1), family_set);
+
+        let method_family_cls = vm.universe.classes.method_family_class;
+        primitive!(vm, method_family_cls, "selectors", SignatureKind::Getter, method_family_selectors);
+        primitive!(vm, method_family_cls, "size", SignatureKind::Getter, method_family_size);
+        primitive_shape!(vm, method_family_cls, "methodFor", SignatureKind::Method(1), method_family_method_for_shape);
+        primitive!(vm, method_family_cls, "bind", SignatureKind::Method(1), method_family_bind);
 
         let function_cls = vm.universe.classes.function_class;
         primitive!(vm, function_cls, "arity", SignatureKind::Getter, block_arity);
@@ -547,6 +555,8 @@ fn validate_native_surface(vm: &VM) {
         classes.function_class,
         classes.closure_class,
         classes.bound_method_class,
+        classes.method_family_class,
+        classes.bound_method_family_class,
         classes.symbol_class,
         classes.module_class,
         classes.system_class,

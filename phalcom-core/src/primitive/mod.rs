@@ -12,6 +12,7 @@ pub mod int;
 pub mod list;
 pub mod map;
 pub mod method;
+pub mod method_family;
 pub mod module;
 pub mod nil;
 pub mod number;

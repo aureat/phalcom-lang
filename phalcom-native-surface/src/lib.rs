@@ -130,11 +130,19 @@ pub const NATIVE_CLASSES: &[NativeClass] = &[
         superclass: Some("Object"),
     },
     NativeClass {
+        name: "MethodFamily",
+        superclass: Some("Object"),
+    },
+    NativeClass {
         name: "Function",
         superclass: Some("Object"),
     },
     NativeClass {
         name: "Closure",
+        superclass: Some("Function"),
+    },
+    NativeClass {
+        name: "Family",
         superclass: Some("Function"),
     },
     NativeClass {
@@ -239,6 +247,7 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Behavior", "superclass=(put)", Setter, Instance, Public),
     native!("Behavior", "name", Getter, Instance, Public),
     native!("Behavior", "methods", Getter, Instance, Public),
+    native!("Behavior", ">>(_)", Method, Instance, Public),
     native!("Class", "+(_)", Method, Instance, Public),
     native!("Class", "_$new()", Method, Instance, Internal),
     native!("Number", "+(_)", Method, Instance, Public),
@@ -317,6 +326,10 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Family", "isExact", Getter, Instance, Public),
     native!("Family", "get()", Method, Instance, Public),
     native!("Family", "set(_)", Method, Instance, Public),
+    native!("MethodFamily", "bind(_)", Method, Instance, Public),
+    native!("MethodFamily", "selectors", Getter, Instance, Public),
+    native!("MethodFamily", "size", Getter, Instance, Public),
+    native!("MethodFamily", "methodFor(_)", Method, Instance, Public),
     native!("Function", "arity", Getter, Instance, Public),
     native!("Function", "name", Getter, Instance, Public),
     native!("Function", "callWith(_)", Method, Instance, Public),

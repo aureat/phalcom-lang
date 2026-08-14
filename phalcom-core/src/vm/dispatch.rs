@@ -1170,6 +1170,7 @@ impl VM {
                     // already-bound source class when the template itself
                     // has none.
                     let lexical_class = self.heap.closure(template_id).lexical_class.or(self.heap.closure(closure_id).lexical_class);
+                    let foreign_receiver_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
 
                     let mut upvalues = Vec::with_capacity(descriptors.len());
                     for desc in &descriptors {
@@ -1186,6 +1187,7 @@ impl VM {
                         module,
                         upvalues,
                         lexical_class,
+                        foreign_receiver_guard,
                     })));
                     let token = self.current_frame_token().expect("closure created inside a frame");
                     let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
@@ -1469,7 +1471,12 @@ impl VM {
                     let method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
 
                     if let Some(method) = method {
+                        let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                        let frames_before = self.frames.len();
                         self.call_method(&receiver, method, argc, source_range)?;
+                        if self.frames.len() > frames_before {
+                            self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                        }
                     } else {
                         let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
                         let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
@@ -1482,7 +1489,12 @@ impl VM {
                             .then(|| self.interner.intern(&name))
                             .and_then(|base| parent.and_then(|class| self.lookup_rest_method(class, base, positional_count, &labels)));
                         if let Some(method) = rest {
+                            let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                            let frames_before = self.frames.len();
                             self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
+                            if self.frames.len() > frames_before {
+                                self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                            }
                         } else {
                             self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
                         }
@@ -1540,6 +1552,9 @@ impl VM {
                 }
                 Bytecode::GetField(slot) => {
                     let receiver = self.stack.pop().ok_or("Stack underflow for GetField receiver")?;
+                    if let Some(guard) = self.frames.last().and_then(|frame| frame.foreign_receiver_guard) {
+                        self.guard_foreign_layout_access(receiver, guard)?;
+                    }
                     match receiver {
                         Value::Obj(id) => {
                             if let Some(instance) = self.heap.as_instance(id) {
@@ -1576,6 +1591,9 @@ impl VM {
                 Bytecode::SetField(slot) => {
                     let value_to_assign = self.stack.pop().ok_or("Stack underflow on field assignment")?;
                     let receiver = self.stack.pop().ok_or("Stack underflow for SetField receiver")?;
+                    if let Some(guard) = self.frames.last().and_then(|frame| frame.foreign_receiver_guard) {
+                        self.guard_foreign_layout_access(receiver, guard)?;
+                    }
                     match receiver {
                         Value::Obj(id) => {
                             if self.heap.as_instance(id).is_some() {
@@ -2024,7 +2042,12 @@ impl VM {
                     let range = callable.chunk.span_at(ip);
                     let exact = parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector));
                     if let Some(method) = exact {
+                        let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                        let frames_before = self.frames.len();
                         self.call_method(&receiver, method, arity, range)?;
+                        if self.frames.len() > frames_before {
+                            self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                        }
                     } else {
                         let (name, slots, kind) = decode_selector(self.resolve_symbol(selector));
                         let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
@@ -2037,7 +2060,12 @@ impl VM {
                             .then(|| self.interner.intern(&name))
                             .and_then(|base| parent.and_then(|class| self.lookup_rest_method(class, base, positional_count, &labels)));
                         if let Some(method) = rest {
+                            let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                            let frames_before = self.frames.len();
                             self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector, range)?;
+                            if self.frames.len() > frames_before {
+                                self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                            }
                         } else {
                             self.forward_does_not_understand(receiver_idx, selector, range)?;
                         }

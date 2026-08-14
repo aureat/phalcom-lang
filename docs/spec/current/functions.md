@@ -8,10 +8,12 @@ one shape-aware activation gateway over compiled code and captured state.
 ```
 Object
  ├─ Function   (A)   the common shape-aware call protocol
- │   ├─ Closure      anonymous lexical closure; non-local return
- │   ├─ BoundMethod  exact method plus stored receiver
- │   └─ Family       open or pinned selector reference
- └─ Method          reified selector/holder; applied through invokeOn
+ │   ├─ Closure            anonymous lexical closure; non-local return
+ │   ├─ BoundMethod        exact method plus stored receiver
+ │   ├─ Family             exact-selector or structural-pattern reference
+ │   └─ BoundMethodFamily  immutable reflection snapshot plus receiver
+ ├─ Method                reified selector/holder; applied through invokeOn
+ └─ MethodFamily         immutable reflection snapshot; bind(_) makes it callable
 ```
 
 > **Amendment to [Blocks](blocks.md).** Blocks are first-class Function

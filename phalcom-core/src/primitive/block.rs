@@ -248,6 +248,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     // parameter) keeps `new_call_frame`'s signature stable and is sound because
     // `CallFrame` is `Copy`.
     frame.home_frame_token = home_frame_token;
+    frame.foreign_receiver_guard = vm.heap.closure(closure_id).foreign_receiver_guard;
     vm.push_frame(frame)?;
     // Re-entrant native frame — the crown-jewel hazard (ADR-0030 §4): a fiber
     // switch is forbidden while this recursive `run_until` is live on the

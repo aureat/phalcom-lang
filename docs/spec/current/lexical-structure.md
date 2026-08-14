@@ -149,10 +149,12 @@ below) owns attributes/decorators, so `#` and `@` never compete.
 
 Full semantics in [Selectors, Symbols & References §3](selectors.md#3-method-references-).
 
-`::` is a **postfix token**, `receiver::name` (Open family) or
-`receiver::#name(_,...)` (Pinned family). The grammar is LR(1)-clean: after
-lexing `::`, the parser peeks one token — `#` selects the Pinned form, anything
-else is the Open form. No backtracking, no cover grammar.
+`::` is a **postfix token** producing a bound Family. The selector
+specification is normalized immediately as an exact selector or a structural
+pattern: `receiver::name` is exact getter `name`, `receiver::name()` is exact
+nullary method `name()`, and an ellipsis form is a structural pattern. The
+grammar is LR(1)-clean: after lexing `::`, the parser reads the selector form
+without backtracking or a cover grammar.
 
 ## 12. Attribute token: `@`
 

@@ -15,7 +15,7 @@ use crate::heap::TupleObject;
 use crate::heap::Upvalue;
 use crate::method::MethodObject;
 
-use super::object::{BoundMethodObject, FamilyObject};
+use super::object::{BoundMethodFamilyObject, BoundMethodObject, FamilyObject, MethodFamilyObject};
 use super::{ClassId, FiberObject, Heap, ObjRef, Object};
 
 impl Heap {
@@ -464,6 +464,30 @@ impl Heap {
         match self.objects.get(id) {
             Some(Object::Family(family)) => Some(family),
             _ => None,
+        }
+    }
+
+    /// Borrows the immutable [`MethodFamilyObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::MethodFamily`].
+    pub fn method_family(&self, id: ObjRef) -> &MethodFamilyObject {
+        match self.get(id) {
+            Object::MethodFamily(family) => family,
+            _ => panic!("ObjRef {id:?} is not a MethodFamilyObject"),
+        }
+    }
+
+    /// Borrows the immutable [`BoundMethodFamilyObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::BoundMethodFamily`].
+    pub fn bound_method_family(&self, id: ObjRef) -> &BoundMethodFamilyObject {
+        match self.get(id) {
+            Object::BoundMethodFamily(family) => family,
+            _ => panic!("ObjRef {id:?} is not a BoundMethodFamilyObject"),
         }
     }
 

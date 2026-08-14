@@ -5,7 +5,7 @@
 `BoundMethod` is a sealed/final `Function` with one exact semantic identity:
 
 ```text
-BoundMethod = exact Method + validated receiver
+BoundMethod = exact Method + captured receiver
 ```
 
 It completes a Method's missing receiver. It is neither a cloned Method, a synthetic Closure, a nested binding wrapper, nor a late-dispatch Family.
@@ -17,9 +17,16 @@ const method = Person.methodFor(#greet())
 const bound = method.bind(person)
 ```
 
-`bind` validates `person` against the Method holder before construction. Instance-side compatibility means holder or subclass. Class-side compatibility follows metaclass ancestry. Holderless public Methods cannot be bound until a later specification defines a safe category.
+`bind` captures `person` without requiring holder compatibility. Bytecode
+field access is guarded when the bound Method runs: the receiver must have the
+Method holder's layout or a subclass layout, otherwise the runtime raises
+`IncompatibleMethodLayout` before slot access. Primitive Methods have no layout
+requirement. Holderless public Methods cannot be bound until a later
+specification defines a safe category.
 
-Binding captures the exact Method chosen at that moment. It does not look up its selector again at each call. The VM may defensively verify the stored pair at activation, but that is an invariant check, not a second receiver lookup or method-family dispatch.
+Binding captures the exact Method chosen at that moment. It does not look up
+its selector again at each call. The VM rechecks access and parameter shape at
+activation; bytecode field access also applies the stored Method's layout guard.
 
 ## 2. Calling
 
@@ -78,7 +85,10 @@ The underlying exact Method accepts or rejects the transported shape, including 
 
 ## 5. No rebinding API
 
-There is initially no direct rebinding operation. To pair a Method with another receiver, use the Method's ordinary `bind` operation and its compatibility checks. This preserves one simple representation and avoids wrapper chains with competing receiver and authority rules.
+There is initially no direct rebinding operation. To pair a Method with another
+receiver, use the Method's ordinary `bind` operation. Field-bearing bytecode
+checks layout at access time, which preserves one simple representation and
+avoids wrapper chains with competing receiver and authority rules.
 
 ## 6. Implementation note
 
@@ -95,7 +105,7 @@ Function activation replaces the call-window receiver with `receiver`, validates
 
 ## 7. Related chapters
 
-- [Method](method.md) — exact behavior and receiver compatibility
+- [Method](method.md) — exact behavior and receiver representation guards
 - [Function](function.md) — shared call gateway
 - [Reflection](reflection.md) — `bind` and `invokeOn`
 - [Execution contexts](execution.md) — dynamic `self` and lexical `super`

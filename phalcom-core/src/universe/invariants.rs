@@ -77,7 +77,7 @@ impl Universe {
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 35] = [
+        let ordinary_rows: [(&str, ClassId); 37] = [
             ("Number", c.number_class),
             ("Int", c.int_class),
             ("Float", c.float_class),
@@ -90,6 +90,8 @@ impl Universe {
             ("Closure", c.closure_class),
             ("BoundMethod", c.bound_method_class),
             ("Family", c.family_class),
+            ("MethodFamily", c.method_family_class),
+            ("BoundMethodFamily", c.bound_method_family_class),
             ("Method", c.method_class),
             ("Symbol", c.symbol_class),
             ("Module", c.module_class),
@@ -132,7 +134,12 @@ impl Universe {
         if heap.class(c.method_class).superclass != Some(c.object_class) {
             return Err("Method.superclass should be Object".to_string());
         }
-        for (name, class_id) in [("Closure", c.closure_class), ("BoundMethod", c.bound_method_class), ("Family", c.family_class)] {
+        for (name, class_id) in [
+            ("Closure", c.closure_class),
+            ("BoundMethod", c.bound_method_class),
+            ("Family", c.family_class),
+            ("BoundMethodFamily", c.bound_method_family_class),
+        ] {
             if heap.class(class_id).superclass != Some(c.function_class) {
                 return Err(format!("{name}.superclass should be Function"));
             }

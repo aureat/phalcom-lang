@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 33] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 35] {
     let c = vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -62,6 +62,8 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 33] {
         ("Function", c.function_class),
         ("Closure", c.closure_class),
         ("BoundMethod", c.bound_method_class),
+        ("MethodFamily", c.method_family_class),
+        ("BoundMethodFamily", c.bound_method_family_class),
         ("Symbol", c.symbol_class),
         ("Module", c.module_class),
         ("System", c.system_class),
@@ -693,8 +695,9 @@ fn floor_census_matches_installed_bindings() {
     // an ordinary send over the module's own globals table; the only way to
     // reach it from a message send (floor-census.md §2.12).
     // U16-Open's former Family dNU router (ADR-0047) is superseded by the
-    // shared shape-aware Function gateway. Family now contributes no native
-    // floor binding; its call activation rebuilds the target selector directly.
+    // shared shape-aware Function gateway. Family's six reflective protocol
+    // bindings remain native; its call activation rebuilds the target selector
+    // directly.
     // U-SCHED (floor-census.md amendment, ADR-0030 §Consequences): the
     // native ready-queue scheduler seam admits **+2** bindings (113 -> 115):
     // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
@@ -783,6 +786,7 @@ fn floor_census_matches_installed_bindings() {
         (c.behavior_class, false, "superclass=(put)"),
         (c.behavior_class, false, "name"),    // NEW (ADR-0023)
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
+        (c.behavior_class, false, ">>(_)"),   // selector-pattern reflection
         // §2.3 Class
         (c.class_class, false, "+(_)"),
         (c.class_class, false, "_$new()"),
@@ -838,6 +842,18 @@ fn floor_census_matches_installed_bindings() {
         (c.method_class, false, "bind(_)"),         // NEW (ADR-0028)
         (c.method_class, false, "selector"),        // NEW (ADR-0028)
         (c.method_class, false, "holder"),          // NEW (ADR-0028)
+        // §2.9 MethodFamily
+        (c.method_family_class, false, "selectors"),
+        (c.method_family_class, false, "size"),
+        (c.method_family_class, false, "methodFor(_)"),
+        (c.method_family_class, false, "bind(_)"),
+        // §2.10 Family
+        (c.family_class, false, "receiver"),
+        (c.family_class, false, "selector"),
+        (c.family_class, false, "pattern"),
+        (c.family_class, false, "isExact"),
+        (c.family_class, false, "get()"),
+        (c.family_class, false, "set(_)"),
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
@@ -1011,10 +1027,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        150,
-        "census must enumerate exactly 150 bindings after the immediate Option amendment"
+        161,
+        "census must enumerate exactly 161 bindings after Family and MethodFamily reflection"
     );
-    assert_eq!(live.len(), 150, "the live floor must be exactly 150 bindings");
+    assert_eq!(live.len(), 161, "the live floor must be exactly 161 bindings");
 }
 
 #[test]
@@ -1410,21 +1426,17 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
 }
 
 #[test]
-fn bind_rejects_incompatible_receiver_before_allocation() {
+fn bind_allows_foreign_receiver_for_representation_independent_method() {
     let mut vm = VM::new();
-    let module = vm.create_module("main", "bind_rejects_incompatible_receiver_before_allocation");
+    let module = vm.create_module("main", "bind_allows_foreign_receiver_for_representation_independent_method");
     vm.interpret_source(module, "class Greeter { greet(_ name) { name } }\nlet g = Greeter.new()\n")
         .expect("class + instance should run");
     let g = vm.heap.module(module).get(vm.interner.intern("g")).expect("`g` global should exist");
     let selector = vm.get_or_intern("greet(_)");
     let method = object_method_for(&mut vm, &g, &[Value::Symbol(selector)]).expect("methodFor should return Greeter#greet(_)");
-    let before = vm.heap.live_count();
-    let result = method_bind(&mut vm, &method, &[Value::Int(3)]);
-    assert!(
-        matches!(result, Err(PhError::Runtime(RuntimeError::NotAllowed(ref message))) if message.contains("incompatible")),
-        "incompatible bind should be rejected, got {result:?}"
-    );
-    assert_eq!(vm.heap.live_count(), before, "rejected bind must not allocate BoundMethod");
+    let bound = method_bind(&mut vm, &method, &[Value::Int(3)]).expect("foreign receiver should bind");
+    let result = block_call(&mut vm, &bound, &[Value::Int(3)]).expect("representation-independent method should activate");
+    assert_eq!(result, Value::Int(3));
 }
 
 fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {

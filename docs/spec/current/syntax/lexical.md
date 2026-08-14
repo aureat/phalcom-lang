@@ -239,19 +239,23 @@ lexer and does not produce a `SYMBOL` token; `#!` anywhere else lexes normally.
 
 ## 10. Method-reference token (`::`)
 
-`::` is a postfix token producing a first-class reference to a method
-([`../selectors.md#3-method-references-`](../selectors.md)). What follows the
-token selects the form: a `#` immediately after `::` yields the **Pinned**
-form (bound to a specific selector symbol); anything else yields the **Open**
-form (late-bound, resolved by lookup at the call site).
+`::` is a postfix token producing a bound Family
+([`../selectors.md#3-method-references-`](../selectors.md)). The selector
+specification after it is normalized immediately as an exact selector or a
+structural pattern. `obj::name` is exact getter `name`; `obj::name()` is exact
+nullary method `name()`; `obj::name(...)` is a structural pattern. Construction
+stores the receiver and never probes behavior. The old Open/Pinned split and
+reference-time empty-family rule are retired.
 
 ```
-METHOD-REF := "::" [ "#" ]   (* target production: expressions.md *)
+METHOD-REF := "::" ( IDENT | "#" SELECTOR | PATTERN )
 ```
 
 ```phalcom
-obj::#move        // Pinned form
-obj::move         // Open form
+obj::move         // exact getter
+obj::move()       // exact nullary method
+obj::move(...)    // structural pattern
+obj::#move(_)     // exact selector
 ```
 
 ## 11. Attribute token (`@`)

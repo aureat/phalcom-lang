@@ -240,8 +240,11 @@ method_ref := postfix "::" ( IDENT | "#" selector )
 ```
 
 `#name` / `#sel` builds a `Symbol` ([Selectors §2](../selectors.md#2)).
-`recv::name` and `recv::#sel` build an Open or Pinned method reference — the
-bound/unbound method-reference family ([Selectors §3](../selectors.md#3)).
+`recv::name`, `recv::name()`, and `recv::#sel(...)` build exact bound Family
+references; an ellipsis selector builds a structural-pattern Family
+([Selectors §3](../selectors.md#3)). `recv::name` is the exact getter, not an
+open base-name reference. Family construction evaluates the receiver once and
+never probes its method table.
 `self` is the current receiver; `super.m(a)` is a super-send — lookup begins
 in the superclass of the method's holder, not the receiver's class.
 
