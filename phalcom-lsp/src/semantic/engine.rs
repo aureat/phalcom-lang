@@ -32,25 +32,36 @@ pub(crate) struct RebuildTraceData {
 #[derive(Clone, Default)]
 pub(crate) struct SemanticState {
     pub generation: SemanticGeneration,
-    pub files: BTreeMap<ModuleId, FileSemanticSnapshot>,
-    pub classes: BTreeMap<ClassId, ClassSurface>,
-    pub summaries: BTreeMap<CallableId, CallableSummary>,
-    pub field_facts: BTreeMap<FieldId, InferredValue>,
-    pub parameter_facts: BTreeMap<(CallableId, String), InferredValue>,
-    pub parameter_contributions: BTreeMap<ModuleId, ParameterFacts>,
-    pub parameter_contribution_slots: ParameterContributions,
-    pub callable_dependencies: BTreeMap<CallableId, BTreeSet<CallableId>>,
-    pub callable_dependents: BTreeMap<CallableId, BTreeSet<CallableId>>,
-    pub graph: ModuleGraph,
+    pub files: Arc<BTreeMap<ModuleId, Arc<FileSemanticSnapshot>>>,
+    pub classes: Arc<BTreeMap<ClassId, Arc<ClassSurface>>>,
+    pub summaries: Arc<BTreeMap<CallableId, Arc<CallableSummary>>>,
+    pub field_facts: Arc<BTreeMap<FieldId, InferredValue>>,
+    pub parameter_facts: Arc<BTreeMap<(CallableId, String), InferredValue>>,
+    pub parameter_contributions: Arc<BTreeMap<ModuleId, ParameterFacts>>,
+    pub parameter_contribution_slots: Arc<ParameterContributions>,
+    pub callable_dependencies: Arc<BTreeMap<CallableId, BTreeSet<CallableId>>>,
+    pub callable_dependents: Arc<BTreeMap<CallableId, BTreeSet<CallableId>>>,
+    pub graph: Arc<ModuleGraph>,
     #[cfg(test)]
     pub last_trace: Option<RebuildTrace>,
 }
 
 /// Mutable single-threaded semantic analysis worker engine.
-#[derive(Clone)]
 pub struct SemanticEngine {
     state: SemanticState,
     counters: PerfCountersHandle,
+}
+
+impl Clone for SemanticEngine {
+    fn clone(&self) -> Self {
+        self.counters
+            .semantic_candidate_state_clones
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self {
+            state: self.state.clone(),
+            counters: self.counters.clone(),
+        }
+    }
 }
 
 impl Default for SemanticEngine {
@@ -92,9 +103,9 @@ impl SemanticEngine {
     pub fn snapshot(&self) -> SemanticSnapshot {
         SemanticSnapshot {
             generation: self.state.generation,
-            files: self.state.files.iter().map(|(k, v)| (k.clone(), Arc::new(v.clone()))).collect(),
-            classes: self.state.classes.iter().map(|(k, v)| (k.clone(), Arc::new(v.clone()))).collect(),
-            summaries: self.state.summaries.iter().map(|(k, v)| (k.clone(), Arc::new(v.clone()))).collect(),
+            files: self.state.files.clone(),
+            classes: self.state.classes.clone(),
+            summaries: self.state.summaries.clone(),
             field_facts: self.state.field_facts.clone(),
             parameter_facts: self.state.parameter_facts.clone(),
             graph: self.state.graph.clone(),
@@ -169,10 +180,9 @@ impl SemanticEngine {
             let change_kind = classify_source_change(&module, old_source.as_deref(), Some(&source));
             change_kinds.push((module.clone(), change_kind));
             if change_kind != SourceChangeKind::BodyOnly {
-                self.state.classes.retain(|id, _| id.module != module);
-                self.state
-                    .classes
-                    .extend(source.surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
+                Arc::make_mut(&mut self.state.classes).retain(|id, _| id.module != module);
+                Arc::make_mut(&mut self.state.classes)
+                    .extend(source.surface.classes.iter().map(|(id, class)| (id.clone(), Arc::new(class.clone()))));
             }
             let snapshot = FileSemanticSnapshot {
                 revision,
@@ -184,7 +194,7 @@ impl SemanticEngine {
                 parameter_facts: super::facts::ParameterFacts::default(),
                 dependencies: super::DependencySet::default(),
             };
-            self.state.files.insert(module.clone(), snapshot);
+            Arc::make_mut(&mut self.state.files).insert(module.clone(), Arc::new(snapshot));
         }
 
         let available = self.state.files.keys().cloned().collect::<BTreeSet<_>>();
@@ -193,12 +203,12 @@ impl SemanticEngine {
                 continue;
             }
             if let Some(file) = self.state.files.get(module) {
-                self.state.graph.update(file.module.clone(), &file.source.program, &available);
+                Arc::make_mut(&mut self.state.graph).update(file.module.clone(), &file.source.program, &available);
             }
         }
         for (module, change_kind) in &change_kinds {
             if *change_kind == SourceChangeKind::FileAddedRemoved {
-                affected.extend(self.state.graph.repair_provider(module, &available));
+                affected.extend(Arc::make_mut(&mut self.state.graph).repair_provider(module, &available));
             }
         }
 
@@ -230,6 +240,7 @@ impl SemanticEngine {
         if cancelled() {
             return None;
         }
+        record_product_reuse(&self.state, &candidate.state, &self.counters);
         *self = candidate;
         Some(generation)
     }
@@ -265,6 +276,7 @@ impl SemanticEngine {
         if cancelled() {
             return None;
         }
+        record_product_reuse(&self.state, &candidate.state, &self.counters);
         *self = candidate;
         Some(generation)
     }
@@ -285,40 +297,40 @@ impl SemanticEngine {
             return None;
         }
         let module = ModuleId::from_uri(uri);
-        if self.state.files.remove(&module).is_none() {
+        if Arc::make_mut(&mut self.state.files).remove(&module).is_none() {
             return Some(self.state.generation);
         }
 
         let next_generation = SemanticGeneration(self.state.generation.0 + 1);
         let mut affected: BTreeSet<ModuleId> = self.state.graph.dependent_closure(&module).into_iter().collect();
-        self.state.graph.remove(&module);
+        Arc::make_mut(&mut self.state.graph).remove(&module);
 
         let available = self.state.files.keys().cloned().collect::<BTreeSet<_>>();
-        affected.extend(self.state.graph.repair_provider(&module, &available));
+        affected.extend(Arc::make_mut(&mut self.state.graph).repair_provider(&module, &available));
 
         let old_callables = self.state.summaries.keys().filter(|id| id.owner.module == module).cloned().collect::<Vec<_>>();
         for callable in old_callables {
-            if let Some(dependents) = self.state.callable_dependents.remove(&callable) {
+            if let Some(dependents) = Arc::make_mut(&mut self.state.callable_dependents).remove(&callable) {
                 affected.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
             }
-            self.state.summaries.remove(&callable);
-            if let Some(dependencies) = self.state.callable_dependencies.remove(&callable) {
+            Arc::make_mut(&mut self.state.summaries).remove(&callable);
+            if let Some(dependencies) = Arc::make_mut(&mut self.state.callable_dependencies).remove(&callable) {
                 for dependency in dependencies {
-                    if let Some(dependents) = self.state.callable_dependents.get_mut(&dependency) {
+                    if let Some(dependents) = Arc::make_mut(&mut self.state.callable_dependents).get_mut(&dependency) {
                         dependents.remove(&callable);
                     }
                 }
             }
         }
-        self.state.parameter_contributions.remove(&module);
-        self.state.parameter_contribution_slots.replace_source(
+        Arc::make_mut(&mut self.state.parameter_contributions).remove(&module);
+        Arc::make_mut(&mut self.state.parameter_contribution_slots).replace_source(
             ContributionSource::TopLevel(module.clone()),
             std::iter::empty::<(ParameterSlot, InferredValue)>(),
         );
-        self.state.classes.retain(|id, _| id.module != module);
-        self.state.summaries.retain(|id, _| id.owner.module != module);
+        Arc::make_mut(&mut self.state.classes).retain(|id, _| id.module != module);
+        Arc::make_mut(&mut self.state.summaries).retain(|id, _| id.owner.module != module);
 
-        for dependents in self.state.callable_dependents.values_mut() {
+        for dependents in Arc::make_mut(&mut self.state.callable_dependents).values_mut() {
             dependents.retain(|id| id.owner.module != module);
         }
 
@@ -338,6 +350,24 @@ impl SemanticEngine {
     }
 }
 
+fn record_product_reuse(previous: &SemanticState, next: &SemanticState, counters: &PerfCounters) {
+    for (id, product) in previous.files.iter() {
+        if next.files.get(id).is_some_and(|candidate| Arc::ptr_eq(product, candidate)) {
+            counters.published_file_products_reused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    for (id, product) in previous.classes.iter() {
+        if next.classes.get(id).is_some_and(|candidate| Arc::ptr_eq(product, candidate)) {
+            counters.published_class_products_reused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    for (id, product) in previous.summaries.iter() {
+        if next.summaries.get(id).is_some_and(|candidate| Arc::ptr_eq(product, candidate)) {
+            counters.published_summary_products_reused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
 pub(crate) fn rebuild_affected_state(
     state: &mut SemanticState,
     generation: SemanticGeneration,
@@ -353,14 +383,18 @@ pub(crate) fn rebuild_affected_state(
             return None;
         }
         for module in &affected {
-            state.parameter_contributions.remove(module);
-            state.parameter_contribution_slots.replace_source(
+            Arc::make_mut(&mut state.parameter_contributions).remove(module);
+            Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
                 ContributionSource::TopLevel(module.clone()),
                 std::iter::empty::<(ParameterSlot, InferredValue)>(),
             );
         }
 
-        let classes = state.classes.clone();
+        let classes = state
+            .classes
+            .iter()
+            .map(|(id, surface)| (id.clone(), (**surface).clone()))
+            .collect::<BTreeMap<_, _>>();
         let graph = state.graph.clone();
 
         let inputs = state
@@ -373,23 +407,23 @@ pub(crate) fn rebuild_affected_state(
             .summaries
             .iter()
             .filter(|(id, _)| !affected.contains(&id.owner.module))
-            .map(|(id, summary)| (id.clone(), summary.clone()))
+            .map(|(id, summary)| (id.clone(), (**summary).clone()))
             .collect::<BTreeMap<_, _>>();
         let mut base_parameters = ParameterFacts::default();
-        for (module, contribution) in &state.parameter_contributions {
+        for (module, contribution) in state.parameter_contributions.iter() {
             if !affected.contains(module) {
                 base_parameters.merge_from(contribution);
             }
         }
-        let solved = infer::solve_affected_callables_with_cancel(&inputs, &classes, &graph, generation, seed_summaries, base_parameters, cancelled, counters)?;
+        let solved = infer::solve_affected_callables_with_cancel(&inputs, &classes, graph.as_ref(), generation, seed_summaries, base_parameters, cancelled, counters)?;
         let solved_source_analyses = solved.source_analyses;
 
         // One unified source result owns local, field, parameter, and summary
         // products. Do not re-enter flow for individual fact families.
         for (module, analysis) in &solved_source_analyses {
             let facts = analysis.parameter_facts.clone();
-            state.parameter_contributions.insert(module.clone(), facts.clone());
-            state.parameter_contribution_slots.replace_source(
+            Arc::make_mut(&mut state.parameter_contributions).insert(module.clone(), facts.clone());
+            Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
                 ContributionSource::TopLevel(module.clone()),
                 facts.iter().map(|((callable, name), value)| {
                     (
@@ -407,13 +441,17 @@ pub(crate) fn rebuild_affected_state(
         for contribution in state.parameter_contributions.values() {
             aggregate_parameters.merge_from(contribution);
         }
-        state.parameter_facts = aggregate_parameters.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
+        state.parameter_facts = Arc::new(aggregate_parameters.iter().map(|(key, value)| (key.clone(), value.clone())).collect());
 
         // Callable worklist summaries are solver inputs for the final source
         // pass, not an independent publication product. Publish summaries
         // emitted by that same source-backed analysis and retain only
         // unaffected summaries from the previous state.
-        let mut published_summaries = state.summaries.clone();
+        let mut published_summaries = state
+            .summaries
+            .iter()
+            .map(|(id, summary)| (id.clone(), (**summary).clone()))
+            .collect::<BTreeMap<_, _>>();
         published_summaries.retain(|id, _| !affected.contains(&id.owner.module));
         for analysis in solved_source_analyses.values() {
             for (summary, evidence) in &analysis.summaries {
@@ -423,7 +461,20 @@ pub(crate) fn rebuild_affected_state(
             }
         }
         infer::complete_missing_summaries(&inputs, &classes, generation, &aggregate_parameters, &mut published_summaries);
-        state.summaries = published_summaries;
+        state.summaries = Arc::new(
+            published_summaries
+                .into_iter()
+                .map(|(id, summary)| {
+                    let product = state
+                        .summaries
+                        .get(&id)
+                        .filter(|previous| previous.as_ref() == &summary)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::new(summary));
+                    (id, product)
+                })
+                .collect(),
+        );
 
         let mut additions = BTreeSet::new();
         for id in previous_summaries.keys().chain(state.summaries.keys()) {
@@ -475,15 +526,14 @@ pub(crate) fn rebuild_affected_state(
         .filter(|module| state.files.contains_key(*module))
         .cloned()
         .collect::<BTreeSet<_>>();
-    state.field_facts.retain(|field, _| !affected.contains(&field.owner.module));
+    Arc::make_mut(&mut state.field_facts).retain(|field, _| !affected.contains(&field.owner.module));
     for analysis in analysis_by_module.values() {
-        state
-            .field_facts
+        Arc::make_mut(&mut state.field_facts)
             .extend(analysis.field_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
     }
     for (module, analysis) in &analysis_by_module {
-        state.parameter_contributions.insert(module.clone(), analysis.parameter_facts.clone());
-        state.parameter_contribution_slots.replace_source(
+        Arc::make_mut(&mut state.parameter_contributions).insert(module.clone(), analysis.parameter_facts.clone());
+        Arc::make_mut(&mut state.parameter_contribution_slots).replace_source(
             ContributionSource::TopLevel(module.clone()),
             analysis.parameter_facts.iter().map(|((callable, name), value)| {
                 (
@@ -498,7 +548,8 @@ pub(crate) fn rebuild_affected_state(
     }
     update_callable_edges(state);
     for module in existing_modules {
-        let Some(file) = state.files.get_mut(&module) else { continue };
+        let Some(file) = Arc::make_mut(&mut state.files).get_mut(&module) else { continue };
+        let file = Arc::make_mut(file);
         if let Some(analysis) = analysis_by_module.remove(&module) {
             file.local_facts = analysis.local_facts.clone();
             file.field_facts = analysis.field_facts.clone();
@@ -610,6 +661,34 @@ class Service {
             "summary product missing"
         );
     }
+
+    #[test]
+    fn body_edit_reuses_unrelated_published_products() {
+        let mut engine = SemanticEngine::empty();
+        let left = Url::parse("file:///sharing-left.ph").expect("left URI");
+        let right = Url::parse("file:///sharing-right.ph").expect("right URI");
+        engine.update_files_batch(vec![
+            (left.clone(), FileRevision(1), parse("class Left { value() { 1 } }", 0).program),
+            (right.clone(), FileRevision(1), parse("class Right { value() { 2 } }", 0).program),
+        ]);
+        let first = engine.snapshot();
+        engine.update_file(&left, FileRevision(2), &parse("class Left { value() { 3 } }", 0).program);
+        let second = engine.snapshot();
+
+        let right_module = ModuleId::from_uri(&right);
+        let right_class = ClassId::new(right_module.clone(), "Right");
+        let right_callable = CallableId {
+            owner: right_class.clone(),
+            selector: "value()".to_string(),
+            side: super::super::ids::DispatchSide::Instance,
+        };
+        assert!(Arc::ptr_eq(first.files.get(&right_module).expect("right file"), second.files.get(&right_module).expect("right file retained")));
+        assert!(Arc::ptr_eq(first.classes.get(&right_class).expect("right class"), second.classes.get(&right_class).expect("right class retained")));
+        assert!(Arc::ptr_eq(
+            first.summaries.get(&right_callable).expect("right summary"),
+            second.summaries.get(&right_callable).expect("right summary retained"),
+        ));
+    }
 }
 
 /// Diffs callable dependency edges against the currently published working
@@ -625,18 +704,18 @@ fn update_callable_edges(state: &mut SemanticState) {
             .map(|summary| summary.dependencies.iter().cloned().collect::<BTreeSet<_>>())
             .unwrap_or_default();
         for dependency in old.difference(&new) {
-            if let Some(dependents) = state.callable_dependents.get_mut(dependency) {
+            if let Some(dependents) = Arc::make_mut(&mut state.callable_dependents).get_mut(dependency) {
                 dependents.remove(&callable);
             }
         }
         for dependency in new.difference(&old) {
-            state.callable_dependents.entry(dependency.clone()).or_default().insert(callable.clone());
+            Arc::make_mut(&mut state.callable_dependents).entry(dependency.clone()).or_default().insert(callable.clone());
         }
         if new.is_empty() {
-            state.callable_dependencies.remove(&callable);
+            Arc::make_mut(&mut state.callable_dependencies).remove(&callable);
         } else {
-            state.callable_dependencies.insert(callable, new);
+            Arc::make_mut(&mut state.callable_dependencies).insert(callable, new);
         }
     }
-    state.callable_dependents.retain(|_, dependents| !dependents.is_empty());
+    Arc::make_mut(&mut state.callable_dependents).retain(|_, dependents| !dependents.is_empty());
 }

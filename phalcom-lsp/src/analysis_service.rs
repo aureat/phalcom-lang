@@ -14,7 +14,7 @@ use tower_lsp::lsp_types::Url;
 use crate::index::WorkspaceIndex;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfContext, PerfCountersHandle, PerfSpan};
-use crate::semantic::{FileRevision, SemanticDb, SemanticGeneration};
+use crate::semantic::{FileRevision, SemanticDb, SemanticEngine, SemanticGeneration};
 use crate::workspace_scan::{AnalysisMode, ExcludeMatcher, ScanBudget, WorkspaceScanState};
 
 /// Closed-file source metadata populated by the worker before it publishes
@@ -497,6 +497,9 @@ fn worker_loop(
     shared: Arc<WorkerShared>,
     event_tx: mpsc::UnboundedSender<AnalysisEvent>,
 ) {
+    // Worker owns mutable semantic state. `db` only publishes immutable
+    // snapshots for concurrent request readers.
+    let mut engine = SemanticEngine::new_with_counters(db.perf_counters());
     let mut scanner = None;
     let mut selected_core_uri = None;
     let mut core_initialized = false;
@@ -544,7 +547,8 @@ fn worker_loop(
                 let core_source = crate::semantic::core_source::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
                 selected_core_uri = core_source.physical_uri().cloned();
                 let program = phalcom_ast::parser::parse(core_source.text(), 0).program;
-                let generation = db.update_core(FileRevision(1), &program);
+                let generation = engine.update_core(FileRevision(1), &program);
+                db.publish(Arc::new(engine.snapshot()));
                 core_initialized = true;
                 let _ = event_tx.send(AnalysisEvent::Published { generation });
                 continue;
@@ -553,6 +557,7 @@ fn worker_loop(
                 let batch = scan.step(ScanBudget::default());
                 process_scan_batch(
                     &db,
+                    &mut engine,
                     workspace_index.as_ref(),
                     source_cache.as_ref(),
                     &shared,
@@ -581,6 +586,7 @@ fn worker_loop(
                 let batch = scan.step(ScanBudget::default());
                 process_scan_batch(
                     &db,
+                    &mut engine,
                     workspace_index.as_ref(),
                     source_cache.as_ref(),
                     &shared,
@@ -663,11 +669,12 @@ fn worker_loop(
                 },
                 shared.counters.clone(),
             );
-            let generation = db.apply_mutations_with_cancel(removals.into_iter().collect(), batch, core_update, &cancelled);
+            let generation = engine.apply_mutations_with_cancel(removals.into_iter().collect(), batch, core_update, &cancelled);
             let solve_cancelled = generation.is_none();
             if let Some(generation) = generation {
                 latest_generation = generation;
                 source_catalog = next_source_catalog;
+                db.publish(Arc::new(engine.snapshot()));
             }
 
             #[cfg(test)]
@@ -699,6 +706,7 @@ fn has_analysis_work(pending: &PendingWork) -> bool {
 
 fn process_scan_batch(
     db: &SemanticDb,
+    engine: &mut SemanticEngine,
     workspace_index: Option<&Arc<WorkspaceIndex>>,
     source_cache: Option<&SourceCache>,
     shared: &WorkerShared,
@@ -772,7 +780,8 @@ fn process_scan_batch(
             },
             shared.counters.clone(),
         );
-        let generation = db.update_files_batch(semantic_files);
+        let generation = engine.update_files_batch(semantic_files);
+        db.publish(Arc::new(engine.snapshot()));
         shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
         let _ = event_tx.send(AnalysisEvent::Published { generation });
     }
@@ -799,7 +808,8 @@ fn process_scan_batch(
                 },
                 shared.counters.clone(),
             );
-            let generation = db.update_files_batch(batch);
+            let generation = engine.update_files_batch(batch);
+            db.publish(Arc::new(engine.snapshot()));
             shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
             let _ = event_tx.send(AnalysisEvent::Published { generation });
         }

@@ -19,11 +19,14 @@ pub(crate) mod source;
 mod surface;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
+#[cfg(test)]
+use std::sync::Mutex;
 
 pub use engine::SemanticEngine;
 pub use snapshot::{FileSourceSnapshot, SemanticSnapshot};
 
+#[cfg(test)]
 use phalcom_ast::ast::Program;
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
@@ -151,6 +154,7 @@ impl From<RebuildTraceData> for RebuildTrace {
 /// Thread-safe published semantic database wrapper owned by [`crate::backend::Backend`].
 pub struct SemanticDb {
     current: RwLock<Arc<SemanticSnapshot>>,
+    #[cfg(test)]
     engine: Mutex<SemanticEngine>,
     counters: PerfCountersHandle,
 }
@@ -169,10 +173,11 @@ impl SemanticDb {
 
     /// Creates a semantic database with a caller-owned counter set.
     pub(crate) fn with_counters(counters: PerfCountersHandle) -> Self {
+        #[cfg(test)]
         let engine = SemanticEngine::new_with_counters(counters.clone());
-        let snapshot = Arc::new(engine.snapshot());
         Self {
-            current: RwLock::new(snapshot),
+            current: RwLock::new(Arc::new(SemanticSnapshot::default())),
+            #[cfg(test)]
             engine: Mutex::new(engine),
             counters,
         }
@@ -199,11 +204,13 @@ impl SemanticDb {
     }
 
     /// Replaces one file contribution and publishes one coherent generation.
+    #[cfg(test)]
     pub fn update_file(&self, uri: &Url, revision: FileRevision, program: &Program) -> SemanticGeneration {
         self.update_files_batch(vec![(uri.clone(), revision, program.clone())])
     }
 
     /// Replaces several file contributions and publishes one coherent generation.
+    #[cfg(test)]
     pub fn update_files_batch(&self, files: Vec<(Url, FileRevision, Program)>) -> SemanticGeneration {
         let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
         let generation = engine.update_files_batch(files);
@@ -211,24 +218,8 @@ impl SemanticDb {
         generation
     }
 
-    /// Applies worker removals, source updates, and core replacement as one
-    /// atomically published semantic candidate.
-    pub(crate) fn apply_mutations_with_cancel(
-        &self,
-        removals: Vec<Url>,
-        files: Vec<(Url, FileRevision, Program)>,
-        core_update: Option<(FileRevision, Program)>,
-        cancelled: &dyn Fn() -> bool,
-    ) -> Option<SemanticGeneration> {
-        let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
-        let mut candidate = engine.clone();
-        let generation = candidate.apply_mutations_with_cancel(removals, files, core_update, cancelled)?;
-        *engine = candidate;
-        self.publish(Arc::new(engine.snapshot()));
-        Some(generation)
-    }
-
     /// Replaces the active core library module.
+    #[cfg(test)]
     pub fn update_core(&self, revision: FileRevision, program: &Program) -> SemanticGeneration {
         let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
         let generation = engine.update_core(revision, program);
@@ -237,6 +228,7 @@ impl SemanticDb {
     }
 
     /// Removes one source file from the active universe.
+    #[cfg(test)]
     pub fn remove_file(&self, uri: &Url) -> SemanticGeneration {
         let mut engine = self.engine.lock().expect("semantic engine lock poisoned");
         let generation = engine.remove_file(uri);

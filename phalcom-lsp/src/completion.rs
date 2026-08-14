@@ -52,6 +52,7 @@ pub(crate) fn target_at_snapshot(doc: &DocumentSnapshot, position: Position) -> 
 /// Same bounded completion fallback using a request-local recovery parse for
 /// buffers whose dangling member dot prevented the normal parse from
 /// reaching later declarations.
+#[cfg(test)]
 pub(crate) fn shallow_receiver_completions_from_program(
     index: &WorkspaceIndex,
     uri: &Url,

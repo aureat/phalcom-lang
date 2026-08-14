@@ -188,9 +188,6 @@ fn import_candidate(module: &ModuleId, import: &str) -> Option<ModuleId> {
 }
 
 fn normalize_path(path: PathBuf) -> PathBuf {
-    if let Ok(canonical) = path.canonicalize() {
-        return canonical;
-    }
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {

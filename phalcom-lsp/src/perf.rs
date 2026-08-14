@@ -31,6 +31,14 @@ pub struct PerfCounters {
     pub solver_rounds: AtomicU64,
     /// Count of individual callables analyzed.
     pub callables_analyzed: AtomicU64,
+    /// Count of speculative semantic candidate state clones.
+    pub semantic_candidate_state_clones: AtomicU64,
+    /// Count of published file products reused by pointer identity.
+    pub published_file_products_reused: AtomicU64,
+    /// Count of published class products reused by pointer identity.
+    pub published_class_products_reused: AtomicU64,
+    /// Count of published callable summaries reused by pointer identity.
+    pub published_summary_products_reused: AtomicU64,
 }
 
 impl PerfCounters {
@@ -53,6 +61,10 @@ impl PerfCounters {
         self.flow_passes.store(0, Ordering::Relaxed);
         self.solver_rounds.store(0, Ordering::Relaxed);
         self.callables_analyzed.store(0, Ordering::Relaxed);
+        self.semantic_candidate_state_clones.store(0, Ordering::Relaxed);
+        self.published_file_products_reused.store(0, Ordering::Relaxed);
+        self.published_class_products_reused.store(0, Ordering::Relaxed);
+        self.published_summary_products_reused.store(0, Ordering::Relaxed);
     }
 
     /// Captures a snapshot of current counter values.
@@ -70,6 +82,10 @@ impl PerfCounters {
             flow_passes: self.flow_passes.load(Ordering::Relaxed),
             solver_rounds: self.solver_rounds.load(Ordering::Relaxed),
             callables_analyzed: self.callables_analyzed.load(Ordering::Relaxed),
+            semantic_candidate_state_clones: self.semantic_candidate_state_clones.load(Ordering::Relaxed),
+            published_file_products_reused: self.published_file_products_reused.load(Ordering::Relaxed),
+            published_class_products_reused: self.published_class_products_reused.load(Ordering::Relaxed),
+            published_summary_products_reused: self.published_summary_products_reused.load(Ordering::Relaxed),
         }
     }
 }
@@ -101,6 +117,14 @@ pub struct CounterSnapshot {
     pub solver_rounds: u64,
     /// Count of callables analyzed.
     pub callables_analyzed: u64,
+    /// Count of speculative semantic candidate state clones.
+    pub semantic_candidate_state_clones: u64,
+    /// Count of published file products reused by pointer identity.
+    pub published_file_products_reused: u64,
+    /// Count of published class products reused by pointer identity.
+    pub published_class_products_reused: u64,
+    /// Count of published callable summaries reused by pointer identity.
+    pub published_summary_products_reused: u64,
 }
 
 /// Shared counter handle passed between the service, worker, and semantic passes.
@@ -195,7 +219,7 @@ impl Drop for PerfSpan {
             if let Some(counters) = &self.counters {
                 let snapshot = counters.snapshot();
                 eprintln!(
-                    " updates={}/{}/{} batches={}/{}/{} scan={}/{}/{} flow={} solve={} callables={}",
+                    " updates={}/{}/{} batches={}/{}/{} scan={}/{}/{} flow={} solve={} callables={} candidates={} reused={}/{}/{}",
                     snapshot.source_updates_enqueued,
                     snapshot.source_updates_coalesced,
                     snapshot.source_updates_discarded,
@@ -207,7 +231,11 @@ impl Drop for PerfSpan {
                     snapshot.workspace_files_parsed,
                     snapshot.flow_passes,
                     snapshot.solver_rounds,
-                    snapshot.callables_analyzed
+                    snapshot.callables_analyzed,
+                    snapshot.semantic_candidate_state_clones,
+                    snapshot.published_file_products_reused,
+                    snapshot.published_class_products_reused,
+                    snapshot.published_summary_products_reused
                 );
             } else {
                 eprintln!();
@@ -238,6 +266,10 @@ mod tests {
                 flow_passes: 0,
                 solver_rounds: 0,
                 callables_analyzed: 0,
+                semantic_candidate_state_clones: 0,
+                published_file_products_reused: 0,
+                published_class_products_reused: 0,
+                published_summary_products_reused: 0,
             }
         );
 

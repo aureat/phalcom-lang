@@ -41,17 +41,17 @@ pub struct SemanticSnapshot {
     /// Monotonic publication generation.
     pub generation: SemanticGeneration,
     /// Per-module source and semantic analysis facts.
-    pub files: BTreeMap<ModuleId, Arc<FileSemanticSnapshot>>,
+    pub files: Arc<BTreeMap<ModuleId, Arc<FileSemanticSnapshot>>>,
     /// Module-qualified class surfaces.
-    pub classes: BTreeMap<ClassId, Arc<ClassSurface>>,
+    pub classes: Arc<BTreeMap<ClassId, Arc<ClassSurface>>>,
     /// Solved callable summaries.
-    pub summaries: BTreeMap<CallableId, Arc<CallableSummary>>,
+    pub summaries: Arc<BTreeMap<CallableId, Arc<CallableSummary>>>,
     /// Solved field values.
-    pub field_facts: BTreeMap<FieldId, InferredValue>,
+    pub field_facts: Arc<BTreeMap<FieldId, InferredValue>>,
     /// Solved parameter values.
-    pub parameter_facts: BTreeMap<(CallableId, String), InferredValue>,
+    pub parameter_facts: Arc<BTreeMap<(CallableId, String), InferredValue>>,
     /// Module import and dependency graph.
-    pub graph: ModuleGraph,
+    pub graph: Arc<ModuleGraph>,
 }
 
 impl SemanticSnapshot {
@@ -108,7 +108,7 @@ impl SemanticSnapshot {
             }
             _ => {
                 let mut results = Vec::new();
-                for (module_id, file) in &self.files {
+                for (module_id, file) in self.files.iter() {
                     if let Ok(file_uri) = Url::parse(module_id.as_str()) {
                         for occ in file.occurrences.all() {
                             if &occ.target == target {
@@ -198,7 +198,7 @@ impl SemanticSnapshot {
     /// Returns every declared live member, de-duplicated by selector.
     pub fn all_completion_members(&self) -> Vec<CompletionMember> {
         let mut members = BTreeMap::new();
-        for (class_id, surface) in &self.classes {
+        for (class_id, surface) in self.classes.iter() {
             for member in surface.all_members() {
                 let selector = &member.callable.selector;
                 members.entry(selector.clone()).or_insert_with(|| CompletionMember {
