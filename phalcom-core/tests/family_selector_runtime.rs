@@ -322,6 +322,19 @@ fn any_named_bound_family_prefers_method_shape_over_accessor_shapes() {
 }
 
 #[test]
+fn exact_setter_family_accepts_family_set_shape() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "exact_setter_family_shape");
+    vm.interpret_source(
+        module,
+        "class Source { @constructor new() { _name = 1 } name { _name } name=(put value) { _name = value } }\nlet source = Source.new()\nlet setter = source::name=(put)\nsetter.set(42)\nlet result = source.name\n",
+    )
+    .expect("exact setter Family should accept Family#set shape");
+    let result = vm.heap.module(module).get(vm.interner.intern("result")).expect("result should exist");
+    assert_eq!(result, Value::Int(42));
+}
+
+#[test]
 fn method_family_and_bound_receiver_are_gc_edges() {
     fn constant(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> phalcom_core::error::PhResult<Value> {
         Ok(Value::Int(1))

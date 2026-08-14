@@ -899,11 +899,15 @@ impl VM {
                     return Err(RuntimeError::Message(format!("exact family `{base}` does not accept this invocation kind")).into());
                 }
                 let expected_positional = slots.iter().filter(|slot| slot.is_none()).count();
-                let expected_labels = slots
-                    .iter()
-                    .filter_map(|slot| slot.as_ref())
-                    .map(|label| self.interner.intern(label))
-                    .collect::<Vec<_>>();
+                let expected_labels = if matches!(invocation, FamilyInvocationKind::Setter) {
+                    Vec::new()
+                } else {
+                    slots
+                        .iter()
+                        .filter_map(|slot| slot.as_ref())
+                        .map(|label| self.interner.intern(label))
+                        .collect::<Vec<_>>()
+                };
                 let expected_positional = match invocation {
                     FamilyInvocationKind::Setter => 1,
                     _ => expected_positional,
