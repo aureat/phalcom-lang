@@ -1,6 +1,6 @@
 //! Inferred runtime value knowledge and local fact storage.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use phalcom_common::range::SourceRange;
 
@@ -309,37 +309,94 @@ pub enum ContributionSource {
 /// slot, so replacing one caller can remove exactly its old contribution.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ParameterContributions {
-    values: BTreeMap<ParameterSlot, BTreeMap<ContributionSource, InferredValue>>,
+    by_slot: BTreeMap<ParameterSlot, BTreeMap<ContributionSource, InferredValue>>,
+    slots_by_source: BTreeMap<ContributionSource, BTreeSet<ParameterSlot>>,
+    joined: BTreeMap<ParameterSlot, InferredValue>,
+    #[cfg(test)]
+    last_recomputed_slots: usize,
+}
+
+/// Change to one joined parameter fact caused by replacing one contribution source.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParameterFactDelta {
+    /// Parameter slot whose joined fact changed.
+    pub slot: ParameterSlot,
+    /// Joined fact before the source replacement.
+    pub before: Option<InferredValue>,
+    /// Joined fact after the source replacement.
+    pub after: Option<InferredValue>,
 }
 
 impl ParameterContributions {
-    /// Replaces all evidence from one source and returns affected slots.
-    pub fn replace_source(
-        &mut self,
-        source: ContributionSource,
-        facts: impl IntoIterator<Item = (ParameterSlot, InferredValue)>,
-    ) -> BTreeMap<ParameterSlot, InferredValue> {
-        for contributions in self.values.values_mut() {
-            contributions.remove(&source);
+    /// Replaces all evidence from one source and returns changed joined slots.
+    pub fn replace_source(&mut self, source: ContributionSource, facts: impl IntoIterator<Item = (ParameterSlot, InferredValue)>) -> Vec<ParameterFactDelta> {
+        let replacement = facts.into_iter().collect::<BTreeMap<_, _>>();
+        let old_slots = self.slots_by_source.remove(&source).unwrap_or_default();
+        let touched_slots = old_slots.iter().cloned().chain(replacement.keys().cloned()).collect::<BTreeSet<_>>();
+        #[cfg(test)]
+        {
+            self.last_recomputed_slots = touched_slots.len();
         }
-        for (slot, value) in facts {
-            self.values.entry(slot).or_default().insert(source.clone(), value);
-        }
-        self.joined()
-    }
 
-    /// Joins current contributions into ordinary parameter facts.
-    pub fn joined(&self) -> BTreeMap<ParameterSlot, InferredValue> {
-        self.values
-            .iter()
-            .filter_map(|(slot, contributions)| {
-                contributions
-                    .values()
-                    .cloned()
-                    .reduce(|left, right| left.join(&right))
-                    .map(|value| (slot.clone(), value))
+        for slot in &old_slots {
+            let Some(contributions) = self.by_slot.get_mut(slot) else { continue };
+            contributions.remove(&source);
+            if contributions.is_empty() {
+                self.by_slot.remove(slot);
+            }
+        }
+
+        if !replacement.is_empty() {
+            let new_slots = replacement.keys().cloned().collect::<BTreeSet<_>>();
+            self.slots_by_source.insert(source.clone(), new_slots);
+            for (slot, value) in replacement {
+                self.by_slot.entry(slot).or_default().insert(source.clone(), value);
+            }
+        }
+
+        touched_slots
+            .into_iter()
+            .filter_map(|slot| {
+                let before = self.joined.get(&slot).cloned();
+                let after = self
+                    .by_slot
+                    .get(&slot)
+                    .and_then(|contributions| contributions.values().cloned().reduce(|left, right| left.join(&right)));
+
+                if before == after {
+                    return None;
+                }
+                match after.clone() {
+                    Some(value) => {
+                        self.joined.insert(slot.clone(), value);
+                    }
+                    None => {
+                        self.joined.remove(&slot);
+                    }
+                }
+                Some(ParameterFactDelta { slot, before, after })
             })
             .collect()
+    }
+
+    /// Removes all evidence from one source and returns changed joined slots.
+    pub fn remove_source(&mut self, source: &ContributionSource) -> Vec<ParameterFactDelta> {
+        self.replace_source(source.clone(), std::iter::empty())
+    }
+
+    /// Returns the cached joined fact for one parameter slot.
+    pub fn get(&self, slot: &ParameterSlot) -> Option<&InferredValue> {
+        self.joined.get(slot)
+    }
+
+    /// Iterates over cached joined parameter facts in deterministic slot order.
+    pub fn joined_iter(&self) -> impl Iterator<Item = (&ParameterSlot, &InferredValue)> {
+        self.joined.iter()
+    }
+
+    /// Returns a snapshot of all cached joined parameter facts.
+    pub fn joined(&self) -> BTreeMap<ParameterSlot, InferredValue> {
+        self.joined.clone()
     }
 }
 
@@ -484,6 +541,29 @@ impl ParameterFacts {
 mod tests {
     use super::*;
 
+    fn test_callable(name: impl Into<String>) -> CallableId {
+        let name = name.into();
+        CallableId {
+            owner: ClassId::new(ModuleId::new(format!("file:///{name}.ph")), "Service"),
+            selector: "consume(_)".to_string(),
+            side: super::super::DispatchSide::Instance,
+        }
+    }
+
+    fn test_slot(name: impl Into<String>) -> ParameterSlot {
+        ParameterSlot {
+            callable: test_callable(name),
+            name: "value".to_string(),
+        }
+    }
+
+    fn test_value(class: &str) -> InferredValue {
+        InferredValue::flow(
+            ValueShape::Instance(ClassId::new(ModuleId::new(format!("file:///{class}.ph")), class)),
+            Default::default(),
+        )
+    }
+
     #[test]
     fn parameter_facts_merge_joins_contributions() {
         let callable = CallableId {
@@ -511,5 +591,71 @@ mod tests {
         assert!(
             matches!(left.get(&callable, "value").unwrap().shape, ValueShape::Union(ref values) if values.contains(&ValueShape::Instance(cat)) && values.contains(&ValueShape::Instance(dog)))
         );
+    }
+
+    #[test]
+    fn parameter_contributions_replace_source_reports_only_old_and_new_slots() {
+        let tracked = ContributionSource::Callable(test_callable("tracked"));
+        let old_a = test_slot("old-a");
+        let old_b = test_slot("old-b");
+        let new_c = test_slot("new-c");
+        let mut contributions = ParameterContributions::default();
+
+        contributions.replace_source(tracked.clone(), [(old_a.clone(), test_value("Cat")), (old_b.clone(), test_value("Dog"))]);
+
+        for index in 0..1_000 {
+            contributions.replace_source(
+                ContributionSource::Callable(test_callable(format!("unrelated-{index}"))),
+                [(test_slot(format!("unrelated-slot-{index}")), test_value("Other"))],
+            );
+        }
+
+        let deltas = contributions.replace_source(tracked, [(old_a.clone(), test_value("Dog")), (new_c.clone(), test_value("Cat"))]);
+        let touched = deltas.iter().map(|delta| delta.slot.clone()).collect::<BTreeSet<_>>();
+
+        assert_eq!(touched, BTreeSet::from([old_a.clone(), old_b.clone(), new_c.clone()]));
+        assert_eq!(deltas.len(), 3);
+        assert_eq!(contributions.last_recomputed_slots, 3);
+        assert_eq!(contributions.joined().len(), 1_002);
+        assert_eq!(contributions.get(&old_b).map(|value| &value.shape), None);
+    }
+
+    #[test]
+    fn parameter_contributions_preserve_joining_and_remove_one_source_locally() {
+        let slot = test_slot("shared");
+        let left_source = ContributionSource::Callable(test_callable("left"));
+        let right_source = ContributionSource::Callable(test_callable("right"));
+        let mut contributions = ParameterContributions::default();
+
+        contributions.replace_source(left_source.clone(), [(slot.clone(), test_value("Cat"))]);
+        contributions.replace_source(right_source.clone(), [(slot.clone(), test_value("Dog"))]);
+        assert!(matches!(contributions.get(&slot).unwrap().shape, ValueShape::Union(ref values) if values.len() == 2));
+
+        let deltas = contributions.remove_source(&left_source);
+        assert_eq!(deltas.len(), 1);
+        assert!(matches!(deltas[0].before.as_ref().unwrap().shape, ValueShape::Union(ref values) if values.len() == 2));
+        assert!(matches!(deltas[0].after.as_ref().unwrap().shape, ValueShape::Instance(_)));
+        assert!(matches!(contributions.get(&slot).unwrap().shape, ValueShape::Instance(_)));
+
+        let deltas = contributions.remove_source(&right_source);
+        assert_eq!(deltas[0].after, None);
+        assert_eq!(contributions.get(&slot), None);
+    }
+
+    #[test]
+    fn parameter_contributions_omit_unchanged_replacements_and_order_joined_facts() {
+        let source = ContributionSource::Callable(test_callable("source"));
+        let first = test_slot("first");
+        let second = test_slot("second");
+        let value = test_value("Stable");
+        let mut contributions = ParameterContributions::default();
+
+        contributions.replace_source(source.clone(), [(second.clone(), value.clone()), (first.clone(), value.clone())]);
+        assert!(contributions
+            .replace_source(source, [(first.clone(), value.clone()), (second.clone(), value)])
+            .is_empty());
+
+        let ordered = contributions.joined_iter().map(|(slot, _)| slot.clone()).collect::<Vec<_>>();
+        assert_eq!(ordered, vec![first, second]);
     }
 }
