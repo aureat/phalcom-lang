@@ -167,8 +167,8 @@ const holder = m.holder
 ```
 
 The precise public reflection surface is in [Reflection](reflection.md). A
-Family is not a Method: it stores a future dispatch reference and can select a
-target later.
+Family is not a Method: it stores a receiver plus exact selector or structural
+pattern and selects a target later.
 
 ## 8. Constructors
 

@@ -729,6 +729,18 @@ impl VM {
         let mut candidates = Vec::new();
         match (&pattern.base, &pattern.kind) {
             (SelectorBase::Named(base), SelectorKindPattern::AnyNamed) => {
+                let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
+                slots.extend(std::iter::repeat_n(None, view.positional_count()));
+                slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+                let arity = u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                    found: slots.len(),
+                    limit: u8::MAX as usize,
+                })?;
+                let method_selector = self.get_or_intern(&crate::method::encode_selector(base, &slots, SignatureKind::Method(arity)));
+                let method_structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(method_selector));
+                if pattern.matches(&method_structural) {
+                    candidates.push((method_selector, view.positional_count(), labels.clone()));
+                }
                 if view.positional_count() == 0 && labels.is_empty() {
                     let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Getter));
                     let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
@@ -741,18 +753,6 @@ impl VM {
                     if pattern.matches(&structural) {
                         candidates.push((selector, 1, Vec::new()));
                     }
-                }
-                let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
-                slots.extend(std::iter::repeat_n(None, view.positional_count()));
-                slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
-                let arity = u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                    found: slots.len(),
-                    limit: u8::MAX as usize,
-                })?;
-                let selector = self.get_or_intern(&crate::method::encode_selector(base, &slots, SignatureKind::Method(arity)));
-                let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
-                if pattern.matches(&structural) {
-                    candidates.push((selector, view.positional_count(), labels.clone()));
                 }
             }
             (SelectorBase::Named(base), SelectorKindPattern::Exact(SelectorKind::Method)) => {

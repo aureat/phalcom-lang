@@ -53,6 +53,19 @@ Reflection does not invoke `doesNotUnderstand`. A true send miss may reach dNU
 after normal lookup; a probe must not execute the miss handler simply to answer
 a structural question.
 
+Behavior also implements ordinary `>>(_)` reflection. A selector Symbol returns
+one effective Method or absence. A SelectorPattern returns an immutable
+MethodFamily snapshot. Pattern capture walks live effective methods once,
+applies the initiating caller's visibility authority, and omits inaccessible
+routes; later method replacement does not mutate the snapshot.
+
+MethodFamily exposes `selectors`, `size`, `methodFor(_)`, and `bind(_)`.
+`selectors` returns canonical captured selectors in capture order; `size` counts
+exact and rest routes; `methodFor(_)` returns only a captured accessible route;
+`bind(_)` stores the snapshot with a receiver and never reselects from that
+receiver. BoundMethodFamily invocation matches the incoming shape against the
+captured exact map and rest chain, then activates the selected Method exactly.
+
 ## 3. Exact `Method#invokeOn`
 
 ```phalcom
@@ -156,7 +169,9 @@ for its execution.
 ```text
 Method       exact behavior; receiver missing
 BoundMethod  exact behavior; receiver stored
-Family       receiver/reference stored; target lookup remains at call time
+Family       receiver plus exact/pattern selector state; target route selected at call time
+MethodFamily immutable captured exact/rest route snapshot
+BoundMethodFamily captured MethodFamily plus receiver; no receiver-side lookup
 ```
 
 ```phalcom

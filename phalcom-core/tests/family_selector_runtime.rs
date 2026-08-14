@@ -191,6 +191,25 @@ fn captured_method_rejects_foreign_field_layout_before_slot_access() {
 }
 
 #[test]
+fn captured_method_nested_native_block_preserves_foreign_layout_guard() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "captured_method_nested_native_block");
+    vm.interpret_source(
+        module,
+        "class Source { @constructor new() { _field = 41 } read { true.ifTrue { _field } } }\nclass Target { @constructor new() { _other = 99 } }\nlet source = Source.new()\nlet target = Target.new()\n",
+    )
+    .expect("nested block fixture should compile");
+
+    let source = vm.heap.module(module).get(vm.interner.intern("source")).expect("source should exist");
+    let target = vm.heap.module(module).get(vm.interner.intern("target")).expect("target should exist");
+    let read_selector = vm.get_or_intern("read");
+    let method = object_method_for(&mut vm, &source, &[Value::Symbol(read_selector)]).expect("method should exist");
+    let bound = method_bind(&mut vm, &method, &[target]).expect("foreign receiver should bind");
+    let result = block_call(&mut vm, &bound, &[]);
+    assert!(matches!(result, Err(PhError::Runtime(RuntimeError::IncompatibleMethodLayout { selector, .. })) if selector == "read"));
+}
+
+#[test]
 fn captured_method_allows_subclass_layout_and_lexical_super() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "captured_method_subclass_layout_and_lexical_super");
@@ -273,6 +292,33 @@ fn method_family_reflection_exposes_snapshot_routes_without_allocation_access() 
         class_new_(&mut vm, &bound_method_family_class, &[]),
         Err(PhError::Runtime(RuntimeError::Type { .. }))
     ));
+}
+
+#[test]
+fn any_named_bound_family_prefers_method_shape_over_accessor_shapes() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "any_named_bound_family_shapes");
+    vm.interpret_source(
+        module,
+        "class Source { name { 1 } name() { 2 } name=(value) { 3 } name(value) { 4 } }\nlet source = Source.new()\n",
+    )
+    .expect("accessor and method overloads should compile");
+    let source = vm.heap.module(module).get(vm.interner.intern("source")).expect("source should exist");
+    let source_class = vm.heap.module(module).get(vm.interner.intern("Source")).expect("Source class should exist");
+    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
+        pattern: SelectorPattern::named(
+            "name",
+            SelectorKindPattern::AnyNamed,
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+            true,
+        )
+        .expect("valid pattern"),
+    })));
+    let family = behavior_extract(&mut vm, &source_class, &[Value::Obj(pattern)]).expect("pattern extraction");
+    let bound = method_family_bind(&mut vm, &family, &[source]).expect("family should bind");
+    assert_eq!(block_call(&mut vm, &bound, &[]).expect("nullary method call"), Value::Int(2));
+    assert_eq!(block_call(&mut vm, &bound, &[Value::Int(9)]).expect("one-argument method call"), Value::Int(4));
 }
 
 #[test]

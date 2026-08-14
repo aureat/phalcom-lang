@@ -24,7 +24,9 @@ Method holder's layout or a subclass layout, otherwise the runtime raises
 requirement. Holderless public Methods cannot be bound until a later
 specification defines a safe category.
 
-Binding captures the exact Method chosen at that moment. It does not look up its selector again at each call. The VM may defensively verify the stored pair at activation, but that is an invariant check, not a second receiver lookup or method-family dispatch.
+Binding captures the exact Method chosen at that moment. It does not look up
+its selector again at each call. The VM rechecks access and parameter shape at
+activation; bytecode field access also applies the stored Method's layout guard.
 
 ## 2. Calling
 

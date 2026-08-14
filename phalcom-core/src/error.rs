@@ -159,7 +159,7 @@ pub enum RuntimeError {
 
     /// A transplanted bytecode Method attempted to access fields through an
     /// incompatible receiver layout.
-    #[error("method `{selector}` requires layout `{required}` but receiver has `{found}")]
+    #[error("method `{selector}` requires layout `{required}` but receiver has `{found}`")]
     IncompatibleMethodLayout {
         /// Selector of the transplanted method.
         selector: String,
