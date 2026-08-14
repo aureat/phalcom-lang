@@ -626,10 +626,10 @@ mod tests {
         let classes = build_module_surface(module.clone(), &parsed.program).classes;
         assert!(
             classes[&ClassId::new(module.clone(), "String")]
-                .members_by_side
-                .contains_key(&("+(_)".to_string(), DispatchSide::Instance)),
+                .member("+(_)", DispatchSide::Instance)
+                .is_some(),
             "members: {:?}",
-            classes[&ClassId::new(module.clone(), "String")].members_by_side.keys()
+            classes[&ClassId::new(module.clone(), "String")].members.keys()
         );
         let target = CallableId {
             owner: ClassId::new(module.clone(), "String"),

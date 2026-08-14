@@ -29,8 +29,8 @@ impl RequestContext {
     /// matches the live document revision.
     pub fn exact_file(&self) -> Option<&FileSemanticSnapshot> {
         let module = self.module.as_ref()?;
-        let file = self.semantic.files.get(module)?;
-        (file.revision == self.document.revision).then_some(file.as_ref())
+        let file = self.semantic.file(module)?;
+        (file.revision == self.document.revision).then_some(file)
     }
 
     /// Returns whether published source products are stale for this request.

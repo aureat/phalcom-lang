@@ -8,9 +8,9 @@ use phalcom_common::range::SourceRange;
 use phalcom_native_surface::{NATIVE_MEMBERS, NativeDispatch, NativeMemberKind, NativeVisibility};
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
-use crate::documents::Document;
+use crate::documents::{Document, DocumentSnapshot};
 use crate::index::WorkspaceIndex;
-use crate::semantic::{ClassId, CompletionMember, DispatchSide, MemberKind, MemberVisibility, SemanticDb};
+use crate::semantic::{ClassId, CompletionMember, DispatchSide, MemberKind, MemberVisibility, SemanticSnapshot};
 
 /// Whether a resolved receiver is an instance or a class object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +42,11 @@ pub fn target_at(doc: &Document, position: Position) -> Option<CompletionTarget>
     target_at_offset(&doc.text, doc.line_index.offset(position))
 }
 
+/// Recovers a completion target from an owned document snapshot.
+pub(crate) fn target_at_snapshot(doc: &DocumentSnapshot, position: Position) -> Option<CompletionTarget> {
+    target_at_offset(&doc.text, doc.line_index.offset(position))
+}
+
 /// Supplies immediate receiver completion from shallow source/index data
 /// while the background semantic snapshot is still catching up.
 /// Same bounded completion fallback using a request-local recovery parse for
@@ -65,6 +70,33 @@ pub(crate) fn shallow_receiver_completions_from_program(
     }
     let side = shallow_receiver_side(receiver);
 
+    let module = crate::semantic::ModuleId::from_uri(uri);
+    let local_surface = crate::semantic::build_module_surface(module.clone(), program);
+    let candidates = classes
+        .iter()
+        .map(|class| shallow_class_items(index, uri, &local_surface, &module, class, side))
+        .collect::<Vec<_>>();
+    Some(shallow_union_items(candidates))
+}
+
+/// Same bounded fallback for an owned request snapshot.
+pub(crate) fn shallow_receiver_completions_from_snapshot(
+    index: &WorkspaceIndex,
+    uri: &Url,
+    doc: &DocumentSnapshot,
+    program: &Program,
+    position: Position,
+) -> Option<Vec<CompletionItem>> {
+    let target = target_at_snapshot(doc, position)?;
+    let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?.trim();
+    if receiver.is_empty() {
+        return None;
+    }
+    let classes = shallow_receiver_classes(program, receiver, target.receiver_range.end);
+    if classes.is_empty() {
+        return None;
+    }
+    let side = shallow_receiver_side(receiver);
     let module = crate::semantic::ModuleId::from_uri(uri);
     let local_surface = crate::semantic::build_module_surface(module.clone(), program);
     let candidates = classes
@@ -547,7 +579,7 @@ pub(crate) struct SemanticCompletionContext<'a> {
 }
 
 /// Builds completion items from live source and native semantic surfaces.
-pub(crate) fn semantic_contextual_completions(db: &SemanticDb, context: SemanticCompletionContext<'_>) -> Vec<CompletionItem> {
+pub(crate) fn semantic_contextual_completions(db: &SemanticSnapshot, context: SemanticCompletionContext<'_>) -> Vec<CompletionItem> {
     let mut items = match context.resolved {
         Some(resolved) if resolved.alternatives.len() > 1 => semantic_union_completions(db, resolved, context.lexical_class, context.privileged),
         Some(resolved) => resolved
@@ -577,7 +609,7 @@ pub(crate) fn semantic_contextual_completions(db: &SemanticDb, context: Semantic
     items
 }
 
-fn semantic_union_completions(db: &SemanticDb, resolved: &SemanticResolvedReceiver, lexical_class: Option<&ClassId>, privileged: bool) -> Vec<CompletionItem> {
+fn semantic_union_completions(db: &SemanticSnapshot, resolved: &SemanticResolvedReceiver, lexical_class: Option<&ClassId>, privileged: bool) -> Vec<CompletionItem> {
     let mut by_label = std::collections::BTreeMap::new();
     for (class, kind) in &resolved.alternatives {
         for item in semantic_class_completions(db, class, *kind, lexical_class, privileged) {
@@ -602,7 +634,7 @@ fn semantic_union_completions(db: &SemanticDb, resolved: &SemanticResolvedReceiv
 }
 
 fn semantic_class_completions(
-    db: &SemanticDb,
+    db: &SemanticSnapshot,
     class: &ClassId,
     receiver_kind: ReceiverKind,
     lexical_class: Option<&ClassId>,
@@ -631,7 +663,7 @@ fn semantic_class_completions(
     items
 }
 
-fn semantic_all_completions(db: &SemanticDb, lexical_class: Option<&ClassId>, privileged: bool) -> Vec<CompletionItem> {
+fn semantic_all_completions(db: &SemanticSnapshot, lexical_class: Option<&ClassId>, privileged: bool) -> Vec<CompletionItem> {
     let mut items = db
         .all_completion_members()
         .iter()
@@ -642,7 +674,7 @@ fn semantic_all_completions(db: &SemanticDb, lexical_class: Option<&ClassId>, pr
     items
 }
 
-fn semantic_visibility_allowed(db: &SemanticDb, member: &CompletionMember, lexical_class: Option<&ClassId>, privileged: bool) -> bool {
+fn semantic_visibility_allowed(db: &SemanticSnapshot, member: &CompletionMember, lexical_class: Option<&ClassId>, privileged: bool) -> bool {
     match member.visibility {
         MemberVisibility::Public => true,
         MemberVisibility::Private => lexical_class == Some(&member.owner),
@@ -669,7 +701,7 @@ fn semantic_to_completion_item(member: &CompletionMember) -> CompletionItem {
     }
 }
 
-fn visible_names_at(db: &SemanticDb, uri: &Url, program: &Program, offset: usize) -> Vec<String> {
+fn visible_names_at(db: &SemanticSnapshot, uri: &Url, program: &Program, offset: usize) -> Vec<String> {
     let mut names = db.visible_bindings_at(uri, offset).into_iter().map(|binding| binding.name).collect::<Vec<_>>();
     for statement in &program.statements {
         match statement {

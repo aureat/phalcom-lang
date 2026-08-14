@@ -4,7 +4,8 @@ use phalcom_ast::ast::{Expr, Pattern, Statement};
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent, MarkupKind, Range, Url};
 
-use crate::documents::Document;
+use crate::documents::{Document, DocumentSnapshot};
+use crate::request_context::RequestContext;
 use crate::semantic::{Confidence, SemanticBindingKind, SemanticDb, ValueShape};
 
 /// Server policy for runtime-value inlay hints.
@@ -64,6 +65,101 @@ pub fn hints_for_with_policy(db: &SemanticDb, uri: &Url, doc: &Document, visible
                     "Inferred runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
                     confidence_name(value.confidence)
                 ),
+            })),
+            padding_left: Some(true),
+            padding_right: None,
+            data: None,
+        });
+    }
+    hints.sort_by_key(|hint| (hint.position.line, hint.position.character));
+    hints
+}
+
+/// Computes inlay hints from one pinned request context.
+pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintPolicy, suppress_obvious: bool) -> Vec<InlayHint> {
+    if policy == HintPolicy::Off {
+        return Vec::new();
+    }
+    let visible_start = request.document.line_index.offset(visible.start);
+    let visible_end = request.document.line_index.offset(visible.end);
+    let Some(module) = request.module.as_ref() else {
+        return shallow_hints_snapshot(&request.document, request.module.as_ref(), visible_start, visible_end, policy, suppress_obvious);
+    };
+    let Some(snapshot) = request.semantic.file(module) else {
+        return shallow_hints_snapshot(&request.document, request.module.as_ref(), visible_start, visible_end, policy, suppress_obvious);
+    };
+    if snapshot.revision != request.document.revision {
+        return Vec::new();
+    };
+    let mut hints = Vec::new();
+    for binding in snapshot.source.scopes.bindings.values() {
+        if binding.kind == SemanticBindingKind::Import {
+            continue;
+        }
+        let range = binding.declaration_range;
+        if range.end < visible_start || range.start > visible_end {
+            continue;
+        }
+        let Some(value) = snapshot.local_facts.value_before(binding.id, range.end.saturating_add(1)) else {
+            continue;
+        };
+        if !should_render(policy, &value.confidence, &value.shape)
+            || (suppress_obvious && obvious_initializer_text(&request.document.text, range))
+        {
+            continue;
+        }
+        let rendered = render_shape(&value.shape);
+        hints.push(InlayHint {
+            position: request.document.line_index.position(range.end),
+            label: InlayHintLabel::String(format!(": {rendered}")),
+            kind: Some(InlayHintKind::TYPE),
+            text_edits: None,
+            tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: format!(
+                    "Inferred runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
+                    confidence_name(value.confidence)
+                ),
+            })),
+            padding_left: Some(true),
+            padding_right: None,
+            data: None,
+        });
+    }
+    hints.sort_by_key(|hint| (hint.position.line, hint.position.character));
+    hints
+}
+
+fn shallow_hints_snapshot(
+    doc: &DocumentSnapshot,
+    module: Option<&crate::semantic::ModuleId>,
+    visible_start: usize,
+    visible_end: usize,
+    policy: HintPolicy,
+    suppress_obvious: bool,
+) -> Vec<InlayHint> {
+    let module = module.cloned().unwrap_or_else(|| crate::semantic::ModuleId::new("phalcom://request"));
+    let mut hints = Vec::new();
+    for statement in &doc.parse.program.statements {
+        let Statement::Let(binding) = statement else { continue };
+        let Pattern::Name { .. } = &binding.pattern else { continue };
+        let Some(value) = binding.value.as_ref() else { continue };
+        let Some(shape) = shallow_expression_shape(value, &module) else { continue };
+        if binding.range.end < visible_start || binding.range.start > visible_end || !should_render(policy, &Confidence::Exact, &shape) {
+            continue;
+        }
+        if suppress_obvious && obvious_initializer_text(&doc.text, binding.range) {
+            continue;
+        }
+        let rendered = render_shape(&shape);
+        hints.push(InlayHint {
+            position: doc.line_index.position(binding.range.end),
+            label: InlayHintLabel::String(format!(": {rendered}")),
+            kind: Some(InlayHintKind::TYPE),
+            text_edits: None,
+            tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: format!("Inferred runtime value: {rendered}\n\nConfidence: exact\n\nThis is editor inference, not a Phalcom type annotation."),
             })),
             padding_left: Some(true),
             padding_right: None,
@@ -152,8 +248,12 @@ fn should_render(policy: HintPolicy, confidence: &Confidence, shape: &ValueShape
 }
 
 fn obvious_initializer(doc: &Document, range: SourceRange) -> bool {
-    let line_end = doc.text[range.end..].find('\n').map_or(doc.text.len(), |offset| range.end + offset);
-    let tail = &doc.text[range.end..line_end];
+    obvious_initializer_text(&doc.text, range)
+}
+
+fn obvious_initializer_text(text: &str, range: SourceRange) -> bool {
+    let line_end = text[range.end..].find('\n').map_or(text.len(), |offset| range.end + offset);
+    let tail = &text[range.end..line_end];
     let Some(equal) = tail.find('=') else { return false };
     let value = tail[equal + 1..].trim_start();
     value.starts_with('"')

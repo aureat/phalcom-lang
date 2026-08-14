@@ -598,7 +598,7 @@ class Service {
             .state
             .classes
             .get(&service)
-            .and_then(|class| class.members_by_side.get(&("consume(_)".to_string(), DispatchSide::Class)))
+            .and_then(|class| class.member("consume(_)", DispatchSide::Class))
             .expect("Service.consume(_) member");
         let input = file
             .parameter_facts

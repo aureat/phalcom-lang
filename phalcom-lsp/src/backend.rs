@@ -33,7 +33,7 @@ use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, Sour
 use serde_json::Value as JsonValue;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    CompletionOptions, CompletionParams, CompletionResponse, DidChangeConfigurationParams, DidChangeTextDocumentParams,
     DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, FileChangeType, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint,
     InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind,
@@ -45,13 +45,14 @@ use tower_lsp::{Client, LanguageServer};
 
 use crate::completion;
 use crate::diagnostics::syntax_errors_to_diagnostics;
-use crate::documents::DocumentStore;
+use crate::documents::{DocumentSnapshot, DocumentStore};
 use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfCountersHandle, PerfSpan};
-use crate::semantic::{FileRevision, OccurrenceRole, SemanticDb, SemanticTarget, ValueShape};
+use crate::request_context::RequestContext;
+use crate::semantic::{FileRevision, OccurrenceRole, SemanticDb, SemanticSnapshot, SemanticTarget, ValueShape};
 use crate::semantic_tokens;
 
 use crate::workspace_scan::AnalysisMode;
@@ -78,7 +79,7 @@ impl Default for ServerConfig {
             analysis_mode: AnalysisMode::Local,
             analysis_exclude: Vec::new(),
             inlay_hints: HintPolicy::Stable,
-            suppress_obvious: false,
+            suppress_obvious: true,
         }
     }
 }
@@ -283,6 +284,14 @@ impl Backend {
         self.semantic.perf_counters()
     }
 
+    /// Pins open-document data and one published semantic generation before
+    /// any request-local work begins. The document map guard is released by
+    /// `DocumentStore::snapshot` before this returns.
+    fn request_context(&self, uri: &Url) -> Option<RequestContext> {
+        let document = self.documents.snapshot(uri)?;
+        Some(RequestContext::new(document, self.semantic.snapshot(), uri))
+    }
+
     /// Reparses the document at `uri` (already updated in the store by the
     /// caller), refreshes its slice of the [`WorkspaceIndex`], and publishes
     /// its current [`SyntaxError`](phalcom_ast::error::SyntaxError)s as LSP
@@ -417,31 +426,30 @@ impl Backend {
     }
 
     /// Resolves a recovered completion target through live semantic facts.
-    fn semantic_receiver(&self, uri: &Url, doc: &crate::documents::Document, position: Position) -> Option<completion::SemanticResolvedReceiver> {
-        let target = completion::target_at(doc, position)?;
+    fn semantic_receiver(&self, semantic: &SemanticSnapshot, uri: &Url, doc: &DocumentSnapshot, position: Position) -> Option<completion::SemanticResolvedReceiver> {
+        let target = completion::target_at_snapshot(doc, position)?;
         let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?;
         let offset = target.receiver_range.end;
         if receiver == "self" {
-            return self.semantic.class_at(uri, offset).map(|class| completion::SemanticResolvedReceiver {
+            return semantic.class_at(uri, offset).map(|class| completion::SemanticResolvedReceiver {
                 alternatives: vec![(class, completion::ReceiverKind::Instance)],
             });
         }
         if receiver == "super" {
-            return self
-                .semantic
+            return semantic
                 .class_at(uri, offset)
-                .and_then(|class| self.semantic.class_surface(&class)?.superclass)
+                .and_then(|class| semantic.class_surface(&class)?.superclass)
                 .map(|class| completion::SemanticResolvedReceiver {
                     alternatives: vec![(class, completion::ReceiverKind::Instance)],
                 });
         }
         if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            return self.semantic.class_for_name(uri, receiver).map(|class| completion::SemanticResolvedReceiver {
+            return semantic.class_for_name(uri, receiver).map(|class| completion::SemanticResolvedReceiver {
                 alternatives: vec![(class, completion::ReceiverKind::ClassObject)],
             });
         }
         if receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            if let Some(value) = self.semantic.binding_at(uri, receiver, offset) {
+            if let Some(value) = semantic.binding_at(uri, receiver, offset) {
                 if let Some(resolved) = receiver_from_shape(value.shape) {
                     return Some(resolved);
                 }
@@ -452,19 +460,16 @@ impl Backend {
             phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
             _ => None,
         })?;
-        receiver_from_shape(self.semantic.infer_expression(uri, expression, offset).shape)
+        receiver_from_shape(semantic.infer_expression(uri, expression, offset).shape)
     }
 
-    fn semantic_member_targets(&self, uri: &Url, position: Position, selector: &str) -> Option<Vec<ResolvedMemberTarget>> {
-        let receiver_targeted = self
-            .documents
-            .with_document(uri, |doc| completion::target_at(doc, position).is_some())
-            .unwrap_or(false);
+    fn semantic_member_targets_for_request(&self, request: &RequestContext, uri: &Url, position: Position, selector: &str) -> Option<Vec<ResolvedMemberTarget>> {
+        let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
         if !receiver_targeted {
             return None;
         }
 
-        let resolved = self.documents.with_document(uri, |doc| self.semantic_receiver(uri, doc, position)).flatten();
+        let resolved = self.semantic_receiver(&request.semantic, uri, &request.document, position);
         let Some(resolved) = resolved else {
             return Some(Vec::new());
         };
@@ -476,7 +481,7 @@ impl Backend {
                 completion::ReceiverKind::Instance => crate::semantic::DispatchSide::Instance,
                 completion::ReceiverKind::ClassObject => crate::semantic::DispatchSide::Class,
             };
-            let Some(member) = self.semantic.receiver_member(&receiver, selector, side) else {
+            let Some(member) = request.semantic.receiver_member(&receiver, selector, side) else {
                 continue;
             };
             if seen.insert(member.callable.clone()) {
@@ -510,8 +515,8 @@ impl Backend {
         Some(Location { uri: location_uri, range })
     }
 
-    fn semantic_definition_locations(&self, uri: &Url, position: Position, selector: &str) -> Vec<Location> {
-        let targets = self.semantic_member_targets(uri, position, selector).unwrap_or_default();
+    fn semantic_definition_locations_for_request(&self, request: &RequestContext, uri: &Url, position: Position, selector: &str) -> Vec<Location> {
+        let targets = self.semantic_member_targets_for_request(request, uri, position, selector).unwrap_or_default();
         targets.iter().filter_map(|target| self.member_definition_location(&target.member)).collect()
     }
 
@@ -523,13 +528,9 @@ impl Backend {
     ///
     /// Returns `None` if `uri` is not open, or if `position` sits on no
     /// selector-bearing node (see [`index::selector_at_offset`]).
-    fn selector_at_position(&self, uri: &Url, position: Position) -> Option<(String, tower_lsp::lsp_types::Range)> {
-        self.documents
-            .with_document(uri, |doc| {
-                let offset = doc.line_index.offset(position);
-                index::selector_at_offset(&doc.parse.program, offset).map(|(selector, range)| (selector, doc.line_index.range(range.start..range.end)))
-            })
-            .flatten()
+    fn selector_at_document(&self, doc: &DocumentSnapshot, position: Position) -> Option<(String, tower_lsp::lsp_types::Range)> {
+        let offset = doc.line_index.offset(position);
+        index::selector_at_offset(&doc.parse.program, offset).map(|(selector, range)| (selector, doc.line_index.range(range.start..range.end)))
     }
 
     /// Maps one index [`Occurrence`] to an LSP [`Location`].
@@ -603,20 +604,17 @@ impl Backend {
         Some(f(&source.text, &source.program, &source.line_index))
     }
 
-    fn semantic_class_target(&self, uri: &Url, position: Position) -> Option<(crate::semantic::ClassSurface, tower_lsp::lsp_types::Range)> {
-        self.documents
-            .with_document(uri, |doc| {
-                let offset = doc.line_index.offset(position);
-                if let Some(class) = self.semantic.class_name_at(uri, offset) {
-                    let range = doc.line_index.range(class.name_range.start..class.name_range.end);
-                    return Some((class, range));
-                }
-                let (name, name_range) = hover::qualified_identifier_at_offset(&doc.text, offset)?;
-                let class_id = self.semantic.class_for_name(uri, &name)?;
-                let class = self.semantic.class_surface(&class_id)?;
-                Some((class, doc.line_index.range(name_range)))
-            })
-            .flatten()
+    fn semantic_class_target(&self, request: &RequestContext, uri: &Url, position: Position) -> Option<(crate::semantic::ClassSurface, tower_lsp::lsp_types::Range)> {
+        let doc = &request.document;
+        let offset = doc.line_index.offset(position);
+        if let Some(class) = request.semantic.class_name_at(uri, offset).filter(|_| request.exact_file().is_some()) {
+            let range = doc.line_index.range(class.name_range.start..class.name_range.end);
+            return Some((class, range));
+        }
+        let (name, name_range) = hover::qualified_identifier_at_offset(&doc.text, offset)?;
+        let class_id = request.semantic.class_for_name(uri, &name)?;
+        let class = request.semantic.class_surface(&class_id)?;
+        Some((class, doc.line_index.range(name_range)))
     }
 
     fn class_definition_location(&self, class: &crate::semantic::ClassSurface) -> Option<Location> {
@@ -703,28 +701,29 @@ impl Backend {
     /// Returns `None` if nothing at the cursor resolves to a keyword, a
     /// known selector, or a documented top-level binding.
     fn hover_at(&self, uri: &Url, position: Position) -> Option<Hover> {
-        let offset = self.documents.with_document(uri, |doc| doc.line_index.offset(position))?;
-        let Some(occurrence) = self.semantic.occurrence_at(uri, offset) else {
+        let request = self.request_context(uri)?;
+        self.hover_at_request(&request, uri, position)
+    }
+
+    fn hover_at_request(&self, request: &RequestContext, uri: &Url, position: Position) -> Option<Hover> {
+        let offset = request.document.line_index.offset(position);
+        let Some(occurrence) = request.exact_file().and_then(|_| request.semantic.occurrence_at(uri, offset)) else {
             return self.legacy_hover_at(uri, position, offset);
         };
-        let span = self
-            .documents
-            .with_document(uri, |doc| doc.line_index.range(occurrence.range.start..occurrence.range.end))?;
+        let span = request.document.line_index.range(occurrence.range.start..occurrence.range.end);
 
         match occurrence.target {
             crate::semantic::SemanticTarget::Binding(binding) => {
-                let info = self.semantic.binding_info(uri, binding)?;
-                let value = self.semantic.binding_at(uri, &info.name, offset);
-                let phaldoc = self.documents.with_document(uri, |doc| {
-                    hover::harvest_doc_for_selector(&doc.text, &doc.parse.program, &doc.line_index, &info.name)
-                })?;
+                let info = request.semantic.binding_info(uri, binding)?;
+                let value = request.semantic.binding_at(uri, &info.name, offset);
+                let phaldoc = hover::harvest_doc_for_selector(&request.document.text, &request.document.parse.program, &request.document.line_index, &info.name);
                 Some(Hover {
                     contents: markdown_contents(hover::render_binding_hover(&info, value.as_ref(), phaldoc.as_ref())),
                     range: Some(span),
                 })
             }
             crate::semantic::SemanticTarget::Class(class_id) => {
-                let class = self.semantic.class_surface(&class_id)?;
+                let class = request.semantic.class_surface(&class_id)?;
                 let phaldoc = if class.id.module.as_str() == crate::semantic::CORE_MODULE_URI {
                     None
                 } else {
@@ -748,7 +747,7 @@ impl Backend {
                 })
             }
             crate::semantic::SemanticTarget::Callable(callable) => {
-                let member = self.semantic.member_surface(&callable)?;
+                let member = request.semantic.member_surface(&callable)?;
                 let site = SelectorSite {
                     owner: member.callable.owner.clone(),
                     receiver: None,
@@ -759,7 +758,7 @@ impl Backend {
                     &callable.selector,
                     &[site],
                     phaldoc.as_ref(),
-                    self.semantic.return_for_callable(&member.callable).as_ref(),
+                    request.semantic.return_for_callable(&member.callable).as_ref(),
                 )?;
                 Some(Hover {
                     contents: markdown_contents(value),
@@ -772,7 +771,7 @@ impl Backend {
                     selector: field.name.clone(),
                     side: field.side,
                 };
-                let member = self.semantic.member_surface(&callable)?;
+                let member = request.semantic.member_surface(&callable)?;
                 let site = SelectorSite {
                     owner: member.callable.owner.clone(),
                     receiver: None,
@@ -786,16 +785,13 @@ impl Backend {
                 })
             }
             crate::semantic::SemanticTarget::Member { .. } => {
-                let (selector, selector_span) = self.selector_at_position(uri, position)?;
+                let (selector, selector_span) = self.selector_at_document(&request.document, position)?;
                 if selector_span != span {
                     return None;
                 }
-                let targets = self.semantic_member_targets(uri, position, &selector)?;
+                let targets = self.semantic_member_targets_for_request(request, uri, position, &selector)?;
                 if targets.is_empty() {
-                    let receiver_targeted = self
-                        .documents
-                        .with_document(uri, |doc| completion::target_at(doc, position).is_some())
-                        .unwrap_or(false);
+                    let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
                     if receiver_targeted {
                         return None;
                     }
@@ -855,7 +851,7 @@ impl Backend {
                     }
                 }
                 let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
-                let inferred = self.semantic.returns_for_callables(ids);
+                let inferred = request.semantic.returns_for_callables(ids);
                 let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
                 Some(Hover {
                     contents: markdown_contents(value),
@@ -1462,32 +1458,28 @@ impl LanguageServer for Backend {
     async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
 
-        let offset = self.documents.with_document(&uri, |doc| doc.line_index.offset(position));
-        if let Some(offset) = offset
-            && let Some(occurrence) = self.semantic.occurrence_at(&uri, offset)
+        let offset = request.document.line_index.offset(position);
+        if let Some(occurrence) = request.exact_file().and_then(|_| request.semantic.occurrence_at(&uri, offset))
         {
             match &occurrence.target {
                 SemanticTarget::Binding(binding_id) => {
-                    if let Some(info) = self.semantic.binding_info(&uri, *binding_id) {
+                    if let Some(info) = request.semantic.binding_info(&uri, *binding_id) {
                         let decl_uri = uri.clone();
-                        if let Some(range) = self
-                            .documents
-                            .with_document(&uri, |doc| doc.line_index.range(info.declaration_range.start..info.declaration_range.end))
-                        {
-                            return Ok(Some(GotoDefinitionResponse::Array(vec![Location { uri: decl_uri, range }])));
-                        }
+                        let range = request.document.line_index.range(info.declaration_range.start..info.declaration_range.end);
+                        return Ok(Some(GotoDefinitionResponse::Array(vec![Location { uri: decl_uri, range }])));
                     }
                 }
                 SemanticTarget::Class(class_id) => {
-                    if let Some(class) = self.semantic.class_surface(class_id) {
+                    if let Some(class) = request.semantic.class_surface(class_id) {
                         if let Some(loc) = self.class_definition_location(&class) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }
                     }
                 }
                 SemanticTarget::Callable(callable_id) => {
-                    if let Some(member) = self.semantic.member_surface(callable_id) {
+                    if let Some(member) = request.semantic.member_surface(callable_id) {
                         if let Some(loc) = self.member_definition_location(&member) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }
@@ -1499,7 +1491,7 @@ impl LanguageServer for Backend {
                         selector: field.name.clone(),
                         side: field.side,
                     };
-                    if let Some(member) = self.semantic.member_surface(&callable) {
+                    if let Some(member) = request.semantic.member_surface(&callable) {
                         if let Some(loc) = self.member_definition_location(&member) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }
@@ -1509,18 +1501,19 @@ impl LanguageServer for Backend {
             }
         }
 
-        if let Some((class, _)) = self.semantic_class_target(&uri, position) {
+        if let Some((class, _)) = self.semantic_class_target(&request, &uri, position) {
             return Ok(self
                 .class_definition_location(&class)
                 .map(|location| GotoDefinitionResponse::Array(vec![location])));
         }
 
-        let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
+        let Some((selector, _range)) = self.selector_at_document(&request.document, position) else {
             return Ok(None);
         };
 
-        if let Some(member) = offset
-            .and_then(|offset| self.semantic.member_at(&uri, offset))
+        if let Some(member) = request
+            .exact_file()
+            .and_then(|_| request.semantic.member_at(&uri, offset))
             .filter(|member| member.callable.selector == selector)
         {
             return Ok(self
@@ -1528,12 +1521,9 @@ impl LanguageServer for Backend {
                 .map(|location| GotoDefinitionResponse::Array(vec![location])));
         }
 
-        let receiver_targeted = self
-            .documents
-            .with_document(&uri, |doc| completion::target_at(doc, position).is_some())
-            .unwrap_or(false);
+        let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
         if receiver_targeted {
-            let semantic_locations = self.semantic_definition_locations(&uri, position, &selector);
+            let semantic_locations = self.semantic_definition_locations_for_request(&request, &uri, position, &selector);
             return if semantic_locations.is_empty() {
                 Ok(None)
             } else {
@@ -1557,12 +1547,12 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
 
-        let offset = self.documents.with_document(&uri, |doc| doc.line_index.offset(position));
-        if let Some(offset) = offset
-            && let Some(occurrence) = self.semantic.occurrence_at(&uri, offset)
+        let offset = request.document.line_index.offset(position);
+        if let Some(occurrence) = request.exact_file().and_then(|_| request.semantic.occurrence_at(&uri, offset))
         {
-            let refs = self.semantic.references_for_target(&uri, &occurrence.target);
+            let refs = request.semantic.references_for_target(&uri, &occurrence.target);
             let locations: Vec<Location> = refs
                 .into_iter()
                 .filter_map(|(file_uri, range, role)| {
@@ -1576,7 +1566,7 @@ impl LanguageServer for Backend {
             return Ok(if locations.is_empty() { None } else { Some(locations) });
         }
 
-        let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
+        let Some((selector, _range)) = self.selector_at_document(&request.document, position) else {
             return Ok(None);
         };
 
@@ -1631,38 +1621,35 @@ impl LanguageServer for Backend {
         let _span = PerfSpan::start_with_counters("completion", self.perf_counters());
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
+        let recovered = semantic_recovery_parse(request.document.text.as_ref(), &request.document.parse);
+        let source_program = recovered.as_ref().map(|parse| &parse.program).unwrap_or(&request.document.parse.program);
+        let resolved = self.semantic_receiver(&request.semantic, &uri, &request.document, position);
+        let offset = request.document.line_index.offset(position);
+        let privileged = self.is_core_source_uri(&uri);
+        let lexical_class = request.semantic.class_at(&uri, offset);
+        let mut items = completion::semantic_contextual_completions(
+            &request.semantic,
+            completion::SemanticCompletionContext {
+                resolved: resolved.as_ref(),
+                lexical_class: lexical_class.as_ref(),
+                privileged,
+                uri: &uri,
+                program: &request.document.parse.program,
+                text: &request.document.text,
+                offset,
+            },
+        );
+        if let Some(shallow) = completion::shallow_receiver_completions_from_snapshot(&self.index, &uri, &request.document, source_program, position) {
+            items = shallow;
+        }
+        if let Some(target) = completion::target_at_snapshot(&request.document, position)
+            && !target.partial_member.is_empty()
+        {
+            items.retain(|item| item.label.starts_with(&target.partial_member));
+        }
 
-        let items: Option<Vec<CompletionItem>> = self.documents.with_document(&uri, |doc| {
-            let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
-            let source_program = recovered.as_ref().map(|parse| &parse.program).unwrap_or(&doc.parse.program);
-            let resolved = self.semantic_receiver(&uri, doc, position);
-            let offset = doc.line_index.offset(position);
-            let privileged = self.is_core_source_uri(&uri);
-            let lexical_class = self.semantic.class_at(&uri, offset);
-            let mut items = completion::semantic_contextual_completions(
-                &self.semantic,
-                completion::SemanticCompletionContext {
-                    resolved: resolved.as_ref(),
-                    lexical_class: lexical_class.as_ref(),
-                    privileged,
-                    uri: &uri,
-                    program: &doc.parse.program,
-                    text: &doc.text,
-                    offset,
-                },
-            );
-            if let Some(shallow) = completion::shallow_receiver_completions_from_program(&self.index, &uri, doc, source_program, position) {
-                items = shallow;
-            }
-            if let Some(target) = completion::target_at(doc, position) {
-                if !target.partial_member.is_empty() {
-                    items.retain(|item| item.label.starts_with(&target.partial_member));
-                }
-            }
-            items
-        });
-
-        Ok(items.map(CompletionResponse::Array))
+        Ok(Some(CompletionResponse::Array(items)))
     }
 
     /// Answers `textDocument/hover` (Stage 4). See `Self::hover_at` for the
@@ -1681,10 +1668,8 @@ impl LanguageServer for Backend {
         let _span = PerfSpan::start_with_counters("inlay", self.perf_counters());
         let config = self.config.read().expect("server config lock poisoned").clone();
         let uri = params.text_document.uri.clone();
-        let hints = self.documents.with_document(&uri, |doc| {
-            crate::inlay_hints::hints_for_params_with_policy(&self.semantic, &uri, doc, &params, config.inlay_hints, config.suppress_obvious)
-        });
-        Ok(hints)
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
+        Ok(Some(crate::inlay_hints::hints_for_request(&request, params.range, config.inlay_hints, config.suppress_obvious)))
     }
 
     /// Answers `textDocument/semanticTokens/full` (Stage 5): a flat,
@@ -1698,10 +1683,9 @@ impl LanguageServer for Backend {
     /// Returns `Ok(None)` if the document is not open.
     async fn semantic_tokens_full(&self, params: SemanticTokensParams) -> Result<Option<SemanticTokensResult>> {
         let uri = params.text_document.uri;
-        let data = self
-            .documents
-            .with_document(&uri, |doc| semantic_tokens::tokens_for(&self.semantic, &uri, &doc.text, &doc.line_index));
-        Ok(data.map(|data| SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens { result_id: None, data })))
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
+        let data = semantic_tokens::tokens_for_request(&request);
+        Ok(Some(SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens { result_id: None, data })))
     }
 }
 

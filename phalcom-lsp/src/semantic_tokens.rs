@@ -51,6 +51,7 @@ use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend, Url};
 
 use crate::line_index::LineIndex;
+use crate::request_context::RequestContext;
 use crate::semantic::{SemanticDb, SemanticOccurrenceKind};
 
 /// The semantic token types this server declares, in legend order.
@@ -363,6 +364,21 @@ pub fn tokens_for(db: &SemanticDb, uri: &Url, text: &str, line_index: &LineIndex
     encode(text, line_index, &raw)
 }
 
+/// Computes semantic tokens from one coherent document/generation pair.
+pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
+    let mut raw = Vec::new();
+    collect_tokens(&request.document.text, 0, &mut raw);
+    if let Some(file) = request.exact_file() {
+        apply_occurrence_overrides(file, &mut raw);
+    } else {
+        // The parse is owned by DocumentSnapshot. Never reparse live text in
+        // this fallback: declaration ranges must come from the same source
+        // revision as the line index and lexer input.
+        apply_decl_name_overrides_program(&request.document.parse.program, &mut raw);
+    }
+    encode(&request.document.text, &request.document.line_index, &raw)
+}
+
 fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut [RawToken]) {
     if let Some(snapshot) = db.file_snapshot(uri) {
         let mut occurrences_map = std::collections::BTreeMap::new();
@@ -398,6 +414,25 @@ fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut [R
     }
 }
 
+fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw: &mut [RawToken]) {
+    let mut occurrences_map = std::collections::BTreeMap::new();
+    for occurrence in file.occurrences.all() {
+        occurrences_map.insert((occurrence.range.start, occurrence.range.end), occurrence.kind);
+    }
+    for token in raw.iter_mut() {
+        if let Some(kind) = occurrences_map.get(&(token.start, token.end)) {
+            token.kind = match kind {
+                SemanticOccurrenceKind::Parameter => SemanticTokenKind::Parameter,
+                SemanticOccurrenceKind::Binding => SemanticTokenKind::Variable,
+                SemanticOccurrenceKind::Field => SemanticTokenKind::Property,
+                SemanticOccurrenceKind::Member => SemanticTokenKind::Method,
+                SemanticOccurrenceKind::Class => SemanticTokenKind::Class,
+                SemanticOccurrenceKind::Operator => SemanticTokenKind::Operator,
+            };
+        }
+    }
+}
+
 /// Upgrades every flat-pass token in `raw` whose byte range exactly matches a
 /// `class`/method/getter/setter/constructor declaration's own name span to
 /// [`SemanticTokenKind::Class`]/[`SemanticTokenKind::Method`] — the
@@ -411,8 +446,12 @@ fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut [R
 /// reorders).
 fn apply_decl_name_overrides(text: &str, raw: &mut [RawToken]) {
     let parsed = phalcom_ast::parser::parse(text, 0);
+    apply_decl_name_overrides_program(&parsed.program, raw);
+}
+
+fn apply_decl_name_overrides_program(program: &phalcom_ast::ast::Program, raw: &mut [RawToken]) {
     let mut decls = Vec::new();
-    collect_decl_names(&parsed.program.statements, &mut decls);
+    collect_decl_names(&program.statements, &mut decls);
     if decls.is_empty() {
         return;
     }

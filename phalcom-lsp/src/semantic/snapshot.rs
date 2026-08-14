@@ -67,6 +67,11 @@ impl SemanticSnapshot {
         self.files.get_key_value(&module).map(|(module, _)| module)
     }
 
+    /// Returns one published file by its resolved module identity.
+    pub fn file(&self, module: &ModuleId) -> Option<&FileSemanticSnapshot> {
+        self.files.get(module).map(Arc::as_ref)
+    }
+
     /// Returns an immutable clone of one file's semantic snapshot.
     pub fn file_snapshot(&self, uri: &Url) -> Option<FileSemanticSnapshot> {
         let module = ModuleId::from_uri(uri);
