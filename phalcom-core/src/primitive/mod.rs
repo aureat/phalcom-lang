@@ -4,6 +4,7 @@ pub mod boolean;
 pub mod bytes;
 pub mod class;
 pub mod error;
+pub mod family;
 pub mod fiber;
 pub mod float;
 pub mod index;

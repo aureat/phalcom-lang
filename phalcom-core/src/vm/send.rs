@@ -7,6 +7,13 @@ use phalcom_common::range::SourceRange;
 
 use super::VM;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FamilyInvocationKind {
+    Method,
+    Getter,
+    Setter,
+}
+
 impl VM {
     /// Checks whether `receiver` can execute a method held by its defining
     /// class. Class-side methods use the receiver's metaclass automatically
@@ -416,7 +423,7 @@ impl VM {
             Object::Block(block) => self.activate_closure_call(receiver, block.closure, Some(block.home_frame_token), view, source_range),
             Object::Closure(_) => self.activate_closure_call(receiver, id, None, view, source_range),
             Object::BoundMethod(bound) => self.activate_bound_method(*bound, view, source_range),
-            Object::Family(family) => self.activate_family(*family, view, source_range),
+            Object::Family(family) => self.activate_family_with_kind(view, FamilyInvocationKind::Method, source_range),
             _ => Err(RuntimeError::Type {
                 expected: "Function",
                 found: receiver.type_name(),
@@ -538,17 +545,52 @@ impl VM {
         )
     }
 
-    fn activate_family(&mut self, family: crate::heap::FamilyObject, view: ArgumentView, source_range: SourceRange) -> PhResult<CallOutcome> {
+    pub(crate) fn activate_family_with_kind(
+        &mut self,
+        view: ArgumentView,
+        invocation: FamilyInvocationKind,
+        source_range: SourceRange,
+    ) -> PhResult<CallOutcome> {
+        let receiver_idx = view.receiver_index();
+        let Value::Obj(family_id) = self.stack[receiver_idx] else {
+            return Err(RuntimeError::Type {
+                expected: "Family",
+                found: self.stack[receiver_idx].type_name(),
+            }
+            .into());
+        };
+        let family = match self.heap.get(family_id) {
+            Object::Family(family) => *family,
+            _ => {
+                return Err(RuntimeError::Type {
+                    expected: "Family",
+                    found: self.stack[receiver_idx].type_name(),
+                }
+                .into());
+            }
+        };
         let labels = view.labels(self);
         let selector = match family.spec {
             crate::heap::FamilySpec::Exact(selector) => {
-                let (base, slots, _) = decode_selector(self.resolve_symbol(selector));
+                let (base, slots, kind) = decode_selector(self.resolve_symbol(selector));
+                let kind_matches = match invocation {
+                    FamilyInvocationKind::Method => matches!(kind, SignatureKind::Method(_)),
+                    FamilyInvocationKind::Getter => matches!(kind, SignatureKind::Getter),
+                    FamilyInvocationKind::Setter => matches!(kind, SignatureKind::Setter),
+                };
+                if !kind_matches {
+                    return Err(RuntimeError::Message(format!("exact family `{base}` does not accept this invocation kind")).into());
+                }
                 let expected_positional = slots.iter().filter(|slot| slot.is_none()).count();
                 let expected_labels = slots
                     .iter()
                     .filter_map(|slot| slot.as_ref())
                     .map(|label| self.interner.intern(label))
                     .collect::<Vec<_>>();
+                let expected_positional = match invocation {
+                    FamilyInvocationKind::Setter => 1,
+                    _ => expected_positional,
+                };
                 if expected_positional != view.positional_count() || expected_labels != labels {
                     return Err(RuntimeError::Message(format!("exact family `{base}` does not accept this call shape")).into());
                 }
@@ -565,17 +607,23 @@ impl VM {
                         return Err(RuntimeError::Message("subscript selector patterns require index activation".into()).into());
                     }
                 };
-                let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
-                slots.extend(std::iter::repeat_n(None, view.positional_count()));
-                slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
-                let selector = self.get_or_intern(&crate::method::encode_selector(
-                    base,
-                    &slots,
-                    SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                        found: slots.len(),
-                        limit: u8::MAX as usize,
-                    })?),
-                ));
+                let selector = match invocation {
+                    FamilyInvocationKind::Getter => self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Getter)),
+                    FamilyInvocationKind::Setter => self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Setter)),
+                    FamilyInvocationKind::Method => {
+                        let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
+                        slots.extend(std::iter::repeat_n(None, view.positional_count()));
+                        slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+                        self.get_or_intern(&crate::method::encode_selector(
+                            base,
+                            &slots,
+                            SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                                found: slots.len(),
+                                limit: u8::MAX as usize,
+                            })?),
+                        ))
+                    }
+                };
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
                 if !pattern.matches(&structural) {
                     return Err(RuntimeError::Message("call shape does not match selector pattern".into()).into());
@@ -583,9 +631,12 @@ impl VM {
                 selector
             }
         };
-        let receiver_idx = view.receiver_index();
         self.stack[receiver_idx] = family.receiver;
-        self.dispatch_shape_at_as(receiver_idx, selector, view.positional_count(), &labels, source_range, view.caller_authority())
+        let positional_count = match invocation {
+            FamilyInvocationKind::Setter => 1,
+            _ => view.positional_count(),
+        };
+        self.dispatch_shape_at_as(receiver_idx, selector, positional_count, &labels, source_range, view.caller_authority())
     }
 
     /// Reifies a message send as a `Message` instance (method-lookup.md §2,

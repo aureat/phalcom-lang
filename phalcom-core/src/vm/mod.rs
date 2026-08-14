@@ -15,6 +15,7 @@ mod dispatch;
 mod f2_pack_authority_tests;
 mod gc;
 mod send;
+pub(crate) use send::FamilyInvocationKind;
 pub mod walk;
 
 use crate::frame::CallFrame;

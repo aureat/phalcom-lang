@@ -8,6 +8,7 @@ use crate::primitive::bytes::{
 };
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
+use crate::primitive::family::{family_get, family_is_exact, family_pattern, family_receiver, family_selector, family_set};
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
 use crate::primitive::float::{
     float_abs, float_ceil, float_class_new, float_floor, float_is_finite, float_is_infinite, float_is_integer, float_is_nan, float_rounded, float_sign,
@@ -277,6 +278,14 @@ impl Universe {
         primitive!(vm, method_cls, "bind", SignatureKind::Method(1), method_bind);
         primitive!(vm, method_cls, "selector", SignatureKind::Getter, method_selector);
         primitive!(vm, method_cls, "holder", SignatureKind::Getter, method_holder);
+
+        let family_cls = vm.universe.classes.family_class;
+        primitive!(vm, family_cls, "receiver", SignatureKind::Getter, family_receiver);
+        primitive!(vm, family_cls, "selector", SignatureKind::Getter, family_selector);
+        primitive!(vm, family_cls, "pattern", SignatureKind::Getter, family_pattern);
+        primitive!(vm, family_cls, "isExact", SignatureKind::Getter, family_is_exact);
+        primitive_shape!(vm, family_cls, "get", SignatureKind::Method(0), family_get);
+        primitive_shape!(vm, family_cls, "set", SignatureKind::Method(1), family_set);
 
         let function_cls = vm.universe.classes.function_class;
         primitive!(vm, function_cls, "arity", SignatureKind::Getter, block_arity);
