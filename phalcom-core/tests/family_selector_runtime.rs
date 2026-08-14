@@ -300,7 +300,7 @@ fn any_named_bound_family_prefers_method_shape_over_accessor_shapes() {
     let module = vm.create_module("main", "any_named_bound_family_shapes");
     vm.interpret_source(
         module,
-        "class Source { name { 1 } name() { 2 } name=(put value) { 3 } name(value) { 4 } }\nlet source = Source.new()\nlet family = Source >> #name(...)\nlet bound = family.bind(source)\nlet nullary = bound()\nlet unary = bound(9)\n",
+        "class Source { name { 1 } name() { 2 } name=(put value) { 3 } name(_) { 4 } }\nlet source = Source.new()\nlet family = Source >> #name(...)\nlet bound = family.bind(source)\nlet nullary = bound()\nlet unary = bound(9)\n",
     )
     .expect("accessor and method overloads should compile");
     let nullary = vm.heap.module(module).get(vm.interner.intern("nullary")).expect("nullary result should exist");
