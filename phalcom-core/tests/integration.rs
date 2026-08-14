@@ -6,6 +6,7 @@ mod disasm_golden;
 mod disasm_super;
 mod exit_codes;
 mod f2_pack_gc;
+mod family_selector_runtime;
 mod fiber_trace;
 mod gc;
 mod golden;

@@ -1,10 +1,10 @@
-use crate::bytecode::{Bytecode, PackAccess, PackSendKind};
+use crate::bytecode::{Bytecode, FamilySpecKind, PackAccess, PackSendKind};
 use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralEntry,
-    SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
+    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, NormalizedSelectorSpec, PackItem, PackLabel, ProductLabel,
+    RecordLiteralEntry, SelectorSpecSyntax, SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
 
@@ -502,29 +502,10 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::MethodRef(method_ref) => {
-                // `receiver::name` / `receiver::#sel(...)` (selectors.md §3,
-                // U16-Open, U16-Pinned): compile the receiver, intern the
-                // reference's symbol as a constant, and let
-                // `Bytecode::MakeFamily`'s runtime handler do the
-                // reference-time empty-family check + `Family` allocation.
-                // The two shapes share one opcode: Open interns a bare base
-                // name, Pinned interns the full selector through the same
-                // `encode_selector` a matching method definition uses
-                // (ADR-0012) — the runtime handler tells them apart by
-                // whether the interned string contains `(` (`VM`'s
-                // `Bytecode::MakeFamily` arm).
                 let method_ref = *method_ref;
-                let sym = match method_ref.kind {
-                    MethodRefKind::Open { name } => self.vm.interner.intern(&name),
-                    MethodRefKind::Pinned { name, labels } => {
-                        let arity = checked_send_arity("pinned selector", labels.len(), method_ref.range)?;
-                        let selector = encode_selector(&name, &labels, SignatureKind::Method(arity));
-                        self.vm.interner.intern(&selector)
-                    }
-                };
+                let (spec_idx, kind) = self.compile_selector_spec_constant(&method_ref.spec)?;
                 self.compile_expr(method_ref.receiver)?;
-                let name_idx = self.add_constant(Value::Symbol(sym));
-                self.emit(Bytecode::MakeFamily(name_idx), method_ref.range);
+                self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, method_ref.range);
             }
             Expr::GetProperty(get_prop) => {
                 self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
@@ -734,6 +715,21 @@ impl<'vm> Compiler<'vm> {
                     SymbolLiteralKind::Selector { name, labels } => {
                         let arity = checked_send_arity("pinned selector", labels.len(), range)?;
                         encode_selector(&name, &labels, SignatureKind::Method(arity))
+                    }
+                    SymbolLiteralKind::Pattern(pattern) => {
+                        let normalized = SelectorSpecSyntax::Pattern(pattern)
+                            .normalize()
+                            .map_err(|error| CompilerError::Message(format!("invalid selector pattern: {error}")))?;
+                        let NormalizedSelectorSpec::Pattern(pattern) = normalized else {
+                            unreachable!("pattern syntax normalized to exact selector")
+                        };
+                        let pattern = self
+                            .vm
+                            .heap
+                            .alloc(crate::heap::Object::SelectorPattern(Box::new(crate::heap::SelectorPatternObject { pattern })));
+                        let idx = self.add_constant(Value::Obj(pattern));
+                        self.emit(Bytecode::Constant(idx), range);
+                        return Ok(());
                     }
                 };
                 let sym = self.vm.interner.intern(&canonical);
@@ -1247,6 +1243,25 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    fn compile_selector_spec_constant(&mut self, spec: &SelectorSpecSyntax) -> Result<(u16, FamilySpecKind), CompilerError> {
+        let normalized = spec
+            .normalize()
+            .map_err(|error| CompilerError::Message(format!("invalid selector specification: {error}")))?;
+        match normalized {
+            NormalizedSelectorSpec::Exact(selector) => {
+                let symbol = self.vm.interner.intern(&selector.encode());
+                Ok((self.add_constant(Value::Symbol(symbol)), FamilySpecKind::Exact))
+            }
+            NormalizedSelectorSpec::Pattern(pattern) => {
+                let object = self
+                    .vm
+                    .heap
+                    .alloc(crate::heap::Object::SelectorPattern(Box::new(crate::heap::SelectorPatternObject { pattern })));
+                Ok((self.add_constant(Value::Obj(object)), FamilySpecKind::Pattern))
+            }
+        }
+    }
+
     fn canonical_symbol(&mut self, kind: SymbolLiteralKind, range: SourceRange) -> Result<crate::interner::Symbol, CompilerError> {
         let canonical = match kind {
             SymbolLiteralKind::Name(name) => name,
@@ -1254,6 +1269,7 @@ impl<'vm> Compiler<'vm> {
                 let arity = checked_send_arity("symbol selector", labels.len(), range)?;
                 encode_selector(&name, &labels, SignatureKind::Method(arity))
             }
+            SymbolLiteralKind::Pattern(_) => return Err(CompilerError::Message("selector patterns are not product labels".into())),
         };
         Ok(self.vm.interner.intern(&canonical))
     }

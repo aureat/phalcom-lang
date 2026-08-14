@@ -126,6 +126,7 @@ impl Value {
                 Object::Record(_) => "<record>".to_string(),
                 Object::Range(_) => "<range>".to_string(),
                 Object::Family(_) => "<family>".to_string(),
+                Object::SelectorPattern(_) => "<selector pattern>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
                 Object::PackBuilder(_) => "<internal pack builder>".to_string(),
                 Object::RecordLiteralBuilder(_) => "<internal Record literal builder>".to_string(),

@@ -540,33 +540,51 @@ impl VM {
 
     fn activate_family(&mut self, family: crate::heap::FamilyObject, view: ArgumentView, source_range: SourceRange) -> PhResult<CallOutcome> {
         let labels = view.labels(self);
-        let selector = if family.open {
-            let base = self.resolve_symbol(family.selector).to_owned();
-            let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
-            slots.extend(std::iter::repeat_n(None, view.positional_count()));
-            slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
-            self.get_or_intern(&crate::method::encode_selector(
-                &base,
-                &slots,
-                SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                    found: slots.len(),
-                    limit: u8::MAX as usize,
-                })?),
-            ))
-        } else {
-            let (base, slots, _) = decode_selector(self.resolve_symbol(family.selector));
-            if slots.len() != view.positional_count() + labels.len() {
-                return Err(RuntimeError::Message(format!(
-                    "pinned method reference `{base}` expects {} argument(s), got {}",
-                    slots.len(),
-                    view.positional_count() + labels.len()
-                ))
-                .into());
+        let selector = match family.spec {
+            crate::heap::FamilySpec::Exact(selector) => {
+                let (base, slots, _) = decode_selector(self.resolve_symbol(selector));
+                let expected_positional = slots.iter().filter(|slot| slot.is_none()).count();
+                let expected_labels = slots
+                    .iter()
+                    .filter_map(|slot| slot.as_ref())
+                    .map(|label| self.interner.intern(label))
+                    .collect::<Vec<_>>();
+                if expected_positional != view.positional_count() || expected_labels != labels {
+                    return Err(RuntimeError::Message(format!("exact family `{base}` does not accept this call shape")).into());
+                }
+                selector
             }
-            family.selector
+            crate::heap::FamilySpec::Pattern(pattern_id) => {
+                let pattern = match self.heap.get(pattern_id) {
+                    Object::SelectorPattern(pattern) => pattern.pattern.clone(),
+                    _ => return Err(RuntimeError::Internal("Family pattern handle is not a selector pattern".into()).into()),
+                };
+                let base = match &pattern.base {
+                    phalcom_common::selector::SelectorBase::Named(base) => base,
+                    phalcom_common::selector::SelectorBase::Subscript => {
+                        return Err(RuntimeError::Message("subscript selector patterns require index activation".into()).into());
+                    }
+                };
+                let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
+                slots.extend(std::iter::repeat_n(None, view.positional_count()));
+                slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+                let selector = self.get_or_intern(&crate::method::encode_selector(
+                    base,
+                    &slots,
+                    SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                        found: slots.len(),
+                        limit: u8::MAX as usize,
+                    })?),
+                ));
+                let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
+                if !pattern.matches(&structural) {
+                    return Err(RuntimeError::Message("call shape does not match selector pattern".into()).into());
+                }
+                selector
+            }
         };
         let receiver_idx = view.receiver_index();
-        self.stack[receiver_idx] = family.recv;
+        self.stack[receiver_idx] = family.receiver;
         self.dispatch_shape_at_as(receiver_idx, selector, view.positional_count(), &labels, source_range, view.caller_authority())
     }
 

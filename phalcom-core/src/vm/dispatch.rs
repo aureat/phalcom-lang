@@ -1389,57 +1389,30 @@ impl VM {
                     let imported = self.import_module(&importer_path, &import_path)?;
                     self.stack.push(Value::Obj(imported));
                 }
-                Bytecode::MakeFamily(name_idx) => {
-                    let name_val = callable.chunk.constants[name_idx as usize];
-                    let recv = self.stack.pop().unwrap();
-                    let Value::Symbol(sym) = name_val else {
-                        return Err(RuntimeError::Internal("MakeFamily constant is not a Symbol".into()).into());
-                    };
-                    let class_id = recv.class(self);
-
-                    // Open vs Pinned discriminator (U16-Pinned): the compiler
-                    // (`compile_expr`'s `Expr::MethodRef` arm) always runs a
-                    // Pinned reference's selector through
-                    // `method::encode_selector`, which unconditionally
-                    // appends a `(...)` argument-list suffix — even the
-                    // zero-arg `name()` shape — while an Open reference's
-                    // constant is always a bare base name from
-                    // `parse_property_name` (an identifier/keyword, never
-                    // containing `(`). No new discriminator field on the
-                    // opcode is needed: the interned string's shape already
-                    // tells the two apart.
-                    let sym_str = self.resolve_symbol(sym).to_string();
-                    let open = !sym_str.contains('(');
-
-                    // Reference-time empty-family check (selectors.md §3
-                    // error table): error unless the receiver's class
-                    // responds to the reference (base name for Open, the
-                    // exact selector for Pinned), or has a
-                    // `doesNotUnderstand(_)` override.
-                    let responds = if open {
-                        self.heap.class(class_id).responds_to_base_name(sym)
-                    } else {
-                        crate::heap::lookup_method_in_hierarchy(&self.heap, class_id, sym).is_some()
-                    };
-                    if !open && let Some(method) = crate::heap::lookup_method_in_hierarchy(&self.heap, class_id, sym) {
-                        self.authorize_method_access(method)?;
-                    }
-                    if !responds {
-                        let dnu_str = crate::method::encode_selector("doesNotUnderstand", &[None], SignatureKind::Method(1));
-                        let dnu_sym = self.get_or_intern(&dnu_str);
-                        let object_cls = self.universe.classes.object_class;
-                        let default_dnu = crate::heap::lookup_method_in_hierarchy(&self.heap, object_cls, dnu_sym);
-                        let actual_dnu = crate::heap::lookup_method_in_hierarchy(&self.heap, class_id, dnu_sym);
-                        if actual_dnu == default_dnu {
-                            let class_name = self.heap.class(class_id).name.clone();
-                            return Err(RuntimeError::Message(format!(
-                                "{class_name} does not understand `{sym_str}` — no method named `{sym_str}` and no `doesNotUnderstand(_)` override (`::` empty family)"
-                            ))
-                            .into());
+                Bytecode::MakeFamily { spec, kind } => {
+                    let spec_value = callable.chunk.constants[spec as usize];
+                    let family_spec = match kind {
+                        crate::bytecode::FamilySpecKind::Exact => {
+                            let Value::Symbol(symbol) = spec_value else {
+                                return Err(RuntimeError::Internal("exact MakeFamily constant is not a Symbol".into()).into());
+                            };
+                            crate::heap::FamilySpec::Exact(symbol)
                         }
-                    }
-
-                    let family = Object::Family(crate::heap::FamilyObject { recv, selector: sym, open });
+                        crate::bytecode::FamilySpecKind::Pattern => {
+                            let Value::Obj(pattern) = spec_value else {
+                                return Err(RuntimeError::Internal("pattern MakeFamily constant is not an object".into()).into());
+                            };
+                            if !matches!(self.heap.get(pattern), Object::SelectorPattern(_)) {
+                                return Err(RuntimeError::Internal("pattern MakeFamily constant is not a selector pattern".into()).into());
+                            }
+                            crate::heap::FamilySpec::Pattern(pattern)
+                        }
+                    };
+                    let recv = self.stack.pop().unwrap();
+                    let family = Object::Family(crate::heap::FamilyObject {
+                        receiver: recv,
+                        spec: family_spec,
+                    });
                     let family_id = self.heap.alloc(family);
                     self.stack.push(Value::Obj(family_id));
                 }

@@ -215,9 +215,12 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             }
         }
         Object::Family(family) => {
-            // `selector` is a `Symbol`, `open` a `bool` — neither is an edge.
-            trace_value(family.recv, push);
+            trace_value(family.receiver, push);
+            if let super::object::FamilySpec::Pattern(pattern) = family.spec {
+                push(pattern);
+            }
         }
+        Object::SelectorPattern(_) => {}
         // `LargeInt` holds an arbitrary-precision integer, no `Value` handles.
         Object::LargeInt(_) => {}
         Object::PackBuilder(builder) => {

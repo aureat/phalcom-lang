@@ -77,6 +77,15 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "MapLiteralExpandLabels",
 ];
 
+/// Distinguishes exact selector identity from a structural selector pattern
+/// at a `MakeFamily` site. The opcode keeps one stable histogram index while
+/// removing the old punctuation heuristic from runtime dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FamilySpecKind {
+    Exact,
+    Pattern,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackSendKind {
     Method,
@@ -345,24 +354,20 @@ pub enum Bytecode {
     Import(u16),
 
     /// Builds a bound `::` method-reference **Family** value from a receiver
-    /// on the stack (selectors.md §3, U16-Open, [ADR-0047]).
-    ///
-    /// 0: constant-pool index of the base name
-    /// [`Symbol`](crate::interner::Symbol) (not a full selector).
-    ///
-    /// Pops the receiver, resolves its class, and checks the **reference-time
-    /// empty-family rule**: the reference is an error unless the receiver's
-    /// class [`responds_to_base_name`](crate::heap::ClassObject::responds_to_base_name)
-    /// or has a `doesNotUnderstand(_:)` override (a class row whose resolved
-    /// `doesNotUnderstand(_:)` differs from `Object`'s default handler). On
-    /// success, allocates an [`Object::Family`](crate::heap::Object::Family)
-    /// bound to the receiver and pushes it. The call site never re-derives
-    /// this at call time — an Open family's *selector* is built later by the
-    /// shape-aware `Function#call(***)` gateway, but the *check* happens
-    /// exactly once, here.
+    /// on the stack. `kind` explicitly identifies whether `spec` is an exact
+    /// interned selector or a first-class structural pattern. Construction is
+    /// pure capture: it does not resolve or authorize a target method. The
+    /// existing dispatcher owns all future-send lookup, fallback, and dNU
+    /// behavior.
     ///
     /// [ADR-0047]: ../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md
-    MakeFamily(u16),
+    MakeFamily {
+        /// Constant-pool index containing a `Value::Symbol` or selector
+        /// pattern object.
+        spec: u16,
+        /// Representation of the selector specification in that constant.
+        kind: FamilySpecKind,
+    },
 
     /// Rebuilds a class's (and its metaclass's) flattened
     /// [`base_names`](crate::heap::ClassObject::base_names) index from its
@@ -541,7 +546,7 @@ impl Bytecode {
             Bytecode::Dup => 30,
             Bytecode::WrapSome => 31,
             Bytecode::Import(..) => 32,
-            Bytecode::MakeFamily(..) => 33,
+            Bytecode::MakeFamily { .. } => 33,
             Bytecode::FinalizeClass => 34,
             Bytecode::InvokeLocal(..) => 35,
             Bytecode::InvokeConst(..) => 36,

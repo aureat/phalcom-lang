@@ -14,6 +14,7 @@ use crate::heap::Upvalue;
 use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::value::Value;
+use phalcom_common::selector::SelectorPattern;
 
 use super::ArgumentPackBuilderObject;
 use super::{FiberObject, ObjRef, RecordLiteralBuilderObject};
@@ -122,13 +123,16 @@ pub enum Object {
     /// produced by `obj::name` (Open) or `obj::#name(...)` (Pinned)
     /// ([`FamilyObject`], selectors.md §3, U16-Open, U16-Pinned, [ADR-0047]).
     ///
-    /// Bound forms only in this unit: `recv` is always a concrete bound
-    /// value (no unbound/first-argument form). [`FamilyObject::open`]
-    /// discriminates the two reference shapes; see its doc for what
-    /// [`FamilyObject::selector`] holds in each.
+    /// Bound forms only in this unit: `receiver` is always a concrete bound
+    /// value. The spec is either an exact interned selector or an immutable
+    /// selector-pattern object.
     ///
     /// [ADR-0047]: ../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md
     Family(FamilyObject),
+    /// An immutable structural selector pattern compiled from a first-class
+    /// selector-spec literal. It is boxed so selector metadata does not grow
+    /// every arena slot.
+    SelectorPattern(Box<SelectorPatternObject>),
     /// An arbitrary-precision integer ([`num_bigint::BigInt`]).
     /// Normalization guarantees this is never representable as `i64`.
     LargeInt(num_bigint::BigInt),
@@ -148,26 +152,24 @@ pub enum Object {
 pub struct FamilyObject {
     /// The receiver this family is bound to — `obj` in `obj::name`, or the
     /// class object itself in `Type::name`.
-    pub recv: Value,
-    /// The symbol carried by this family — its meaning depends on
-    /// [`open`](Self::open):
-    ///
-    /// - **Open** (`open == true`): a bare base method name, not a full
-    ///   selector. The selector actually sent is rebuilt at *call* time from
-    ///   this name plus the call site's argument labels (selectors.md §3
-    ///   "Open families resolve at call time").
-    /// - **Pinned** (`open == false`): the complete target selector, already
-    ///   interned through [`crate::method::encode_selector`] — the exact
-    ///   identity dispatched on every call, independent of the call site's
-    ///   own labels (selectors.md §3 "Pinned families have their selector
-    ///   fully known at compile time").
-    pub selector: Symbol,
-    /// Discriminates the two `::` reference shapes this family was built
-    /// from — `true` for an Open reference (`obj::name`, U16-Open), `false`
-    /// for a Pinned reference (`obj::#name(...)`, U16-Pinned). Drives both
-    /// [`crate::vm::VM`]'s reference-time empty-family check and
-    /// shape-aware `Function#call(***)` gateway branch.
-    pub open: bool,
+    pub receiver: Value,
+    /// Exact selectors remain compact interned symbols; patterns are heap
+    /// objects so their structural predicate can be shared by all calls.
+    pub spec: FamilySpec,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FamilySpec {
+    Exact(Symbol),
+    Pattern(ObjRef),
+}
+
+/// Runtime payload for a structural selector pattern. The common model is
+/// intentionally retained here until the VM's symbol-backed call matcher is
+/// introduced; this object is immutable and safe to share through constants.
+#[derive(Debug, Clone)]
+pub struct SelectorPatternObject {
+    pub pattern: SelectorPattern,
 }
 
 /// The payload of an [`Object::BoundMethod`] — a reified [`MethodObject`]
