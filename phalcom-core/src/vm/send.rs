@@ -86,7 +86,7 @@ impl VM {
     /// Checks whether `receiver` can execute a method held by its defining
     /// class. Class-side methods use the receiver's metaclass automatically
     /// because `Value::class` returns that class for class values.
-    pub(crate) fn method_receiver_compatible(&self, method: ObjRef, receiver: Value) -> bool {
+    pub(crate) fn method_receiver_nominally_compatible(&self, method: ObjRef, receiver: Value) -> bool {
         let Some(holder) = self.heap.method(method).holder else {
             return true;
         };
@@ -142,6 +142,34 @@ impl VM {
                 None => return false,
             }
         }
+    }
+
+    pub(crate) fn guard_foreign_layout_access(&self, receiver: Value, guard: crate::frame::ForeignReceiverGuard) -> PhResult<()> {
+        let compatible = match receiver {
+            Value::Obj(id) if self.heap.as_instance(id).is_some() => {
+                self.is_subclass_of(self.heap.instance(id).class, guard.layout_owner)
+            }
+            Value::Obj(id) if self.heap.as_class(id).is_some() => {
+                self.is_subclass_of(self.heap.class(id).class, guard.layout_owner)
+            }
+            _ => false,
+        };
+        if compatible {
+            return Ok(());
+        }
+
+        let required = self.heap.class(guard.layout_owner).name.clone();
+        let found = match receiver {
+            Value::Obj(id) if self.heap.as_instance(id).is_some() => self.heap.class(self.heap.instance(id).class).name.clone(),
+            Value::Obj(id) if self.heap.as_class(id).is_some() => self.heap.class(id).name.clone(),
+            _ => receiver.type_name().to_owned(),
+        };
+        Err(RuntimeError::IncompatibleMethodLayout {
+            selector: self.resolve_symbol(guard.selector).to_owned(),
+            required,
+            found,
+        }
+        .into())
     }
 
     /// Enforces member visibility for every invocation path. Lookup remains
@@ -551,19 +579,17 @@ impl VM {
         Ok(CallOutcome::EnteredFrame)
     }
 
-    fn activate_bound_method(&mut self, bound: crate::heap::BoundMethodObject, view: ArgumentView, source_range: SourceRange) -> PhResult<CallOutcome> {
-        let method = bound.method;
+    pub(crate) fn activate_captured_method_as(
+        &mut self,
+        receiver: Value,
+        method: ObjRef,
+        view: ArgumentView,
+        source_range: SourceRange,
+    ) -> PhResult<CallOutcome> {
         self.authorize_method_access_as(method, view.caller_authority().0, view.caller_authority().1)?;
-        if !self.method_receiver_compatible(method, bound.receiver) {
-            return Err(RuntimeError::NotAllowed(format!(
-                "receiver of `{}` is incompatible with reified method",
-                self.resolve_symbol(self.heap.method(method).signature.selector)
-            ))
-            .into());
-        }
         let method_selector = self.heap.method(method).signature.selector;
         let selector_text = self.resolve_symbol(method_selector).to_owned();
-        let (_, expected_slots, _) = decode_selector(&selector_text);
+        let (base, expected_slots, _) = decode_selector(&selector_text);
         let actual_labels = view.labels(self);
         let expected_positional = expected_slots.iter().filter(|slot| slot.is_none()).count();
         let expected_labels = expected_slots
@@ -571,25 +597,48 @@ impl VM {
             .filter_map(|slot| slot.as_ref())
             .map(|label| self.interner.intern(label))
             .collect::<Vec<_>>();
-        let accepted = if let Some(rest) = self.heap.method(method).signature.rest.as_ref() {
-            rest.accepts(view.positional_count(), &actual_labels)
-        } else {
-            expected_positional == view.positional_count() && expected_labels == actual_labels
-        };
-        if !accepted {
-            return Err(RuntimeError::Arity {
-                signature: "call",
-                expected: expected_positional,
-                found: view.positional_count() + view.labeled_count(),
+        let actual_selector = if let Some(rest) = self.heap.method(method).signature.rest.as_ref() {
+            let mut slots = Vec::with_capacity(view.positional_count() + actual_labels.len());
+            slots.extend(std::iter::repeat_n(None, view.positional_count()));
+            slots.extend(actual_labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+            let selector = self.get_or_intern(&crate::method::encode_selector(
+                &base,
+                &slots,
+                SignatureKind::Method(u8::try_from(view.positional_count() + actual_labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                    found: view.positional_count() + actual_labels.len(),
+                    limit: u8::MAX as usize,
+                })?),
+            ));
+            if !rest.accepts(view.positional_count(), &actual_labels) {
+                return Err(RuntimeError::Arity {
+                    signature: "call",
+                    expected: expected_positional,
+                    found: view.positional_count() + view.labeled_count(),
+                }
+                .into());
             }
-            .into());
-        }
+            selector
+        } else {
+            let accepted = expected_positional == view.positional_count() && expected_labels == actual_labels;
+            if !accepted {
+                return Err(RuntimeError::Arity {
+                    signature: "call",
+                    expected: expected_positional,
+                    found: view.positional_count() + view.labeled_count(),
+                }
+                .into());
+            }
+            method_selector
+        };
         let receiver_idx = view.receiver_index();
-        self.stack[receiver_idx] = bound.receiver;
+        self.stack[receiver_idx] = receiver;
         let total = view.positional_count() + view.labeled_count();
-        if self.heap.method(method).signature.rest.is_some() && matches!(self.heap.method(method).kind, MethodKind::Closure(_)) {
+        let before = self.frames.len();
+        let outcome = if self.heap.method(method).signature.rest.is_some()
+            && !matches!(self.heap.method(method).kind, MethodKind::Primitive(PrimitiveFn::Shape(_)))
+        {
             self.call_rest_method_as(
-                &bound.receiver,
+                &receiver,
                 method,
                 receiver_idx,
                 view.positional_count(),
@@ -597,21 +646,39 @@ impl VM {
                 source_range,
                 view.caller_authority(),
             )?;
-            return Ok(if !self.frames.is_empty() {
+            if self.frames.len() > before {
                 CallOutcome::EnteredFrame
             } else {
                 CallOutcome::Returned(*self.stack.last().unwrap_or(&Value::Nil))
+            }
+        } else {
+            self.dispatch_selected_method_as(
+                &receiver,
+                method,
+                total,
+                actual_selector,
+                Some((view.positional_count(), view.labeled_count())),
+                source_range,
+                view.caller_authority(),
+            )?
+        };
+
+        if self.frames.len() > before
+            && matches!(self.heap.method(method).kind, MethodKind::Closure(_))
+            && !self.method_receiver_nominally_compatible(method, receiver)
+            && let Some(layout_owner) = self.heap.method(method).holder
+            && let Some(frame) = self.frames.last_mut()
+        {
+            frame.foreign_receiver_guard = Some(crate::frame::ForeignReceiverGuard {
+                layout_owner,
+                selector: method_selector,
             });
         }
-        self.dispatch_selected_method_as(
-            &bound.receiver,
-            method,
-            total,
-            view.selector().unwrap_or(method_selector),
-            Some((view.positional_count(), view.labeled_count())),
-            source_range,
-            view.caller_authority(),
-        )
+        Ok(outcome)
+    }
+
+    fn activate_bound_method(&mut self, bound: crate::heap::BoundMethodObject, view: ArgumentView, source_range: SourceRange) -> PhResult<CallOutcome> {
+        self.activate_captured_method_as(bound.receiver, bound.method, view, source_range)
     }
 
     fn selector_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<(Symbol, Vec<Symbol>)> {
@@ -669,14 +736,7 @@ impl VM {
             .ok_or_else(|| RuntimeError::Message("captured MethodFamily has no method for this call shape".into()))?;
 
         let shaped = view.with_selector(selector, view.positional_count(), labels.len());
-        self.activate_bound_method(
-            crate::heap::BoundMethodObject {
-                method,
-                receiver: bound.receiver,
-            },
-            shaped,
-            source_range,
-        )
+        self.activate_captured_method_as(bound.receiver, method, shaped, source_range)
     }
 
     pub(crate) fn activate_family_with_kind(
@@ -933,12 +993,11 @@ impl VM {
     /// use the flat shape-aware gateways instead (U-CORE-3, [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
     ///
     /// Mirrors [`Self::send_dynamic`]'s re-entrancy exactly, except there is
-    /// **no lookup**: `method_id` is already resolved, so a mismatched
-    /// receiver misbehaves inside the method body rather than raising
-    /// `doesNotUnderstand(_)` (the caller is responsible for receiver
-    /// compatibility, functions.md §3). Arity and visibility authorization are
-    /// validated **before** the receiver/args are pushed onto the stack, so a
-    /// rejected invocation leaves the stack exactly as it was found (R-INV-3.4).
+    /// **no lookup**: `method_id` is already resolved, so a mismatched receiver
+    /// executes against its captured method body and only representation access
+    /// is guarded. Arity and visibility authorization are validated **before**
+    /// the receiver/args are pushed onto the stack, so a rejected invocation
+    /// leaves the stack exactly as it was found (R-INV-3.4).
     ///
     /// # Errors
     ///
@@ -961,13 +1020,16 @@ impl VM {
             }
             .into());
         }
-        self.authorize_method_access(method_id)?;
+        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+        self.authorize_method_access_as(method_id, caller_authority.0, caller_authority.1)?;
 
+        let receiver_idx = self.stack.len();
         self.stack.push(receiver);
         self.stack.extend_from_slice(args);
 
         let base_frames = self.frames.len();
-        self.call_method(&receiver, method_id, args.len(), SourceRange::default())?;
+        let view = ArgumentView::positional_window(receiver_idx, args.len(), caller_authority.0, caller_authority.1);
+        self.activate_captured_method_as(receiver, method_id, view, SourceRange::default())?;
         // See `send_dynamic`'s matching comment — re-entrant native frame,
         // fiber switch forbidden underneath (ADR-0030 §4).
         self.check_native_reentry()?;

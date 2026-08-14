@@ -35,14 +35,6 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
     })?;
     let (caller, internal) = args.caller_authority();
     vm.authorize_method_access_as(method_id, caller, internal)?;
-    if !vm.method_receiver_compatible(method_id, target) {
-        return Err(RuntimeError::NotAllowed(format!(
-            "receiver of `{}` is incompatible with reified method",
-            vm.resolve_symbol(vm.heap.method(method_id).signature.selector)
-        ))
-        .into());
-    }
-
     let labels = args.labels(vm);
     let residual_positionals = args.positional_count().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
         signature: "invokeOn",
@@ -81,59 +73,13 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
         method_selector
     };
 
-    if let Some(rest) = vm.heap.method(method_id).signature.rest.as_ref()
-        && !rest.accepts(residual_positionals, &labels)
-    {
-        return Err(RuntimeError::Arity {
-            signature: "invokeOn",
-            expected: rest.fixed_positionals() as usize,
-            found: residual_positionals + labels.len(),
-        }
-        .into());
-    }
-
     let receiver_index = args.receiver_index();
     let residual = vm.stack[receiver_index + 2..].to_vec();
     vm.stack[receiver_index] = target;
     vm.stack.truncate(receiver_index + 1);
     vm.stack.extend_from_slice(&residual);
-
-    if let Some(rest) = vm.heap.method(method_id).signature.rest.as_ref() {
-        if matches!(
-            vm.heap.method(method_id).kind,
-            crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Shape(_))
-        ) {
-            return vm.dispatch_selected_method_as(
-                &target,
-                method_id,
-                residual_positionals + labels.len(),
-                actual_selector,
-                Some((residual_positionals, labels.len())),
-                phalcom_common::range::SourceRange::default(),
-                args.caller_authority(),
-            );
-        }
-        vm.call_rest_method_as(
-            &target,
-            method_id,
-            receiver_index,
-            residual_positionals,
-            &labels,
-            phalcom_common::range::SourceRange::default(),
-            args.caller_authority(),
-        )?;
-        Ok(CallOutcome::EnteredFrame)
-    } else {
-        vm.dispatch_selected_method_as(
-            &target,
-            method_id,
-            residual_positionals + labels.len(),
-            actual_selector,
-            Some((residual_positionals, labels.len())),
-            phalcom_common::range::SourceRange::default(),
-            args.caller_authority(),
-        )
-    }
+    let shaped = args.with_selector(actual_selector, residual_positionals, labels.len());
+    vm.activate_captured_method_as(target, method_id, shaped, phalcom_common::range::SourceRange::default())
 }
 
 /// Signature: `Method::bind(_)` — closes the reified method (`self`) over
@@ -148,13 +94,6 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
 /// Returns [`RuntimeError::Type`] if `self` is not a `Method`.
 pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
-    if !vm.method_receiver_compatible(method_id, args[0]) {
-        return Err(RuntimeError::NotAllowed(format!(
-            "receiver of `{}` is incompatible with reified method",
-            vm.resolve_symbol(vm.heap.method(method_id).signature.selector)
-        ))
-        .into());
-    }
     let bound = BoundMethodObject {
         method: method_id,
         receiver: args[0],

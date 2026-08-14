@@ -1410,21 +1410,17 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
 }
 
 #[test]
-fn bind_rejects_incompatible_receiver_before_allocation() {
+fn bind_allows_foreign_receiver_for_representation_independent_method() {
     let mut vm = VM::new();
-    let module = vm.create_module("main", "bind_rejects_incompatible_receiver_before_allocation");
+    let module = vm.create_module("main", "bind_allows_foreign_receiver_for_representation_independent_method");
     vm.interpret_source(module, "class Greeter { greet(_ name) { name } }\nlet g = Greeter.new()\n")
         .expect("class + instance should run");
     let g = vm.heap.module(module).get(vm.interner.intern("g")).expect("`g` global should exist");
     let selector = vm.get_or_intern("greet(_)");
     let method = object_method_for(&mut vm, &g, &[Value::Symbol(selector)]).expect("methodFor should return Greeter#greet(_)");
-    let before = vm.heap.live_count();
-    let result = method_bind(&mut vm, &method, &[Value::Int(3)]);
-    assert!(
-        matches!(result, Err(PhError::Runtime(RuntimeError::NotAllowed(ref message))) if message.contains("incompatible")),
-        "incompatible bind should be rejected, got {result:?}"
-    );
-    assert_eq!(vm.heap.live_count(), before, "rejected bind must not allocate BoundMethod");
+    let bound = method_bind(&mut vm, &method, &[Value::Int(3)]).expect("foreign receiver should bind");
+    let result = block_call(&mut vm, &bound, &[]).expect("representation-independent method should activate");
+    assert_eq!(result, Value::Int(3));
 }
 
 fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {

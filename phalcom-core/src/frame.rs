@@ -6,6 +6,7 @@
 //! `Rc<RefCell<T>>` and no borrow-panic surface.
 
 use crate::heap::ObjRef;
+use crate::interner::Symbol;
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 
@@ -61,6 +62,15 @@ pub enum CallContext {
     },
 }
 
+/// Representation guard for bytecode methods invoked on a receiver outside
+/// their nominal holder hierarchy. Field bytecodes use this only on foreign
+/// activations; ordinary sends keep the field fast path unchanged.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ForeignReceiverGuard {
+    pub(crate) layout_owner: ObjRef,
+    pub(crate) selector: Symbol,
+}
+
 /// A single closure activation: its code handle, receiver, and stack window.
 #[derive(Debug, Clone, Copy)]
 pub struct CallFrame {
@@ -92,6 +102,8 @@ pub struct CallFrame {
     /// Because [`FrameToken`] is `Copy`, `Option<FrameToken>` keeps [`CallFrame`]
     /// `Copy`.
     pub home_frame_token: Option<FrameToken>,
+    /// Optional layout check required by a transplanted bytecode Method.
+    pub(crate) foreign_receiver_guard: Option<ForeignReceiverGuard>,
 }
 
 impl CallFrame {
@@ -106,6 +118,7 @@ impl CallFrame {
             caller_source,
             generation: 0,
             home_frame_token: None,
+            foreign_receiver_guard: None,
         }
     }
 

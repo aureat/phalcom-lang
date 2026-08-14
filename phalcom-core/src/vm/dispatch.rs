@@ -1540,6 +1540,9 @@ impl VM {
                 }
                 Bytecode::GetField(slot) => {
                     let receiver = self.stack.pop().ok_or("Stack underflow for GetField receiver")?;
+                    if let Some(guard) = self.frames.last().and_then(|frame| frame.foreign_receiver_guard) {
+                        self.guard_foreign_layout_access(receiver, guard)?;
+                    }
                     match receiver {
                         Value::Obj(id) => {
                             if let Some(instance) = self.heap.as_instance(id) {
@@ -1576,6 +1579,9 @@ impl VM {
                 Bytecode::SetField(slot) => {
                     let value_to_assign = self.stack.pop().ok_or("Stack underflow on field assignment")?;
                     let receiver = self.stack.pop().ok_or("Stack underflow for SetField receiver")?;
+                    if let Some(guard) = self.frames.last().and_then(|frame| frame.foreign_receiver_guard) {
+                        self.guard_foreign_layout_access(receiver, guard)?;
+                    }
                     match receiver {
                         Value::Obj(id) => {
                             if self.heap.as_instance(id).is_some() {
