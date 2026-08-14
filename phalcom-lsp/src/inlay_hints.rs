@@ -103,9 +103,7 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
         let Some(value) = snapshot.local_facts.value_before(binding.id, range.end.saturating_add(1)) else {
             continue;
         };
-        if !should_render(policy, &value.confidence, &value.shape)
-            || (suppress_obvious && obvious_initializer_text(&request.document.text, range))
-        {
+        if !should_render(policy, &value.confidence, &value.shape) || (suppress_obvious && obvious_initializer_text(&request.document.text, range)) {
             continue;
         }
         let rendered = render_shape(&value.shape);

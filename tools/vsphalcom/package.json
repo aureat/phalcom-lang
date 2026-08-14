@@ -102,7 +102,7 @@
           "type": "array",
           "items": { "type": "string" },
           "default": [],
-          "description": "Glob-style workspace paths excluded from Phalcom source indexing/analysis."
+          "description": "Workspace path fragments or file patterns excluded from Phalcom source indexing/analysis."
         },
         "phalcom.inlayHints.types": {
           "type": "string",

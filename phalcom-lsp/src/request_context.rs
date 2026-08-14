@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
 
 use crate::documents::DocumentSnapshot;
-use crate::semantic::{FileSemanticSnapshot, FileRevision, ModuleId, SemanticSnapshot};
+use crate::semantic::{FileRevision, FileSemanticSnapshot, ModuleId, SemanticSnapshot};
 
 /// Immutable request inputs pinned at handler entry.
 #[derive(Clone)]

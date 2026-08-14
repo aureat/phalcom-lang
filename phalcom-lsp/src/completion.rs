@@ -610,7 +610,12 @@ pub(crate) fn semantic_contextual_completions(db: &SemanticSnapshot, context: Se
     items
 }
 
-fn semantic_union_completions(db: &SemanticSnapshot, resolved: &SemanticResolvedReceiver, lexical_class: Option<&ClassId>, privileged: bool) -> Vec<CompletionItem> {
+fn semantic_union_completions(
+    db: &SemanticSnapshot,
+    resolved: &SemanticResolvedReceiver,
+    lexical_class: Option<&ClassId>,
+    privileged: bool,
+) -> Vec<CompletionItem> {
     let mut by_label = std::collections::BTreeMap::new();
     for (class, kind) in &resolved.alternatives {
         for item in semantic_class_completions(db, class, *kind, lexical_class, privileged) {

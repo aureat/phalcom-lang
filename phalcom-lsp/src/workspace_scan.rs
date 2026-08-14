@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 
 use tower_lsp::lsp_types::Url;
 
+use crate::perf::PerfCounters;
+
 // ---------------------------------------------------------------------------
 // Analysis mode
 // ---------------------------------------------------------------------------
@@ -262,6 +264,11 @@ impl WorkspaceScanState {
     ///
     /// Returns an empty `Vec` when [`Self::has_work`] is also `false`.
     pub fn step(&mut self, budget: ScanBudget) -> Vec<DiscoveredFile> {
+        self.step_with_counters(budget, None)
+    }
+
+    /// Advance scanner while recording consumed directory entries.
+    pub fn step_with_counters(&mut self, budget: ScanBudget, counters: Option<&PerfCounters>) -> Vec<DiscoveredFile> {
         let mut dirs_started = 0;
         let mut entries_consumed = 0;
 
@@ -291,6 +298,9 @@ impl WorkspaceScanState {
                 continue;
             };
             entries_consumed += 1;
+            if let Some(counters) = counters {
+                counters.scan_directory_entries_consumed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
 
             let Ok(entry) = next_entry else {
                 continue;
