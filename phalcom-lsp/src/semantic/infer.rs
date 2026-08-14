@@ -85,7 +85,7 @@ pub(crate) fn analyze_source(
     let member_surface = |id: &CallableId| {
         classes
             .get(&id.owner)
-            .and_then(|class| class.members_by_side.get(&(id.selector.clone(), id.side)).cloned())
+            .and_then(|class| class.member_by_id(id).cloned())
     };
     let context = SolverContext {
         known_class: &known_class,
@@ -125,7 +125,7 @@ pub(crate) fn analyze_callable_source(
     let member_surface = |id: &CallableId| {
         classes
             .get(&id.owner)
-            .and_then(|class| class.members_by_side.get(&(id.selector.clone(), id.side)).cloned())
+            .and_then(|class| class.member_by_id(id).cloned())
     };
     let context = SolverContext {
         known_class: &known_class,
@@ -153,7 +153,7 @@ pub(crate) fn solve_workspace_callables(
 ) -> SolverResult {
     let callable_count = inputs
         .iter()
-        .map(|source| source.surface.classes.values().map(|class| class.members_by_side.len()).sum::<usize>())
+        .map(|source| source.surface.classes.values().map(|class| class.all_members().count()).sum::<usize>())
         .sum::<usize>();
     let slot_count = inputs
         .iter()
@@ -162,7 +162,7 @@ pub(crate) fn solve_workspace_callables(
                 .surface
                 .classes
                 .values()
-                .flat_map(|class| class.members_by_side.values())
+                .flat_map(|class| class.all_members())
                 .map(|member| member.params.len())
                 .sum::<usize>()
         })
@@ -173,7 +173,7 @@ pub(crate) fn solve_workspace_callables(
     let mut worklist = CallableWorklist::default();
     for source in inputs {
         for class in source.surface.classes.values() {
-            for member in class.members_by_side.values() {
+            for member in class.all_members() {
                 worklist.push(member.callable.clone());
             }
         }
@@ -211,7 +211,7 @@ pub(crate) fn solve_workspace_callables(
         if summaries_changed || parameters_changed {
             for source in inputs {
                 for class in source.surface.classes.values() {
-                    for member in class.members_by_side.values() {
+                    for member in class.all_members() {
                         worklist.push(member.callable.clone());
                     }
                 }
@@ -272,7 +272,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
     let mut callable_sources = BTreeMap::new();
     for source in inputs {
         for class in source.surface.classes.values() {
-            for member in class.members_by_side.values() {
+            for member in class.all_members() {
                 callable_sources.insert(member.callable.clone(), source.clone());
             }
         }
@@ -285,7 +285,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
                 .surface
                 .classes
                 .values()
-                .flat_map(|class| class.members_by_side.values())
+                .flat_map(|class| class.all_members())
                 .map(|member| member.params.len())
                 .sum::<usize>()
         })
@@ -441,7 +441,7 @@ fn apply_parameter_facts_to_summaries(
 ) {
     for summary in summaries.values_mut() {
         let Some(class) = classes.get(&summary.callable.owner) else { continue };
-        let Some(member) = class.members_by_side.get(&(summary.callable.selector.clone(), summary.callable.side)) else {
+        let Some(member) = class.member_by_id(&summary.callable) else {
             continue;
         };
         summary.params = member
@@ -466,7 +466,7 @@ pub(crate) fn complete_missing_summaries(
 ) {
     for source in inputs {
         for class in source.surface.classes.values() {
-            for member in class.members_by_side.values() {
+            for member in class.all_members() {
                 if summaries.contains_key(&member.callable) {
                     continue;
                 }

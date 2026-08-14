@@ -60,6 +60,13 @@ impl SemanticSnapshot {
         self.generation
     }
 
+    /// Resolves an editor URI to the published module identity without doing
+    /// filesystem work on the request path.
+    pub fn module_for_uri(&self, uri: &Url) -> Option<&ModuleId> {
+        let module = ModuleId::from_uri(uri);
+        self.files.get_key_value(&module).map(|(module, _)| module)
+    }
+
     /// Returns an immutable clone of one file's semantic snapshot.
     pub fn file_snapshot(&self, uri: &Url) -> Option<FileSemanticSnapshot> {
         let module = ModuleId::from_uri(uri);
@@ -130,9 +137,9 @@ impl SemanticSnapshot {
         self.classes.get(id).map(|c| (**c).clone())
     }
 
-    /// Returns one module-qualified member surface by canonical selector.
-    pub fn member_surface(&self, class: &ClassId, selector: &str) -> Option<MemberSurface> {
-        self.classes.get(class).and_then(|surface| surface.members.get(selector)).cloned()
+    /// Returns one member surface by its complete callable identity.
+    pub fn member_surface(&self, callable: &CallableId) -> Option<MemberSurface> {
+        self.classes.get(&callable.owner).and_then(|surface| surface.member_by_id(callable)).cloned()
     }
 
     /// Resolves one receiver-qualified member, including inherited members.
@@ -163,10 +170,10 @@ impl SemanticSnapshot {
                 break;
             }
             let Some(surface) = self.classes.get(&id) else { break };
-            for ((selector, member_side), member) in &surface.members_by_side {
-                if *member_side == side && seen.insert(selector.clone()) {
+            for member in surface.members_on(side) {
+                if seen.insert(member.callable.selector.clone()) {
                     members.push(CompletionMember {
-                        selector: selector.clone(),
+                        selector: member.callable.selector.clone(),
                         kind: member.kind,
                         owner: id.clone(),
                         visibility: member.visibility,
@@ -187,8 +194,8 @@ impl SemanticSnapshot {
     pub fn all_completion_members(&self) -> Vec<CompletionMember> {
         let mut members = BTreeMap::new();
         for (class_id, surface) in &self.classes {
-            for (selector, member) in &surface.members_by_side {
-                let selector = &selector.0;
+            for member in surface.all_members() {
+                let selector = &member.callable.selector;
                 members.entry(selector.clone()).or_insert_with(|| CompletionMember {
                     selector: selector.clone(),
                     kind: member.kind,
@@ -280,7 +287,7 @@ impl SemanticSnapshot {
             .surface
             .classes
             .values()
-            .flat_map(|class| class.members_by_side.values())
+            .flat_map(|class| class.all_members())
             .find(|member| member.source_range.contains(offset))
             .cloned()
     }
@@ -344,7 +351,7 @@ impl SemanticSnapshot {
                     .surface
                     .classes
                     .get(class)
-                    .and_then(|class| class.members_by_side.values().find(|member| member.source_range.contains(offset)))
+                    .and_then(|class| class.all_members().find(|member| member.source_range.contains(offset)))
                 {
                     for param in &member.params {
                         if let Some(value) = self.parameter_facts.get(&(member.callable.clone(), param.name.clone())) {
@@ -358,18 +365,14 @@ impl SemanticSnapshot {
             self.files
                 .get(&module)
                 .and_then(|file| file.source.surface.classes.get(class))
-                .and_then(|surface| surface.members_by_side.values().find(|member| member.source_range.contains(offset)))
+                .and_then(|surface| surface.all_members().find(|member| member.source_range.contains(offset)))
                 .map(|member| member.side)
         });
         let local_facts = self.files.get(&module).map(|file| &file.local_facts);
         let scopes = self.files.get(&module).map(|file| &file.source.scopes);
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
-        let member_surface = |id: &CallableId| {
-            classes
-                .get(&id.owner)
-                .and_then(|class| class.members_by_side.get(&(id.selector.clone(), id.side)).cloned())
-        };
+        let member_surface = |id: &CallableId| classes.get(&id.owner).and_then(|class| class.member_by_id(id).cloned());
         let contains_class = |class: &ClassId| resolver.contains_class(class);
         let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(&classes, child, ancestor);
         let context = AnalysisContext {

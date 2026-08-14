@@ -348,7 +348,7 @@ fn shallow_class_items(
             break;
         }
         if let Some(surface) = local_surface.classes.get(&crate::semantic::ClassId::new(module.clone(), class_name.clone())) {
-            for member in surface.members_by_side.values().filter(|member| member.side == side) {
+            for member in surface.members_on(side) {
                 items.push(semantic_to_completion_item(&CompletionMember {
                     selector: member.callable.selector.clone(),
                     kind: member.kind,

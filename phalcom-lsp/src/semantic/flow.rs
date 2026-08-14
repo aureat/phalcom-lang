@@ -257,14 +257,16 @@ fn analyze_surface_for_callable(
 
     for class in surface.classes.values() {
         if target_callable.is_none() {
-            for field in class.fields.values() {
-                if let Some(initializer) = field_initializer(source, field.ast) {
+            for name in class.fields.keys() {
+                for storage_side in [DispatchSide::Instance, DispatchSide::Class] {
+                    let Some(field) = class.field(name, storage_side) else { continue };
+                    let Some(initializer) = field_initializer(source, field.ast) else { continue };
                     let state = FlowState::default();
-                    let value = analyzer.value(initializer, &state, Some(&class.id), Some(field_side(field.is_class_side)));
+                    let value = analyzer.value(initializer, &state, Some(&class.id), Some(storage_side));
                     analyzer.field_facts.record_evidence(
                         class.id.clone(),
                         field.name.clone(),
-                        field_side(field.is_class_side),
+                        storage_side,
                         super::facts::FieldEvidenceKind::DeclarationInitializer,
                         initializer.range(),
                         value,
@@ -273,7 +275,7 @@ fn analyze_surface_for_callable(
             }
         }
 
-        for member in class.members_by_side.values() {
+        for member in class.all_members() {
             if target_callable.is_some_and(|target| target != &member.callable) {
                 continue;
             }
@@ -970,12 +972,13 @@ impl FlowAnalyzer<'_> {
             }
             Expr::Field { value: name, range, .. } => {
                 let Some(class) = current_class else { return };
-                let field_side = self
-                    .surface
-                    .classes
-                    .get(class)
-                    .and_then(|surface| surface.fields.get(name))
-                    .map(|field| field_side(field.is_class_side))
+                let field_side = side
+                    .filter(|field_side| self.surface.classes.get(class).is_some_and(|surface| surface.field(name, *field_side).is_some()))
+                    .or_else(|| {
+                        [DispatchSide::Instance, DispatchSide::Class]
+                            .into_iter()
+                            .find(|field_side| self.surface.classes.get(class).is_some_and(|surface| surface.field(name, *field_side).is_some()))
+                    })
                     .unwrap_or(DispatchSide::Instance);
                 let fact = InferredValue::flow(value.shape, *range);
                 let field = FieldId {
@@ -988,7 +991,7 @@ impl FlowAnalyzer<'_> {
                         self.surface
                             .classes
                             .get(class)
-                            .and_then(|surface| surface.members_by_side.get(&(callable.selector.clone(), callable.side)))
+                            .and_then(|surface| surface.member_by_id(callable))
                     })
                     .filter(|member| member.is_constructor)
                     .map_or(super::facts::FieldEvidenceKind::GeneralWrite, |_| {
@@ -1090,7 +1093,7 @@ impl FlowAnalyzer<'_> {
                                 .surface
                                 .classes
                                 .values()
-                                .flat_map(|class| class.members_by_side.values())
+                                .flat_map(|class| class.all_members())
                                 .filter(|member| member.callable.selector == selector);
                             if let Some(member) = candidates.next()
                                 && candidates.next().is_none()
@@ -1524,10 +1527,6 @@ fn labeled_block<'a>(args: &'a [PackItem], label: &str) -> Option<&'a BlockExpr>
         } if text == label => Some(block.as_ref()),
         _ => None,
     })
-}
-
-fn field_side(class_side: bool) -> DispatchSide {
-    if class_side { DispatchSide::Class } else { DispatchSide::Instance }
 }
 
 fn narrow_type_test_shape(

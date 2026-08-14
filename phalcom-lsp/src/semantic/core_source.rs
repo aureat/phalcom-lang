@@ -117,7 +117,6 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             id: class_id.clone(),
             superclass: native_class.superclass.map(|name| ClassId::new(module.clone(), name)),
             members: Default::default(),
-            members_by_side: Default::default(),
             fields: Default::default(),
             source_range: Default::default(),
             name_range: Default::default(),
@@ -132,7 +131,7 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             NativeDispatch::Instance => DispatchSide::Instance,
             NativeDispatch::Class => DispatchSide::Class,
         };
-        if class.members_by_side.contains_key(&(native.selector.to_string(), side)) {
+        if class.member(native.selector, side).is_some() {
             continue;
         }
         let callable = super::ids::CallableId {
@@ -162,8 +161,11 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
                 member_idx: usize::MAX,
             },
         };
-        class.members_by_side.insert((native.selector.to_string(), member.side), member.clone());
-        class.members.entry(native.selector.to_string()).or_insert(member);
+        let members = class.members.entry(native.selector.to_string()).or_default();
+        match member.side {
+            DispatchSide::Instance => members.instance = Some(member),
+            DispatchSide::Class => members.class = Some(member),
+        }
     }
     source
 }

@@ -659,7 +659,7 @@ impl Backend {
             let module = crate::semantic::ModuleId::new(uri.to_string());
             let surface = crate::semantic::build_module_surface(module, &source.program);
             for class in surface.classes.values() {
-                for member in class.members_by_side.values().filter(|member| member.callable.selector == selector) {
+                for member in class.all_members().filter(|member| member.callable.selector == selector) {
                     let kind = hover_member_kind(member);
                     if !infos
                         .iter()
@@ -748,7 +748,7 @@ impl Backend {
                 })
             }
             crate::semantic::SemanticTarget::Callable(callable) => {
-                let member = self.semantic.member_surface(&callable.owner, &callable.selector)?;
+                let member = self.semantic.member_surface(&callable)?;
                 let site = SelectorSite {
                     owner: member.callable.owner.clone(),
                     receiver: None,
@@ -766,15 +766,20 @@ impl Backend {
                     range: Some(span),
                 })
             }
-            crate::semantic::SemanticTarget::Field { owner, name } => {
-                let member = self.semantic.member_surface(&owner, &name)?;
+            crate::semantic::SemanticTarget::Field(field) => {
+                let callable = crate::semantic::CallableId {
+                    owner: field.owner.clone(),
+                    selector: field.name.clone(),
+                    side: field.side,
+                };
+                let member = self.semantic.member_surface(&callable)?;
                 let site = SelectorSite {
                     owner: member.callable.owner.clone(),
                     receiver: None,
                     kind: hover_member_kind(&member),
                 };
                 let phaldoc = self.member_phaldoc(&member);
-                let value = hover::render_selector_hover_with_value(&name, &[site], phaldoc.as_ref(), None)?;
+                let value = hover::render_selector_hover_with_value(&field.name, &[site], phaldoc.as_ref(), None)?;
                 Some(Hover {
                     contents: markdown_contents(value),
                     range: Some(span),
@@ -913,7 +918,7 @@ impl Backend {
                 for member in surface
                     .classes
                     .values()
-                    .flat_map(|class| class.members_by_side.values())
+                    .flat_map(|class| class.all_members())
                     .filter(|member| member.callable.selector == selector)
                 {
                     sites.push(SelectorSite {
@@ -1482,14 +1487,19 @@ impl LanguageServer for Backend {
                     }
                 }
                 SemanticTarget::Callable(callable_id) => {
-                    if let Some(member) = self.semantic.member_surface(&callable_id.owner, &callable_id.selector) {
+                    if let Some(member) = self.semantic.member_surface(callable_id) {
                         if let Some(loc) = self.member_definition_location(&member) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }
                     }
                 }
-                SemanticTarget::Field { owner, name } => {
-                    if let Some(member) = self.semantic.member_surface(owner, name) {
+                SemanticTarget::Field(field) => {
+                    let callable = crate::semantic::CallableId {
+                        owner: field.owner.clone(),
+                        selector: field.name.clone(),
+                        side: field.side,
+                    };
+                    if let Some(member) = self.semantic.member_surface(&callable) {
                         if let Some(loc) = self.member_definition_location(&member) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }

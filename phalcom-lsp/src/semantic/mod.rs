@@ -285,9 +285,9 @@ impl SemanticDb {
         self.snapshot().class_surface(id)
     }
 
-    /// Returns one module-qualified member surface by canonical selector.
-    pub fn member_surface(&self, class: &ClassId, selector: &str) -> Option<MemberSurface> {
-        self.snapshot().member_surface(class, selector)
+    /// Returns one member surface by its complete callable identity.
+    pub fn member_surface(&self, callable: &CallableId) -> Option<MemberSurface> {
+        self.snapshot().member_surface(callable)
     }
 
     /// Resolves one receiver-qualified member, including inherited members.
@@ -412,7 +412,7 @@ fn is_same_or_subclass(classes: &BTreeMap<ClassId, ClassSurface>, child: &ClassI
 
 fn return_for_callable(classes: &BTreeMap<ClassId, ClassSurface>, summaries: &BTreeMap<CallableId, CallableSummary>, id: &CallableId) -> Option<InferredValue> {
     let class = classes.get(&id.owner)?;
-    let member = class.members_by_side.get(&(id.selector.clone(), id.side));
+    let member = class.member(&id.selector, id.side);
     if id.side == DispatchSide::Class && (id.selector == "new()" || member.is_some_and(|member| member.is_constructor)) {
         return Some(InferredValue::flow(ValueShape::Instance(id.owner.clone()), Default::default()));
     }

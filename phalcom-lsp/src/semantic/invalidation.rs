@@ -54,19 +54,22 @@ fn declaration_fingerprint(surface: &super::surface::ModuleSurface) -> Vec<Strin
     let mut fingerprint = Vec::new();
     for (class_id, class) in &surface.classes {
         fingerprint.push(format!("class:{class_id:?}:{:?}", class.superclass));
-        for ((selector, side), member) in &class.members_by_side {
+        for member in class.all_members() {
             let params = member
                 .params
                 .iter()
                 .map(|param| format!("{}:{:?}", param.name, param.label))
                 .collect::<Vec<_>>();
             fingerprint.push(format!(
-                "member:{selector}:{side:?}:{:?}:{:?}:{:?}:{:?}:{params:?}",
-                member.kind, member.visibility, member.is_constructor, member.native_return
+                "member:{}:{:?}:{:?}:{:?}:{:?}:{:?}:{params:?}",
+                member.callable.selector, member.side, member.kind, member.visibility, member.is_constructor, member.native_return
             ));
         }
-        for (name, field) in &class.fields {
-            fingerprint.push(format!("field:{name}:{:?}:{:?}", field.kind, field.is_class_side));
+        for name in class.fields.keys() {
+            for side in [super::ids::DispatchSide::Instance, super::ids::DispatchSide::Class] {
+                let Some(field) = class.field(name, side) else { continue };
+                fingerprint.push(format!("field:{name}:{side:?}:{:?}:{:?}", field.kind, field.is_class_side));
+            }
         }
     }
     fingerprint.sort();
