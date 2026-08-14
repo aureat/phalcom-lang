@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use phalcom_ast::ast::{
     BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, Pattern, SetLiteralEntry, Statement,
-    TupleLiteralEntry,
+    TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
 
@@ -182,6 +182,8 @@ pub struct SolverContext<'ctx> {
     pub resolve_member: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
     /// Looks up member metadata by callable identity.
     pub member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
+    /// Tests trusted nominal type-test membership against the current class universe.
+    pub is_same_or_subclass: &'ctx dyn Fn(&ClassId, &ClassId) -> bool,
 }
 
 /// Runs one structured pass over a module and all source members.
@@ -232,6 +234,7 @@ fn analyze_surface_for_callable(
         resolve_member: context.resolve_member,
         callable_effects: context.callable_effects,
         member_surface: context.member_surface,
+        is_same_or_subclass: context.is_same_or_subclass,
         local_facts: LocalFacts::default(),
         field_facts: FieldFacts::default(),
         parameter_facts: ParameterFacts::default(),
@@ -355,6 +358,7 @@ struct FlowAnalyzer<'ctx> {
     resolve_member: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
     callable_effects: &'ctx dyn Fn(&CallableId) -> Option<super::callable::SummaryEffects>,
     member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
+    is_same_or_subclass: &'ctx dyn Fn(&ClassId, &ClassId) -> bool,
     local_facts: LocalFacts,
     field_facts: FieldFacts,
     parameter_facts: ParameterFacts,
@@ -409,6 +413,7 @@ impl FlowAnalyzer<'_> {
             resolver: &resolve_member,
             member_surface: self.member_surface,
             contains_class: &contains_class,
+            is_same_or_subclass: self.is_same_or_subclass,
         };
         analyze_expr(expr, &context)
     }
@@ -574,16 +579,43 @@ impl FlowAnalyzer<'_> {
                 match selector.as_str() {
                     "ifTrue(_)" => {
                         let block = positional_block(&call.args, 0)?;
-                        Some(self.analyze_if(state, Some(block), None, current_class, side, target))
+                        Some(self.analyze_if(
+                            state,
+                            Some(&call.object),
+                            receiver.known_boolean,
+                            Some(block),
+                            None,
+                            current_class,
+                            side,
+                            target,
+                        ))
                     }
                     "ifFalse(_)" => {
                         let block = positional_block(&call.args, 0)?;
-                        Some(self.analyze_if(state, None, Some(block), current_class, side, target))
+                        Some(self.analyze_if(
+                            state,
+                            Some(&call.object),
+                            receiver.known_boolean,
+                            None,
+                            Some(block),
+                            current_class,
+                            side,
+                            target,
+                        ))
                     }
                     "ifTrue(_:ifFalse:)" => {
                         let then_block = positional_block(&call.args, 0)?;
                         let else_block = labeled_block(&call.args, "ifFalse")?;
-                        Some(self.analyze_if(state, then_block.into(), Some(else_block), current_class, side, target))
+                        Some(self.analyze_if(
+                            state,
+                            Some(&call.object),
+                            receiver.known_boolean,
+                            Some(then_block),
+                            Some(else_block),
+                            current_class,
+                            side,
+                            target,
+                        ))
                     }
                     "whileTrue(_)" => {
                         let Expr::Block(condition) = &call.object else { return None };
@@ -607,7 +639,7 @@ impl FlowAnalyzer<'_> {
                 let selector = if matches!(binary.op, BinaryOp::And) { "and(_)" } else { "or(_)" };
                 self.emit_send(&binary.left, &left, selector, argument, false, binary.range, state, current_class, side);
                 self.collect_events(&binary.left, state, current_class, side);
-                Some(self.analyze_if(state, None, Some(block), current_class, side, target))
+                Some(self.analyze_if(state, None, None, None, Some(block), current_class, side, target))
             }
             _ => None,
         }
@@ -616,22 +648,60 @@ impl FlowAnalyzer<'_> {
     fn analyze_if(
         &mut self,
         state: &mut FlowState,
+        condition: Option<&Expr>,
+        condition_truth: Option<bool>,
         then_block: Option<&BlockExpr>,
         else_block: Option<&BlockExpr>,
         current_class: Option<&ClassId>,
         side: Option<DispatchSide>,
         target: Option<&CallableId>,
     ) -> StatementFlow {
-        let then_flow = then_block.map(|block| self.analyze_invoked_block(block, state, current_class, side, target));
-        let else_flow = else_block.map(|block| self.analyze_invoked_block(block, state, current_class, side, target));
-        let normal = match (
-            then_flow.as_ref().and_then(|flow| flow.normal.as_ref()),
-            else_flow.as_ref().and_then(|flow| flow.normal.as_ref()),
-        ) {
-            (Some(then_state), Some(else_state)) => Some(join_states(&project_outer_state(state, then_state), &project_outer_state(state, else_state))),
-            (Some(then_state), None) => Some(join_states(state, &project_outer_state(state, then_state))),
-            (None, Some(else_state)) => Some(join_states(&project_outer_state(state, else_state), state)),
-            (None, None) => Some(state.clone()),
+        let then_state = condition
+            .map(|condition| self.refine_condition_state(condition, state, true, current_class, side))
+            .unwrap_or_else(|| Some(state.clone()));
+        let else_state = condition
+            .map(|condition| self.refine_condition_state(condition, state, false, current_class, side))
+            .unwrap_or_else(|| Some(state.clone()));
+        let then_flow = if condition_truth != Some(false) {
+            then_state
+                .as_ref()
+                .and_then(|state| then_block.map(|block| self.analyze_invoked_block(block, state, current_class, side, target)))
+        } else {
+            None
+        };
+        let else_flow = if condition_truth != Some(true) {
+            else_state
+                .as_ref()
+                .and_then(|state| else_block.map(|block| self.analyze_invoked_block(block, state, current_class, side, target)))
+        } else {
+            None
+        };
+        let normal = match condition_truth {
+            Some(true) => match then_block {
+                Some(_) => then_flow.as_ref().and_then(|flow| {
+                    then_state
+                        .as_ref()
+                        .and_then(|entry| flow.normal.as_ref().map(|state| project_outer_state(entry, state)))
+                }),
+                None => Some(state.clone()),
+            },
+            Some(false) => match else_block {
+                Some(_) => else_flow.as_ref().and_then(|flow| {
+                    else_state
+                        .as_ref()
+                        .and_then(|entry| flow.normal.as_ref().map(|state| project_outer_state(entry, state)))
+                }),
+                None => Some(state.clone()),
+            },
+            None => match (
+                then_flow.as_ref().and_then(|flow| flow.normal.as_ref()),
+                else_flow.as_ref().and_then(|flow| flow.normal.as_ref()),
+            ) {
+                (Some(then_state), Some(else_state)) => Some(join_states(&project_outer_state(state, then_state), &project_outer_state(state, else_state))),
+                (Some(then_state), None) => Some(join_states(state, &project_outer_state(state, then_state))),
+                (None, Some(else_state)) => Some(join_states(&project_outer_state(state, else_state), state)),
+                (None, None) => Some(state.clone()),
+            },
         };
         let mut returns = Vec::new();
         let mut breaks = Vec::new();
@@ -647,7 +717,7 @@ impl FlowAnalyzer<'_> {
                 tails.push(tail);
             }
         }
-        if else_block.is_none() {
+        if condition_truth.is_none() && else_block.is_none() {
             tails.push(InferredValue::flow(ValueShape::Unknown, Default::default()));
         }
         StatementFlow {
@@ -658,6 +728,54 @@ impl FlowAnalyzer<'_> {
             throws,
             tail_value: (!tails.is_empty()).then(|| join_values(tails)),
         }
+    }
+
+    fn refine_condition_state(
+        &self,
+        condition: &Expr,
+        state: &FlowState,
+        truth: bool,
+        current_class: Option<&ClassId>,
+        side: Option<DispatchSide>,
+    ) -> Option<FlowState> {
+        if let Expr::Unary(unary) = condition
+            && matches!(unary.op, UnaryOp::Not)
+        {
+            return self.refine_condition_state(&unary.expr, state, !truth, current_class, side);
+        }
+
+        let Expr::MethodCall(call) = condition else { return Some(state.clone()) };
+        let is_exact = match call.method.as_str() {
+            "is" => false,
+            "isExactly" => true,
+            _ => return Some(state.clone()),
+        };
+        if call.args.len() != 1 {
+            return Some(state.clone());
+        }
+        let Expr::Var {
+            value: name,
+            range: name_range,
+        } = &call.object
+        else {
+            return Some(state.clone());
+        };
+        let Some(binding) = self.binding_for_name(name, *name_range, state) else {
+            return Some(state.clone());
+        };
+        let Some(PackItem::Positional { expr: rhs, .. }) = call.args.first() else {
+            return Some(state.clone());
+        };
+        let ValueShape::ClassObject(target) = self.value(rhs, state, current_class, side).shape else {
+            return Some(state.clone());
+        };
+        let Some(current) = state.bindings.get(&binding) else {
+            return Some(state.clone());
+        };
+        let shape = narrow_type_test_shape(&current.shape, &target, is_exact, truth, self.is_same_or_subclass)?;
+        let mut refined = state.clone();
+        refined.bindings.insert(binding, InferredValue::flow(shape, condition.range()));
+        Some(refined)
     }
 
     fn analyze_while(
@@ -1410,6 +1528,37 @@ fn labeled_block<'a>(args: &'a [PackItem], label: &str) -> Option<&'a BlockExpr>
 
 fn field_side(class_side: bool) -> DispatchSide {
     if class_side { DispatchSide::Class } else { DispatchSide::Instance }
+}
+
+fn narrow_type_test_shape(
+    shape: &ValueShape,
+    target: &ClassId,
+    is_exact: bool,
+    truth: bool,
+    is_same_or_subclass: &dyn Fn(&ClassId, &ClassId) -> bool,
+) -> Option<ValueShape> {
+    let matches = |class: &ClassId| {
+        if is_exact { class == target } else { is_same_or_subclass(class, target) }
+    };
+    match shape {
+        ValueShape::Unknown if truth => Some(ValueShape::Instance(target.clone())),
+        ValueShape::Unknown => Some(ValueShape::Unknown),
+        ValueShape::Instance(class) if matches(class) == truth => Some(shape.clone()),
+        ValueShape::Instance(_) => None,
+        ValueShape::Union(alternatives) => {
+            let retained = alternatives
+                .iter()
+                .filter(|alternative| match alternative {
+                    ValueShape::Instance(class) => matches(class) == truth,
+                    _ => true,
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            (!retained.is_empty()).then(|| ValueShape::bounded_union(retained))
+        }
+        _ if truth => None,
+        _ => Some(shape.clone()),
+    }
 }
 
 fn receiver_targets(expr: &Expr, shape: &ValueShape, current_class: Option<&ClassId>, side: Option<DispatchSide>) -> Vec<DispatchReceiver> {

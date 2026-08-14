@@ -81,6 +81,7 @@ pub(crate) fn analyze_source(
     let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
     let resolver = DispatchResolver::new(classes);
     let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+    let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(classes, child, ancestor);
     let member_surface = |id: &CallableId| {
         classes
             .get(&id.owner)
@@ -95,6 +96,7 @@ pub(crate) fn analyze_source(
         field_value: &field_value,
         resolve_member: &resolve_member,
         member_surface: &member_surface,
+        is_same_or_subclass: &is_same_or_subclass,
     };
     super::flow::analyze_surface(source, &context, generation, counters)
 }
@@ -119,6 +121,7 @@ pub(crate) fn analyze_callable_source(
     let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
     let resolver = DispatchResolver::new(classes);
     let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+    let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(classes, child, ancestor);
     let member_surface = |id: &CallableId| {
         classes
             .get(&id.owner)
@@ -133,6 +136,7 @@ pub(crate) fn analyze_callable_source(
         field_value: &field_value,
         resolve_member: &resolve_member,
         member_surface: &member_surface,
+        is_same_or_subclass: &is_same_or_subclass,
     };
     super::flow::analyze_callable(source, &context, generation, callable, include_top_level, counters)
 }
@@ -400,13 +404,32 @@ pub(crate) fn solve_affected_callables_with_cancel(
     if cancelled() {
         return None;
     }
+    // The first coherent source pass can refine callable summaries that were
+    // seeded by the worklist. Re-run once with those summaries so top-level
+    // binding facts and callable facts share the same final dispatch view.
+    let mut final_summaries = summaries;
     let mut source_analyses = BTreeMap::new();
-    for source in inputs {
-        if cancelled() {
-            return None;
+    for _ in 0..2 {
+        source_analyses.clear();
+        for source in inputs {
+            if cancelled() {
+                return None;
+            }
+            let analysis = analyze_source(source, classes, graph, &final_summaries, &parameter_facts, generation, counters);
+            source_analyses.insert(source.module.clone(), analysis);
         }
-        let analysis = analyze_source(source, classes, graph, &summaries, &parameter_facts, generation, counters);
-        source_analyses.insert(source.module.clone(), analysis);
+        let mut next_summaries = final_summaries.clone();
+        for analysis in source_analyses.values() {
+            for (summary, evidence) in &analysis.summaries {
+                if *evidence {
+                    next_summaries.insert(summary.callable.clone(), summary.clone());
+                }
+            }
+        }
+        if next_summaries == final_summaries {
+            break;
+        }
+        final_summaries = next_summaries;
     }
     Some(FlowSolveResult { source_analyses })
 }

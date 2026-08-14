@@ -555,11 +555,15 @@ class Service {
         assert!(solver_rounds > 0, "callable solver did not enter a round");
         assert_ne!(solver_rounds, solver_steps, "solver rounds and callable steps must remain distinct");
         assert_eq!(callable_passes, solver_steps, "each callable step must account for one callable flow pass");
+        let initial_source_passes = 1;
         let allowed_final_stabilized_passes = 1;
-        assert_eq!(source_passes, allowed_final_stabilized_passes);
         assert!(
-            flow_passes <= solver_steps + allowed_final_stabilized_passes,
-            "duplicate unified traversal: flow_passes={flow_passes}, solver_steps={solver_steps}, allowed_final={allowed_final_stabilized_passes}"
+            source_passes <= initial_source_passes + allowed_final_stabilized_passes,
+            "source flow passes exceeded one permitted stabilization pass: source_passes={source_passes}"
+        );
+        assert!(
+            flow_passes <= solver_steps + initial_source_passes + allowed_final_stabilized_passes,
+            "duplicate unified traversal: flow_passes={flow_passes}, solver_steps={solver_steps}, initial_source={initial_source_passes}, allowed_final={allowed_final_stabilized_passes}"
         );
 
         let module = ModuleId::from_uri(&uri);

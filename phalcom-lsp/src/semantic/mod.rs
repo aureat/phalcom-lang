@@ -18,9 +18,7 @@ pub(crate) mod snapshot;
 pub(crate) mod source;
 mod surface;
 
-use std::collections::BTreeMap;
-#[cfg(test)]
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, RwLock};
 
 pub use engine::SemanticEngine;
@@ -393,6 +391,25 @@ fn resolve_named_class(classes: &BTreeMap<ClassId, ClassSurface>, graph: &Module
     classes.contains_key(&core).then_some(core)
 }
 
+fn is_same_or_subclass(classes: &BTreeMap<ClassId, ClassSurface>, child: &ClassId, ancestor: &ClassId) -> bool {
+    let mut current = Some(child.clone());
+    let mut visited = BTreeSet::new();
+    while let Some(id) = current.take() {
+        if !visited.insert(id.clone()) {
+            return false;
+        }
+        if &id == ancestor {
+            return true;
+        }
+        let Some(surface) = classes.get(&id) else { return false };
+        current = surface
+            .superclass
+            .clone()
+            .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
+    }
+    false
+}
+
 fn return_for_callable(classes: &BTreeMap<ClassId, ClassSurface>, summaries: &BTreeMap<CallableId, CallableSummary>, id: &CallableId) -> Option<InferredValue> {
     let class = classes.get(&id.owner)?;
     let member = class.members_by_side.get(&(id.selector.clone(), id.side));
@@ -723,6 +740,37 @@ class Child is Base { run() { _client } }
             side: DispatchSide::Instance,
         };
         assert!(matches!(db.return_for_callable(&callable).unwrap().shape, ValueShape::Union(_)));
+    }
+
+    #[test]
+    fn trusted_is_guards_narrow_sheetcalc_cell_value_returns() {
+        let db = SemanticDb::new();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
+        let uri = uri("file:///cell_value.ph");
+        let source = format!(
+            "{}\nlet x = CellNum.of(10)\nlet y = CellNum.of(5)\nlet z = CellEmpty.new()\nlet result1 = x.minus(y)\nlet result2 = z.minus(x)\n",
+            include_str!("../../../examples/sheetcalc/src/value/cell_value.ph")
+        );
+        let parsed = parse(&source, 0);
+        assert!(parsed.errors.is_empty(), "CellValue fixture parse errors: {:?}", parsed.errors);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+
+        let result1 = db
+            .binding_at(&uri, "result1", source.find("let result2").expect("result2 declaration"))
+            .expect("result1 binding fact");
+        let result2 = db.binding_at(&uri, "result2", source.len()).expect("result2 binding fact");
+
+        assert!(
+            matches!(result1.shape, ValueShape::Instance(ClassId { ref name, .. }) if name == "CellNum"),
+            "result1: {:?}",
+            result1.shape
+        );
+        assert!(
+            matches!(result2.shape, ValueShape::Instance(ClassId { ref name, .. }) if name == "ErrorVal"),
+            "result2: {:?}",
+            result2.shape
+        );
     }
 
     #[test]

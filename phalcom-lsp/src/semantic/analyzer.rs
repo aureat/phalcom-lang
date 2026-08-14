@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use phalcom_ast::ast::{
     BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralEntry, SetLiteralEntry,
-    SymbolLiteralKind, TupleLiteralEntry,
+    SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 
 use super::NativeReturnShape;
@@ -32,6 +32,7 @@ pub(crate) struct AnalysisContext<'ctx> {
     pub resolver: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
     pub member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
     pub contains_class: &'ctx dyn Fn(&ClassId) -> bool,
+    pub is_same_or_subclass: &'ctx dyn Fn(&ClassId, &ClassId) -> bool,
 }
 
 /// Recursively analyzes every current AST expression variant.
@@ -41,7 +42,7 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
         Expr::Int { .. } => exact(ValueShape::Instance(core_class("Int")), range),
         Expr::Float { .. } => exact(ValueShape::Instance(core_class("Float")), range),
         Expr::String { .. } => exact(ValueShape::Instance(core_class("String")), range),
-        Expr::Boolean { .. } => exact(ValueShape::Instance(core_class("Bool")), range),
+        Expr::Boolean { value, .. } => InferredValue::exact_boolean(*value, range),
         Expr::Symbol { .. } => exact(ValueShape::Instance(core_class("Symbol")), range),
         Expr::Var { value, .. } => analyze_var(value, range, context),
         Expr::Field { value, .. } => context
@@ -68,6 +69,11 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
         }
         Expr::Unary(unary) => {
             let operand = analyze_expr(&unary.expr, context);
+            if matches!(unary.op, UnaryOp::Not) {
+                if let Some(value) = operand.known_boolean {
+                    return InferredValue::exact_boolean(!value, range);
+                }
+            }
             let selector = unary_selector_name(&unary.op).to_string() + "()";
             analyze_send(&unary.expr, &operand, &selector, false, range, context)
         }
@@ -88,6 +94,9 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             let receiver = analyze_expr(&call.object, context);
             for argument in &call.args {
                 analyze_pack(argument, context);
+            }
+            if let Some(value) = analyze_trusted_type_test(call, &receiver, range, context) {
+                return value;
             }
             let selector = call_selector(&call.method, &call.args);
             analyze_send(&call.object, &receiver, &selector, has_dynamic_pack(&call.args), range, context)
@@ -311,42 +320,49 @@ fn analyze_resolved_targets(
     if dynamic {
         return flow(ValueShape::Unknown, range);
     }
-    let shapes = targets.iter().map(|target| {
+    let values = targets.iter().map(|target| {
         let resolved = (context.resolver)(target, selector);
         match target {
-            DispatchReceiver::ClassObject(class) if selector == "new()" && (context.contains_class)(class) => ValueShape::Instance(class.clone()),
+            DispatchReceiver::ClassObject(class) if selector == "new()" && (context.contains_class)(class) => {
+                InferredValue::flow(ValueShape::Instance(class.clone()), range)
+            }
             DispatchReceiver::ClassObject(class) => {
                 let is_constructor = resolved
                     .as_ref()
                     .and_then(|r| (context.member_surface)(&r.callable))
                     .is_some_and(|m| m.is_constructor);
                 if is_constructor {
-                    ValueShape::Instance(class.clone())
+                    InferredValue::flow(ValueShape::Instance(class.clone()), range)
                 } else {
                     resolved
-                        .map(|member| resolved_return_shape(target, &member, context))
-                        .unwrap_or(ValueShape::Unknown)
+                        .map(|member| resolved_return_value(target, &member, range, context))
+                        .unwrap_or_else(|| flow(ValueShape::Unknown, range))
                 }
             }
             _ => resolved
-                .map(|member| resolved_return_shape(target, &member, context))
-                .unwrap_or(ValueShape::Unknown),
+                .map(|member| resolved_return_value(target, &member, range, context))
+                .unwrap_or_else(|| flow(ValueShape::Unknown, range)),
         }
     });
-    flow(ValueShape::bounded_union(shapes), range)
+    super::flow::join_values(values)
 }
 
-fn resolved_return_shape(target: &DispatchReceiver, resolved: &ResolvedDispatch, context: &AnalysisContext<'_>) -> ValueShape {
+fn resolved_return_value(
+    target: &DispatchReceiver,
+    resolved: &ResolvedDispatch,
+    range: phalcom_common::range::SourceRange,
+    context: &AnalysisContext<'_>,
+) -> InferredValue {
     if let Some(value) = (context.callable_return)(&resolved.callable) {
-        return value.shape;
+        return value;
     }
     let Some(member) = (context.member_surface)(&resolved.callable) else {
-        return ValueShape::Unknown;
+        return flow(ValueShape::Unknown, range);
     };
     let Some(native) = member.native_return else {
-        return ValueShape::Unknown;
+        return flow(ValueShape::Unknown, range);
     };
-    match native {
+    let shape = match native {
         NativeReturnShape::Unknown | NativeReturnShape::Argument(_) => ValueShape::Unknown,
         NativeReturnShape::Instance(name) => ValueShape::Instance(core_class(name)),
         NativeReturnShape::ClassObject(name) => ValueShape::ClassObject(core_class(name)),
@@ -356,7 +372,47 @@ fn resolved_return_shape(target: &DispatchReceiver, resolved: &ResolvedDispatch,
             DispatchReceiver::Super { side, .. } if *side == DispatchSide::Class => ValueShape::ClassObject(resolved.receiver_class.clone()),
             DispatchReceiver::Super { .. } => ValueShape::Instance(resolved.receiver_class.clone()),
         },
+    };
+    flow(shape, range)
+}
+
+fn analyze_trusted_type_test(
+    call: &phalcom_ast::ast::MethodCallExpr,
+    receiver: &InferredValue,
+    range: phalcom_common::range::SourceRange,
+    context: &AnalysisContext<'_>,
+) -> Option<InferredValue> {
+    // `is` and `isExactly` are sealed core predicates: source syntax may
+    // desugar to sends, but user classes cannot replace their semantics.
+    if !matches!(call.method.as_str(), "is" | "isExactly") || call.args.len() != 1 {
+        return None;
     }
+    let PackItem::Positional { expr, .. } = &call.args[0] else { return None };
+    let ValueShape::ClassObject(target) = analyze_expr(expr, context).shape else {
+        return None;
+    };
+    let is_exact = call.method == "isExactly";
+    let result = match &receiver.shape {
+        ValueShape::Instance(actual) => Some(if is_exact {
+            actual == &target
+        } else {
+            (context.is_same_or_subclass)(actual, &target)
+        }),
+        ValueShape::Union(shapes) => {
+            let results = shapes.iter().filter_map(|shape| match shape {
+                ValueShape::Instance(actual) => Some(if is_exact {
+                    actual == &target
+                } else {
+                    (context.is_same_or_subclass)(actual, &target)
+                }),
+                _ => None,
+            });
+            let results = results.collect::<Vec<_>>();
+            (!results.is_empty() && results.iter().all(|result| *result == results[0])).then_some(results[0])
+        }
+        _ => None,
+    }?;
+    Some(InferredValue::exact_boolean(result, range))
 }
 
 fn receiver_targets(expr: &Expr, shape: &ValueShape, context: &AnalysisContext<'_>) -> Vec<DispatchReceiver> {
@@ -531,6 +587,7 @@ mod tests {
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
+        let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let expression_parse = parse("child.value()", 0);
         let phalcom_ast::ast::Statement::Expr {
             expr: Expr::MethodCall(call), ..
@@ -552,6 +609,7 @@ mod tests {
             resolver: &resolve_member,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
+            is_same_or_subclass: &is_same_or_subclass,
         };
 
         assert_eq!(
@@ -588,6 +646,7 @@ mod tests {
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
+        let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let expression_parse = parse("left + \"!\"", 0);
         let phalcom_ast::ast::Statement::Expr { expr, .. } = &expression_parse.program.statements[0] else {
             panic!("expected expression")
@@ -606,6 +665,7 @@ mod tests {
             resolver: &resolve_member,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
+            is_same_or_subclass: &is_same_or_subclass,
         };
 
         assert_eq!(analyze_expr(expr, &context).shape, ValueShape::Instance(core_class("String")));
@@ -624,6 +684,7 @@ mod tests {
         let resolver = DispatchResolver::new(&surface.classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
+        let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let expression_parse = parse("left + \"!\"", 0);
         let phalcom_ast::ast::Statement::Expr { expr, .. } = &expression_parse.program.statements[0] else {
             panic!("expected expression")
@@ -642,6 +703,7 @@ mod tests {
             resolver: &resolve_member,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
+            is_same_or_subclass: &is_same_or_subclass,
         };
 
         assert_eq!(analyze_expr(expr, &context).shape, ValueShape::Instance(core_class("String")));
@@ -681,6 +743,7 @@ mod tests {
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
+        let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let context = AnalysisContext {
             current_class: current_id.as_ref(),
             dispatch_side,
@@ -695,6 +758,7 @@ mod tests {
             resolver: &resolve_member,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
+            is_same_or_subclass: &is_same_or_subclass,
         };
         analyze_expr(&expression, &context)
     }
@@ -782,6 +846,7 @@ mod tests {
             let resolver = DispatchResolver::new(&surface.classes);
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
             let contains_class = |class: &ClassId| resolver.contains_class(class);
+            let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
             let context = AnalysisContext {
                 current_class: None,
                 dispatch_side: None,
@@ -796,6 +861,7 @@ mod tests {
                 resolver: &resolve_member,
                 member_surface: &|id: &CallableId| resolver.member(id).cloned(),
                 contains_class: &contains_class,
+                is_same_or_subclass: &is_same_or_subclass,
             };
             analyze_expr(&expression, &context).shape
         };

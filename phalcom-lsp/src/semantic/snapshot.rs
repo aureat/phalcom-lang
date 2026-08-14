@@ -371,6 +371,7 @@ impl SemanticSnapshot {
                 .and_then(|class| class.members_by_side.get(&(id.selector.clone(), id.side)).cloned())
         };
         let contains_class = |class: &ClassId| resolver.contains_class(class);
+        let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(&classes, child, ancestor);
         let context = AnalysisContext {
             current_class: current_class.as_ref(),
             dispatch_side,
@@ -385,6 +386,7 @@ impl SemanticSnapshot {
             resolver: &resolve_member,
             member_surface: &member_surface,
             contains_class: &contains_class,
+            is_same_or_subclass: &is_same_or_subclass,
         };
         analyze_expr(expr, &context)
     }

@@ -172,6 +172,8 @@ pub enum FactOrigin {
 pub struct InferredValue {
     /// Inferred runtime shape.
     pub shape: ValueShape,
+    /// Known boolean value when flow analysis can prove it.
+    pub(crate) known_boolean: Option<bool>,
     /// Strength of the evidence.
     pub confidence: Confidence,
     /// Source or callable origins, capped to keep facts small.
@@ -183,6 +185,17 @@ impl InferredValue {
     pub fn exact(shape: ValueShape, range: SourceRange) -> Self {
         Self {
             shape,
+            known_boolean: None,
+            confidence: Confidence::Exact,
+            provenance: vec![FactOrigin::Syntax(range)],
+        }
+    }
+
+    /// Creates an exact boolean syntax fact while retaining its literal value.
+    pub fn exact_boolean(value: bool, range: SourceRange) -> Self {
+        Self {
+            shape: ValueShape::Instance(ClassId::new(super::ids::ModuleId::new(super::ids::CORE_MODULE_URI), "Bool")),
+            known_boolean: Some(value),
             confidence: Confidence::Exact,
             provenance: vec![FactOrigin::Syntax(range)],
         }
@@ -192,6 +205,7 @@ impl InferredValue {
     pub fn flow(shape: ValueShape, range: SourceRange) -> Self {
         Self {
             shape,
+            known_boolean: None,
             confidence: Confidence::Flow,
             provenance: vec![FactOrigin::Binding(range)],
         }
@@ -201,6 +215,7 @@ impl InferredValue {
     pub fn interprocedural(shape: ValueShape, range: SourceRange) -> Self {
         Self {
             shape,
+            known_boolean: None,
             confidence: Confidence::Interprocedural,
             provenance: vec![FactOrigin::CallSite(range)],
         }
@@ -214,8 +229,13 @@ impl InferredValue {
                 provenance.push(origin.clone());
             }
         }
+        let known_boolean = match (self.known_boolean, other.known_boolean) {
+            (Some(left), Some(right)) if left == right => Some(left),
+            _ => None,
+        };
         Self {
             shape: self.shape.join(&other.shape),
+            known_boolean,
             confidence: self.confidence.join(other.confidence),
             provenance,
         }
