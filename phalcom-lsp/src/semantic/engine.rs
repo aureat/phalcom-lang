@@ -16,16 +16,18 @@ use super::facts::{FieldEvidenceKind, ValueShape};
 #[cfg(test)]
 use super::ids::DispatchSide;
 use super::ids::{CORE_MODULE_URI, CallableId, ClassId, FieldId, ModuleId};
+use super::invalidation::{SourceChangeKind, classify_source_delta};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
 use super::snapshot::{FileSourceSnapshot, SemanticSnapshot};
 use super::surface::{ClassSurface, build_module_surface};
-use super::{DependencySet, FileSemanticSnapshot, SourceChangeKind, classify_source_change, infer};
+use super::{DependencySet, FileSemanticSnapshot, infer};
 use crate::perf::{PerfCounters, PerfCountersHandle};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RebuildTraceData {
     pub modules_recomputed: BTreeSet<ModuleId>,
+    pub callables_changed: BTreeSet<CallableId>,
     pub callables_recomputed: BTreeSet<CallableId>,
 }
 
@@ -54,9 +56,7 @@ pub struct SemanticEngine {
 
 impl Clone for SemanticEngine {
     fn clone(&self) -> Self {
-        self.counters
-            .semantic_candidate_state_clones
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.counters.semantic_candidate_state_clones.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             state: self.state.clone(),
             counters: self.counters.clone(),
@@ -123,15 +123,31 @@ impl SemanticEngine {
         self.update_files_batch(vec![(uri.clone(), revision, program.clone())])
     }
 
-    /// Updates several file contributions in a single semantic batch transaction.
-    pub fn update_files_batch(&mut self, files: Vec<(Url, FileRevision, Program)>) -> SemanticGeneration {
-        self.update_files_batch_with_cancel(files, &|| false).expect("uncancelled update must complete")
+    /// Updates one file while retaining its already-ingested source text for
+    /// exact callable body comparison.
+    pub fn update_file_with_source(&mut self, uri: &Url, revision: FileRevision, text: Arc<str>, program: &Program) -> SemanticGeneration {
+        self.update_files_batch_with_source(vec![(uri.clone(), revision, text, program.clone())])
     }
 
-    fn update_files_batch_inner(&mut self, files: Vec<(Url, FileRevision, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+    /// Updates several file contributions in a single semantic batch transaction.
+    pub fn update_files_batch(&mut self, files: Vec<(Url, FileRevision, Program)>) -> SemanticGeneration {
         let files = files
             .into_iter()
-            .filter(|(uri, revision, _)| {
+            .map(|(uri, revision, program)| (uri, revision, Arc::from(""), program))
+            .collect();
+        self.update_files_batch_with_source(files)
+    }
+
+    /// Updates several files with source text retained by source ingestion.
+    pub fn update_files_batch_with_source(&mut self, files: Vec<(Url, FileRevision, Arc<str>, Program)>) -> SemanticGeneration {
+        self.update_files_batch_with_source_cancel(files, &|| false)
+            .expect("uncancelled update must complete")
+    }
+
+    fn update_files_batch_inner(&mut self, files: Vec<(Url, FileRevision, Arc<str>, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+        let files = files
+            .into_iter()
+            .filter(|(uri, revision, _, _)| {
                 let module = ModuleId::from_uri(uri);
                 self.state.files.get(&module).map_or(true, |file| *revision > file.revision)
             })
@@ -142,21 +158,11 @@ impl SemanticEngine {
         let next_generation = SemanticGeneration(self.state.generation.0 + 1);
 
         let mut affected = BTreeSet::new();
-        for (uri, _, _) in &files {
-            let module = ModuleId::from_uri(uri);
-            affected.insert(module.clone());
-            affected.extend(self.state.graph.dependent_closure(&module));
-            let old_callables = self.state.summaries.keys().filter(|id| id.owner.module == module).cloned().collect::<Vec<_>>();
-            for callable in old_callables {
-                if let Some(dependents) = self.state.callable_dependents.get(&callable) {
-                    affected.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
-                }
-            }
-        }
+        let mut dirty_callables = BTreeSet::new();
+        let mut precise_body_frontier = true;
 
-        let updated_modules = files.iter().map(|(uri, _, _)| ModuleId::from_uri(uri)).collect::<Vec<_>>();
         let mut change_kinds = Vec::new();
-        for (uri, revision, program) in files {
+        for (uri, revision, text, program) in files {
             if cancelled() {
                 return None;
             }
@@ -171,19 +177,28 @@ impl SemanticEngine {
             let scopes = super::scope::build_scope_graph(module.clone(), &program);
             let occurrences = super::occurrence::build_occurrence_index(module.clone(), &program, &surface, &scopes);
 
+            let callables = surface.callable_index();
             let source = Arc::new(FileSourceSnapshot {
                 module: module.clone(),
+                text,
                 program: program.clone(),
                 surface,
                 scopes,
+                callables,
             });
-            let change_kind = classify_source_change(&module, old_source.as_deref(), Some(&source));
-            change_kinds.push((module.clone(), change_kind));
-            if change_kind != SourceChangeKind::BodyOnly {
+            let delta = classify_source_delta(&module, old_source.as_deref(), Some(&source));
+            if delta.kind != SourceChangeKind::BodyOnly {
+                precise_body_frontier = false;
                 Arc::make_mut(&mut self.state.classes).retain(|id, _| id.module != module);
-                Arc::make_mut(&mut self.state.classes)
-                    .extend(source.surface.classes.iter().map(|(id, class)| (id.clone(), Arc::new(class.clone()))));
+                Arc::make_mut(&mut self.state.classes).extend(source.surface.classes.iter().map(|(id, class)| (id.clone(), Arc::new(class.clone()))));
             }
+            affected.insert(module.clone());
+            if delta.kind == SourceChangeKind::BodyOnly {
+                dirty_callables.extend(delta.changed_callables.iter().cloned());
+            } else {
+                affected.extend(self.state.graph.dependent_closure(&module));
+            }
+            change_kinds.push((module.clone(), delta));
             let snapshot = FileSemanticSnapshot {
                 revision,
                 module: module.clone(),
@@ -198,26 +213,29 @@ impl SemanticEngine {
         }
 
         let available = self.state.files.keys().cloned().collect::<BTreeSet<_>>();
-        for (module, change_kind) in &change_kinds {
-            if *change_kind == SourceChangeKind::BodyOnly {
+        for (module, delta) in &change_kinds {
+            if delta.kind == SourceChangeKind::BodyOnly {
                 continue;
             }
             if let Some(file) = self.state.files.get(module) {
                 Arc::make_mut(&mut self.state.graph).update(file.module.clone(), &file.source.program, &available);
             }
         }
-        for (module, change_kind) in &change_kinds {
-            if *change_kind == SourceChangeKind::FileAddedRemoved {
+        for (module, delta) in &change_kinds {
+            if delta.kind == SourceChangeKind::FileAddedRemoved {
                 affected.extend(Arc::make_mut(&mut self.state.graph).repair_provider(module, &available));
             }
         }
 
-        for module in updated_modules {
-            affected.extend(self.state.graph.dependent_closure(&module));
-        }
-
         self.state.generation = next_generation;
-        let trace = rebuild_affected_state(&mut self.state, next_generation, affected, cancelled, &self.counters)?;
+        let trace = rebuild_affected_state(
+            &mut self.state,
+            next_generation,
+            affected,
+            if precise_body_frontier { Some(dirty_callables) } else { None },
+            cancelled,
+            &self.counters,
+        )?;
         #[cfg(test)]
         {
             self.state.last_trace = Some(trace.into());
@@ -232,6 +250,18 @@ impl SemanticEngine {
     /// caller's epoch becomes stale. This keeps publication atomic while the
     /// callable solver cooperatively stops between work items.
     pub fn update_files_batch_with_cancel(&mut self, files: Vec<(Url, FileRevision, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+        let files = files
+            .into_iter()
+            .map(|(uri, revision, program)| (uri, revision, Arc::from(""), program))
+            .collect();
+        self.update_files_batch_with_source_cancel(files, cancelled)
+    }
+
+    fn update_files_batch_with_source_cancel(
+        &mut self,
+        files: Vec<(Url, FileRevision, Arc<str>, Program)>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<SemanticGeneration> {
         if cancelled() {
             return None;
         }
@@ -266,11 +296,15 @@ impl SemanticEngine {
             candidate.remove_file_with_cancel(&uri, cancelled)?;
         }
         if !files.is_empty() {
+            let files = files
+                .into_iter()
+                .map(|(uri, revision, program)| (uri, revision, Arc::from(""), program))
+                .collect();
             candidate.update_files_batch_inner(files, cancelled)?;
         }
         if let Some((revision, program)) = core_update {
             let uri = Url::parse(CORE_MODULE_URI).expect("core module URI must parse");
-            candidate.update_files_batch_inner(vec![(uri, revision, program)], cancelled)?;
+            candidate.update_files_batch_inner(vec![(uri, revision, Arc::from(""), program)], cancelled)?;
         }
         let generation = candidate.state.generation;
         if cancelled() {
@@ -338,7 +372,7 @@ impl SemanticEngine {
         self.state.generation = next_generation;
 
         if !affected.is_empty() {
-            let trace = rebuild_affected_state(&mut self.state, next_generation, affected, cancelled, &self.counters)?;
+            let trace = rebuild_affected_state(&mut self.state, next_generation, affected, None, cancelled, &self.counters)?;
             #[cfg(test)]
             {
                 self.state.last_trace = Some(trace.into());
@@ -372,11 +406,13 @@ pub(crate) fn rebuild_affected_state(
     state: &mut SemanticState,
     generation: SemanticGeneration,
     mut affected: BTreeSet<ModuleId>,
+    mut dirty_callables: Option<BTreeSet<CallableId>>,
     cancelled: &dyn Fn() -> bool,
     counters: &PerfCounters,
 ) -> Option<RebuildTraceData> {
     let previous_summaries = state.summaries.clone();
     let previous_parameters = state.parameter_facts.clone();
+    let precise_frontier = dirty_callables.is_some();
     let mut trace = RebuildTraceData::default();
     let mut analysis_by_module = loop {
         if cancelled() {
@@ -415,8 +451,22 @@ pub(crate) fn rebuild_affected_state(
                 base_parameters.merge_from(contribution);
             }
         }
-        let solved = infer::solve_affected_callables_with_cancel(&inputs, &classes, graph.as_ref(), generation, seed_summaries, base_parameters, cancelled, counters)?;
+        let seeds = dirty_callables.as_ref();
+        let solved = infer::solve_affected_callables_with_cancel(
+            &inputs,
+            &classes,
+            graph.as_ref(),
+            generation,
+            seed_summaries,
+            base_parameters,
+            seeds,
+            cancelled,
+            counters,
+        )?;
         let solved_source_analyses = solved.source_analyses;
+        trace.callables_recomputed.extend(solved.callables_visited.iter().cloned());
+        trace.callables_changed.extend(solved.callables_changed.iter().cloned());
+        dirty_callables = precise_frontier.then(BTreeSet::new);
 
         // One unified source result owns local, field, parameter, and summary
         // products. Do not re-enter flow for individual fact families.
@@ -468,7 +518,7 @@ pub(crate) fn rebuild_affected_state(
                     let product = state
                         .summaries
                         .get(&id)
-                        .filter(|previous| previous.as_ref() == &summary)
+                        .filter(|previous| !infer::callable_summary_changed(Some(previous.as_ref()), Some(&summary)))
                         .cloned()
                         .unwrap_or_else(|| Arc::new(summary));
                     (id, product)
@@ -477,11 +527,15 @@ pub(crate) fn rebuild_affected_state(
         );
 
         let mut additions = BTreeSet::new();
-        for id in previous_summaries.keys().chain(state.summaries.keys()) {
-            if previous_summaries.get(id) != state.summaries.get(id) {
-                trace.callables_recomputed.insert(id.clone());
-                if let Some(dependents) = state.callable_dependents.get(id) {
-                    additions.extend(dependents.iter().map(|dependent| dependent.owner.module.clone()));
+        let mut propagated_callables = BTreeSet::new();
+        let summary_ids = previous_summaries.keys().chain(state.summaries.keys()).cloned().collect::<BTreeSet<_>>();
+        for id in summary_ids {
+            if infer::callable_summary_changed(previous_summaries.get(&id).map(Arc::as_ref), state.summaries.get(&id).map(Arc::as_ref)) {
+                if let Some(dependents) = state.callable_dependents.get(&id) {
+                    for dependent in dependents {
+                        additions.insert(dependent.owner.module.clone());
+                        propagated_callables.insert(dependent.clone());
+                    }
                 }
             }
         }
@@ -518,6 +572,12 @@ pub(crate) fn rebuild_affected_state(
             trace.modules_recomputed = affected.clone();
             break solved_source_analyses;
         }
+        if precise_frontier {
+            let dirty = dirty_callables.as_mut().expect("precise dirty callable frontier initialized");
+            dirty.extend(propagated_callables);
+        } else {
+            dirty_callables = None;
+        }
         affected.extend(additions);
     };
 
@@ -528,8 +588,7 @@ pub(crate) fn rebuild_affected_state(
         .collect::<BTreeSet<_>>();
     Arc::make_mut(&mut state.field_facts).retain(|field, _| !affected.contains(&field.owner.module));
     for analysis in analysis_by_module.values() {
-        Arc::make_mut(&mut state.field_facts)
-            .extend(analysis.field_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
+        Arc::make_mut(&mut state.field_facts).extend(analysis.field_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
     }
     for (module, analysis) in &analysis_by_module {
         Arc::make_mut(&mut state.parameter_contributions).insert(module.clone(), analysis.parameter_facts.clone());
@@ -548,7 +607,9 @@ pub(crate) fn rebuild_affected_state(
     }
     update_callable_edges(state);
     for module in existing_modules {
-        let Some(file) = Arc::make_mut(&mut state.files).get_mut(&module) else { continue };
+        let Some(file) = Arc::make_mut(&mut state.files).get_mut(&module) else {
+            continue;
+        };
         let file = Arc::make_mut(file);
         if let Some(analysis) = analysis_by_module.remove(&module) {
             file.local_facts = analysis.local_facts.clone();
@@ -682,12 +743,94 @@ class Service {
             selector: "value()".to_string(),
             side: super::super::ids::DispatchSide::Instance,
         };
-        assert!(Arc::ptr_eq(first.files.get(&right_module).expect("right file"), second.files.get(&right_module).expect("right file retained")));
-        assert!(Arc::ptr_eq(first.classes.get(&right_class).expect("right class"), second.classes.get(&right_class).expect("right class retained")));
+        assert!(Arc::ptr_eq(
+            first.files.get(&right_module).expect("right file"),
+            second.files.get(&right_module).expect("right file retained")
+        ));
+        assert!(Arc::ptr_eq(
+            first.classes.get(&right_class).expect("right class"),
+            second.classes.get(&right_class).expect("right class retained")
+        ));
         assert!(Arc::ptr_eq(
             first.summaries.get(&right_callable).expect("right summary"),
             second.summaries.get(&right_callable).expect("right summary retained"),
         ));
+    }
+
+    #[test]
+    fn exact_body_frontier_visits_only_changed_callable() {
+        let mut engine = SemanticEngine::empty();
+        let uri = Url::parse("file:///task17-frontier.ph").expect("fixture URI");
+        let old = "class A {\n  untouched() { 1 }\n  changed() { 2 }\n}\n";
+        let new = "class A {\n  // shifted\n  untouched() { 1 }\n  changed() { 3 }\n}\n";
+        engine.update_file_with_source(&uri, FileRevision(1), Arc::from(old), &phalcom_ast::parser::parse(old, 0).program);
+        engine.update_file_with_source(&uri, FileRevision(2), Arc::from(new), &phalcom_ast::parser::parse(new, 0).program);
+
+        let trace = engine.last_rebuild_trace().expect("rebuild trace");
+        assert!(trace.callables_recomputed.iter().any(|id| id.selector == "changed()"));
+        assert!(!trace.callables_recomputed.iter().any(|id| id.selector == "untouched()"));
+    }
+
+    fn task17_workspace() -> (Url, Url, &'static str, &'static str) {
+        let provider = Url::parse("file:///task17-provider.ph").expect("provider URI");
+        let consumer = Url::parse("file:///task17-consumer.ph").expect("consumer URI");
+        let provider_text = "class A {\n  @constructor new() { }\n  f() { 1 }\n  g() { 100 }\n}\n";
+        let consumer_text = "import \"./task17-provider\" as Provider\nclass B {\n  h() { Provider.A.new().f() }\n}\n";
+        (provider, consumer, provider_text, consumer_text)
+    }
+
+    #[test]
+    fn unchanged_summary_stops_callable_propagation() {
+        let mut engine = SemanticEngine::empty();
+        let (provider, consumer, provider_text, consumer_text) = task17_workspace();
+        engine.update_files_batch_with_source(vec![
+            (
+                provider.clone(),
+                FileRevision(1),
+                Arc::from(provider_text),
+                phalcom_ast::parser::parse(provider_text, 0).program,
+            ),
+            (
+                consumer.clone(),
+                FileRevision(1),
+                Arc::from(consumer_text),
+                phalcom_ast::parser::parse(consumer_text, 0).program,
+            ),
+        ]);
+        let changed = "class A {\n  @constructor new() { }\n  f() { 1  }\n  g() { 100 }\n}\n";
+        engine.update_file_with_source(&provider, FileRevision(2), Arc::from(changed), &phalcom_ast::parser::parse(changed, 0).program);
+        let trace = engine.last_rebuild_trace().expect("rebuild trace");
+        assert!(trace.callables_recomputed.iter().any(|id| id.selector == "f()"));
+        assert!(!trace.callables_recomputed.iter().any(|id| id.selector == "g()"));
+        assert!(!trace.callables_recomputed.iter().any(|id| id.selector == "h()"));
+        let _ = consumer;
+    }
+
+    #[test]
+    fn changed_summary_propagates_to_callable_dependent() {
+        let mut engine = SemanticEngine::empty();
+        let (provider, consumer, provider_text, consumer_text) = task17_workspace();
+        engine.update_files_batch_with_source(vec![
+            (
+                provider.clone(),
+                FileRevision(1),
+                Arc::from(provider_text),
+                phalcom_ast::parser::parse(provider_text, 0).program,
+            ),
+            (
+                consumer.clone(),
+                FileRevision(1),
+                Arc::from(consumer_text),
+                phalcom_ast::parser::parse(consumer_text, 0).program,
+            ),
+        ]);
+        let changed = "class A {\n  @constructor new() { }\n  f() { \"changed\" }\n  g() { 100 }\n}\n";
+        engine.update_file_with_source(&provider, FileRevision(2), Arc::from(changed), &phalcom_ast::parser::parse(changed, 0).program);
+        let trace = engine.last_rebuild_trace().expect("rebuild trace");
+        assert!(trace.callables_recomputed.iter().any(|id| id.selector == "f()"));
+        assert!(trace.callables_recomputed.iter().any(|id| id.selector == "h()"));
+        assert!(!trace.callables_recomputed.iter().any(|id| id.selector == "g()"));
+        let _ = consumer;
     }
 }
 
@@ -709,7 +852,10 @@ fn update_callable_edges(state: &mut SemanticState) {
             }
         }
         for dependency in new.difference(&old) {
-            Arc::make_mut(&mut state.callable_dependents).entry(dependency.clone()).or_default().insert(callable.clone());
+            Arc::make_mut(&mut state.callable_dependents)
+                .entry(dependency.clone())
+                .or_default()
+                .insert(callable.clone());
         }
         if new.is_empty() {
             Arc::make_mut(&mut state.callable_dependencies).remove(&callable);

@@ -184,6 +184,7 @@ fn import_candidate(module: &ModuleId, import: &str) -> Option<ModuleId> {
         candidate.set_extension("ph");
     }
     let normalized = normalize_path(candidate);
+    let normalized = normalized.canonicalize().unwrap_or(normalized);
     Url::from_file_path(normalized).ok().map(|uri| ModuleId::from_uri(&uri))
 }
 

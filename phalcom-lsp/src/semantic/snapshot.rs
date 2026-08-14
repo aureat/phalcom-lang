@@ -15,7 +15,7 @@ use super::module_graph::{ImportEdge, ModuleGraph};
 use super::occurrence::{OccurrenceRole, SemanticOccurrence, SemanticTarget};
 use super::query::{SemanticGeneration, SnapshotStamp};
 use super::scope::{BindingId, BindingInfo, NameResolution};
-use super::surface::{ClassSurface, MemberSurface};
+use super::surface::{ClassSurface, MemberAstRef, MemberSurface};
 use super::{CompletionMember, FileSemanticSnapshot, resolve_named_class, return_for_callable};
 
 /// Immutable source products shared by every semantic pass for one file.
@@ -27,12 +27,23 @@ use super::{CompletionMember, FileSemanticSnapshot, resolve_named_class, return_
 pub struct FileSourceSnapshot {
     /// Module identity.
     pub module: ModuleId,
+    /// Source text retained from ingestion for exact body-delta comparison.
+    pub text: Arc<str>,
     /// Parsed source retained for AST-backed member lookup.
     pub program: Arc<phalcom_ast::ast::Program>,
     /// Source-authored semantic surface.
     pub surface: super::surface::ModuleSurface,
     /// Lexical scope graph built for this parsed source.
     pub scopes: super::scope::ScopeGraph,
+    /// Direct callable identity to AST-member lookup.
+    pub callables: BTreeMap<CallableId, MemberAstRef>,
+}
+
+impl FileSourceSnapshot {
+    /// Returns one source member through the immutable callable index.
+    pub fn member_by_id(&self, callable: &CallableId) -> Option<&MemberSurface> {
+        self.surface.member_by_id(callable)
+    }
 }
 
 /// Immutable published generation of all workspace semantic facts.

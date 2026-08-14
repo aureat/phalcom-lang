@@ -61,6 +61,10 @@ fn solver_budget(callable_count: usize, slot_count: usize) -> usize {
 pub(crate) struct FlowSolveResult {
     /// One unified product per affected source module.
     pub source_analyses: BTreeMap<ModuleId, SurfaceFlowAnalysis>,
+    /// Callable bodies actually visited by the incremental worklist.
+    pub callables_visited: BTreeSet<CallableId>,
+    /// Visited callables whose semantic summary changed.
+    pub callables_changed: BTreeSet<CallableId>,
 }
 
 /// Builds the immutable solver context for one source-backed flow pass.
@@ -82,11 +86,7 @@ pub(crate) fn analyze_source(
     let resolver = DispatchResolver::new(classes);
     let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
     let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(classes, child, ancestor);
-    let member_surface = |id: &CallableId| {
-        classes
-            .get(&id.owner)
-            .and_then(|class| class.member_by_id(id).cloned())
-    };
+    let member_surface = |id: &CallableId| classes.get(&id.owner).and_then(|class| class.member_by_id(id).cloned());
     let context = SolverContext {
         known_class: &known_class,
         contains_class: &contains_class,
@@ -122,11 +122,7 @@ pub(crate) fn analyze_callable_source(
     let resolver = DispatchResolver::new(classes);
     let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
     let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(classes, child, ancestor);
-    let member_surface = |id: &CallableId| {
-        classes
-            .get(&id.owner)
-            .and_then(|class| class.member_by_id(id).cloned())
-    };
+    let member_surface = |id: &CallableId| classes.get(&id.owner).and_then(|class| class.member_by_id(id).cloned());
     let context = SolverContext {
         known_class: &known_class,
         contains_class: &contains_class,
@@ -247,7 +243,7 @@ pub(crate) fn solve_affected_callables(
     base_parameters: ParameterFacts,
 ) -> FlowSolveResult {
     let counters = PerfCounters::new();
-    solve_affected_callables_with_cancel(inputs, classes, graph, generation, seed_summaries, base_parameters, &|| false, &counters)
+    solve_affected_callables_with_cancel(inputs, classes, graph, generation, seed_summaries, base_parameters, None, &|| false, &counters)
         .expect("uncancelled callable solve must complete")
 }
 
@@ -260,12 +256,15 @@ pub(crate) fn solve_affected_callables_with_cancel(
     generation: SemanticGeneration,
     seed_summaries: BTreeMap<CallableId, CallableSummary>,
     base_parameters: ParameterFacts,
+    dirty_callables: Option<&BTreeSet<CallableId>>,
     cancelled: &dyn Fn() -> bool,
     counters: &PerfCounters,
 ) -> Option<FlowSolveResult> {
     if inputs.is_empty() {
         return Some(FlowSolveResult {
             source_analyses: BTreeMap::new(),
+            callables_visited: BTreeSet::new(),
+            callables_changed: BTreeSet::new(),
         });
     }
 
@@ -302,12 +301,25 @@ pub(crate) fn solve_affected_callables_with_cancel(
         }
     }
     let mut worklist = CallableWorklist::default();
-    for callable in callable_sources.keys() {
-        worklist.push(callable.clone());
+    match dirty_callables {
+        Some(dirty) => {
+            for callable in dirty {
+                if callable_sources.contains_key(callable) {
+                    worklist.push(callable.clone());
+                }
+            }
+        }
+        None => {
+            for callable in callable_sources.keys() {
+                worklist.push(callable.clone());
+            }
+        }
     }
 
     let mut steps = 0;
     let mut exceeded_budget = false;
+    let mut callables_visited = BTreeSet::new();
+    let mut callables_changed = BTreeSet::new();
     'rounds: while !worklist.is_empty() {
         if cancelled() {
             return None;
@@ -324,6 +336,7 @@ pub(crate) fn solve_affected_callables_with_cancel(
             }
             record_solver_step();
             let Some(source) = callable_sources.get(&callable) else { continue };
+            callables_visited.insert(callable.clone());
             let include_top_level = top_level_sources.insert(source.module.clone());
             let previous_summary = summaries.get(&callable).cloned();
             let analysis = analyze_callable_source(
@@ -372,7 +385,11 @@ pub(crate) fn solve_affected_callables_with_cancel(
             }
             apply_parameter_facts_to_summaries(&mut summaries, classes, &parameter_facts);
 
-            if previous_summary != summaries.get(&callable).cloned() || previous_parameters != parameter_facts {
+            let summary_changed = callable_summary_changed(previous_summary.as_ref(), summaries.get(&callable));
+            if summary_changed {
+                callables_changed.insert(callable.clone());
+            }
+            if summary_changed || previous_parameters != parameter_facts {
                 if let Some(edges) = dependents.get(&callable) {
                     for dependent in edges {
                         if callable_sources.contains_key(dependent) {
@@ -426,12 +443,53 @@ pub(crate) fn solve_affected_callables_with_cancel(
                 }
             }
         }
-        if next_summaries == final_summaries {
+        if summaries_semantically_equal(&next_summaries, &final_summaries) {
             break;
         }
         final_summaries = next_summaries;
     }
-    Some(FlowSolveResult { source_analyses })
+    Some(FlowSolveResult {
+        source_analyses,
+        callables_visited,
+        callables_changed,
+    })
+}
+
+/// Compares summaries as semantic products. Publication generation is provenance,
+/// not an invalidation input.
+pub(crate) fn callable_summary_changed(previous: Option<&CallableSummary>, current: Option<&CallableSummary>) -> bool {
+    match (previous, current) {
+        (Some(previous), Some(current)) => {
+            previous.callable != current.callable
+                || !values_semantically_equal(&previous.params, &current.params)
+                || !value_semantically_equal(&previous.returns, &current.returns)
+                || previous.dependencies != current.dependencies
+                || previous.effects != current.effects
+        }
+        (None, None) => false,
+        (Some(_), None) | (None, Some(_)) => true,
+    }
+}
+
+fn summaries_semantically_equal(left: &BTreeMap<CallableId, CallableSummary>, right: &BTreeMap<CallableId, CallableSummary>) -> bool {
+    left.len() == right.len()
+        && left.iter().all(|(id, summary)| {
+            right.get(id).is_some_and(|other| {
+                summary.callable == other.callable
+                    && values_semantically_equal(&summary.params, &other.params)
+                    && value_semantically_equal(&summary.returns, &other.returns)
+                    && summary.dependencies == other.dependencies
+                    && summary.effects == other.effects
+            })
+        })
+}
+
+fn values_semantically_equal(left: &[InferredValue], right: &[InferredValue]) -> bool {
+    left.len() == right.len() && left.iter().zip(right).all(|(left, right)| value_semantically_equal(left, right))
+}
+
+fn value_semantically_equal(left: &InferredValue, right: &InferredValue) -> bool {
+    left.shape == right.shape && left.known_boolean == right.known_boolean && left.confidence == right.confidence
 }
 
 fn apply_parameter_facts_to_summaries(
@@ -533,11 +591,14 @@ class Service {
         let program = Arc::new(parse(ONE_PASS_FIXTURE, 0).program);
         let surface = super::super::surface::build_module_surface(module.clone(), &program);
         let scopes = super::super::scope::build_scope_graph(module.clone(), &program);
+        let callables = surface.callable_index();
         FileSourceSnapshot {
             module,
+            text: Arc::from(ONE_PASS_FIXTURE),
             program,
             surface,
             scopes,
+            callables,
         }
     }
 
@@ -579,8 +640,10 @@ class Service {
         let surface = super::super::surface::build_module_surface(module.clone(), &program);
         let source = FileSourceSnapshot {
             module: module.clone(),
+            text: Arc::from("let value = 1\nvalue = \"ok\"\n"),
             program: Arc::new(program),
             scopes: super::super::scope::build_scope_graph(module.clone(), &parse("let value = 1\nvalue = \"ok\"\n", 0).program),
+            callables: surface.callable_index(),
             surface,
         };
         let counters = PerfCounters::new();

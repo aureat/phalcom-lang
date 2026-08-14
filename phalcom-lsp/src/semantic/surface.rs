@@ -122,6 +122,22 @@ impl ClassSurface {
     }
 }
 
+impl ModuleSurface {
+    /// Builds direct source lookup from canonical callable identity to its AST
+    /// reference. The index is immutable after source ingestion.
+    pub fn callable_index(&self) -> BTreeMap<CallableId, MemberAstRef> {
+        self.classes
+            .values()
+            .flat_map(|class| class.all_members().map(|member| (member.callable.clone(), member.ast)))
+            .collect()
+    }
+
+    /// Returns one source member without scanning every class member.
+    pub fn member_by_id(&self, callable: &CallableId) -> Option<&MemberSurface> {
+        self.classes.get(&callable.owner).and_then(|class| class.member_by_id(callable))
+    }
+}
+
 /// One callable or field-like class member.
 #[derive(Clone, Debug)]
 pub struct MemberSurface {

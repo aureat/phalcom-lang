@@ -973,11 +973,19 @@ impl FlowAnalyzer<'_> {
             Expr::Field { value: name, range, .. } => {
                 let Some(class) = current_class else { return };
                 let field_side = side
-                    .filter(|field_side| self.surface.classes.get(class).is_some_and(|surface| surface.field(name, *field_side).is_some()))
+                    .filter(|field_side| {
+                        self.surface
+                            .classes
+                            .get(class)
+                            .is_some_and(|surface| surface.field(name, *field_side).is_some())
+                    })
                     .or_else(|| {
-                        [DispatchSide::Instance, DispatchSide::Class]
-                            .into_iter()
-                            .find(|field_side| self.surface.classes.get(class).is_some_and(|surface| surface.field(name, *field_side).is_some()))
+                        [DispatchSide::Instance, DispatchSide::Class].into_iter().find(|field_side| {
+                            self.surface
+                                .classes
+                                .get(class)
+                                .is_some_and(|surface| surface.field(name, *field_side).is_some())
+                        })
                     })
                     .unwrap_or(DispatchSide::Instance);
                 let fact = InferredValue::flow(value.shape, *range);
@@ -987,12 +995,7 @@ impl FlowAnalyzer<'_> {
                     side: field_side,
                 };
                 let kind = target
-                    .and_then(|callable| {
-                        self.surface
-                            .classes
-                            .get(class)
-                            .and_then(|surface| surface.member_by_id(callable))
-                    })
+                    .and_then(|callable| self.surface.classes.get(class).and_then(|surface| surface.member_by_id(callable)))
                     .filter(|member| member.is_constructor)
                     .map_or(super::facts::FieldEvidenceKind::GeneralWrite, |_| {
                         super::facts::FieldEvidenceKind::ConstructorInitialization
