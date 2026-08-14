@@ -300,25 +300,13 @@ fn any_named_bound_family_prefers_method_shape_over_accessor_shapes() {
     let module = vm.create_module("main", "any_named_bound_family_shapes");
     vm.interpret_source(
         module,
-        "class Source { name { 1 } name() { 2 } name=(put value) { 3 } name(value) { 4 } }\nlet source = Source.new()\n",
+        "class Source { name { 1 } name() { 2 } name=(put value) { 3 } name(value) { 4 } }\nlet source = Source.new()\nlet family = Source >> #name(...)\nlet bound = family.bind(source)\nlet nullary = bound()\nlet unary = bound(9)\n",
     )
     .expect("accessor and method overloads should compile");
-    let source = vm.heap.module(module).get(vm.interner.intern("source")).expect("source should exist");
-    let source_class = vm.heap.module(module).get(vm.interner.intern("Source")).expect("Source class should exist");
-    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
-        pattern: SelectorPattern::named(
-            "name",
-            SelectorKindPattern::AnyNamed,
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            true,
-        )
-        .expect("valid pattern"),
-    })));
-    let family = behavior_extract(&mut vm, &source_class, &[Value::Obj(pattern)]).expect("pattern extraction");
-    let bound = method_family_bind(&mut vm, &family, &[source]).expect("family should bind");
-    assert_eq!(block_call(&mut vm, &bound, &[]).expect("nullary method call"), Value::Int(2));
-    assert_eq!(block_call(&mut vm, &bound, &[Value::Int(9)]).expect("one-argument method call"), Value::Int(4));
+    let nullary = vm.heap.module(module).get(vm.interner.intern("nullary")).expect("nullary result should exist");
+    let unary = vm.heap.module(module).get(vm.interner.intern("unary")).expect("unary result should exist");
+    assert_eq!(nullary, Value::Int(2));
+    assert_eq!(unary, Value::Int(4));
 }
 
 #[test]
