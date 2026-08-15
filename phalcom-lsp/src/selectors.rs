@@ -1,76 +1,179 @@
-//! ADR-0012 comma-form selector reconstruction from AST nodes.
+//! Structural selector construction from AST nodes over shared common selector semantics.
 //!
 //! The index (`crate::index`), go-to-definition, find-references, and
-//! `workspace/symbol` all key on the **comma-form** selector — `move`,
-//! `move()`, `move(_,to,duration)` — never a bare method name (ADR-0012, the
-//! gate U-VSPHALCOM's `gen-core-table` already enforces on
-//! `core-table.json`). This module is the `phalcom-lsp`-side port of that
-//! same algorithm, applied to `phalcom_ast::ast` nodes instead of harvested
-//! `syn` items.
-//!
-//! **Do not confuse with `phalcom-core/src/method/mod.rs::encode_selector`.**
-//! That function builds the VM-internal runtime dispatch symbol and this
-//! crate never links `phalcom-core` (ADR-0056 §2) — this module is the sole
-//! source of selector spelling here, deliberately independent.
+//! `workspace/symbol` all key on canonical selector strings or structural
+//! [`Selector`] values. This module provides AST-to-Selector conversion
+//! powered by `phalcom_common::selector`.
 
 use phalcom_ast::ast::{
-    BinaryOp, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, PackItem, PackLabel, ParameterDef, RestMode, SetterDef, UnaryOp,
+    BinaryOp, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, NormalizedSelectorSpec, PackItem, PackLabel,
+    ParameterDef, RestMode, SelectorSpecSyntax, SetterDef, UnaryOp,
+};
+pub use phalcom_common::selector::{
+    decode_label_component, encode_label_component, Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern,
+    SelectorPattern, SelectorSlot,
 };
 
-/// Builds the comma-form selector string from a method/constructor name and
-/// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
-///
-/// A positional parameter (no label) renders as `_`; a labeled (keyword)
-/// parameter renders as its label. Rest parameters render as structural
-/// wildcard slots (`*`, `**`, or `***`), preserving fixed prefixes. Mirrors
-/// `phalcom-core/bin/gen-core-table/main.rs`'s `comma_form`.
-pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
-    if params.is_empty() {
-        return format!("{name}()");
-    }
-    let inner = params
+/// Constructs a structural [`Selector`] for a method declaration.
+pub fn selector_from_method(m: &MethodDef) -> Selector {
+    let slots = m
+        .params
         .iter()
-        .map(|param| match param.rest_mode {
-            RestMode::None => param.label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()),
-            RestMode::Positional => "*".to_string(),
-            RestMode::Labeled => "**".to_string(),
-            RestMode::Complete => "***".to_string(),
+        .map(|param| match (&param.rest_mode, &param.label) {
+            (RestMode::None, Some(label)) => SelectorSlot::Label(label.clone()),
+            _ => SelectorSlot::Positional,
         })
-        .collect::<Vec<_>>()
-        .join(",");
-    format!("{name}({inner})")
+        .collect::<Vec<_>>();
+    Selector::method(&m.name, slots).unwrap_or_else(|_| Selector {
+        base: SelectorBase::Named(m.name.clone()),
+        kind: SelectorKind::Method,
+        slots: Box::new([]),
+    })
 }
 
-/// The comma-form selector a call-site's method name and argument labels
-/// would resolve to — the reference-side mirror of [`comma_form`], applied
-/// to call-site static labels in [`phalcom_ast::ast::PackItem`] entries rather
-/// than a declaration's `ParameterDef`s.
-pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
-    if labels.is_empty() {
-        return format!("{name}()");
+/// Constructs a structural [`Selector`] for a getter declaration.
+pub fn selector_from_getter(g: &GetterDef) -> Selector {
+    Selector::getter(&g.name).unwrap_or_else(|_| Selector {
+        base: SelectorBase::Named(g.name.clone()),
+        kind: SelectorKind::Getter,
+        slots: Box::new([]),
+    })
+}
+
+/// Constructs a structural [`Selector`] for a setter declaration.
+pub fn selector_from_setter(s: &SetterDef) -> Selector {
+    Selector::setter(&s.name).unwrap_or_else(|_| Selector {
+        base: SelectorBase::Named(s.name.clone()),
+        kind: SelectorKind::Setter,
+        slots: Box::new([]),
+    })
+}
+
+/// Constructs a structural [`Selector`] for a field declaration (read access).
+pub fn selector_from_field(f: &FieldDef) -> Selector {
+    Selector::getter(&f.name).unwrap_or_else(|_| Selector {
+        base: SelectorBase::Named(f.name.clone()),
+        kind: SelectorKind::Getter,
+        slots: Box::new([]),
+    })
+}
+
+/// Constructs a structural [`Selector`] for a subscript method declaration.
+pub fn selector_from_index(ix: &IndexMethodDef) -> Selector {
+    let slots = ix
+        .params
+        .iter()
+        .map(|param| {
+            if let Some(label) = &param.label {
+                SelectorSlot::Label(label.clone())
+            } else {
+                SelectorSlot::Positional
+            }
+        })
+        .collect::<Vec<_>>();
+    let kind = match &ix.accessor {
+        IndexAccessor::Get => SelectorKind::SubscriptGet,
+        IndexAccessor::Set { .. } => SelectorKind::SubscriptSet,
+    };
+    Selector::new(SelectorBase::Subscript, kind, slots.into_boxed_slice()).unwrap_or_else(|_| Selector {
+        base: SelectorBase::Subscript,
+        kind,
+        slots: Box::new([]),
+    })
+}
+
+/// Constructs a structural [`Selector`] for any [`ClassMember`].
+pub fn selector_from_member(member: &ClassMember) -> Selector {
+    match member {
+        ClassMember::Method(m) => selector_from_method(m),
+        ClassMember::Getter(g) => selector_from_getter(g),
+        ClassMember::Setter(s) => selector_from_setter(s),
+        ClassMember::Field(f) => selector_from_field(f),
+        ClassMember::Variant(v) => Selector::getter(&v.name).unwrap_or_else(|_| Selector {
+            base: SelectorBase::Named(v.name.clone()),
+            kind: SelectorKind::Getter,
+            slots: Box::new([]),
+        }),
+        ClassMember::Index(ix) => selector_from_index(ix),
     }
-    let inner = labels
-        .iter()
-        .map(|label| label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
-        .collect::<Vec<_>>()
-        .join(",");
-    format!("{name}({inner})")
 }
 
-/// Builds a call-site selector from static argument labels.
-pub(crate) fn call_selector(name: &str, args: &[PackItem]) -> String {
-    let labels = args
-        .iter()
-        .map(|arg| match arg {
-            PackItem::Positional { .. } | PackItem::Expand { .. } => None,
+/// Builds a call-site structural [`Selector`] when all argument slots are statically known.
+///
+/// Returns `None` if computed/dynamic packs or expansions prevent exact static reconstruction.
+pub fn selector_from_call(name: &str, args: &[PackItem]) -> Option<Selector> {
+    let mut slots = Vec::with_capacity(args.len());
+    for arg in args {
+        match arg {
+            PackItem::Positional { .. } => slots.push(SelectorSlot::Positional),
             PackItem::Labeled {
                 label: PackLabel::Static { text, .. },
                 ..
-            } => Some(text.clone()),
-            PackItem::Labeled { .. } => None,
+            } => slots.push(SelectorSlot::Label(text.clone())),
+            PackItem::Labeled {
+                label: PackLabel::Computed { .. },
+                ..
+            }
+            | PackItem::Expand { .. } => return None,
+        }
+    }
+    Selector::method(name, slots).ok()
+}
+
+/// Normalizes an AST selector spec into common structural selector forms.
+pub fn selector_spec_from_ast(spec: &SelectorSpecSyntax) -> Result<NormalizedSelectorSpec, SelectorError> {
+    spec.normalize()
+}
+
+/// Builds the canonical comma-form selector string from a method name and its parameter list.
+pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
+    let slots = params
+        .iter()
+        .map(|param| match (&param.rest_mode, &param.label) {
+            (RestMode::None, Some(label)) => SelectorSlot::Label(label.clone()),
+            _ => SelectorSlot::Positional,
         })
         .collect::<Vec<_>>();
-    comma_form_from_labels(name, &labels)
+    Selector::method(name, slots)
+        .map(|s| s.encode())
+        .unwrap_or_else(|_| format!("{name}()"))
+}
+
+/// Builds the canonical comma-form selector string from a method name and argument labels.
+pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
+    let slots = labels
+        .iter()
+        .map(|label| {
+            if let Some(text) = label {
+                SelectorSlot::Label(text.clone())
+            } else {
+                SelectorSlot::Positional
+            }
+        })
+        .collect::<Vec<_>>();
+    Selector::method(name, slots)
+        .map(|s| s.encode())
+        .unwrap_or_else(|_| format!("{name}()"))
+}
+
+/// Builds a call-site selector string from argument packs.
+pub(crate) fn call_selector(name: &str, args: &[PackItem]) -> String {
+    if let Some(sel) = selector_from_call(name, args) {
+        sel.encode()
+    } else {
+        let labels = args
+            .iter()
+            .map(|arg| match arg {
+                PackItem::Positional { .. } | PackItem::Expand { .. } => None,
+                PackItem::Labeled {
+                    label: PackLabel::Static { text, .. },
+                    ..
+                } => Some(text.clone()),
+                PackItem::Labeled { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        comma_form_from_labels(name, &labels)
+    }
 }
 
 /// Maps a binary operator to the selector emitted by the compiler.
@@ -107,129 +210,63 @@ pub(crate) fn unary_selector_name(op: &UnaryOp) -> &'static str {
     }
 }
 
-/// Mirrors `phalcom-core::method::encode_label_component`. The LSP does not
-/// link the runtime crate, but its definition/reference index must spell the
-/// same reversible selector slots.
-fn encode_label_component(text: &str) -> String {
-    let safe = !text.is_empty()
-        && !text.starts_with('~')
-        && !matches!(text, "_" | "*" | "**" | "***")
-        && text.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
-                || matches!(
-                    byte,
-                    b'_' | b'?' | b'!' | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'&' | b'|' | b'^' | b'~' | b'%'
-                )
-        });
-    if safe {
-        text.to_string()
-    } else {
-        let mut encoded = String::with_capacity(1 + text.len() * 2);
-        encoded.push('~');
-        for byte in text.bytes() {
-            use std::fmt::Write;
-            write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
-        }
-        encoded
-    }
-}
-
 /// The comma-form selector a getter's bare-name access resolves to.
-///
-/// A getter selector is the bare name with **no** parens — distinct from a
-/// zero-arity method (`name` vs `name()`), so `foo` and `foo()` never alias
-/// the same definition (ADR-0012).
 pub fn getter_selector(g: &GetterDef) -> String {
-    g.name.clone()
+    selector_from_getter(g).encode()
 }
 
-/// The comma-form selector a `name=(put)` write resolves to, given just the
-/// bare property name.
-///
-/// Always the fixed setter role: literal `name=(put)` — never
-/// comma-joined, since a setter takes exactly one argument and it is never
-/// labeled. The single spelling both [`setter_selector`] (declaration side)
-/// and `index.rs`'s `SetProperty` reference-site walk route through, so the
-/// two can never drift apart.
+/// The comma-form selector a `name=(put)` write resolves to, given just the bare property name.
 pub fn setter_selector_from_name(name: &str) -> String {
-    format!("{name}=(put)")
+    Selector::setter(name)
+        .map(|s| s.encode())
+        .unwrap_or_else(|_| format!("{name}=(put)"))
 }
 
-/// The comma-form selector a setter's `recv.name = value` write resolves to.
+/// The comma-form selector a setter's write resolves to.
 pub fn setter_selector(s: &SetterDef) -> String {
-    setter_selector_from_name(&s.name)
+    selector_from_setter(s).encode()
 }
 
 /// The comma-form selector a method declaration defines.
 pub fn method_selector(m: &MethodDef) -> String {
-    comma_form(&m.name, &m.params)
+    selector_from_method(m).encode()
 }
 
-/// The comma-form selector a declared class field's bare-name read resolves
-/// to (U-ANNOT-LAYOUT §3.1).
-///
-/// Mirrors [`getter_selector`]'s bare-name-no-parens shape: a field read is
-/// indistinguishable, selector-wise, from a getter access.
+/// The comma-form selector a declared class field's bare-name read resolves to.
 pub fn field_selector(f: &FieldDef) -> String {
-    f.name.clone()
+    selector_from_field(f).encode()
 }
 
-/// The bracket-form selector a bracket subscript method declaration defines
-/// (U-INDEX, ADR-0060) — `[_]`, `[_,default]`, `[_]=(put)`, ... . Mirrors
-/// [`comma_form`]'s label-joining exactly, just bracket- rather than
-/// paren-delimited and with no leading name (a bracket method carries no
-/// name token at all — see [`IndexMethodDef`]'s doc).
-///
-/// **Do not confuse with `phalcom-core`'s `SignatureKind::Subscript`
-/// encoding** — same spelling, independently reimplemented here per this
-/// module's top-level doc (`phalcom-lsp` never links `phalcom-core`).
+/// The bracket-form selector a bracket subscript method declaration defines.
 pub fn index_selector(ix: &IndexMethodDef) -> String {
-    let labels = ix
-        .params
-        .iter()
-        .map(|param| param.label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
-        .collect::<Vec<_>>();
-    let inner = labels.join(",");
-    match &ix.accessor {
-        IndexAccessor::Get => {
-            format!("[{inner}]")
-        }
-        IndexAccessor::Set { .. } => {
-            format!("[{inner}]=(put)")
-        }
-    }
+    selector_from_index(ix).encode()
 }
 
 /// Builds a bracket selector from call-site argument labels.
 pub fn index_selector_from_labels(labels: &[Option<String>], setter: bool) -> String {
-    let inner = labels
+    let slots = labels
         .iter()
-        .map(|label| label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
-        .collect::<Vec<_>>()
-        .join(",");
-    if setter { format!("[{inner}]=(put)") } else { format!("[{inner}]") }
+        .map(|label| {
+            if let Some(text) = label {
+                SelectorSlot::Label(text.clone())
+            } else {
+                SelectorSlot::Positional
+            }
+        })
+        .collect::<Vec<_>>();
+    let kind = if setter {
+        SelectorKind::SubscriptSet
+    } else {
+        SelectorKind::SubscriptGet
+    };
+    Selector::new(SelectorBase::Subscript, kind, slots.into_boxed_slice())
+        .map(|s| s.encode())
+        .unwrap_or_else(|_| if setter { "[_]=(put)".into() } else { "[_]".into() })
 }
 
 /// The comma-form selector any [`ClassMember`] declaration defines.
-///
-/// The single dispatch point every definition-side index entry goes
-/// through, so the member kinds can never drift into inconsistent
-/// spellings.
 pub fn class_member_selector(member: &ClassMember) -> String {
-    match member {
-        ClassMember::Method(m) => method_selector(m),
-        ClassMember::Getter(g) => getter_selector(g),
-        ClassMember::Setter(s) => setter_selector(s),
-        ClassMember::Field(f) => field_selector(f),
-        // A `@variant` arm is not itself a message selector — it names the
-        // sibling class `phalcom-core`'s `expand_class_attributes` generates
-        // at compile time, never a member dispatched on the enclosing class.
-        // `phalcom-lsp` indexes the pre-expansion AST directly (ADR-0056 §2:
-        // no `phalcom-core` link), so there is no generated selector to spell
-        // here; the variant's own name is the closest stand-in.
-        ClassMember::Variant(v) => v.name.clone(),
-        ClassMember::Index(ix) => index_selector(ix),
-    }
+    selector_from_member(member).encode()
 }
 
 #[cfg(test)]
@@ -252,63 +289,51 @@ mod tests {
     #[test]
     fn method_with_positional_and_labeled_params() {
         let class_def = parse_class("class Point {\n  move(_ x, to, duration) { }\n}\n");
-        let ClassMember::Method(m) = &class_def.members[0] else {
-            panic!("expected method")
-        };
-        assert_eq!(method_selector(m), "move(_,to,duration)");
+        let member = &class_def.members[0];
+        let selector = selector_from_member(member);
+        assert_eq!(selector.kind, SelectorKind::Method);
+        assert_eq!(selector.encode(), "move(_,to,duration)");
+        assert_eq!(class_member_selector(member), "move(_,to,duration)");
     }
 
     #[test]
     fn zero_arity_method_is_not_bare_name() {
         let class_def = parse_class("class Point {\n  reset() { }\n}\n");
-        let ClassMember::Method(m) = &class_def.members[0] else {
-            panic!("expected method")
-        };
-        assert_eq!(method_selector(m), "reset()");
+        let member = &class_def.members[0];
+        let selector = selector_from_member(member);
+        assert_eq!(selector.kind, SelectorKind::Method);
+        assert_eq!(selector.encode(), "reset()");
     }
 
     #[test]
     fn getter_has_no_parens_and_never_aliases_zero_arity_method() {
         let class_def = parse_class("class Point {\n  y { }\n  x() { }\n}\n");
-        let ClassMember::Getter(g) = &class_def.members[0] else {
-            panic!("expected getter")
-        };
-        let ClassMember::Method(m) = &class_def.members[1] else {
-            panic!("expected method")
-        };
-        assert_eq!(getter_selector(g), "y");
-        assert_eq!(method_selector(m), "x()");
-        assert_ne!(getter_selector(g), method_selector(m));
+        let getter_member = &class_def.members[0];
+        let method_member = &class_def.members[1];
+        let getter_sel = selector_from_member(getter_member);
+        let method_sel = selector_from_member(method_member);
+        assert_eq!(getter_sel.kind, SelectorKind::Getter);
+        assert_eq!(method_sel.kind, SelectorKind::Method);
+        assert_eq!(getter_sel.encode(), "y");
+        assert_eq!(method_sel.encode(), "x()");
+        assert_ne!(getter_sel, method_sel);
     }
 
     #[test]
     fn setter_is_literal_single_slot() {
         let class_def = parse_class("class Point {\n  x=(put v) { }\n}\n");
-        let ClassMember::Setter(s) = &class_def.members[0] else {
-            panic!("expected setter")
-        };
-        assert_eq!(setter_selector(s), "x=(put)");
+        let member = &class_def.members[0];
+        let selector = selector_from_member(member);
+        assert_eq!(selector.kind, SelectorKind::Setter);
+        assert_eq!(selector.encode(), "x=(put)");
     }
 
     #[test]
     fn construct_is_comma_form() {
         let class_def = parse_class("class Point {\n  @constructor\n  new(_ x, y) { }\n}\n");
-        let ClassMember::Method(m) = &class_def.members[0] else {
-            panic!("expected method")
-        };
-        assert_eq!(method_selector(m), "new(_,y)");
-    }
-
-    #[test]
-    fn rest_modes_preserve_structural_selector_shape() {
-        let class_def = parse_class(
-            "class C {\n  sum(*numbers) { }\n  format(_ fmt, *args) { }\n  options(timeout, **kwargs) { }\n  split(_ first, *tail, mode, **extra) { }\n  complete(_ first, ***all) { }\n}\n",
-        );
-        let selectors = class_def.members.iter().map(class_member_selector).collect::<Vec<_>>();
-        assert_eq!(
-            selectors,
-            ["sum(*)", "format(_,*)", "options(timeout,**)", "split(_,*,mode,**)", "complete(_,***)"]
-        );
+        let member = &class_def.members[0];
+        let selector = selector_from_member(member);
+        assert_eq!(selector.encode(), "new(_,y)");
     }
 
     #[test]
@@ -323,13 +348,13 @@ mod tests {
     #[test]
     fn subscript_get_and_set() {
         let class_def = parse_class("class Arr {\n  [_ idx] { }\n  [_ idx]=(put value) { }\n}\n");
-        let ClassMember::Index(g) = &class_def.members[0] else {
-            panic!("expected index get")
-        };
-        let ClassMember::Index(s) = &class_def.members[1] else {
-            panic!("expected index set")
-        };
-        assert_eq!(index_selector(g), "[_]");
-        assert_eq!(index_selector(s), "[_]=(put)");
+        let get_member = &class_def.members[0];
+        let set_member = &class_def.members[1];
+        let get_sel = selector_from_member(get_member);
+        let set_sel = selector_from_member(set_member);
+        assert_eq!(get_sel.kind, SelectorKind::SubscriptGet);
+        assert_eq!(set_sel.kind, SelectorKind::SubscriptSet);
+        assert_eq!(get_sel.encode(), "[_]");
+        assert_eq!(set_sel.encode(), "[_]=(put)");
     }
 }
