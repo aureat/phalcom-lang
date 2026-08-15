@@ -55,6 +55,34 @@ fn make_family_compiles_pattern_object_without_punctuation_heuristic() {
 }
 
 #[test]
+fn family_pattern_mismatch_returns_typed_error_before_dispatch() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "family-pattern-mismatch");
+    let closure = vm
+        .compile_closure(
+            module,
+            "class Router { route() { 0 } route(_ value) { value } }\nconst family = Router.new()::route(_, ...)\nfamily()\n",
+        )
+        .expect("family mismatch fixture compiles");
+
+    let error = vm.run_in_module(module, closure).expect_err("mismatched family call must fail");
+    let PhError::Runtime(RuntimeError::SelectorPatternMismatch {
+        pattern,
+        selector,
+        family: Value::Obj(family_id),
+        receiver: Value::Obj(receiver_id),
+    }) = error
+    else {
+        panic!("expected typed selector-pattern mismatch, got {error:?}");
+    };
+
+    assert_eq!(pattern.encode(), "route(_, ...)");
+    assert_eq!(selector.encode(), "route()");
+    assert!(matches!(vm.heap.get(family_id), Object::Family(_)));
+    assert!(matches!(vm.heap.get(receiver_id), Object::Instance(_)));
+}
+
+#[test]
 fn immediately_called_exact_method_ref_uses_direct_send_shape() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "<family-specialization>");

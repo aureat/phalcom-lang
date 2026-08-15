@@ -189,6 +189,46 @@ impl Selector {
 }
 
 impl SelectorPattern {
+    /// Returns canonical source-like selector-pattern text for diagnostics.
+    pub fn encode(&self) -> String {
+        let slots = encode_pattern_slots(&self.prefix, &self.suffix, self.has_gap);
+        match (&self.base, &self.kind) {
+            (SelectorBase::Named(name), SelectorKindPattern::AnyNamed) => {
+                if self.prefix.is_empty() && self.suffix.is_empty() && self.has_gap {
+                    format!("{name}...")
+                } else {
+                    format!("{name}({slots})")
+                }
+            }
+            (SelectorBase::Named(name), SelectorKindPattern::Exact(SelectorKind::Getter)) => {
+                if self.has_gap {
+                    format!("{name}...")
+                } else {
+                    name.clone()
+                }
+            }
+            (SelectorBase::Named(name), SelectorKindPattern::Exact(SelectorKind::Setter)) => {
+                if self.has_gap {
+                    format!("{name}=...")
+                } else {
+                    format!("{name}=(put)")
+                }
+            }
+            (SelectorBase::Named(name), SelectorKindPattern::Exact(SelectorKind::Method)) => format!("{name}({slots})"),
+            (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptGet)) => format!("[{slots}]"),
+            (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptSet)) => format!("[{slots}]=(put)"),
+            (SelectorBase::Named(name), SelectorKindPattern::Exact(SelectorKind::SubscriptGet | SelectorKind::SubscriptSet)) => {
+                format!("{name}({slots})")
+            }
+            (
+                SelectorBase::Subscript,
+                SelectorKindPattern::AnyNamed | SelectorKindPattern::Exact(SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method),
+            ) => {
+                format!("[{slots}]")
+            }
+        }
+    }
+
     pub fn new(
         base: SelectorBase,
         kind: SelectorKindPattern,
@@ -272,6 +312,28 @@ impl SelectorPattern {
             return false;
         }
         selector.slots.ends_with(&self.suffix)
+    }
+}
+
+impl fmt::Display for SelectorPattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.encode())
+    }
+}
+
+fn encode_pattern_slots(prefix: &[SelectorSlot], suffix: &[SelectorSlot], has_gap: bool) -> String {
+    let mut slots = prefix.iter().chain(suffix.iter()).map(encode_slot).collect::<Vec<_>>();
+    if has_gap {
+        let gap_at = prefix.len();
+        slots.insert(gap_at, "...".to_string());
+    }
+    slots.join(", ")
+}
+
+fn encode_slot(slot: &SelectorSlot) -> String {
+    match slot {
+        SelectorSlot::Positional => "_".to_string(),
+        SelectorSlot::Label(label) => encode_label_component(label),
     }
 }
 

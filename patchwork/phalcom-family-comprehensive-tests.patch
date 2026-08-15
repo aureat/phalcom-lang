@@ -1,0 +1,856 @@
+# Comprehensive Family correctness tests for phalcom-lang
+# Target: main @ 3d225fa214d0a071b9867e2433bde9d622fbbd7e
+#
+# Test-only patch. The legacy-hash parser rejection test is intentionally RED
+# on this target commit: parse_selector_spec_after_colon_colon still consumes
+# an optional `#`, even though `::` now owns selector-spec context.
+#
+diff --git a/phalcom-core/tests/lang/family/family_exact_bound_labeled_call.ph b/phalcom-core/tests/lang/family/family_exact_bound_labeled_call.ph
+--- a/phalcom-core/tests/lang/family/family_exact_bound_labeled_call.ph
++++ b/phalcom-core/tests/lang/family/family_exact_bound_labeled_call.ph
+@@ -2,7 +2,7 @@
+ // spec: docs/spec/callables/family.md §1 and §2
+ // status: PASS
+ // Exact Family retains labeled selector identity, so the call must use the
+-// same labeled shape.
++// same labeled shape. `::` owns selector-spec context; no `#` is used here.
+
+ class Point {
+   @constructor
+@@ -12,5 +12,5 @@
+   }
+ }
+ const p = Point.new(0, 0)
+-const f = p::#move(to,duration)
++const f = p::move(to,duration)
+ System.print(f(to: 5, duration: 2))
+
+diff --git a/phalcom-core/tests/lang/family/family_exact_selects_overload.ph b/phalcom-core/tests/lang/family/family_exact_selects_overload.ph
+--- a/phalcom-core/tests/lang/family/family_exact_selects_overload.ph
++++ b/phalcom-core/tests/lang/family/family_exact_selects_overload.ph
+@@ -2,7 +2,8 @@
+ // spec: docs/spec/callables/family.md §1–3
+ // status: PASS
+ // Exact references retain selector identity, while a named structural pattern
+-// routes both overload shapes through the current method table.
++// routes both overload shapes through the current method table. `::` selector
++// specs are hashless; `#` is reserved for first-class selector values.
+
+ class Point {
+   @constructor
+@@ -17,8 +18,8 @@
+
+ const p = Point.new(0, 0)
+
+-const labeled = p::#move(to,duration)
+-const positional = p::#move(_,_)
++const labeled = p::move(to,duration)
++const positional = p::move(_,_)
+ System.print("(exact) " + labeled(to: 5, duration: 2))
+ System.print("(exact) " + positional(5, 2))
+
+
+diff --git a/phalcom-core/tests/lang/family/family_exact_type_bound_static.ph b/phalcom-core/tests/lang/family/family_exact_type_bound_static.ph
+--- a/phalcom-core/tests/lang/family/family_exact_type_bound_static.ph
++++ b/phalcom-core/tests/lang/family/family_exact_type_bound_static.ph
+@@ -1,11 +1,12 @@
+ // area: family
+ // spec: docs/spec/callables/family.md §1 and §2
+ // status: PASS
+-// A class expression can bind an exact nullary class-side Family.
++// A class expression can bind an exact nullary class-side Family. Exact `::`
++// selector specs are written directly, without the first-class-symbol `#`.
+
+ class Point {
+   @class
+   square() { return "Point.square" }
+ }
+-const f = Point::#square()
++const f = Point::square()
+ System.print(f())
+
+diff --git a/phalcom-ast/tests/family_selector_syntax.rs b/phalcom-ast/tests/family_selector_syntax.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-ast/tests/family_selector_syntax.rs
+@@ -0,0 +1,187 @@
++use phalcom_ast::{
++    ast::{BinaryOp, Expr, MethodRefExpr, SelectorPatternSyntax, SelectorSpecSyntax, Statement, SymbolLiteralKind},
++    parse_source,
++};
++use phalcom_common::selector::{SelectorKind, SelectorKindPattern, SelectorSlot};
++
++fn method_ref(source: &str) -> MethodRefExpr {
++    let program = parse_source(source, 0).unwrap_or_else(|err| panic!("{source:?} should parse: {err:?}"));
++    let statement = program.statements.into_iter().next().expect("fixture should contain one statement");
++    let Statement::Expr {
++        expr: Expr::MethodRef(reference),
++        ..
++    } = statement
++    else {
++        panic!("{source:?} should parse as a method reference");
++    };
++    *reference
++}
++
++fn pattern(source: &str) -> SelectorPatternSyntax {
++    match method_ref(source).spec {
++        SelectorSpecSyntax::Pattern(pattern) => pattern,
++        other => panic!("{source:?} should be a selector pattern, got {other:?}"),
++    }
++}
++
++fn slot_values(slots: &[phalcom_ast::ast::SelectorSlotSyntax]) -> Vec<SelectorSlot> {
++    slots.iter().map(|slot| slot.slot.clone()).collect()
++}
++
++#[test]
++fn colon_colon_exact_forms_are_hashless_and_structurally_distinct() {
++    let cases = [
++        ("receiver::name", SelectorKind::Getter, vec![]),
++        ("receiver::name()", SelectorKind::Method, vec![]),
++        ("receiver::name(_)", SelectorKind::Method, vec![SelectorSlot::Positional]),
++        (
++            "receiver::name(_, foo)",
++            SelectorKind::Method,
++            vec![SelectorSlot::Positional, SelectorSlot::Label("foo".into())],
++        ),
++        (
++            "receiver::name(foo, bar)",
++            SelectorKind::Method,
++            vec![SelectorSlot::Label("foo".into()), SelectorSlot::Label("bar".into())],
++        ),
++        ("receiver::name=(put)", SelectorKind::Setter, vec![]),
++    ];
++
++    let operator = method_ref("receiver::+");
++    let SelectorSpecSyntax::Exact(operator) = operator.spec else {
++        panic!("operator selector should be exact");
++    };
++    assert_eq!(operator.base, "+");
++    assert_eq!(operator.kind, SelectorKind::Method);
++    assert_eq!(slot_values(&operator.slots), vec![SelectorSlot::Positional]);
++
++    for (source, expected_kind, expected_slots) in cases {
++        let reference = method_ref(source);
++        let SelectorSpecSyntax::Exact(exact) = reference.spec else {
++            panic!("{source:?} should be exact");
++        };
++        assert_eq!(exact.base, "name", "{source:?}");
++        assert_eq!(exact.kind, expected_kind, "{source:?}");
++        assert_eq!(slot_values(&exact.slots), expected_slots, "{source:?}");
++    }
++}
++
++#[test]
++fn colon_colon_rejects_legacy_hash_prefixed_selector_specs() {
++    // `#` remains the first-class selector/pattern sigil. It is deliberately
++    // not part of `::` selector syntax: the Family operator already establishes
++    // selector-spec context, so `receiver::#name` is redundant legacy syntax.
++    for source in [
++        "receiver::#name",
++        "receiver::#name()",
++        "receiver::#name(_)",
++        "receiver::#name(foo)",
++        "receiver::#name...",
++        "receiver::#name(...) ",
++        "receiver::#name(_, ..., foo)",
++        "receiver::#+",
++    ] {
++        assert!(parse_source(source, 0).is_err(), "legacy syntax must be rejected: {source:?}");
++    }
++}
++
++#[test]
++fn colon_colon_accepts_every_single_gap_position() {
++    let any_named = pattern("receiver::name...");
++    assert_eq!(any_named.kind, SelectorKindPattern::AnyNamed);
++    assert!(any_named.prefix.is_empty());
++    assert!(any_named.suffix.is_empty());
++
++    let whole_method = pattern("receiver::name(...)");
++    assert_eq!(whole_method.kind, SelectorKindPattern::Exact(SelectorKind::Method));
++    assert!(whole_method.prefix.is_empty());
++    assert!(whole_method.suffix.is_empty());
++
++    let prefix = pattern("receiver::name(_, ...)");
++    assert_eq!(slot_values(&prefix.prefix), vec![SelectorSlot::Positional]);
++    assert!(prefix.suffix.is_empty());
++
++    let suffix = pattern("receiver::name(..., foo)");
++    assert!(suffix.prefix.is_empty());
++    assert_eq!(slot_values(&suffix.suffix), vec![SelectorSlot::Label("foo".into())]);
++
++    let sandwich = pattern("receiver::name(_, ..., foo)");
++    assert_eq!(slot_values(&sandwich.prefix), vec![SelectorSlot::Positional]);
++    assert_eq!(slot_values(&sandwich.suffix), vec![SelectorSlot::Label("foo".into())]);
++
++    let wide = pattern("receiver::name(_, _, ..., foo, bar)");
++    assert_eq!(
++        slot_values(&wide.prefix),
++        vec![SelectorSlot::Positional, SelectorSlot::Positional]
++    );
++    assert_eq!(
++        slot_values(&wide.suffix),
++        vec![SelectorSlot::Label("foo".into()), SelectorSlot::Label("bar".into())]
++    );
++}
++
++#[test]
++fn colon_colon_accepts_setter_pattern_without_hash() {
++    let setter = pattern("receiver::name=...");
++    assert_eq!(setter.base, "name");
++    assert_eq!(setter.kind, SelectorKindPattern::Exact(SelectorKind::Setter));
++    assert!(setter.prefix.is_empty());
++    assert!(setter.suffix.is_empty());
++}
++
++#[test]
++fn malformed_selector_patterns_are_rejected_at_parse_time() {
++    for source in [
++        "receiver::name(..., ...)",
++        "receiver::name(_, ..., foo, ...)",
++        "receiver::name(foo, ..., _)",
++        "receiver::name(_, , foo)",
++        "receiver::name(...",
++        "receiver::name(_, ... foo)",
++    ] {
++        assert!(parse_source(source, 0).is_err(), "malformed pattern unexpectedly parsed: {source:?}");
++    }
++}
++
++#[test]
++fn first_class_selector_specs_keep_hash_for_reflection() {
++    // Banning `#` after `::` must not accidentally retire selector Symbols or
++    // SelectorPattern values. Those are exactly what ordinary `Behavior#>>(_:)`
++    // consumes on its RHS.
++    for source in [
++        "#name",
++        "#name()",
++        "#name(_)",
++        "#name...",
++        "#name(...) ",
++        "#name(_, ...)",
++        "#name(..., foo)",
++        "#name(_, ..., foo)",
++        "#name=...",
++        "#name=(put)",
++    ] {
++        assert!(parse_source(source, 0).is_ok(), "first-class selector spec should parse: {source:?}");
++    }
++}
++
++#[test]
++fn shift_right_with_selector_pattern_remains_an_ordinary_binary_send() {
++    let program = parse_source("Behavior >> #name(_, ..., foo)", 0).expect("reflection expression parses");
++    let Statement::Expr {
++        expr: Expr::Binary(binary),
++        ..
++    } = &program.statements[0]
++    else {
++        panic!("expected binary >> expression");
++    };
++    assert_eq!(binary.op, BinaryOp::ShiftRight);
++    let Expr::Symbol(symbol) = &binary.right else {
++        panic!(">> RHS should remain a first-class selector-pattern value");
++    };
++    let SymbolLiteralKind::Pattern(pattern) = &symbol.kind else {
++        panic!(">> RHS should be a SelectorPattern");
++    };
++    assert_eq!(pattern.kind, SelectorKindPattern::Exact(SelectorKind::Method));
++    assert_eq!(slot_values(&pattern.prefix), vec![SelectorSlot::Positional]);
++    assert_eq!(slot_values(&pattern.suffix), vec![SelectorSlot::Label("foo".into())]);
++}
+
+diff --git a/phalcom-common/tests/family_selector_patterns.rs b/phalcom-common/tests/family_selector_patterns.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-common/tests/family_selector_patterns.rs
+@@ -0,0 +1,178 @@
++use phalcom_common::selector::{
++    Selector, SelectorBase, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot,
++};
++
++fn method(name: &str, slots: Vec<SelectorSlot>) -> Selector {
++    Selector::method(name, slots.into_boxed_slice()).unwrap()
++}
++
++fn method_pattern(prefix: Vec<SelectorSlot>, suffix: Vec<SelectorSlot>) -> SelectorPattern {
++    SelectorPattern::named_method("route", prefix.into_boxed_slice(), suffix.into_boxed_slice(), true).unwrap()
++}
++
++#[test]
++fn gap_is_zero_or_more_slots_not_one_or_more() {
++    let pattern = method_pattern(
++        vec![SelectorSlot::Positional],
++        vec![SelectorSlot::Label("foo".into())],
++    );
++
++    assert!(pattern.matches(&method(
++        "route",
++        vec![SelectorSlot::Positional, SelectorSlot::Label("foo".into())],
++    )));
++    assert!(pattern.matches(&method(
++        "route",
++        vec![
++            SelectorSlot::Positional,
++            SelectorSlot::Positional,
++            SelectorSlot::Label("foo".into()),
++        ],
++    )));
++    assert!(pattern.matches(&method(
++        "route",
++        vec![
++            SelectorSlot::Positional,
++            SelectorSlot::Positional,
++            SelectorSlot::Label("mid".into()),
++            SelectorSlot::Label("foo".into()),
++        ],
++    )));
++}
++
++#[test]
++fn prefix_suffix_and_base_are_all_structural_constraints() {
++    let pattern = method_pattern(
++        vec![SelectorSlot::Positional],
++        vec![SelectorSlot::Label("foo".into())],
++    );
++
++    assert!(!pattern.matches(&method("other", vec![SelectorSlot::Positional, SelectorSlot::Label("foo".into())])));
++    assert!(!pattern.matches(&method("route", vec![SelectorSlot::Label("foo".into())])));
++    assert!(!pattern.matches(&method(
++        "route",
++        vec![SelectorSlot::Positional, SelectorSlot::Label("bar".into())],
++    )));
++    assert!(!pattern.matches(&method("route", vec![SelectorSlot::Positional])));
++}
++
++#[test]
++fn method_gap_pattern_never_matches_getter_or_setter() {
++    let empty = Vec::<SelectorSlot>::new().into_boxed_slice();
++    let pattern = SelectorPattern::named_method("value", empty.clone(), empty, true).unwrap();
++
++    assert!(pattern.matches(&Selector::method("value", Box::new([])).unwrap()));
++    assert!(!pattern.matches(&Selector::getter("value").unwrap()));
++    assert!(!pattern.matches(&Selector::setter("value").unwrap()));
++}
++
++#[test]
++fn any_named_pattern_covers_getter_setter_and_methods_but_not_subscripts() {
++    let empty = Vec::<SelectorSlot>::new().into_boxed_slice();
++    let pattern = SelectorPattern::named(
++        "value",
++        SelectorKindPattern::AnyNamed,
++        empty.clone(),
++        empty.clone(),
++        true,
++    )
++    .unwrap();
++
++    assert!(pattern.matches(&Selector::getter("value").unwrap()));
++    assert!(pattern.matches(&Selector::setter("value").unwrap()));
++    assert!(pattern.matches(&Selector::method("value", Box::new([])).unwrap()));
++    assert!(pattern.matches(&method("value", vec![SelectorSlot::Positional])));
++    assert!(!pattern.matches(&Selector::getter("other").unwrap()));
++    assert!(!pattern.matches(&Selector::subscript_get(Box::new([])).unwrap()));
++    assert!(!pattern.matches(&Selector::subscript_set(Box::new([])).unwrap()));
++}
++
++#[test]
++fn setter_pattern_matches_only_the_named_setter() {
++    let pattern = SelectorPattern::named(
++        "value",
++        SelectorKindPattern::Exact(SelectorKind::Setter),
++        Box::new([]),
++        Box::new([]),
++        true,
++    )
++    .unwrap();
++
++    assert!(pattern.matches(&Selector::setter("value").unwrap()));
++    assert!(!pattern.matches(&Selector::getter("value").unwrap()));
++    assert!(!pattern.matches(&Selector::method("value", Box::new([])).unwrap()));
++    assert!(!pattern.matches(&Selector::setter("other").unwrap()));
++}
++
++#[test]
++fn subscript_patterns_distinguish_read_and_write_kinds() {
++    let get = SelectorPattern::new(
++        SelectorBase::Subscript,
++        SelectorKindPattern::Exact(SelectorKind::SubscriptGet),
++        vec![SelectorSlot::Positional].into_boxed_slice(),
++        Vec::<SelectorSlot>::new().into_boxed_slice(),
++        true,
++    )
++    .unwrap();
++    let set = SelectorPattern::new(
++        SelectorBase::Subscript,
++        SelectorKindPattern::Exact(SelectorKind::SubscriptSet),
++        vec![SelectorSlot::Positional].into_boxed_slice(),
++        Vec::<SelectorSlot>::new().into_boxed_slice(),
++        true,
++    )
++    .unwrap();
++
++    let one = vec![SelectorSlot::Positional].into_boxed_slice();
++    let two = vec![SelectorSlot::Positional, SelectorSlot::Positional].into_boxed_slice();
++    assert!(get.matches(&Selector::subscript_get(one.clone()).unwrap()));
++    assert!(get.matches(&Selector::subscript_get(two.clone()).unwrap()));
++    assert!(!get.matches(&Selector::subscript_set(one.clone()).unwrap()));
++    assert!(set.matches(&Selector::subscript_set(one.clone()).unwrap()));
++    assert!(set.matches(&Selector::subscript_set(two).unwrap()));
++    assert!(!set.matches(&Selector::subscript_get(one).unwrap()));
++}
++
++#[test]
++fn impossible_pattern_lane_orderings_are_rejected() {
++    assert!(
++        SelectorPattern::named_method(
++            "route",
++            vec![SelectorSlot::Label("foo".into())].into_boxed_slice(),
++            vec![SelectorSlot::Positional].into_boxed_slice(),
++            true,
++        )
++        .is_err()
++    );
++
++    assert!(
++        SelectorPattern::named(
++            "value",
++            SelectorKindPattern::Exact(SelectorKind::Getter),
++            vec![SelectorSlot::Positional].into_boxed_slice(),
++            Box::new([]),
++            true,
++        )
++        .is_err()
++    );
++    assert!(
++        SelectorPattern::named(
++            "value",
++            SelectorKindPattern::Exact(SelectorKind::Setter),
++            Box::new([]),
++            vec![SelectorSlot::Label("foo".into())].into_boxed_slice(),
++            true,
++        )
++        .is_err()
++    );
++    assert!(
++        SelectorPattern::new(
++            SelectorBase::Subscript,
++            SelectorKindPattern::AnyNamed,
++            Box::new([]),
++            Box::new([]),
++            true,
++        )
++        .is_err()
++    );
++}
+
+diff --git a/phalcom-core/tests/lang/family/family_pattern_gap_positions.ph b/phalcom-core/tests/lang/family/family_pattern_gap_positions.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_pattern_gap_positions.ph
+@@ -0,0 +1,35 @@
++// area: family
++// spec: docs/spec/callables/family.md §§1–3
++// status: PASS
++// Exercises every named selector-pattern gap position through live Family
++// dispatch. The gap is zero-or-more slots; fixed prefix/suffix slots remain
++// structural constraints rather than call-time hints.
++
++class Router {
++  route() { "zero" }
++  route(_ a) { "one" }
++  route(_ a, _ b) { "two" }
++  route(foo) { "foo" }
++  route(_ a, foo) { "prefix+foo" }
++  route(_ a, mid, foo) { "prefix+mid+foo" }
++  route(_ a, _ b, mid, foo) { "prefix+two+mid+foo" }
++  route(bar) { "bar" }
++}
++
++const r = Router.new()
++const any = r::route...
++const methods = r::route(...)
++const prefix = r::route(_, ...)
++const suffix = r::route(..., foo)
++const sandwich = r::route(_, ..., foo)
++
++System.print(any())
++System.print(any(1))
++System.print(methods(foo: 1))
++System.print(prefix(1))
++System.print(prefix(1, 2))
++System.print(suffix(foo: 1))
++System.print(suffix(1, foo: 2))
++System.print(sandwich(1, foo: 2))
++System.print(sandwich(1, mid: 2, foo: 3))
++System.print(sandwich(1, 2, mid: 3, foo: 4))
+
+diff --git a/phalcom-core/tests/lang/family/family_pattern_gap_positions.expected b/phalcom-core/tests/lang/family/family_pattern_gap_positions.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_pattern_gap_positions.expected
+@@ -0,0 +1,10 @@
++zero
++one
++foo
++one
++two
++foo
++prefix+foo
++prefix+foo
++prefix+mid+foo
++prefix+two+mid+foo
+
+diff --git a/phalcom-core/tests/lang/family/family_any_named_accessor_method_setter.ph b/phalcom-core/tests/lang/family/family_any_named_accessor_method_setter.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_any_named_accessor_method_setter.ph
+@@ -0,0 +1,22 @@
++// area: family
++// spec: docs/spec/callables/family.md §§1–3
++// status: PASS
++// `name...` is AnyNamed: it accepts the getter, setter, nullary method, and
++// ordinary method selector kinds sharing the same base name.
++
++class Box {
++  @constructor
++  new() { _value = 1 }
++  value { _value }
++  value() { _value + 10 }
++  value(_ delta) { _value + delta }
++  value=(put next) { _value = next }
++}
++
++const box = Box.new()
++const family = box::value...
++System.print(family.get())
++System.print(family())
++System.print(family(4))
++family.set(9)
++System.print(family.get())
+
+diff --git a/phalcom-core/tests/lang/family/family_any_named_accessor_method_setter.expected b/phalcom-core/tests/lang/family/family_any_named_accessor_method_setter.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_any_named_accessor_method_setter.expected
+@@ -0,0 +1,4 @@
++1
++11
++5
++9
+
+diff --git a/phalcom-core/tests/lang/family/family_setter_pattern.ph b/phalcom-core/tests/lang/family/family_setter_pattern.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_setter_pattern.ph
+@@ -0,0 +1,17 @@
++// area: family
++// spec: docs/spec/callables/family.md §§1–3
++// status: PASS
++// The hashless setter pattern `name=...` accepts setter shape and remains a
++// live Family over the receiver.
++
++class Box {
++  @constructor
++  new() { _value = 1 }
++  value { _value }
++  value=(put next) { _value = next }
++}
++
++const box = Box.new()
++const setter = box::value=...
++setter.set(12)
++System.print(box.value)
+
+diff --git a/phalcom-core/tests/lang/family/family_setter_pattern.expected b/phalcom-core/tests/lang/family/family_setter_pattern.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_setter_pattern.expected
+@@ -0,0 +1 @@
++12
+
+diff --git a/phalcom-core/tests/lang/family/family_rest_fallback.ph b/phalcom-core/tests/lang/family/family_rest_fallback.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_rest_fallback.ph
+@@ -0,0 +1,18 @@
++// area: family
++// spec: docs/spec/callables/family.md §3; docs/spec/callables/reflection.md §2
++// status: PASS
++// Family invocation preserves ordinary resolver order: exact selector lookup
++// wins first; a compatible rest-family route is the fallback for wider shapes.
++
++class Adder {
++  sum(_ a, _ b) { -1 }
++  sum(*numbers) {
++    let total = 0
++    numbers.each(|n| { total = total + n })
++    return total
++  }
++}
++
++const family = Adder.new()::sum(...)
++System.print(family(1, 2))
++System.print(family(1, 2, 3))
+
+diff --git a/phalcom-core/tests/lang/family/family_rest_fallback.expected b/phalcom-core/tests/lang/family/family_rest_fallback.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_rest_fallback.expected
+@@ -0,0 +1,2 @@
++-1
++6
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_shift_right_exact.ph b/phalcom-core/tests/lang/family/family_reflection_shift_right_exact.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_shift_right_exact.ph
+@@ -0,0 +1,22 @@
++// area: family
++// spec: docs/spec/callables/reflection.md §§1–4
++// status: PASS
++// `>>` is ordinary polymorphic reflection on Behavior. Exact selector Symbols
++// yield one effective Method (or None), while integer `>>` keeps shift meaning.
++
++class Reflector {
++  value { 10 }
++  value() { 11 }
++  double(_ n) { n * 2 }
++}
++class Empty {}
++
++const receiver = Reflector.new()
++const getter = Reflector >> #value
++const nullary = Reflector >> #value()
++const double = Reflector >> #double(_)
++System.print(getter.bind(receiver)())
++System.print(nullary.bind(receiver)())
++System.print(double.bind(receiver)(6))
++System.print((Empty >> #missing()) == None)
++System.print(16 >> 2)
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_shift_right_exact.expected b/phalcom-core/tests/lang/family/family_reflection_shift_right_exact.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_shift_right_exact.expected
+@@ -0,0 +1,5 @@
++10
++11
++12
++true
++4
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_method_family.ph b/phalcom-core/tests/lang/family/family_reflection_method_family.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_method_family.ph
+@@ -0,0 +1,18 @@
++// area: family
++// spec: docs/spec/callables/reflection.md §2
++// status: PASS
++// Pattern extraction returns MethodFamily. Binding the snapshot routes exact
++// captured implementations without receiver-side reselection.
++
++class Router {
++  route() { "zero" }
++  route(_ value) { "one" }
++  route(to) { "to" }
++}
++
++const methods = Router >> #route(...)
++System.print(methods.size)
++const bound = methods.bind(Router.new())
++System.print(bound())
++System.print(bound(7))
++System.print(bound(to: 8))
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_method_family.expected b/phalcom-core/tests/lang/family/family_reflection_method_family.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_method_family.expected
+@@ -0,0 +1,4 @@
++3
++zero
++one
++to
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_pattern_shapes.ph b/phalcom-core/tests/lang/family/family_reflection_pattern_shapes.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_pattern_shapes.ph
+@@ -0,0 +1,18 @@
++// area: family
++// spec: docs/spec/callables/reflection.md §2
++// status: PASS
++// `Behavior >> pattern` uses the same structural prefix/suffix matching laws
++// as receiver-bound Family patterns. These counts also prove zero-width gaps.
++
++class Shape {
++  pick(_ a) { 1 }
++  pick(_ a, _ b) { 2 }
++  pick(foo) { 3 }
++  pick(_ a, foo) { 4 }
++  pick(_ a, mid, foo) { 5 }
++  pick(bar) { 6 }
++}
++
++System.print((Shape >> #pick(_, ...)).size)
++System.print((Shape >> #pick(..., foo)).size)
++System.print((Shape >> #pick(_, ..., foo)).size)
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_pattern_shapes.expected b/phalcom-core/tests/lang/family/family_reflection_pattern_shapes.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_pattern_shapes.expected
+@@ -0,0 +1,3 @@
++4
++3
++2
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_any_named_kind_boundary.ph b/phalcom-core/tests/lang/family/family_reflection_any_named_kind_boundary.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_any_named_kind_boundary.ph
+@@ -0,0 +1,14 @@
++// area: family
++// spec: docs/spec/callables/reflection.md §2
++// status: PASS
++// AnyNamed includes getter/setter/method selectors. `name(...)` is method-only.
++
++class Box {
++  value { 1 }
++  value() { 2 }
++  value(_ x) { 3 }
++  value=(put x) { 4 }
++}
++
++System.print((Box >> #value...).size)
++System.print((Box >> #value(...)).size)
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_any_named_kind_boundary.expected b/phalcom-core/tests/lang/family/family_reflection_any_named_kind_boundary.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_any_named_kind_boundary.expected
+@@ -0,0 +1,2 @@
++4
++2
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_inherited_effective_methods.ph b/phalcom-core/tests/lang/family/family_reflection_inherited_effective_methods.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_inherited_effective_methods.ph
+@@ -0,0 +1,19 @@
++// area: family
++// spec: docs/spec/callables/reflection.md §2
++// status: PASS
++// Pattern capture walks effective behavior: subclass overrides shadow the base
++// exact route while unmatched inherited routes remain in the snapshot.
++
++class Base {
++  route(_ value) { "base-positional" }
++  route(to) { "base-labeled" }
++}
++class Child is Base {
++  route(_ value) { "child-positional" }
++}
++
++const family = Child >> #route(...)
++System.print(family.size)
++const bound = family.bind(Child.new())
++System.print(bound(1))
++System.print(bound(to: 2))
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_inherited_effective_methods.expected b/phalcom-core/tests/lang/family/family_reflection_inherited_effective_methods.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_inherited_effective_methods.expected
+@@ -0,0 +1,3 @@
++2
++child-positional
++base-labeled
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_rest_snapshot.ph b/phalcom-core/tests/lang/family/family_reflection_rest_snapshot.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_rest_snapshot.ph
+@@ -0,0 +1,21 @@
++// area: family
++// spec: docs/spec/callables/reflection.md §2
++// status: PASS
++// MethodFamily snapshots exact routes plus the ordered compatible rest route.
++// BoundMethodFamily keeps exact-before-rest resolution without consulting the
++// receiver's class for a new implementation.
++
++class Adder {
++  sum(_ a, _ b) { -1 }
++  sum(*numbers) {
++    let total = 0
++    numbers.each(|n| { total = total + n })
++    return total
++  }
++}
++
++const methods = Adder >> #sum(...)
++System.print(methods.size)
++const bound = methods.bind(Adder.new())
++System.print(bound(1, 2))
++System.print(bound(1, 2, 3))
+
+diff --git a/phalcom-core/tests/lang/family/family_reflection_rest_snapshot.expected b/phalcom-core/tests/lang/family/family_reflection_rest_snapshot.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/family_reflection_rest_snapshot.expected
+@@ -0,0 +1,3 @@
++2
++-1
++6
+
+diff --git a/phalcom-core/tests/lang/family/negative/family_pattern_prefix_miss.ph b/phalcom-core/tests/lang/family/negative/family_pattern_prefix_miss.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/negative/family_pattern_prefix_miss.ph
+@@ -0,0 +1,11 @@
++// area: family/negative
++// spec: docs/spec/callables/family.md §3
++// status: NEGATIVE
++// A prefix-constrained pattern does not silently widen to the same base name.
++
++class Router {
++  route() { 0 }
++  route(_ value) { value }
++}
++const family = Router.new()::route(_, ...)
++System.print(family())
+
+diff --git a/phalcom-core/tests/lang/family/negative/family_pattern_prefix_miss.expected b/phalcom-core/tests/lang/family/negative/family_pattern_prefix_miss.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/negative/family_pattern_prefix_miss.expected
+@@ -0,0 +1 @@
++does not understand 'route()'
+
+diff --git a/phalcom-core/tests/lang/family/negative/family_pattern_suffix_miss.ph b/phalcom-core/tests/lang/family/negative/family_pattern_suffix_miss.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/negative/family_pattern_suffix_miss.ph
+@@ -0,0 +1,11 @@
++// area: family/negative
++// spec: docs/spec/callables/family.md §3
++// status: NEGATIVE
++// A suffix-constrained pattern must keep the fixed trailing label.
++
++class Router {
++  route(foo) { foo }
++  route(bar) { bar }
++}
++const family = Router.new()::route(..., foo)
++System.print(family(bar: 1))
+
+diff --git a/phalcom-core/tests/lang/family/negative/family_pattern_suffix_miss.expected b/phalcom-core/tests/lang/family/negative/family_pattern_suffix_miss.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/family/negative/family_pattern_suffix_miss.expected
+@@ -0,0 +1 @@
++does not understand 'route(bar)'

@@ -945,7 +945,13 @@ impl VM {
                 };
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
                 if !pattern.matches(&structural) {
-                    return Err(RuntimeError::Message("call shape does not match selector pattern".into()).into());
+                    return Err(RuntimeError::SelectorPatternMismatch {
+                        pattern,
+                        selector: structural,
+                        family: Value::Obj(family_id),
+                        receiver: family.receiver,
+                    }
+                    .into());
                 }
                 selector
             }

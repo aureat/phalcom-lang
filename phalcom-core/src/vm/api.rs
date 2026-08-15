@@ -167,6 +167,7 @@ impl VM {
             RuntimeError::InvalidBitIndex(_) => "invalidBitIndex",
             RuntimeError::UndefinedNumericOperation(_) => "undefinedNumericOperation",
             RuntimeError::ConcurrentMutation { .. } => "concurrentMutation",
+            RuntimeError::SelectorPatternMismatch { .. } => "selectorPatternMismatch",
             RuntimeError::DepthExceeded { .. } => "depthExceeded",
             RuntimeError::DeadFrameError => "deadFrame",
             RuntimeError::NumericConversion { .. } => "numericConversion",

@@ -1,6 +1,7 @@
 use crate::compiler::lib::CompilerError;
 use crate::value::Value;
 use phalcom_ast::error::SyntaxError;
+use phalcom_common::selector::{Selector, SelectorPattern};
 use std::io;
 // use std::io::Error as IoError;
 use thiserror::Error;
@@ -79,6 +80,21 @@ pub enum FrameRecord {
 pub enum RuntimeError {
     #[error("Method {signature} expected {}, got {found}", format_num_arguments(*expected))]
     Arity { signature: &'static str, expected: usize, found: usize },
+
+    /// A Family invocation produced a concrete selector outside its captured
+    /// structural selector pattern. Validation occurs before receiver lookup;
+    /// this is distinct from a later `doesNotUnderstand` dispatch miss.
+    #[error("selector pattern mismatch: attempted selector `{selector}` does not match family pattern `{pattern}`")]
+    SelectorPatternMismatch {
+        /// Captured structural selector predicate.
+        pattern: SelectorPattern,
+        /// Concrete selector derived from the attempted invocation.
+        selector: Selector,
+        /// The invoked Family object.
+        family: Value,
+        /// Receiver retained by the Family.
+        receiver: Value,
+    },
 
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },
