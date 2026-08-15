@@ -502,17 +502,16 @@ impl OccurrenceBuilder<'_> {
                 self.visit_statements(&block.body, block_scope);
             }
             Expr::MethodRef(reference) => {
-                if let Some(range) = reference.selector_range {
-                    let name = match &reference.kind {
-                        MethodRefKind::Open { name } | MethodRefKind::Pinned { name, .. } => name.clone(),
-                    };
-                    self.push(
-                        range,
-                        SemanticOccurrenceKind::Member,
-                        OccurrenceRole::Reference,
-                        SemanticTarget::Member { name },
-                    );
-                }
+                let (base_range, name) = match &reference.spec {
+                    phalcom_ast::ast::SelectorSpecSyntax::Exact(exact) => (exact.base_range, exact.base.clone()),
+                    phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern) => (pattern.base_range, pattern.base.clone()),
+                };
+                self.push(
+                    base_range,
+                    SemanticOccurrenceKind::Member,
+                    OccurrenceRole::Reference,
+                    SemanticTarget::Member { name },
+                );
                 self.visit_expr(&reference.receiver, scope);
             }
             Expr::SetLiteral(set) => {
@@ -564,14 +563,32 @@ impl OccurrenceBuilder<'_> {
                     }
                 }
             }
+            Expr::Symbol(symbol) => {
+                let (base_range, name) = match &symbol.kind {
+                    phalcom_ast::ast::SymbolLiteralKind::Name(name) => (
+                        SourceRange::new(symbol.range.start + 1, symbol.range.end),
+                        name.clone(),
+                    ),
+                    phalcom_ast::ast::SymbolLiteralKind::Selector { name, .. } => (
+                        SourceRange::new(symbol.range.start + 1, symbol.range.start + 1 + name.len()),
+                        name.clone(),
+                    ),
+                    phalcom_ast::ast::SymbolLiteralKind::Pattern(syntax) => (syntax.base_range, syntax.base.clone()),
+                };
+                self.push(
+                    base_range,
+                    SemanticOccurrenceKind::Member,
+                    OccurrenceRole::Reference,
+                    SemanticTarget::Member { name },
+                );
+            }
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::String { .. }
             | Expr::Boolean { .. }
             | Expr::SelfVar { .. }
             | Expr::SuperVar { .. }
-            | Expr::ImplementationSelector { .. }
-            | Expr::Symbol { .. } => {}
+            | Expr::ImplementationSelector { .. } => {}
         }
     }
 

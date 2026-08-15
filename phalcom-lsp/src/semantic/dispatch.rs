@@ -67,10 +67,10 @@ pub(crate) struct ResolvedDispatch {
     /// Callable ID of the actual declaration.
     pub callable: CallableId,
     /// Class represented by the receiver expression.
-    #[cfg_attr(not(test), expect(dead_code, reason = "retained for receiver-aware dispatch regression assertions"))]
+    #[allow(dead_code)]
     pub receiver_class: ClassId,
     /// Dispatch side used for lookup.
-    #[cfg_attr(not(test), expect(dead_code, reason = "retained for side-aware dispatch regression assertions"))]
+    #[allow(dead_code)]
     pub side: DispatchSide,
 }
 
@@ -160,10 +160,10 @@ impl<'a, T: ClassTable + ?Sized> DispatchResolver<'a, T> {
             for member in surface.members_on(side) {
                 if member.rest.is_none() && pattern.matches(&member.selector) {
                     let key = member.selector.encode();
-                    if seen_exact.insert(key) {
-                        if member.visibility == MemberVisibility::Public || member.visibility == MemberVisibility::Internal {
-                            exact.push((member.selector.clone(), member.callable.clone()));
-                        }
+                    if seen_exact.insert(key)
+                        && (member.visibility == MemberVisibility::Public || member.visibility == MemberVisibility::Internal)
+                    {
+                        exact.push((member.selector.clone(), member.callable.clone()));
                     }
                 }
             }
@@ -171,10 +171,11 @@ impl<'a, T: ClassTable + ?Sized> DispatchResolver<'a, T> {
             // Direct rest methods matching pattern base & kind
             for member in surface.members_on(side) {
                 if let Some(ref rest_surface) = member.rest {
-                    if pattern.base == member.selector.base && pattern_kind_matches(&pattern.kind, member.selector.kind) {
-                        if member.visibility == MemberVisibility::Public || member.visibility == MemberVisibility::Internal {
-                            rest.push((member.callable.clone(), rest_surface.clone()));
-                        }
+                    if pattern.base == member.selector.base
+                        && pattern_kind_matches(&pattern.kind, member.selector.kind)
+                        && (member.visibility == MemberVisibility::Public || member.visibility == MemberVisibility::Internal)
+                    {
+                        rest.push((member.callable.clone(), rest_surface.clone()));
                     }
                 }
             }

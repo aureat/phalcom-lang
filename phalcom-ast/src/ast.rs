@@ -978,6 +978,28 @@ pub enum NormalizedSelectorSpec {
     Pattern(SelectorPattern),
 }
 
+impl ExactSelectorSyntax {
+    pub fn normalize(&self) -> Result<Selector, SelectorError> {
+        Selector::new(
+            phalcom_common::selector::SelectorBase::Named(self.base.clone()),
+            self.kind,
+            self.slots.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+        )
+    }
+}
+
+impl SelectorPatternSyntax {
+    pub fn normalize(&self) -> Result<SelectorPattern, SelectorError> {
+        SelectorPattern::new(
+            phalcom_common::selector::SelectorBase::Named(self.base.clone()),
+            self.kind.clone(),
+            self.prefix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+            self.suffix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+            true,
+        )
+    }
+}
+
 impl SelectorSpecSyntax {
     pub fn range(&self) -> SourceRange {
         match self {
@@ -995,18 +1017,8 @@ impl SelectorSpecSyntax {
 
     pub fn normalize(&self) -> Result<NormalizedSelectorSpec, SelectorError> {
         match self {
-            Self::Exact(spec) => Ok(NormalizedSelectorSpec::Exact(Selector::new(
-                phalcom_common::selector::SelectorBase::Named(spec.base.clone()),
-                spec.kind,
-                spec.slots.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
-            )?)),
-            Self::Pattern(spec) => Ok(NormalizedSelectorSpec::Pattern(SelectorPattern::new(
-                phalcom_common::selector::SelectorBase::Named(spec.base.clone()),
-                spec.kind.clone(),
-                spec.prefix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
-                spec.suffix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
-                true,
-            )?)),
+            Self::Exact(spec) => spec.normalize().map(NormalizedSelectorSpec::Exact),
+            Self::Pattern(spec) => spec.normalize().map(NormalizedSelectorSpec::Pattern),
         }
     }
 }

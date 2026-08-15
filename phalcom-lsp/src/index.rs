@@ -920,8 +920,7 @@ impl Collector {
             | Expr::Field { .. }
             | Expr::ImplementationSelector { .. }
             | Expr::SelfVar { .. }
-            | Expr::SuperVar { .. }
-            | Expr::Symbol(_) => {}
+            | Expr::SuperVar { .. } => {}
             Expr::Assignment(a) => {
                 self.walk_expr(&a.name);
                 self.walk_expr(&a.value);
@@ -990,17 +989,32 @@ impl Collector {
             }
             Expr::MethodRef(mr) => {
                 self.walk_expr(&mr.receiver);
-                // Only the Pinned form (`obj::#name(_,to,duration)`) carries
-                // a full selector at the reference site — it interns to the
-                // same `Symbol` as its target method (ADR-0012, see
-                // `MethodRefKind::Pinned`'s doc). The Open form (`obj::name`)
-                // is a bare base name whose selector is resolved at call
-                // time from the caller's argument labels, so there is no
-                // single selector to index it under here.
-                if let phalcom_ast::ast::MethodRefKind::Pinned { name, labels } = &mr.kind {
-                    let selector = comma_form_from_labels(name, labels);
-                    if let Some(range) = mr.selector_range {
-                        self.references.push((selector, range));
+                match &mr.spec {
+                    phalcom_ast::ast::SelectorSpecSyntax::Exact(exact) => {
+                        if let Ok(normalized) = exact.normalize() {
+                            let range = mr.selector_range.unwrap_or(exact.range);
+                            self.references.push((normalized.encode(), range));
+                        }
+                    }
+                    phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern) => {
+                        if let Ok(normalized) = pattern.normalize() {
+                            let range = mr.selector_range.unwrap_or(pattern.range);
+                            self.references.push((normalized.encode(), range));
+                        }
+                    }
+                }
+            }
+            Expr::Symbol(s) => {
+                match &s.kind {
+                    phalcom_ast::ast::SymbolLiteralKind::Name(_) => {}
+                    phalcom_ast::ast::SymbolLiteralKind::Selector { name, labels } => {
+                        let selector = comma_form_from_labels(name, labels);
+                        self.references.push((selector, s.range));
+                    }
+                    phalcom_ast::ast::SymbolLiteralKind::Pattern(pattern) => {
+                        if let Ok(normalized) = pattern.normalize() {
+                            self.references.push((normalized.encode(), s.range));
+                        }
                     }
                 }
             }
