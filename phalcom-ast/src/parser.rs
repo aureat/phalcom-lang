@@ -198,6 +198,22 @@ fn lex_error_to_syntax(err: LexicalError, offset: usize) -> SyntaxError {
             kind: SyntaxErrorKind::RawNewlineInString,
             range: (span.start + offset)..(span.end + offset),
         },
+        LexicalError::UnterminatedMultilineString(span) => SyntaxError {
+            kind: SyntaxErrorKind::UnterminatedMultilineString,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::InvalidMultilineStringOpening(span) => SyntaxError {
+            kind: SyntaxErrorKind::InvalidMultilineStringOpening,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::InvalidMultilineStringIndentation(span) => SyntaxError {
+            kind: SyntaxErrorKind::InvalidMultilineStringIndentation,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::InvalidMultilineStringLineEnding(span) => SyntaxError {
+            kind: SyntaxErrorKind::InvalidMultilineStringLineEnding,
+            range: (span.start + offset)..(span.end + offset),
+        },
         LexicalError::Invalid => SyntaxError {
             kind: SyntaxErrorKind::InvalidToken,
             range: 0..0,
@@ -228,6 +244,7 @@ fn push_lex_error(errors: &mut Vec<SyntaxError>, err: LexicalError, offset: usiz
         LexicalError::UnterminatedBlockComment(_) => Some("`*/`"),
         LexicalError::UnterminatedString(_) => Some("`\"`"),
         LexicalError::UnterminatedInterpolation(_) => Some("`)`"),
+        LexicalError::UnterminatedMultilineString(_) => Some("`\"\"\"`"),
         _ => None,
     };
 

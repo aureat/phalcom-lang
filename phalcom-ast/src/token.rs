@@ -324,6 +324,14 @@ pub enum LexicalError {
     UnterminatedInterpolation(Range<usize>),
     /// A unescaped physical newline occurred inside a double-quoted string.
     RawNewlineInString(Range<usize>),
+    /// A multiline string literal was opened with `"""` but never closed before end-of-input.
+    UnterminatedMultilineString(Range<usize>),
+    /// A multiline string opening delimiter `"""` was followed by illegal non-whitespace before newline.
+    InvalidMultilineStringOpening(Range<usize>),
+    /// A multiline string line does not match the closing delimiter's indentation margin prefix.
+    InvalidMultilineStringIndentation(Range<usize>),
+    /// A multiline string literal contained an invalid physical line ending (e.g. raw lone CR).
+    InvalidMultilineStringLineEnding(Range<usize>),
 
     /// Placeholder default; never produced by the scanner.
     #[default]

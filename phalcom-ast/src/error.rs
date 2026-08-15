@@ -210,6 +210,22 @@ pub enum SyntaxErrorKind {
     #[error("Raw newline is not allowed in a string literal")]
     RawNewlineInString,
 
+    /// A multiline string literal was not closed before end-of-input.
+    #[error("Unterminated multiline string")]
+    UnterminatedMultilineString,
+
+    /// A multiline string opening delimiter was not followed by a newline.
+    #[error("Multiline string opening delimiter must be followed by a newline")]
+    InvalidMultilineStringOpening,
+
+    /// A multiline string line is indented less than the closing delimiter.
+    #[error("Multiline string line is indented less than the closing delimiter")]
+    InvalidMultilineStringIndentation,
+
+    /// An invalid multiline string line ending was encountered.
+    #[error("Invalid multiline string line ending")]
+    InvalidMultilineStringLineEnding,
+
     /// An invalid structural rest-parameter declaration.
     #[error("{0}")]
     RestParameter(RestParameterErrorKind),
@@ -246,6 +262,10 @@ impl SyntaxErrorKind {
             Self::UnterminatedInterpolation => "string.interpolation.unterminated",
             Self::EmptyInterpolation => "string.interpolation.empty",
             Self::RawNewlineInString => "string.raw_newline",
+            Self::UnterminatedMultilineString => "string.multiline.unterminated",
+            Self::InvalidMultilineStringOpening => "string.multiline.opening_newline",
+            Self::InvalidMultilineStringIndentation => "string.multiline.indentation",
+            Self::InvalidMultilineStringLineEnding => "string.multiline.invalid_line_ending",
             Self::RestParameter(kind) => kind.code(),
             Self::Unknown => "syntax.unknown",
             Self::Message(_) => "syntax.message",

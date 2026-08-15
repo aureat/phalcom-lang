@@ -35,10 +35,13 @@ A scanner MUST advance by complete UTF-8 scalar values when it is not consuming 
 
 ### 3.1 String literal
 
-A double-quoted string literal has the following conceptual grammar:
+A string literal is either a single-line double-quoted string or a triple-quoted multiline text block ([PDR-0034](../../pdr/0034-multiline-string-text-blocks.md)):
 
 ```text
-string-literal ::= `"` string-part* `"`
+string-literal ::= single-line-string | multiline-text-block
+
+single-line-string ::= `"` string-part* `"`
+multiline-text-block ::= `"""` hspace* newline multiline-body margin `"""`
 
 string-part    ::= literal-character
                  | escape-sequence
@@ -55,9 +58,7 @@ interpolation  ::= `\(` interpolation-expression `)`
 
 `literal-character` is any Unicode scalar value other than `"` or `\`.
 
-Physical LF and CRLF are invalid inside a double-quoted string. Use `\n` or
-`\r\n` escapes for embedded line breaks. Dedicated
-multiline literal syntax is deferred by [PDR-0029](../../pdr/0029-string-literals-and-interpolation-completion.md).
+Physical LF and CRLF are invalid inside a single-line double-quoted string; multiline text blocks (`"""`) are used for strings spanning physical lines.
 
 ### 3.2 Escape values
 

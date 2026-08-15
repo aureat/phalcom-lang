@@ -29,7 +29,7 @@ second canonical copy. Its implementation contract is
    interpolation; every other escape is invalid.
 2. A physical LF or CRLF remains illegal inside a double-quoted string. Use
    `\n` or `\r\n` for embedded line breaks. Dedicated multiline string literal
-   syntax is deferred in the linked work item.
+   syntax was deferred at the time of PDR-0029 and is now ratified by PDR-0034 (`"""` text blocks).
 3. Interpolation bodies use the ordinary string and comment scanners. Parenthesis
    depth changes only in expression-code mode; nested strings and comments do
    not affect the outer interpolation boundary.

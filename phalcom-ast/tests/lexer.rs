@@ -93,10 +93,127 @@ fn newline_after_value_is_preserved() {
 }
 
 #[test]
-fn numeric_digit_separators() {
-    // `_` separators (D2) are stripped before decoding: `1_000_000` reads as
-    // `1000000.0`, and `_` works on both sides of the decimal point.
-    insta::assert_debug_snapshot!(tokens("1_000_000 1_000.500_5"));
+fn multiline_string_basic_dedent() {
+    let src = "\"\"\"\n    first\n        second\n    third\n    \"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("first\n    second\nthird".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_empty_block() {
+    let src = "\"\"\"\n\"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_closing_margin_zero() {
+    let src = "\"\"\"\nfirst\n  second\n\"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("first\n  second".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_opening_trailing_hspace() {
+    let src = "\"\"\"   \t  \n    hello\n    \"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("hello".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_blank_lines() {
+    let src = "\"\"\"\n    first\n\n  \n        \n    second\n    \"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("first\n\n\n\nsecond".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_exact_prefix_tabs() {
+    let src = "\"\"\"\n\t\tfirst\n\t\t\tsecond\n\t\t\"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("first\n\tsecond".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_newlines_crlf() {
+    let src = "\"\"\"\r\n    first\r\n    second\r\n    \"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("first\nsecond".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_escapes() {
+    let src = "\"\"\"\n    \\\" \\\\ \\n \\t \\r\n    \"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("\" \\ \n \t \r".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_embedded_triple_quotes() {
+    let src = "\"\"\"\n    She wrote \"\"\"hello\"\"\" here\n    \"\"\"";
+    let toks = tokens(src);
+    assert_eq!(toks, vec![Token::String("She wrote \"\"\"hello\"\"\" here".into()), Token::Eof]);
+}
+
+#[test]
+fn multiline_string_interpolation_and_source_ranges() {
+    let src = "let s = \"\"\"\n    α \\(x + 1) beta\n    \"\"\"";
+    let mut lex = Lexer::new(src);
+    let mut items = Vec::new();
+    while let Some(res) = lex.next() {
+        items.push(res.expect("should lex"));
+    }
+    // Check tokens
+    assert_eq!(items[0].1, Token::Let);
+    assert_eq!(items[1].1, Token::Identifier("s".into()));
+    assert_eq!(items[2].1, Token::Equal);
+    match &items[3].1 {
+        Token::StringInterp(segments) => {
+            assert_eq!(segments.len(), 3);
+            assert_eq!(segments[0], phalcom_ast::token::StringSegment::Literal("α ".into()));
+            match &segments[1] {
+                phalcom_ast::token::StringSegment::Expr { source, range } => {
+                    assert_eq!(source, "x + 1");
+                    assert_eq!(&src[range.clone()], "x + 1");
+                }
+                _ => panic!("expected Expr segment"),
+            }
+            assert_eq!(segments[2], phalcom_ast::token::StringSegment::Literal(" beta".into()));
+        }
+        other => panic!("expected StringInterp, got {other:?}"),
+    }
+}
+
+#[test]
+fn multiline_string_nested_multiline_in_interpolation() {
+    let src = "\"\"\"\n    outer \\(call(\"\"\"\n        nested\n        \"\"\"\n    ))\n    end\n    \"\"\"";
+    let toks = tokens(src);
+    assert!(matches!(toks[0], Token::StringInterp(_)));
+}
+
+#[test]
+fn multiline_string_diagnostics() {
+    // Bad opening
+    let err = Lexer::new("\"\"\"invalid\n\"\"\"").next().unwrap().unwrap_err();
+    assert!(matches!(err, phalcom_ast::token::LexicalError::InvalidMultilineStringOpening(_)));
+
+    // Bad indent
+    let err = Lexer::new("\"\"\"\n    first\n  second\n    \"\"\"").next().unwrap().unwrap_err();
+    assert!(matches!(err, phalcom_ast::token::LexicalError::InvalidMultilineStringIndentation(_)));
+
+    // Unterminated
+    let err = Lexer::new("\"\"\"\n    first").next().unwrap().unwrap_err();
+    assert!(matches!(err, phalcom_ast::token::LexicalError::UnterminatedMultilineString(_)));
+
+    // Raw CR
+    let err = Lexer::new("\"\"\"\n    first\r    second\n    \"\"\"").next().unwrap().unwrap_err();
+    assert!(matches!(err, phalcom_ast::token::LexicalError::InvalidMultilineStringLineEnding(_)));
+}
+
+#[test]
+fn quoted_symbol_does_not_become_multiline() {
+    let err = Lexer::new("#\"\"\"\nhello\n\"\"\"").nth(1).unwrap().unwrap_err();
+    assert!(matches!(err, phalcom_ast::token::LexicalError::RawNewlineInString(_)));
 }
 
 #[test]

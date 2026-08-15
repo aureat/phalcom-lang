@@ -149,14 +149,25 @@ FLOAT := DEC-DIGITS "." DEC-DIGITS [ EXPONENT ]
 ## 7. String literals
 
 ```
-STRING := "\"" { STRING-SEGMENT } "\""
+STRING           := SINGLE-STRING | MULTILINE-STRING
+SINGLE-STRING    := "\"" { STRING-SEGMENT } "\""
+MULTILINE-STRING := "\"\"\"" [ HSPACE ] NEWLINE { MULTILINE-LINE } MARGIN "\"\"\""
 ```
 
-Double-quoted strings do not span physical lines. A raw `NEWLINE` is invalid
-inside the literal; use `\n` or `\r\n` escapes for embedded line breaks. Multiline string literal
-syntax is deferred by [PDR-0029](../../../pdr/0029-string-literals-and-interpolation-completion.md).
+Double-quoted single-line strings do not span physical lines. A raw `NEWLINE` is invalid
+inside the literal; use `\n` or `\r\n` escapes for embedded line breaks.
 
-### 7.1 Interpolation ([ADR-0022])
+### 7.1 Multiline text blocks ([PDR-0034](../../../pdr/0034-multiline-string-text-blocks.md))
+
+Triple-quoted strings (`"""`) represent indented multiline text blocks.
+
+- **Opening line**: The opening `"""` must be followed only by optional spaces/tabs (`HSPACE`) and a newline. Any non-whitespace character on the opening line produces `string.multiline.opening_newline`.
+- **Closing line**: The closing `"""` must appear on its own line preceded by indentation (`MARGIN`). The margin whitespace of the closing delimiter establishes the common indentation prefix stripped from each preceding content line.
+- **Indentation stripping**: Each non-blank content line must start with the exact prefix matching `MARGIN`. If a content line has mismatched indentation or does not match `MARGIN`, `string.multiline.indentation` is reported.
+- **Blank lines**: Lines containing only whitespace (or empty) are stripped to empty string `""` without requiring the margin prefix.
+- **Escapes & Interpolation**: Standard string escapes (`\"`, `\\`, `\n`, `\t`, `\r`, `\(`) apply. Physical newlines normalize to `\n`.
+
+### 7.2 Interpolation ([ADR-0022])
 
 A string containing one or more `\(expr)` interpolations is an *interpolated
 string*. Each `\(expr)` desugars to a `toString` send on the evaluated
@@ -182,12 +193,17 @@ fire). The defined escapes inside a string are:
 
 Every other escape is an error. The stable diagnostic codes are
 `string.invalid_escape`, `string.interpolation.unterminated`,
-`string.interpolation.empty`, and `string.raw_newline`.
+`string.interpolation.empty`, `string.raw_newline`, `string.multiline.unterminated`,
+`string.multiline.opening_newline`, `string.multiline.indentation`, and `string.multiline.invalid_line_ending`.
 
 ```phalcom
 let name = "Alice"
 let msg  = "Hello, \(name)!"      // interpolated: literal + expr + literal
 let lit  = "price: \\(tax)"       // literal backslash-paren, not interpolated
+let block = """
+    item: \(name)
+    end
+    """
 ```
 
 ## 8. Boolean literals

@@ -18,7 +18,7 @@
 //! grows, so their snapshots act as executable TODOs.
 
 use phalcom_ast::{
-    ast::{ClassMember, Expr, RecordLiteralEntry, SelectorSpecSyntax, Statement, SymbolLiteralKind},
+    ast::{ClassMember, Expr, RecordLiteralEntry, ReturnStatement, SelectorSpecSyntax, Statement, SymbolLiteralKind},
     parse_source,
 };
 
@@ -613,4 +613,31 @@ fn parse_reserved_word_as_external_label_in_definition_and_call() {
 fn parse_rejects_field_spelling_as_method_name() {
     let err = parse_display("class Foo {\n  _helper(_ value) { value }\n}\n");
     assert!(err.contains("method name"), "unexpected error message: {err}");
+}
+
+#[test]
+fn parse_multiline_string_literal_into_ast() {
+    let src = "return \"\"\"\n    first\n    second\n    \"\"\"\n";
+    let program = parse_source(src, 0).expect("should parse");
+    let Statement::Return(ReturnStatement {
+        value: Some(Expr::String { value: s, .. }),
+        ..
+    }) = &program.statements[0]
+    else {
+        panic!("expected Expr::String, got {:#?}", program.statements[0]);
+    };
+    assert_eq!(s, "first\nsecond");
+}
+
+#[test]
+fn parse_multiline_string_interpolation_into_ast() {
+    let src = "return \"\"\"\n    hello \\(name)\n    \"\"\"\n";
+    let program = parse_source(src, 0).expect("should parse");
+    // Should lower to String concatenation
+    match &program.statements[0] {
+        Statement::Return(ReturnStatement {
+            value: Some(Expr::Binary(..)), ..
+        }) => {}
+        other => panic!("expected lowered binary Expr for interpolation, got {other:#?}"),
+    }
 }

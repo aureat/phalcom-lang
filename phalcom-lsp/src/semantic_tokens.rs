@@ -287,7 +287,7 @@ fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
         };
         match token {
             Token::StringInterp(segments) => {
-                push_string_interp(&segments, offset + start, offset + end, out);
+                push_string_interp(&segments, offset, offset + start, offset + end, out);
             }
             Token::String(_) => out.push(RawToken {
                 start: offset + start,
@@ -319,15 +319,15 @@ fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
 /// recursed into via [`collect_tokens`] so its own tokens classify as their
 /// own kinds (e.g. `"a \(x + 1) b"` yields `string`, `x`, `+`, `1`,
 /// `string` — not one giant `string` token).
-fn push_string_interp(segments: &[StringSegment], token_start: usize, token_end: usize, out: &mut Vec<RawToken>) {
+fn push_string_interp(segments: &[StringSegment], input_offset: usize, token_start: usize, token_end: usize, out: &mut Vec<RawToken>) {
     let mut cursor = token_start;
     for segment in segments {
         let StringSegment::Expr { source, range } = segment else {
             continue;
         };
-        // `range.start` is the byte offset of the expression body (right
-        // after the `\(`); the `\(` opener itself is 2 bytes before it.
-        let expr_open = token_start + range.start;
+        // `range.start` is the byte offset of the expression body within the lexer input;
+        // the `\(` opener itself is 2 bytes before it.
+        let expr_open = input_offset + range.start;
         let backslash_paren = expr_open.saturating_sub(2);
         if backslash_paren > cursor {
             out.push(RawToken {
@@ -338,7 +338,7 @@ fn push_string_interp(segments: &[StringSegment], token_start: usize, token_end:
         }
         collect_tokens(source, expr_open, out);
         // Past the expression body and its closing `)`.
-        cursor = token_start + range.end + 1;
+        cursor = input_offset + range.end + 1;
     }
     if token_end > cursor {
         out.push(RawToken {
@@ -347,6 +347,86 @@ fn push_string_interp(segments: &[StringSegment], token_start: usize, token_end:
             kind: SemanticTokenKind::String,
         });
     }
+}
+
+/// Splits any [`RawToken`] spanning multiple lines into line-local fragments,
+/// excluding line terminators (LF and CRLF) and skipping zero-length fragments.
+fn line_localize(text: &str, raw: &[RawToken]) -> Vec<RawToken> {
+    let mut out = Vec::with_capacity(raw.len());
+    let bytes = text.as_bytes();
+    for token in raw {
+        if token.start >= token.end || token.start >= bytes.len() {
+            continue;
+        }
+        let mut frag_start = token.start;
+        let mut p = token.start;
+        let limit = token.end.min(bytes.len());
+        while p < limit {
+            if bytes[p] == b'\n' || bytes[p] == b'\r' {
+                if p > frag_start {
+                    out.push(RawToken {
+                        start: frag_start,
+                        end: p,
+                        kind: token.kind,
+                    });
+                }
+                if bytes[p] == b'\r' && p + 1 < limit && bytes[p + 1] == b'\n' {
+                    p += 2;
+                } else {
+                    p += 1;
+                }
+                frag_start = p;
+            } else {
+                p += 1;
+            }
+        }
+        if limit > frag_start {
+            out.push(RawToken {
+                start: frag_start,
+                end: limit,
+                kind: token.kind,
+            });
+        }
+    }
+    out
+}
+
+/// Encodes classified, absolute-offset [`RawToken`]s into the LSP
+/// delta-encoded [`SemanticToken`] wire format.
+///
+/// Each token's `delta_line`/`delta_start` are relative to the **previous**
+/// token in `raw` (zero for the first), per the LSP spec; `raw` must already
+/// be in ascending source order ([`collect_tokens`] preserves this — it
+/// never reorders the lexer's own output, including its recursive
+/// interpolation expansion).
+fn encode(text: &str, line_index: &LineIndex, raw: &[RawToken]) -> Vec<SemanticToken> {
+    let localized = line_localize(text, raw);
+    let mut result = Vec::with_capacity(localized.len());
+    let mut prev_line = 0u32;
+    let mut prev_start = 0u32;
+    for token in &localized {
+        let start_pos = line_index.position(token.start);
+        let length: u32 = text[token.start..token.end].chars().map(|c| c.len_utf16() as u32).sum();
+
+        let delta_line = start_pos.line - prev_line;
+        let delta_start = if delta_line == 0 {
+            start_pos.character - prev_start
+        } else {
+            start_pos.character
+        };
+
+        result.push(SemanticToken {
+            delta_line,
+            delta_start,
+            length,
+            token_type: token.kind.legend_index(),
+            token_modifiers_bitset: 0,
+        });
+
+        prev_line = start_pos.line;
+        prev_start = start_pos.character;
+    }
+    result
 }
 
 /// Computes the full `semanticTokens/full` payload for `text`, delta-encoded
@@ -525,43 +605,6 @@ fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<(SourceRange, SemanticT
     if let Expr::Block(block_expr) = expr {
         collect_decl_names(&block_expr.body, out);
     }
-}
-
-/// Encodes classified, absolute-offset [`RawToken`]s into the LSP
-/// delta-encoded [`SemanticToken`] wire format.
-///
-/// Each token's `delta_line`/`delta_start` are relative to the **previous**
-/// token in `raw` (zero for the first), per the LSP spec; `raw` must already
-/// be in ascending source order ([`collect_tokens`] preserves this — it
-/// never reorders the lexer's own output, including its recursive
-/// interpolation expansion).
-fn encode(text: &str, line_index: &LineIndex, raw: &[RawToken]) -> Vec<SemanticToken> {
-    let mut result = Vec::with_capacity(raw.len());
-    let mut prev_line = 0u32;
-    let mut prev_start = 0u32;
-    for token in raw {
-        let start_pos = line_index.position(token.start);
-        let length: u32 = text[token.start..token.end].chars().map(|c| c.len_utf16() as u32).sum();
-
-        let delta_line = start_pos.line - prev_line;
-        let delta_start = if delta_line == 0 {
-            start_pos.character - prev_start
-        } else {
-            start_pos.character
-        };
-
-        result.push(SemanticToken {
-            delta_line,
-            delta_start,
-            length,
-            token_type: token.kind.legend_index(),
-            token_modifiers_bitset: 0,
-        });
-
-        prev_line = start_pos.line;
-        prev_start = start_pos.character;
-    }
-    result
 }
 
 #[cfg(test)]
@@ -760,5 +803,118 @@ mod tests {
         let uri = Url::parse("file:///main.ph").unwrap();
         let tokens = tokens_for(&db, &uri, text, &line_index);
         assert_eq!(tokens.len(), 4); // let, x, =, 1 (Newline is uncolored)
+    }
+
+    #[test]
+    fn plain_multiline_string_splits_across_lines() {
+        let text = "let s = \"\"\"\n    α\n    beta\n    \"\"\"";
+        let line_index = LineIndex::new(text);
+        let mut raw = Vec::new();
+        collect_tokens(text, 0, &mut raw);
+        let tokens = encode(text, &line_index, &raw);
+
+        // let, s, =, """ (line 0), α (line 1), beta (line 2), """ (line 3)
+        assert_eq!(tokens.len(), 7);
+
+        // let
+        assert_eq!(tokens[0].delta_line, 0);
+        assert_eq!(tokens[0].delta_start, 0);
+        assert_eq!(tokens[0].length, 3);
+
+        // s
+        assert_eq!(tokens[1].delta_line, 0);
+        assert_eq!(tokens[1].delta_start, 4);
+        assert_eq!(tokens[1].length, 1);
+
+        // =
+        assert_eq!(tokens[2].delta_line, 0);
+        assert_eq!(tokens[2].delta_start, 2);
+        assert_eq!(tokens[2].length, 1);
+
+        // """ on line 0
+        assert_eq!(tokens[3].delta_line, 0);
+        assert_eq!(tokens[3].delta_start, 2);
+        assert_eq!(tokens[3].length, 3);
+
+        // "    α" on line 1 (4 spaces + 1 UTF-16 unit for α = 5)
+        assert_eq!(tokens[4].delta_line, 1);
+        assert_eq!(tokens[4].delta_start, 0);
+        assert_eq!(tokens[4].length, 5);
+
+        // "    beta" on line 2 (4 spaces + 4 chars = 8)
+        assert_eq!(tokens[5].delta_line, 1);
+        assert_eq!(tokens[5].delta_start, 0);
+        assert_eq!(tokens[5].length, 8);
+
+        // "    \"\"\"" on line 3 (4 spaces + 3 quotes = 7)
+        assert_eq!(tokens[6].delta_line, 1);
+        assert_eq!(tokens[6].delta_start, 0);
+        assert_eq!(tokens[6].length, 7);
+    }
+
+    #[test]
+    fn multiline_interpolation_positions_are_exact() {
+        let text = "let s = \"\"\"\n    val \\(x + 1)\n    \"\"\"";
+        let line_index = LineIndex::new(text);
+        let mut raw = Vec::new();
+        collect_tokens(text, 0, &mut raw);
+        let tokens = encode(text, &line_index, &raw);
+
+        // Tokens:
+        // Line 0: let(0,3), s(4,1), =(6,1), """(8,3)
+        // Line 1: "    val "(0,8), x(10,1), +(12,1), 1(14,1), ")"(15,0) skipped or ""
+        // Line 2: "    \"\"\""(0,7)
+        let token_types: Vec<u32> = tokens.iter().map(|t| t.token_type).collect();
+        // let(Keyword=0), s(Variable=1), =(Operator=5), """(String=2), "    val "(String=2), x(Variable=1), +(Operator=5), 1(Number=3), "    \"\"\""(String=2)
+        assert_eq!(
+            token_types,
+            vec![
+                SemanticTokenKind::Keyword.legend_index(),
+                SemanticTokenKind::Variable.legend_index(),
+                SemanticTokenKind::Operator.legend_index(),
+                SemanticTokenKind::String.legend_index(),
+                SemanticTokenKind::String.legend_index(),
+                SemanticTokenKind::Variable.legend_index(),
+                SemanticTokenKind::Operator.legend_index(),
+                SemanticTokenKind::Number.legend_index(),
+                SemanticTokenKind::String.legend_index(),
+            ]
+        );
+    }
+
+    #[test]
+    fn string_interpolation_nonzero_offset_regression() {
+        let text = "let prefix = 0\nlet s = \"a \\(x) b\"";
+        let line_index = LineIndex::new(text);
+        let mut raw = Vec::new();
+        collect_tokens(text, 0, &mut raw);
+        let tokens = encode(text, &line_index, &raw);
+
+        // Check that `x` is recognized on line 1, character 13
+        // Line 1: "let s = \"a \(x) b\""
+        // 0..3: let
+        // 4..5: s
+        // 6..7: =
+        // 8..11: "a
+        // 13..14: x
+        // 14..17:  b"
+        let x_tok = tokens
+            .iter()
+            .find(|t| t.token_type == SemanticTokenKind::Variable.legend_index() && t.length == 1 && t.delta_line == 0 && t.delta_start == 5);
+        assert!(x_tok.is_some(), "x token must be accurately positioned");
+    }
+
+    #[test]
+    fn multiline_string_crlf_localization() {
+        let text = "let s = \"\"\"\r\n    line1\r\n    \"\"\"";
+        let line_index = LineIndex::new(text);
+        let mut raw = Vec::new();
+        collect_tokens(text, 0, &mut raw);
+        let tokens = encode(text, &line_index, &raw);
+
+        assert_eq!(tokens.len(), 6); // let, s, =, """, line1, """
+        for tok in &tokens {
+            assert!(tok.length > 0);
+        }
     }
 }

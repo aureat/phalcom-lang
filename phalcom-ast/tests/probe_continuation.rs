@@ -43,7 +43,15 @@ fn classify(src: &str) -> Verdict {
         return Verdict::Complete;
     }
     // Fatal lexical errors take precedence over secondary parser EOF errors.
-    if parsed.errors.iter().any(|error| matches!(error.kind, SyntaxErrorKind::RawNewlineInString)) {
+    if parsed.errors.iter().any(|error| {
+        matches!(
+            error.kind,
+            SyntaxErrorKind::RawNewlineInString
+                | SyntaxErrorKind::InvalidMultilineStringOpening
+                | SyntaxErrorKind::InvalidMultilineStringIndentation
+                | SyntaxErrorKind::InvalidMultilineStringLineEnding
+        )
+    }) {
         return Verdict::Error;
     }
     // Secondary parser EOF errors
@@ -81,6 +89,14 @@ fn classifies_truncated_wrong_and_finished_input() {
         // CR
         ("let s = \"abc\rdef", Verdict::Error),
         ("let s = \"abc\rdef\"", Verdict::Error),
+        // Multiline string incomplete / complete / fatal
+        ("let s = \"\"\"", Verdict::Incomplete),
+        ("let s = \"\"\"   ", Verdict::Incomplete),
+        ("let s = \"\"\"\n    hello", Verdict::Incomplete),
+        ("let s = \"\"\"\n    hello\n", Verdict::Incomplete),
+        ("let s = \"\"\"\n    hello\n    \"\"\"", Verdict::Complete),
+        ("let s = \"\"\"same line\n    \"\"\"", Verdict::Error),
+        ("let s = \"\"\"\n    first\n  second\n    \"\"\"", Verdict::Error),
         // Error — a real token in the wrong place. More input cannot fix these,
         // so a REPL must not sit waiting for it.
         ("let x = )", Verdict::Error),

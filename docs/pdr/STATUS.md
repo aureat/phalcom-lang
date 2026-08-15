@@ -49,6 +49,7 @@ PDR supersedes lives in [`README.md`](README.md#adr--pdr-mapping).
 | [0031](0031-range-slicing-floor-amendment.md) | Range slicing uses normalized bounds with two native collection seams | Accepted | amends ADR-0019 and ADR-0039 | | ? implementation added 2026-08-08; verification intentionally deferred |
 | [0032](0032-transition-1-language-surface-convergence.md) | Converge namespaces, selector declarations, setter identity, visibility, and `@class` placement | Accepted | supersedes ADR-0061; amends ADR-0060 and PDR-0028 | | ◐ implementation and generator verified 2026-08-08; broad test matrix intentionally deferred |
 | [0033](0033-immediate-bounded-option.md) | Make Option an immediate bounded sum value | Accepted | amends ADR-0007, ADR-0010, ADR-0044, ADR-0050 | | ✅ **shipped 2026-08-11.** `cargo test -p phalcom-core` passed; coverage includes `tests/option.rs`, immediate-`Some` GC roots/heap edges in `tests/gc.rs`, absence/option/compile-error/value language lanes, and the 150-binding floor census. |
+| [0034](0034-multiline-string-text-blocks.md) | Add indentation-safe multiline string text blocks | Accepted | *amends* PDR-0029 | | ✅ **shipped 2026-08-15.** `cargo test --workspace` passed; indentation-safe multiline string text blocks (`"""`), parser diagnostics, AST, language corpus, LSP line-localization, and spec docs. |
 
 ## Cross-tracker obligations
 

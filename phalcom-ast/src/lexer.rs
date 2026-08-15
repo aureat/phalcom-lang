@@ -24,6 +24,14 @@
 
 use crate::token::{LexicalError, StringSegment, Token};
 
+struct MultilineBoundary {
+    value_end: usize,
+    #[allow(dead_code)]
+    close_start: usize,
+    close_end: usize,
+    margin: String,
+}
+
 /// A lexer result item: `Ok((start, token, end))` on success or `Err` on a
 /// scan failure.
 ///
@@ -187,7 +195,7 @@ impl<'input> Lexer<'input> {
                 Ok(Token::RecordLBrace)
             }
             b'#' if self.peek_at(1) == Some(b'"') => self.scan_quoted_symbol(),
-            b'"' => self.scan_string(),
+            b'"' => self.scan_string_like(),
             b'#' => {
                 self.pos += 1;
                 Ok(Token::Hash)
@@ -487,6 +495,15 @@ impl<'input> Lexer<'input> {
     /// Returns [`LexicalError::UnterminatedString`] if end-of-input is reached
     /// before the closing quote — including inside an unterminated `\(…`
     /// interpolation.
+    /// Dispatches between single-line string and triple-quoted multiline text block.
+    fn scan_string_like(&mut self) -> Result<Token, LexicalError> {
+        if self.peek_at(0) == Some(b'"') && self.peek_at(1) == Some(b'"') && self.peek_at(2) == Some(b'"') {
+            self.scan_multiline_string()
+        } else {
+            self.scan_string()
+        }
+    }
+
     /// Scans an interpolation body `\(…)` balancing parentheses while respecting
     /// nested lexical modes (nested strings, line comments, and block comments).
     fn scan_interpolation_body(&mut self, interpolation_open: usize) -> Result<StringSegment, LexicalError> {
@@ -499,8 +516,8 @@ impl<'input> Lexer<'input> {
                     return Err(LexicalError::UnterminatedInterpolation(interpolation_open..self.pos));
                 }
                 Some(b'"') => {
-                    // Consume nested string using full string scanner.
-                    let _ = self.scan_string()?;
+                    // Consume nested string or multiline string using centralized dispatcher.
+                    let _ = self.scan_string_like()?;
                 }
                 Some(b'/') if self.peek_at(1) == Some(b'/') => {
                     self.scan_line_comment();
@@ -530,6 +547,308 @@ impl<'input> Lexer<'input> {
                 }
             }
         }
+    }
+
+    /// Scans the structural opening line of a multiline text block `"""`.
+    fn scan_multiline_opening(&mut self, open: usize) -> Result<usize, LexicalError> {
+        self.pos += 3;
+        while let Some(b) = self.peek_at(0) {
+            if b == b' ' || b == b'\t' {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+
+        match self.peek_at(0) {
+            Some(b'\n') => {
+                self.pos += 1;
+                Ok(self.pos)
+            }
+            Some(b'\r') if self.peek_at(1) == Some(b'\n') => {
+                self.pos += 2;
+                Ok(self.pos)
+            }
+            None => Err(LexicalError::UnterminatedMultilineString(open..self.pos)),
+            Some(_) => {
+                let start = self.pos;
+                let len = self.char_len_at(self.pos);
+                self.pos += len;
+                Err(LexicalError::InvalidMultilineStringOpening(start..self.pos))
+            }
+        }
+    }
+
+    /// Tests whether the line starting at `line_start` is an isolated closing line:
+    /// `<margin>"""<optional spaces/tabs><newline | EOF>`
+    fn multiline_close_at_line_start(&self, line_start: usize) -> Option<(usize, usize, String)> {
+        let mut p = line_start;
+        while p < self.bytes.len() && (self.bytes[p] == b' ' || self.bytes[p] == b'\t') {
+            p += 1;
+        }
+
+        if p + 2 < self.bytes.len() && self.bytes[p] == b'"' && self.bytes[p + 1] == b'"' && self.bytes[p + 2] == b'"' {
+            let quote_start = p;
+            let quote_end = p + 3;
+            let mut after = quote_end;
+            while after < self.bytes.len() && (self.bytes[after] == b' ' || self.bytes[after] == b'\t') {
+                after += 1;
+            }
+            if after == self.bytes.len() || self.bytes[after] == b'\n' || (self.bytes[after] == b'\r' && self.bytes.get(after + 1) == Some(&b'\n')) {
+                let margin = self.input[line_start..quote_start].to_string();
+                return Some((quote_start, quote_end, margin));
+            }
+        }
+        None
+    }
+
+    /// Discovers the multiline boundary and closing margin.
+    fn discover_multiline_boundary(&mut self, open: usize, body_start: usize) -> Result<MultilineBoundary, LexicalError> {
+        let mut line_start = body_start;
+
+        loop {
+            if let Some((close_start, close_end, margin)) = self.multiline_close_at_line_start(line_start) {
+                // Compute value_end by stripping the structural newline before the closing line
+                let value_end = if line_start == body_start {
+                    body_start
+                } else if line_start >= 2 && &self.bytes[line_start - 2..line_start] == b"\r\n" {
+                    line_start - 2
+                } else if line_start >= 1 && self.bytes[line_start - 1] == b'\n' {
+                    line_start - 1
+                } else {
+                    line_start
+                };
+
+                return Ok(MultilineBoundary {
+                    value_end,
+                    close_start,
+                    close_end,
+                    margin,
+                });
+            }
+
+            // Advance through this physical line
+            self.pos = line_start;
+            let mut hit_newline = false;
+            while self.pos < self.bytes.len() {
+                match self.peek_at(0) {
+                    None => break,
+                    Some(b'\n') => {
+                        self.pos += 1;
+                        line_start = self.pos;
+                        hit_newline = true;
+                        break;
+                    }
+                    Some(b'\r') if self.peek_at(1) == Some(b'\n') => {
+                        self.pos += 2;
+                        line_start = self.pos;
+                        hit_newline = true;
+                        break;
+                    }
+                    Some(b'\r') => {
+                        let start = self.pos;
+                        self.pos += 1;
+                        return Err(LexicalError::InvalidMultilineStringLineEnding(start..self.pos));
+                    }
+                    Some(b'\\') => {
+                        let esc_start = self.pos;
+                        match self.peek_at(1) {
+                            Some(b'(') => {
+                                self.pos += 2;
+                                self.scan_interpolation_body(esc_start)?;
+                                if let Some(last_nl) = self.bytes[line_start..self.pos].iter().rposition(|&b| b == b'\n') {
+                                    line_start = line_start + last_nl + 1;
+                                    hit_newline = true;
+                                    break;
+                                }
+                            }
+                            Some(b'"' | b'\\' | b'n' | b't' | b'r') => {
+                                self.pos += 2;
+                            }
+                            Some(_) => {
+                                let next_len = self.char_len_at(self.pos + 1);
+                                let end = self.pos + 1 + next_len;
+                                self.pos = end;
+                                return Err(LexicalError::InvalidEscape(esc_start..end));
+                            }
+                            None => {
+                                self.pos += 1;
+                            }
+                        }
+                    }
+                    Some(_) => {
+                        self.pos += self.char_len_at(self.pos);
+                    }
+                }
+            }
+
+            if !hit_newline {
+                // Reached EOF without closing delimiter
+                return Err(LexicalError::UnterminatedMultilineString(open..self.input.len()));
+            }
+        }
+    }
+
+    /// Validates that every nonblank physical line begins with the exact margin prefix.
+    fn validate_multiline_margin(&self, body_start: usize, value_end: usize, margin: &str) -> Result<(), LexicalError> {
+        let mut cur = body_start;
+        while cur < value_end {
+            let line_start = cur;
+            let mut line_end = cur;
+            while line_end < value_end && self.bytes[line_end] != b'\n' && self.bytes[line_end] != b'\r' {
+                line_end += 1;
+            }
+
+            let line_slice = &self.bytes[line_start..line_end];
+            let is_blank = line_slice.iter().all(|&b| b == b' ' || b == b'\t');
+
+            if !is_blank && !margin.is_empty() && !line_slice.starts_with(margin.as_bytes()) {
+                // Report narrow indentation error
+                let mut mismatch_end = line_start;
+                while mismatch_end < line_end && (self.bytes[mismatch_end] == b' ' || self.bytes[mismatch_end] == b'\t') {
+                    mismatch_end += 1;
+                }
+                if mismatch_end == line_start {
+                    mismatch_end += self.char_len_at(line_start);
+                }
+                return Err(LexicalError::InvalidMultilineStringIndentation(line_start..mismatch_end));
+            }
+
+            cur = line_end;
+            if cur < value_end && self.bytes[cur] == b'\r' && self.bytes.get(cur + 1) == Some(&b'\n') {
+                cur += 2;
+            } else if cur < value_end && (self.bytes[cur] == b'\n' || self.bytes[cur] == b'\r') {
+                cur += 1;
+            }
+        }
+        Ok(())
+    }
+
+    /// Decodes the semantic content of the multiline text block.
+    fn decode_multiline_body(&mut self, body_start: usize, value_end: usize, margin: &str) -> Result<Token, LexicalError> {
+        let mut segments: Vec<StringSegment> = Vec::new();
+        let mut literal = String::new();
+        let mut interpolated = false;
+
+        self.pos = body_start;
+        let mut at_line_start = true;
+
+        while self.pos < value_end {
+            if at_line_start {
+                // Check if current physical line is blank
+                let mut p = self.pos;
+                while p < value_end && self.bytes[p] != b'\n' && self.bytes[p] != b'\r' {
+                    p += 1;
+                }
+                let line_bytes = &self.bytes[self.pos..p];
+                let is_blank = line_bytes.iter().all(|&b| b == b' ' || b == b'\t');
+
+                if is_blank {
+                    // Discard all blank-line whitespace
+                    self.pos = p;
+                } else {
+                    // Consume exact margin bytes
+                    self.pos += margin.len();
+                }
+                at_line_start = false;
+                if self.pos >= value_end {
+                    break;
+                }
+            }
+
+            match self.peek_at(0) {
+                None => break,
+                Some(b'\n') => {
+                    literal.push('\n');
+                    self.pos += 1;
+                    at_line_start = true;
+                }
+                Some(b'\r') if self.peek_at(1) == Some(b'\n') => {
+                    literal.push('\n');
+                    self.pos += 2;
+                    at_line_start = true;
+                }
+                Some(b'\\') => {
+                    let esc_start = self.pos;
+                    match self.peek_at(1) {
+                        Some(b'(') => {
+                            interpolated = true;
+                            if !literal.is_empty() {
+                                segments.push(StringSegment::Literal(std::mem::take(&mut literal)));
+                            }
+                            let before_body = self.pos;
+                            self.pos += 2;
+                            let expr_seg = self.scan_interpolation_body(esc_start)?;
+                            segments.push(expr_seg);
+                            if self.bytes[before_body..self.pos].contains(&b'\n') {
+                                at_line_start = false;
+                            }
+                        }
+                        Some(b'"') => {
+                            literal.push('"');
+                            self.pos += 2;
+                        }
+                        Some(b'\\') => {
+                            literal.push('\\');
+                            self.pos += 2;
+                        }
+                        Some(b'n') => {
+                            literal.push('\n');
+                            self.pos += 2;
+                        }
+                        Some(b't') => {
+                            literal.push('\t');
+                            self.pos += 2;
+                        }
+                        Some(b'r') => {
+                            literal.push('\r');
+                            self.pos += 2;
+                        }
+                        Some(_) => {
+                            let next_len = self.char_len_at(self.pos + 1);
+                            let end = self.pos + 1 + next_len;
+                            self.pos = end;
+                            return Err(LexicalError::InvalidEscape(esc_start..end));
+                        }
+                        None => {
+                            self.pos += 1;
+                        }
+                    }
+                }
+                Some(_) => {
+                    let len = self.char_len_at(self.pos);
+                    literal.push_str(&self.input[self.pos..self.pos + len]);
+                    self.pos += len;
+                }
+            }
+        }
+
+        if !interpolated {
+            return Ok(Token::String(literal));
+        }
+
+        if !literal.is_empty() {
+            segments.push(StringSegment::Literal(literal));
+        }
+
+        Ok(Token::StringInterp(segments))
+    }
+
+    /// Scans a multiline text block `""" ... """`.
+    fn scan_multiline_string(&mut self) -> Result<Token, LexicalError> {
+        let open = self.pos;
+        let body_start = self.scan_multiline_opening(open)?;
+
+        self.pos = body_start;
+        let boundary = self.discover_multiline_boundary(open, body_start)?;
+
+        self.validate_multiline_margin(body_start, boundary.value_end, &boundary.margin)?;
+
+        self.pos = body_start;
+        let token = self.decode_multiline_body(body_start, boundary.value_end, &boundary.margin)?;
+
+        self.pos = boundary.close_end;
+        Ok(token)
     }
 
     /// Scans a double-quoted string literal, stripping the surrounding quotes.
