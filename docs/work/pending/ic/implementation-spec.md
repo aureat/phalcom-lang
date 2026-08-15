@@ -1,6 +1,6 @@
 # U-IC — Implementation spec (monomorphic inline cache)
 
-> Companion to [`plan.md`](plan.md) — that file has rationale, ADR anchors, hazards. **This file
+> Companion to [`err-plan.md`](plan.md) — that file has rationale, ADR anchors, hazards. **This file
 > supersedes plan.md's file/line references and two of its design choices** (see §0). Follow this
 > file literally; it is written against HEAD (2026-07-14, `2b75429`) after the `vm.rs`/`class.rs`/
 > `value.rs` module split.

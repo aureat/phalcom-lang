@@ -47,7 +47,7 @@ Each class entry gives:
 getter is a bare name (`size`), a setter `name=(put)`, an arity-*n* method
 `name(_, …)`, labeled args named (`match(some, none)`). The interner currently
 emits the colon form (`match(some:none:)`); migrating it to the canonical comma
-form is [U-CORE-4](../../../forge/units/U-CORE-4/as-built.md) (BD-CORE4-2).
+form is [U-CORE-4](../../../forge/units/U-CORE-4/ucore4.md) (BD-CORE4-2).
 
 **Two invariants frame every entry:** *everything is an object* (even `true`,
 `42`, a class, a method) and *message-send is the only computational primitive*
@@ -122,7 +122,7 @@ is the clean win the roadmap expected to be native but is ordinary `.ph`.
 representation below the `.ph` boundary (the `ObjRef` handle, the class's own
 name, the method map); `isA(_)` is `.ph` because its three ingredients are already
 floor. That split is the spine of the whole library
-([U-CORE-1 §2](../../../forge/units/U-CORE-1/as-built.md)).
+([U-CORE-1 §2](../../../forge/units/U-CORE-1/ucore1.md)).
 
 **Planned.** `methodFor(_)` (reflective method reification) — U-CORE-3.
 Surface `MessageNotUnderstood` for dNU to raise — U-CORE-6.
@@ -146,7 +146,7 @@ selector `Symbol`s as a fresh `List` — **landed U-CORE-1**).
 a class `C` is an instance of its metaclass, so `C.name` walks the metaclass chain
 `C class → … → Behavior → Object`, and `Behavior#name` sits below `Object#name`. A
 non-class receiver has `Behavior` nowhere in its chain, so `3.name` still resolves
-to `Object#name` → `"Number"` ([U-CORE-1 §3.2](../../../forge/units/U-CORE-1/as-built.md)).
+to `Object#name` → `"Number"` ([U-CORE-1 §3.2](../../../forge/units/U-CORE-1/ucore1.md)).
 
 **Planned.** Inherited/`allMethods` reflection, `includesSelector`, instance-var
 reflection — U-STD (derivable over `methods` + `superclass`). Full allocation /
@@ -522,6 +522,6 @@ of errors (core, U-CORE-6), and all of concurrency (out of scope).
 | Target catalog & tower rules | [`../object-model.md`](../object-model.md) §4–§8 |
 | Delta / pending / divergences | [`catalog-delta.md`](./catalog-delta.md) §2–§4 |
 | Gating decisions (hash, errors, toString, Method re-parent, collections) | [`decisions.md`](./decisions.md) |
-| Landed units | [U-CORE-1](../../../forge/units/U-CORE-1/as-built.md) (`hash`/`isA`/`Behavior`/`Method<Function`), [U-CORE-2](../../../forge/units/U-CORE-2/as-built.md) (`Some`-lift + `Option`), [U-STD](../../../forge/units/U-STD/as-built.md) (combinators), [U11](../../../forge/units/U11/as-built.md) (`True`/`False`), [U-LIST](../../../forge/units/U-LIST/as-built.md) (native `List`) |
-| Planned units | [U-CORE-3](../../../forge/units/U-CORE-3/as-built.md) (callables), [U-CORE-4](../../../forge/units/U-CORE-4/as-built.md) (value `toString`/Int-Float), [U-CORE-5](../../../forge/units/U-CORE-5/as-built.md) (collection contract), [U-CORE-6](../../../forge/units/U-CORE-6/as-built.md) (errors) |
+| Landed units | [U-CORE-1](../../../forge/units/U-CORE-1/ucore1.md) (`hash`/`isA`/`Behavior`/`Method<Function`), [U-CORE-2](../../../forge/units/U-CORE-2/ucore2.md) (`Some`-lift + `Option`), [U-STD](../../../forge/units/U-STD/u-21-std.md) (combinators), [U11](../../../forge/units/U11/u11.md) (`True`/`False`), [U-LIST](../../../forge/units/U-LIST/u24-list.md) (native `List`) |
+| Planned units | [U-CORE-3](../../../forge/units/U-CORE-3/ucore3.md) (callables), [U-CORE-4](../../../forge/units/U-CORE-4/ucore4.md) (value `toString`/Int-Float), [U-CORE-5](../../../forge/units/U-CORE-5/ucore5.md) (collection contract), [U-CORE-6](../../../forge/units/U-CORE-6/ucore6.md) (errors) |
 | Baseline pin & drift policy | [`README.md`](./README.md) §"Baseline & drift policy" |

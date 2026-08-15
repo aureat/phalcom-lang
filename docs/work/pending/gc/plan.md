@@ -253,7 +253,7 @@ that discipline — not a decorator-aware tracer — is the defence.
 
 **Deliberately NOT in scope:** any `Value` tag change / NaN-boxing (deferred, ADR-0010); write barriers;
 generational/incremental/compacting collection (spec §7 open); `bytecode.rs`, `compiler/`, `phalcom-ast`,
-`core.ph` (no surface, no protocol); `PHASE2-INDEX.md`/`STATE.md`/`system.md` (shared files — the reviewer
+`core.ph` (no surface, no protocol); `PHASE2-INDEX.md`/`u0-state.md`/`system.md` (shared files — the reviewer
 or a separate doc-sync commit updates the ledger, never this unit's code diff).
 
 ### 4.1 Write-set collision risk (flag, don't resolve)
@@ -358,4 +358,4 @@ serviced) · `System.gc` returns `None` + observable free · the `verify_invaria
 the temp-root stress + cycle + deep-chain + suspended-fiber-roots test results · confirmation **no `unsafe`,
 no surface/`Value`/opcode change** · miri lane tail · how DEC-GC-A/B/C/D resolved · any `DEFERRED.md`
 pointers (Win B follow-on, generational barrier, NaN-box) and a note that `system.md` §`gc` /
-`PHASE2-INDEX.md` / `STATE.md` need a **separate** ledger-sync commit (not this code diff).
+`PHASE2-INDEX.md` / `u0-state.md` need a **separate** ledger-sync commit (not this code diff).

@@ -127,7 +127,7 @@ as *seen from `.ph`*, and the collision between the guard and a `.ph`-level `awa
 | Am I sure no path parks? Some resume route might land `floor_depth == depth`. | Posed to Agent B as an explicit REFUTE with instructions to find a counterexample by running programs. None found; guard is `!=` against a floor written at resume, and `.attempt()` adds two unconditionally. |
 | Is the root spin real or does something break the loop? | Ran it. Hangs. Confirmed twice, independently. |
 | Is `.attempt()` native or `.ph`? Changes the whole story. | `.ph`, `core.ph:627-629`. This was recon question #1 and it was the right one. |
-| Does DEC-FUT-SCHED have a `docs/pdr/` entry that supersedes plan.md? | No — `grep -rl DEC-FUT-SCHED docs/pdr/` is empty; the ruling lives only in `plan.md` §9. Stated as such. |
+| Does DEC-FUT-SCHED have a `docs/pdr/` entry that supersedes plan.md? | No — `grep -rl DEC-FUT-SCHED docs/pdr/` is empty; the ruling lives only in `err-plan.md` §9. Stated as such. |
 | Am I describing a defect or prescribing a fix? | Describe only. Fix directions in E004 are labelled unverified, per the standing rule that a reproduced diagnosis is not a verified fix. |
 
 ## 7. Doc-kind gate

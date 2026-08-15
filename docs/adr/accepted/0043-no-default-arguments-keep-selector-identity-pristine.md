@@ -11,7 +11,7 @@
   (selector-signature encoding — arity is *part of the dispatch key*; default
   arguments would make one method answer several arities), `docs/spec/current/object-model.md`
   (message-send dispatch; signature = selector + arity/kind),
-  `docs/forge/units/U18/plan.md`, `docs/forge/STATE.md` (DEC-U18 resolution record)
+  `../../forge/units/U18/u18.md`, `docs/forge/STATE.md` (DEC-U18 resolution record)
 
 ## Context
 

@@ -14,7 +14,7 @@
 > one's. This ADR only ever changed spellings.
 >
 > **Why it happened, worth recording:** the user ruled trailing-`_` on 2026-07-13
-> (see [U-NATIVE-MARKER](../../forge/units/U-NATIVE-MARKER/plan.md)); U-STRING shipped
+> (see [U-NATIVE-MARKER](../../forge/units/U-NATIVE-MARKER/u32-native-marker.md)); U-STRING shipped
 > `raw*` anyway; this ADR was then written on 2026-07-14 to make the record match the
 > code. That is backwards — a ruling should move the code, not the other way round. The
 > collections half of the same rename (`length_`, `at_`, `keyAt_`, `size_` …) had

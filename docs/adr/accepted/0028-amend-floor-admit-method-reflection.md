@@ -12,7 +12,7 @@
   `Method`/`Block` siblings); [ADR-0013](0013-closure-upvalues-and-frame-token-return.md)
   (frame-token non-local return, re-entered by `invoke_method_object`);
   [ADR-0010](0010-tagged-value-enum.md) (closed `Value` enum, untouched here);
-  `docs/forge/units/U-CORE-3/as-built.md` §2.3, §2.6 (drafted amendment text
+  `../../forge/units/U-CORE-3/ucore3.md` §2.3, §2.6 (drafted amendment text
   and `BoundMethod` representation decision); `docs/spec/current/core/floor-census.md`
   §1.1, §2.9–§2.10 (re-baselined in the same implementation change as this ADR)
 
@@ -33,7 +33,7 @@ bump is deliberate and auditable one unit at a time."
 U-CORE-1 has since landed, installing `hash` (+ `Behavior#name`/`methods`) and
 moving the census 73 → 80. U-CORE-3 now lands the second slice: the `Method`
 reflection surface. Per its as-built specification
-(`docs/forge/units/U-CORE-3/as-built.md` §2.1–§2.6), every capability in this
+(`../../forge/units/U-CORE-3/ucore3.md` §2.1–§2.6), every capability in this
 surface reads representation **below** the `.ph` boundary — the ADR-0019 §1
 derivability test — so none of it can be expressed as ordinary `core.ph`:
 

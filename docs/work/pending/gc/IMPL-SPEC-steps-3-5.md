@@ -1,14 +1,14 @@
 # U-GC — implementation spec for steps 3–5
 
-_Companion to [`plan.md`](plan.md), written 2026-07-14 against HEAD `bbc12d6`. Steps 0–2 are
+_Companion to [`err-plan.md`](plan.md), written 2026-07-14 against HEAD `bbc12d6`. Steps 0–2 are
 **done and committed**; this spec covers **only** what remains. It is deliberately more
 prescriptive than the plan: exact signatures, exact insertion points, exact constants, and the
 **already-completed audit result** — so the implementer writes code rather than re-deriving
 analysis._
 
-> **Read this before `plan.md` §3.4/§5.** The plan's framing of step 4 is **wrong about where the
+> **Read this before `err-plan.md` §3.4/§5.** The plan's framing of step 4 is **wrong about where the
 > hazard is**, and following it would produce a large pointless audit plus an unused API. §2 below
-> replaces it. `plan.md`'s §3.4 is retained for provenance, not for execution.
+> replaces it. `err-plan.md`'s §3.4 is retained for provenance, not for execution.
 
 ## 0. Status — what is already done
 
@@ -30,7 +30,7 @@ the correction banner in §2.1 and
 **Closeout is still open** — see `UNITS-TRACKER.md` §U-GC: the `DEFERRED.md` M-RUNTIME temp-root
 note is unwritten, the miri lane is a `verify.sh` flag rather than a CI job, and no
 `phalcom-reviewer` sign-off exists on the `heap/`/`vm/` spine diff despite both this spec and
-`plan.md` mandating one.
+`err-plan.md` mandating one.
 
 DEC-GC-A is **resolved by the user: option A** — ADR-0050 is Accepted, collection ships **on by
 default**, no `gc_enabled` soak flag. There is no flag to hide a missed root behind.
@@ -50,7 +50,7 @@ VM::force_gc(&mut self) -> usize                      // unconditional collect
 
 ## 1. Step 3 — `System.gc`
 
-**Correction to `plan.md` §3.5:** it says `gc` is "currently a spec'd no-op stub." **It is not a
+**Correction to `err-plan.md` §3.5:** it says `gc` is "currently a spec'd no-op stub." **It is not a
 stub — it does not exist.** `phalcom-core/src/primitive/system.rs` has no `gc` function and
 `universe/primitives.rs` has no `gc` registration. Sending `System.gc` today raises
 `doesNotUnderstand`. This step *adds* the primitive; it does not rewire one.
@@ -138,7 +138,7 @@ off-by-one on exactly this.
 > Re-audited under the corrected predicate, `block_ensure` is the only such site — so §2.2's
 > Invariant-L argument still stands, and the rest of this section is retained for provenance.
 
-`plan.md` §3.4 calls for auditing "≈46 re-entrant sites, 40 alloc sites … each such handle gets a
+`err-plan.md` §3.4 calls for auditing "≈46 re-entrant sites, 40 alloc sites … each such handle gets a
 `push_temp_root`/`pop_temp_root` scope," and calls this "the substantive work of the unit."
 
 **That audit has been run in full. The intersection is EMPTY. Zero sites need a temp root.**
@@ -369,7 +369,7 @@ Invariant-L test and what it asserts · live-count-bounded results on the `.ph` 
 `verify_invariants` post-automatic-GC assert · confirmation of **no `unsafe`, no surface/`Value`/
 opcode change** · miri lane tail · the step-5 measurement and whether the pool shipped or produced
 a second null result · a `DEFERRED.md` pointer for M-RUNTIME temp-roots · and a note that
-`system.md` §`gc` / `PHASE2-INDEX.md` / `STATE.md` need a **separate** ledger-sync commit, never
+`system.md` §`gc` / `PHASE2-INDEX.md` / `u0-state.md` need a **separate** ledger-sync commit, never
 this code diff.
 
 ## 6. Standing hazards for whoever implements this

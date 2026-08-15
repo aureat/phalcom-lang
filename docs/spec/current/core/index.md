@@ -137,12 +137,12 @@ authored:
 
 | Unit | Spec | Native floor Δ (from 73) | Flips directly |
 |---|---|---|---|
-| U-CORE-1 kernel reflection | [`U-CORE-1-implementation-spec.md`](../../../forge/units/U-CORE-1/as-built.md) | **+7 — as-built/landed** (`hash`×5 + `Behavior#name`/`methods`, 73 → 80); `isA` is `.ph`; `Method < Function` re-parent applied | `metaclass_is_a` (flipped) |
-| U-CORE-2 absence + Boolean | [`U-CORE-2-implementation-spec.md`](../../../forge/units/U-CORE-2/as-built.md) | **0** (bulk landed `0da64d6`; verify/harden) | — |
-| U-CORE-3 callables/Block | [`U-CORE-3-implementation-spec.md`](../../../forge/units/U-CORE-3/as-built.md) | **+5** (`methodFor`/`invokeOn`/`bind`/`signature`/`holder`) | — (all U-LEX-gated) |
-| U-CORE-4 value classes | [`U-CORE-4-implementation-spec.md`](../../../forge/units/U-CORE-4/as-built.md) | **+1** (`Number#toString`) | `absence_option_none`, `absence_var_defaults_to_none`, `binding_var_uninitialized` |
-| U-CORE-5 collection contract | [`U-CORE-5-implementation-spec.md`](../../../forge/units/U-CORE-5/as-built.md) | **0** (contract + `.ph` `List#==`/`!=`) | — (enables reduce/Map/Set) |
-| U-CORE-6 errors | [`U-CORE-6-implementation-spec.md`](../../../forge/units/U-CORE-6/as-built.md) | **+2** (`Error#message`/`raise`) | — (needs error-syntax) |
+| U-CORE-1 kernel reflection | [`U-CORE-1-implementation-spec.md`](../../../forge/units/U-CORE-1/ucore1.md) | **+7 — as-built/landed** (`hash`×5 + `Behavior#name`/`methods`, 73 → 80); `isA` is `.ph`; `Method < Function` re-parent applied | `metaclass_is_a` (flipped) |
+| U-CORE-2 absence + Boolean | [`U-CORE-2-implementation-spec.md`](../../../forge/units/U-CORE-2/ucore2.md) | **0** (bulk landed `0da64d6`; verify/harden) | — |
+| U-CORE-3 callables/Block | [`U-CORE-3-implementation-spec.md`](../../../forge/units/U-CORE-3/ucore3.md) | **+5** (`methodFor`/`invokeOn`/`bind`/`signature`/`holder`) | — (all U-LEX-gated) |
+| U-CORE-4 value classes | [`U-CORE-4-implementation-spec.md`](../../../forge/units/U-CORE-4/ucore4.md) | **+1** (`Number#toString`) | `absence_option_none`, `absence_var_defaults_to_none`, `binding_var_uninitialized` |
+| U-CORE-5 collection contract | [`U-CORE-5-implementation-spec.md`](../../../forge/units/U-CORE-5/ucore5.md) | **0** (contract + `.ph` `List#==`/`!=`) | — (enables reduce/Map/Set) |
+| U-CORE-6 errors | [`U-CORE-6-implementation-spec.md`](../../../forge/units/U-CORE-6/ucore6.md) | **+2** (`Error#message`/`raise`) | — (needs error-syntax) |
 
 These refine — and in places subsume — the older, coarser forge planning for
 `U-STD` (base-surface growth) and `U11` (Bool tower) tracked in

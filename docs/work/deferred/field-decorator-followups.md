@@ -20,7 +20,7 @@ Provenance is mixed and marked per claim: **[tree]** = verified against the work
 ### What the decorators attach to now
 
 Per [ADR-0064](../adr/accepted/0064-let-const-bindings-and-field-mutability.md) and
-`docs/forge/units/U-BINDINGS/implementation-spec.md` §4:
+`../../forge/units/U-BINDINGS/u30-bindings-spec.md` §4:
 
 ```
 field_decl := { attribute } [ "const" ] IDENT_leading_underscore [ "=" expr ]

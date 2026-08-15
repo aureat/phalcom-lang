@@ -4,7 +4,7 @@
 > umbrella [ADR-0032](../../../adr/0032-collections-representation-and-literals.md);
 > `Set` literal `#{…}` reserved-inactive). Absent classes (names reserved in `ClassName`), now
 > **unblocked** — their precondition `Object#hash` landed with
-> [U-CORE-1](../../../forge/units/U-CORE-1/as-built.md)
+> [U-CORE-1](../../../forge/units/U-CORE-1/ucore1.md)
 > ([`catalog-delta.md`](./catalog-delta.md) §2.4/§4.5). Each is its own unit per
 > [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); both must
 > satisfy the [collection protocol](./collection-protocol.md). Inherits the

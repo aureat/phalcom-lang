@@ -1,6 +1,6 @@
 # U-COMPILE — Implementation spec (compile-time & startup, behavior-invariant)
 
-> Companion to [`plan.md`](plan.md). **This file supersedes plan.md's file/line refs and resolves
+> Companion to [`err-plan.md`](plan.md). **This file supersedes plan.md's file/line refs and resolves
 > DEC-COMPILE-A differently** — plan.md's recommended "in-process memoization of the compiled core"
 > is **unsound on HEAD**; see §1. Written against HEAD 2026-07-14 (`2b75429`).
 >

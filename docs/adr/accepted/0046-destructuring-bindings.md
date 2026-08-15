@@ -13,7 +13,7 @@
   (`at(_)` — the accessor this reuses); `docs/adr/accepted/0032-collections-representation-and-literals.md` (the `(a,b)`/
   `[…]` collection-literal grammar this reuses in pattern position);
   `docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md` (native
-  `Tuple`/`List`); `docs/forge/units/U14/plan.md`; `phalcom-ast/src/ast.rs::Pattern`;
+  `Tuple`/`List`); `../../forge/units/U14/u14.md`; `phalcom-ast/src/ast.rs::Pattern`;
   `phalcom-ast/src/parser.rs::Parser::parse_pattern`;
   `phalcom-core/src/compiler/lib.rs::Compiler::compile_pattern_bind_top_of_stack`
 

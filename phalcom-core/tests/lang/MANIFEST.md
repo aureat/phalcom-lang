@@ -123,7 +123,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Wren-suite `string` delta (new label, ported from `wren/test/core/string*`):**
   `String`'s native floor is exactly `+(_)`/`hash`/static `new`/`toString`
   (`primitive/string.rs`) — no length, index, split, trim, or byte/codepoint
-  accessor exists yet (that gap is `docs/forge/units/U-STRING/plan.md`, not
+  accessor exists yet (that gap is `../../../docs/forge/units/U-STRING/u22-string.md`, not
   landed). +5 PASS (`string_concatenation`, `string_equality`, `string_to_string`,
   `string_type`, `string_new_coercion`) covering what already carries over from
   Wren's `test/core/string/{concatenation,equality,to_string,type,no_constructor}.wren`
@@ -228,7 +228,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
   sealed-hierarchy reject, `Can't set superclass of a class`, as a catchable
   runtime error rather than a panic, never a mutation of the class graph.
   Prior to that, +3 PASS —
-  U-FUTURE Slice A (pure `.ph` settle-once `Future`; `docs/forge/units/U-FUTURE/plan.md`):
+  U-FUTURE Slice A (pure `.ph` settle-once `Future`; `../../../docs/work/pending/fiber-schedule/future/plan.md`):
   `concurrency/concurrency_future_value_error_isready.ph` (C-FUT-1 settled half,
   C-FUT-8), `concurrency/concurrency_future_settle_once.ph` (C-FUT-3), and
   `concurrency/concurrency_future_then_map_catch_settled.ph` (C-FUT-4 settled-only

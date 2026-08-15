@@ -72,7 +72,7 @@ No `at`/`at(_,put:)` lowering occurs.
   (`phalcom-core::method::SignatureKind::Subscript`); core collection classes
   define explicit `[]` `.ph` wrapper methods (delegating to `at`) or accept
   the DNU implementations preserve current indexing behavior.
-- **Landed** (U-INDEX, `docs/forge/units/U-INDEX/plan.md`): call-site
+- **Landed** (U-INDEX, `../../forge/units/U-INDEX/u28-index.md`): call-site
   `expr[args...]`/`expr[args...] = value` is arg-list-shaped, not
   single-index — `xs[i, j]` sends `[_,_]`, `cache[key, default: fallback]`
   sends `[_,default]`, generalizing this ADR's single-index examples above to

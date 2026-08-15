@@ -7,7 +7,7 @@
   [ADR-0008](0008-layered-exceptions-and-result.md) (error model — handling is a `Block` protocol);
   [ADR-0037](0037-amend-floor-admit-error-root.md) (the **raise** side — `Error#message`/`raise`);
   [ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md) (amendment precedent);
-  [`docs/forge/units/U-ERR/plan.md`](../forge/units/U-ERR/plan.md) (DEC-ERR-A)
+  [`../../forge/units/U-ERR/err-plan.md`](../forge/units/U-ERR/plan.md) (DEC-ERR-A)
 
 ## Context
 

@@ -3,7 +3,7 @@
 > (ip underflow) below are fixed, and `compiler_error` is implemented (message-only). The
 > locked capture-at-raise decision is superseded by PDR-0010 §3 (Proposed). Authoritative
 > current picture: `docs/spec/current/traceback/verification-2026-07-20.md`; the spec and plan live in
-> `docs/spec/current/traceback/implementation-spec.md` + `plan.md`. Kept for the audit trail.
+> `docs/spec/current/traceback/implementation-spec.md` + `err-plan.md`. Kept for the audit trail.
 
 You are continuing work on: U-TRACE — wire and finish Phalcom's existing-but-dead runtime traceback, plus the observability + error-rendering cleanups batched with it.
 

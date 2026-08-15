@@ -7,7 +7,7 @@
   `Value` enum — the representation a niche would change), [ADR-0009](0009-handle-arena-heap.md)
   (handle heap — where wrapped `Some` payloads may point), `docs/spec/current/values-and-absence.md` §3
   (surface `None` vs private `nil`, Invariant 4), `docs/spec/current/open-questions.md` Q13,
-  `docs/forge/units/U17/plan.md`, `docs/forge/STATE.md` (DEC-U17 resolution record)
+  `../../forge/units/U17/u17.md`, `docs/forge/STATE.md` (DEC-U17 resolution record)
 
 > **Amended 2026-08-11 by PDR-0033.** The bootstrap formalization remains, but
 > `None` is now an immediate value with no `none_singleton` handle and `Some` is

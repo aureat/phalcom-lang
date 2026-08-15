@@ -13,7 +13,7 @@
   [ADR-0038](0038-amend-floor-admit-block-on-ensure.md),
   [ADR-0039](0039-amend-floor-admit-collection-container-primitives.md)
 - Related: `docs/spec/current/open-questions.md` Q8; `docs/spec/current/object-model.md` §4
-  (`Module` catalog row); `docs/forge/units/U15/plan.md`; `docs/forge/STATE.md`
+  (`Module` catalog row); `../../forge/units/U15/u15.md`; `docs/forge/STATE.md`
   (DEC-U15 ruling, 2026-07-12); `phalcom-core/src/module.rs`,
   `phalcom-core/src/interpret.rs::VM::import_module`,
   `phalcom-core/src/primitive/module.rs`
@@ -28,7 +28,7 @@ answered Q8 at the *design* level: file = module, top-level names public by defa
 **logical-name resolver** (`import geometry` → some search-path lookup, not a raw
 filesystem path in source).
 
-Dispatching the **implementation** unit (U15, `docs/forge/units/U15/plan.md`) surfaced
+Dispatching the **implementation** unit (U15, `../../forge/units/U15/u15.md`) surfaced
 that ADR-0027's full surface is **BLOCKED-ON-DECISION**: a logical-name resolver needs
 a package/search-path notion Phalcom does not have yet (no `phalcom.toml`, no
 installed-package directory), and a three-form grammar (qualified + selective +

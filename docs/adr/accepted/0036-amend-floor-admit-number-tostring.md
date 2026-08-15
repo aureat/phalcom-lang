@@ -13,7 +13,7 @@
   reflection slice, 80 → 85); [ADR-0015](0015-object-default-tostring.md)
   (`Object#toString` default — re-homed, not re-bound, by this unit);
   [ADR-0005](../retired/0005-number-as-flat-f64.md) (`Number` as a flat `f64`, the
-  representation this binding renders); `docs/forge/units/U-CORE-4/as-built.md`
+  representation this binding renders); `../../forge/units/U-CORE-4/ucore4.md`
   §2, §6.1 (drafted amendment text and the native/`.ph` split);
   `docs/spec/current/core/floor-census.md` §1.1, §2.1, §2.4 (re-baselined in the
   same implementation change as this ADR)
@@ -32,7 +32,7 @@ lockstep with its own primitive installs*."
 
 U-CORE-1 and U-CORE-3 have since landed (73 → 80 → 85). U-CORE-4 now lands the
 third slice: per-type `toString`. Per its as-built specification
-(`docs/forge/units/U-CORE-4/as-built.md` §2), only **one** capability in this
+(`../../forge/units/U-CORE-4/ucore4.md` §2), only **one** capability in this
 unit's scope fails the ADR-0019 §1 derivability test — rendering an `f64` as
 decimal text:
 

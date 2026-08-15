@@ -715,7 +715,7 @@ above is the ground truth for this table, not the graphify traversal alone.
    `number_tostring_pristine`, `symbol_tostring_pristine`,
    `str_tostring_pristine`. Still one mechanism, ADR-0018-scoped, correctly
    described as adjacent-not-core to this doc.
-3. The U-IC plan's "Preconditions" section (`plan.md` L33: "no IC is populated
+3. The U-IC plan's "Preconditions" section (`err-plan.md` L33: "no IC is populated
    (only comment stubs at `vm.rs:1578,1630`, `bytecode.rs:92`)") is **stale**
    relative to HEAD — those line numbers likely predate the file's split into
    `vm/dispatch.rs`/`vm/mod.rs`, and more importantly a global-counter IC *is*

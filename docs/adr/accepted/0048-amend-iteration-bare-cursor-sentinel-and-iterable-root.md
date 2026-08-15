@@ -10,7 +10,7 @@
   (`Option`, the deferred niche); [ADR-0010](0010-tagged-value-enum.md) (`Value`, the
   private `Nil` sentinel); [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)
   (inliner); [ADR-0020](0020-kernel-list-native-array-protocol.md) (`List`).
-- Realized by: **U-ITERABLE** ([`docs/forge/units/U-ITERABLE/plan.md`](../forge/units/U-ITERABLE/plan.md)).
+- Realized by: **U-ITERABLE** ([`../../forge/units/U-ITERABLE/u23-iterable-plan.md`](../forge/units/U-ITERABLE/plan.md)).
 
 ## Context
 

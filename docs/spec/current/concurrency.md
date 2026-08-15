@@ -103,7 +103,7 @@ The four points below are realized:
 
 `isDone`/`error` (the two reflective accessors in the Interface table above)
 are **landed** — pure reads over `FiberObject::status`/`result`, added by
-[U-FIBER-REFLECT](../../forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md)
+[U-FIBER-REFLECT](../../work/pending/fiber-schedule/reflect/plan.md)
 alongside U-FIBER's own `new`/`call`/`try`/`yield`/`current`/`abort`. They
 needed no scheduler and no new state.
 
@@ -218,7 +218,7 @@ same waiter list.
 ([`value.rs`](../../../phalcom-core/src/value.rs) already has `Instance`).
 
 **Slice A — landed** ([`core.ph`](../../../phalcom-core/core/core.ph) `class
-Future`, [U-FUTURE](../../forge/units/U-FUTURE/plan.md)): a pure-`.ph`
+Future`, [U-FUTURE](../../work/pending/fiber-schedule/future/plan.md)): a pure-`.ph`
 settle-once state machine over three private fields (`_state`/`_value`/
 `_waiters`). `value(_)`/`error(_)` construct an already-settled future;
 `isReady`/`value` read state; settled-receiver `then`/`map`/`catch` fire
@@ -238,7 +238,7 @@ substrate and the native ready-queue below. What it took:
    restricted-yield guard (§4) it was probing for — so `await` never suspended
    any fiber until [E004](../../errors/E004-await-cannot-suspend.md) was fixed.
    Also uses `Fiber#isDone`/`error`
-   ([U-FIBER-REFLECT](../../forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md))
+   ([U-FIBER-REFLECT](../../work/pending/fiber-schedule/reflect/plan.md))
    to detect an `async` driver's completion/failure;
 2. a **scheduler**: a ready-queue of resumable fibers plus a source of
    external completions (timers, I/O) exposed through [`System`](system.md).
@@ -261,7 +261,7 @@ substrate and the native ready-queue below. What it took:
 
 The native ready-queue seam is landed
 ([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md),
-ratified — [DEC-FUT-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-decision-register)
+ratified — [DEC-FUT-SCHED](../../work/pending/fiber-schedule/future/plan.md#9-blocked-on-decision-register)
 Option 1); `Future` deliberately owns **no** new VM mechanism beyond
 `Fiber` + a queue — keeping the concurrency primitive singular
 ([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)).

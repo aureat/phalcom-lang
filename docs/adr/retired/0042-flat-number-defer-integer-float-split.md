@@ -17,7 +17,7 @@
   dispatch axis), [ADR-0009](../accepted/0009-handle-arena-heap.md) (handle heap — leaves a
   future boxed-bignum / tagged-int representation implementable without
   disturbing existing references), `docs/spec/current/object-model.md` (the
-  `Number` core class), `docs/forge/units/U12/plan.md`,
+  `Number` core class), `../../forge/units/U12/u12.md`,
   `docs/forge/STATE.md` (DEC-U12 resolution record)
 
 ## Context

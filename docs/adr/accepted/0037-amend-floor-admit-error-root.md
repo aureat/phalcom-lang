@@ -16,7 +16,7 @@
   (`throw`/`try`/`on`/`catch`/`ensure` surface spelling — confirms `throw expr
   === expr.raise()` targets this unit's mechanism); ADR-0012 (message-send
   dispatch / `doesNotUnderstand(_:)`, method-lookup.md §2 — the miss path this
-  unit re-wires); `docs/forge/units/U-CORE-6/as-built.md` §2, §3, §6
+  unit re-wires); `../../forge/units/U-CORE-6/ucore6.md` §2, §3, §6
   (drafted amendment text, concrete bodies, and the native/`.ph` split);
   `docs/spec/current/core/floor-census.md` §1.1, §2.15 (re-baselined in the same
   implementation change as this ADR)
@@ -37,7 +37,7 @@ U-CORE-1, U-CORE-3, and U-CORE-4 have since landed (73 → 80 → 85 → 86).
 U-CORE-6 now lands the fourth and final slice of the ADR-0023 ceiling: the
 minimal reification of the surface error hierarchy (object-model.md §4
 "Errors", [ADR-0008](0008-layered-exceptions-and-result.md)). Per its as-built
-specification (`docs/forge/units/U-CORE-6/as-built.md` §2), exactly **two**
+specification (`../../forge/units/U-CORE-6/ucore6.md` §2), exactly **two**
 capabilities in this unit's scope fail the ADR-0019 §1 derivability test:
 
 | Capability | Why not `.ph` |
@@ -55,7 +55,7 @@ pattern — both are ADR-0019 amendments regardless.
 
 **No other error-hierarchy capability is admitted by this amendment.** Per the
 as-built spec's explicit scope fence (§0 "Explicitly OUT of scope") and
-U-CORE-3's hand-off (`docs/forge/units/U-CORE-3/as-built.md` §0.2), the native
+U-CORE-3's hand-off (`../../forge/units/U-CORE-3/ucore3.md` §0.2), the native
 `RuntimeError::Arity`/`Type`/`ZeroDivision`/`DeadFrameError`/etc. variants stay
 **native** through this unit — reifying them into surface
 `ArgumentError`/`TypeError`/`RangeError`/`DeadFrameError` classes is reserved

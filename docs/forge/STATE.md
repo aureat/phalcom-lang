@@ -272,7 +272,7 @@ U-ERR's), file the 4 bugs to DEFERRED, review U-ERR diff (reviewer ON), full com
   core.ph FREE. Slice B (async/await/drain) still gated on DEC-FUT-SCHED / U-SCHED.
 - **item4** (→U-STD) — DISPATCHED. Migrate List `each`/`map`/`filter`/`reduce`/`includes`
   off `size`/`at` onto `iterate(_)`/`iteratorValue(_)` (DEC-ITER-A). core.ph-only. Reviewer ON.
-- **U-FUTURE** — plan landed (`docs/forge/units/U-FUTURE/plan.md`). Verdict:
+- **U-FUTURE** — plan landed (`../work/pending/fiber-schedule/future/plan.md`). Verdict:
   **Slice A** (settle-once `Future`: `value`/`error`/`isReady`/`value` + settled
   `then`/`map`/`catch`) is **pure `.ph`, zero native — ready now**; **Slice B**
   (`async`/`await` + drain) needs a native scheduler seam (`System.schedule(_)` +
@@ -292,13 +292,13 @@ Serialize code-writers on the shared tree (one at a time, commit-on-green — th
    (ADR-0008/0031/0007; ADR-0038 block-on-ensure floor already drafted). Reviewer
    ON. Contends `parser.rs` → after U-COLL. U-CORE-6 error root (dep) landed.
 
-4. **U-ITER-FIX** — U-ITER loop-control follow-ons (`docs/forge/units/U-ITER-FIX/plan.md`):
+4. **U-ITER-FIX** — U-ITER loop-control follow-ons (`units/U-ITER-FIX/u25-iter-fix-plan.md`):
    deopt-block break/continue silent no-op (runtime trap, U-CORE-6 unwind landed), `while`
    break/continue, loop-var capture freshness, jump-helper dedup. Reviewer ON. Edits
    `compiler/lib.rs` + `inliner.rs` → **serialize with U-ERR** (shared `compiler/lib.rs`).
 
 5. **U-FUTURE Slice A** — settle-once `Future` + settled combinators, pure `.ph`,
-   zero native (`docs/forge/units/U-FUTURE/plan.md`). Edits `core.ph` → serialize
+   zero native (`../work/pending/fiber-schedule/future/plan.md`). Edits `core.ph` → serialize
    with U-COLLTYPES / U-STD item-4 (never two `core.ph` editors). No decision needed
    (DEC-FUT-SCHED gates only Slice B).
 

@@ -10,7 +10,7 @@
 - Related: [ADR-0012](0012-selector-signature-encoding-and-dispatch.md) (`encode_selector`/
   `decode_selector`, reused verbatim, not re-derived); `docs/spec/current/selectors.md` §3
   ("Method references (`::`)") + §3.1 (base-name index); `docs/spec/current/open-questions.md`
-  Q14 (`Family` callable-only — reflective mirror deferred); `docs/forge/units/U16/plan.md`
+  Q14 (`Family` callable-only — reflective mirror deferred); `../../forge/units/U16/u16.md`
   (superseded original scope — see "Scope" below)
 
 ## Context

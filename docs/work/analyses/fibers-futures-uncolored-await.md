@@ -130,7 +130,7 @@ Scope, not an arbitrary future, owns children, determines join behavior, and req
 4. no preemption and no hidden resumption;
 5. CPU-bound or blocking native operation can still starve peers.
 
-**[V]** Current scheduler seam is FIFO VecDeque; it queues fresh fibers and deliberately does not requeue later-suspended fiber. Future settlement owns enqueue-on-ready. See [U-SCHED §2](../pending/sched-fiber/sched/implementation-spec.md#2-vm-field) and [§5](../pending/sched-fiber/sched/implementation-spec.md#5-root-drive-vmrun).
+**[V]** Current scheduler seam is FIFO VecDeque; it queues fresh fibers and deliberately does not requeue later-suspended fiber. Future settlement owns enqueue-on-ready. See [U-SCHED §2](../pending/scheduling/queue/implementation-spec.md#2-vm-field) and [§5](../pending/scheduling/queue/implementation-spec.md#5-root-drive-vmrun).
 
 Runtime must distinguish these relationships even if public status remains Suspended:
 
@@ -323,7 +323,7 @@ These are intentional exclusions, not implementation gaps. Model still admits la
 - [ADR-0030](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md)
 - [PDR-0017](../../pdr/0017-future-cancel-is-renunciation.md)
 - [cancellation specification](../../spec/current/stdlib/cancellation.md)
-- [U-SCHED implementation spec](../pending/sched-fiber/sched/implementation-spec.md)
+- [U-SCHED implementation spec](../pending/scheduling/queue/implementation-spec.md)
 - [Wren vs Phalcom analysis](wren-vs-phalcom-fiber-yield.md)
 - [phalcom-core/src/primitive/fiber.rs](../../../phalcom-core/src/primitive/fiber.rs)
 - vendored [wren_core.c](../../../resources/wren/src/vm/wren_core.c) and [wren_core.wren](../../../resources/wren/src/vm/wren_core.wren)

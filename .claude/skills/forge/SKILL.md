@@ -127,7 +127,7 @@ You delegate; you do not do heavy reading or writing. Value = judgment, sequenci
 | **0. Stabilize** | Green build + verify substrate. **Blocking — first.** | `phalcom-stabilizer` | sonnet | low |
 | **1a. Audit** | Parallel single-lens finders: correctness-vs-spec, object-model, borrow/memory, perf, diagnostics, security. | `phalcom-auditor` ×N | opus | medium |
 | **1b. Verify** | Adversarial refutation per finding; majority vote. Survivors only. | `phalcom-verifier` ×(2–3/finding) | opus | high |
-| **2. Plan** | Dependency-ordered plan + write-sets + edges → `PLAN.md`. Flags BLOCKED-ON-DECISION. | `phalcom-architect` | opus | xhigh |
+| **2. Plan** | Dependency-ordered plan + write-sets + edges → `u0-plan.md`. Flags BLOCKED-ON-DECISION. | `phalcom-architect` | opus | xhigh |
 | **3a. Implement** | One unit end to end (code + tests), worktree-isolated. | `phalcom-implementer` | opus | medium |
 | **3b. Review** | Independent adversarial diff review; approve only on green + spec satisfied. | `phalcom-reviewer` | opus | high |
 | **4. Register** | Optimization/DX/speed/security ideas → `DEFERRED.md`, not v1. | (implementers append) | — | — |
@@ -140,7 +140,7 @@ Replaces wave-barriers. Parallelism must be *interference-free*, not merely conc
 - **Launch on eligibility, not on a wave boundary.** The moment a unit becomes eligible, spawn it — keep the fleet saturated. No global barrier stalls ready units waiting for a slow sibling.
 - **Foundational critical-path units serialize** (selector redesign, then blocks): everything depends on them → they land alone first, before the fan-out.
 - Each parallel implementer runs in its **own git worktree** (`isolation: worktree`) so concurrent edits never collide on disk. Each implementer is followed by an independent `phalcom-reviewer`.
-- **Integrate per-unit, not per-wave:** when a unit's implementer + reviewer both go green, merge that ONE unit, re-run the gate, update `STATE.md`, free its write-set, recompute the ready-queue, launch newly-eligible units. Other in-flight units keep running throughout — merging one never stalls the rest.
+- **Integrate per-unit, not per-wave:** when a unit's implementer + reviewer both go green, merge that ONE unit, re-run the gate, update `u0-state.md`, free its write-set, recompute the ready-queue, launch newly-eligible units. Other in-flight units keep running throughout — merging one never stalls the rest.
 - **Conflict:** an implementer that must touch a file outside its write-set STOPS and reports — you re-partition rather than let two agents fight a file.
 
 ### Orchestrator never idles (the point)
@@ -149,13 +149,13 @@ While implementers run, your `foreground` queue is never empty — obey the [sto
 - verify still-pending findings for later units,
 - draft the next eligible units' briefs (subagent contract, front-loaded coordinates),
 - adjudicate open BLOCKED-ON-DECISION items with the user,
-- update `PLAN.md`/`STATE.md`, recompute the ready-queue.
+- update `u0-plan.md`/`u0-state.md`, recompute the ready-queue.
 
-A completion notification interrupts → integrate the compact return → merge if green → relaunch newly-eligible → resume foreground. You reconstruct state from `PLAN.md`/`STATE.md` + graphify, never from a bloated transcript.
+A completion notification interrupts → integrate the compact return → merge if green → relaunch newly-eligible → resume foreground. You reconstruct state from `u0-plan.md`/`u0-state.md` + graphify, never from a bloated transcript.
 
 ### Slices
 - "Review code / find bugs" → Phases 1–2 (skip 0 if green).
-- "Implement `<feature>`" → confirm it's in `PLAN.md`, then Phase 3 for that unit.
+- "Implement `<feature>`" → confirm it's in `u0-plan.md`, then Phase 3 for that unit.
 - "It doesn't build" / "set up harness" → Phase 0.
 - "Plan the whole thing" → Phases 1→2, then present plan + BLOCKED-ON-DECISION list. Do not pick the user's design.
 

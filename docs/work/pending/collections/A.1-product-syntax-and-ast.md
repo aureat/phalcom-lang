@@ -12,7 +12,7 @@ This phase is not allowed to invent typing, reflection, destructuring, expansion
 
 The normative semantic sources for this phase are the supplied `collections-next/tuple-record-and-symbols-spec.md`, especially §§2–7, 9–10, 23–25, 34, and 39, and `collections-next/product-normalization-and-unit-spec.md`, especially §§5–9 and 38. The old `collections` archive is advisory only; its diagnostic examples are useful, but any old rule that conflicts with `collections-next` is superseded.
 
-Repository planning documents such as `docs/forge/units/U-COLL/plan.md` and `docs/forge/units/U-COLLTYPES/plan.md` describe the implementation that exists today, not the target semantics. In particular, `U-COLL` lowers `(a, b)` directly to `Tuple.fromList(...)`; this phase begins retiring that architectural choice.
+Repository planning documents such as `../../../forge/units/U-COLL/literals-tuple-map.md` and `../../../forge/units/U-COLLTYPES/map-set-tuple-range.md` describe the implementation that exists today, not the target semantics. In particular, `U-COLL` lowers `(a, b)` directly to `Tuple.fromList(...)`; this phase begins retiring that architectural choice.
 
 ## 3. Repository baseline to verify before editing
 

@@ -1,6 +1,6 @@
 # U-REPL — completion, hints, and highlighting surface
 
-Companion to [`plan.md`](plan.md), at the same grain. `plan.md` specs the evaluation
+Companion to [`err-plan.md`](plan.md), at the same grain. `err-plan.md` specs the evaluation
 substrate (§D1–§D10); this specs what the user actually sees. Decisions here are
 lettered §S1–§S9 to stay distinct from the plan's §D-series. Nothing is open.
 
@@ -215,7 +215,7 @@ requested and visible, not silent and load-bearing.
 > `Compiler` trips the redeclaration ban and `class.already_defined` respectively —
 > `:reload` would fail on any session that declared anything. A fresh `Compiler` is
 > what makes the replay legal, and it is the same reason the cross-cell regression test
-> in `plan.md` must not be weakened: it is the only guard on this interaction.
+> in `err-plan.md` must not be weakened: it is the only guard on this interaction.
 
 `:reset` and `:help` are specced now and unimplemented on purpose. Specifying the
 namespace up front is what keeps the *next* command from being invented ad hoc with a
@@ -230,7 +230,7 @@ not a language console.
 
 ## Write-set delta
 
-Beyond `plan.md`'s: `phalcom-repl/src/{completer,highlighter,helper,editor}.rs`
+Beyond `err-plan.md`'s: `phalcom-repl/src/{completer,highlighter,helper,editor}.rs`
 rewritten; `phalcom-repl/src/rustyline/` deleted (§S8); `phalcom-repl/Cargo.toml`
 loses the `rustyline` dependency (§S8); `CLAUDE.md`'s "alternate/experimental editor
 stack" sentence updated (§S8); `phalcom-lsp` consumed as a library, never modified.

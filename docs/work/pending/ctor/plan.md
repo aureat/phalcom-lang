@@ -7,7 +7,7 @@
 > arity guard are deleted** (so this unit **no longer closes `DEFERRED.md:29`** — it
 > is dissolved by ruling) and gains a **`native_repr`** category instead; a `class`
 > keyword-variable is added.
-> **[U-BINDINGS](../../../forge/units/U-BINDINGS/plan.md) now lands first** — its field grammar is the
+> **[U-BINDINGS](../../../forge/units/U-BINDINGS/u30-bindings-plan.md) now lands first** — its field grammar is the
 > ground this unit's `@class` fields stand on.
 
 Status: **IMPLEMENTATION COMPLETE (CLOSURE WORK PENDING)** (2026-07-22). Closure authority: [`ctor-completion-implementation-spec.md`](../ctor-completion-implementation-spec.md). Final verification is deferred pending explicit instruction.
@@ -410,7 +410,7 @@ confirm the suite reddens, restore ([[phalcom-golden-test-lanes]]).
 | **G/G2** | A `class` keyword-variable? | **Yes — dynamic ≡ `self.class`**, legal everywhere |
 | **H** | Does declaring `new(n)` drop the inherited `new()`? | **No** — `new()` is an ordinary inherited method; **tombstone + arity guard deleted** |
 | **H2** | May any class bare-allocate? | **Only `Object::Instance`-backed** — via a new `native_repr` flag |
-| **I/I2** | `let` on fields unenforced | **`let`/`const` rework → [ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md), [U-BINDINGS](../../../forge/units/U-BINDINGS/plan.md), lands first** |
+| **I/I2** | `let` on fields unenforced | **`let`/`const` rework → [ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md), [U-BINDINGS](../../../forge/units/U-BINDINGS/u30-bindings-plan.md), lands first** |
 
 ### The A → F reversal, and why the measurement mattered twice
 

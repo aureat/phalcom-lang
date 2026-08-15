@@ -11,7 +11,7 @@
   (invariant re-entrancy — the bug this amends), `docs/spec/current/decorators/README.md`
   + `docs/spec/current/decorators/on.md` (tier model; attribute-classes.md
   already states the rule this ADR enforces), `docs/spec/current/drafts/decorators-stdlib.md`
-  (`@computed` — the violation this amends), `docs/forge/units/U-ANNOT-CONTRACTS/plan.md`
+  (`@computed` — the violation this amends), `../../forge/units/U-ANNOT-CONTRACTS/annot-contracts.md`
   (the two erratum fixes below — ownership-tracking pseudocode, fiber-switch
   `checking` state — were surfaced during that unit's build-order grounding,
   before any implementation, and folded back into this ADR the same day)

@@ -1,6 +1,6 @@
 # U-HOTPATH — Implementation spec (dispatch-loop hot path, behavior-invariant)
 
-> Companion to [`plan.md`](plan.md) — that file has rationale + the Wren precedent. **This file
+> Companion to [`err-plan.md`](plan.md) — that file has rationale + the Wren precedent. **This file
 > supersedes plan.md's file/line refs** (written pre-`vm.rs` split) and **adds Change 4**, which on
 > HEAD is bigger than any of plan.md's three. Written against HEAD 2026-07-14 (`2b75429`).
 >

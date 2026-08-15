@@ -9,7 +9,7 @@
   "Two miette labels" named a renderer that does not exist — compile-error spans are not rendered
   at all today. Both spans still live in the error value and both locations still reach the user,
   now via the message text. See the amendment note under Decision 2.
-- Related: `docs/forge/units/U-BINDINGS/implementation-spec.md` (L-3/L-5, §12C),
+- Related: `../forge/units/U-BINDINGS/u30-bindings-spec.md` (L-3/L-5, §12C),
   [ADR-0064](../adr/accepted/0064-let-const-bindings-and-field-mutability.md),
   [`U-CLASSCLOSE`](../forge/units/U-CLASSCLOSE/plan.md)
 

@@ -1,7 +1,7 @@
 # Specification — Collection Protocol (the shared sequence contract)
 
 > **Status:** **Normative contract**, dispatch-ready via
-> [U-CORE-5](../../../forge/units/U-CORE-5/as-built.md) (not yet landed). The
+> [U-CORE-5](../../../forge/units/U-CORE-5/ucore5.md) (not yet landed). The
 > shared selectors + **laws** every collection must satisfy — with kernel `List`
 > as the reference implementation. Adds **zero** floor primitives (no
 > [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) amendment).
@@ -87,8 +87,8 @@ the harness *is* the definition of "conformant."
 
 | Claim | Source |
 |---|---|
-| Contract, harness, `List#==`, Q5 | [U-CORE-5 as-built](../../../forge/units/U-CORE-5/as-built.md); [`decisions.md`](./decisions.md) Q5 |
+| Contract, harness, `List#==`, Q5 | [U-CORE-5 as-built](../../../forge/units/U-CORE-5/ucore5.md); [`decisions.md`](./decisions.md) Q5 |
 | Each collection its own unit | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) |
 | Family representation + literals ratified | [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) |
 | `at(_)`→`Option`, no `nil` | [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md); [values-and-absence.md](../values-and-absence.md) |
-| `hash`/`isA` dependency | [U-CORE-1 as-built](../../../forge/units/U-CORE-1/as-built.md) |
+| `hash`/`isA` dependency | [U-CORE-1 as-built](../../../forge/units/U-CORE-1/ucore1.md) |

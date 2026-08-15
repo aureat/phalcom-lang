@@ -11,7 +11,7 @@
   [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md) (Compile/Layout tier, ratified)
 - Related:
   [annotations-data.md](../experimental/annotations-data.md) (`@data`/`@sealed`/`@variant` — the *only* spec for this mechanism) ·
-  [U-ANNOT-LAYOUT](../../../forge/units/U-ANNOT-LAYOUT/plan.md) (the owning unit; §3.4) ·
+  [U-ANNOT-LAYOUT](../../../forge/units/U-ANNOT-LAYOUT/annot-layout.md) (the owning unit; §3.4) ·
   [values-and-absence.md](../values-and-absence.md) (`Option`, `match(some,none)`) ·
   [open-questions.md](../open-questions.md) (Q7 residue — refutable patterns / `match` arms OPEN) ·
   `drafts/crypto.md` (the algorithm-set application; written concurrently — see §5)

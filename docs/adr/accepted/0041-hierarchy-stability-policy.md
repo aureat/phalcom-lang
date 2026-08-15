@@ -13,7 +13,7 @@
   costs nothing later), [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
   (one-hashmap-probe dispatch — the invariant single inheritance protects),
   `docs/spec/current/object-model.md` §1.5/§5, `docs/spec/current/open-questions.md`
-  Q4/Q10, `docs/forge/units/U13/plan.md`
+  Q4/Q10, `../../forge/units/U13/u13.md`
 
 ## Context
 

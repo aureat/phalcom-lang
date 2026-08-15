@@ -3,10 +3,10 @@
 Specification for how Phalcom reports a failure to a human: runtime tracebacks, compile and
 syntax diagnostics, execution tracing, and disassembly.
 
-- [`implementation-spec.md`](implementation-spec.md) — the dispatch-ready implementation spec
+- [`u22-seq-spec.md`](implementation-spec.md) — the dispatch-ready implementation spec
   (renderer ruling, walk/styler architecture, capture, native/@native frames, style guide,
   did-you-mean, observability).
-- [`plan.md`](plan.md) — dependency-ordered units with write-sets, edges, and gates.
+- [`err-plan.md`](plan.md) — dependency-ordered units with write-sets, edges, and gates.
 - [`verification-2026-07-20.md`](verification-2026-07-20.md) — adversarial re-verification of
   the audit; lists every claim that did not survive.
 - [`output-catalog.md`](output-catalog.md) — every rendering surface, by example.
@@ -21,7 +21,7 @@ syntax diagnostics, execution tracing, and disassembly.
 in §2 below is **superseded by
 [PDR-0010](../../pdr/0010-errors-carry-structure-and-cheap-origin.md) §3, ratified
 2026-07-20**; the normative `kind` table is
-[`implementation-spec.md`](implementation-spec.md) §8.1. Parts of `tracing.md` went stale when
+[`u22-seq-spec.md`](implementation-spec.md) §8.1. Parts of `tracing.md` went stale when
 PDR-0008 landed; trust [`verification-2026-07-20.md`](verification-2026-07-20.md) over it where
 they disagree.
 
@@ -85,7 +85,7 @@ real here: superinstruction fusion already had to solve span-fidelity-under-tran
 ### 3.1 Renderer — miette or color-print  ✅ RULED
 
 **Ruled 2026-07-20: option (b), extended with a named style layer; miette leaves the
-workspace.** Full grounds in [`implementation-spec.md`](implementation-spec.md) §1 — the short
+workspace.** Full grounds in [`u22-seq-spec.md`](implementation-spec.md) §1 — the short
 version: most surfaces (frame lines, fiber log, disasm, JSON) are not miette-shaped, so (a)
 still means two renderers; `color.md`'s palette discipline is easier to own than to impose on
 miette; and the genuinely hard part (multi-label spans) is bounded at two labels. The catalog's

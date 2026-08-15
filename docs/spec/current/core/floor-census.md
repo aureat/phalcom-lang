@@ -352,7 +352,7 @@ positional holes (`+(_)`, `new()`), and labeled arguments are named
 > use it in all normative prose. The colon `_:` form documented above is the
 > *current interned/heap encoding only*; it is transitional, and migrating the
 > interner to emit the comma form is owned by
-> [U-CORE-4](../../../forge/units/U-CORE-4/as-built.md) (BD-CORE4-2). Colon-form
+> [U-CORE-4](../../../forge/units/U-CORE-4/ucore4.md) (BD-CORE4-2). Colon-form
 > selector spellings are **deprecated** as a canonical notation — they persist in
 > as-built docs solely to describe what the binary interns today.
 
