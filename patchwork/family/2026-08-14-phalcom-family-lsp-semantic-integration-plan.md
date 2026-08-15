@@ -201,7 +201,7 @@ Tasks 10–12 run after semantic correctness. Do not optimize by removing semant
 
 # Task 0 — Baseline the current LSP and semantic worker
 
-- [ ] Complete this task and its focused validation: **Baseline the current LSP and semantic worker**
+- [x] Complete this task and its focused validation: **Baseline the current LSP and semantic worker**
 
 **Files:** no source edits.
 
@@ -228,7 +228,7 @@ rg -n 'MethodRefKind|SymbolLiteralKind|ValueShape::Family|comma_form|call_select
 
 # Task 1 — Replace LSP selector encoding duplication with common structural semantics
 
-- [ ] Complete this task and its focused validation: **Replace LSP selector encoding duplication with common structural semantics**
+- [x] Complete this task and its focused validation: **Replace LSP selector encoding duplication with common structural semantics**
 
 **Files:**
 - `phalcom-lsp/src/selectors.rs`
@@ -285,7 +285,7 @@ git commit -am "refactor(lsp): share structural selector semantics"
 
 # Task 2 — Store structural Selector and rest acceptance in ClassSurface
 
-- [ ] Complete this task and its focused validation: **Store structural Selector and rest acceptance in ClassSurface**
+- [x] Complete this task and its focused validation: **Store structural Selector and rest acceptance in ClassSurface**
 
 **Files:**
 - `phalcom-lsp/src/semantic/surface.rs`
@@ -361,7 +361,7 @@ git commit -am "feat(lsp): retain selector and rest structure in class surfaces"
 
 # Task 3 — Extend ValueShape without bloating joins or losing semantic category
 
-- [ ] Complete this task and its focused validation: **Extend ValueShape without bloating joins or losing semantic category**
+- [x] Complete this task and its focused validation: **Extend ValueShape without bloating joins or losing semantic category**
 
 **Files:**
 - `phalcom-lsp/src/semantic/facts.rs`
@@ -419,7 +419,7 @@ git commit -am "feat(lsp): model dynamic and captured callable families"
 
 # Task 4 — Make exact and open `::` analysis uniformly dynamic
 
-- [ ] Complete this task and its focused validation: **Make exact and open `::` analysis uniformly dynamic**
+- [x] Complete this task and its focused validation: **Make exact and open `::` analysis uniformly dynamic**
 
 **Files:**
 - `phalcom-lsp/src/semantic/analyzer.rs`
@@ -510,7 +510,7 @@ git commit -am "fix(lsp): keep exact method references dynamically dispatched"
 
 # Task 5 — Extend DispatchResolver with effective MethodFamily capture
 
-- [ ] Complete this task and its focused validation: **Extend DispatchResolver with effective MethodFamily capture**
+- [x] Complete this task and its focused validation: **Extend DispatchResolver with effective MethodFamily capture**
 
 **Files:**
 - `phalcom-lsp/src/semantic/dispatch.rs`
@@ -580,7 +580,7 @@ git commit -am "feat(lsp): capture effective MethodFamily routing snapshots"
 
 # Task 6 — Analyze `Behavior >> selectorSpec`, Method binding, and BoundMethodFamily calls
 
-- [ ] Complete this task and its focused validation: **Analyze `Behavior >> selectorSpec`, Method binding, and BoundMethodFamily calls**
+- [x] Complete this task and its focused validation: **Analyze `Behavior >> selectorSpec`, Method binding, and BoundMethodFamily calls**
 
 **Files:**
 - `phalcom-lsp/src/semantic/analyzer.rs`
@@ -669,7 +669,7 @@ git commit -am "feat(lsp): analyze MethodFamily capture and bound routing"
 
 # Task 7 — Make occurrence/index/reference/rename selector-spec aware
 
-- [ ] Complete this task and its focused validation: **Make occurrence/index/reference/rename selector-spec aware**
+- [x] Complete this task and its focused validation: **Make occurrence/index/reference/rename selector-spec aware**
 
 **Files:**
 - `phalcom-lsp/src/semantic/occurrence.rs`
@@ -733,7 +733,7 @@ git commit -am "feat(lsp): index selector patterns and family references structu
 
 # Task 8 — Add family-aware hover, completion, signature help, and definition UX
 
-- [ ] Complete this task and its focused validation: **Add family-aware hover, completion, signature help, and definition UX**
+- [x] Complete this task and its focused validation: **Add family-aware hover, completion, signature help, and definition UX**
 
 **Files:**
 - `phalcom-lsp/src/completion.rs` — callable/member completion construction
@@ -817,7 +817,7 @@ git commit -am "feat(lsp): surface dynamic and captured family intelligence"
 
 # Task 9 — Update semantic tokens and VS Code grammar without duplicating semantics
 
-- [ ] Complete this task and its focused validation: **Update semantic tokens and VS Code grammar without duplicating semantics**
+- [x] Complete this task and its focused validation: **Update semantic tokens and VS Code grammar without duplicating semantics**
 
 **Files:**
 - `phalcom-lsp/src/semantic_tokens.rs`
@@ -872,7 +872,7 @@ git commit -am "feat(tooling): highlight selector patterns and families"
 
 # Task 10 — Integrate family dependencies into incremental invalidation
 
-- [ ] Complete this task and its focused validation: **Integrate family dependencies into incremental invalidation**
+- [x] Complete this task and its focused validation: **Integrate family dependencies into incremental invalidation**
 
 **Files:**
 - `phalcom-lsp/src/semantic/invalidation.rs`
@@ -940,7 +940,7 @@ git commit -am "perf(lsp): invalidate family semantics from dispatch-surface del
 
 # Task 11 — Preserve asynchronous request latency and optimize family queries
 
-- [ ] Complete this task and its focused validation: **Preserve asynchronous request latency and optimize family queries**
+- [x] Complete this task and its focused validation: **Preserve asynchronous request latency and optimize family queries**
 
 **Files:**
 - semantic snapshot/query code
@@ -1011,7 +1011,7 @@ git commit -am "perf(lsp): bound selector-family semantic queries"
 
 # Task 12 — Documentation, diagnostics, typing bridge, and final validation
 
-- [ ] Complete this task and its focused validation: **Documentation, diagnostics, typing bridge, and final validation**
+- [x] Complete this task and its focused validation: **Documentation, diagnostics, typing bridge, and final validation**
 
 **Files:**
 - LSP docs/spec package if retained in repo
