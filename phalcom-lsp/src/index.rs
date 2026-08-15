@@ -1004,20 +1004,18 @@ impl Collector {
                     }
                 }
             }
-            Expr::Symbol(s) => {
-                match &s.kind {
-                    phalcom_ast::ast::SymbolLiteralKind::Name(_) => {}
-                    phalcom_ast::ast::SymbolLiteralKind::Selector { name, labels } => {
-                        let selector = comma_form_from_labels(name, labels);
-                        self.references.push((selector, s.range));
-                    }
-                    phalcom_ast::ast::SymbolLiteralKind::Pattern(pattern) => {
-                        if let Ok(normalized) = pattern.normalize() {
-                            self.references.push((normalized.encode(), s.range));
-                        }
+            Expr::Symbol(s) => match &s.kind {
+                phalcom_ast::ast::SymbolLiteralKind::Name(_) => {}
+                phalcom_ast::ast::SymbolLiteralKind::Selector { name, labels } => {
+                    let selector = comma_form_from_labels(name, labels);
+                    self.references.push((selector, s.range));
+                }
+                phalcom_ast::ast::SymbolLiteralKind::Pattern(pattern) => {
+                    if let Ok(normalized) = pattern.normalize() {
+                        self.references.push((normalized.encode(), s.range));
                     }
                 }
-            }
+            },
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {
                     match entry {

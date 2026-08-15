@@ -565,14 +565,10 @@ impl OccurrenceBuilder<'_> {
             }
             Expr::Symbol(symbol) => {
                 let (base_range, name) = match &symbol.kind {
-                    phalcom_ast::ast::SymbolLiteralKind::Name(name) => (
-                        SourceRange::new(symbol.range.start + 1, symbol.range.end),
-                        name.clone(),
-                    ),
-                    phalcom_ast::ast::SymbolLiteralKind::Selector { name, .. } => (
-                        SourceRange::new(symbol.range.start + 1, symbol.range.start + 1 + name.len()),
-                        name.clone(),
-                    ),
+                    phalcom_ast::ast::SymbolLiteralKind::Name(name) => (SourceRange::new(symbol.range.start + 1, symbol.range.end), name.clone()),
+                    phalcom_ast::ast::SymbolLiteralKind::Selector { name, .. } => {
+                        (SourceRange::new(symbol.range.start + 1, symbol.range.start + 1 + name.len()), name.clone())
+                    }
                     phalcom_ast::ast::SymbolLiteralKind::Pattern(syntax) => (syntax.base_range, syntax.base.clone()),
                 };
                 self.push(

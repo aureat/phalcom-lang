@@ -127,11 +127,7 @@ impl<'a, T: ClassTable + ?Sized> DispatchResolver<'a, T> {
     }
 
     /// Captures an effective immutable snapshot of a method family starting from `receiver`.
-    pub(crate) fn capture_method_family(
-        &self,
-        receiver: &DispatchReceiver,
-        pattern: &SelectorPattern,
-    ) -> CapturedMethodFamilyShape {
+    pub(crate) fn capture_method_family(&self, receiver: &DispatchReceiver, pattern: &SelectorPattern) -> CapturedMethodFamilyShape {
         let (source_behavior, side, start) = match receiver {
             DispatchReceiver::Instance(class) => (class.clone(), DispatchSide::Instance, Some(class.clone())),
             DispatchReceiver::ClassObject(class) => (class.clone(), DispatchSide::Class, Some(class.clone())),
@@ -160,9 +156,7 @@ impl<'a, T: ClassTable + ?Sized> DispatchResolver<'a, T> {
             for member in surface.members_on(side) {
                 if member.rest.is_none() && pattern.matches(&member.selector) {
                     let key = member.selector.encode();
-                    if seen_exact.insert(key)
-                        && (member.visibility == MemberVisibility::Public || member.visibility == MemberVisibility::Internal)
-                    {
+                    if seen_exact.insert(key) && (member.visibility == MemberVisibility::Public || member.visibility == MemberVisibility::Internal) {
                         exact.push((member.selector.clone(), member.callable.clone()));
                     }
                 }

@@ -2,9 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use phalcom_ast::ast::{
-    AttrKind, Attribute, ClassMember, IndexAccessor, ParameterDef, Program, RestMode, Statement,
-};
+use phalcom_ast::ast::{AttrKind, Attribute, ClassMember, IndexAccessor, ParameterDef, Program, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 pub use phalcom_common::selector::{Selector, SelectorPattern};
 use phalcom_native_surface::NativeReturnShape;

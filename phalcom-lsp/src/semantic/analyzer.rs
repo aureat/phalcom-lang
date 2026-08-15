@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use phalcom_ast::ast::{
-    BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, NormalizedSelectorSpec, PackItem, PackLabel,
-    ProductLabel, RecordLiteralEntry, SelectorPatternSyntax, SetLiteralEntry, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
+    BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, NormalizedSelectorSpec, PackItem, PackLabel, ProductLabel,
+    RecordLiteralEntry, SelectorPatternSyntax, SetLiteralEntry, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 pub use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
 
@@ -374,9 +374,7 @@ fn analyze_callable_value_call(
         ValueShape::Callable(callable) | ValueShape::Method(callable) => {
             (context.callable_return)(callable).unwrap_or_else(|| flow(ValueShape::Unknown, range))
         }
-        ValueShape::BoundMethod { method, .. } => {
-            (context.callable_return)(method).unwrap_or_else(|| flow(ValueShape::Unknown, range))
-        }
+        ValueShape::BoundMethod { method, .. } => (context.callable_return)(method).unwrap_or_else(|| flow(ValueShape::Unknown, range)),
         ValueShape::Family { receiver, spec } => match spec {
             NormalizedSelectorSpec::Exact(exact_sel) => {
                 let call_slots = crate::selectors::static_call_slots(args);
@@ -444,9 +442,7 @@ fn analyze_get_property(
 fn analyze_method_ref(reference: &phalcom_ast::ast::MethodRefExpr, range: phalcom_common::range::SourceRange, context: &AnalysisContext<'_>) -> InferredValue {
     let receiver = analyze_expr(&reference.receiver, context);
     let spec = reference.spec.normalize().unwrap_or_else(|_| match &reference.kind {
-        MethodRefKind::Open { name } => NormalizedSelectorSpec::Pattern(
-            SelectorPattern::named_method(name, [], [], true).unwrap(),
-        ),
+        MethodRefKind::Open { name } => NormalizedSelectorSpec::Pattern(SelectorPattern::named_method(name, [], [], true).unwrap()),
         MethodRefKind::Pinned { name, labels } => {
             let slots = labels
                 .iter()
@@ -960,14 +956,7 @@ mod tests {
         ]);
         let source = "class Parent { value { 1 } }\nclass Child is Parent { value { 1.0 } @class value { \"\" } }\n";
         assert_eq!(
-            analyze_source_expression(
-                source,
-                "Child.new().value",
-                None,
-                BTreeMap::new(),
-                returns.clone()
-            )
-            .shape,
+            analyze_source_expression(source, "Child.new().value", None, BTreeMap::new(), returns.clone()).shape,
             ValueShape::Instance(core_class("Float"))
         );
         assert_eq!(
@@ -975,14 +964,7 @@ mod tests {
             ValueShape::Instance(core_class("String"))
         );
         assert_eq!(
-            analyze_source_expression(
-                source,
-                "super.value",
-                Some(("Child", DispatchSide::Instance)),
-                BTreeMap::new(),
-                returns
-            )
-            .shape,
+            analyze_source_expression(source, "super.value", Some(("Child", DispatchSide::Instance)), BTreeMap::new(), returns).shape,
             ValueShape::Instance(core_class("Int"))
         );
     }
@@ -1075,7 +1057,9 @@ mod tests {
             ValueShape::Instance(core_class("Int"))
         );
         let pinned = analyze_source_expression(source, "Box.new()::#value()", None, BTreeMap::new(), returns.clone());
-        assert!(matches!(&pinned.shape, ValueShape::Family { receiver, spec: NormalizedSelectorSpec::Exact(sel) } if **receiver == ValueShape::Instance(box_id) && sel.encode() == "value()"));
+        assert!(
+            matches!(&pinned.shape, ValueShape::Family { receiver, spec: NormalizedSelectorSpec::Exact(sel) } if **receiver == ValueShape::Instance(box_id) && sel.encode() == "value()")
+        );
         let env_pinned = BTreeMap::from([(String::from("pinned"), pinned)]);
         let invoked_pinned = analyze_source_expression(source, "pinned()", None, env_pinned, returns);
         assert_eq!(invoked_pinned.shape, ValueShape::Instance(core_class("Int")));
@@ -1093,7 +1077,9 @@ mod tests {
         let source = "class Box { value() { 1 } }\n";
         let returns = BTreeMap::from([(value_callable.clone(), ValueShape::Instance(core_class("Int")))]);
         let family = analyze_source_expression(source, "Box.new()::value(...)", None, BTreeMap::new(), returns.clone());
-        assert!(matches!(&family.shape, ValueShape::Family { receiver, spec: NormalizedSelectorSpec::Pattern(pat) } if **receiver == ValueShape::Instance(box_id) && pat.base == SelectorBase::Named("value".to_string())));
+        assert!(
+            matches!(&family.shape, ValueShape::Family { receiver, spec: NormalizedSelectorSpec::Pattern(pat) } if **receiver == ValueShape::Instance(box_id) && pat.base == SelectorBase::Named("value".to_string()))
+        );
 
         let environment = BTreeMap::from([(String::from("family"), family)]);
         let invoked = analyze_source_expression(source, "family()", None, environment, returns);
@@ -1128,7 +1114,9 @@ mod tests {
         // 2. captured.bind(B.new()) -> BoundMethodFamily with captured snapshot from A
         let env_captured = BTreeMap::from([(String::from("captured"), captured)]);
         let bound = analyze_source_expression(source, "captured.bind(B.new())", None, env_captured, returns.clone());
-        assert!(matches!(&bound.shape, ValueShape::BoundMethodFamily { receiver, family } if **receiver == ValueShape::Instance(b_id) && family.source_behavior == a_id));
+        assert!(
+            matches!(&bound.shape, ValueShape::BoundMethodFamily { receiver, family } if **receiver == ValueShape::Instance(b_id) && family.source_behavior == a_id)
+        );
 
         // 3. bound(3) -> resolves captured A#foo(_), returns Int (NOT String)
         let env_bound = BTreeMap::from([(String::from("bound"), bound)]);

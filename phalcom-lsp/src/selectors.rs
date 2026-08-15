@@ -6,12 +6,11 @@
 //! powered by `phalcom_common::selector`.
 
 use phalcom_ast::ast::{
-    BinaryOp, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, NormalizedSelectorSpec, PackItem, PackLabel,
-    ParameterDef, RestMode, SelectorSpecSyntax, SetterDef, UnaryOp,
+    BinaryOp, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, NormalizedSelectorSpec, PackItem, PackLabel, ParameterDef, RestMode,
+    SelectorSpecSyntax, SetterDef, UnaryOp,
 };
 pub use phalcom_common::selector::{
-    decode_label_component, encode_label_component, Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern,
-    SelectorPattern, SelectorSlot,
+    Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
 };
 
 /// Constructs a structural [`Selector`] for a method declaration.
@@ -140,9 +139,7 @@ pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
             _ => SelectorSlot::Positional,
         })
         .collect::<Vec<_>>();
-    Selector::method(name, slots)
-        .map(|s| s.encode())
-        .unwrap_or_else(|_| format!("{name}()"))
+    Selector::method(name, slots).map(|s| s.encode()).unwrap_or_else(|_| format!("{name}()"))
 }
 
 /// Builds the canonical comma-form selector string from a method name and argument labels.
@@ -157,9 +154,7 @@ pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
             }
         })
         .collect::<Vec<_>>();
-    Selector::method(name, slots)
-        .map(|s| s.encode())
-        .unwrap_or_else(|_| format!("{name}()"))
+    Selector::method(name, slots).map(|s| s.encode()).unwrap_or_else(|_| format!("{name}()"))
 }
 
 /// Builds a call-site selector string from argument packs.
@@ -223,9 +218,7 @@ pub fn getter_selector(g: &GetterDef) -> String {
 
 /// The comma-form selector a `name=(put)` write resolves to, given just the bare property name.
 pub fn setter_selector_from_name(name: &str) -> String {
-    Selector::setter(name)
-        .map(|s| s.encode())
-        .unwrap_or_else(|_| format!("{name}=(put)"))
+    Selector::setter(name).map(|s| s.encode()).unwrap_or_else(|_| format!("{name}=(put)"))
 }
 
 /// The comma-form selector a setter's write resolves to.
@@ -260,11 +253,7 @@ pub fn index_selector_from_labels(labels: &[Option<String>], setter: bool) -> St
             }
         })
         .collect::<Vec<_>>();
-    let kind = if setter {
-        SelectorKind::SubscriptSet
-    } else {
-        SelectorKind::SubscriptGet
-    };
+    let kind = if setter { SelectorKind::SubscriptSet } else { SelectorKind::SubscriptGet };
     Selector::new(SelectorBase::Subscript, kind, slots.into_boxed_slice())
         .map(|s| s.encode())
         .unwrap_or_else(|_| if setter { "[_]=(put)".into() } else { "[_]".into() })
