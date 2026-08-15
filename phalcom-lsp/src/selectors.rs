@@ -98,10 +98,8 @@ pub fn selector_from_member(member: &ClassMember) -> Selector {
     }
 }
 
-/// Builds a call-site structural [`Selector`] when all argument slots are statically known.
-///
-/// Returns `None` if computed/dynamic packs or expansions prevent exact static reconstruction.
-pub fn selector_from_call(name: &str, args: &[PackItem]) -> Option<Selector> {
+/// Extracts static argument slots from call pack items. Returns `None` if dynamic/expand pack is present.
+pub fn static_call_slots(args: &[PackItem]) -> Option<Vec<SelectorSlot>> {
     let mut slots = Vec::with_capacity(args.len());
     for arg in args {
         match arg {
@@ -117,6 +115,14 @@ pub fn selector_from_call(name: &str, args: &[PackItem]) -> Option<Selector> {
             | PackItem::Expand { .. } => return None,
         }
     }
+    Some(slots)
+}
+
+/// Builds a call-site structural [`Selector`] when all argument slots are statically known.
+///
+/// Returns `None` if computed/dynamic packs or expansions prevent exact static reconstruction.
+pub fn selector_from_call(name: &str, args: &[PackItem]) -> Option<Selector> {
+    let slots = static_call_slots(args)?;
     Selector::method(name, slots).ok()
 }
 

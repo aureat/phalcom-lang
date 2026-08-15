@@ -7,11 +7,12 @@ use phalcom_ast::ast::{
     TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::SelectorPattern;
 
 use super::analyzer::{AnalysisContext, analyze_expr};
 use super::callable::CallableSummary;
 use super::dispatch::{DispatchReceiver, ResolvedDispatch};
-use super::facts::{ContributionSource, FieldFacts, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+use super::facts::{CapturedMethodFamilyShape, ContributionSource, FieldFacts, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
 use super::ids::{CallableId, ClassId, DispatchSide, FieldId};
 use super::query::SemanticGeneration;
 use super::scope::{BindingId, ScopeGraph};
@@ -182,6 +183,8 @@ pub struct SolverContext<'ctx> {
     pub field_value: &'ctx dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
     /// Resolves a receiver send without allocating a copied surface.
     pub resolve_member: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
+    /// Captures a method family without copying mutable structures.
+    pub family_resolver: &'ctx dyn Fn(&DispatchReceiver, &SelectorPattern) -> CapturedMethodFamilyShape,
     /// Looks up member metadata by callable identity.
     pub member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
     /// Tests trusted nominal type-test membership against the current class universe.
@@ -227,13 +230,14 @@ fn analyze_surface_for_callable(
     let scopes = &source.scopes;
     let mut analyzer = FlowAnalyzer {
         surface,
-        scopes: &scopes,
+        scopes,
         known_class: context.known_class,
         contains_class: context.contains_class,
         callable_return: context.callable_return,
         parameter_fact: context.parameter_fact,
         field_value: context.field_value,
         resolve_member: context.resolve_member,
+        family_resolver: context.family_resolver,
         callable_effects: context.callable_effects,
         member_surface: context.member_surface,
         is_same_or_subclass: context.is_same_or_subclass,
@@ -370,6 +374,7 @@ struct FlowAnalyzer<'ctx> {
     parameter_fact: &'ctx dyn Fn(&CallableId, &str) -> Option<InferredValue>,
     field_value: &'ctx dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
     resolve_member: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
+    family_resolver: &'ctx dyn Fn(&DispatchReceiver, &SelectorPattern) -> CapturedMethodFamilyShape,
     callable_effects: &'ctx dyn Fn(&CallableId) -> Option<super::callable::SummaryEffects>,
     member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
     is_same_or_subclass: &'ctx dyn Fn(&ClassId, &ClassId) -> bool,
@@ -407,6 +412,7 @@ impl FlowAnalyzer<'_> {
         let environment = BTreeMap::new();
         let contains_class = |class: &ClassId| (self.contains_class)(class);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| (self.resolve_member)(receiver, selector);
+        let family_resolver = |receiver: &DispatchReceiver, pattern: &SelectorPattern| (self.family_resolver)(receiver, pattern);
         let field_value = |class: &ClassId, name: &str, field_side: DispatchSide| {
             self.field_facts
                 .get(class, name, field_side)
@@ -425,6 +431,7 @@ impl FlowAnalyzer<'_> {
             callable_return: self.callable_return,
             field_value: &field_value,
             resolver: &resolve_member,
+            family_resolver: &family_resolver,
             member_surface: self.member_surface,
             contains_class: &contains_class,
             is_same_or_subclass: self.is_same_or_subclass,
@@ -659,6 +666,7 @@ impl FlowAnalyzer<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn analyze_if(
         &mut self,
         state: &mut FlowState,
@@ -930,7 +938,7 @@ impl FlowAnalyzer<'_> {
         }
 
         StatementFlow {
-            normal: join_states_many(exits).or_else(|| Some(entry)),
+            normal: join_states_many(exits).or(Some(entry)),
             returns,
             throws,
             ..StatementFlow::default()
@@ -1082,15 +1090,49 @@ impl FlowAnalyzer<'_> {
                 }
                 let binding_value = binding_id.and_then(|binding| state.bindings.get(&binding));
                 match binding_value.map(|value| &value.shape) {
-                    Some(ValueShape::Callable(target)) => {
+                    Some(ValueShape::Callable(target) | ValueShape::Method(target)) => {
                         self.record_call(target.clone(), call.range, args, state);
                     }
-                    Some(ValueShape::Family { receiver, .. }) => {
-                        for target in receiver_targets(expr, receiver, current_class, side) {
-                            let Some(resolved) = (self.resolve_member)(&target, &selector) else {
-                                continue;
-                            };
-                            self.record_call(resolved.callable, call.range, args.clone(), state);
+                    Some(ValueShape::BoundMethod { method, .. }) => {
+                        self.record_call(method.clone(), call.range, args, state);
+                    }
+                    Some(ValueShape::BoundMethodFamily { family, .. }) => {
+                        let base_name = match &family.pattern.base {
+                            crate::selectors::SelectorBase::Named(name) => name.as_str(),
+                            crate::selectors::SelectorBase::Subscript => "",
+                        };
+                        let call_selector_str = call_selector(base_name, &call.args);
+                        if let Ok(derived_sel) = crate::selectors::Selector::try_decode_exact(&call_selector_str) {
+                            if let Some(target) = family.resolve_call(&derived_sel) {
+                                self.record_call(target, call.range, args, state);
+                            }
+                        }
+                    }
+                    Some(ValueShape::Family { receiver, spec }) => {
+                        let (matches, sel_to_resolve) = match spec {
+                            phalcom_ast::ast::NormalizedSelectorSpec::Exact(exact_sel) => {
+                                let call_slots = crate::selectors::static_call_slots(&call.args);
+                                let matches = call_slots.as_deref() == Some(&exact_sel.slots);
+                                (matches, exact_sel.encode())
+                            }
+                            phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern) => {
+                                let base_name = match &pattern.base {
+                                    crate::selectors::SelectorBase::Named(name) => name.as_str(),
+                                    crate::selectors::SelectorBase::Subscript => "",
+                                };
+                                let call_selector_str = call_selector(base_name, &call.args);
+                                let derived = crate::selectors::Selector::try_decode_exact(&call_selector_str);
+                                let matches = derived.as_ref().is_ok_and(|s| pattern.matches(s));
+                                (matches, call_selector_str)
+                            }
+                        };
+                        if matches {
+                            for target in receiver_targets(expr, receiver, current_class, side) {
+                                let Some(resolved) = (self.resolve_member)(&target, &sel_to_resolve) else {
+                                    continue;
+                                };
+                                self.record_call(resolved.callable, call.range, args.clone(), state);
+                            }
                         }
                     }
                     Some(_) => {}
@@ -1418,6 +1460,7 @@ impl FlowAnalyzer<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit_send(
         &mut self,
         object: &Expr,

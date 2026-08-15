@@ -102,6 +102,7 @@ pub(crate) fn analyze_source(
     let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
     let resolver = DispatchResolver::new(classes);
     let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+    let family_resolver = |receiver: &DispatchReceiver, pattern: &phalcom_common::selector::SelectorPattern| resolver.capture_method_family(receiver, pattern);
     let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(classes, child, ancestor);
     let member_surface = |id: &CallableId| classes.get(&id.owner).and_then(|class| class.member_by_id(id).cloned());
     let context = SolverContext {
@@ -112,6 +113,7 @@ pub(crate) fn analyze_source(
         parameter_fact: &parameter_fact,
         field_value: &field_value,
         resolve_member: &resolve_member,
+        family_resolver: &family_resolver,
         member_surface: &member_surface,
         is_same_or_subclass: &is_same_or_subclass,
     };
@@ -138,6 +140,7 @@ pub(crate) fn analyze_callable_source(
     let field_value = |_: &ClassId, _: &str, _: DispatchSide| None;
     let resolver = DispatchResolver::new(classes);
     let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+    let family_resolver = |receiver: &DispatchReceiver, pattern: &phalcom_common::selector::SelectorPattern| resolver.capture_method_family(receiver, pattern);
     let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(classes, child, ancestor);
     let member_surface = |id: &CallableId| classes.get(&id.owner).and_then(|class| class.member_by_id(id).cloned());
     let context = SolverContext {
@@ -148,6 +151,7 @@ pub(crate) fn analyze_callable_source(
         parameter_fact: &parameter_fact,
         field_value: &field_value,
         resolve_member: &resolve_member,
+        family_resolver: &family_resolver,
         member_surface: &member_surface,
         is_same_or_subclass: &is_same_or_subclass,
     };

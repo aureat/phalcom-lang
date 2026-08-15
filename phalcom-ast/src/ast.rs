@@ -972,7 +972,7 @@ pub struct SelectorSlotSyntax {
     pub range: SourceRange,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum NormalizedSelectorSpec {
     Exact(Selector),
     Pattern(SelectorPattern),

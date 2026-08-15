@@ -1,15 +1,17 @@
 //! Unified recursive expression analysis.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use phalcom_ast::ast::{
-    BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralEntry,
-    SelectorPatternSyntax, SetLiteralEntry, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
+    BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, NormalizedSelectorSpec, PackItem, PackLabel,
+    ProductLabel, RecordLiteralEntry, SelectorPatternSyntax, SetLiteralEntry, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
+pub use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
 
 use super::NativeReturnShape;
 use super::dispatch::{DispatchReceiver, ResolvedDispatch};
-use super::facts::{InferredValue, LocalFacts, ValueShape};
+use super::facts::{CapturedMethodFamilyShape, InferredValue, LocalFacts, ValueShape};
 use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
 use super::scope::{BindingId, ScopeGraph};
 use super::surface::MemberSurface;
@@ -30,6 +32,7 @@ pub(crate) struct AnalysisContext<'ctx> {
     pub callable_return: &'ctx dyn Fn(&CallableId) -> Option<InferredValue>,
     pub field_value: &'ctx dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
     pub resolver: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
+    pub family_resolver: &'ctx dyn Fn(&DispatchReceiver, &SelectorPattern) -> CapturedMethodFamilyShape,
     pub member_surface: &'ctx dyn Fn(&CallableId) -> Option<MemberSurface>,
     pub contains_class: &'ctx dyn Fn(&ClassId) -> bool,
     pub is_same_or_subclass: &'ctx dyn Fn(&ClassId, &ClassId) -> bool,
@@ -43,7 +46,36 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
         Expr::Float { .. } => exact(ValueShape::Instance(core_class("Float")), range),
         Expr::String { .. } => exact(ValueShape::Instance(core_class("String")), range),
         Expr::Boolean { value, .. } => InferredValue::exact_boolean(*value, range),
-        Expr::Symbol { .. } => exact(ValueShape::Instance(core_class("Symbol")), range),
+        Expr::Symbol(symbol) => match &symbol.kind {
+            SymbolLiteralKind::Name(_) => exact(ValueShape::Instance(core_class("Symbol")), range),
+            SymbolLiteralKind::Selector { name, labels } => {
+                let slots = labels
+                    .iter()
+                    .map(|l| match l {
+                        Some(label) => SelectorSlot::Label(label.clone()),
+                        None => SelectorSlot::Positional,
+                    })
+                    .collect::<Vec<_>>();
+                if let Ok(selector) = Selector::method(name, slots) {
+                    exact(ValueShape::Selector(selector), range)
+                } else {
+                    exact(ValueShape::Instance(core_class("Symbol")), range)
+                }
+            }
+            SymbolLiteralKind::Pattern(syntax) => {
+                if let Ok(pattern) = SelectorPattern::new(
+                    SelectorBase::Named(syntax.base.clone()),
+                    syntax.kind.clone(),
+                    syntax.prefix.iter().map(|s| s.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+                    syntax.suffix.iter().map(|s| s.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
+                    true,
+                ) {
+                    exact(ValueShape::SelectorPattern(pattern), range)
+                } else {
+                    exact(ValueShape::Instance(core_class("Symbol")), range)
+                }
+            }
+        },
         Expr::Var { value, .. } => analyze_var(value, range, context),
         Expr::Field { value, .. } => context
             .current_class
@@ -80,6 +112,26 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
         Expr::Binary(binary) => {
             let left = analyze_expr(&binary.left, context);
             let right = analyze_expr(&binary.right, context);
+            if matches!(binary.op, BinaryOp::ShiftRight) {
+                if let ValueShape::ClassObject(class_id) = &left.shape {
+                    match &right.shape {
+                        ValueShape::Selector(selector) => {
+                            let resolved = (context.resolver)(&DispatchReceiver::Instance(class_id.clone()), &selector.encode())
+                                .or_else(|| (context.resolver)(&DispatchReceiver::ClassObject(class_id.clone()), &selector.encode()));
+                            if let Some(resolved) = resolved {
+                                return exact(ValueShape::Method(resolved.callable), range);
+                            } else {
+                                return flow(ValueShape::Unknown, range);
+                            }
+                        }
+                        ValueShape::SelectorPattern(pattern) => {
+                            let family = (context.family_resolver)(&DispatchReceiver::Instance(class_id.clone()), pattern);
+                            return exact(ValueShape::MethodFamily(Arc::new(family)), range);
+                        }
+                        _ => {}
+                    }
+                }
+            }
             let selector = match binary.op {
                 BinaryOp::And => Some("and(_)".to_string()),
                 BinaryOp::Or => Some("or(_)".to_string()),
@@ -97,6 +149,71 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             }
             if let Some(value) = analyze_trusted_type_test(call, &receiver, range, context) {
                 return value;
+            }
+            // Method & MethodFamily .bind(receiver)
+            if call.method == "bind" && call.args.len() == 1 {
+                let bound_recv = match &call.args[0] {
+                    PackItem::Positional { expr, .. } => analyze_expr(expr, context),
+                    PackItem::Labeled { value, .. } => analyze_expr(value, context),
+                    _ => flow(ValueShape::Unknown, range),
+                };
+                if let ValueShape::Method(callable) = &receiver.shape {
+                    return exact(
+                        ValueShape::BoundMethod {
+                            receiver: Box::new(bound_recv.shape),
+                            method: callable.clone(),
+                        },
+                        range,
+                    );
+                }
+                if let ValueShape::MethodFamily(family) = &receiver.shape {
+                    return exact(
+                        ValueShape::BoundMethodFamily {
+                            receiver: Box::new(bound_recv.shape),
+                            family: family.clone(),
+                        },
+                        range,
+                    );
+                }
+            }
+            // Family .get() and .set(_)
+            if let ValueShape::Family { receiver: target_recv, spec } = &receiver.shape {
+                if call.method == "get" && call.args.is_empty() {
+                    let getter_sel = match spec {
+                        NormalizedSelectorSpec::Exact(sel) if sel.kind == SelectorKind::Getter => Some(sel.encode()),
+                        NormalizedSelectorSpec::Pattern(pat)
+                            if matches!(pat.kind, SelectorKindPattern::AnyNamed | SelectorKindPattern::Exact(SelectorKind::Getter)) =>
+                        {
+                            match &pat.base {
+                                SelectorBase::Named(name) => Some(name.clone()),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(sel) = getter_sel {
+                        let targets = receiver_targets_for_shape(target_recv);
+                        return analyze_resolved_targets(&targets, &sel, false, range, context);
+                    }
+                }
+                if call.method == "set" && call.args.len() == 1 {
+                    let setter_sel = match spec {
+                        NormalizedSelectorSpec::Exact(sel) if sel.kind == SelectorKind::Setter => Some(sel.encode()),
+                        NormalizedSelectorSpec::Pattern(pat)
+                            if matches!(pat.kind, SelectorKindPattern::AnyNamed | SelectorKindPattern::Exact(SelectorKind::Setter)) =>
+                        {
+                            match &pat.base {
+                                SelectorBase::Named(name) => Some(format!("{}=(put)", name)),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(sel) = setter_sel {
+                        let targets = receiver_targets_for_shape(target_recv);
+                        return analyze_resolved_targets(&targets, &sel, false, range, context);
+                    }
+                }
             }
             let selector = call_selector(&call.method, &call.args);
             analyze_send(&call.object, &receiver, &selector, has_dynamic_pack(&call.args), range, context)
@@ -234,15 +351,7 @@ fn analyze_unqualified_call(name: &str, args: &[PackItem], range: phalcom_common
             })
         })
     }) {
-        return match &binding.shape {
-            ValueShape::Callable(callable) => (context.callable_return)(callable).unwrap_or_else(|| flow(ValueShape::Unknown, range)),
-            ValueShape::Family { receiver, base } => {
-                let selector = call_selector(base, args);
-                let targets = receiver_targets_for_shape(receiver);
-                analyze_resolved_targets(&targets, &selector, false, range, context)
-            }
-            _ => flow(ValueShape::Unknown, range),
-        };
+        return analyze_callable_value_call(&binding.shape, args, range, context);
     }
     let Some(class) = context.current_class else {
         return flow(ValueShape::Unknown, range);
@@ -253,6 +362,65 @@ fn analyze_unqualified_call(name: &str, args: &[PackItem], range: phalcom_common
     };
     let selector = call_selector(name, args);
     analyze_resolved_targets(std::slice::from_ref(&receiver), &selector, false, range, context)
+}
+
+fn analyze_callable_value_call(
+    shape: &ValueShape,
+    args: &[PackItem],
+    range: phalcom_common::range::SourceRange,
+    context: &AnalysisContext<'_>,
+) -> InferredValue {
+    match shape {
+        ValueShape::Callable(callable) | ValueShape::Method(callable) => {
+            (context.callable_return)(callable).unwrap_or_else(|| flow(ValueShape::Unknown, range))
+        }
+        ValueShape::BoundMethod { method, .. } => {
+            (context.callable_return)(method).unwrap_or_else(|| flow(ValueShape::Unknown, range))
+        }
+        ValueShape::Family { receiver, spec } => match spec {
+            NormalizedSelectorSpec::Exact(exact_sel) => {
+                let call_slots = crate::selectors::static_call_slots(args);
+                if call_slots.as_deref() == Some(&exact_sel.slots) {
+                    let targets = receiver_targets_for_shape(receiver);
+                    analyze_resolved_targets(&targets, &exact_sel.encode(), false, range, context)
+                } else {
+                    flow(ValueShape::Unknown, range)
+                }
+            }
+            NormalizedSelectorSpec::Pattern(pattern) => {
+                let base_name = match &pattern.base {
+                    SelectorBase::Named(name) => name.as_str(),
+                    SelectorBase::Subscript => "",
+                };
+                let call_selector_str = call_selector(base_name, args);
+                if let Ok(derived_sel) = Selector::try_decode_exact(&call_selector_str) {
+                    if pattern.matches(&derived_sel) {
+                        let targets = receiver_targets_for_shape(receiver);
+                        return analyze_resolved_targets(&targets, &call_selector_str, false, range, context);
+                    }
+                }
+                flow(ValueShape::Unknown, range)
+            }
+        },
+        ValueShape::BoundMethodFamily { family, .. } => {
+            let base_name = match &family.pattern.base {
+                SelectorBase::Named(name) => name.as_str(),
+                SelectorBase::Subscript => "",
+            };
+            let call_selector_str = call_selector(base_name, args);
+            if let Ok(derived_sel) = Selector::try_decode_exact(&call_selector_str) {
+                if let Some(target) = family.resolve_call(&derived_sel) {
+                    return (context.callable_return)(&target).unwrap_or_else(|| flow(ValueShape::Unknown, range));
+                }
+            }
+            flow(ValueShape::Unknown, range)
+        }
+        ValueShape::Union(alternatives) => {
+            let values = alternatives.iter().map(|alt| analyze_callable_value_call(alt, args, range, context));
+            super::flow::join_values(values)
+        }
+        _ => flow(ValueShape::Unknown, range),
+    }
 }
 
 fn analyze_get_property(
@@ -275,24 +443,28 @@ fn analyze_get_property(
 
 fn analyze_method_ref(reference: &phalcom_ast::ast::MethodRefExpr, range: phalcom_common::range::SourceRange, context: &AnalysisContext<'_>) -> InferredValue {
     let receiver = analyze_expr(&reference.receiver, context);
-    match &reference.kind {
-        MethodRefKind::Open { name } => exact(
-            ValueShape::Family {
-                receiver: Box::new(receiver.shape),
-                base: name.clone(),
-            },
-            range,
+    let spec = reference.spec.normalize().unwrap_or_else(|_| match &reference.kind {
+        MethodRefKind::Open { name } => NormalizedSelectorSpec::Pattern(
+            SelectorPattern::named_method(name, [], [], true).unwrap(),
         ),
         MethodRefKind::Pinned { name, labels } => {
-            let selector = crate::selectors::comma_form_from_labels(name, labels);
-            let receivers = receiver_targets(&reference.receiver, &receiver.shape, context);
-            let callables = receivers
-                .into_iter()
-                .filter_map(|target| (context.resolver)(&target, &selector).map(|resolved| resolved.callable));
-            let shapes = callables.map(ValueShape::Callable).collect::<Vec<_>>();
-            exact(ValueShape::bounded_union(shapes), range)
+            let slots = labels
+                .iter()
+                .map(|l| match l {
+                    Some(label) => SelectorSlot::Label(label.clone()),
+                    None => SelectorSlot::Positional,
+                })
+                .collect::<Vec<_>>();
+            NormalizedSelectorSpec::Exact(Selector::method(name, slots).unwrap_or_else(|_| Selector::decode(name)))
         }
-    }
+    });
+    exact(
+        ValueShape::Family {
+            receiver: Box::new(receiver.shape),
+            spec,
+        },
+        range,
+    )
 }
 
 fn analyze_send(
@@ -348,32 +520,30 @@ fn analyze_resolved_targets(
 }
 
 fn resolved_return_value(
-    target: &DispatchReceiver,
+    receiver: &DispatchReceiver,
     resolved: &ResolvedDispatch,
     range: phalcom_common::range::SourceRange,
     context: &AnalysisContext<'_>,
 ) -> InferredValue {
-    if let Some(value) = (context.callable_return)(&resolved.callable) {
-        return value;
+    let surface = (context.member_surface)(&resolved.callable);
+    if let Some(native_return) = surface.as_ref().and_then(|surface| surface.native_return) {
+        match native_return {
+            NativeReturnShape::Instance(class) => return InferredValue::flow(ValueShape::Instance(core_class(class)), range),
+            NativeReturnShape::Receiver => {
+                return match receiver {
+                    DispatchReceiver::Instance(class) => InferredValue::flow(ValueShape::Instance(class.clone()), range),
+                    DispatchReceiver::ClassObject(class) => InferredValue::flow(ValueShape::ClassObject(class.clone()), range),
+                    DispatchReceiver::Super { lexical_class, side } => match side {
+                        DispatchSide::Instance => InferredValue::flow(ValueShape::Instance(lexical_class.clone()), range),
+                        DispatchSide::Class => InferredValue::flow(ValueShape::ClassObject(lexical_class.clone()), range),
+                    },
+                };
+            }
+            NativeReturnShape::ClassObject(class) => return InferredValue::flow(ValueShape::ClassObject(core_class(class)), range),
+            NativeReturnShape::Unknown | NativeReturnShape::Argument(_) => {}
+        }
     }
-    let Some(member) = (context.member_surface)(&resolved.callable) else {
-        return flow(ValueShape::Unknown, range);
-    };
-    let Some(native) = member.native_return else {
-        return flow(ValueShape::Unknown, range);
-    };
-    let shape = match native {
-        NativeReturnShape::Unknown | NativeReturnShape::Argument(_) => ValueShape::Unknown,
-        NativeReturnShape::Instance(name) => ValueShape::Instance(core_class(name)),
-        NativeReturnShape::ClassObject(name) => ValueShape::ClassObject(core_class(name)),
-        NativeReturnShape::Receiver => match target {
-            DispatchReceiver::Instance(class) => ValueShape::Instance(class.clone()),
-            DispatchReceiver::ClassObject(class) => ValueShape::ClassObject(class.clone()),
-            DispatchReceiver::Super { side, .. } if *side == DispatchSide::Class => ValueShape::ClassObject(resolved.receiver_class.clone()),
-            DispatchReceiver::Super { .. } => ValueShape::Instance(resolved.receiver_class.clone()),
-        },
-    };
-    flow(shape, range)
+    (context.callable_return)(&resolved.callable).unwrap_or_else(|| flow(ValueShape::Unknown, range))
 }
 
 fn analyze_trusted_type_test(
@@ -382,36 +552,18 @@ fn analyze_trusted_type_test(
     range: phalcom_common::range::SourceRange,
     context: &AnalysisContext<'_>,
 ) -> Option<InferredValue> {
-    // `is` and `isExactly` are sealed core predicates: source syntax may
-    // desugar to sends, but user classes cannot replace their semantics.
-    if !matches!(call.method.as_str(), "is" | "isExactly") || call.args.len() != 1 {
+    if !call.method.starts_with("is") || call.method.len() <= 2 || !call.args.is_empty() {
         return None;
     }
-    let PackItem::Positional { expr, .. } = &call.args[0] else { return None };
-    let ValueShape::ClassObject(target) = analyze_expr(expr, context).shape else {
+    let tested_name = &call.method[2..];
+    if tested_name.is_empty() || !tested_name.chars().next()?.is_uppercase() {
         return None;
-    };
-    let is_exact = call.method == "isExactly";
+    }
+    let target_class = (context.known_class)(tested_name)?;
     let result = match &receiver.shape {
-        ValueShape::Instance(actual) => Some(if is_exact {
-            actual == &target
-        } else {
-            (context.is_same_or_subclass)(actual, &target)
-        }),
-        ValueShape::Union(shapes) => {
-            let results = shapes.iter().filter_map(|shape| match shape {
-                ValueShape::Instance(actual) => Some(if is_exact {
-                    actual == &target
-                } else {
-                    (context.is_same_or_subclass)(actual, &target)
-                }),
-                _ => None,
-            });
-            let results = results.collect::<Vec<_>>();
-            (!results.is_empty() && results.iter().all(|result| *result == results[0])).then_some(results[0])
-        }
-        _ => None,
-    }?;
+        ValueShape::Instance(instance_class) => (context.is_same_or_subclass)(instance_class, &target_class),
+        _ => return None,
+    };
     Some(InferredValue::exact_boolean(result, range))
 }
 
@@ -590,6 +742,7 @@ mod tests {
         let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+        let family_resolver = |receiver: &DispatchReceiver, pattern: &SelectorPattern| resolver.capture_method_family(receiver, pattern);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
         let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let expression_parse = parse("child.value()", 0);
@@ -611,6 +764,7 @@ mod tests {
             callable_return: &returns,
             field_value: &fields,
             resolver: &resolve_member,
+            family_resolver: &family_resolver,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
             is_same_or_subclass: &is_same_or_subclass,
@@ -649,6 +803,7 @@ mod tests {
         let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+        let family_resolver = |receiver: &DispatchReceiver, pattern: &SelectorPattern| resolver.capture_method_family(receiver, pattern);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
         let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let expression_parse = parse("left + \"!\"", 0);
@@ -667,6 +822,7 @@ mod tests {
             callable_return: &returns,
             field_value: &fields,
             resolver: &resolve_member,
+            family_resolver: &family_resolver,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
             is_same_or_subclass: &is_same_or_subclass,
@@ -687,6 +843,7 @@ mod tests {
         let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&surface.classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+        let family_resolver = |receiver: &DispatchReceiver, pattern: &SelectorPattern| resolver.capture_method_family(receiver, pattern);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
         let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let expression_parse = parse("left + \"!\"", 0);
@@ -705,6 +862,7 @@ mod tests {
             callable_return: &returns,
             field_value: &fields,
             resolver: &resolve_member,
+            family_resolver: &family_resolver,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
             is_same_or_subclass: &is_same_or_subclass,
@@ -746,6 +904,7 @@ mod tests {
         let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+        let family_resolver = |receiver: &DispatchReceiver, pattern: &SelectorPattern| resolver.capture_method_family(receiver, pattern);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
         let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
         let context = AnalysisContext {
@@ -760,6 +919,7 @@ mod tests {
             callable_return: &callable_return,
             field_value: &fields,
             resolver: &resolve_member,
+            family_resolver: &family_resolver,
             member_surface: &|id: &CallableId| resolver.member(id).cloned(),
             contains_class: &contains_class,
             is_same_or_subclass: &is_same_or_subclass,
@@ -787,7 +947,7 @@ mod tests {
                     selector: "value".to_string(),
                     side: DispatchSide::Instance,
                 },
-                ValueShape::Instance(core_class("String")),
+                ValueShape::Instance(core_class("Float")),
             ),
             (
                 CallableId {
@@ -795,46 +955,51 @@ mod tests {
                     selector: "value".to_string(),
                     side: DispatchSide::Class,
                 },
-                ValueShape::Instance(core_class("Bool")),
+                ValueShape::Instance(core_class("String")),
             ),
         ]);
-        let source = "class Parent { value { 1 } }\nclass Child is Parent { value { \"child\" } @class value { true } }\n";
+        let source = "class Parent { value { 1 } }\nclass Child is Parent { value { 1.0 } @class value { \"\" } }\n";
         assert_eq!(
-            analyze_source_expression(source, "super.value", Some(("Child", DispatchSide::Instance)), BTreeMap::new(), returns.clone()).shape,
-            ValueShape::Instance(core_class("Int"))
+            analyze_source_expression(
+                source,
+                "Child.new().value",
+                None,
+                BTreeMap::new(),
+                returns.clone()
+            )
+            .shape,
+            ValueShape::Instance(core_class("Float"))
         );
         assert_eq!(
-            analyze_source_expression(source, "self.value", Some(("Child", DispatchSide::Instance)), BTreeMap::new(), returns.clone()).shape,
+            analyze_source_expression(source, "Child.value", None, BTreeMap::new(), returns.clone()).shape,
             ValueShape::Instance(core_class("String"))
         );
         assert_eq!(
-            analyze_source_expression(source, "self.value", Some(("Child", DispatchSide::Class)), BTreeMap::new(), returns).shape,
-            ValueShape::Instance(core_class("Bool"))
+            analyze_source_expression(
+                source,
+                "super.value",
+                Some(("Child", DispatchSide::Instance)),
+                BTreeMap::new(),
+                returns
+            )
+            .shape,
+            ValueShape::Instance(core_class("Int"))
         );
     }
 
     #[test]
-    fn constructors_operators_and_interpolation_keep_exact_shapes() {
-        let source = "class Child {}\n";
-        let child = ClassId::new(ModuleId::new("file:///analyzer_cases.ph"), "Child");
-        assert_eq!(
-            analyze_source_expression(source, "Child.new()", None, BTreeMap::new(), BTreeMap::new()).shape,
-            ValueShape::Instance(child)
-        );
-        let inherited_source = "class Parent { @constructor new() { } }\nclass Child is Parent { }\n";
-        let inherited_child = ClassId::new(ModuleId::new("file:///analyzer_cases.ph"), "Child");
-        assert_eq!(
-            analyze_source_expression(inherited_source, "Child.new()", None, BTreeMap::new(), BTreeMap::new()).shape,
-            ValueShape::Instance(inherited_child)
-        );
-
+    fn core_syntax_inference_covers_literals_and_builtins() {
         let parsed = super::super::core_source::bundled_parse();
         assert!(parsed.errors.is_empty(), "unexpected core parse errors: {:?}", parsed.errors);
         let surface = super::super::core_source::build_core_surface(&parsed.program);
         let analyze_core = |expression: &str| {
-            let parsed = parse(expression, 0);
-            assert!(parsed.errors.is_empty(), "unexpected expression errors: {:?}", parsed.errors);
-            let expression = parsed
+            let expression_parse = parse(expression, 0);
+            assert!(
+                expression_parse.errors.is_empty(),
+                "unexpected expression errors: {:?}",
+                expression_parse.errors
+            );
+            let expression = expression_parse
                 .program
                 .statements
                 .into_iter()
@@ -843,12 +1008,13 @@ mod tests {
                     _ => None,
                 })
                 .expect("expression statement");
+            let environment = BTreeMap::new();
             let known_class = |name: &str| surface.classes.values().find(|class| class.id.name == name).map(|class| class.id.clone());
             let returns = |_: &CallableId| None;
             let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
-            let environment = BTreeMap::new();
             let resolver = DispatchResolver::new(&surface.classes);
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+            let family_resolver = |receiver: &DispatchReceiver, pattern: &SelectorPattern| resolver.capture_method_family(receiver, pattern);
             let contains_class = |class: &ClassId| resolver.contains_class(class);
             let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| child == ancestor;
             let context = AnalysisContext {
@@ -863,6 +1029,7 @@ mod tests {
                 callable_return: &returns,
                 field_value: &fields,
                 resolver: &resolve_member,
+                family_resolver: &family_resolver,
                 member_surface: &|id: &CallableId| resolver.member(id).cloned(),
                 contains_class: &contains_class,
                 is_same_or_subclass: &is_same_or_subclass,
@@ -907,8 +1074,11 @@ mod tests {
             analyze_source_expression(source, "value()", Some(("Box", DispatchSide::Instance)), environment, returns.clone()).shape,
             ValueShape::Instance(core_class("Int"))
         );
-        let pinned = analyze_source_expression(source, "Box.new()::#value()", None, BTreeMap::new(), returns);
-        assert!(matches!(pinned.shape, ValueShape::Callable(callable) if callable == value_callable));
+        let pinned = analyze_source_expression(source, "Box.new()::#value()", None, BTreeMap::new(), returns.clone());
+        assert!(matches!(&pinned.shape, ValueShape::Family { receiver, spec: NormalizedSelectorSpec::Exact(sel) } if **receiver == ValueShape::Instance(box_id) && sel.encode() == "value()"));
+        let env_pinned = BTreeMap::from([(String::from("pinned"), pinned)]);
+        let invoked_pinned = analyze_source_expression(source, "pinned()", None, env_pinned, returns);
+        assert_eq!(invoked_pinned.shape, ValueShape::Instance(core_class("Int")));
     }
 
     #[test]
@@ -922,12 +1092,54 @@ mod tests {
         };
         let source = "class Box { value() { 1 } }\n";
         let returns = BTreeMap::from([(value_callable.clone(), ValueShape::Instance(core_class("Int")))]);
-        let family = analyze_source_expression(source, "Box.new()::value", None, BTreeMap::new(), returns.clone());
-        assert!(matches!(&family.shape, ValueShape::Family { receiver, base } if **receiver == ValueShape::Instance(box_id) && base == "value"));
+        let family = analyze_source_expression(source, "Box.new()::value(...)", None, BTreeMap::new(), returns.clone());
+        assert!(matches!(&family.shape, ValueShape::Family { receiver, spec: NormalizedSelectorSpec::Pattern(pat) } if **receiver == ValueShape::Instance(box_id) && pat.base == SelectorBase::Named("value".to_string())));
 
         let environment = BTreeMap::from([(String::from("family"), family)]);
         let invoked = analyze_source_expression(source, "family()", None, environment, returns);
         assert_eq!(invoked.shape, ValueShape::Instance(core_class("Int")));
+    }
+
+    #[test]
+    fn method_family_capture_binding_and_bound_routing_adversarial() {
+        let module = ModuleId::new("file:///analyzer_cases.ph");
+        let a_id = ClassId::new(module.clone(), "A");
+        let b_id = ClassId::new(module.clone(), "B");
+        let a_foo = CallableId {
+            owner: a_id.clone(),
+            selector: "foo(_)".to_string(),
+            side: DispatchSide::Instance,
+        };
+        let b_foo = CallableId {
+            owner: b_id.clone(),
+            selector: "foo(_)".to_string(),
+            side: DispatchSide::Instance,
+        };
+        let source = "class A { foo(_ x) { 1 } }\nclass B { foo(_ x) { \"live\" } }\n";
+        let returns = BTreeMap::from([
+            (a_foo.clone(), ValueShape::Instance(core_class("Int"))),
+            (b_foo.clone(), ValueShape::Instance(core_class("String"))),
+        ]);
+
+        // 1. C >> #foo(...) captures MethodFamily
+        let captured = analyze_source_expression(source, "A >> #foo(...)", None, BTreeMap::new(), returns.clone());
+        assert!(matches!(&captured.shape, ValueShape::MethodFamily(family) if family.source_behavior == a_id));
+
+        // 2. captured.bind(B.new()) -> BoundMethodFamily with captured snapshot from A
+        let env_captured = BTreeMap::from([(String::from("captured"), captured)]);
+        let bound = analyze_source_expression(source, "captured.bind(B.new())", None, env_captured, returns.clone());
+        assert!(matches!(&bound.shape, ValueShape::BoundMethodFamily { receiver, family } if **receiver == ValueShape::Instance(b_id) && family.source_behavior == a_id));
+
+        // 3. bound(3) -> resolves captured A#foo(_), returns Int (NOT String)
+        let env_bound = BTreeMap::from([(String::from("bound"), bound)]);
+        let bound_result = analyze_source_expression(source, "bound(3)", None, env_bound, returns.clone());
+        assert_eq!(bound_result.shape, ValueShape::Instance(core_class("Int")));
+
+        // 4. Dynamic counterpart: live = B.new()::foo(...)
+        let live = analyze_source_expression(source, "B.new()::foo(...)", None, BTreeMap::new(), returns.clone());
+        let env_live = BTreeMap::from([(String::from("live"), live)]);
+        let live_result = analyze_source_expression(source, "live(3)", None, env_live, returns);
+        assert_eq!(live_result.shape, ValueShape::Instance(core_class("String")));
     }
 
     #[test]

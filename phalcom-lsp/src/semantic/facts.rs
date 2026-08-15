@@ -1,14 +1,54 @@
-//! Inferred runtime value knowledge and local fact storage.
-
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
+use phalcom_ast::ast::NormalizedSelectorSpec;
 use phalcom_common::range::SourceRange;
+pub use phalcom_common::selector::{Selector, SelectorPattern, SelectorSlot};
 
 use super::ids::{CallableId, ClassId, DispatchSide, FieldId, ModuleId};
 use super::scope::BindingId;
+use super::surface::RestSurface;
 
 /// Maximum number of incompatible alternatives retained by a union.
 pub const MAX_SHAPE_UNION: usize = 8;
+
+/// Immutable captured MethodFamily routing snapshot.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CapturedMethodFamilyShape {
+    /// Class behavior from which this method family was captured.
+    pub source_behavior: ClassId,
+    /// The selector pattern used to capture the family.
+    pub pattern: SelectorPattern,
+    /// Exact selector-to-callable table in deterministic order.
+    pub exact: Box<[(Selector, CallableId)]>,
+    /// Ordered fallback rest callable candidates (subclass -> superclass).
+    pub rest: Box<[(CallableId, RestSurface)]>,
+}
+
+impl CapturedMethodFamilyShape {
+    /// Resolves a call selector against this captured snapshot.
+    pub fn resolve_call(&self, selector: &Selector) -> Option<CallableId> {
+        for (exact_sel, callable) in self.exact.iter() {
+            if exact_sel == selector {
+                return Some(callable.clone());
+            }
+        }
+        let mut positionals = 0;
+        let mut labels = Vec::new();
+        for slot in selector.slots.iter() {
+            match slot {
+                SelectorSlot::Positional => positionals += 1,
+                SelectorSlot::Label(label) => labels.push(label.clone()),
+            }
+        }
+        for (callable, rest_surface) in self.rest.iter() {
+            if rest_surface.accepts(positionals, &labels) {
+                return Some(callable.clone());
+            }
+        }
+        None
+    }
+}
 
 /// Advisory runtime value shape. This is deliberately not a language type.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -40,12 +80,34 @@ pub enum ValueShape {
     Range(Box<ValueShape>),
     /// A callable value.
     Callable(CallableId),
-    /// An open method family whose exact selector is chosen at call time.
+    /// A first-class selector value.
+    Selector(Selector),
+    /// A first-class selector pattern value.
+    SelectorPattern(SelectorPattern),
+    /// An exact or open method family whose selector is resolved against the receiver.
     Family {
         /// Receiver knowledge retained for later call-site dispatch.
         receiver: Box<ValueShape>,
-        /// Base method name before call-site labels are applied.
-        base: String,
+        /// Exact selector or selector pattern spec.
+        spec: NormalizedSelectorSpec,
+    },
+    /// An unreflected captured exact method.
+    Method(CallableId),
+    /// An unreflected captured method family snapshot.
+    MethodFamily(Arc<CapturedMethodFamilyShape>),
+    /// An exact method bound to a receiver value.
+    BoundMethod {
+        /// Bound receiver shape.
+        receiver: Box<ValueShape>,
+        /// Captured method identity.
+        method: CallableId,
+    },
+    /// A method family bound to a receiver value.
+    BoundMethodFamily {
+        /// Bound receiver shape.
+        receiver: Box<ValueShape>,
+        /// Captured method family snapshot.
+        family: Arc<CapturedMethodFamilyShape>,
     },
     /// A bounded set of incompatible alternatives.
     Union(Vec<ValueShape>),
@@ -82,15 +144,41 @@ impl ValueShape {
             (
                 Self::Family {
                     receiver: left_receiver,
-                    base: left_base,
+                    spec: left_spec,
                 },
                 Self::Family {
                     receiver: right_receiver,
-                    base: right_base,
+                    spec: right_spec,
                 },
-            ) if left_base == right_base => Self::Family {
+            ) if left_spec == right_spec => Self::Family {
                 receiver: Box::new(left_receiver.join(right_receiver)),
-                base: left_base.clone(),
+                spec: left_spec.clone(),
+            },
+            (
+                Self::BoundMethod {
+                    receiver: left_receiver,
+                    method: left_method,
+                },
+                Self::BoundMethod {
+                    receiver: right_receiver,
+                    method: right_method,
+                },
+            ) if left_method == right_method => Self::BoundMethod {
+                receiver: Box::new(left_receiver.join(right_receiver)),
+                method: left_method.clone(),
+            },
+            (
+                Self::BoundMethodFamily {
+                    receiver: left_receiver,
+                    family: left_family,
+                },
+                Self::BoundMethodFamily {
+                    receiver: right_receiver,
+                    family: right_family,
+                },
+            ) if left_family == right_family => Self::BoundMethodFamily {
+                receiver: Box::new(left_receiver.join(right_receiver)),
+                family: left_family.clone(),
             },
             _ => Self::bounded_union([self.clone(), other.clone()]),
         }
@@ -677,5 +765,55 @@ mod tests {
 
         let ordered = contributions.joined_iter().map(|(slot, _)| slot.clone()).collect::<Vec<_>>();
         assert_eq!(ordered, vec![first, second]);
+    }
+
+    #[test]
+    fn family_and_method_family_joins() {
+        let cat = ValueShape::Instance(ClassId::new(ModuleId::new("file:///cat.ph"), "Cat"));
+        let dog = ValueShape::Instance(ClassId::new(ModuleId::new("file:///dog.ph"), "Dog"));
+        let exact_foo = NormalizedSelectorSpec::Exact(Selector::method("foo", [SelectorSlot::Positional]).unwrap());
+
+        let family_a = ValueShape::Family {
+            receiver: Box::new(cat.clone()),
+            spec: exact_foo.clone(),
+        };
+        let family_b = ValueShape::Family {
+            receiver: Box::new(dog.clone()),
+            spec: exact_foo.clone(),
+        };
+        let joined_family = family_a.join(&family_b);
+        assert_eq!(
+            joined_family,
+            ValueShape::Family {
+                receiver: Box::new(ValueShape::Union(vec![cat.clone(), dog.clone()])),
+                spec: exact_foo,
+            }
+        );
+
+        let pattern = SelectorPattern::named_method("foo", [], [], true).unwrap();
+        let callable_a = CallableId {
+            owner: ClassId::new(ModuleId::new("file:///cat.ph"), "Cat"),
+            selector: "foo(_)".into(),
+            side: super::super::DispatchSide::Instance,
+        };
+        let callable_b = CallableId {
+            owner: ClassId::new(ModuleId::new("file:///dog.ph"), "Dog"),
+            selector: "foo(_)".into(),
+            side: super::super::DispatchSide::Instance,
+        };
+        let mf_1 = ValueShape::MethodFamily(Arc::new(CapturedMethodFamilyShape {
+            source_behavior: ClassId::new(ModuleId::new("file:///cat.ph"), "Cat"),
+            pattern: pattern.clone(),
+            exact: Box::new([(Selector::method("foo", [SelectorSlot::Positional]).unwrap(), callable_a)]),
+            rest: Box::new([]),
+        }));
+        let mf_2 = ValueShape::MethodFamily(Arc::new(CapturedMethodFamilyShape {
+            source_behavior: ClassId::new(ModuleId::new("file:///dog.ph"), "Dog"),
+            pattern,
+            exact: Box::new([(Selector::method("foo", [SelectorSlot::Positional]).unwrap(), callable_b)]),
+            rest: Box::new([]),
+        }));
+        let joined_mf = mf_1.join(&mf_2);
+        assert_eq!(joined_mf, ValueShape::Union(vec![mf_1, mf_2]));
     }
 }

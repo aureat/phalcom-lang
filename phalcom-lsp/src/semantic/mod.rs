@@ -70,7 +70,16 @@ pub fn render_value_shape(shape: &ValueShape) -> String {
         ValueShape::Map { key, value } => format!("Map<{}, {}>", render_value_shape(key), render_value_shape(value)),
         ValueShape::Range(element) => format!("Range<{}>", render_value_shape(element)),
         ValueShape::Callable(_) => "Callable".to_string(),
-        ValueShape::Family { base, .. } => format!("Family<{base}>"),
+        ValueShape::Selector(sel) => format!("#{sel}"),
+        ValueShape::SelectorPattern(pat) => format!("#{pat}"),
+        ValueShape::Family { spec, .. } => match spec {
+            phalcom_ast::ast::NormalizedSelectorSpec::Exact(sel) => format!("Family<#{sel}>"),
+            phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pat) => format!("Family<#{pat}>"),
+        },
+        ValueShape::Method(callable) => format!("Method<{}>", callable.selector),
+        ValueShape::MethodFamily(family) => format!("MethodFamily<#{}>", family.pattern),
+        ValueShape::BoundMethod { method, .. } => format!("BoundMethod<{}>", method.selector),
+        ValueShape::BoundMethodFamily { family, .. } => format!("BoundMethodFamily<#{}>", family.pattern),
         ValueShape::Union(alternatives) => alternatives.iter().map(render_value_shape).collect::<Vec<_>>().join(" | "),
     }
 }
@@ -549,7 +558,7 @@ mod tests {
         let bundled = core_source::bundled_parse();
         db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///family.ph");
-        let source = "class Box { @constructor new() { } value() { 1 } }\nlet family = Box.new()::value\n";
+        let source = "class Box { @constructor new() { } value() { 1 } }\nlet family = Box.new()::value(...)\n";
         let parsed = parse(source, 0);
         db.update_file(&uri, FileRevision(1), &parsed.program);
         let family_binding = db
@@ -559,7 +568,9 @@ mod tests {
             family_binding.shape,
             ValueShape::Family {
                 receiver: Box::new(ValueShape::Instance(ClassId::new(ModuleId::from_uri(&uri), "Box"))),
-                base: "value".to_string(),
+                spec: phalcom_ast::ast::NormalizedSelectorSpec::Pattern(
+                    phalcom_common::selector::SelectorPattern::named_method("value", [], [], true).unwrap(),
+                ),
             }
         );
         let value_callable = CallableId {

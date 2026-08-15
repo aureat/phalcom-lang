@@ -376,6 +376,7 @@ impl SemanticSnapshot {
         let scopes = self.files.get(&module).map(|file| &file.source.scopes);
         let resolver = DispatchResolver::new(self.classes.as_ref());
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+        let family_resolver = |receiver: &DispatchReceiver, pattern: &phalcom_common::selector::SelectorPattern| resolver.capture_method_family(receiver, pattern);
         let member_surface = |id: &CallableId| resolver.member(id).cloned();
         let contains_class = |class: &ClassId| resolver.contains_class(class);
         let is_same_or_subclass = |child: &ClassId, ancestor: &ClassId| super::is_same_or_subclass(self.classes.as_ref(), child, ancestor);
@@ -391,6 +392,7 @@ impl SemanticSnapshot {
             callable_return: &callable_return,
             field_value: &field_value,
             resolver: &resolve_member,
+            family_resolver: &family_resolver,
             member_surface: &member_surface,
             contains_class: &contains_class,
             is_same_or_subclass: &is_same_or_subclass,
