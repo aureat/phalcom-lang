@@ -1,6 +1,6 @@
 use crate::error::PhResult;
 use crate::heap::CORE_MODULE_NAME;
-use crate::heap::{ClassId, Object};
+use crate::heap::Object;
 use crate::universe::Universe;
 use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -37,6 +37,7 @@ impl VM {
             last_imported_module: None,
             classes: HashMap::new(),
             kernel_class_names: std::collections::HashSet::new(),
+            prelude_names: std::collections::HashSet::new(),
             universe,
             next_frame_generation: 0,
             // The root fiber's `seq` is hardcoded to 1 (`FiberObject::root`); the
@@ -68,6 +69,33 @@ impl VM {
 
         // Bootstrap core module and primitive methods
         vm.install_core();
+
+        // Populate prelude_names from UNIVERSE_BINDINGS
+        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+            if binding.prelude {
+                let sym = vm.interner.intern(binding.name);
+                vm.prelude_names.insert(sym);
+            }
+        }
+        let universe_sym = vm.interner.intern("universe");
+        vm.prelude_names.insert(universe_sym);
+        let none_sym = vm.interner.intern("None");
+        vm.prelude_names.insert(none_sym);
+
+        // Create and populate builtin 'universe' package
+        let universe_pkg = vm.create_builtin_package("universe");
+        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+            if binding.exported {
+                let class_id = vm.universe.classes.resolve(binding.key);
+                let name_sym = vm.interner.intern(binding.name);
+                vm.heap.module_mut(universe_pkg).define(name_sym, Value::Obj(class_id)).unwrap();
+            }
+        }
+        vm.heap.module_mut(universe_pkg).namespace_frozen = true;
+
+        // Expose 'universe' as a global in core module
+        let core_module_sym = vm.interner.intern(CORE_MODULE_NAME);
+        vm.define_global(core_module_sym, universe_sym, Value::Obj(universe_pkg)).unwrap();
 
         // Stamp the kernel `Message` class's fixed-slot count (U8,
         // method-lookup.md §2). `Message` instances are built
@@ -150,6 +178,7 @@ impl VM {
             vm.heap.class_mut(uace).field_count = 4;
         }
         Universe::install_primitives(&mut vm);
+        crate::native::install::install_registered_primitives(&mut vm).expect("registered primitives must install cleanly");
 
         // Finalize every kernel row's base-name index (selectors.md §3.1,
         // U16-Open) now that its native primitives are installed, so `::`
@@ -171,6 +200,14 @@ impl VM {
         // is the first unit whose surface protocol actually depends on a
         // reopen taking effect, which surfaced the gap.
         vm.run_core_module().expect("core module (core.ph) must compile and run cleanly");
+
+        // Add all exports/globals created by core.ph (standard library classes like Entry, Attribute, ArgumentError, Future, Path, etc.) into prelude_names
+        {
+            let core_mod = vm.get_module_from_str(CORE_MODULE_NAME).expect("core module");
+            for sym in vm.heap.module(core_mod).name_to_slot.keys() {
+                vm.prelude_names.insert(*sym);
+            }
+        }
 
         // Snapshot the leaf `toString` override-epoch flags now that
         // `core.ph`'s own reopens (e.g. `String`'s `toString => self`) have
@@ -323,6 +360,7 @@ impl VM {
         // guard error, both ordinary class globals.
         add_class!(fiber_class);
         add_class!(cannot_yield_across_native_frame_class);
+        add_class!(package_class);
         add_class!(resource_class);
         add_class!(use_after_close_error_class);
 
@@ -375,7 +413,7 @@ impl VM {
     /// `Fiber`, …).
     fn finalize_all_core_base_names(&mut self) {
         let c = self.universe.classes;
-        let rows: [ClassId; 33] = [
+        let rows = [
             c.object_class,
             c.behavior_class,
             c.class_class,
@@ -392,6 +430,7 @@ impl VM {
             c.bound_method_class,
             c.symbol_class,
             c.module_class,
+            c.package_class,
             c.system_class,
             c.option_class,
             c.some_class,
@@ -415,5 +454,22 @@ impl VM {
             let meta_id = self.heap.class(class_id).class;
             self.finalize_class_base_names(meta_id);
         }
+    }
+
+    /// Allocates a builtin package with `logical_name` and registers it in `vm.modules`.
+    pub fn create_builtin_package(&mut self, logical_name: &str) -> crate::heap::ObjRef {
+        let name_sym = self.interner.intern(logical_name);
+        let package_class = self.universe.classes.package_class;
+        let package = crate::heap::ModuleObject::new(
+            package_class,
+            logical_name.to_string(),
+            name_sym,
+            format!("<builtin:{logical_name}>"),
+            None,
+            true,
+        );
+        let id = self.heap.alloc(crate::heap::Object::Module(Box::new(package)));
+        self.modules.insert(name_sym, id);
+        id
     }
 }

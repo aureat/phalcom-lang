@@ -1,0 +1,10 @@
+[package]
+name = "phalcom-type-syntax"
+version = "0.1.0"
+edition = "2024"
+description = "VM-free symbolic type and parameter syntax parser for Phalcom native metadata."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]

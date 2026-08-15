@@ -161,6 +161,9 @@ pub enum RuntimeError {
     #[error("Can't set class of an object")]
     InvalidSetClass,
 
+    #[error("cannot mutate frozen namespace '{0}'")]
+    FrozenNamespace(String),
+
     #[error("undefined variable '{name}'")]
     UndefinedVariable { name: String },
 

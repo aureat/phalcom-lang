@@ -207,6 +207,8 @@ pub struct VM {
     /// list, and no need to touch this comment when a primitive is added or
     /// removed.
     pub kernel_class_names: std::collections::HashSet<Symbol>,
+    /// Global symbol whitelist gating non-core module fallback to the core module.
+    pub prelude_names: std::collections::HashSet<Symbol>,
     /// The symbol interner backing selectors, names and string identity.
     pub interner: Interner,
     /// VM start time, used for `System` timing primitives.

@@ -21,11 +21,29 @@ pub(crate) fn wrap_some(_vm: &mut VM, value: Value) -> Result<Value, RuntimeErro
 ///
 /// Registered as `call(_)` on the `Some` class object. Existing unqualified-call
 /// lowering makes `Some(x)` an ordinary `Some.call(x)` send.
+#[phalcom_native_macros::primitive(
+    Some,
+    "call(_)",
+    params = [Object],
+    returns = Option,
+    types = "(Object) -> Option",
+    side = class,
+    effects = pure
+)]
 pub fn some_call(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(wrap_some(_vm, args[0])?)
 }
 
 /// Compatibility alias for the historical `Some.new(_)` construction surface.
+#[phalcom_native_macros::primitive(
+    Some,
+    "new(_)",
+    params = [Object],
+    returns = Option,
+    types = "(Object) -> Option",
+    side = class,
+    effects = pure
+)]
 pub fn some_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     some_call(vm, receiver, args)
 }
@@ -35,6 +53,13 @@ pub fn some_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
 /// A `Some` peels exactly one layer before invoking the `some:` block. Immediate
 /// `None` invokes `none:` with no arguments. The primitive never inspects class
 /// IDs or heap slots, so nested values remain distinct.
+#[phalcom_native_macros::primitive(
+    Option,
+    "match(some,none)",
+    params = [some: Object, none: Object],
+    returns = Object,
+    types = "(some: Object, none: Object) -> Object"
+)]
 pub fn option_match(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     match receiver.option_case() {
         OptionCase::Some(value) => block_call(vm, &args[0], &[value]),

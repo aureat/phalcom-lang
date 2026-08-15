@@ -14,13 +14,14 @@ use crate::vm::VM;
 // TODO: Change mentions non-heap value, a different heap object to the specific type name of the found value
 
 /// Signature: `Object#__attach(_)` — appends `args[0]` (an `Attribute`
-/// instance) to the receiver's attribute-retention store.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a class, method, or
-/// module object, or `attr.frozen` ([`RuntimeError::NotAllowed`]) if the
-/// receiver's store was already frozen (`__freezeAttributes`).
+#[phalcom_native_macros::primitive(
+    Object,
+    "_$attach(_)",
+    params = [Object],
+    returns = Option,
+    types = "(Object) -> Option",
+    visibility = public
+)]
 pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let attr = args[0];
     let Value::Obj(id) = *receiver else {
@@ -49,12 +50,14 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 }
 
 /// Signature: `Object#__attributes` — reads the receiver's attribute-
-/// retention store into a fresh `List` (empty if nothing was ever attached).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a class, method, or
-/// module object.
+#[phalcom_native_macros::primitive(
+    Object,
+    "_$attributes",
+    params = [],
+    returns = List,
+    types = "() -> List",
+    visibility = public
+)]
 pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Value::Obj(id) = *receiver else {
         return Err(RuntimeError::Type {
@@ -80,12 +83,14 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
 }
 
 /// Signature: `Object#__freezeAttributes` — marks the receiver's attribute
-/// store frozen; further `__attach` calls raise `attr.frozen`.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a class, method, or
-/// module object.
+#[phalcom_native_macros::primitive(
+    Object,
+    "_$freezeAttributes()",
+    params = [],
+    returns = Option,
+    types = "() -> Option",
+    visibility = public
+)]
 pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Value::Obj(id) = *receiver else {
         return Err(RuntimeError::Type {

@@ -7,14 +7,14 @@ use crate::vm::VM;
 
 /// Signature: `Symbol::toString` — the symbol's display form, `#{interned
 /// text}` (U-CORE-4, BD-CORE4-2 Option A).
-///
-/// Delegates to [`Symbol::to_string`](crate::interner::Symbol::to_string) so
-/// this message agrees byte-for-byte with the native print path
-/// (`Value::to_string`'s `Symbol` arm) — R-INV-4.1.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a symbol.
+#[phalcom_native_macros::primitive(
+    Symbol,
+    "toString",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
 pub fn symbol_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let symbol = *expect_value!(receiver, Symbol);
     let text = symbol.to_string(vm);
@@ -22,31 +22,28 @@ pub fn symbol_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 }
 
 /// Signature: `Symbol::hash` — a digest of the interned id.
-///
-/// Digests the symbol's interned id
-/// ([`Symbol`](crate::interner::Symbol)'s inner `u32`;
-/// [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
-/// so two references to the same interned symbol hash equal (R-INV-1.3 is
-/// asserted as *stability* for symbols, since `value_eq` never makes two
-/// symbols surface-`==` today). Underivable — `.ph` reaches only
-/// `toString`/`new`, not the id.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a symbol.
+#[phalcom_native_macros::primitive(
+    Symbol,
+    "hash",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn symbol_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let symbol = expect_value!(receiver, Symbol);
     Ok(crate::primitive::hash_code(u64::from(symbol.0)))
 }
 
 /// Signature: `Symbol.class::new(_)` — interns its argument into a symbol.
-///
-/// A string is interned by content, a symbol is returned unchanged, and any
-/// other value is first rendered via [`Value::to_string`] and then interned.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Arity`] if called with no argument.
+#[phalcom_native_macros::primitive(
+    Symbol,
+    "new(_)",
+    params = [Object],
+    returns = Symbol,
+    types = "(Object) -> Symbol",
+    side = class
+)]
 pub fn symbol_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(arg) = args.first() else {
         return Err(RuntimeError::Arity {

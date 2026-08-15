@@ -17,17 +17,14 @@ use crate::value::Value;
 use crate::vm::VM;
 
 /// Signature: `String::hash` — the cached djb2 content hash.
-///
-/// Reuses the content hash the string already caches
-/// ([`StringObject::hash`](crate::heap::StringObject::hash) /
-/// [`calculate_hash`](crate::heap::StringObject::calculate_hash)) so equal
-/// content hashes equal, satisfying `a == b ⇒ a.hash == b.hash` (R-INV-1.3)
-/// even for two distinct-handle strings — `String#==` is content equality.
-/// Underivable — the `String` floor exposes only `+`/`new`, not the bytes.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a string.
+#[phalcom_native_macros::primitive(
+    String,
+    "hash",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn string_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = match receiver {
         Value::Obj(id) if vm.heap.as_string(*id).is_some() => *id,
@@ -44,10 +41,14 @@ pub fn string_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 }
 
 /// Signature: `String::+(_)` — concatenates two strings.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a string.
+#[phalcom_native_macros::primitive(
+    String,
+    "+(_)",
+    params = [String],
+    returns = String,
+    types = "(String) -> String",
+    effects = pure
+)]
 pub fn string_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let first = expect_string(vm, receiver)?;
     let second = expect_string(vm, &args[0])?;
@@ -55,9 +56,14 @@ pub fn string_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `String.class::new(_)` — builds a string from its argument.
-///
-/// With an argument, renders it via [`Value::to_string`]; with none, returns the
-/// empty string.
+#[phalcom_native_macros::primitive(
+    String,
+    "new(_)",
+    params = [Object],
+    returns = String,
+    types = "(Object) -> String",
+    side = class
+)]
 pub fn string_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     match args.first() {
         Some(arg) => {
@@ -68,14 +74,16 @@ pub fn string_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
     }
 }
 
-/// Signature: `String::byteCount_` — the byte length of the underlying UTF-8 buffer.
-///
-/// Derives from ADR-0019 (minimal native floor); the byte length is not derivable
-/// in `.ph` code since no `.ph` code can observe the buffer. Returns a `Number`.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a string.
+/// Signature: `String::_$byteCount` — the byte length of the underlying UTF-8 buffer.
+#[phalcom_native_macros::primitive(
+    String,
+    "_$byteCount",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure,
+    visibility = internal
+)]
 pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let s = match receiver {
         Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
@@ -90,7 +98,16 @@ pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     Ok(Value::Int(s.len() as i64))
 }
 
-/// Signature: `String::byteAt_(_)` — read a single raw byte from the buffer.
+/// Signature: `String::_$byteAt(_)` — read a single raw byte from the buffer.
+#[phalcom_native_macros::primitive(
+    String,
+    "_$byteAt(_)",
+    params = [Int],
+    returns = "Option<Int>",
+    types = "(Int) -> Option<Int>",
+    effects = pure,
+    visibility = internal
+)]
 pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let s = match receiver {
         Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
@@ -126,7 +143,16 @@ pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     }
 }
 
-/// Signature: `String::slice_(_,_)` — extract a substring by byte range `[start, end)`.
+/// Signature: `String::_$slice(_,_)` — extract a substring by byte range `[start, end)`.
+#[phalcom_native_macros::primitive(
+    String,
+    "_$slice(_,_)",
+    params = [Int, Int],
+    returns = String,
+    types = "(Int, Int) -> String",
+    effects = pure,
+    visibility = internal
+)]
 pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let s = match receiver {
         Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),

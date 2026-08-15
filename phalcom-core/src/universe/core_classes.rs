@@ -168,6 +168,8 @@ impl Universe {
         let resource_class = make_core_class(heap, "Resource", object_class, metaclass_class);
         let use_after_close_error_class = make_core_class(heap, "UseAfterCloseError", error_class, metaclass_class);
 
+        let package_class = make_core_class(heap, "Package", module_class, metaclass_class);
+
         let res = CoreClasses {
             object_class,
             behavior_class,
@@ -189,6 +191,7 @@ impl Universe {
             bound_method_family_class,
             symbol_class,
             module_class,
+            package_class,
             system_class,
             option_class,
             some_class,
@@ -234,6 +237,7 @@ impl Universe {
             res.fiber_class,
             res.method_class,
             res.module_class,
+            res.package_class,
             res.closure_class,
             res.bound_method_class,
             res.method_family_class,
@@ -335,6 +339,8 @@ pub struct CoreClasses {
     pub symbol_class: ClassId,
     /// `Module`.
     pub module_class: ClassId,
+    /// `Package < Module`.
+    pub package_class: ClassId,
     /// `System`.
     pub system_class: ClassId,
     /// `Option`, the abstract absence type
@@ -431,6 +437,55 @@ pub struct CoreClasses {
 }
 
 impl CoreClasses {
+    /// Exhaustively resolves a [`phalcom_native_meta::UniverseKey`] to its runtime [`ClassId`].
+    pub fn resolve(&self, key: phalcom_native_meta::UniverseKey) -> ClassId {
+        use phalcom_native_meta::UniverseKey;
+        match key {
+            UniverseKey::Object => self.object_class,
+            UniverseKey::Behavior => self.behavior_class,
+            UniverseKey::Class => self.class_class,
+            UniverseKey::Metaclass => self.metaclass_class,
+            UniverseKey::Number => self.number_class,
+            UniverseKey::Int => self.int_class,
+            UniverseKey::Float => self.float_class,
+            UniverseKey::String => self.string_class,
+            UniverseKey::Nil => self.nil_class,
+            UniverseKey::Bool => self.bool_class,
+            UniverseKey::True => self.true_class,
+            UniverseKey::False => self.false_class,
+            UniverseKey::Symbol => self.symbol_class,
+            UniverseKey::Function => self.function_class,
+            UniverseKey::Closure => self.closure_class,
+            UniverseKey::BoundMethod => self.bound_method_class,
+            UniverseKey::Method => self.method_class,
+            UniverseKey::MethodFamily => self.method_family_class,
+            UniverseKey::BoundMethodFamily => self.bound_method_family_class,
+            UniverseKey::Family => self.family_class,
+            UniverseKey::Option => self.option_class,
+            UniverseKey::Some => self.some_class,
+            UniverseKey::None => self.none_class,
+            UniverseKey::Unit => self.unit_class,
+            UniverseKey::Iterable => self.iterable_class,
+            UniverseKey::List => self.list_class,
+            UniverseKey::Map => self.map_class,
+            UniverseKey::Set => self.set_class,
+            UniverseKey::Tuple => self.tuple_class,
+            UniverseKey::Record => self.record_class,
+            UniverseKey::Range => self.range_class,
+            UniverseKey::Bytes => self.bytes_class,
+            UniverseKey::Module => self.module_class,
+            UniverseKey::Package => self.package_class,
+            UniverseKey::System => self.system_class,
+            UniverseKey::Message => self.message_class,
+            UniverseKey::Error => self.error_class,
+            UniverseKey::MessageNotUnderstood => self.message_not_understood_class,
+            UniverseKey::CannotYieldAcrossNativeFrame => self.cannot_yield_across_native_frame_class,
+            UniverseKey::UseAfterCloseError => self.use_after_close_error_class,
+            UniverseKey::Fiber => self.fiber_class,
+            UniverseKey::Resource => self.resource_class,
+        }
+    }
+
     /// Calls `push` once for every handle the kernel pins — the `universe` row of
     /// [memory-management.md §2.1](../../../docs/spec/v0.2/memory-management.md).
     ///
@@ -468,6 +523,7 @@ impl CoreClasses {
             bound_method_family_class,
             symbol_class,
             module_class,
+            package_class,
             system_class,
             option_class,
             some_class,
@@ -512,6 +568,7 @@ impl CoreClasses {
             bound_method_family_class,
             symbol_class,
             module_class,
+            package_class,
             system_class,
             option_class,
             some_class,

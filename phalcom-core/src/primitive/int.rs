@@ -33,6 +33,14 @@ fn integer_bits(n: &BigInt) -> usize {
 }
 
 /// Signature: `Int::&(_)` — bitwise AND.
+#[phalcom_native_macros::primitive(
+    Int,
+    "&(_)",
+    params = [Int],
+    returns = Int,
+    types = "(Int) -> Int",
+    effects = pure
+)]
 pub fn int_and(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let b = expect_int_big(&args[0], vm)?;
@@ -41,6 +49,14 @@ pub fn int_and(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
 }
 
 /// Signature: `Int::|(_)` — bitwise OR.
+#[phalcom_native_macros::primitive(
+    Int,
+    "|(_)",
+    params = [Int],
+    returns = Int,
+    types = "(Int) -> Int",
+    effects = pure
+)]
 pub fn int_or(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let b = expect_int_big(&args[0], vm)?;
@@ -49,6 +65,14 @@ pub fn int_or(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> 
 }
 
 /// Signature: `Int::^(_)` — bitwise XOR.
+#[phalcom_native_macros::primitive(
+    Int,
+    "^(_)",
+    params = [Int],
+    returns = Int,
+    types = "(Int) -> Int",
+    effects = pure
+)]
 pub fn int_xor(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let b = expect_int_big(&args[0], vm)?;
@@ -57,6 +81,14 @@ pub fn int_xor(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
 }
 
 /// Signature: `Int::~` — bitwise NOT.
+#[phalcom_native_macros::primitive(
+    Int,
+    "~",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn int_not(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let res = !a;
@@ -64,6 +96,14 @@ pub fn int_not(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value
 }
 
 /// Signature: `Int::<<(_)` — bitwise left shift.
+#[phalcom_native_macros::primitive(
+    Int,
+    "<<(_)",
+    params = [Int],
+    returns = Int,
+    types = "(Int) -> Int",
+    effects = pure
+)]
 pub fn int_shl(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let b_val = &args[0];
@@ -84,6 +124,14 @@ pub fn int_shl(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
 }
 
 /// Signature: `Int::>>(_)` — bitwise right shift.
+#[phalcom_native_macros::primitive(
+    Int,
+    ">>(_)",
+    params = [Int],
+    returns = Int,
+    types = "(Int) -> Int",
+    effects = pure
+)]
 pub fn int_shr(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let b_val = &args[0];
@@ -105,6 +153,14 @@ pub fn int_shr(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
 }
 
 /// Signature: `Int::bitAt(_)` — returns the bit at `index`.
+#[phalcom_native_macros::primitive(
+    Int,
+    "bitAt(_)",
+    params = [Int],
+    returns = Int,
+    types = "(Int) -> Int",
+    effects = pure
+)]
 pub fn int_bit_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let idx_val = &args[0];
@@ -126,6 +182,14 @@ pub fn int_bit_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Int::bitCount` — returns the number of 1 bits in `|self|`.
+#[phalcom_native_macros::primitive(
+    Int,
+    "bitCount",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn int_bit_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let abs_a = a.abs();
@@ -135,6 +199,14 @@ pub fn int_bit_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 }
 
 /// Signature: `Int::bitLength` — returns the bit length of `|self|`.
+#[phalcom_native_macros::primitive(
+    Int,
+    "bitLength",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn int_bit_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let abs_a = a.abs();
@@ -143,6 +215,14 @@ pub fn int_bit_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 }
 
 /// Signature: `Int::trailingZeros` — returns trailing zeros of `|self|`.
+#[phalcom_native_macros::primitive(
+    Int,
+    "trailingZeros",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn int_trailing_zeros(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     if a.is_zero() {
@@ -161,6 +241,14 @@ pub fn int_trailing_zeros(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 }
 
 /// Signature: `Int.class::new(_)` — coerces/constructs an `Int`.
+#[phalcom_native_macros::primitive(
+    Int,
+    "new(_)",
+    params = [Object],
+    returns = Int,
+    types = "(Object) -> Int",
+    side = class
+)]
 pub fn int_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(arg) = args.first() else {
         return Ok(Value::Int(0));

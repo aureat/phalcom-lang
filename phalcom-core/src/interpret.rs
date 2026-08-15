@@ -253,7 +253,8 @@ impl VM {
         // `Universe::module_registry`'s doc for the partial-init hazard this
         // ordering accepts).
         let module_sym = self.interner.intern(&logical_name);
-        let module_obj = ModuleObject::new(logical_name.clone(), module_sym, canonical.clone(), None);
+        let module_class = self.universe.classes.module_class;
+        let module_obj = ModuleObject::new(module_class, logical_name.clone(), module_sym, canonical.clone(), None, false);
         let module_id = self.heap.alloc(Object::Module(Box::new(module_obj)));
         self.universe.module_registry.insert(canonical.clone(), module_id);
 

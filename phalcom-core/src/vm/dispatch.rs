@@ -1243,15 +1243,20 @@ impl VM {
                         let (resolved_module, slot) = match self.heap.module(module_id).slot_of(name_sym) {
                             Some(slot) => (module_id, slot),
                             None => {
-                                // Not in the current module — try the core module.
+                                // Not in the current module — try the core module if caller is core or name is in prelude_names
                                 let core_module_sym = self.interner.intern(CORE_MODULE_NAME);
                                 let core_module = self.get_module(core_module_sym).expect("core module");
-                                match self.heap.module(core_module).slot_of(name_sym) {
-                                    Some(slot) => (core_module, slot),
-                                    None => {
-                                        let name = self.resolve_symbol(name_sym).to_string();
-                                        return Err(RuntimeError::UndefinedVariable { name }.into());
+                                if module_id == core_module || self.prelude_names.contains(&name_sym) {
+                                    match self.heap.module(core_module).slot_of(name_sym) {
+                                        Some(slot) => (core_module, slot),
+                                        None => {
+                                            let name = self.resolve_symbol(name_sym).to_string();
+                                            return Err(RuntimeError::UndefinedVariable { name }.into());
+                                        }
                                     }
+                                } else {
+                                    let name = self.resolve_symbol(name_sym).to_string();
+                                    return Err(RuntimeError::UndefinedVariable { name }.into());
                                 }
                             }
                         };

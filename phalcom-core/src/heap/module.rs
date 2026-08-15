@@ -6,7 +6,7 @@
 //! per-object `RefCell`s ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::ObjRef;
+use crate::heap::{ClassId, ObjRef};
 use crate::interner::Symbol;
 use crate::value::Value;
 use std::collections::HashMap;
@@ -35,6 +35,8 @@ pub fn next_module_id() -> ModuleId {
 /// A loaded module: its identity, source, top-level closure, and global slots.
 #[derive(Debug)]
 pub struct ModuleObject {
+    /// Surface class of this module or package (`Module` or `Package < Module`).
+    pub class: ClassId,
     /// Interned symbol of the module's logical name.
     pub name_sym: Symbol,
     /// The module's display name.
@@ -74,6 +76,10 @@ pub struct ModuleObject {
     pub attributes_frozen: bool,
     /// Prior units' global bindings: name -> is_mutable (U-REPL §D4).
     pub global_bindings: HashMap<Symbol, bool>,
+    /// Whether this module is a built-in module/package.
+    pub builtin: bool,
+    /// Whether the module's global namespace is frozen against modifications.
+    pub namespace_frozen: bool,
 }
 
 impl ModuleObject {
@@ -83,8 +89,9 @@ impl ModuleObject {
     /// `source`, when `Some`, seeds [`Self::sources`] as entry `0`; modules that
     /// are compiled through [`VM::compile_closure`](crate::vm::VM::compile_closure)
     /// pass `None` and let that call append their text instead.
-    pub fn new(name: String, name_sym: Symbol, path: String, source: Option<Arc<String>>) -> Self {
+    pub fn new(class: ClassId, name: String, name_sym: Symbol, path: String, source: Option<Arc<String>>, builtin: bool) -> Self {
         Self {
+            class,
             name,
             name_sym,
             path,
@@ -96,6 +103,8 @@ impl ModuleObject {
             attributes: Vec::new(),
             attributes_frozen: false,
             global_bindings: HashMap::new(),
+            builtin,
+            namespace_frozen: false,
         }
     }
 
@@ -165,6 +174,10 @@ impl ModuleObject {
     /// Returns [`RuntimeError::Message`] if the module already holds
     /// [`MAX_GLOBALS`] globals.
     pub fn declare(&mut self, name: Symbol) -> PhResult<usize> {
+        if self.namespace_frozen {
+            return Err(RuntimeError::FrozenNamespace(self.name.clone()).into());
+        }
+
         if let Some(&slot) = self.name_to_slot.get(&name) {
             return Ok(slot);
         }
@@ -191,6 +204,9 @@ impl ModuleObject {
     ///
     /// Propagates errors from [`Self::declare`] and [`Self::set_global`].
     pub fn define(&mut self, name: Symbol, value: Value) -> PhResult<usize> {
+        if self.namespace_frozen {
+            return Err(RuntimeError::FrozenNamespace(self.name.clone()).into());
+        }
         let slot = self.declare(name)?;
         self.set_global(slot, value)?;
         Ok(slot)
@@ -224,6 +240,9 @@ impl ModuleObject {
     ///
     /// Returns [`RuntimeError::Message`] if `slot` is out of bounds.
     pub fn set_global(&mut self, slot: usize, value: Value) -> PhResult<()> {
+        if self.namespace_frozen {
+            return Err(RuntimeError::FrozenNamespace(self.name.clone()).into());
+        }
         if slot >= self.globals.len() {
             return Err(RuntimeError::Message("Global slot out of bounds".into()).into());
         }

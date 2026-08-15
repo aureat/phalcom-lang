@@ -20,6 +20,14 @@ use crate::value::Value;
 use crate::vm::VM;
 
 /// Signature: `Object::name` — returns the receiver's class name as a string.
+#[phalcom_native_macros::primitive(
+    Object,
+    "name",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
 pub fn object_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = receiver.class(vm);
     let name = vm.heap.class(class_id).name.clone();
@@ -27,21 +35,28 @@ pub fn object_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 }
 
 /// Signature: `Object::class` — returns the receiver's class.
+#[phalcom_native_macros::primitive(
+    Object,
+    "class",
+    params = [],
+    returns = Class,
+    types = "() -> Class",
+    effects = pure
+)]
 pub fn object_class(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::Obj(receiver.class(vm)))
 }
 
 /// Signature: `Object::toString` — the default display string (U-CORE-4,
 /// [ADR-0015](../../../docs/adr/accepted/0015-object-default-tostring.md)).
-///
-/// A **class** receiver renders as its own name (`"Number"`), fixing
-/// DEFERRED F4 (the old binding, [`object_name`], returned the *metaclass*
-/// name for a class receiver — see `universe.rs`'s `install_primitives`
-/// Object block, where this fn replaces `object_name` as the `toString`
-/// target while `object_name` itself stays bound to `Object#name`). A plain
-/// instance renders as `"<{ClassName}>"` (e.g. `"<Point>"`). User classes are
-/// free to override `toString` for a richer form; this default only
-/// guarantees the class is identifiable.
+#[phalcom_native_macros::primitive(
+    Object,
+    "toString",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
 pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     // Borrow-model care: bind the cloned name to its own `let` so the
     // immutable `vm.heap` borrow is released before the `&mut vm` alloc below
@@ -60,17 +75,14 @@ pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 }
 
 /// Signature: `Object::hash` — a stable identity digest of the heap handle.
-///
-/// The universal-protocol `hash` ([`object-model.md`](../../../docs/spec/object-model.md)
-/// §8, [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
-/// underivable because it reads the receiver's [`ObjRef`](crate::heap::ObjRef)
-/// handle, which no `.ph`-visible primitive exposes. Immediates
-/// ([`Value::Number`], [`Value::Bool`], [`Value::Symbol`]) override this with a
-/// value digest; every heap object inherits this identity digest, so
-/// `a == b ⇒ a.hash == b.hash` holds for identity-`==` classes (R-INV-1.3). The
-/// non-[`Value::Obj`] arm is a defensive catch-all (kept total so a future
-/// [`Value`] arm — e.g. `Fiber`, forward-compat §1 — does not silently break
-/// this fn), routing through a single `Value`-level hash.
+#[phalcom_native_macros::primitive(
+    Object,
+    "hash",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     use slotmap::Key;
     let bits = match receiver {
@@ -90,27 +102,40 @@ pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 }
 
 /// Signature: `Object::class=(_)` — always an error; an object's class is fixed.
-///
-/// # Errors
-///
-/// Always returns [`RuntimeError::InvalidSetClass`].
+#[phalcom_native_macros::primitive(
+    Object,
+    "class=(put)",
+    params = [Object],
+    returns = Nothing,
+    types = "(Object) -> Nothing",
+    flow = never
+)]
 pub fn object_set_class(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::InvalidSetClass.into())
 }
 
 /// Signature: `Object::==(_)` — the base equality send (U5, control-flow.md
-/// §1: `==`/`!=` are ordinary sends like every other operator). Delegates to
-/// [`Value::value_eq`](crate::value::Value::value_eq) (content equality for
-/// strings, identity for instances/classes/methods, by-value for
-/// immediates), so it reproduces exactly today's `==` semantics — only the
-/// *dispatch mechanism* changes. Any subclass (e.g. a user `==(other)`
-/// override, per `person2.ph`) shadows this via ordinary method lookup.
+#[phalcom_native_macros::primitive(
+    Object,
+    "==(_)",
+    params = [Object],
+    returns = Bool,
+    types = "(Object) -> Bool",
+    effects = pure
+)]
 pub fn object_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(Value::Bool(receiver.value_eq(&args[0], &vm.heap)))
 }
 
 /// Signature: `Object::!=(_)` — the base inequality send; the logical
-/// negation of [`object_eq`].
+#[phalcom_native_macros::primitive(
+    Object,
+    "!=(_)",
+    params = [Object],
+    returns = Bool,
+    types = "(Object) -> Bool",
+    effects = pure
+)]
 pub fn object_neq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(Value::Bool(!receiver.value_eq(&args[0], &vm.heap)))
 }
@@ -146,15 +171,14 @@ pub fn object_perform_shape(vm: &mut VM, receiver: Value, args: ArgumentView) ->
 }
 
 /// Signature: `Object::respondsTo(_)` — returns whether the receiver's class
-/// chain defines the selector `args[0]` (a [`Symbol`](crate::interner::Symbol)).
-///
-/// A **pure** exact-selector probe (method-lookup.md §2): it never triggers
-/// `doesNotUnderstand(_:)`, so asking whether an object responds to an unknown
-/// selector simply returns `false` rather than reifying a `Message`.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Symbol`.
+#[phalcom_native_macros::primitive(
+    Object,
+    "respondsTo(_)",
+    params = [Symbol],
+    returns = Bool,
+    types = "(Symbol) -> Bool",
+    effects = pure
+)]
 pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let selector = *expect_value!(&args[0], Symbol);
     let responds = receiver
@@ -164,19 +188,14 @@ pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 }
 
 /// Signature: `Object::methodFor(_)` — reifies the
-/// [`MethodObject`](crate::method::MethodObject) that method lookup resolves
-/// for selector `args[0]` (a [`Symbol`](crate::interner::Symbol)) on the
-/// receiver, as a bare `Method` value; immediate `None`
-/// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)) on a miss
-/// (functions.md §3, U-CORE-3,
-/// [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
-///
-/// A **pure** probe, like [`object_responds_to`]: a miss never triggers
-/// `doesNotUnderstand(_:)`.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Symbol`.
+#[phalcom_native_macros::primitive(
+    Object,
+    "methodFor(_)",
+    params = [Symbol],
+    returns = "Option<Method>",
+    types = "(Symbol) -> Option<Method>",
+    effects = pure
+)]
 pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let selector = *expect_value!(&args[0], Symbol);
     match receiver.lookup_method(vm, selector) {
@@ -187,29 +206,15 @@ pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
 }
 
 /// Signature: `Object::doesNotUnderstand(_)` — the *default* miss handler
-/// (method-lookup.md §2, ADR-0012): builds a surface
-/// [`MessageNotUnderstood`](crate::universe::CoreClasses::message_not_understood_class)
-/// carrying the reified `Message` and raises it through the unified unwind
-/// ([`RuntimeError::Raise`], ADR-0008, U-CORE-6) — rather than the retired
-/// native `RuntimeError::MessageNotUnderstood`.
-///
-/// This is the terminal fallback the [`Bytecode::Invoke`](crate::bytecode::Bytecode::Invoke)
-/// miss path forwards to. Because it is an ordinary (overridable) method on
-/// `Object`, a subclass — e.g. a proxy — can override it to intercept and
-/// re-forward sends via [`object_perform_shape`] *before* this default ever runs.
-/// `args[0]` is the reified `Message` ([`VM::new_message`]); its selector slot
-/// supplies the diagnostic text. The built `MessageNotUnderstood` instance has
-/// two slots: slot 0 the rendered message string (`Error#message`), slot 1 the
-/// reified `Message` itself (`args[0]`), stamped by [`VM::new`]'s Phase E,
-/// mirroring how `Message` itself is built directly in Rust rather than via a
-/// `.ph` `construct` (U-CORE-6 §2, avoids the read-before-write hazard a
-/// `.ph` getter over this field would trip).
-///
-/// # Errors
-///
-/// Always returns [`RuntimeError::Raise`] carrying a
-/// [`MessageNotUnderstood`](crate::universe::CoreClasses::message_not_understood_class)
-/// instance.
+#[phalcom_native_macros::primitive(
+    Object,
+    "doesNotUnderstand(_)",
+    params = [Message],
+    returns = Nothing,
+    types = "(Message) -> Nothing",
+    raises = [MessageNotUnderstood],
+    flow = never
+)]
 pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let selector = match message_slot(vm, &args[0], 0) {
         Some(Value::Symbol(sym)) => vm.resolve_symbol(sym).to_string(),
@@ -276,70 +281,66 @@ fn not_a_message(value: &Value) -> crate::error::PhError {
 }
 
 /// Signature: `Message::selector` — the interned selector
-/// [`Symbol`](crate::interner::Symbol) exactly as sent (slot 0; see
-/// [`VM::new_message`]).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a `Message` instance.
+#[phalcom_native_macros::primitive(
+    Message,
+    "selector",
+    params = [],
+    returns = Symbol,
+    types = "() -> Symbol",
+    effects = pure
+)]
 pub fn message_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     message_slot(vm, receiver, 0).ok_or_else(|| not_a_message(receiver))
 }
 
 /// Signature: `Message::name` — the bare method-name [`String`] (slot 1),
-/// e.g. `"+"` for a `+(_:)` send (encoder-inverse, see [`VM::new_message`]).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a `Message` instance.
+#[phalcom_native_macros::primitive(
+    Message,
+    "name",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
 pub fn message_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     message_slot(vm, receiver, 1).ok_or_else(|| not_a_message(receiver))
 }
 
 /// Signature: `Message::labels` — the [`List`](crate::heap::ListObject) of
-/// per-argument keyword labels (slot 2), one `String` per argument (`""` for a
-/// positional argument), index-aligned with [`message_args`].
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a `Message` instance.
+#[phalcom_native_macros::primitive(
+    Message,
+    "labels",
+    params = [],
+    returns = List,
+    types = "() -> List",
+    effects = pure
+)]
 pub fn message_labels(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     message_slot(vm, receiver, 2).ok_or_else(|| not_a_message(receiver))
 }
 
 /// Signature: `Message::args` — the [`List`](crate::heap::ListObject) of the
-/// send's argument values (slot 3).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a `Message` instance.
+#[phalcom_native_macros::primitive(
+    Message,
+    "args",
+    params = [],
+    returns = List,
+    types = "() -> List",
+    effects = pure
+)]
 pub fn message_args(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     message_slot(vm, receiver, 3).ok_or_else(|| not_a_message(receiver))
 }
 
 /// Signature: `Object::__invariantEnter()` — the entry half of the
-/// `@invariant` re-entrancy guard
-/// ([ADR-0052](../../../docs/adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
-/// Fix 1, U-ANNOT-CONTRACTS). Woven by
-/// `crate::compiler::attributes::weave_invariant_checks` into every public
-/// method/getter/setter of an `@invariant`-bearing class.
-///
-/// Inserts the receiver into `VM::checking` and returns `true` **iff** the
-/// receiver was not already present — i.e. this call is the *outermost*
-/// guarded call on `self` (own-object nesting, Eiffel's rule). The caller
-/// binds this return value to a local (`__invariant_owner`) and gates both
-/// the entry check and the paired [`object_invariant_exit`] on it, rather than
-/// re-checking `checking` membership at exit time — membership alone cannot
-/// distinguish the owning call from a nested one once a nested call exists,
-/// only a locally-captured boolean can (ADR-0052's own pseudocode does not
-/// capture this correctly; this primitive pair is the corrected mechanism).
-///
-/// A non-heap receiver (an immediate — `Number`/`Bool`/`Symbol`/`None`) has no
-/// [`crate::heap::ObjRef`] identity to key `checking` on; `@invariant` is only
-/// ever woven onto a user class's own instance methods, so this is not
-/// expected to fire on an immediate in practice, but returns `true`
-/// unconditionally rather than panicking if it ever does (every call is then
-/// treated as its own outermost call, the safe default).
+#[phalcom_native_macros::primitive(
+    Object,
+    "_$invariantEnter()",
+    params = [],
+    returns = Bool,
+    types = "() -> Bool",
+    visibility = internal
+)]
 pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Value::Obj(id) = receiver else {
         return Ok(Value::Bool(true));
@@ -349,16 +350,14 @@ pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
 }
 
 /// Signature: `Object::__invariantExit()` — the exit half of the `@invariant`
-/// re-entrancy guard (see [`object_invariant_enter`]).
-///
-/// Unconditionally removes the receiver from `VM::checking`. Only ever
-/// called from the woven `Block#ensure(_)` cleanup, itself gated on the
-/// caller's own `__invariant_owner` local — so in practice this only fires
-/// once per outermost guarded call, but removal is idempotent regardless.
-///
-/// Returns `VM::none_value` — **never** a raw `Value::Nil` — matching every
-/// other unit-returning native primitive: the one-armed `ifTrue` inliner's
-/// Some-wrap expects surface immediate `None`, not the bare tag.
+#[phalcom_native_macros::primitive(
+    Object,
+    "_$invariantExit()",
+    params = [],
+    returns = Option,
+    types = "() -> Option",
+    visibility = internal
+)]
 pub fn object_invariant_exit(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Value::Obj(id) = receiver {
         vm.checking.remove(id);

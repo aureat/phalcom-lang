@@ -107,6 +107,15 @@ fn pow_bigint(base: &BigInt, exp: &BigInt, limit: usize, vm: &mut VM) -> PhResul
 }
 
 /// Signature: `Number.class::new(_)` — raises `#abstractClass`.
+#[phalcom_native_macros::primitive(
+    Number,
+    "new(_)",
+    params = [Object],
+    returns = Nothing,
+    types = "(Object) -> Nothing",
+    side = class,
+    flow = never
+)]
 pub fn number_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let error_cls = vm.universe.classes.error_class;
     let field_count = vm.heap.class(error_cls).field_count;
@@ -126,6 +135,14 @@ pub fn number_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhRe
 }
 
 /// Signature: `Float.class::new(_)` — coerces/constructs a `Float`.
+#[phalcom_native_macros::primitive(
+    Float,
+    "new(_)",
+    params = [Object],
+    returns = Float,
+    types = "(Object) -> Float",
+    side = class
+)]
 pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(arg) = args.first() else {
         return Ok(Value::Float(0.0));
@@ -164,6 +181,14 @@ pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 }
 
 /// Signature: `Number::hash` — digest of the mathematical value.
+#[phalcom_native_macros::primitive(
+    Number,
+    "hash",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    effects = pure
+)]
 pub fn number_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match receiver {
         Value::Int(n) => Ok(crate::primitive::hash_code(*n as u64)),
@@ -202,12 +227,28 @@ pub fn number_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 }
 
 /// Signature: `Number::toString`
+#[phalcom_native_macros::primitive(
+    Number,
+    "toString",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
 pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let text = receiver.to_string(vm);
     Ok(vm.alloc_string_value(text))
 }
 
 /// Signature: `Number::+(_)`
+#[phalcom_native_macros::primitive(
+    Number,
+    "+(_)",
+    params = [Number],
+    returns = Number,
+    types = "(Number) -> Number",
+    effects = pure
+)]
 pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
@@ -230,6 +271,14 @@ pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Number::-(_)`
+#[phalcom_native_macros::primitive(
+    Number,
+    "-(_)",
+    params = [Number],
+    returns = Number,
+    types = "(Number) -> Number",
+    effects = pure
+)]
 pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {

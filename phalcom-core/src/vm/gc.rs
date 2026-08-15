@@ -61,6 +61,7 @@ impl VM {
             classes,
             // Symbols only (no object handles) — not a GC root.
             kernel_class_names: _,
+            prelude_names: _,
 
             // The pinned kernel + the import registry (Invariant M5).
             universe,

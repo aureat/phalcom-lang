@@ -84,7 +84,8 @@ impl VM {
     /// Allocates a module with `logical_name`/`abs_path` and registers it.
     pub fn create_module(&mut self, logical_name: &str, abs_path: &str) -> ObjRef {
         let module_sym = self.interner.intern(logical_name);
-        let module = ModuleObject::new(logical_name.to_string(), module_sym, abs_path.to_string(), None);
+        let module_class = self.universe.classes.module_class;
+        let module = ModuleObject::new(module_class, logical_name.to_string(), module_sym, abs_path.to_string(), None, false);
         let id = self.heap.alloc(Object::Module(Box::new(module)));
         self.modules.insert(module_sym, id);
         id
