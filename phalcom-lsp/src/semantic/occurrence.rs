@@ -1,6 +1,6 @@
 //! Exact source occurrences shared by hover, navigation, and semantic tokens.
 
-use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, IndexAccessor, MethodRefKind, Pattern, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, IndexAccessor, Pattern, Program, Statement, UnaryOp};
 use phalcom_common::range::SourceRange;
 
 use super::ids::{CallableId, ClassId, DispatchSide, FieldId, ModuleId};
