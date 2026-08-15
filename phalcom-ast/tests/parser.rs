@@ -294,10 +294,20 @@ fn symbol_name_literal_parses() {
 }
 
 #[test]
+fn symbol_name_requires_hash_adjacency() {
+    assert!(parse_source("let s = # move\n", 0).is_err());
+}
+
+#[test]
 fn symbol_selector_literal_parses() {
     // `#move(_,to,duration)` parses to `Expr::Symbol(SymbolLiteralKind::Selector)`
     // carrying the ordered labels.
     insta::assert_snapshot!(parse("let s = #move(_,to,duration)"));
+}
+
+#[test]
+fn symbol_selector_rejects_interior_positional() {
+    assert!(parse_source("let s = #move(to,_)\n", 0).is_err());
 }
 
 #[test]

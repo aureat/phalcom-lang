@@ -20,7 +20,8 @@ async fn current_syntax_uses_readable_semantic_token_expectations() {
     assert_pair(&decoded, "Widget", "class");
     assert_pair(&decoded, "new", "method");
     assert_pair(&decoded, "value", "method");
-    assert_pair(&decoded, "#move(_,to)", "selector");
+    assert_pair(&decoded, "#", "selector");
+    assert_pair(&decoded, "move", "variable");
     assert_pair(&decoded, "42", "number");
 
     lsp.finish().await;

@@ -125,9 +125,10 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
     let response = read_response(&mut client_end, 2).await;
     let data = response["result"]["data"].as_array().expect("semantic token data array");
 
-    // 5 fields per token; classified tokens are: let, x, =, 1, #move
-    // (Newline is uncolored). 5 tokens * 5 fields = 25.
-    assert_eq!(data.len(), 25, "{data:#?}");
+    // 5 fields per token; classified tokens are: let, x, =, 1, #, move.
+    // (Newline is uncolored). Selector components retain their lexer token
+    // boundaries, so the hash and name are emitted separately.
+    assert_eq!(data.len(), 30, "{data:#?}");
 
     // First token: `let` at (0,0), length 3, token_type 0 (keyword).
     assert_eq!(data[0], json!(0)); // delta_line
@@ -135,9 +136,13 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
     assert_eq!(data[2], json!(3)); // length
     assert_eq!(data[3], json!(0)); // token_type index (keyword)
 
-    // Last token: `#move` on line 1, token_type 4 (selector).
-    let last = &data[20..25];
-    assert_eq!(last[3], json!(4));
+    // Selector prefix: `#` on line 1, token_type 4 (selector).
+    let selector_prefix = &data[20..25];
+    assert_eq!(selector_prefix[3], json!(4));
+
+    // Selector base: `move` on line 1, token_type 1 (variable).
+    let selector_base = &data[25..30];
+    assert_eq!(selector_base[3], json!(1));
 
     drop(client_end);
     let _ = server_task.await;

@@ -3476,12 +3476,24 @@ impl<'source> Parser<'source> {
 
     fn parse_selector_spec_after_hash(&mut self) -> ParserResult<SelectorSpecSyntax> {
         self.expect(&Token::Hash, &["\"#\""])?;
+        if self.prev_end != self.cur_start() {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::InvalidToken,
+                range: self.prev_end.saturating_sub(1)..self.prev_end,
+            });
+        }
         self.parse_selector_spec_body()
     }
 
     fn parse_selector_spec_after_colon_colon(&mut self) -> ParserResult<SelectorSpecSyntax> {
         if matches!(self.peek(), Token::Hash) {
             self.advance();
+            if self.prev_end != self.cur_start() {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::InvalidToken,
+                    range: self.prev_end.saturating_sub(1)..self.prev_end,
+                });
+            }
         }
         self.parse_selector_spec_body()
     }
@@ -3592,6 +3604,7 @@ impl<'source> Parser<'source> {
         let mut suffix = Vec::new();
         let mut gap_range = None;
         let mut after_gap = false;
+        let mut seen_label = false;
         loop {
             self.skip_newlines();
             if self.eat(&Token::RParen) {
@@ -3606,8 +3619,16 @@ impl<'source> Parser<'source> {
                 after_gap = true;
             } else {
                 let slot = if self.eat(&Token::Underscore) {
+                    if seen_label {
+                        let range = self.tokens[self.pos.saturating_sub(1)].start..self.prev_end;
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::InvalidToken,
+                            range,
+                        });
+                    }
                     phalcom_common::selector::SelectorSlot::Positional
                 } else {
+                    seen_label = true;
                     phalcom_common::selector::SelectorSlot::Label(self.expect_identifier(&["label slot"])?)
                 };
                 let target = if after_gap { &mut suffix } else { &mut prefix };
