@@ -139,8 +139,12 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             selector: native.selector.to_string(),
             side,
         };
+        let selector_struct = phalcom_common::selector::Selector::decode(native.selector);
+        let rest = super::surface::rest_surface_from_selector_str(native.selector);
         let member = MemberSurface {
             callable,
+            selector: selector_struct,
+            rest,
             kind: match native.kind {
                 NativeMemberKind::Method => MemberKind::Method,
                 NativeMemberKind::Getter => MemberKind::Getter,
@@ -190,24 +194,24 @@ mod tests {
         // 1. Configured wins
         let configured_path = root.join("custom-core.ph");
         std::fs::write(&configured_path, "class CustomCore {}").unwrap();
-        let selected = CoreSource::select(Some(&configured_path), &[root.clone()]);
+        let selected = CoreSource::select(Some(&configured_path), std::slice::from_ref(&root));
         assert_eq!(selected.text(), "class CustomCore {}");
         assert!(matches!(selected, CoreSource::Configured { .. }));
 
         // 2. phalcom-core/core/core.ph wins over core/core.ph
-        let selected = CoreSource::select(None, &[root.clone()]);
+        let selected = CoreSource::select(None, std::slice::from_ref(&root));
         assert_eq!(selected.text(), "class WorkspaceCore {}");
         assert!(matches!(selected, CoreSource::Workspace { .. }));
 
         // 3. core/core.ph wins if phalcom-core not present
         std::fs::remove_file(&workspace_core).unwrap();
-        let selected = CoreSource::select(None, &[root.clone()]);
+        let selected = CoreSource::select(None, std::slice::from_ref(&root));
         assert_eq!(selected.text(), "class RootCore {}");
         assert!(matches!(selected, CoreSource::Workspace { .. }));
 
         // 4. Bundled fallback
         std::fs::remove_file(&root_core).unwrap();
-        let selected = CoreSource::select(None, &[root.clone()]);
+        let selected = CoreSource::select(None, std::slice::from_ref(&root));
         assert_eq!(selected.text(), BUNDLED_CORE_SOURCE);
         assert!(matches!(selected, CoreSource::Bundled { .. }));
 

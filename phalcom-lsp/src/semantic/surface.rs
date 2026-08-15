@@ -2,8 +2,11 @@
 
 use std::collections::BTreeMap;
 
-use phalcom_ast::ast::{AttrKind, Attribute, ClassMember, IndexAccessor, ParameterDef, Program, Statement};
+use phalcom_ast::ast::{
+    AttrKind, Attribute, ClassMember, IndexAccessor, ParameterDef, Program, RestMode, Statement,
+};
 use phalcom_common::range::SourceRange;
+pub use phalcom_common::selector::{Selector, SelectorPattern};
 use phalcom_native_surface::NativeReturnShape;
 
 use super::ids::{CallableId, ClassId, DispatchSide, ModuleId};
@@ -114,6 +117,11 @@ impl ClassSurface {
         self.members.values().filter_map(move |members| members.get(side))
     }
 
+    /// Iterates all direct declarations matching a given [`SelectorPattern`].
+    pub fn members_matching<'a>(&'a self, side: DispatchSide, pattern: &'a SelectorPattern) -> impl Iterator<Item = &'a MemberSurface> {
+        self.members_on(side).filter(move |member| pattern.matches(&member.selector))
+    }
+
     /// Iterates all declarations on both dispatch sides.
     pub fn all_members(&self) -> impl Iterator<Item = &MemberSurface> {
         self.members
@@ -138,11 +146,51 @@ impl ModuleSurface {
     }
 }
 
+/// Normalized rest capture layout on a class member surface.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RestSurface {
+    /// Number of leading fixed positional parameters.
+    pub fixed_positionals: usize,
+    /// Fixed labeled parameters.
+    pub fixed_labels: Box<[String]>,
+    /// Rest capture mode.
+    pub mode: RestSurfaceMode,
+}
+
+/// Rest capture mode for variable-arity methods.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RestSurfaceMode {
+    /// Captures trailing positionals (`*args`).
+    Positional,
+    /// Captures keyword arguments (`**kwargs`).
+    Labeled,
+    /// Captures both positionals and keywords (`*tail, **extra`).
+    Split,
+    /// Captures all remaining arguments (`***all`).
+    Complete,
+}
+
+impl RestSurface {
+    /// Tests whether this rest signature accepts the given call shape.
+    pub fn accepts(&self, positionals: usize, labels: &[String]) -> bool {
+        let fixed = self.fixed_positionals;
+        match self.mode {
+            RestSurfaceMode::Positional => positionals >= fixed && labels == self.fixed_labels.as_ref(),
+            RestSurfaceMode::Labeled => positionals == fixed && labels.starts_with(self.fixed_labels.as_ref()),
+            RestSurfaceMode::Split | RestSurfaceMode::Complete => positionals >= fixed && labels.starts_with(self.fixed_labels.as_ref()),
+        }
+    }
+}
+
 /// One callable or field-like class member.
 #[derive(Clone, Debug)]
 pub struct MemberSurface {
     /// Canonical callable identity.
     pub callable: CallableId,
+    /// Structural exact selector.
+    pub selector: Selector,
+    /// Rest parameter layout if variable-arity.
+    pub rest: Option<RestSurface>,
     /// Source-level member category.
     pub kind: MemberKind,
     /// Source visibility.
@@ -187,6 +235,8 @@ pub struct ParamSurface {
     pub name: String,
     /// External call label, if any.
     pub label: Option<String>,
+    /// Rest capture mode.
+    pub rest_mode: RestMode,
     /// Parameter source span.
     pub source_range: SourceRange,
     /// Exact local binding token span.
@@ -268,8 +318,13 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
             name_range: class.name_range,
         };
         for (member_idx, member) in class.members.iter().enumerate() {
-            let selector = crate::selectors::class_member_selector(member);
+            let structural_selector = crate::selectors::selector_from_member(member);
+            let selector = structural_selector.encode();
             let (kind, side, constructor, params, source_range, name_range) = member_parts(member);
+            let rest = match member {
+                ClassMember::Method(m) => rest_surface_from_params(&m.params),
+                _ => None,
+            };
             let declaration_start = member_attributes(member)
                 .iter()
                 .map(|attribute| attribute.range.start)
@@ -297,6 +352,8 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                     selector: selector.clone(),
                     side,
                 },
+                selector: structural_selector,
+                rest,
                 kind,
                 visibility: member_visibility(member),
                 side,
@@ -312,6 +369,83 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
         surface.classes.insert(id, class_surface);
     }
     surface
+}
+
+/// Normalizes AST parameters into a rest layout surface descriptor if variable-arity.
+pub fn rest_surface_from_params(params: &[ParameterDef]) -> Option<RestSurface> {
+    let mut fixed_positionals = 0;
+    let mut fixed_labels = Vec::new();
+    let mut has_pos_rest = false;
+    let mut has_lab_rest = false;
+    let mut has_comp_rest = false;
+
+    for param in params {
+        match param.rest_mode {
+            RestMode::None => {
+                if let Some(label) = &param.label {
+                    fixed_labels.push(label.clone());
+                } else {
+                    fixed_positionals += 1;
+                }
+            }
+            RestMode::Positional => has_pos_rest = true,
+            RestMode::Labeled => has_lab_rest = true,
+            RestMode::Complete => has_comp_rest = true,
+        }
+    }
+
+    let mode = match (has_pos_rest, has_lab_rest, has_comp_rest) {
+        (true, true, false) => RestSurfaceMode::Split,
+        (true, false, false) => RestSurfaceMode::Positional,
+        (false, true, false) => RestSurfaceMode::Labeled,
+        (false, false, true) => RestSurfaceMode::Complete,
+        _ => return None,
+    };
+
+    Some(RestSurface {
+        fixed_positionals,
+        fixed_labels: fixed_labels.into_boxed_slice(),
+        mode,
+    })
+}
+
+/// Extracts rest layout surface from canonical selector string.
+pub fn rest_surface_from_selector_str(selector: &str) -> Option<RestSurface> {
+    if !selector.contains('*') {
+        return None;
+    }
+    let open = selector.find('(')?;
+    let inner = selector[open + 1..].strip_suffix(')')?;
+    let mut fixed_positionals = 0;
+    let mut fixed_labels = Vec::new();
+    let mut has_pos_rest = false;
+    let mut has_lab_rest = false;
+    let mut has_comp_rest = false;
+
+    for part in inner.split(',') {
+        match part.trim() {
+            "*" => has_pos_rest = true,
+            "**" => has_lab_rest = true,
+            "***" => has_comp_rest = true,
+            "_" => fixed_positionals += 1,
+            label if !label.is_empty() => fixed_labels.push(crate::selectors::decode_label_component(label)),
+            _ => {}
+        }
+    }
+
+    let mode = match (has_pos_rest, has_lab_rest, has_comp_rest) {
+        (true, true, false) => RestSurfaceMode::Split,
+        (true, false, false) => RestSurfaceMode::Positional,
+        (false, true, false) => RestSurfaceMode::Labeled,
+        (false, false, true) => RestSurfaceMode::Complete,
+        _ => return None,
+    };
+
+    Some(RestSurface {
+        fixed_positionals,
+        fixed_labels: fixed_labels.into_boxed_slice(),
+        mode,
+    })
 }
 
 fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<ParamSurface>, SourceRange, SourceRange) {
@@ -351,6 +485,7 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
             vec![ParamSurface {
                 name: setter.param.name.clone(),
                 label: setter.param.label.clone(),
+                rest_mode: RestMode::None,
                 source_range: setter.param.range,
                 name_range: setter.param.name_range,
                 label_range: setter.param.label_range,
@@ -403,6 +538,7 @@ fn param(parameter: &ParameterDef) -> ParamSurface {
     ParamSurface {
         name: parameter.name.clone(),
         label: parameter.label.clone(),
+        rest_mode: parameter.rest_mode,
         source_range: parameter.range,
         name_range: parameter.name_range,
         label_range: parameter.label_range,
@@ -457,6 +593,7 @@ mod tests {
         assert_eq!(constructor.side, DispatchSide::Class);
         assert!(constructor.is_constructor);
         assert_eq!(class.member("x", DispatchSide::Instance).unwrap().kind, MemberKind::Getter);
+        assert_eq!(constructor.selector.encode(), "new()");
     }
 
     #[test]
@@ -503,7 +640,38 @@ class Widget {
         let surface = build_module_surface(module.clone(), &program);
         let class = &surface.classes[&ClassId::new(module, "Widget")];
 
-        assert_eq!(class.field("_count", DispatchSide::Instance).unwrap().is_class_side, false);
-        assert_eq!(class.field("_count", DispatchSide::Class).unwrap().is_class_side, true);
+        assert!(!class.field("_count", DispatchSide::Instance).unwrap().is_class_side);
+        assert!(class.field("_count", DispatchSide::Class).unwrap().is_class_side);
+    }
+
+    #[test]
+    fn rest_surfaces_preserve_structure_and_matching() {
+        let program = parse(
+            r#"
+class C {
+  sum(*numbers) { }
+  format(_ fmt, *args) { }
+  options(timeout, **kwargs) { }
+  split(_ first, *tail, mode, **extra) { }
+  complete(_ first, ***all) { }
+}
+"#,
+            0,
+        )
+        .program;
+
+        let module = ModuleId::new("file:///rest.ph");
+        let surface = build_module_surface(module.clone(), &program);
+        let class = &surface.classes[&ClassId::new(module, "C")];
+
+        let sum = class.member("sum(_)", DispatchSide::Instance).unwrap();
+        assert_eq!(sum.rest.as_ref().unwrap().mode, RestSurfaceMode::Positional);
+        assert!(sum.rest.as_ref().unwrap().accepts(3, &[]));
+        assert!(!sum.rest.as_ref().unwrap().accepts(0, &["a".into()]));
+
+        let pattern = SelectorPattern::named_method("sum", [], [], true).unwrap();
+        let matches = class.members_matching(DispatchSide::Instance, &pattern).collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].callable.selector, "sum(_)");
     }
 }
