@@ -1,54 +1,58 @@
-//! VM-independent compiled module metadata.
+//! VM-independent module materialization plans.
 
-use crate::heap::ObjRef;
 use phalcom_modules::{LinkedModuleInterface, LinkedReadSpec, ModuleId, SymbolId};
 
-/// Declaration metadata materialized before ordinary module initialization.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RuntimeDeclarationBlueprint {
-    /// A class declaration and its linked superclass identity.
     Class(ClassBlueprint),
-    /// A top-level global slot declaration.
     Global { symbol: SymbolId, mutable: bool },
 }
 
-/// VM-independent class declaration metadata.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClassBlueprint {
-    /// Canonical class symbol.
     pub symbol: SymbolId,
-    /// Canonical superclass symbol, if explicit.
     pub superclass: Option<SymbolId>,
-    /// Source field names in declaration order.
     pub fields: Vec<Box<str>>,
-    /// Canonical method selectors.
     pub methods: Vec<Box<str>>,
 }
 
-/// Output of compiling one linked module.
+/// Immutable, VM-independent plan for materializing one linked module.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ModuleArtifact {
-    /// Module identity.
+pub struct ModuleMaterializationPlan {
     pub id: ModuleId,
-    /// Declaration metadata.
     pub declarations: Vec<RuntimeDeclarationBlueprint>,
-    /// Top-level initializer closure, once VM compilation has materialized it.
-    pub initializer: Option<ObjRef>,
-    /// Linked interface used by runtime materialization.
     pub interface: LinkedModuleInterface,
-    /// Symbolic reads consumed by `GetLinked`.
     pub linked_reads: Vec<LinkedReadSpec>,
 }
 
-impl ModuleArtifact {
-    /// Creates an empty artifact for a linked module.
-    pub fn empty(module: &phalcom_modules::LinkedModule) -> Self {
+impl ModuleMaterializationPlan {
+    pub fn new(
+        module: &phalcom_modules::LinkedModule,
+        declarations: Vec<RuntimeDeclarationBlueprint>,
+    ) -> Self {
         Self {
             id: module.interface.module.clone(),
-            declarations: Vec::new(),
-            initializer: None,
+            declarations,
             interface: module.interface.clone(),
             linked_reads: module.linked_reads.clone(),
         }
     }
+
+    pub fn from_linked(module: &phalcom_modules::LinkedModule) -> Self {
+        let declarations = module
+            .bindings
+            .local_globals
+            .keys()
+            .map(|name| RuntimeDeclarationBlueprint::Global {
+                symbol: SymbolId {
+                    module: module.interface.module.clone(),
+                    name: name.clone(),
+                },
+                mutable: true,
+            })
+            .collect();
+        Self::new(module, declarations)
+    }
 }
+
+pub type ModuleArtifact = ModuleMaterializationPlan;

@@ -1,13 +1,11 @@
 //! Source-to-execution driver: compile and run programs on the [`VM`].
-//!
-//! This is the top-level entry the CLI and REPL call.
 
 use crate::compiler::lib::{Compiler, CompilerError, UnitKind};
 use crate::error::{PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::ObjRef;
 use crate::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
-use crate::modules::{CompileBindings, RuntimeLinkedRead};
+use crate::modules::{CompileBindings, ModuleState, RuntimeLinkedRead};
 use crate::vm::VM;
 use phalcom_ast::parse_source;
 use std::sync::Arc;
@@ -22,36 +20,19 @@ pub enum ExitCode {
     IOError = 74,
 }
 
-pub fn exit_success() -> ! {
-    exit(ExitCode::Success)
-}
+pub fn exit_success() -> ! { exit(ExitCode::Success) }
+pub fn exit(code: ExitCode) -> ! { std::process::exit(code as i32) }
+pub fn io_error(msg: String) { eprintln!("{msg}"); exit(ExitCode::IOError); }
 
-pub fn exit(code: ExitCode) -> ! {
-    std::process::exit(code as i32)
-}
-
-pub fn io_error(msg: String) {
-    eprintln!("{msg}");
-    exit(ExitCode::IOError);
-}
-
-pub struct Interpreter {
-    pub vm: VM,
-}
+pub struct Interpreter { pub vm: VM }
 
 impl Default for Interpreter {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl Interpreter {
-    /// Creates an interpreter over a freshly bootstrapped [`VM`].
-    pub fn new() -> Self {
-        Self { vm: VM::new() }
-    }
+    pub fn new() -> Self { Self { vm: VM::new() } }
 
-    /// Compiles and runs an entry selection.
     pub fn run_entry(&mut self, entry: EntrySelection) -> PhResult<()> {
         let program = ProgramCompiler::compile_entry_selection(entry)?;
         self.vm.run_compiled(&program)
@@ -59,55 +40,63 @@ impl Interpreter {
 }
 
 impl VM {
-    /// Parses and compiles `source` for `module` with `kind`, returning the top-level
-    /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
     pub fn compile_closure_as(&mut self, module: ObjRef, source: &str, kind: UnitKind) -> PhResult<ObjRef> {
         self.compile_closure_as_with_bindings(module, source, kind, None)
     }
 
-    /// Parses and compiles one already-linked module with its closed namespace.
-    pub fn compile_closure_as_with_bindings(&mut self, module: ObjRef, source: &str, kind: UnitKind, bindings: Option<CompileBindings>) -> PhResult<ObjRef> {
+    pub fn compile_closure_as_with_bindings(
+        &mut self,
+        module: ObjRef,
+        source: &str,
+        kind: UnitKind,
+        bindings: Option<CompileBindings>,
+    ) -> PhResult<ObjRef> {
         self.unit_kind = kind;
         let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
         let program = parse_source(source, 0).map_err(|e| PhError::Compile(CompilerError::Parse(e)))?;
-
         let compiler = match bindings {
             Some(bindings) => Compiler::new_with_bindings(self, module, source_id, kind, Some(bindings)),
             None => Compiler::new(self, module, source_id, kind),
         };
-        let closure = compiler.compile(program)?;
-        Ok(closure)
+        Ok(compiler.compile(program)?)
     }
 
-    /// Installs runtime entries for symbolic `GetLinked` reads.
     pub fn install_linked_reads(&mut self, module: ObjRef, reads: Vec<RuntimeLinkedRead>) {
         self.heap.module_mut(module).linked_reads = reads;
     }
 
-    /// Parses and compiles `source` for `module`, returning the top-level
-    /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
     pub fn compile_closure(&mut self, module: ObjRef, source: &str) -> PhResult<ObjRef> {
         self.compile_closure_as(module, source, UnitKind::File)
     }
 
-    /// Runs a materialized compiled program: compiles module source closures and initializes the DAG.
+    /// Run a linked program without doing parser/compiler work for modules in a
+    /// terminal lifecycle state. Failed records are deliberately left untouched
+    /// so initialize_program can reproduce their sticky typed failure.
     pub fn run_compiled(&mut self, program: &CompiledProgram) -> PhResult<()> {
         self.materialize_program(program)?;
-
         for (id, compiled_mod) in &program.modules {
+            let state = self
+                .module_registry
+                .get(id)
+                .map(|record| record.state)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("materialized module {id} missing from registry")))?;
+            if state != ModuleState::Prepared {
+                continue;
+            }
+            let obj = self.module_registry.get(id).expect("record observed above").object;
+            if self.heap.module(obj).closure.is_some() {
+                continue;
+            }
             if let Some(source_text) = &compiled_mod.source_text {
                 let _ = self.compile_program_module_closure(id, source_text, program)?;
             }
         }
-
         self.initialize_program(program)
     }
 
-    /// Runs a top-level `closure` within `module` on a fresh frame.
     pub fn run_in_module(&mut self, module: ObjRef, closure: ObjRef) -> PhResult<()> {
         self.frames.clear();
         self.stack.clear();
-
         let mut frame = CallFrame::new(closure, CallContext::Module { module }, 0, 0, None);
         frame.generation = self.next_frame_generation;
         self.next_frame_generation = self.next_frame_generation.wrapping_add(1);
@@ -116,18 +105,12 @@ impl VM {
         Ok(())
     }
 
-    /// Compiles and runs `source` for `module`, reporting diagnostics on
-    /// failure.
     pub fn interpret_source(&mut self, module: ObjRef, source: &str) -> PhResult<()> {
         let closure = self.compile_closure(module, source).inspect_err(|err| {
             let source_id = self.heap.module(module).sources.len().saturating_sub(1) as u32;
             self.compiler_error(err.clone(), module, source_id);
         })?;
-
-        self.run_in_module(module, closure).inspect_err(|err| {
-            let _ = self.runtime_error(err.clone());
-        })?;
-
+        self.run_in_module(module, closure).inspect_err(|err| { let _ = self.runtime_error(err.clone()); })?;
         Ok(())
     }
 }

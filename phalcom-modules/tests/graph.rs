@@ -1,14 +1,12 @@
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
-    DependencyPhase, ModuleComponent, ModuleId, ModulePath, ReferenceEdge, ReferenceGraph, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyGraph,
-    RuntimeDependencyReason, SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId,
+    DependencyPhase, ModuleId, ReferenceEdge, ReferenceGraph, ReferenceKind,
+    RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason, SemanticEdge,
+    SemanticEdgeKind, SemanticGraph, SemanticNodeId,
 };
 
 fn module(name: &str) -> ModuleId {
-    ModuleId {
-        project: phalcom_modules::ResolvedProjectId::from_raw(1),
-        path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
-    }
+    ModuleId::synthetic(name)
 }
 
 fn runtime(importer: &ModuleId, dependency: &ModuleId) -> RuntimeDependencyEdge {
@@ -35,8 +33,14 @@ fn empty_and_diamond_runtime_graphs_have_deterministic_order() {
     graph.add(runtime(&b, &d));
     graph.add(runtime(&c, &d));
     let order = graph.initialization_order().unwrap();
-    assert!(order.iter().position(|id| id == &d).unwrap() < order.iter().position(|id| id == &b).unwrap());
-    assert!(order.iter().position(|id| id == &d).unwrap() < order.iter().position(|id| id == &c).unwrap());
+    assert!(
+        order.iter().position(|id| id == &d).unwrap()
+            < order.iter().position(|id| id == &b).unwrap()
+    );
+    assert!(
+        order.iter().position(|id| id == &d).unwrap()
+            < order.iter().position(|id| id == &c).unwrap()
+    );
     assert_eq!(order.last(), Some(&a));
 }
 
@@ -86,6 +90,12 @@ fn reference_graph_preserves_kind_and_phase_separately() {
         kind: ReferenceKind::InterfaceOnly,
         range: SourceRange::default(),
     });
-    assert_eq!(references.edges_from(&a)[0].kind, ReferenceKind::InterfaceOnly);
-    assert_eq!(DependencyPhase::InterfaceOnly.join(DependencyPhase::Runtime), DependencyPhase::Runtime);
+    assert_eq!(
+        references.edges_from(&a)[0].kind,
+        ReferenceKind::InterfaceOnly
+    );
+    assert_eq!(
+        DependencyPhase::InterfaceOnly.join(DependencyPhase::Runtime),
+        DependencyPhase::Runtime
+    );
 }
