@@ -975,7 +975,7 @@ impl VM {
             (cached, chunk.span_at(cache_ip))
         };
 
-        if let Some(()) = self.try_module_export_send(receiver_idx, selector_sym, arity as usize, source_range)? {
+        if let Some(()) = self.try_module_export_send(receiver_idx, selector_sym, arity, source_range)? {
             return Ok(());
         }
 

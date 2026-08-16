@@ -95,7 +95,9 @@ pub enum ProgramCompileError {
     #[error("source error: {0}")]
     Source(#[from] SourceError),
     /// Standalone module cannot import arbitrary sibling or project modules.
-    #[error("standalone module execution cannot resolve import '{import_name}' (standalone modules only support builtin 'universe' and 'std' roots; sibling modules require a Project or Package)")]
+    #[error(
+        "standalone module execution cannot resolve import '{import_name}' (standalone modules only support builtin 'universe' and 'std' roots; sibling modules require a Project or Package)"
+    )]
     StandaloneImportRequiresPackageContext { import_name: Box<str> },
     /// Context-free REPL cannot import modules without project context.
     #[error("context-free inline/REPL execution does not support module import '{import_name}' (requires project context)")]
@@ -203,7 +205,7 @@ impl ProgramCompiler {
                         import_name: import_name.into(),
                     });
                 }
-                let mut ids = phalcom_modules::SyntheticProjectIdAllocator::default();
+                let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
                 let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
                 let universe = Arc::new(ProjectUniverse::new());
                 let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
@@ -243,14 +245,13 @@ impl ProgramCompiler {
         if !canonical.is_file() {
             return Err(ProgramCompileError::Io(format!("{} is not a module file", canonical.display())));
         }
-        let source_text: Arc<str> = Arc::from(
-            std::fs::read_to_string(&canonical).map_err(|e| ProgramCompileError::Io(format!("{}: {e}", canonical.display())))?,
-        );
+        let source_text: Arc<str> =
+            Arc::from(std::fs::read_to_string(&canonical).map_err(|e| ProgramCompileError::Io(format!("{}: {e}", canonical.display())))?);
         let parsed = phalcom_ast::parse(&source_text, 0);
         if let Some(error) = parsed.errors.first() {
             return Err(ProgramCompileError::Parse(error.clone()));
         }
-        let mut ids = phalcom_modules::SyntheticProjectIdAllocator::default();
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
         let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
         let universe = Arc::new(ProjectUniverse::new());
         let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;

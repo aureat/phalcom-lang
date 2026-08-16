@@ -491,7 +491,7 @@ impl<'vm> Compiler<'vm> {
             for name in bindings.imports.keys() {
                 let symbol = self.vm.interner.intern(name);
                 self.known_globals.insert(symbol);
-                self.import_bindings.entry(symbol).or_insert(SourceRange::default());
+                self.import_bindings.entry(symbol).or_default();
             }
         }
     }

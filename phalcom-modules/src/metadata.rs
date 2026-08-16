@@ -45,6 +45,7 @@ impl ModuleMetadata {
         let target = match kind {
             ModuleKind::Package => MetadataTarget::Package,
             ModuleKind::Module => MetadataTarget::Module,
+            ModuleKind::ProjectRoot => MetadataTarget::Project,
         };
 
         let mut attributes = Vec::new();

@@ -80,16 +80,20 @@ impl ModuleRegistry {
 
     /// Registers a module record under its semantic identity if not already present.
     pub fn register_new(&mut self, id: ModuleId, record: ModuleRecord) -> Result<(), DuplicateModuleIdentity> {
-        if self.by_id.contains_key(&id) {
-            Err(DuplicateModuleIdentity(id))
-        } else {
-            self.by_id.insert(id, record);
-            Ok(())
+        match self.by_id.entry(id) {
+            std::collections::hash_map::Entry::Occupied(entry) => Err(DuplicateModuleIdentity(entry.key().clone())),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(record);
+                Ok(())
+            }
         }
     }
 
-    /// Registers or overwrites a module record under its semantic identity.
-    pub fn insert(&mut self, id: ModuleId, record: ModuleRecord) {
+    /// Registers or overwrites a module record without duplicate check.
+    ///
+    /// This is intentionally crate-internal. External code must use
+    /// [`register_new`] to prevent silent identity overwrite.
+    pub(crate) fn insert(&mut self, id: ModuleId, record: ModuleRecord) {
         self.by_id.insert(id, record);
     }
 

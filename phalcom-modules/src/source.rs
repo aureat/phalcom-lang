@@ -17,11 +17,15 @@ pub enum EntryOwnership {
     Inline { synthetic: crate::identity::SyntheticProjectId },
 }
 
-/// Module kind: an ordinary `.ph` file or a `package.ph` package descriptor.
+/// Module kind: an ordinary `.ph` file, a package descriptor, or a project-root package.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModuleKind {
+    /// An ordinary `.ph` source file.
     Module,
+    /// A `package.ph` package descriptor.
     Package,
+    /// The root `package.ph` of a resolved project (targets the `Project` object).
+    ProjectRoot,
 }
 
 /// A located source unit ready for reading and parsing.
@@ -39,11 +43,13 @@ pub trait SourceProvider {
     fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError>;
 }
 
+type ResolutionCache = HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>;
+
 /// Filesystem source provider with resolution caching and kebab/snake convention handling.
 #[derive(Debug)]
 pub struct FilesystemSourceProvider {
     generation: AtomicU64,
-    cache: Mutex<HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
+    cache: Mutex<ResolutionCache>,
     source_cache: Mutex<HashMap<(u64, SourceId), Arc<str>>>,
     source_id_to_module: Mutex<HashMap<(u64, SourceId), ModuleId>>,
 }
@@ -116,7 +122,7 @@ impl FilesystemSourceProvider {
 
                 return Ok(SourceUnit {
                     id: module_id,
-                    kind: ModuleKind::Package,
+                    kind: ModuleKind::ProjectRoot,
                     source: SourceLocation {
                         source_id,
                         display_path: pkg_file,

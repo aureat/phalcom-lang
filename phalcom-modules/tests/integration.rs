@@ -35,7 +35,11 @@ fn test_project_universe_and_discovery() {
     // Create project structure
     let proj_dir = root.join("app");
     fs::create_dir_all(proj_dir.join("src")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nnamespace = \"app\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        proj_dir.join("project.toml"),
+        "[project]\nname = \"app\"\nnamespace = \"app\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(proj_dir.join("src/package.ph"), "").unwrap();
 
     let discovered = discover_owning_project(&proj_dir.join("src/main.ph")).expect("should discover project");
@@ -54,7 +58,11 @@ fn test_filesystem_source_provider_resolution() {
     let root = tmp.path();
     let proj_dir = root.join("geometry");
     fs::create_dir_all(proj_dir.join("src/shapes")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"geometry\"\nnamespace = \"geometry\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        proj_dir.join("project.toml"),
+        "[project]\nname = \"geometry\"\nnamespace = \"geometry\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     fs::write(proj_dir.join("src/package.ph"), "expose .shapes\n").unwrap();
     fs::write(proj_dir.join("src/shapes/package.ph"), "").unwrap();
     fs::write(proj_dir.join("src/point.ph"), "class Point {}\nexport Point\n").unwrap();
@@ -68,7 +76,7 @@ fn test_filesystem_source_provider_resolution() {
 
     // 1. Locate package root
     let root_unit = provider.locate(project, &ModulePath::root()).unwrap();
-    assert_eq!(root_unit.kind, ModuleKind::Package);
+    assert_eq!(root_unit.kind, ModuleKind::ProjectRoot);
 
     // 2. Locate point module
     let point_path = ModulePath::from_components(vec![ModuleComponent::from_identifier("point").unwrap()]);
@@ -92,7 +100,11 @@ fn test_module_resolver_logical_imports_and_exposure() {
     // Create library project: geometry
     let lib_dir = root.join("geometry");
     fs::create_dir_all(lib_dir.join("src/shapes")).unwrap();
-    fs::write(lib_dir.join("project.toml"), "[project]\nname = \"geometry\"\nnamespace = \"geometry\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(
+        lib_dir.join("project.toml"),
+        "[project]\nname = \"geometry\"\nnamespace = \"geometry\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     // Exposes .point and .shapes (which exposes .circle)
     fs::write(lib_dir.join("src/package.ph"), "expose .point\nexpose .shapes\n").unwrap();
     fs::write(lib_dir.join("src/point.ph"), "class Point {}\nexport Point\n").unwrap();

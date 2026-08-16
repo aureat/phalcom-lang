@@ -1,7 +1,9 @@
 //! Project universe, resolved projects, and project dependency graph management.
 
 use crate::error::ProjectError;
-use crate::identity::{BuiltinProject, ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SyntheticProjectId, SyntheticProjectIdAllocator};
+use crate::identity::{
+    BuiltinProject, ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SyntheticProjectId, SyntheticProjectIdAllocator,
+};
 use crate::manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -47,7 +49,7 @@ impl ProjectUniverse {
         Self {
             projects: Vec::new(),
             roots: BTreeMap::new(),
-            synthetic_ids: SyntheticProjectIdAllocator::default(),
+            synthetic_ids: SyntheticProjectIdAllocator,
         }
     }
 

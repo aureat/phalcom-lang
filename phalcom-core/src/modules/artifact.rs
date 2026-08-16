@@ -48,7 +48,3 @@ impl ModuleMaterializationPlan {
         }
     }
 }
-
-/// Temporary source-compatibility alias while call sites migrate.
-#[deprecated(note = "use ModuleMaterializationPlan")]
-pub type ModuleArtifact = ModuleMaterializationPlan;

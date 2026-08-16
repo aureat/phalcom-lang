@@ -99,7 +99,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 // Determine importer package depth
                 let importer_unit = self.source.locate(importer_project, &importer.path)?;
                 let package_path = match importer_unit.kind {
-                    ModuleKind::Package => importer.path.clone(),
+                    ModuleKind::Package | ModuleKind::ProjectRoot => importer.path.clone(),
                     ModuleKind::Module => importer.path.parent().unwrap_or_else(ModulePath::root),
                 };
 
@@ -170,7 +170,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             .load_interface(&module_id)
             .map_err(|error| ModuleResolutionError::PackageSurface(Box::new(error)))?;
 
-        if interface.kind != ModuleKind::Package {
+        if !matches!(interface.kind, ModuleKind::Package | ModuleKind::ProjectRoot) {
             return Err(ModuleResolutionError::PackageNotFoundError(format!("{}", module_id)));
         }
 

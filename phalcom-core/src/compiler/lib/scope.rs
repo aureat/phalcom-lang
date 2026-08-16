@@ -270,7 +270,7 @@ impl<'vm> Compiler<'vm> {
         self.linked_bindings
             .as_ref()
             .and_then(|bindings| bindings.import(self.vm.resolve_symbol(name)))
-            .and_then(|info| Some(info.binding))
+            .map(|info| info.binding)
     }
 
     /// Resolves `name` as an upvalue of the function at `func_idx`, recursing

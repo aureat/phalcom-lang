@@ -1,9 +1,9 @@
 use phalcom_ast::ast::{ImportPath, ImportRoot, PathSegment};
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-    FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkedExportTarget, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModuleLoadError,
-    ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectIdentity, ProjectManifest, ProjectUniverse, ResolvedProjectId, SourceProvider,
-    SyntheticProjectIdAllocator,
+    FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkedExportTarget, MetadataTarget, ModuleComponent, ModuleId, ModuleKind, ModuleLinker,
+    ModuleLoadError, ModuleMetadata, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectIdentity, ProjectManifest, ProjectUniverse,
+    ResolvedProjectId, SourceProvider, SyntheticProjectIdAllocator,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -16,7 +16,11 @@ fn test_real_project_cannot_equal_core_identity() {
     let tmp = TempDir::new().unwrap();
     let proj_dir = tmp.path().join("proj");
     fs::create_dir_all(proj_dir.join("src")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"corelib\"\nversion = \"0.1.0\"\nnamespace = \"corelib\"\n").unwrap();
+    fs::write(
+        proj_dir.join("project.toml"),
+        "[project]\nname = \"corelib\"\nversion = \"0.1.0\"\nnamespace = \"corelib\"\n",
+    )
+    .unwrap();
     fs::write(proj_dir.join("src/package.ph"), "").unwrap();
     fs::write(proj_dir.join("src/core.ph"), "class MyCore {}\n").unwrap();
 
@@ -86,10 +90,7 @@ fn test_cross_kind_duplicate_declaration_rejected() {
 
 #[test]
 fn test_project_display_name_remains_distinct_from_namespace() {
-    let manifest = ProjectManifest::parse(
-        "[project]\nname = \"geometry-toolkit\"\nnamespace = \"geometry_toolkit\"\n",
-    )
-    .unwrap();
+    let manifest = ProjectManifest::parse("[project]\nname = \"geometry-toolkit\"\nnamespace = \"geometry_toolkit\"\n").unwrap();
     let validated = manifest.validate().unwrap();
     assert_eq!(validated.name, "geometry-toolkit");
     assert_eq!(validated.namespace.as_str(), "geometry_toolkit");
@@ -110,7 +111,10 @@ fn test_module_load_error_preserves_parse_error_and_span() {
     let project_id = universe.load_root(proj_dir.join("project.toml")).unwrap();
     let source_provider = FilesystemSourceProvider::new();
     let mut resolver = ModuleResolver::new(&universe, &source_provider);
-    let module_id = ModuleId { project: project_id.into(), path: ModulePath::root() };
+    let module_id = ModuleId {
+        project: project_id.into(),
+        path: ModulePath::root(),
+    };
 
     let err = resolver.load_interface(&module_id).unwrap_err();
     match err {
@@ -205,9 +209,21 @@ fn test_manifest_cycle_diagnostic_closes_on_repeated_node() {
     fs::write(b_dir.join("src/package.ph"), "").unwrap();
     fs::write(c_dir.join("src/package.ph"), "").unwrap();
 
-    fs::write(a_dir.join("project.toml"), "[project]\nname = \"a\"\nnamespace = \"a\"\n[dependencies]\nb = { path = \"../b\" }\n").unwrap();
-    fs::write(b_dir.join("project.toml"), "[project]\nname = \"b\"\nnamespace = \"b\"\n[dependencies]\nc = { path = \"../c\" }\n").unwrap();
-    fs::write(c_dir.join("project.toml"), "[project]\nname = \"c\"\nnamespace = \"c\"\n[dependencies]\nb = { path = \"../b\" }\n").unwrap();
+    fs::write(
+        a_dir.join("project.toml"),
+        "[project]\nname = \"a\"\nnamespace = \"a\"\n[dependencies]\nb = { path = \"../b\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        b_dir.join("project.toml"),
+        "[project]\nname = \"b\"\nnamespace = \"b\"\n[dependencies]\nc = { path = \"../c\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        c_dir.join("project.toml"),
+        "[project]\nname = \"c\"\nnamespace = \"c\"\n[dependencies]\nb = { path = \"../b\" }\n",
+    )
+    .unwrap();
 
     let mut universe = ProjectUniverse::new();
     let err = universe.load_root(a_dir.join("project.toml")).unwrap_err();
@@ -235,7 +251,7 @@ fn test_confinement_violation_for_root_package() {
 
     let provider = FilesystemSourceProvider::new();
     let unit = provider.locate(project, &ModulePath::root()).unwrap();
-    assert_eq!(unit.kind, ModuleKind::Package);
+    assert_eq!(unit.kind, ModuleKind::ProjectRoot);
 }
 
 #[cfg(unix)]
@@ -335,7 +351,10 @@ fn noncanonical_physical_snake_case_module_is_rejected() {
     let project = universe.get_project(project_id).unwrap();
     let provider = FilesystemSourceProvider::new();
     let logical = ModulePath::from_components(vec![ModuleComponent::from_identifier("private_tool").unwrap()]);
-    assert!(matches!(provider.locate(project, &logical), Err(ModuleResolutionError::NonCanonicalPhysicalName { .. })));
+    assert!(matches!(
+        provider.locate(project, &logical),
+        Err(ModuleResolutionError::NonCanonicalPhysicalName { .. })
+    ));
 }
 
 #[test]
@@ -377,7 +396,10 @@ fn canonical_source_confinement_rejects_symlink_escape() {
     let project = universe.get_project(project_id).unwrap();
     let provider = FilesystemSourceProvider::new();
     let path = ModulePath::from_components(vec![ModuleComponent::from_identifier("escape").unwrap()]);
-    assert!(matches!(provider.locate(project, &path), Err(ModuleResolutionError::ImportOutsideSourceRoot(_, _))));
+    assert!(matches!(
+        provider.locate(project, &path),
+        Err(ModuleResolutionError::ImportOutsideSourceRoot(_, _))
+    ));
 }
 
 #[test]
@@ -421,12 +443,36 @@ fn legacy_core_import_is_deliberately_not_a_public_import_root() {
     let proj_id = universe.load_root(proj_dir.join("project.toml")).unwrap();
     let source_provider = FilesystemSourceProvider::new();
     let mut resolver = ModuleResolver::new(&universe, &source_provider);
-    let importer_id = ModuleId { project: proj_id.into(), path: ModulePath::root() };
+    let importer_id = ModuleId {
+        project: proj_id.into(),
+        path: ModulePath::root(),
+    };
     let import_core = ImportPath {
-        root: ImportRoot::Absolute(PathSegment { name: "core".to_string(), range: (0..4).into() }),
+        root: ImportRoot::Absolute(PathSegment {
+            name: "core".to_string(),
+            range: (0..4).into(),
+        }),
         segments: Vec::new(),
         range: (0..4).into(),
     };
 
     assert!(resolver.resolve_import(&importer_id, &import_core).is_err());
+}
+
+#[test]
+fn test_metadata_from_ast_maps_all_kinds() {
+    let parsed = parse("@!doc(\"project doc\")\nlet x = 1\n", 0);
+    assert!(parsed.errors.is_empty());
+
+    let meta_proj = ModuleMetadata::from_ast(&parsed.program.preamble.metadata, ModuleKind::ProjectRoot).unwrap();
+    assert_eq!(meta_proj.attributes.len(), 1);
+    assert_eq!(meta_proj.attributes[0].target, MetadataTarget::Project);
+
+    let meta_pkg = ModuleMetadata::from_ast(&parsed.program.preamble.metadata, ModuleKind::Package).unwrap();
+    assert_eq!(meta_pkg.attributes.len(), 1);
+    assert_eq!(meta_pkg.attributes[0].target, MetadataTarget::Package);
+
+    let meta_mod = ModuleMetadata::from_ast(&parsed.program.preamble.metadata, ModuleKind::Module).unwrap();
+    assert_eq!(meta_mod.attributes.len(), 1);
+    assert_eq!(meta_mod.attributes[0].target, MetadataTarget::Module);
 }

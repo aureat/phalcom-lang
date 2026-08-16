@@ -164,11 +164,7 @@ impl InterfaceBuilder {
                                 }
                             };
 
-                            Self::declare_namespace(
-                                &mut namespace,
-                                binding_name,
-                                ModuleNamespaceBinding::Import { range: mod_decl.range },
-                            )?;
+                            Self::declare_namespace(&mut namespace, binding_name, ModuleNamespaceBinding::Import { range: mod_decl.range })?;
                             imports.push(ImportSurface::Module(mod_decl.clone()));
                         }
                         ImportDecl::Selective(sel_decl) => {
@@ -179,11 +175,7 @@ impl InterfaceBuilder {
                                     item.name.clone()
                                 };
 
-                                Self::declare_namespace(
-                                    &mut namespace,
-                                    binding_name,
-                                    ModuleNamespaceBinding::Import { range: item.range },
-                                )?;
+                                Self::declare_namespace(&mut namespace, binding_name, ModuleNamespaceBinding::Import { range: item.range })?;
                             }
                             imports.push(ImportSurface::Selective(sel_decl.clone()));
                         }
@@ -227,7 +219,7 @@ impl InterfaceBuilder {
                     imports.push(ImportSurface::ReExport(reexport_decl.clone()));
                 }
                 DependencyDecl::Expose(expose_decl) => {
-                    if kind != ModuleKind::Package {
+                    if !matches!(kind, ModuleKind::Package | ModuleKind::ProjectRoot) {
                         return Err(InterfaceError::ExposeOutsidePackage(expose_decl.range));
                     }
                     let comp = ModuleComponent::from_identifier(&expose_decl.child.name)
@@ -299,18 +291,12 @@ impl InterfaceBuilder {
         if let Some(existing) = declarations.get(name) {
             return Err(InterfaceError::DuplicateDeclaration {
                 name: name.to_string(),
-                first_range: existing.range.clone(),
+                first_range: existing.range,
                 range,
             });
         }
 
-        namespace.insert(
-            name.to_string(),
-            ModuleNamespaceBinding::Declaration {
-                is_const,
-                range: range.clone(),
-            },
-        );
+        namespace.insert(name.to_string(), ModuleNamespaceBinding::Declaration { is_const, range });
         declarations.insert(
             name.to_string(),
             DeclarationSurface {
@@ -334,11 +320,7 @@ impl InterfaceBuilder {
             let range = match &binding {
                 ModuleNamespaceBinding::Declaration { range, .. } | ModuleNamespaceBinding::Import { range } => *range,
             };
-            return Err(InterfaceError::DuplicateBinding {
-                name,
-                previous_range,
-                range,
-            });
+            return Err(InterfaceError::DuplicateBinding { name, previous_range, range });
         }
         namespace.insert(name, binding);
         Ok(())
@@ -351,9 +333,7 @@ impl InterfaceBuilder {
         declarations: &mut BTreeMap<String, DeclarationSurface>,
     ) -> Result<(), InterfaceError> {
         match pattern {
-            Pattern::Name { name, range } => {
-                Self::collect_declaration(name, is_const, *range, namespace, declarations)
-            }
+            Pattern::Name { name, range } => Self::collect_declaration(name, is_const, *range, namespace, declarations),
             Pattern::Tuple { elements, .. } => {
                 for elem in elements {
                     Self::collect_pattern_declarations(elem, is_const, namespace, declarations)?;

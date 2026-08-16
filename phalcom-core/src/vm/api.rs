@@ -82,7 +82,7 @@ impl VM {
 
     /// Allocates an ad-hoc module with a synthetic identity and registers it.
     pub fn create_module(&mut self, logical_name: &str, abs_path: &str) -> ObjRef {
-        let mut ids = phalcom_modules::SyntheticProjectIdAllocator::default();
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
         let path = phalcom_modules::ModuleComponent::from_identifier(logical_name)
             .map(|c| phalcom_modules::ModulePath::from_components(vec![c]))
             .unwrap_or_else(|_| phalcom_modules::ModulePath::root());
