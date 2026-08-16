@@ -5,7 +5,6 @@ use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
 use crate::method::decode_selector;
 use crate::value::Value;
-use tracing::debug;
 
 use super::VM;
 
@@ -81,44 +80,28 @@ impl VM {
         class
     }
 
-    /// Allocates a module with `logical_name`/`abs_path` and registers it.
+    /// Allocates an ad-hoc module with a synthetic identity and registers it.
     pub fn create_module(&mut self, logical_name: &str, abs_path: &str) -> ObjRef {
+        let id = phalcom_modules::ModuleId::synthetic(logical_name);
+        self.create_module_with_id(id, crate::heap::ModuleKind::Module, logical_name, abs_path)
+    }
+
+    /// Allocates a module with semantic identity and registers it in the module registry.
+    pub fn create_module_with_id(&mut self, id: phalcom_modules::ModuleId, kind: crate::heap::ModuleKind, logical_name: &str, abs_path: &str) -> ObjRef {
         let module_sym = self.interner.intern(logical_name);
-        let module_class = self.universe.classes.module_class;
-        let module = ModuleObject::new(module_class, logical_name.to_string(), module_sym, abs_path.to_string(), None, false);
-        let id = self.heap.alloc(Object::Module(Box::new(module)));
-        self.modules.insert(module_sym, id);
-        id
+        let module = ModuleObject::new(id.clone(), kind, logical_name.to_string(), module_sym, abs_path.to_string(), None, false);
+        let obj_ref = self.heap.alloc(Object::Module(Box::new(module)));
+        self.module_registry.insert(id, crate::modules::ModuleRecord::prepared(obj_ref));
+        obj_ref
     }
 
-    /// Updates the absolute filesystem path of the module named `module_sym`.
-    pub fn register_path(&mut self, module_sym: Symbol, abs_path: &str) {
-        if let Some(&module_id) = self.modules.get(&module_sym) {
-            self.heap.module_mut(module_id).path = abs_path.to_string();
-        } else {
-            debug!("Module with symbol {:?} not found for path registration", module_sym);
-        }
-    }
-
-    /// Returns the module handle for `module_sym`, if loaded.
-    pub fn get_module(&mut self, module_sym: Symbol) -> Option<ObjRef> {
-        self.modules.get(&module_sym).copied()
-    }
-
-    /// Returns the module handle for the module named `name`, if loaded.
-    pub fn get_module_from_str(&mut self, name: &str) -> Option<ObjRef> {
-        let sym = self.interner.intern(name);
-        self.modules.get(&sym).copied()
-    }
-
-    /// Defines global `name_sym = val` in the module `module_sym`.
+    /// Defines global `name_sym = val` directly on `module`.
     ///
     /// # Errors
     ///
     /// Propagates [`ModuleObject::define`](crate::heap::ModuleObject::define)
     /// errors (e.g. too many globals).
-    pub fn define_global(&mut self, module_sym: Symbol, name_sym: Symbol, val: Value) -> PhResult<usize> {
-        let module = self.get_module(module_sym).expect("correct module");
+    pub fn define_global(&mut self, module: ObjRef, name_sym: Symbol, val: Value) -> PhResult<usize> {
         self.heap.module_mut(module).define(name_sym, val)
     }
 
@@ -270,9 +253,6 @@ impl VM {
     /// Runs a compiled cell top-level closure within `module`, returning its value,
     /// and unwinding execution state at the cell boundary (U-REPL §D1, §D10).
     pub fn run_cell(&mut self, module: ObjRef, closure: ObjRef) -> PhResult<Value> {
-        let module_sym = self.heap.module(module).symbol();
-        self.modules.insert(module_sym, module);
-
         let frame = self.new_call_frame(closure, crate::frame::CallContext::Module { module }, 0, 0, None);
         self.push_frame(frame)?;
 

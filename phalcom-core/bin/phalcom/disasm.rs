@@ -70,7 +70,7 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
     // Resolve source for line number resolution
     let source_id = chunk.source_id;
     let main_sym = vm.get_or_intern("main");
-    let main_module_ref = vm.modules.get(&main_sym).copied();
+    let main_module_ref = vm.find_module_by_symbol(main_sym);
     let source_text = main_module_ref
         .and_then(|m| vm.heap.module(m).source_at(source_id).map(|s| s.as_str()))
         .unwrap_or(source);

@@ -119,6 +119,15 @@ pub struct ClassLayout {
     pub declared_at: SourceRange,
 }
 
+/// Direct runtime roots for core and entry modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeRoots {
+    /// Bootstrapped core module handle.
+    pub core: ObjRef,
+    /// Program entry module handle, if known.
+    pub entry: Option<ObjRef>,
+}
+
 /// The bytecode virtual machine: owns the [`Heap`], the operand stack, and the
 /// call stack, and drives dispatch.
 ///
@@ -183,12 +192,10 @@ pub struct VM {
     pub(crate) native_method_contexts: Vec<NativeMethodContext>,
     // Ceilings for both counters live at module scope — see `MAX_CALL_DEPTH` and
     // `MAX_NATIVE_REENTRY` below.
-    /// Loaded modules by name [`Symbol`], each a [`ModuleObject`](crate::heap::ModuleObject) handle.
-    pub modules: HashMap<Symbol, ObjRef>,
-    /// Handle to the program entry module, once known.
-    pub main_module: Option<ObjRef>,
-    /// Handle to the most recently imported module, for `import` resolution.
-    pub last_imported_module: Option<ObjRef>,
+    /// Registered runtime modules keyed by semantic identity.
+    pub module_registry: crate::modules::ModuleRegistry,
+    /// Direct runtime roots for core and entry modules.
+    pub runtime_roots: Option<RuntimeRoots>,
 
     /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
     pub classes: HashMap<ClassKey, ClassId>,
@@ -345,6 +352,30 @@ pub struct VM {
     /// gated off by default, kept for future re-measurement.
     #[cfg(feature = "fiber-pool")]
     pub(crate) fiber_pool: Vec<(Vec<Value>, Vec<CallFrame>)>,
+}
+
+impl VM {
+    /// Returns the core module handle if initialized.
+    #[inline]
+    pub fn core_module(&self) -> Option<ObjRef> {
+        self.runtime_roots.map(|r| r.core)
+    }
+
+    /// Returns the entry module handle if recorded.
+    #[inline]
+    pub fn entry_module(&self) -> Option<ObjRef> {
+        self.runtime_roots.and_then(|r| r.entry)
+    }
+
+    /// Finds a module handle by its logical name symbol.
+    pub fn find_module_by_symbol(&self, sym: Symbol) -> Option<ObjRef> {
+        for (_, record) in self.module_registry.iter() {
+            if self.heap.module(record.object).symbol() == sym {
+                return Some(record.object);
+            }
+        }
+        None
+    }
 }
 
 impl Default for VM {

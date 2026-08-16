@@ -185,9 +185,7 @@ pub(crate) fn map_literal_insert_unique(vm: &mut VM, id: ObjRef, key: Value, val
 /// the Rust-installed class floor for one library-level error subtype.
 fn duplicate_key_error(vm: &mut VM) -> RuntimeError {
     let rendered = "duplicate Map literal key".to_string();
-    let core = vm
-        .get_module_from_str(crate::heap::CORE_MODULE_NAME)
-        .expect("core module is loaded before Map literals execute");
+    let core = vm.core_module().expect("core module is loaded before Map literals execute");
     let class_name = vm.interner.intern("DuplicateKeyError");
     let class_value = vm.heap.module(core).get(class_name).expect("DuplicateKeyError is defined by core.ph");
     let class_id = expect_class(vm, &class_value).expect("DuplicateKeyError global is a class");

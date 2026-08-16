@@ -10,6 +10,7 @@ mod family_selector_runtime;
 mod fiber_trace;
 mod gc;
 mod golden;
+mod modules_runtime;
 mod numbers_u01;
 mod numbers_u05;
 mod option;

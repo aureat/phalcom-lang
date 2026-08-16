@@ -53,9 +53,8 @@ impl VM {
             temp_roots,
 
             // Module handles.
-            modules,
-            main_module,
-            last_imported_module,
+            module_registry,
+            runtime_roots,
 
             // Named class handles.
             classes,
@@ -117,9 +116,11 @@ impl VM {
         out.extend(open_upvalues.values().copied());
         out.extend(ready_queue.iter().copied());
         out.extend(temp_roots.iter().copied());
-        out.extend(modules.values().copied());
-        out.extend(main_module.iter().copied());
-        out.extend(last_imported_module.iter().copied());
+        module_registry.each_handle(&mut |id| out.push(id));
+        if let Some(roots) = runtime_roots {
+            out.push(roots.core);
+            out.extend(roots.entry.iter().copied());
+        }
         out.extend(classes.values().copied());
         out.extend(sealed_classes.values().copied());
         out.extend(checking.iter().copied());

@@ -137,10 +137,7 @@ impl VM {
             return false;
         };
         let closure_module = self.heap.closure(frame.closure).module;
-        let Some(core_name) = self.interner.find(crate::heap::CORE_MODULE_NAME) else {
-            return false;
-        };
-        self.modules.get(&core_name).is_some_and(|&core_module| core_module == closure_module)
+        self.core_module() == Some(closure_module)
     }
 
     fn is_subclass_of(&self, mut class: ClassId, ancestor: ClassId) -> bool {
@@ -1083,6 +1080,10 @@ impl VM {
     /// Propagates any [`RuntimeError`] raised by lookup, the dispatched method,
     /// or the `doesNotUnderstand(_)` forward.
     pub fn send_dynamic(&mut self, receiver: Value, selector: Symbol, args: &[Value]) -> PhResult<Value> {
+        if let Some(res) = self.try_module_export_send_dynamic(receiver, selector, args)? {
+            return Ok(res);
+        }
+
         let receiver_idx = self.stack.len();
         self.stack.push(receiver);
         self.stack.extend_from_slice(args);
@@ -1168,6 +1169,102 @@ impl VM {
         let result = self.run_until(base_frames);
         self.native_reentry_depth -= 1;
         result
+    }
+
+    /// Checks if the receiver on the stack is a `ModuleObject` and attempts export dispatch before class method lookup.
+    pub(crate) fn try_module_export_send(
+        &mut self,
+        receiver_idx: usize,
+        selector_sym: Symbol,
+        arity: usize,
+        source_range: SourceRange,
+    ) -> PhResult<Option<()>> {
+        let receiver = self.stack[receiver_idx];
+        let Value::Obj(obj_id) = receiver else {
+            return Ok(None);
+        };
+        let Object::Module(module) = self.heap.get(obj_id) else {
+            return Ok(None);
+        };
+
+        let selector_str = self.resolve_symbol(selector_sym).to_string();
+        let (name, _labels, _kind) = decode_selector(&selector_str);
+        let name_sym = self.interner.intern(&name);
+
+        let Some(export_ref) = module.export(name_sym) else {
+            return Ok(None);
+        };
+
+        match export_ref {
+            crate::heap::RuntimeExportRef::Module(target_mod) => {
+                self.stack.truncate(receiver_idx);
+                self.stack.push(Value::Obj(target_mod));
+                Ok(Some(()))
+            }
+            crate::heap::RuntimeExportRef::Binding(binding) => {
+                let val = self
+                    .heap
+                    .module(binding.module)
+                    .get_by_slot(binding.slot as usize)
+                    .map(|v| self.surface_absence(v))
+                    .ok_or_else(|| RuntimeError::Internal(format!("binding slot {} out of range", binding.slot)))?;
+
+                if arity == 0 {
+                    self.stack.truncate(receiver_idx);
+                    self.stack.push(val);
+                    Ok(Some(()))
+                } else {
+                    self.stack[receiver_idx] = val;
+                    let call_selector = crate::method::encode_selector("call", &vec![None; arity], SignatureKind::Method(arity as u8));
+                    let call_sym = self.get_or_intern(&call_selector);
+                    let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+                    if let Some(method) = val.lookup_method(self, call_sym) {
+                        self.call_method_with_selector_as(&val, method, arity, call_sym, None, source_range, caller_authority)?;
+                    } else {
+                        self.forward_does_not_understand(receiver_idx, call_sym, source_range)?;
+                    }
+                    Ok(Some(()))
+                }
+            }
+        }
+    }
+
+    /// Dynamically dispatches an export send on a Module receiver if applicable.
+    pub(crate) fn try_module_export_send_dynamic(&mut self, receiver: Value, selector: Symbol, args: &[Value]) -> PhResult<Option<Value>> {
+        let Value::Obj(obj_id) = receiver else {
+            return Ok(None);
+        };
+        let Object::Module(module) = self.heap.get(obj_id) else {
+            return Ok(None);
+        };
+
+        let selector_str = self.resolve_symbol(selector).to_string();
+        let (name, _labels, _kind) = decode_selector(&selector_str);
+        let name_sym = self.interner.intern(&name);
+
+        let Some(export_ref) = module.export(name_sym) else {
+            return Ok(None);
+        };
+
+        match export_ref {
+            crate::heap::RuntimeExportRef::Module(target_mod) => Ok(Some(Value::Obj(target_mod))),
+            crate::heap::RuntimeExportRef::Binding(binding) => {
+                let val = self
+                    .heap
+                    .module(binding.module)
+                    .get_by_slot(binding.slot as usize)
+                    .map(|v| self.surface_absence(v))
+                    .ok_or_else(|| RuntimeError::Internal(format!("binding slot {} out of range", binding.slot)))?;
+
+                if args.is_empty() {
+                    Ok(Some(val))
+                } else {
+                    let call_selector = crate::method::encode_selector("call", &vec![None; args.len()], SignatureKind::Method(args.len() as u8));
+                    let call_sym = self.get_or_intern(&call_selector);
+                    self.send_dynamic(val, call_sym, args).map(Some)
+                }
+            }
+        }
     }
 }
 

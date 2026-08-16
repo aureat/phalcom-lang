@@ -1,16 +1,28 @@
 //! Program-level compiler seam for closed linked module plans.
 
 use super::artifact::ModuleArtifact;
-use phalcom_modules::{LinkError, LinkedModule, LinkedProgram, ModuleId, ModuleKind, ProjectUniverse, SourceLocation};
-use std::collections::BTreeMap;
+use phalcom_modules::{
+    FilesystemSourceProvider, InterfaceBuilder, LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath,
+    ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceLocation, SourceProvider, discover_owning_project,
+};
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 
 /// Entry selection for a program compilation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EntrySelection {
-    /// Compile the explicitly selected module.
-    Module(ModuleId),
+    /// Compile an already linked module ID.
+    ModuleId(ModuleId),
+    /// Compile a project rooted at directory with `project.toml`.
+    Project(PathBuf),
+    /// Compile a package directory containing `package.ph` and `main.ph`.
+    Package(PathBuf),
+    /// Compile a single module file path.
+    Module(PathBuf),
+    /// Compile standalone inline source text.
+    Inline(Arc<str>),
 }
 
 /// One VM-independent compiled module.
@@ -23,6 +35,8 @@ pub struct CompiledModule {
     /// Source location is attached by a source-backed compiler facade when
     /// available; the VM-independent linker itself only knows logical identity.
     pub source: Option<SourceLocation>,
+    /// Source text retained for compilation.
+    pub source_text: Option<Arc<str>>,
     /// Linked source interface.
     pub interface: Arc<phalcom_modules::LinkedModuleInterface>,
     /// Materialization/initializer artifact.
@@ -55,48 +69,294 @@ pub enum ProgramCompileError {
     /// Requested entry is not part of the linked plan.
     #[error("entry module {0} is not present in linked program")]
     MissingEntry(ModuleId),
+    /// Project is not executable.
+    #[error("project manifest at '{0}' is not executable (no entry declared)")]
+    ProjectNotExecutable(String),
+    /// Package is not executable.
+    #[error("package at '{0}' is not executable (missing main.ph)")]
+    PackageNotExecutable(String),
+    /// Project resolution failure.
+    #[error("project error: {0}")]
+    Project(#[from] ProjectError),
+    /// Module resolution failure.
+    #[error("resolution error: {0}")]
+    Resolution(#[from] ModuleResolutionError),
+    /// Source I/O failure.
+    #[error("source error: {0}")]
+    Source(#[from] SourceError),
+    /// Context-free REPL cannot import modules without project context.
+    #[error("context-free inline/REPL execution does not support module import '{import_name}' (requires project context)")]
+    ReplImportRequiresProjectContext { import_name: Box<str> },
+    /// Generic I/O error.
+    #[error("io error: {0}")]
+    Io(String),
 }
 
-/// Compiler facade over an already-linked program.
+/// Compiler facade over an already-linked program or source project.
 pub struct ProgramCompiler {
-    linked: Arc<LinkedProgram>,
+    linked: Option<Arc<LinkedProgram>>,
 }
 
 impl ProgramCompiler {
     /// Creates a compiler for a closed linked plan.
     pub fn new(linked: Arc<LinkedProgram>) -> Self {
-        Self { linked }
+        Self { linked: Some(linked) }
     }
 
-    /// Validates entry selection and creates per-module artifact shells. No
-    /// source import is discovered while this phase runs.
-    pub fn compile_entry(&self, entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
-        let EntrySelection::Module(entry) = entry;
-        if !self.linked.modules.contains_key(&entry) {
-            return Err(ProgramCompileError::MissingEntry(entry));
+    /// Compiles an entry selection into a fully linked `CompiledProgram`.
+    pub fn compile_entry_selection(entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
+        match entry {
+            EntrySelection::ModuleId(entry_id) => {
+                let universe = Arc::new(ProjectUniverse::new());
+                let provider = FilesystemSourceProvider::new();
+                Self::discover_and_link(universe, provider, entry_id)
+            }
+            EntrySelection::Project(root_dir) => {
+                let manifest_path = if root_dir.ends_with("project.toml") {
+                    root_dir
+                } else {
+                    root_dir.join("project.toml")
+                };
+                if !manifest_path.exists() {
+                    return Err(ProgramCompileError::Io(format!("project manifest not found at {}", manifest_path.display())));
+                }
+                let mut universe = ProjectUniverse::new();
+                let root_id = universe.load_root(&manifest_path)?;
+                let project = universe
+                    .get_project(root_id)
+                    .ok_or_else(|| ProgramCompileError::Io(format!("project {root_id:?} not found")))?;
+                let entry_path = project
+                    .entry
+                    .clone()
+                    .ok_or_else(|| ProgramCompileError::ProjectNotExecutable(manifest_path.display().to_string()))?;
+                let entry_id = ModuleId {
+                    project: root_id,
+                    path: entry_path,
+                };
+                let provider = FilesystemSourceProvider::new();
+                Self::discover_and_link(Arc::new(universe), provider, entry_id)
+            }
+            EntrySelection::Package(pkg_dir) => {
+                let main_file = pkg_dir.join("main.ph");
+                if !main_file.exists() {
+                    return Err(ProgramCompileError::PackageNotExecutable(pkg_dir.display().to_string()));
+                }
+                let mut universe = ProjectUniverse::new();
+                let name = pkg_dir.file_name().and_then(|s| s.to_str()).unwrap_or("package");
+                let root_id = universe.load_synthetic_root(name, &pkg_dir, "main")?;
+                let entry_id = ModuleId {
+                    project: root_id,
+                    path: ModulePath::from_components(vec![
+                        ModuleComponent::from_identifier("main").map_err(|e| ProgramCompileError::Io(e.to_string()))?,
+                    ]),
+                };
+                let provider = FilesystemSourceProvider::new();
+                Self::discover_and_link(Arc::new(universe), provider, entry_id)
+            }
+            EntrySelection::Module(file_path) => {
+                if let Ok(Some(project_root)) = discover_owning_project(&file_path) {
+                    let mut universe = ProjectUniverse::new();
+                    let root_id = universe.load_root(project_root.join("project.toml"))?;
+                    let project = universe.get_project(root_id).unwrap();
+                    let canonical_file = file_path
+                        .canonicalize()
+                        .map_err(|e| ProgramCompileError::Io(format!("{}: {}", file_path.display(), e)))?;
+                    let rel_path = canonical_file.strip_prefix(&project.source_root).map_err(|_| {
+                        ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
+                    })?;
+                    let module_path = relative_path_to_module_path(rel_path)?;
+                    let entry_id = ModuleId {
+                        project: root_id,
+                        path: module_path,
+                    };
+                    let provider = FilesystemSourceProvider::new();
+                    Self::discover_and_link(Arc::new(universe), provider, entry_id)
+                } else {
+                    let mut universe = ProjectUniverse::new();
+                    let parent = file_path.parent().unwrap_or_else(|| Path::new("."));
+                    let file_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("main");
+                    let root_id = universe.load_synthetic_root(file_stem, parent, file_stem)?;
+                    let entry_id = ModuleId {
+                        project: root_id,
+                        path: ModulePath::from_components(vec![
+                            ModuleComponent::from_kebab(file_stem).map_err(|e| ProgramCompileError::Io(e.to_string()))?,
+                        ]),
+                    };
+                    let provider = FilesystemSourceProvider::new();
+                    Self::discover_and_link(Arc::new(universe), provider, entry_id)
+                }
+            }
+            EntrySelection::Inline(source_text) => {
+                let parsed = phalcom_ast::parse(&source_text, 0);
+                if !parsed.errors.is_empty() {
+                    return Err(ProgramCompileError::Io(format!("parse error: {}", parsed.errors[0])));
+                }
+                if !parsed.program.preamble.dependencies.is_empty() {
+                    let dep = &parsed.program.preamble.dependencies[0];
+                    let import_name = match dep {
+                        phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(m)) => m.path.to_string(),
+                        phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(s)) => s.path.to_string(),
+                        phalcom_ast::ast::DependencyDecl::ReExport(r) => r.path.to_string(),
+                        phalcom_ast::ast::DependencyDecl::Expose(e) => e.child.name.clone(),
+                    };
+                    return Err(ProgramCompileError::ReplImportRequiresProjectContext {
+                        import_name: import_name.into(),
+                    });
+                }
+                let entry_id = ModuleId::synthetic("inline");
+                let universe = Arc::new(ProjectUniverse::new());
+                let interface =
+                    InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program).map_err(|e| ProgramCompileError::Io(e.to_string()))?;
+                let mut interfaces = BTreeMap::new();
+                interfaces.insert(entry_id.clone(), interface);
+                let linker = ModuleLinker::new(universe.clone(), interfaces);
+                let linked = Arc::new(linker.link(entry_id.clone(), &BTreeMap::new())?);
+
+                let artifact = ModuleArtifact::empty(&linked.modules[&entry_id]);
+                let compiled_mod = CompiledModule {
+                    id: entry_id.clone(),
+                    kind: ModuleKind::Module,
+                    source: None,
+                    source_text: Some(source_text.clone()),
+                    interface: Arc::new(linked.modules[&entry_id].interface.clone()),
+                    artifact,
+                    linked_reads: linked.modules[&entry_id].linked_reads.clone(),
+                };
+                let mut modules = BTreeMap::new();
+                modules.insert(entry_id.clone(), compiled_mod);
+
+                Ok(CompiledProgram {
+                    project_universe: universe,
+                    linked: linked.clone(),
+                    modules,
+                    entry: entry_id.clone(),
+                    initialization_order: linked.initialization_order.clone(),
+                })
+            }
         }
-        let modules = self
-            .linked
+    }
+
+    /// Discovers all transitively reachable modules, parses interfaces, links, and builds a `CompiledProgram`.
+    fn discover_and_link(
+        universe: Arc<ProjectUniverse>,
+        source_provider: FilesystemSourceProvider,
+        entry: ModuleId,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        let mut resolver = ModuleResolver::new(&universe, &source_provider);
+        let mut interfaces = BTreeMap::new();
+        let mut resolved = BTreeMap::new();
+        let mut visited = HashSet::new();
+        let mut pending = vec![entry.clone()];
+
+        visited.insert(entry.clone());
+
+        let mut source_locations = BTreeMap::new();
+        let mut source_texts = BTreeMap::new();
+
+        while let Some(current_id) = pending.pop() {
+            let interface = resolver.load_interface(&current_id)?;
+            interfaces.insert(current_id.clone(), interface.clone());
+
+            if let Some(proj) = universe.get_project(current_id.project) {
+                if let Ok(unit) = source_provider.locate(proj, &current_id.path) {
+                    if let Ok(text) = source_provider.read(&unit.source.source_id) {
+                        source_texts.insert(current_id.clone(), text);
+                    }
+                    source_locations.insert(current_id.clone(), unit.source);
+                }
+            }
+
+            for import_surface in &interface.imports {
+                let import_path = match import_surface {
+                    phalcom_modules::ImportSurface::Module(m) => &m.path,
+                    phalcom_modules::ImportSurface::Selective(s) => &s.path,
+                    phalcom_modules::ImportSurface::ReExport(r) => &r.path,
+                };
+                let target_unit = resolver.resolve_import(&current_id, import_path)?;
+                resolved.insert((current_id.clone(), import_path.to_string()), target_unit.id.clone());
+
+                if visited.insert(target_unit.id.clone()) {
+                    pending.push(target_unit.id);
+                }
+            }
+        }
+
+        let linker = ModuleLinker::new(universe.clone(), interfaces);
+        let linked = Arc::new(linker.link(entry.clone(), &resolved)?);
+
+        let modules = linked
             .modules
             .iter()
-            .map(|(id, module)| (id.clone(), compile_module(id.clone(), module)))
+            .map(|(id, module)| {
+                let src = source_locations.get(id).cloned();
+                let txt = source_texts.get(id).cloned();
+                (id.clone(), compile_module(id.clone(), module, src, txt))
+            })
             .collect();
+
         Ok(CompiledProgram {
-            project_universe: self.linked.universe.clone(),
-            linked: self.linked.clone(),
+            project_universe: universe,
+            linked: linked.clone(),
             modules,
             entry,
-            initialization_order: self.linked.initialization_order.clone(),
+            initialization_order: linked.initialization_order.clone(),
         })
+    }
+
+    /// Validates entry selection for an existing linked program.
+    pub fn compile_entry(&self, entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
+        if let Some(linked) = &self.linked {
+            let entry_id = match entry {
+                EntrySelection::ModuleId(id) => id,
+                _ => return Self::compile_entry_selection(entry),
+            };
+            if !linked.modules.contains_key(&entry_id) {
+                return Err(ProgramCompileError::MissingEntry(entry_id));
+            }
+            let modules = linked
+                .modules
+                .iter()
+                .map(|(id, module)| (id.clone(), compile_module(id.clone(), module, None, None)))
+                .collect();
+            Ok(CompiledProgram {
+                project_universe: linked.universe.clone(),
+                linked: linked.clone(),
+                modules,
+                entry: entry_id,
+                initialization_order: linked.initialization_order.clone(),
+            })
+        } else {
+            Self::compile_entry_selection(entry)
+        }
     }
 }
 
-fn compile_module(id: ModuleId, module: &LinkedModule) -> CompiledModule {
+fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCompileError> {
+    let mut components = Vec::new();
+    if let Some(parent) = rel_path.parent() {
+        for comp in parent.components() {
+            if let Component::Normal(os_str) = comp {
+                let s = os_str.to_str().unwrap_or_default();
+                if !s.is_empty() {
+                    components.push(ModuleComponent::from_kebab(s).map_err(|e| ProgramCompileError::Io(e.to_string()))?);
+                }
+            }
+        }
+    }
+    let file_stem = rel_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+    if file_stem != "package" && !file_stem.is_empty() {
+        components.push(ModuleComponent::from_kebab(file_stem).map_err(|e| ProgramCompileError::Io(e.to_string()))?);
+    }
+    Ok(ModulePath::from_components(components))
+}
+
+fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLocation>, source_text: Option<Arc<str>>) -> CompiledModule {
     let artifact = ModuleArtifact::empty(module);
     CompiledModule {
         id,
         kind: module.interface.kind,
-        source: None,
+        source,
+        source_text,
         interface: Arc::new(module.interface.clone()),
         linked_reads: module.linked_reads.clone(),
         artifact,

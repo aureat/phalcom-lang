@@ -133,6 +133,24 @@ pub struct ModuleId {
     pub path: ModulePath,
 }
 
+impl ModuleId {
+    /// Canonical identity for the core module.
+    pub fn core() -> Self {
+        Self {
+            project: ResolvedProjectId(0),
+            path: ModulePath::from_components(vec![ModuleComponent::from_identifier("core").expect("valid identifier")]),
+        }
+    }
+
+    /// Synthetic module identity for standalone or REPL code.
+    pub fn synthetic(name: &str) -> Self {
+        Self {
+            project: ResolvedProjectId(0),
+            path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap_or_else(|_| ModuleComponent(name.into()))]),
+        }
+    }
+}
+
 impl fmt::Display for ModuleId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.path.is_root() {

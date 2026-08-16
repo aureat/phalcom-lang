@@ -1,6 +1,5 @@
 //! Immediate Option object-model, constructor, and allocation regressions.
 
-use phalcom_core::heap::CORE_MODULE_NAME;
 use phalcom_core::primitive::nil::{some_call, some_new};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
@@ -50,7 +49,7 @@ fn immediate_option_reflection_and_dispatch_are_ordinary() {
 #[test]
 fn bootstrap_binds_immediate_none_and_zero_field_variants() {
     let mut vm = VM::new();
-    let core = vm.get_module_from_str(CORE_MODULE_NAME).expect("core module");
+    let core = vm.core_module().expect("core module");
     let none_name = vm.interner.intern("None");
 
     assert_eq!(vm.heap.module(core).get(none_name), Some(Value::None));

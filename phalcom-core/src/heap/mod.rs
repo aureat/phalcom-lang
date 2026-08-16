@@ -56,7 +56,7 @@ pub use fiber::{FiberObject, FiberResumeMode, FiberStatus};
 pub use instance::InstanceObject;
 pub use list::ListObject;
 pub use map::MapObject;
-pub use module::{CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleObject, next_module_id};
+pub use module::{CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleKind, ModuleObject, RuntimeExportRef};
 pub use object::{BoundMethodFamilyObject, BoundMethodObject, FamilyObject, FamilySpec, MethodFamilyObject, Object, SelectorPatternObject};
 pub use pack_builder::{ArgumentPackBuilderObject, PackBuilderError};
 pub use range::RangeObject;

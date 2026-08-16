@@ -207,7 +207,10 @@ impl Value {
                 Object::Instance(instance) => instance.class,
                 Object::Class(class) => class.class,
                 Object::Method(_) => vm.universe.classes.method_class,
-                Object::Module(module) => module.class,
+                Object::Module(module) => match module.kind {
+                    crate::heap::ModuleKind::Module => vm.universe.classes.module_class,
+                    crate::heap::ModuleKind::Package => vm.universe.classes.package_class,
+                },
                 Object::Str(_) => vm.universe.classes.string_class,
                 Object::Closure(_) => vm.universe.classes.closure_class,
                 // Transitional home-frame wrapper. Public closure values

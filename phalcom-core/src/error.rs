@@ -22,11 +22,69 @@ pub enum PhError {
     #[error(transparent)]
     Compile(#[from] CompilerError),
 
+    #[error(transparent)]
+    ModuleInitialization(#[from] Box<ModuleInitializationError>),
+
     #[error("{0}")]
     StringError(String),
 
     #[error("{0}")]
     StrError(&'static str),
+}
+
+impl From<ModuleInitializationError> for PhError {
+    fn from(err: ModuleInitializationError) -> Self {
+        PhError::ModuleInitialization(Box::new(err))
+    }
+}
+
+/// Structured failure reported when a module DAG initialization fails.
+#[derive(Debug, Clone)]
+pub struct ModuleInitializationError {
+    pub id: phalcom_modules::ModuleId,
+    pub display_name: String,
+    pub source: Option<String>,
+    pub failure: crate::modules::ModuleFailure,
+    pub chain: Vec<phalcom_modules::ModuleId>,
+}
+
+impl std::error::Error for ModuleInitializationError {}
+
+impl std::fmt::Display for ModuleInitializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "ModuleInitializationError:")?;
+        writeln!(f, "  failed to initialize `{}`", self.display_name)?;
+
+        match &self.failure {
+            crate::modules::ModuleFailure::Initializer { cause } => {
+                writeln!(f, "\nCaused by error in module `{}`:", self.id)?;
+                writeln!(f, "  {}", cause)?;
+            }
+            crate::modules::ModuleFailure::Dependency { dependency, cause } => {
+                writeln!(f, "\nCaused by initialization of dependency `{}`:", dependency)?;
+                render_dependency_failure(f, cause)?;
+            }
+        }
+
+        if self.chain.len() > 1 {
+            writeln!(f, "\nDependency chain:")?;
+            let chain_str = self.chain.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(" → ");
+            write!(f, "  {}", chain_str)?;
+        }
+        Ok(())
+    }
+}
+
+fn render_dependency_failure(f: &mut std::fmt::Formatter<'_>, failure: &crate::modules::ModuleFailure) -> std::fmt::Result {
+    match failure {
+        crate::modules::ModuleFailure::Initializer { cause } => {
+            writeln!(f, "  {}", cause)
+        }
+        crate::modules::ModuleFailure::Dependency { dependency, cause } => {
+            writeln!(f, "  dependency `{}` failed:", dependency)?;
+            render_dependency_failure(f, cause)
+        }
+    }
 }
 
 fn format_num_arguments(args: usize) -> String {

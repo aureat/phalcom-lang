@@ -34,7 +34,7 @@ use std::sync::Arc;
 use phalcom_common::range::SourceRange;
 
 use crate::frame::{CallFrame, FrameToken};
-use crate::heap::{CORE_MODULE_NAME, ObjRef};
+use crate::heap::ObjRef;
 use crate::interner::Symbol;
 
 use super::VM;
@@ -278,11 +278,7 @@ impl<'vm> StackWalk<'vm> {
     /// *frame's* module (which would misclassify any module a user happens to name
     /// `"core"`).
     fn is_core_module(&self, module_id: ObjRef) -> bool {
-        self.vm
-            .interner
-            .find(CORE_MODULE_NAME)
-            .and_then(|sym| self.vm.modules.get(&sym))
-            .is_some_and(|&core| core == module_id)
+        self.vm.core_module() == Some(module_id)
     }
 }
 

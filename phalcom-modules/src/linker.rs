@@ -340,6 +340,8 @@ impl<'a> LinkContext<'a> {
 
     fn collect_imports_and_graphs(&mut self) -> Result<(), LinkError> {
         for (module, interface) in &self.linker.interfaces {
+            self.graphs.references.add_node(module.clone());
+            self.graphs.runtime.add_node(module.clone());
             let mut reference_edges = Vec::new();
             for import in &interface.imports {
                 match import {

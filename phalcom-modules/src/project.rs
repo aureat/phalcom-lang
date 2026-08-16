@@ -210,6 +210,40 @@ impl ProjectUniverse {
 
         Ok(next_id)
     }
+
+    /// Loads a synthetic single-module or package project without a `project.toml`.
+    pub fn load_synthetic_root(&mut self, name: &str, source_root: impl AsRef<Path>, entry_component: &str) -> Result<ResolvedProjectId, ProjectError> {
+        let source_root = source_root.as_ref();
+        let canonical_root = source_root
+            .canonicalize()
+            .map_err(|e| ProjectError::InvalidProjectManifest(format!("Failed to canonicalize {}: {}", source_root.display(), e)))?;
+
+        let source_identity = ProjectSourceIdentity::from_path(&canonical_root);
+        if let Some(&id) = self.roots.get(&source_identity) {
+            return Ok(id);
+        }
+
+        let namespace = ModuleComponent::from_kebab(name).map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid project identifier: {e}")))?;
+        let entry_comp =
+            ModuleComponent::from_kebab(entry_component).map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid entry identifier: {e}")))?;
+        let entry = Some(ModulePath::from_components(vec![entry_comp]));
+
+        let next_id = ResolvedProjectId(self.projects.len() as u32);
+        let resolved_project = ResolvedProject {
+            id: next_id,
+            name: name.to_string(),
+            namespace,
+            root_dir: canonical_root.clone(),
+            source_root: canonical_root,
+            entry,
+            dependencies: BTreeMap::new(),
+            source_identity: source_identity.clone(),
+        };
+
+        self.projects.push(resolved_project);
+        self.roots.insert(source_identity, next_id);
+        Ok(next_id)
+    }
 }
 
 /// Discovers the nearest enclosing project root directory containing `project.toml`.

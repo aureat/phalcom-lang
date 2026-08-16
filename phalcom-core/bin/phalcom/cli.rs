@@ -170,15 +170,6 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
             std::process::exit(66);
         }
     }
-    // Keep physical entry-path metadata for diagnostics and project/source
-    // discovery. Logical imports are resolved before compilation.
-    let abs_path = match &cli.path {
-        Some(p) => fs::canonicalize(p)
-            .with_context(|| format!("Failed to resolve path {}", p.display()))?
-            .display()
-            .to_string(),
-        None => "<main>".to_string(),
-    };
     // Read before `cli.path`/`cli.source` are moved out below — `cli` would
     // otherwise be partially moved and `cli.compile_mode()`'s `&self` borrow
     // would no longer be legal.
@@ -200,8 +191,37 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     if cli.trace.iter().any(|t| t == "dispatch") && !cfg!(feature = "vm-trace") {
         eprintln!("warning: --trace=dispatch requested but the 'vm-trace' cargo feature is not enabled");
     }
-    let module = vm.create_module("main", &abs_path);
-    let run_res = vm.interpret_source(module, &source);
+    let selection = if let Some(src) = &cli.source {
+        phalcom_core::modules::compile::EntrySelection::Inline(src.as_str().into())
+    } else if let Some(path) = &cli.path {
+        let canonical = fs::canonicalize(path).with_context(|| format!("Failed to resolve path {}", path.display()))?;
+        if canonical.is_dir() {
+            if canonical.join("project.toml").is_file() {
+                phalcom_core::modules::compile::EntrySelection::Project(canonical)
+            } else {
+                phalcom_core::modules::compile::EntrySelection::Package(canonical)
+            }
+        } else {
+            phalcom_core::modules::compile::EntrySelection::Module(canonical)
+        }
+    } else {
+        phalcom_core::modules::compile::EntrySelection::Inline(source.as_str().into())
+    };
+
+    let program_res = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(selection);
+    let run_res = match program_res {
+        Ok(program) => vm.run_compiled(&program),
+        Err(err) => {
+            if let Err(parse_err) = phalcom_ast::parse_source(&source, 0) {
+                let message = parse_err.kind.to_string();
+                let path_str = cli.path.as_ref().and_then(|p| fs::canonicalize(p).ok()).map(|p| p.display().to_string());
+                phalcom_core::diagnostics::print_parse(&source, path_str.as_deref(), &message, parse_err.range);
+                std::process::exit(65);
+            }
+            eprintln!("Compile error: {err}");
+            std::process::exit(65);
+        }
+    };
 
     let leaks = vm.resources.leaks();
     if !leaks.is_empty() {
@@ -222,7 +242,7 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
             phalcom_core::error::PhError::Compile(_) | phalcom_core::error::PhError::Parse(_) => {
                 std::process::exit(65);
             }
-            phalcom_core::error::PhError::Runtime(_) => {
+            phalcom_core::error::PhError::Runtime(_) | phalcom_core::error::PhError::ModuleInitialization(_) => {
                 std::process::exit(70);
             }
             phalcom_core::error::PhError::Io(_) => {

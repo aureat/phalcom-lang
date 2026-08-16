@@ -475,7 +475,9 @@ fn records_to_views(vm: &mut VM, records: &[FrameRecord], fiber_seq: u32) -> Vec
     for rec in records {
         if let FrameRecord::Normal { module, method, line } = rec {
             // Best-effort source resolution via source_id 0.
-            let source = vm.modules.get(module).and_then(|&mod_ref| vm.heap.module(mod_ref).source_at(0).cloned());
+            let source = vm
+                .find_module_by_symbol(*module)
+                .and_then(|mod_ref| vm.heap.module(mod_ref).source_at(0).cloned());
             let is_core = is_core_module(vm, *module);
             views.push(FrameView {
                 module: *module,
@@ -517,13 +519,10 @@ fn frame_name_to_string(vm: &VM, name: &FrameName) -> String {
 ///
 /// Uses handle identity (IS §2.1: "not a name check").
 fn is_core_module(vm: &VM, module_sym: Symbol) -> bool {
-    let Some(core_sym) = vm.interner.find(crate::heap::CORE_MODULE_NAME) else {
+    let Some(core_ref) = vm.core_module() else {
         return false;
     };
-    let Some(&core_ref) = vm.modules.get(&core_sym) else {
-        return false;
-    };
-    vm.modules.get(&module_sym).is_some_and(|&m| m == core_ref)
+    vm.find_module_by_symbol(module_sym).is_some_and(|m| m == core_ref)
 }
 
 /// Returns the `kind` string for an error, or `""` when none applies.
@@ -613,8 +612,7 @@ fn get_help_suggestion(vm: &mut VM, err: &PhError, config: &RenderConfig, styler
             }
 
             // 3. Core globals
-            let core_module_sym = vm.interner.intern(crate::heap::CORE_MODULE_NAME);
-            if let Some(&core_module_ref) = vm.modules.get(&core_module_sym) {
+            if let Some(core_module_ref) = vm.core_module() {
                 let core_module = vm.heap.module(core_module_ref);
                 for &sym in core_module.name_to_slot.keys() {
                     candidates.push(vm.resolve_symbol(sym).to_string());

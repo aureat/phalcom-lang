@@ -6,13 +6,13 @@
 //! per-object `RefCell`s ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::{ClassId, ObjRef};
+use crate::heap::ObjRef;
 use crate::interner::Symbol;
-use crate::modules::RuntimeLinkedRead;
+use crate::modules::{BindingRef, RuntimeLinkedRead};
 use crate::value::Value;
+pub use phalcom_modules::{ModuleId, ModuleKind};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Hard limit on the number of globals a single module may declare.
 pub const MAX_GLOBALS: usize = 1 << 16; // = 65,536
@@ -22,22 +22,22 @@ pub const CORE_MODULE_NAME: &str = "core";
 /// Logical name of the program entry module.
 pub const MAIN_MODULE_NAME: &str = "main";
 
-/// A process-unique module identifier.
-pub type ModuleId = u32;
-
-/// Monotonic source of [`ModuleId`]s.
-static MODULE_ID_COUNTER: AtomicU32 = AtomicU32::new(1);
-
-/// Returns a fresh, process-unique [`ModuleId`].
-pub fn next_module_id() -> ModuleId {
-    MODULE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+/// Runtime export reference stored in a module's public export table.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeExportRef {
+    /// Live binding slot in an exporting module.
+    Binding(BindingRef),
+    /// Re-exported module or submodule object.
+    Module(ObjRef),
 }
 
 /// A loaded module: its identity, source, top-level closure, and global slots.
 #[derive(Debug)]
 pub struct ModuleObject {
-    /// Surface class of this module or package (`Module` or `Package < Module`).
-    pub class: ClassId,
+    /// Semantic module identity.
+    pub id: ModuleId,
+    /// Source kind: Module or Package.
+    pub kind: ModuleKind,
     /// Interned symbol of the module's logical name.
     pub name_sym: Symbol,
     /// The module's display name.
@@ -69,12 +69,6 @@ pub struct ModuleObject {
     /// [`Self::set_global`] rewrites a slot's value without moving it — so
     /// neither redefinition nor assignment needs to invalidate anything.
     pub globals_version: u64,
-    /// Attribute instances attached via `Object#__attach` (M-ATTR-ROOT,
-    /// `attribute-classes.md`).
-    pub attributes: Vec<Value>,
-    /// Set by `Object#__freezeAttributes` — further `__attach` calls are
-    /// rejected (`attr.frozen`).
-    pub attributes_frozen: bool,
     /// Prior units' global bindings: name -> is_mutable (U-REPL §D4).
     pub global_bindings: HashMap<Symbol, bool>,
     /// Whether this module is a built-in module/package.
@@ -83,6 +77,8 @@ pub struct ModuleObject {
     pub namespace_frozen: bool,
     /// Runtime materialization of symbolic `GetLinked` entries.
     pub linked_reads: Vec<RuntimeLinkedRead>,
+    /// Public export table.
+    pub exports: HashMap<Symbol, RuntimeExportRef>,
 }
 
 impl ModuleObject {
@@ -92,9 +88,10 @@ impl ModuleObject {
     /// `source`, when `Some`, seeds [`Self::sources`] as entry `0`; modules that
     /// are compiled through [`VM::compile_closure`](crate::vm::VM::compile_closure)
     /// pass `None` and let that call append their text instead.
-    pub fn new(class: ClassId, name: String, name_sym: Symbol, path: String, source: Option<Arc<String>>, builtin: bool) -> Self {
+    pub fn new(id: ModuleId, kind: ModuleKind, name: String, name_sym: Symbol, path: String, source: Option<Arc<String>>, builtin: bool) -> Self {
         Self {
-            class,
+            id,
+            kind,
             name,
             name_sym,
             path,
@@ -103,12 +100,11 @@ impl ModuleObject {
             name_to_slot: HashMap::new(),
             globals_version: 0,
             sources: source.into_iter().collect(),
-            attributes: Vec::new(),
-            attributes_frozen: false,
             global_bindings: HashMap::new(),
             builtin,
             namespace_frozen: false,
             linked_reads: Vec::new(),
+            exports: HashMap::new(),
         }
     }
 
@@ -138,17 +134,10 @@ impl ModuleObject {
         self.sources.get(source_id as usize)
     }
 
-    /// Appends `attr` to this module's attribute-retention store.
-    ///
-    /// # Errors
-    ///
-    /// Returns `false` if [`Self::attributes_frozen`] is set.
-    pub fn attach_attribute(&mut self, attr: Value) -> bool {
-        if self.attributes_frozen {
-            return false;
-        }
-        self.attributes.push(attr);
-        true
+    /// Looks up a public export by name symbol.
+    #[inline]
+    pub fn export(&self, name: Symbol) -> Option<RuntimeExportRef> {
+        self.exports.get(&name).copied()
     }
 
     /// Returns the module's name symbol.

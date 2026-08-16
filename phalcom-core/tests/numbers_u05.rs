@@ -33,7 +33,7 @@ fn assert_json_numeric_error(label: &str, source: &str, kind: &str, message: &st
         "{label} missing error message `{message}`:\n{stderr}"
     );
     assert!(
-        stderr.contains(r#""module":"main","file":"main.ph","line":1"#),
+        stderr.contains(r#""line":1,"name":"<main>""#),
         "{label} missing source frame location:\n{stderr}"
     );
 }

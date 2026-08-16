@@ -261,10 +261,8 @@ impl<'vm> Compiler<'vm> {
             || self.vm.heap.module(self.module).slot_of(name).is_some()
             || self
                 .vm
-                .interner
-                .find(crate::heap::CORE_MODULE_NAME)
-                .and_then(|core_name| self.vm.modules.get(&core_name))
-                .is_some_and(|&core_module| self.vm.heap.module(core_module).slot_of(name).is_some())
+                .core_module()
+                .is_some_and(|core_module| self.vm.heap.module(core_module).slot_of(name).is_some())
     }
 
     /// Returns the pre-linked import index for a local binding.

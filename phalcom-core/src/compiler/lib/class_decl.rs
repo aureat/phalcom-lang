@@ -239,6 +239,7 @@ impl<'vm> Compiler<'vm> {
         // mutably (borrow-order matters, see the handoff's "still unknown"
         // list — `class_parents` is read-only here, `interner` mutable).
         let is_attribute_class = class_def.superclass.as_ref().is_some_and(|sc| sc.leaf_name() == "Attribute");
+        let core_module = self.vm.core_module();
         let mut ctx = ExpandCtx {
             interner: &mut self.vm.interner,
             compile_mode: self.vm.compile_mode,
@@ -246,7 +247,7 @@ impl<'vm> Compiler<'vm> {
             class_parents: &self.vm.class_parents,
             sealed_classes: &self.vm.sealed_classes,
             module: self.module,
-            modules: &self.vm.modules,
+            core_module,
         };
         let registry = AttributeRegistry::new();
         // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`
@@ -509,10 +510,7 @@ impl<'vm> Compiler<'vm> {
         // let a non-core module's `class List {}` silently resolve onto the
         // kernel `List`'s `ClassId` (the exact hazard that ruling names).
         let name_key = self.class_key(name_sym);
-        let is_core_module = {
-            let core_sym = self.vm.interner.find(crate::heap::CORE_MODULE_NAME);
-            core_sym.and_then(|s| self.vm.modules.get(&s).copied()) == Some(self.module)
-        };
+        let is_core_module = self.vm.core_module() == Some(self.module);
 
         // Reserved kernel names (ruling 3): exactly `VM::kernel_class_names`
         // — the primitives `add_class!` binds (`Object`, `List`, `Number`,

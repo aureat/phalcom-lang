@@ -118,9 +118,8 @@ impl ReplSession {
         match self.vm.run_cell(self.module, closure) {
             Ok(val) => {
                 if is_expr_cell {
-                    let module_sym = self.vm.heap.module(self.module).symbol();
                     let underscore_sym = self.vm.get_or_intern("_");
-                    let _ = self.vm.define_global(module_sym, underscore_sym, val);
+                    let _ = self.vm.define_global(self.module, underscore_sym, val);
                     CellOutcome::Value(val)
                 } else {
                     CellOutcome::Unit

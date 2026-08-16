@@ -125,8 +125,17 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             for global in &module.globals {
                 trace_value(*global, push);
             }
-            for attr in &module.attributes {
-                trace_value(*attr, push);
+            for export in module.exports.values() {
+                match export {
+                    crate::heap::RuntimeExportRef::Binding(b) => push(b.module),
+                    crate::heap::RuntimeExportRef::Module(obj) => push(*obj),
+                }
+            }
+            for read in &module.linked_reads {
+                match read {
+                    crate::modules::RuntimeLinkedRead::Binding(b) => push(b.module),
+                    crate::modules::RuntimeLinkedRead::Module(obj) => push(*obj),
+                }
             }
         }
         Object::Closure(closure) => {

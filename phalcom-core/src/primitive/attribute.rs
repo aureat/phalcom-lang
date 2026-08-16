@@ -26,7 +26,7 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     let attr = args[0];
     let Value::Obj(id) = *receiver else {
         return Err(RuntimeError::Type {
-            expected: "Class, Method, or Module",
+            expected: "Class or Method",
             found: "a non-heap value",
         }
         .into());
@@ -34,10 +34,9 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     let attached = match vm.heap.get_mut(id) {
         Object::Class(c) => c.attach_attribute(attr),
         Object::Method(m) => m.attach_attribute(attr),
-        Object::Module(m) => m.attach_attribute(attr),
         _ => {
             return Err(RuntimeError::Type {
-                expected: "Class, Method, or Module",
+                expected: "Class or Method",
                 found: "a different heap object",
             }
             .into());
@@ -61,7 +60,7 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Value::Obj(id) = *receiver else {
         return Err(RuntimeError::Type {
-            expected: "Class, Method, or Module",
+            expected: "Class or Method",
             found: "a non-heap value",
         }
         .into());
@@ -70,10 +69,9 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     let attrs: Vec<Value> = match vm.heap.get(id) {
         Object::Class(c) => c.attributes.clone(),
         Object::Method(m) => m.attributes.clone(),
-        Object::Module(m) => m.attributes.clone(),
         _ => {
             return Err(RuntimeError::Type {
-                expected: "Class, Method, or Module",
+                expected: "Class or Method",
                 found: "a different heap object",
             }
             .into());
@@ -94,7 +92,7 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
 pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Value::Obj(id) = *receiver else {
         return Err(RuntimeError::Type {
-            expected: "Class, Method, or Module",
+            expected: "Class or Method",
             found: "a non-heap value",
         }
         .into());
@@ -102,10 +100,9 @@ pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     match vm.heap.get_mut(id) {
         Object::Class(c) => c.attributes_frozen = true,
         Object::Method(m) => m.attributes_frozen = true,
-        Object::Module(m) => m.attributes_frozen = true,
         _ => {
             return Err(RuntimeError::Type {
-                expected: "Class, Method, or Module",
+                expected: "Class or Method",
                 found: "a different heap object",
             }
             .into());

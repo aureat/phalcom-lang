@@ -4,7 +4,6 @@ use crate::diagnostics::print_compile;
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::BlockObject;
-use crate::heap::CORE_MODULE_NAME;
 use crate::heap::ClosureObject;
 use crate::heap::Upvalue;
 use crate::heap::{ObjRef, Object};
@@ -976,6 +975,10 @@ impl VM {
             (cached, chunk.span_at(cache_ip))
         };
 
+        if let Some(()) = self.try_module_export_send(receiver_idx, selector_sym, arity as usize, source_range)? {
+            return Ok(());
+        }
+
         if let Some(method) = cached {
             if self.heap.method(method).signature.rest.is_some() {
                 let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
@@ -1244,8 +1247,7 @@ impl VM {
                             Some(slot) => (module_id, slot),
                             None => {
                                 // Not in the current module — try the core module if caller is core or name is in prelude_names
-                                let core_module_sym = self.interner.intern(CORE_MODULE_NAME);
-                                let core_module = self.get_module(core_module_sym).expect("core module");
+                                let core_module = self.core_module().expect("core module");
                                 if module_id == core_module || self.prelude_names.contains(&name_sym) {
                                     match self.heap.module(core_module).slot_of(name_sym) {
                                         Some(slot) => (core_module, slot),
@@ -1468,16 +1470,12 @@ impl VM {
                     };
                     let parent = if let Some(&c) = self.classes.get(&defining_key) {
                         self.heap.class(c).superclass
-                    } else if let Some(core_sym) = self.interner.find(crate::heap::CORE_MODULE_NAME) {
-                        if let Some(&core_mod) = self.modules.get(&core_sym) {
-                            let core_key = crate::vm::ClassKey {
-                                module: core_mod,
-                                name: defining_sym,
-                            };
-                            self.classes.get(&core_key).and_then(|&c| self.heap.class(c).superclass)
-                        } else {
-                            None
-                        }
+                    } else if let Some(core_mod) = self.core_module() {
+                        let core_key = crate::vm::ClassKey {
+                            module: core_mod,
+                            name: defining_sym,
+                        };
+                        self.classes.get(&core_key).and_then(|&c| self.heap.class(c).superclass)
                     } else {
                         None
                     };

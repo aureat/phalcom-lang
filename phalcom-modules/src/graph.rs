@@ -128,6 +128,11 @@ pub struct ReferenceGraph {
 }
 
 impl ReferenceGraph {
+    /// Registers a module as a node in the graph even if it has no outgoing edges.
+    pub fn add_node(&mut self, module: ModuleId) {
+        self.forward.entry(module).or_default();
+    }
+
     /// Adds one reference edge.
     pub fn add(&mut self, edge: ReferenceEdge) {
         self.forward.entry(edge.from.clone()).or_default().push(edge);
@@ -205,6 +210,11 @@ pub struct RuntimeDependencyGraph {
 }
 
 impl RuntimeDependencyGraph {
+    /// Registers a module as a node in the graph even if it has no outgoing edges.
+    pub fn add_node(&mut self, module: ModuleId) {
+        self.forward.entry(module).or_default();
+    }
+
     /// Adds a runtime dependency edge.
     pub fn add(&mut self, edge: RuntimeDependencyEdge) {
         self.forward.entry(edge.importer.clone()).or_default().push(edge);

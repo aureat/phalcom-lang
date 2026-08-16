@@ -53,9 +53,8 @@ fn underscore_binds_last_value() {
     let val1 = vm.run_cell(module, c1).unwrap();
     assert_eq!(val1, Value::Int(300));
 
-    let module_sym = vm.heap.module(module).symbol();
     let underscore_sym = vm.get_or_intern("_");
-    vm.define_global(module_sym, underscore_sym, val1).unwrap();
+    vm.define_global(module, underscore_sym, val1).unwrap();
 
     let c2 = vm.compile_closure_as(module, "_ + 50\n", UnitKind::Repl).unwrap();
     let val2 = vm.run_cell(module, c2).unwrap();
@@ -73,9 +72,8 @@ fn open_upvalue_hygiene_across_cells() {
     let module = vm.create_module("main", "<repl>");
 
     // Pre-declare getter as global in module so cell 1's assignment binds it
-    let mod_sym = vm.heap.module(module).symbol();
     let getter_sym = vm.get_or_intern("getter");
-    vm.define_global(mod_sym, getter_sym, Value::Nil).unwrap();
+    vm.define_global(module, getter_sym, Value::Nil).unwrap();
 
     // Cell 1: creates a block capturing a local `secret`, assigns getter, then raises a runtime error
     let cell1_src = "let make = || {\nlet secret = 999\ngetter = || {\nsecret\n}\nNone.non_existent_method()\n}\nmake()\n";

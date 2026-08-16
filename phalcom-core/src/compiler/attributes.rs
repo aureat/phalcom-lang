@@ -1,6 +1,5 @@
 use crate::compiler::lib::{CompilerError, checked_send_arity};
 use crate::heap::ObjRef;
-use crate::interner::Symbol;
 use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
 use phalcom_ast::ast::{
@@ -85,9 +84,9 @@ pub struct ExpandCtx<'a> {
     /// The module handle for the currently-compiling unit. Used to build a
     /// [`ClassKey`] for lookups in `class_parents` and `sealed_classes`.
     pub module: ObjRef,
-    /// All loaded modules by name, used for the core-module fallback in
+    /// Handle to the core module, used for the core-module fallback in
     /// [`ClassKey`]-based lookups (when a name resolves from the core module).
-    pub modules: &'a HashMap<Symbol, ObjRef>,
+    pub core_module: Option<ObjRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1909,7 +1908,7 @@ fn resolves_to_attribute_class(
     interner: &mut crate::interner::Interner,
     name: &str,
     module: ObjRef,
-    modules: &HashMap<Symbol, ObjRef>,
+    core_module: Option<ObjRef>,
 ) -> bool {
     let attribute_sym = interner.intern("Attribute");
     let mut sym = interner.intern(name);
@@ -1922,13 +1921,9 @@ fn resolves_to_attribute_class(
         let key = ClassKey { module, name: sym };
         let parent = if let Some(&p) = class_parents.get(&key) {
             Some(p.name)
-        } else if let Some(core_sym) = interner.find(crate::heap::CORE_MODULE_NAME) {
-            if let Some(&core_mod) = modules.get(&core_sym) {
-                let core_key = ClassKey { module: core_mod, name: sym };
-                class_parents.get(&core_key).map(|p| p.name)
-            } else {
-                None
-            }
+        } else if let Some(core_mod) = core_module {
+            let core_key = ClassKey { module: core_mod, name: sym };
+            class_parents.get(&core_key).map(|p| p.name)
         } else {
             None
         };
@@ -2191,7 +2186,7 @@ pub fn expand_class_attributes(
                 },
                 AttrKind::User(_) => {}
             }
-        } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
+        } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.core_module) {
             // M-ATTR-ROOT: an unrecognized name that resolves to a user
             // `Attribute` subclass is retained silently — its runtime
             // instantiate+attach codegen is emitted separately by
@@ -2284,7 +2279,7 @@ pub fn expand_class_attributes(
                     )));
                 }
                 expander.expand(ctx, member, &attr.args)?;
-            } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
+            } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.core_module) {
                 // Retained silently — see the class-level branch above.
             } else {
                 return Err(CompilerError::Message(format!("attr.unknown: unknown attribute `@{}`", attr.name)));

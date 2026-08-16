@@ -209,11 +209,7 @@ impl<'vm> Compiler<'vm> {
     /// implementation selectors and fields. Compare handles so a user module
     /// named `core` cannot acquire this authority.
     pub(crate) fn compiling_privileged_core(&self) -> bool {
-        self.vm
-            .interner
-            .find(crate::heap::CORE_MODULE_NAME)
-            .and_then(|name| self.vm.modules.get(&name).copied())
-            == Some(self.module)
+        self.vm.core_module() == Some(self.module)
     }
 
     /// Whether compilation is currently inside a sacred call's deopt-fallback
@@ -254,12 +250,10 @@ impl<'vm> Compiler<'vm> {
         if self.vm.field_layouts.contains_key(&own_key) || self.vm.classes.contains_key(&own_key) {
             return Some(own_key);
         }
-        if let Some(core_module_sym) = self.vm.interner.find(crate::heap::CORE_MODULE_NAME) {
-            if let Some(core_module) = self.vm.modules.get(&core_module_sym).copied() {
-                let core_key = ClassKey { module: core_module, name };
-                if self.vm.field_layouts.contains_key(&core_key) || self.vm.classes.contains_key(&core_key) {
-                    return Some(core_key);
-                }
+        if let Some(core_module) = self.vm.core_module() {
+            let core_key = ClassKey { module: core_module, name };
+            if self.vm.field_layouts.contains_key(&core_key) || self.vm.classes.contains_key(&core_key) {
+                return Some(core_key);
             }
         }
         None

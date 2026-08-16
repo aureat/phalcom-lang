@@ -32,9 +32,8 @@ impl VM {
             native_method_contexts: Vec::new(),
             interner,
             start_time: Instant::now(),
-            modules: HashMap::new(),
-            main_module: None,
-            last_imported_module: None,
+            module_registry: crate::modules::ModuleRegistry::new(),
+            runtime_roots: None,
             classes: HashMap::new(),
             kernel_class_names: std::collections::HashSet::new(),
             prelude_names: std::collections::HashSet::new(),
@@ -94,8 +93,8 @@ impl VM {
         vm.heap.module_mut(universe_pkg).namespace_frozen = true;
 
         // Expose 'universe' as a global in core module
-        let core_module_sym = vm.interner.intern(CORE_MODULE_NAME);
-        vm.define_global(core_module_sym, universe_sym, Value::Obj(universe_pkg)).unwrap();
+        let core_module = vm.core_module().expect("core module");
+        vm.define_global(core_module, universe_sym, Value::Obj(universe_pkg)).unwrap();
 
         // Stamp the kernel `Message` class's fixed-slot count (U8,
         // method-lookup.md §2). `Message` instances are built
@@ -203,7 +202,7 @@ impl VM {
 
         // Add all exports/globals created by core.ph (standard library classes like Entry, Attribute, ArgumentError, Future, Path, etc.) into prelude_names
         {
-            let core_mod = vm.get_module_from_str(CORE_MODULE_NAME).expect("core module");
+            let core_mod = vm.core_module().expect("core module");
             for sym in vm.heap.module(core_mod).name_to_slot.keys() {
                 vm.prelude_names.insert(*sym);
             }
@@ -223,7 +222,7 @@ impl VM {
         // than in `verify_invariants`, which is heap-structural (`&Heap` only) and
         // cannot read module globals (U-CORE-1 spec SD-1).
         {
-            let core = vm.get_module_from_str(CORE_MODULE_NAME).expect("core module registered by install_core");
+            let core = vm.core_module().expect("core module registered by install_core");
             let none_sym = vm.interner.intern("None");
             let none_value = vm.heap.module(core).get(none_sym).expect("None global must be bound by install_core");
             assert_eq!(none_value, Value::None, "None global must resolve to immediate absence");
@@ -248,7 +247,7 @@ impl VM {
     ///
     /// Returns any [`crate::error::PhError`] raised while compiling or executing `core.ph`.
     fn run_core_module(&mut self) -> PhResult<()> {
-        let module = self.get_module_from_str(CORE_MODULE_NAME).expect("core module registered by install_core");
+        let module = self.core_module().expect("core module registered by install_core");
         let source = include_str!("../../core/core.ph");
         let closure = self.compile_closure(module, source)?;
         self.run_in_module(module, closure)
@@ -256,16 +255,16 @@ impl VM {
 
     /// Bootstraps the core module and exposes each kernel class as a global.
     pub fn install_core(&mut self) {
-        let m = self.create_module(CORE_MODULE_NAME, "<internal core module>");
-        let core_sym = self.heap.module(m).symbol();
-        self.modules.insert(core_sym, m);
+        let core_id = phalcom_modules::ModuleId::core();
+        let m = self.create_module_with_id(core_id, crate::heap::ModuleKind::Module, CORE_MODULE_NAME, "<internal core module>");
+        self.runtime_roots = Some(crate::vm::RuntimeRoots { core: m, entry: None });
 
         macro_rules! add_class {
             ($field:ident) => {
                 let class_id = self.universe.classes.$field;
                 let name = self.heap.class(class_id).name.clone();
                 let name_sym = self.interner.intern(&name);
-                self.define_global(core_sym, name_sym, Value::Obj(class_id)).ok();
+                self.define_global(m, name_sym, Value::Obj(class_id)).ok();
                 let key = crate::vm::ClassKey { module: m, name: name_sym };
                 self.classes.insert(key, class_id);
                 self.kernel_class_names.insert(name_sym);
@@ -392,7 +391,7 @@ impl VM {
 
         // Bind the `None` global to immediate absence.
         let none_global_sym = self.interner.intern("None");
-        self.define_global(core_sym, none_global_sym, Value::None).ok();
+        self.define_global(m, none_global_sym, Value::None).ok();
 
         // The private `nil` sentinel has no surface class global: there is no
         // `Nil` name reachable from user code (Invariant 4). The `Nil` class row
@@ -456,20 +455,9 @@ impl VM {
         }
     }
 
-    /// Allocates a builtin package with `logical_name` and registers it in `vm.modules`.
+    /// Allocates a builtin package with `logical_name` and registers it in `vm.module_registry`.
     pub fn create_builtin_package(&mut self, logical_name: &str) -> crate::heap::ObjRef {
-        let name_sym = self.interner.intern(logical_name);
-        let package_class = self.universe.classes.package_class;
-        let package = crate::heap::ModuleObject::new(
-            package_class,
-            logical_name.to_string(),
-            name_sym,
-            format!("<builtin:{logical_name}>"),
-            None,
-            true,
-        );
-        let id = self.heap.alloc(crate::heap::Object::Module(Box::new(package)));
-        self.modules.insert(name_sym, id);
-        id
+        let id = phalcom_modules::ModuleId::synthetic(logical_name);
+        self.create_module_with_id(id, crate::heap::ModuleKind::Package, logical_name, &format!("<builtin:{logical_name}>"))
     }
 }
