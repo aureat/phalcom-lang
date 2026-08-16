@@ -1385,16 +1385,25 @@ impl VM {
                         }
                     }
                 }
-                Bytecode::Import(idx) => {
-                    let path_val = callable.chunk.constants[idx as usize];
-                    let Value::Symbol(path_sym) = path_val else {
-                        return Err(RuntimeError::Internal("Import constant is not a Symbol".into()).into());
+                Bytecode::GetLinked(index) => {
+                    let module = self.heap.closure(closure_id).module;
+                    let linked = self
+                        .heap
+                        .module(module)
+                        .linked_reads
+                        .get(index as usize)
+                        .copied()
+                        .ok_or_else(|| RuntimeError::Internal(format!("linked read index {index} is not materialized")))?;
+                    let value = match linked {
+                        crate::modules::RuntimeLinkedRead::Module(module) => Value::Obj(module),
+                        crate::modules::RuntimeLinkedRead::Binding(binding) => self
+                            .heap
+                            .module(binding.module)
+                            .get_by_slot(binding.slot as usize)
+                            .ok_or_else(|| RuntimeError::Internal(format!("linked binding slot {} is not materialized", binding.slot)))
+                            .map(|value| self.surface_absence(value))?,
                     };
-                    let import_path = self.resolve_symbol(path_sym).to_string();
-                    let importer_module = self.heap.closure(closure_id).module;
-                    let importer_path = self.heap.module(importer_module).path.clone();
-                    let imported = self.import_module(&importer_path, &import_path)?;
-                    self.stack.push(Value::Obj(imported));
+                    self.stack.push(value);
                 }
                 Bytecode::MakeFamily { spec, kind } => {
                     let spec_value = callable.chunk.constants[spec as usize];

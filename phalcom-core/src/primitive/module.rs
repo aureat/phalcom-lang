@@ -1,4 +1,4 @@
-//! Native primitives for the kernel `Module` class (U15, DEC-U15 A+A).
+//! Native primitives for the kernel `Module` class.
 
 use crate::error::{PhResult, RuntimeError};
 use crate::method::{SignatureKind, decode_selector, encode_selector};
@@ -10,9 +10,8 @@ use crate::vm::VM;
 ///
 /// # Errors
 ///
-/// Always returns [`RuntimeError::NotAllowed`] — a `Module` is only ever
-/// produced by [`VM::import_module`](crate::vm::VM::import_module), never by
-/// a surface `construct`.
+/// Always returns [`RuntimeError::NotAllowed`] — linked program materialization
+/// creates `Module` values; surface code cannot construct them directly.
 pub fn module_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::NotAllowed("Module instances cannot be created directly".to_string()).into())
 }

@@ -286,8 +286,8 @@ pub struct VM {
     /// A module `ObjRef` is a natural, already-unique-per-compile-unit
     /// identifier — `Compiler::new(vm, module)` is constructed fresh for
     /// every top-level `.ph` file compile (including every `import`-loaded
-    /// module, `compiler::lib::mod::compile_import`), so two classes sharing
-    /// a module handle were declared in the same unit, and two sharing a
+    /// module, so two classes sharing a module handle were declared in the
+    /// same unit, and two sharing a
     /// name but different module handles were not. Checked at *subclass*
     /// compile time (`compiler::lib::class_decl::Compiler::compile_class`),
     /// immediately after the subclass's superclass is resolved — the

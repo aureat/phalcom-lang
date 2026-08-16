@@ -24,7 +24,6 @@ pub use core_classes::CoreClasses;
 
 use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::Symbol;
-use std::collections::HashMap;
 
 /// The kernel: handles to the bootstrapped core classes.
 #[derive(Debug, Clone)]
@@ -84,29 +83,11 @@ pub struct Universe {
     /// bootstrap-only flip this flag's `false`-then-snapshot ordering exists
     /// to absorb.
     pub str_tostring_pristine: bool,
-    /// Loaded **imported** modules keyed by canonical absolute filesystem
-    /// path (U15, DEC-U15 A+A), distinct from [`VM::modules`](crate::vm::VM::modules)
-    /// (which keys the singleton `core`/`main` modules by logical name).
-    ///
-    /// Memoizes [`VM::import_module`](crate::vm::VM::import_module): a
-    /// canonical path is inserted the moment its `Module` is *allocated* —
-    /// before it is compiled or run — so a re-entrant probe of the same path
-    /// (a second `import` of the same file, or a cyclic import re-entering
-    /// mid-load) always returns the identical [`ObjRef`], never recompiles,
-    /// and never loops. There is deliberately no separate "in-progress" set:
-    /// a module reached before its own top level finishes running is simply
-    /// found here with a still-partially-populated
-    /// [`ModuleObject`](crate::heap::ModuleObject) (some globals declared,
-    /// some not yet) — the documented cyclic-import partial-init hazard (U15
-    /// plan §4): a name read across the not-yet-complete edge surfaces the
-    /// ordinary "undefined global" / `doesNotUnderstand` miss, not a hang or
-    /// a silent duplicate.
-    pub module_registry: HashMap<String, ObjRef>,
 }
 
 impl Universe {
     /// Calls `push` once for every handle the kernel holds — [`CoreClasses`]'
-    /// pinned tower plus the import [`Universe::module_registry`].
+    /// pinned tower.
     ///
     /// The `universe` row of
     /// [memory-management.md §2.1](../../../docs/spec/v0.2/memory-management.md).
@@ -130,12 +111,8 @@ impl Universe {
             float_tostring_pristine: _,
             symbol_tostring_pristine: _,
             str_tostring_pristine: _,
-            module_registry,
         } = self;
         classes.each_handle(push);
-        for module in module_registry.values() {
-            push(*module);
-        }
     }
 
     /// Bootstraps the core class tower into `heap` and returns the [`Universe`].
@@ -155,7 +132,6 @@ impl Universe {
             float_tostring_pristine: false,
             symbol_tostring_pristine: false,
             str_tostring_pristine: false,
-            module_registry: HashMap::new(),
         }
     }
 

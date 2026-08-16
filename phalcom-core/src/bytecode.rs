@@ -36,7 +36,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "NewInstance",
     "Dup",
     "WrapSome",
-    "Import",
+    "GetLinked",
     "MakeFamily",
     "FinalizeClass",
     "InvokeLocal",
@@ -334,24 +334,12 @@ pub enum Bytecode {
     /// (surfaced to `None`) directly — only the taken arm needs the wrap.
     WrapSome,
 
-    /// Resolves, loads (or fetches from the registry), and runs an imported
-    /// compilation unit, pushing its [`Object::Module`](crate::heap::Object::Module)
-    /// handle (U15, DEC-U15 A+A).
+    /// Pushes one value from the current module's already-materialized linked
+    /// read table. Static imports never execute or resolve filesystem paths.
     ///
-    /// 0: constant-pool index of the import path [`Symbol`](crate::interner::Symbol),
-    /// exactly as written (e.g. `"./geometry/point"`).
-    ///
-    /// Emitted only for a module-top-level [`phalcom_ast::ast::Statement::Import`]
-    /// — the compiler's sole write-set restriction for U15 (never inside a
-    /// method/block/class body). At dispatch the path is resolved relative
-    /// to the *executing closure's own module* ([`crate::heap::ClosureObject::module`]),
-    /// not the call site, so a nested re-entrant import always resolves
-    /// against the file that wrote it. [`crate::vm::VM::import_module`] does
-    /// the actual resolve → registry-probe → compile → run work; this opcode
-    /// is only the dispatch-loop hook. The immediately-following
-    /// [`Bytecode::DefineGlobal`] (compiled exactly as an ordinary top-level
-    /// `let`/`var`) performs the `as Name` binding.
-    Import(u16),
+    /// The operand is an index into the module's runtime linked-read table;
+    /// materialization is performed by the program runtime, not this opcode.
+    GetLinked(u16),
 
     /// Builds a bound `::` method-reference **Family** value from a receiver
     /// on the stack. `kind` explicitly identifies whether `spec` is an exact
@@ -545,7 +533,7 @@ impl Bytecode {
             Bytecode::NewInstance => 29,
             Bytecode::Dup => 30,
             Bytecode::WrapSome => 31,
-            Bytecode::Import(..) => 32,
+            Bytecode::GetLinked(..) => 32,
             Bytecode::MakeFamily { .. } => 33,
             Bytecode::FinalizeClass => 34,
             Bytecode::InvokeLocal(..) => 35,

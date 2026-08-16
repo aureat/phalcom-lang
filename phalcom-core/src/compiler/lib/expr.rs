@@ -340,6 +340,7 @@ impl<'vm> Compiler<'vm> {
                         match resolution {
                             BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
                             BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
+                            BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
                             BareNameResolution::Global | BareNameResolution::Unresolved => {
                                 let name_idx = self.add_constant(Value::Symbol(name_sym));
                                 self.emit(Bytecode::GetGlobal(name_idx), call.range);
@@ -373,6 +374,7 @@ impl<'vm> Compiler<'vm> {
                 match resolution {
                     BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
+                    BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
                     BareNameResolution::Global | BareNameResolution::Unresolved => {
                         let name_idx = self.add_constant(Value::Symbol(name_sym));
                         self.emit(Bytecode::GetGlobal(name_idx), call.range);
@@ -1032,6 +1034,7 @@ impl<'vm> Compiler<'vm> {
                 match self.resolve_bare_name(name_sym) {
                     BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), range),
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), range),
+                    BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), range),
                     BareNameResolution::Global | BareNameResolution::Unresolved => {
                         let name_idx = self.add_constant(Value::Symbol(name_sym));
                         self.emit(Bytecode::GetGlobal(name_idx), range);
@@ -1107,6 +1110,8 @@ impl<'vm> Compiler<'vm> {
                             }
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetUpvalue(upvalue as u16), range);
+                        } else if self.linked_binding(name_sym).is_some() {
+                            return Err(CompilerError::AssignToImmutable(value));
                         } else if self.resolves_known_global(name_sym) {
                             let is_const_this_unit = self.global_bindings.get(&name_sym) == Some(&false);
                             let is_const_prior_unit =

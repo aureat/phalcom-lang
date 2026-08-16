@@ -1815,7 +1815,9 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         siblings.push(Statement::Class(ClassDef {
             name: v.name.clone(),
             superclass: Some(SuperclassRef {
-                name: class.name.clone(),
+                root: class.name.clone(),
+                root_range: v.range,
+                members: Vec::new(),
                 range: v.range,
             }),
             members,

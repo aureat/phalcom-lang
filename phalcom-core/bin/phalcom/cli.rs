@@ -170,14 +170,8 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
             std::process::exit(66);
         }
     }
-    // U15: a relative `import "./x"` resolves against the *importing file's*
-    // own directory (DEC-U15 resolution choice A), so the entry module's
-    // `path` must be the real absolute file path — not a placeholder — or
-    // every top-level `import` in the entry file would fail to resolve.
-    // Inline `--source`/`-i` input has no backing file, so it keeps the
-    // `"<main>"` placeholder (an `import` there resolves against the
-    // process's current directory, `resolve_import_path`'s documented
-    // fallback).
+    // Keep physical entry-path metadata for diagnostics and project/source
+    // discovery. Logical imports are resolved before compilation.
     let abs_path = match &cli.path {
         Some(p) => fs::canonicalize(p)
             .with_context(|| format!("Failed to resolve path {}", p.display()))?

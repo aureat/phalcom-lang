@@ -9,12 +9,14 @@ use phalcom_common::range::SourceRange;
 use super::error::CompilerError;
 use super::state::Local;
 use super::{Compiler, UnitKind};
+use phalcom_modules::ImportBindingId;
 
 /// Binding class for syntax that omits a receiver.
 pub(super) enum BareNameResolution {
     Local(usize),
     Upvalue(usize),
     Global,
+    Linked(ImportBindingId),
     ImplicitSelf,
     Unresolved,
 }
@@ -188,8 +190,7 @@ impl<'vm> Compiler<'vm> {
     /// mutability in [`super::Compiler::global_bindings`].
     ///
     /// The shared entry point behind every source-level `let`/`const`
-    /// binding at module scope ([`super::patterns`]) and `import … as Name`
-    /// (`mod.rs::compile_import`) — anywhere a name is declared as a global
+    /// binding at module scope ([`super::patterns`]) — anywhere a name is declared as a global
     /// rather than emitted directly by `class_decl.rs` (see that field's own
     /// doc for why class declarations are exempt). Rejects a same-scope
     /// redeclaration exactly as [`Self::add_local`] does for locals
@@ -203,7 +204,7 @@ impl<'vm> Compiler<'vm> {
     pub(super) fn declare_global(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
         let is_throwaway = self.vm.resolve_symbol(name) == "_";
         if !is_throwaway {
-            let redeclared_this_unit = self.global_bindings.contains_key(&name);
+            let redeclared_this_unit = self.global_bindings.contains_key(&name) || self.import_bindings.contains_key(&name);
             let redeclared_prior_unit = self.unit_kind != UnitKind::Repl && self.vm.heap.module(self.module).global_bindings.contains_key(&name);
             if redeclared_this_unit || redeclared_prior_unit {
                 return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
@@ -240,6 +241,8 @@ impl<'vm> Compiler<'vm> {
             BareNameResolution::Local(slot)
         } else if let Some(upvalue) = self.resolve_upvalue(name) {
             BareNameResolution::Upvalue(upvalue)
+        } else if let Some(binding) = self.linked_binding(name) {
+            BareNameResolution::Linked(binding)
         } else if self.resolves_known_global(name) {
             BareNameResolution::Global
         } else if self.functions.last().is_some_and(|function| function.has_self) {
@@ -262,6 +265,14 @@ impl<'vm> Compiler<'vm> {
                 .find(crate::heap::CORE_MODULE_NAME)
                 .and_then(|core_name| self.vm.modules.get(&core_name))
                 .is_some_and(|&core_module| self.vm.heap.module(core_module).slot_of(name).is_some())
+    }
+
+    /// Returns the pre-linked import index for a local binding.
+    pub(super) fn linked_binding(&self, name: Symbol) -> Option<ImportBindingId> {
+        self.linked_bindings
+            .as_ref()
+            .and_then(|bindings| bindings.import(self.vm.resolve_symbol(name)))
+            .and_then(|info| Some(info.binding))
     }
 
     /// Resolves `name` as an upvalue of the function at `func_idx`, recursing

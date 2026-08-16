@@ -9,13 +9,13 @@
 use crate::compiler::lib::{Compiler, CompilerError, UnitKind};
 use crate::error::{IoError, PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
-use crate::heap::ModuleObject;
-use crate::heap::{ObjRef, Object};
+use crate::heap::ObjRef;
+use crate::modules::{CompileBindings, RuntimeLinkedRead};
 use crate::vm::VM;
 use phalcom_ast::parse_source;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, io};
 
 pub enum ExitCode {
     Success = 0,
@@ -52,26 +52,6 @@ pub fn normalize_path(path: &str) -> String {
         })
         .collect::<Vec<&str>>()
         .join("/")
-}
-
-fn append_ph_extension_if_missing(p: &Path) -> PathBuf {
-    if p.extension().and_then(|s| s.to_str()) == Some("ph") {
-        p.to_path_buf()
-    } else {
-        let mut p = p.to_path_buf();
-        p.set_extension("ph");
-        p
-    }
-}
-
-pub fn resolve_import_path(importer_abs_path: &str, import_logical: &str) -> io::Result<String> {
-    let importer_path_guess = PathBuf::from(importer_abs_path);
-    let importer_dir = importer_path_guess.parent().unwrap_or(Path::new("."));
-
-    let fs_path = append_ph_extension_if_missing(&importer_dir.join(import_logical));
-    let canonical = fs_path.canonicalize()?;
-
-    Ok(canonical.display().to_string())
 }
 
 pub struct ModuleInfo {
@@ -134,13 +114,33 @@ impl VM {
     /// Parses and compiles `source` for `module` with `kind`, returning the top-level
     /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
     pub fn compile_closure_as(&mut self, module: ObjRef, source: &str, kind: UnitKind) -> PhResult<ObjRef> {
+        self.compile_closure_as_with_bindings(module, source, kind, None)
+    }
+
+    /// Parses and compiles one already-linked module with its closed namespace.
+    ///
+    /// The linker owns import discovery and target identity. This entry point
+    /// only lowers source against the supplied immutable binding table; it
+    /// never resolves or loads another module.
+    pub fn compile_closure_as_with_bindings(&mut self, module: ObjRef, source: &str, kind: UnitKind, bindings: Option<CompileBindings>) -> PhResult<ObjRef> {
         self.unit_kind = kind;
         let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
         let program = parse_source(source, 0).map_err(|e| PhError::Compile(CompilerError::Parse(e)))?;
 
-        let compiler = Compiler::new(self, module, source_id, kind);
+        let compiler = match bindings {
+            Some(bindings) => Compiler::new_with_bindings(self, module, source_id, kind, Some(bindings)),
+            None => Compiler::new(self, module, source_id, kind),
+        };
         let closure = compiler.compile(program)?;
         Ok(closure)
+    }
+
+    /// Installs runtime entries for symbolic `GetLinked` reads.
+    ///
+    /// Part II exposes this narrow materialization seam; constructing the
+    /// entries from a `LinkedProgram` belongs to the Part III runtime layer.
+    pub fn install_linked_reads(&mut self, module: ObjRef, reads: Vec<RuntimeLinkedRead>) {
+        self.heap.module_mut(module).linked_reads = reads;
     }
 
     /// Parses and compiles `source` for `module`, returning the top-level
@@ -206,79 +206,5 @@ impl VM {
         })?;
 
         Ok(())
-    }
-
-    /// Resolves, loads, and memoizes the module named by `import_logical`
-    /// relative to `importer_abs_path` (U15, DEC-U15 A+A: relative file-path
-    /// resolution + whole-module binding).
-    ///
-    /// [`resolve_import_path`] canonicalizes the path (appending `.ph` if
-    /// missing) against the importer's own directory; the canonical path is
-    /// then probed against [`Universe::module_registry`](crate::universe::Universe::module_registry)
-    /// **before** any compilation happens — a path already loaded (or
-    /// mid-load, on a cyclic import) returns the identical [`ObjRef`] rather
-    /// than recompiling, so a class defined in the imported unit keeps one
-    /// identity across every importer (`isA` stays sound, U15 plan §1/§4).
-    ///
-    /// Unlike [`Self::run_in_module`] (the *outermost* program entry, which
-    /// clears the frame/value stacks), this runs the imported unit's top
-    /// level **re-entrantly**: a nested import happens mid-execution of the
-    /// importer's own frame, so clearing would destroy live state. It
-    /// follows the same re-entrant `run_until` pattern as
-    /// [`Self::send_dynamic`](crate::vm::VM::send_dynamic) — push one fresh
-    /// frame, drain exactly that activation, recover the frame stack to
-    /// where it was.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PhError::Io`] if `import_logical` does not resolve to an
-    /// existing, readable `.ph` file relative to `importer_abs_path`
-    /// (canonicalization fails on a missing file — this is the "missing
-    /// file raises a clean error with the attempted path" guarantee, U15
-    /// plan §6); propagates any [`PhError::Compile`] or [`PhError::Runtime`]
-    /// raised compiling or running the imported unit's top level (including
-    /// the documented cyclic-import partial-init hazard, U15 plan §4).
-    pub fn import_module(&mut self, importer_abs_path: &str, import_logical: &str) -> PhResult<ObjRef> {
-        let canonical = resolve_import_path(importer_abs_path, import_logical)
-            .map_err(|e| PhError::Io(IoError::Message(format!("Cannot import \"{import_logical}\": {e}"))))?;
-
-        if let Some(&existing) = self.universe.module_registry.get(&canonical) {
-            return Ok(existing);
-        }
-
-        let logical_name = Path::new(&canonical).file_stem().and_then(|s| s.to_str()).unwrap_or(import_logical).to_string();
-
-        // Allocate + register the Module *before* compiling/running it — the
-        // memo the cyclic-import guard above relies on (see
-        // `Universe::module_registry`'s doc for the partial-init hazard this
-        // ordering accepts).
-        let module_sym = self.interner.intern(&logical_name);
-        let module_class = self.universe.classes.module_class;
-        let module_obj = ModuleObject::new(module_class, logical_name.clone(), module_sym, canonical.clone(), None, false);
-        let module_id = self.heap.alloc(Object::Module(Box::new(module_obj)));
-        self.universe.module_registry.insert(canonical.clone(), module_id);
-
-        let source = fs::read_to_string(&canonical).map_err(|e| IoError::Message(format!("Failed to read file {canonical}: {e}")))?;
-        // `compile_closure` below records this text in the module and stamps
-        // its index into every chunk it produces (U-REPL §D2).
-
-        let closure = self.compile_closure(module_id, &source)?;
-        self.heap.module_mut(module_id).add_closure(closure);
-
-        // Re-entrant run (mirrors `send_dynamic`): push a fresh frame for the
-        // imported unit's top level and drain just that one activation —
-        // never `run_in_module`, whose stack-clearing assumes it is the
-        // *outermost* entry.
-        let base_frames = self.frames.len();
-        let stack_offset = self.stack.len();
-        let frame = self.new_call_frame(closure, CallContext::Module { module: module_id }, 0, stack_offset, None);
-        self.push_frame(frame)?;
-        self.check_native_reentry()?;
-        self.native_reentry_depth += 1;
-        let result = self.run_until(base_frames);
-        self.native_reentry_depth -= 1;
-        result?;
-
-        Ok(module_id)
     }
 }

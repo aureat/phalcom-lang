@@ -195,16 +195,6 @@ pub enum CompilerError {
     #[error("product literal lowering is not implemented yet.")]
     ProductLiteralNotLoweredYet(SourceRange),
 
-    /// An `import` statement written anywhere other than a compilation
-    /// unit's own top level.
-    ///
-    /// `import` resolves, loads and binds another `Module` (U15, DEC-U15);
-    /// like `class`, it is a program-shape construct, not an ordinary
-    /// statement — placing it inside a method/block/constructor/class body
-    /// is rejected here rather than silently compiling a per-call reload.
-    #[error("`import` is only allowed at a compilation unit's own top level, not inside a method, block, or class body.")]
-    ImportNotAtTopLevel,
-
     /// A second `class X` declaration in the same module, or a `class`
     /// whose name collides with an `import … as Name` already bound in this
     /// unit (PDR-0001 ruling 2, PDR-0002, U-CLASSCLOSE §2.1/§8).

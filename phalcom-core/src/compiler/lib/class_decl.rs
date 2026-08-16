@@ -238,7 +238,7 @@ impl<'vm> Compiler<'vm> {
         // consumes `class_def` and before `ctx` borrows `self.vm.interner`
         // mutably (borrow-order matters, see the handoff's "still unknown"
         // list — `class_parents` is read-only here, `interner` mutable).
-        let is_attribute_class = class_def.superclass.as_ref().is_some_and(|sc| sc.name == "Attribute");
+        let is_attribute_class = class_def.superclass.as_ref().is_some_and(|sc| sc.leaf_name() == "Attribute");
         let mut ctx = ExpandCtx {
             interner: &mut self.vm.interner,
             compile_mode: self.vm.compile_mode,
@@ -621,8 +621,8 @@ impl<'vm> Compiler<'vm> {
                     None => (0, 0),
                 }
             } else if let Some(sc_ref) = &class_def.superclass {
-                let sc_sym = self.vm.interner.intern(&sc_ref.name);
-                let sc_key = self.resolve_superclass_key(sc_sym);
+                let sc_sym = self.vm.interner.intern(sc_ref.leaf_name());
+                let sc_key = self.resolve_superclass_ref(sc_ref);
                 // Self-inheritance and unknown/forward superclasses are
                 // rejected here (U-INH §3.2): a class cannot appear in its own
                 // superclass chain (that would make method lookup
@@ -653,7 +653,8 @@ impl<'vm> Compiler<'vm> {
                     if sealed_in_module != self.module {
                         return Err(CompilerError::Message(format!(
                             "attr.sealed_violation: `{}` is `@sealed` class `{}`, but was not declared in the same compilation unit",
-                            class_def.name, sc_ref.name
+                            class_def.name,
+                            sc_ref.leaf_name()
                         )));
                     }
                 }
@@ -674,8 +675,12 @@ impl<'vm> Compiler<'vm> {
                         candidates.sort();
                         candidates.dedup();
                         let cand_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
-                        let suggestion = crate::diagnostics::suggest::best_match(&sc_ref.name, cand_refs.into_iter());
-                        let mut msg = format!("unknown superclass '{}': it must be a class defined before '{}'", sc_ref.name, class_def.name);
+                        let suggestion = crate::diagnostics::suggest::best_match(sc_ref.leaf_name(), cand_refs.into_iter());
+                        let mut msg = format!(
+                            "unknown superclass '{}': it must be a class defined before '{}'",
+                            sc_ref.leaf_name(),
+                            class_def.name
+                        );
                         if let Some(sug) = suggestion {
                             msg.push_str(&format!("; did you mean '{}'?", sug));
                         }
@@ -692,8 +697,12 @@ impl<'vm> Compiler<'vm> {
                     candidates.sort();
                     candidates.dedup();
                     let cand_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
-                    let suggestion = crate::diagnostics::suggest::best_match(&sc_ref.name, cand_refs.into_iter());
-                    let mut msg = format!("unknown superclass '{}': it must be a class defined before '{}'", sc_ref.name, class_def.name);
+                    let suggestion = crate::diagnostics::suggest::best_match(sc_ref.leaf_name(), cand_refs.into_iter());
+                    let mut msg = format!(
+                        "unknown superclass '{}': it must be a class defined before '{}'",
+                        sc_ref.leaf_name(),
+                        class_def.name
+                    );
                     if let Some(sug) = suggestion {
                         msg.push_str(&format!("; did you mean '{}'?", sug));
                     }
@@ -725,8 +734,7 @@ impl<'vm> Compiler<'vm> {
 
             let mut field_slots = IndexMap::new();
             if let Some(sc_ref) = &class_def.superclass {
-                let sc_sym = self.vm.interner.intern(&sc_ref.name);
-                if let Some(key) = self.resolve_superclass_key(sc_sym) {
+                if let Some(key) = self.resolve_superclass_ref(sc_ref) {
                     if let Some(sc_layout) = self.vm.field_layouts.get(&key) {
                         for (k, v) in &sc_layout.field_slots {
                             field_slots.insert(*k, *v);
@@ -788,7 +796,7 @@ impl<'vm> Compiler<'vm> {
             // ordinary global at runtime; with no `extends` the class
             // implicitly inherits from `Object`.
             if let Some(sc_ref) = &class_def.superclass {
-                let sc_sym = self.vm.interner.intern(&sc_ref.name);
+                let sc_sym = self.vm.interner.intern(sc_ref.leaf_name());
                 let sc_name_idx = self.add_constant(Value::Symbol(sc_sym));
                 self.emit(Bytecode::GetGlobal(sc_name_idx), sc_ref.range);
             } else {

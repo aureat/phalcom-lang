@@ -32,6 +32,10 @@ path = "tests/lang.rs"
 name = "invariants"
 path = "tests/invariants.rs"
 
+[[test]]
+name = "modules_compile"
+path = "tests/modules_compile.rs"
+
 [features]
 default = []
 # Per-opcode `tracing` instrumentation in the VM dispatch loop (`vm/dispatch.rs`):
@@ -76,6 +80,7 @@ phalcom-type-syntax = { path = "../phalcom-type-syntax" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
 phalcom-native-macros = { path = "../phalcom-native-macros" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
+phalcom-modules = { path = "../phalcom-modules" }
 linkme = { workspace = true }
 indexmap = { workspace = true }
 thiserror = "2.0.12"

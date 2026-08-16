@@ -8,6 +8,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, ObjRef};
 use crate::interner::Symbol;
+use crate::modules::RuntimeLinkedRead;
 use crate::value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -80,6 +81,8 @@ pub struct ModuleObject {
     pub builtin: bool,
     /// Whether the module's global namespace is frozen against modifications.
     pub namespace_frozen: bool,
+    /// Runtime materialization of symbolic `GetLinked` entries.
+    pub linked_reads: Vec<RuntimeLinkedRead>,
 }
 
 impl ModuleObject {
@@ -105,6 +108,7 @@ impl ModuleObject {
             global_bindings: HashMap::new(),
             builtin,
             namespace_frozen: false,
+            linked_reads: Vec::new(),
         }
     }
 

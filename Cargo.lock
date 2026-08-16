@@ -1055,6 +1055,7 @@ dependencies = [
  "num-traits",
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-modules",
  "phalcom-native-macros",
  "phalcom-native-meta",
  "phalcom-native-surface",
