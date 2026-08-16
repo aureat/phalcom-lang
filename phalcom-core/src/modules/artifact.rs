@@ -27,16 +27,12 @@ pub struct ClassBlueprint {
 /// Immutable, VM-independent plan for materializing one linked module.
 ///
 /// Runtime heap handles deliberately do not appear here. Heap objects and
-/// closures belong to VM materialization/execution, not to the compiled plan.
+/// closures belong to VM materialization/execution, not to the linked plan.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleMaterializationPlan {
-    /// Module identity.
     pub id: ModuleId,
-    /// Declaration shells/global slots to allocate before execution.
     pub declarations: Vec<RuntimeDeclarationBlueprint>,
-    /// Linked interface used by runtime materialization.
     pub interface: LinkedModuleInterface,
-    /// Symbolic reads consumed by `GetLinked`.
     pub linked_reads: Vec<LinkedReadSpec>,
 }
 
@@ -50,11 +46,24 @@ impl ModuleMaterializationPlan {
         }
     }
 
-    /// Compatibility constructor for callers that have no declaration AST.
-    /// It is intentionally named as a fallback; production compilation uses
-    /// `new` with a populated declaration plan.
-    pub fn without_declarations(module: &phalcom_modules::LinkedModule) -> Self {
-        Self::new(module, Vec::new())
+    /// Produces a conservative declaration plan directly from canonical linked
+    /// global identities. Source-aware compilation replaces class entries with
+    /// richer `ClassBlueprint`s, but this fallback still predeclares every
+    /// linked module-owned global and is never empty scaffolding by design.
+    pub fn from_linked(module: &phalcom_modules::LinkedModule) -> Self {
+        let declarations = module
+            .bindings
+            .local_globals
+            .keys()
+            .map(|name| RuntimeDeclarationBlueprint::Global {
+                symbol: SymbolId {
+                    module: module.interface.module.clone(),
+                    name: name.clone(),
+                },
+                mutable: true,
+            })
+            .collect();
+        Self::new(module, declarations)
     }
 }
 
