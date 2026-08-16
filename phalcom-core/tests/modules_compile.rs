@@ -3,20 +3,19 @@ use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::modules::CompileBindings;
 use phalcom_core::vm::VM;
 use phalcom_modules::{
-    ImportBindingId, LinkedModule, LinkedModuleInterface, LinkedReadSpec, ModuleBindingLayout, ModuleId, ModuleKind, ModuleMetadata, ModulePath,
-    ResolvedProjectId, SymbolId,
+    ImportBindingId, LinkedModule, LinkedModuleInterface, LinkedReadSpec, ModuleBindingLayout,
+    ModuleComponent, ModuleId, ModuleKind, ModuleMetadata, ModulePath, SymbolId,
 };
 use std::collections::BTreeMap;
 
 fn linked_module() -> LinkedModule {
-    let module = ModuleId {
-        project: ResolvedProjectId::from_raw(1),
-        path: ModulePath::root(),
-    };
+    let module = ModuleId::synthetic("main");
     let symbol = SymbolId {
         module: ModuleId {
-            project: ResolvedProjectId::from_raw(1),
-            path: ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("settings").unwrap()]),
+            project: module.project,
+            path: ModulePath::from_components(vec![
+                ModuleComponent::from_identifier("settings").unwrap(),
+            ]),
         },
         name: "mode".into(),
     };
@@ -44,10 +43,19 @@ fn linked_imports_lower_to_indexed_reads_without_path_constants() {
     let bindings = CompileBindings::from_linked_module(&linked);
     let mut vm = VM::new();
     let module = vm.create_module("main", "<linked>");
-    let closure = vm.compile_closure_as_with_bindings(module, "mode\n", UnitKind::File, Some(bindings)).unwrap();
+    let closure = vm
+        .compile_closure_as_with_bindings(module, "mode\n", UnitKind::File, Some(bindings))
+        .unwrap();
     let code = &vm.heap.closure(closure).callable.chunk.code;
-    assert!(code.iter().any(|opcode| matches!(opcode, Bytecode::GetLinked(0))));
-    assert!(!code.iter().any(|opcode| matches!(opcode, Bytecode::GetGlobal(_))));
+    assert!(
+        code.iter()
+            .any(|opcode| matches!(opcode, Bytecode::GetLinked(0)))
+    );
+    assert!(
+        !code
+            .iter()
+            .any(|opcode| matches!(opcode, Bytecode::GetGlobal(_)))
+    );
 }
 
 #[test]
