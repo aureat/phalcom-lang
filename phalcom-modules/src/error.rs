@@ -1,6 +1,7 @@
 //! Typed errors for manifests, projects, source resolution, and visibility.
 
-use crate::identity::ModuleId;
+use crate::identity::{ModuleId, SourceLocation};
+use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::SourceRange;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -11,6 +12,9 @@ use thiserror::Error;
 pub enum ProjectError {
     #[error("Invalid project manifest: {0}")]
     InvalidProjectManifest(String),
+
+    #[error("Persistent projects must declare an explicit canonical snake_case namespace")]
+    MissingProjectNamespace,
 
     #[error("Invalid project namespace '{0}': {1}")]
     InvalidProjectNamespace(String, InvalidModuleNameError),
@@ -53,8 +57,19 @@ pub enum ModuleResolutionError {
     #[error("Invalid module layout: {0}")]
     InvalidModuleLayout(String),
 
-    #[error("Ambiguous module '{name}': both '{kebab_path}' and '{snake_path}' exist on disk")]
-    AmbiguousModule { name: String, kebab_path: PathBuf, snake_path: PathBuf },
+    #[error("Non-canonical physical module/package name for logical '{logical}': expected '{expected}', found '{found}'")]
+    NonCanonicalPhysicalName {
+        logical: String,
+        expected: String,
+        found: PathBuf,
+    },
+
+    #[error("Portable module-name collision between '{first}' and '{second}' ({reason})")]
+    PortabilityCollision {
+        first: PathBuf,
+        second: PathBuf,
+        reason: String,
+    },
 
     #[error("Invalid module name '{0}': {1}")]
     InvalidModuleName(String, InvalidModuleNameError),
@@ -74,6 +89,9 @@ pub enum ModuleResolutionError {
     #[error("Duplicate source identity: '{0}'")]
     DuplicateSourceIdentity(String),
 
+    #[error("Standalone module '{entry}' cannot discover sibling module '{requested}'")]
+    StandaloneSiblingImport { entry: PathBuf, requested: String },
+
     #[error("Module path not exposed: '{path}' in project '{project}' is private")]
     ModulePathNotExposed { path: String, project: String, exposed: Vec<String> },
 
@@ -83,11 +101,20 @@ pub enum ModuleResolutionError {
 
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum SourceError {
-    #[error("Source reading IO error: {0}")]
-    Io(String),
+    #[error("Source reading IO error ({kind:?}): {message}")]
+    Io { kind: std::io::ErrorKind, message: String },
 
     #[error("Source not found: {0}")]
     NotFound(String),
+}
+
+impl SourceError {
+    pub fn from_io(error: std::io::Error, context: impl Into<String>) -> Self {
+        Self::Io {
+            kind: error.kind(),
+            message: format!("{}: {}", context.into(), error),
+        }
+    }
 }
 
 // ── Module Loading Errors ──────────────────────────────────────────────────
@@ -97,11 +124,18 @@ pub enum ModuleLoadError {
     #[error(transparent)]
     Resolution(#[from] ModuleResolutionError),
 
-    #[error("Parse error in module {module}: {message}")]
-    Parse { module: ModuleId, message: String },
+    #[error("Parse error in module {module}: {error}")]
+    Parse {
+        module: ModuleId,
+        source: SourceLocation,
+        error: SyntaxError,
+    },
 
     #[error("Interface error in module {module}: {error}")]
     Interface { module: ModuleId, error: InterfaceError },
+
+    #[error("I/O error while loading {module:?}: {error}")]
+    Io { module: Option<ModuleId>, error: SourceError },
 }
 
 // ── Visibility / Binding / Interface Errors ────────────────────────────────
@@ -115,7 +149,18 @@ pub enum InterfaceError {
     NonExportedImport { module: String, name: String, range: SourceRange },
 
     #[error("Duplicate import binding: '{name}' is already bound in this scope")]
-    DuplicateImportBinding { name: String, range: SourceRange },
+    DuplicateImportBinding {
+        name: String,
+        previous_range: SourceRange,
+        range: SourceRange,
+    },
+
+    #[error("Duplicate declaration: '{name}' is already declared in this module")]
+    DuplicateDeclaration {
+        name: String,
+        first_range: SourceRange,
+        range: SourceRange,
+    },
 
     #[error("Unknown export: '{name}' is not declared in this module")]
     UnknownExport { name: String, range: SourceRange },
@@ -154,9 +199,9 @@ pub enum InvalidModuleNameError {
     #[error("Name cannot be empty")]
     Empty,
 
-    #[error("Invalid leading character in '{0}': must be ASCII alphabetic or '_'")]
-    InvalidLeadingChar(String),
+    #[error("'{0}' is not canonical snake_case")]
+    NonCanonicalSnakeCase(String),
 
-    #[error("Invalid character '{1}' in '{0}': must be ASCII alphanumeric or '_'")]
-    InvalidChar(String, char),
+    #[error("'{0}' is not canonical kebab-case")]
+    NonCanonicalKebabCase(String),
 }
