@@ -20,6 +20,9 @@ pub struct ResolvedProject {
     pub dependencies: BTreeMap<ModuleComponent, ResolvedProjectId>,        // alias -> resolved project id
     pub import_roots: BTreeMap<ModuleComponent, (ImportRootTarget, bool)>, // root table
     pub source_identity: ProjectSourceIdentity,
+    /// True only for a persistent project.toml boundary. Synthetic resolved
+    /// roots are standalone Package compatibility contexts, not Projects.
+    pub persistent_project: bool,
 }
 
 impl ResolvedProject {
@@ -221,6 +224,7 @@ impl ProjectUniverse {
             dependencies: resolved_dependencies,
             import_roots,
             source_identity: source_identity.clone(),
+            persistent_project: true,
         };
 
         self.projects.push(resolved_project);
@@ -266,6 +270,7 @@ impl ProjectUniverse {
             dependencies: BTreeMap::new(),
             import_roots,
             source_identity: source_identity.clone(),
+            persistent_project: false,
         };
 
         self.projects.push(resolved_project);

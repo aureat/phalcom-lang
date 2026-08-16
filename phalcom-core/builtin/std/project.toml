@@ -1,0 +1,3 @@
+[project]
+name = "Phalcom Standard Library"
+namespace = "std"

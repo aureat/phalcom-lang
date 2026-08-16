@@ -73,6 +73,10 @@ pub struct ModuleObject {
     pub global_bindings: HashMap<Symbol, bool>,
     /// Whether this module is a built-in module/package.
     pub builtin: bool,
+    /// Nearest owning Package; None if standalone Module or Project root.
+    pub owning_package: Option<ObjRef>,
+    /// Owning Project; None if standalone Module or standalone Package.
+    pub owning_project: Option<ObjRef>,
     /// Whether the module's global namespace is frozen against modifications.
     pub namespace_frozen: bool,
     /// Runtime materialization of symbolic `GetLinked` entries.
@@ -104,6 +108,8 @@ impl ModuleObject {
             sources: source.into_iter().collect(),
             global_bindings: HashMap::new(),
             builtin,
+            owning_package: None,
+            owning_project: None,
             namespace_frozen: false,
             linked_reads: Vec::new(),
             exports: HashMap::new(),

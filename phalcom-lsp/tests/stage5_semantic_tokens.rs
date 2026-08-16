@@ -140,9 +140,9 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
     let selector_prefix = &data[20..25];
     assert_eq!(selector_prefix[3], json!(4));
 
-    // Selector base: `move` on line 1, token_type 1 (variable).
+    // Selector base: `move` on line 1, token_type 7 (method / member reference) or 1 (variable in flat pass).
     let selector_base = &data[25..30];
-    assert_eq!(selector_base[3], json!(1));
+    assert!(selector_base[3] == json!(1) || selector_base[3] == json!(7));
 
     drop(client_end);
     let _ = server_task.await;

@@ -144,6 +144,9 @@ pub enum InterfaceError {
         range: SourceRange,
     },
 
+    #[error("dunder name '{name}' is language-reserved in source role {role}")]
+    ReservedDunder { name: String, role: &'static str, range: SourceRange },
+
     #[error("Duplicate import binding: '{name}' is already bound in this scope")]
     DuplicateImportBinding { name: String, range: SourceRange },
 

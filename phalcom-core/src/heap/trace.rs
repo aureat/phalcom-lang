@@ -122,6 +122,12 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             if let Some(closure) = module.closure {
                 push(closure);
             }
+            if let Some(pkg) = module.owning_package {
+                push(pkg);
+            }
+            if let Some(proj) = module.owning_project {
+                push(proj);
+            }
             for global in &module.globals {
                 trace_value(*global, push);
             }

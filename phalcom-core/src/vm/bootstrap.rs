@@ -200,7 +200,7 @@ impl VM {
         // reopen taking effect, which surfaced the gap.
         vm.run_core_module().expect("core module (core.ph) must compile and run cleanly");
 
-        // Add all exports/globals created by core.ph (standard library classes like Entry, Attribute, ArgumentError, Future, Path, etc.) into prelude_names
+        // Populate prelude_names with core.ph globals for compatibility until core.ph split
         {
             let core_mod = vm.core_module().expect("core module");
             for sym in vm.heap.module(core_mod).name_to_slot.keys() {
@@ -360,6 +360,7 @@ impl VM {
         add_class!(fiber_class);
         add_class!(cannot_yield_across_native_frame_class);
         add_class!(package_class);
+        add_class!(project_class);
         add_class!(resource_class);
         add_class!(use_after_close_error_class);
 
@@ -430,6 +431,7 @@ impl VM {
             c.symbol_class,
             c.module_class,
             c.package_class,
+            c.project_class,
             c.system_class,
             c.option_class,
             c.some_class,
@@ -462,6 +464,11 @@ impl VM {
             .map(|c| phalcom_modules::ModulePath::from_components(vec![c]))
             .unwrap_or_else(|_| phalcom_modules::ModulePath::root());
         let id = phalcom_modules::ModuleId::synthetic(ids.allocate(), path);
-        self.create_module_with_id(id, crate::heap::ModuleKind::Package, logical_name, &format!("<builtin:{logical_name}>"))
+        let kind = if matches!(logical_name, "universe" | "std") {
+            crate::heap::ModuleKind::ProjectRoot
+        } else {
+            crate::heap::ModuleKind::Package
+        };
+        self.create_module_with_id(id, kind, logical_name, &format!("<builtin:{logical_name}>"))
     }
 }

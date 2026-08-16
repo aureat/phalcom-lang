@@ -28,6 +28,13 @@ pub enum ModuleKind {
     ProjectRoot,
 }
 
+impl ModuleKind {
+    /// Whether the unit has package semantics (`package.ph`, exposure, children).
+    pub const fn is_package_like(self) -> bool {
+        matches!(self, Self::Package | Self::ProjectRoot)
+    }
+}
+
 /// A located source unit ready for reading and parsing.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceUnit {
@@ -122,7 +129,7 @@ impl FilesystemSourceProvider {
 
                 return Ok(SourceUnit {
                     id: module_id,
-                    kind: ModuleKind::ProjectRoot,
+                    kind: if project.persistent_project { ModuleKind::ProjectRoot } else { ModuleKind::Package },
                     source: SourceLocation {
                         source_id,
                         display_path: pkg_file,

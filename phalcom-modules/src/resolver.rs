@@ -1,6 +1,6 @@
 use crate::builtin::BuiltinProjectSourceProvider;
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ResolvedProjectId, SourceId, SourceLocation};
+use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ResolvedProjectId, SourceLocation};
 use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
 use crate::source::{ModuleKind, SourceProvider, SourceUnit};
@@ -59,6 +59,15 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
                 let target_project_id = match target_root {
                     ImportRootTarget::Builtin(builtin) => {
+                        let provider = BuiltinProjectSourceProvider::new(builtin);
+                        let kind = provider.kind(&target_path).ok_or_else(|| {
+                            ModuleResolutionError::ModuleNotFound(format!("builtin module {builtin}.{target_path} not found"))
+                        })?;
+                        let source_id = provider.source_id(&ModuleId::builtin(builtin, target_path.clone()))
+                            .map_err(|e| match e {
+                                ModuleLoadError::Resolution(r) => r,
+                                _ => ModuleResolutionError::ModuleNotFound(format!("{e}")),
+                            })?;
                         let uri_path = if target_path.is_root() {
                             String::new()
                         } else {
@@ -66,9 +75,9 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                         };
                         return Ok(SourceUnit {
                             id: ModuleId::builtin(builtin, target_path.clone()),
-                            kind: if target_path.is_root() { ModuleKind::Package } else { ModuleKind::Module },
+                            kind,
                             source: SourceLocation {
-                                source_id: SourceId(format!("phalcom://{builtin}/{uri_path}").into()),
+                                source_id,
                                 display_path: PathBuf::from(format!("<builtin:{builtin}>/{uri_path}")),
                             },
                         });
@@ -170,7 +179,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             .load_interface(&module_id)
             .map_err(|error| ModuleResolutionError::PackageSurface(Box::new(error)))?;
 
-        if !matches!(interface.kind, ModuleKind::Package | ModuleKind::ProjectRoot) {
+        if !interface.kind.is_package_like() {
             return Err(ModuleResolutionError::PackageNotFoundError(format!("{}", module_id)));
         }
 

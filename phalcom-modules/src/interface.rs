@@ -1,3 +1,4 @@
+use crate::dunder::{DunderPolicy, DunderRole};
 use crate::error::InterfaceError;
 use crate::identity::{ModuleComponent, ModuleId};
 use crate::metadata::ModuleMetadata;
@@ -127,6 +128,7 @@ impl InterfaceBuilder {
             match stmt {
                 Statement::Class(class_def) => {
                     let range = (class_def.range.start..class_def.name_range.end).into();
+                    Self::validate_dunder(&class_def.name, DunderRole::Binding, range)?;
                     Self::collect_declaration(&class_def.name, true, range, &mut namespace, &mut declarations)?;
                 }
                 Statement::Let(let_binding) => {
@@ -164,6 +166,7 @@ impl InterfaceBuilder {
                                 }
                             };
 
+                            Self::validate_dunder(&binding_name, DunderRole::ImportAlias, mod_decl.range)?;
                             Self::declare_namespace(&mut namespace, binding_name, ModuleNamespaceBinding::Import { range: mod_decl.range })?;
                             imports.push(ImportSurface::Module(mod_decl.clone()));
                         }
@@ -175,6 +178,7 @@ impl InterfaceBuilder {
                                     item.name.clone()
                                 };
 
+                                Self::validate_dunder(&binding_name, DunderRole::ImportAlias, item.range)?;
                                 Self::declare_namespace(&mut namespace, binding_name, ModuleNamespaceBinding::Import { range: item.range })?;
                             }
                             imports.push(ImportSurface::Selective(sel_decl.clone()));
@@ -188,6 +192,9 @@ impl InterfaceBuilder {
                         } else {
                             item.local_or_remote_name.clone()
                         };
+
+                        Self::validate_dunder(&exported_name, DunderRole::Export, item.range)?;
+                        Self::validate_dunder(&item.local_or_remote_name, DunderRole::ImportAlias, item.range)?;
 
                         if exports.contains_key(&exported_name) {
                             return Err(InterfaceError::DuplicateExport {
@@ -219,7 +226,7 @@ impl InterfaceBuilder {
                     imports.push(ImportSurface::ReExport(reexport_decl.clone()));
                 }
                 DependencyDecl::Expose(expose_decl) => {
-                    if !matches!(kind, ModuleKind::Package | ModuleKind::ProjectRoot) {
+                    if !kind.is_package_like() {
                         return Err(InterfaceError::ExposeOutsidePackage(expose_decl.range));
                     }
                     let comp = ModuleComponent::from_identifier(&expose_decl.child.name)
@@ -240,6 +247,8 @@ impl InterfaceBuilder {
                     } else {
                         item.local_or_remote_name.clone()
                     };
+
+                    Self::validate_dunder(&exported_name, DunderRole::Export, item.range)?;
 
                     if exports.contains_key(&exported_name) {
                         return Err(InterfaceError::DuplicateExport {
@@ -279,6 +288,23 @@ impl InterfaceBuilder {
             exposed_children,
             metadata,
         })
+    }
+
+    fn validate_dunder(name: &str, role: DunderRole, range: SourceRange) -> Result<(), InterfaceError> {
+        DunderPolicy::default()
+            .validate_user_declaration(name, role)
+            .map_err(|_| InterfaceError::ReservedDunder {
+                name: name.to_string(),
+                role: match role {
+                    DunderRole::Binding => "binding",
+                    DunderRole::ImportAlias => "import alias",
+                    DunderRole::Export => "export",
+                    DunderRole::Field => "field",
+                    DunderRole::Method => "method",
+                    DunderRole::Parameter => "parameter",
+                },
+                range,
+            })
     }
 
     fn collect_declaration(
@@ -333,7 +359,10 @@ impl InterfaceBuilder {
         declarations: &mut BTreeMap<String, DeclarationSurface>,
     ) -> Result<(), InterfaceError> {
         match pattern {
-            Pattern::Name { name, range } => Self::collect_declaration(name, is_const, *range, namespace, declarations),
+            Pattern::Name { name, range } => {
+                Self::validate_dunder(name, DunderRole::Binding, *range)?;
+                Self::collect_declaration(name, is_const, *range, namespace, declarations)
+            }
             Pattern::Tuple { elements, .. } => {
                 for elem in elements {
                     Self::collect_pattern_declarations(elem, is_const, namespace, declarations)?;
@@ -352,3 +381,4 @@ impl InterfaceBuilder {
         }
     }
 }
+

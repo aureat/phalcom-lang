@@ -41,7 +41,81 @@ impl VM {
             }
         }
 
-        // Phase 2: Global layouts are populated dynamically by top-level execution.
+        // Phase 2: Materialize lexical context intrinsics (__module__, __package__, __project__).
+        let module_sym = self.interner.intern("__module__");
+        let package_sym = self.interner.intern("__package__");
+        let project_sym = self.interner.intern("__project__");
+
+        for (id, _compiled_mod) in &program.modules {
+            let obj_ref = self.module_registry.get(id).expect("module allocated").object;
+
+            // 1. __module__ is bound to the current module object.
+            self.define_global(obj_ref, module_sym, crate::value::Value::Obj(obj_ref))?;
+
+            // 2. __package__
+            let pkg_ctx = match &id.project {
+                phalcom_modules::ProjectIdentity::Resolved(pid) => {
+                    if id.path.is_root() {
+                        None
+                    } else {
+                        id.path.parent().map(|p| phalcom_modules::ModuleId::resolved(*pid, p))
+                    }
+                }
+                phalcom_modules::ProjectIdentity::Builtin(bid) => {
+                    if id.path.is_root() {
+                        None
+                    } else {
+                        id.path.parent().map(|p| phalcom_modules::ModuleId::builtin(*bid, p))
+                    }
+                }
+                phalcom_modules::ProjectIdentity::Synthetic(_) => None,
+            };
+
+            let pkg_val = if let Some(pkg_id) = pkg_ctx {
+                if let Some(record) = self.module_registry.get(&pkg_id) {
+                    let pkg_obj = record.object;
+                    self.heap.module_mut(obj_ref).owning_package = Some(pkg_obj);
+                    crate::value::Value::Obj(pkg_obj).wrap_some()?
+                } else {
+                    crate::value::Value::None
+                }
+            } else {
+                crate::value::Value::None
+            };
+            self.define_global(obj_ref, package_sym, pkg_val)?;
+
+            // 3. __project__
+            let proj_ctx = match &id.project {
+                phalcom_modules::ProjectIdentity::Resolved(pid) => {
+                    if id.path.is_root() {
+                        None
+                    } else {
+                        Some(phalcom_modules::ModuleId::resolved(*pid, phalcom_modules::ModulePath::root()))
+                    }
+                }
+                phalcom_modules::ProjectIdentity::Builtin(bid) => {
+                    if id.path.is_root() {
+                        None
+                    } else {
+                        Some(phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()))
+                    }
+                }
+                phalcom_modules::ProjectIdentity::Synthetic(_) => None,
+            };
+
+            let proj_val = if let Some(proj_id) = proj_ctx {
+                if let Some(record) = self.module_registry.get(&proj_id) {
+                    let proj_obj = record.object;
+                    self.heap.module_mut(obj_ref).owning_project = Some(proj_obj);
+                    crate::value::Value::Obj(proj_obj).wrap_some()?
+                } else {
+                    crate::value::Value::None
+                }
+            } else {
+                crate::value::Value::None
+            };
+            self.define_global(obj_ref, project_sym, proj_val)?;
+        }
 
         // Phase 3: Materialize declaration blueprints (classes/globals from artifact).
         for (id, compiled_mod) in &program.modules {

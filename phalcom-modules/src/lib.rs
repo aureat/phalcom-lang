@@ -1,6 +1,8 @@
 //! `phalcom-modules` — logical module system, project manifests, source identity, and path visibility for Phalcom.
 
 pub mod builtin;
+pub mod declaration;
+pub mod dunder;
 pub mod error;
 pub mod graph;
 pub mod identity;
@@ -15,6 +17,10 @@ pub mod stabilization;
 
 // Re-export common types
 pub use builtin::BuiltinProjectSourceProvider;
+pub use declaration::{
+    DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState,
+};
+pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
 pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
 pub use graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceGraph, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason,
@@ -22,7 +28,7 @@ pub use graph::{
 };
 pub use identity::{
     BuiltinProject, ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceLocation,
-    SyntheticProjectId, SyntheticProjectIdAllocator,
+    SyntheticProjectId, SyntheticProjectIdAllocator, builtin_module_uri,
 };
 pub use interface::{
     DeclarationSurface, ExportSurface, ImportSurface, InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface, PackagePathSurface,
@@ -37,5 +43,6 @@ pub use metadata::{MetadataTarget, ModuleMetadata, ModuleMetadataAttribute};
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
 pub use resolver::ModuleResolver;
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, SourceProvider, SourceUnit};
-pub use stabilization::{DunderRole, ResolvedDocumentIdentity, ResolverGeneration, builtin_module_uri, dunder_role};
+pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};
+
 

@@ -143,9 +143,16 @@ impl<'vm> Compiler<'vm> {
     /// Returns [`CompilerError::BindingRedeclared`] if `name` is already
     /// declared at the current scope depth.
     pub(super) fn add_local(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
+        let source_name = self.vm.resolve_symbol(name);
+        if phalcom_modules::DunderPolicy::default()
+            .validate_user_declaration(source_name, phalcom_modules::DunderRole::Binding)
+            .is_err()
+        {
+            return Err(CompilerError::Message(format!("dunder name '{source_name}' is language-reserved")));
+        }
         let func = self.functions.last_mut().unwrap();
         let depth = func.scope_depth;
-        let is_throwaway = self.vm.resolve_symbol(name) == "_";
+        let is_throwaway = source_name == "_";
         if !is_throwaway
             && func
                 .locals
@@ -202,7 +209,14 @@ impl<'vm> Compiler<'vm> {
     /// Returns [`CompilerError::BindingRedeclared`] if `name` is already
     /// declared as a global.
     pub(super) fn declare_global(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
-        let is_throwaway = self.vm.resolve_symbol(name) == "_";
+        let source_name = self.vm.resolve_symbol(name);
+        if phalcom_modules::DunderPolicy::default()
+            .validate_user_declaration(source_name, phalcom_modules::DunderRole::Binding)
+            .is_err()
+        {
+            return Err(CompilerError::Message(format!("dunder name '{source_name}' is language-reserved")));
+        }
+        let is_throwaway = source_name == "_";
         if !is_throwaway {
             let redeclared_this_unit = self.global_bindings.contains_key(&name) || self.import_bindings.contains_key(&name);
             let redeclared_prior_unit = self.unit_kind != UnitKind::Repl && self.vm.heap.module(self.module).global_bindings.contains_key(&name);

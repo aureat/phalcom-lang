@@ -169,6 +169,8 @@ impl Universe {
         let use_after_close_error_class = make_core_class(heap, "UseAfterCloseError", error_class, metaclass_class);
 
         let package_class = make_core_class(heap, "Package", module_class, metaclass_class);
+        // Project is the root package object, not a wrapper around one.
+        let project_class = make_core_class(heap, "Project", package_class, metaclass_class);
 
         let res = CoreClasses {
             object_class,
@@ -192,6 +194,7 @@ impl Universe {
             symbol_class,
             module_class,
             package_class,
+            project_class,
             system_class,
             option_class,
             some_class,
@@ -238,6 +241,7 @@ impl Universe {
             res.method_class,
             res.module_class,
             res.package_class,
+            res.project_class,
             res.closure_class,
             res.bound_method_class,
             res.method_family_class,
@@ -341,6 +345,8 @@ pub struct CoreClasses {
     pub module_class: ClassId,
     /// `Package < Module`.
     pub package_class: ClassId,
+    /// `Project < Package`; a project root object is simultaneously its root package.
+    pub project_class: ClassId,
     /// `System`.
     pub system_class: ClassId,
     /// `Option`, the abstract absence type
@@ -475,6 +481,7 @@ impl CoreClasses {
             UniverseKey::Bytes => self.bytes_class,
             UniverseKey::Module => self.module_class,
             UniverseKey::Package => self.package_class,
+            UniverseKey::Project => self.project_class,
             UniverseKey::System => self.system_class,
             UniverseKey::Message => self.message_class,
             UniverseKey::Error => self.error_class,
@@ -524,6 +531,7 @@ impl CoreClasses {
             symbol_class,
             module_class,
             package_class,
+            project_class,
             system_class,
             option_class,
             some_class,
@@ -569,6 +577,7 @@ impl CoreClasses {
             symbol_class,
             module_class,
             package_class,
+            project_class,
             system_class,
             option_class,
             some_class,

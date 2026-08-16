@@ -343,3 +343,22 @@ impl ProjectSourceIdentity {
         Self(path.as_ref().to_path_buf())
     }
 }
+
+/// Derives the canonical virtual document URI for a builtin module.
+pub fn builtin_module_uri(id: &ModuleId) -> Option<String> {
+    match id.project {
+        ProjectIdentity::Builtin(builtin) => {
+            let path = if id.path.is_root() {
+                String::new()
+            } else {
+                id.path.components().iter().map(|part| part.as_str()).collect::<Vec<_>>().join("/")
+            };
+            if path.is_empty() {
+                Some(format!("phalcom://{builtin}"))
+            } else {
+                Some(format!("phalcom://{builtin}/{path}"))
+            }
+        }
+        _ => None,
+    }
+}
