@@ -332,7 +332,7 @@ impl InterfaceBuilder {
                             ClassMember::Field(field) => Self::reject_dunder(
                                 &field.name,
                                 "a field declaration",
-                                field.range,
+                                field.name_range,
                                 false,
                             )?,
                             ClassMember::Getter(getter) => Self::reject_dunder(
@@ -348,7 +348,10 @@ impl InterfaceBuilder {
                                     setter.name_range,
                                     false,
                                 )?;
-                                Self::validate_params(&setter.params, "a setter parameter")?;
+                                Self::validate_params(
+                                    std::slice::from_ref(&setter.param),
+                                    "a setter parameter",
+                                )?;
                             }
                             ClassMember::Method(method) => {
                                 let authorized_interceptor =
@@ -363,6 +366,12 @@ impl InterfaceBuilder {
                             }
                             ClassMember::Index(index) => {
                                 Self::validate_params(&index.params, "an index parameter")?;
+                                if let Some(put) = &index.put {
+                                    Self::validate_params(
+                                        std::slice::from_ref(put),
+                                        "an index setter parameter",
+                                    )?;
+                                }
                             }
                             ClassMember::Variant(_) => {}
                         }
