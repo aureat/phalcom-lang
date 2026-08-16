@@ -26,7 +26,10 @@ pub struct ModuleMaterializationPlan {
 }
 
 impl ModuleMaterializationPlan {
-    pub fn new(module: &phalcom_modules::LinkedModule, declarations: Vec<RuntimeDeclarationBlueprint>) -> Self {
+    pub fn new(
+        module: &phalcom_modules::LinkedModule,
+        declarations: Vec<RuntimeDeclarationBlueprint>,
+    ) -> Self {
         Self {
             id: module.interface.module.clone(),
             declarations,
@@ -41,19 +44,14 @@ impl ModuleMaterializationPlan {
             .local_globals
             .keys()
             .map(|name| RuntimeDeclarationBlueprint::Global {
-                symbol: SymbolId { module: module.interface.module.clone(), name: name.clone() },
+                symbol: SymbolId {
+                    module: module.interface.module.clone(),
+                    name: name.clone(),
+                },
                 mutable: true,
             })
             .collect();
         Self::new(module, declarations)
-    }
-
-    /// Temporary source-compatibility shim for the pre-repair call site. It no
-    /// longer creates an empty artifact; it constructs the active declaration
-    /// materialization plan.
-    #[deprecated(note = "use ModuleMaterializationPlan::from_linked")]
-    pub fn empty(module: &phalcom_modules::LinkedModule) -> Self {
-        Self::from_linked(module)
     }
 }
 
