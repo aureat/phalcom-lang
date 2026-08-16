@@ -104,6 +104,8 @@ pub enum InterfaceError {
     UnknownExport { name: String, range: SourceRange },
     #[error("Duplicate export: '{name}' is exported more than once")]
     DuplicateExport { name: String, range: SourceRange },
+    #[error("Reserved dunder name '{name}' is not legal in {role}")]
+    ReservedDunder { name: String, role: String, range: SourceRange },
     #[error("Invalid expose target: expose operand must be an immediate child (.child), got '{0}'")]
     InvalidExposeTarget(String, SourceRange),
     #[error("Expose outside package: `expose` is only valid in package.ph")]
