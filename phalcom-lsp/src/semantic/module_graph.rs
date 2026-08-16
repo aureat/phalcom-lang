@@ -35,16 +35,22 @@ impl<'a, P: phalcom_modules::SourceProvider> SharedModuleResolver<'a, P> {
     }
 
     /// Resolves one AST import through `phalcom-modules` and returns the
-    /// document-bound LSP key for graph publication.
-    pub fn resolve(&mut self, importer: &ModuleId, path: &ImportPath) -> Result<ModuleId, phalcom_modules::ModuleResolutionError> {
+    /// document-bound LSP key for graph publication. Parse/interface failures
+    /// remain typed `ModuleLoadError`s instead of being flattened to a path
+    /// lookup error.
+    pub fn resolve(&mut self, importer: &ModuleId, path: &ImportPath) -> Result<ModuleId, phalcom_modules::ModuleLoadError> {
         let importer_semantic = self
             .documents
             .semantic_for_lsp(importer)
             .ok_or_else(|| phalcom_modules::ModuleResolutionError::ModuleNotFound(importer.to_string()))?
             .clone();
         let unit = self.resolver.resolve_import(&importer_semantic, path)?;
-        let target_uri = Url::from_file_path(&unit.source.display_path)
-            .map_err(|_| phalcom_modules::ModuleResolutionError::ModuleNotFound(unit.source.display_path.display().to_string()))?;
+        let target_uri = if let Some(uri) = phalcom_modules::BuiltinProjectSourceProvider::virtual_uri(&unit.id) {
+            Url::parse(&uri).map_err(|_| phalcom_modules::ModuleResolutionError::ModuleNotFound(uri))?
+        } else {
+            Url::from_file_path(&unit.source.display_path)
+                .map_err(|_| phalcom_modules::ModuleResolutionError::ModuleNotFound(unit.source.display_path.display().to_string()))?
+        };
         let target_id = unit.id.clone();
         self.documents.insert(target_uri, target_id.clone());
         Ok(ModuleId::new(target_id.to_string()))
@@ -194,7 +200,7 @@ impl ModuleGraph {
         module: ModuleId,
         program: &Program,
         resolver: &mut SharedModuleResolver<'_, impl phalcom_modules::SourceProvider>,
-    ) -> Result<(), phalcom_modules::ModuleResolutionError> {
+    ) -> Result<(), phalcom_modules::ModuleLoadError> {
         self.remove_edges(&module);
         let mut edges = Vec::new();
         for dependency in &program.preamble.dependencies {
@@ -251,10 +257,9 @@ impl ModuleGraph {
             }
         }
         for edge in &edges {
-            self.reverse
-                .entry(edge.target.clone().expect("shared resolution produces target"))
-                .or_default()
-                .insert(module.clone());
+            if let Some(target) = &edge.target {
+                self.reverse.entry(target.clone()).or_default().insert(module.clone());
+            }
         }
         self.forward.insert(module, edges);
         Ok(())
