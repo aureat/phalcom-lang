@@ -1,5 +1,6 @@
 //! Typed errors for manifests, projects, source resolution, and visibility.
 
+use crate::identity::ModuleId;
 use phalcom_common::range::SourceRange;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -122,6 +123,14 @@ pub enum InterfaceError {
 
     #[error("Module attribute outside header: @! attributes must appear at the very top of the file before imports")]
     ModuleAttributeOutsideHeader(SourceRange),
+}
+
+/// Errors raised while validating the linked module graph.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum ModuleGraphError {
+    /// Eager runtime initialization would require a cyclic order.
+    #[error("cyclic module initialization: {cycle:?}")]
+    RuntimeCycle { cycle: Vec<ModuleId> },
 }
 
 // ── Name Validation Error ──────────────────────────────────────────────────

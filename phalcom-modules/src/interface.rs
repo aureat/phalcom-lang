@@ -2,7 +2,7 @@ use crate::error::InterfaceError;
 use crate::identity::{ModuleComponent, ModuleId};
 use crate::metadata::ModuleMetadata;
 use crate::source::ModuleKind;
-use phalcom_ast::ast::{BindingKind, DependencyDecl, ImportDecl, ModuleImportDecl, Pattern, Program, ReExportDecl, SelectiveImportDecl, Statement};
+use phalcom_ast::ast::{BindingKind, DependencyDecl, ImportDecl, ImportPath, ModuleImportDecl, Pattern, Program, ReExportDecl, SelectiveImportDecl, Statement};
 use phalcom_common::range::SourceRange;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,7 +19,42 @@ pub struct DeclarationSurface {
 pub struct ExportSurface {
     pub exported_name: String,
     pub internal_name: String,
+    /// Source-local target before project linking.
+    pub target: UnlinkedExportTarget,
     pub range: SourceRange,
+}
+
+/// Export target before import paths have been resolved to module identities.
+#[derive(Clone, Debug, PartialEq)]
+pub enum UnlinkedExportTarget {
+    /// A declaration or imported local name in the current module.
+    Local(String),
+    /// A name selected from another module path.
+    ReExport { path: ImportPath, remote: String },
+}
+
+/// Canonical export after linking.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinkedExport {
+    /// Public name exposed by the exporting module.
+    pub public_name: Box<str>,
+    /// Original declaration identity, preserved through aliases/re-exports.
+    pub symbol: crate::linker::SymbolId,
+    /// Source span of the export item.
+    pub range: SourceRange,
+}
+
+/// Module interface after all imports and exports are linked.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinkedModuleInterface {
+    /// Module identity.
+    pub module: ModuleId,
+    /// Source kind retained for compile/materialization policy.
+    pub kind: ModuleKind,
+    /// Canonical public exports.
+    pub exports: BTreeMap<Box<str>, LinkedExport>,
+    /// Module metadata retained from source.
+    pub metadata: ModuleMetadata,
 }
 
 /// Surface representation of an imported binding.
@@ -131,17 +166,23 @@ impl InterfaceBuilder {
                         }
 
                         // Direct re-export creates an immutable local import binding as well
-                        if let Some(_prev_range) = local_import_bindings.get(&item.local_or_remote_name) {
-                            // Note: if same name imported twice, duplicate import
-                        } else {
-                            local_import_bindings.insert(item.local_or_remote_name.clone(), item.range);
+                        if local_import_bindings.contains_key(&item.local_or_remote_name) {
+                            return Err(InterfaceError::DuplicateImportBinding {
+                                name: item.local_or_remote_name.clone(),
+                                range: item.range,
+                            });
                         }
+                        local_import_bindings.insert(item.local_or_remote_name.clone(), item.range);
 
                         exports.insert(
                             exported_name.clone(),
                             ExportSurface {
                                 exported_name,
                                 internal_name: item.local_or_remote_name.clone(),
+                                target: UnlinkedExportTarget::ReExport {
+                                    path: reexport_decl.path.clone(),
+                                    remote: item.local_or_remote_name.clone(),
+                                },
                                 range: item.range,
                             },
                         );
@@ -205,6 +246,7 @@ impl InterfaceBuilder {
                             ExportSurface {
                                 exported_name,
                                 internal_name: internal.clone(),
+                                target: UnlinkedExportTarget::Local(internal.clone()),
                                 range: item.range,
                             },
                         );
