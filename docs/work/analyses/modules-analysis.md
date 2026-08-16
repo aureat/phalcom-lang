@@ -2376,9 +2376,11 @@ geometry/
 
 Root package:
 
-```phalcom
+```python
 from .point import Point
 from .vector import Vector
+
+from .deep_space.point.vector import (Point, Vector)  // error: path not exported
 
 export Point, Vector
 
