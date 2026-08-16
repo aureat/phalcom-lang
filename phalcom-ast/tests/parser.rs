@@ -610,6 +610,12 @@ fn parse_reserved_word_as_external_label_in_definition_and_call() {
 }
 
 #[test]
+fn parse_from_keyword_as_method_selector() {
+    let res = parse_source("class Map {\n  from(_ record) { record }\n}\nMap.from(#{})\n", 0);
+    assert!(res.is_ok(), "`from` must remain usable as a method selector: {:?}", res.err());
+}
+
+#[test]
 fn parse_rejects_field_spelling_as_method_name() {
     let err = parse_display("class Foo {\n  _helper(_ value) { value }\n}\n");
     assert!(err.contains("method name"), "unexpected error message: {err}");
@@ -640,4 +646,79 @@ fn parse_multiline_string_interpolation_into_ast() {
         }) => {}
         other => panic!("expected lowered binary Expr for interpolation, got {other:#?}"),
     }
+}
+
+// --- Modules v1 Syntax and Metadata Tests ---
+
+#[test]
+fn parse_whole_module_imports() {
+    let src = "import geometry.point\nimport geometry.point as point_module\nimport .point\nimport ..units as units\n";
+    let program = parse_source(src, 0).expect("whole-module imports should parse");
+    assert_eq!(program.preamble.dependencies.len(), 4);
+    assert_eq!(program.statements.len(), 0);
+}
+
+#[test]
+fn parse_selective_imports() {
+    let src = "from geometry.point import Point, distance\nfrom geometry.point import Point as P, distance as dist\nfrom geometry.point import (\n    Point,\n    distance,\n    origin as default_origin,\n)\n";
+    let program = parse_source(src, 0).expect("selective imports should parse");
+    assert_eq!(program.preamble.dependencies.len(), 3);
+}
+
+#[test]
+fn parse_exports_and_reexports() {
+    let src = "export Point from .point\nexport cartesian_point as Point from .cartesian\nexport (\n    Point,\n    origin,\n    distance as point_distance,\n) from .point\n\nclass LocalClass {}\nexport LocalClass\nexport (LocalClass,)\n";
+    let program = parse_source(src, 0).expect("exports and reexports should parse");
+    assert_eq!(program.preamble.dependencies.len(), 3);
+    assert_eq!(program.statements.len(), 3); // Class + 2 local Export statements
+}
+
+#[test]
+fn parse_expose_declarations() {
+    let src = "expose .point\nexpose .shapes\n";
+    let program = parse_source(src, 0).expect("expose declarations should parse");
+    assert_eq!(program.preamble.dependencies.len(), 2);
+}
+
+#[test]
+fn parse_module_metadata_header() {
+    let src = "@! documentation(\"Parser implementation\")\n@! stability(#experimental)\n@! tags((\"parser\", \"internal\"))\n@! config(mode: \"strict\", version: 1)\n\nimport .tokens\n";
+    let program = parse_source(src, 0).expect("metadata header should parse");
+    assert_eq!(program.preamble.metadata.len(), 4);
+    assert_eq!(program.preamble.metadata[0].name, "documentation");
+    assert_eq!(program.preamble.metadata[1].name, "stability");
+    assert_eq!(program.preamble.dependencies.len(), 1);
+}
+
+#[test]
+fn parse_rejects_physical_string_import() {
+    let err = parse_display("import \"geometry/point\" as Point\n");
+    assert!(err.contains("physical string imports `import \"...\"` have been retired"), "unexpected: {err}");
+}
+
+#[test]
+fn parse_rejects_import_outside_preamble() {
+    let err = parse_display("const x = 1\nimport .config\n");
+    assert!(
+        err.contains("static `import` declarations must appear in the module dependency preamble"),
+        "unexpected: {err}"
+    );
+}
+
+#[test]
+fn parse_rejects_atbang_outside_header() {
+    let err = parse_display("import .config\n@! stability(#stable)\n");
+    assert!(
+        err.contains("@! attributes must appear at the top of the file before imports"),
+        "unexpected: {err}"
+    );
+}
+
+#[test]
+fn parse_rejects_invalid_expose_syntax() {
+    let err1 = parse_display("expose ..foo\n");
+    assert!(err1.contains("expose operand cannot ascend"), "unexpected: {err1}");
+
+    let err2 = parse_display("expose .shapes.circle\n");
+    assert!(err2.contains("must be a single immediate child segment"), "unexpected: {err2}");
 }

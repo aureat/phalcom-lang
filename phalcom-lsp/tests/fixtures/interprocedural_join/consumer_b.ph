@@ -1,4 +1,4 @@
-import "./provider" as Provider
+import .provider as Provider
 
 class Dog {
   @constructor new() { }

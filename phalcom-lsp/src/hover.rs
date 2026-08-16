@@ -137,10 +137,10 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ),
     (
         "import",
-        "Imports a module (file) into scope, optionally under an alias: `import \"./path\" as Name` (modules.md).",
+        "Imports a logical module into scope, optionally under an alias: `import .path as Name` (modules.md).",
     ),
     ("in", "Introduces the iterable of a `for` loop: `for (x in coll) { ... }` (iteration.md §2)."),
-    ("as", "Binds an import under an alias: `import \"path\" as Name` (modules.md)."),
+    ("as", "Binds an import under an alias: `import .path as Name` (modules.md)."),
     (
         "is",
         "Class inheritance header keyword (`class Sub is Super`) and type-test operator (`x is Type`, `x is not Type`).",

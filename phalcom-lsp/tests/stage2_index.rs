@@ -173,7 +173,7 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     let def_path = workspace.write("mover.ph", "class Mover {\n  move(_ x, to, duration) { }\n}\n");
     workspace.write(
         "main.ph",
-        "import \"./mover\" as MoverModule\nlet m = MoverModule.Mover.new();\nm.move(1, to: 2, duration: 3);\n",
+        "import .mover as MoverModule\nlet m = MoverModule.Mover.new();\nm.move(1, to: 2, duration: 3);\n",
     );
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);

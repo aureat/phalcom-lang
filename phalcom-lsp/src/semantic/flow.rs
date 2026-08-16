@@ -564,7 +564,7 @@ impl FlowAnalyzer<'_> {
                 continues: vec![state.clone()],
                 ..StatementFlow::default()
             },
-            Statement::Class(_) | Statement::Import(_) => StatementFlow {
+            Statement::Class(_) | Statement::Export(_) => StatementFlow {
                 normal: Some(state.clone()),
                 ..StatementFlow::default()
             },

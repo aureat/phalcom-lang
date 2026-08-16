@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use phalcom_ast::ast::{Program, Statement};
+use phalcom_ast::ast::Program;
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
@@ -42,22 +42,67 @@ impl ModuleGraph {
     /// Replaces all import edges contributed by `module`.
     pub fn update(&mut self, module: ModuleId, program: &Program, available: &BTreeSet<ModuleId>) {
         self.remove_edges(&module);
-        let edges: Vec<ImportEdge> = program
-            .statements
-            .iter()
-            .filter_map(|statement| {
-                let Statement::Import(import) = statement else { return None };
-                Some(ImportEdge {
-                    from: module.clone(),
-                    binding: import.binding.clone(),
-                    path: import.path.clone(),
-                    target: resolve_import(&module, &import.path, available),
-                    source_range: import.range,
-                })
-            })
-            .collect();
+        let mut edges = Vec::new();
+        for dep in &program.preamble.dependencies {
+            match dep {
+                phalcom_ast::ast::DependencyDecl::Import(imp) => match imp {
+                    phalcom_ast::ast::ImportDecl::Module(m) => {
+                        let binding = if let Some(alias) = &m.alias {
+                            alias.name.clone()
+                        } else if m.path.segments.is_empty() {
+                            match &m.path.root {
+                                phalcom_ast::ast::ImportRoot::Absolute(seg) => seg.name.clone(),
+                                phalcom_ast::ast::ImportRoot::Relative { .. } => String::new(),
+                            }
+                        } else {
+                            m.path.segments.last().unwrap().name.clone()
+                        };
+                        let path_str = m.path.to_string();
+                        edges.push(ImportEdge {
+                            from: module.clone(),
+                            binding,
+                            path: path_str.clone(),
+                            target: resolve_import(&module, &path_str, available),
+                            source_range: m.range,
+                        });
+                    }
+                    phalcom_ast::ast::ImportDecl::Selective(s) => {
+                        let path_str = s.path.to_string();
+                        let target = resolve_import(&module, &path_str, available);
+                        for item in &s.items {
+                            let binding = if let Some(alias) = &item.alias {
+                                alias.name.clone()
+                            } else {
+                                item.name.clone()
+                            };
+                            edges.push(ImportEdge {
+                                from: module.clone(),
+                                binding,
+                                path: path_str.clone(),
+                                target: target.clone(),
+                                source_range: item.range,
+                            });
+                        }
+                    }
+                },
+                phalcom_ast::ast::DependencyDecl::ReExport(r) => {
+                    let path_str = r.path.to_string();
+                    let target = resolve_import(&module, &path_str, available);
+                    for item in &r.items {
+                        edges.push(ImportEdge {
+                            from: module.clone(),
+                            binding: item.local_or_remote_name.clone(),
+                            path: path_str.clone(),
+                            target: target.clone(),
+                            source_range: item.range,
+                        });
+                    }
+                }
+                phalcom_ast::ast::DependencyDecl::Expose(_) => {}
+            }
+        }
         for edge in &edges {
-            if let Some(candidate) = import_candidate(&module, &edge.path) {
+            for candidate in import_candidates(&module, &edge.path) {
                 self.candidates.entry(candidate).or_default().insert(module.clone());
             }
             if let Some(target) = &edge.target {
@@ -99,7 +144,7 @@ impl ModuleGraph {
         for module in modules {
             let Some(edges) = self.forward.get_mut(&module) else { continue };
             for edge in edges {
-                if import_candidate(&module, &edge.path).as_ref() != Some(provider) {
+                if !import_candidates(&module, &edge.path).iter().any(|candidate| candidate == provider) {
                     continue;
                 }
                 let target = available.contains(provider).then(|| provider.clone());
@@ -136,12 +181,12 @@ impl ModuleGraph {
     fn remove_edges(&mut self, module: &ModuleId) {
         let Some(edges) = self.forward.get(module).cloned() else { return };
         for edge in edges {
-            if let Some(candidate) = import_candidate(module, &edge.path)
-                && let Some(importers) = self.candidates.get_mut(&candidate)
-            {
-                importers.remove(module);
-                if importers.is_empty() {
-                    self.candidates.remove(&candidate);
+            for candidate in import_candidates(module, &edge.path) {
+                if let Some(importers) = self.candidates.get_mut(&candidate) {
+                    importers.remove(module);
+                    if importers.is_empty() {
+                        self.candidates.remove(&candidate);
+                    }
                 }
             }
             if let Some(target) = &edge.target {
@@ -171,29 +216,66 @@ impl ModuleGraph {
 }
 
 fn resolve_import(module: &ModuleId, import: &str, available: &BTreeSet<ModuleId>) -> Option<ModuleId> {
-    let candidate = import_candidate(module, import)?;
-    if available.contains(&candidate) {
-        return Some(candidate);
+    for candidate in import_candidates(module, import) {
+        if available.contains(&candidate) {
+            return Some(candidate);
+        }
+        let canonical = Url::parse(candidate.as_str())
+            .ok()
+            .and_then(|uri| uri.to_file_path().ok())
+            .and_then(|path| path.canonicalize().ok())
+            .and_then(|path| Url::from_file_path(path).ok())
+            .map(|uri| ModuleId::from_uri(&uri));
+        if canonical.as_ref().is_some_and(|id| available.contains(id)) {
+            return canonical;
+        }
     }
-    let canonical = Url::parse(candidate.as_str())
-        .ok()
-        .and_then(|uri| uri.to_file_path().ok())
-        .and_then(|path| path.canonicalize().ok())
-        .and_then(|path| Url::from_file_path(path).ok())
-        .map(|uri| ModuleId::from_uri(&uri));
-    canonical.filter(|id| available.contains(id))
+    None
 }
 
-fn import_candidate(module: &ModuleId, import: &str) -> Option<ModuleId> {
+fn import_candidates(module: &ModuleId, import: &str) -> Vec<ModuleId> {
     // TODO(module-path-common): extract this VM-free normalization into phalcom-common for compiler and LSP reuse.
-    let uri = Url::parse(module.as_str()).ok()?;
-    let source = uri.to_file_path().ok()?;
-    let mut candidate = source.parent()?.join(import);
-    if candidate.extension().is_none() {
-        candidate.set_extension("ph");
+    let Some(uri) = Url::parse(module.as_str()).ok() else { return Vec::new() };
+    let Ok(source) = uri.to_file_path() else { return Vec::new() };
+    let dot_count = import.bytes().take_while(|byte| *byte == b'.').count();
+    if dot_count == 0 {
+        // Absolute logical roots need ProjectUniverse context. The Part I LSP
+        // seam only resolves relative paths against the importing document.
+        return Vec::new();
     }
-    let normalized = normalize_path(candidate);
-    Url::from_file_path(normalized).ok().map(|uri| ModuleId::from_uri(&uri))
+    let Some(logical_path) = import.get(dot_count..) else { return Vec::new() };
+    if logical_path.is_empty() {
+        return Vec::new();
+    }
+    let Some(parent) = source.parent() else { return Vec::new() };
+    let mut base = parent.to_path_buf();
+    for _ in 1..dot_count {
+        base.pop();
+    }
+    let segments: Vec<&str> = logical_path.split('.').collect();
+    if segments.iter().any(|segment| segment.is_empty()) {
+        return Vec::new();
+    }
+
+    let mut candidates = Vec::new();
+    for kebab in [false, true] {
+        let mut candidate = base.clone();
+        for segment in &segments {
+            let segment = if kebab { segment.replace('_', "-") } else { (*segment).to_string() };
+            candidate.push(segment);
+        }
+        if candidate.extension().is_none() {
+            candidate.set_extension("ph");
+        }
+        let normalized = normalize_path(candidate);
+        if let Ok(uri) = Url::from_file_path(normalized) {
+            let id = ModuleId::from_uri(&uri);
+            if !candidates.contains(&id) {
+                candidates.push(id);
+            }
+        }
+    }
+    candidates
 }
 
 fn normalize_path(path: PathBuf) -> PathBuf {
@@ -220,7 +302,7 @@ mod tests {
 
     #[test]
     fn unresolved_import_stays_in_graph() {
-        let program = parse("import \"./missing\" as Missing\n", 0).program;
+        let program = parse("import .missing as Missing\n", 0).program;
         let module = ModuleId::new("file:///tmp/main.ph");
         let mut graph = ModuleGraph::default();
         graph.update(module.clone(), &program, &BTreeSet::from([module.clone()]));
@@ -232,7 +314,7 @@ mod tests {
     fn existing_ph_extension_is_preserved() {
         let main = ModuleId::new("file:///tmp/main.ph");
         let provider = ModuleId::new("file:///tmp/provider.ph");
-        let program = parse("import \"./provider.ph\" as Provider\n", 0).program;
+        let program = parse("import .provider as Provider\n", 0).program;
         let mut graph = ModuleGraph::default();
         graph.update(main.clone(), &program, &BTreeSet::from([main.clone(), provider.clone()]));
         assert_eq!(graph.imports(&main)[0].target, Some(provider));
@@ -247,12 +329,12 @@ mod tests {
         let mut graph = ModuleGraph::default();
         graph.update(
             consumer.clone(),
-            &parse("import \"./provider\" as Provider\n", 0).program,
+            &parse("import .provider as Provider\n", 0).program,
             &BTreeSet::from([consumer.clone()]),
         );
         graph.update(
             unrelated.clone(),
-            &parse("import \"./other\" as Other\n", 0).program,
+            &parse("import .other as Other\n", 0).program,
             &BTreeSet::from([unrelated.clone()]),
         );
 
@@ -269,8 +351,8 @@ mod tests {
         let second = ModuleId::new("file:///tmp/second.ph");
         let available = BTreeSet::from([main.clone(), first.clone(), second.clone()]);
         let mut graph = ModuleGraph::default();
-        graph.update(main.clone(), &parse("import \"./first\" as First\n", 0).program, &available);
-        graph.update(main.clone(), &parse("import \"./second\" as Second\n", 0).program, &available);
+        graph.update(main.clone(), &parse("import .first as First\n", 0).program, &available);
+        graph.update(main.clone(), &parse("import .second as Second\n", 0).program, &available);
         assert!(graph.dependents_of(&first).is_empty());
         assert_eq!(graph.dependents_of(&second), vec![main]);
     }

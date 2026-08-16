@@ -223,6 +223,46 @@ pub fn build_scope_graph(module: ModuleId, program: &Program) -> ScopeGraph {
                 .insert(class.name.clone(), ClassId::new(builder.graph.module.clone(), class.name.clone()));
         }
     }
+    // Declare bindings from preamble imports
+    for dep in &program.preamble.dependencies {
+        match dep {
+            phalcom_ast::ast::DependencyDecl::Import(imp) => match imp {
+                phalcom_ast::ast::ImportDecl::Module(m) => {
+                    let name = if let Some(alias) = &m.alias {
+                        alias.name.clone()
+                    } else if m.path.segments.is_empty() {
+                        match &m.path.root {
+                            phalcom_ast::ast::ImportRoot::Absolute(seg) => seg.name.clone(),
+                            phalcom_ast::ast::ImportRoot::Relative { .. } => String::new(),
+                        }
+                    } else {
+                        m.path.segments.last().unwrap().name.clone()
+                    };
+                    let range = m.alias.as_ref().map(|a| a.range).unwrap_or(m.range);
+                    if !name.is_empty() {
+                        builder.declare(root, name, SemanticBindingKind::Import, range, false);
+                    }
+                }
+                phalcom_ast::ast::ImportDecl::Selective(s) => {
+                    for item in &s.items {
+                        let name = if let Some(alias) = &item.alias {
+                            alias.name.clone()
+                        } else {
+                            item.name.clone()
+                        };
+                        builder.declare(root, name, SemanticBindingKind::Import, item.range, false);
+                    }
+                }
+            },
+            phalcom_ast::ast::DependencyDecl::ReExport(r) => {
+                for item in &r.items {
+                    builder.declare(root, item.local_or_remote_name.clone(), SemanticBindingKind::Import, item.range, false);
+                }
+            }
+            phalcom_ast::ast::DependencyDecl::Expose(_) => {}
+        }
+    }
+
     builder.visit_statements(root, &program.statements, true);
     builder.graph.scope_order = builder.graph.scopes.keys().copied().collect();
     builder
@@ -303,9 +343,7 @@ impl ScopeBuilder {
                 Statement::Expr { expr, .. } => self.visit_expr(scope, expr),
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
-                Statement::Import(import) => {
-                    self.declare(scope, import.binding.clone(), SemanticBindingKind::Import, import.binding_range, false);
-                }
+                Statement::Export(_) => {}
                 Statement::Break { .. } | Statement::Continue { .. } => {}
             }
         }
@@ -542,7 +580,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::For(for_statement) => for_statement.range,
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
-        Statement::Import(import) => import.range,
+        Statement::Export(export_decl) => export_decl.range,
     }
 }
 

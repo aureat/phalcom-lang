@@ -3,5 +3,13 @@ source: phalcom-ast/tests/parser.rs
 expression: "parse(\"\\n  \\n\")"
 ---
 Program {
+    preamble: ModulePreamble {
+        metadata: [],
+        dependencies: [],
+        range: CopyRange {
+            start: 0,
+            end: 4,
+        },
+    },
     statements: [],
 }

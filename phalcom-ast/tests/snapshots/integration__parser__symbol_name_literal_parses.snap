@@ -3,6 +3,14 @@ source: phalcom-ast/tests/parser.rs
 expression: "parse(\"let s = #move\")"
 ---
 Program {
+    preamble: ModulePreamble {
+        metadata: [],
+        dependencies: [],
+        range: CopyRange {
+            start: 0,
+            end: 0,
+        },
+    },
     statements: [
         Let(
             LetBinding {

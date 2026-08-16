@@ -1,4 +1,4 @@
-import "./module" as Module
+import .module as Module
 
 class Base {
   base() {}

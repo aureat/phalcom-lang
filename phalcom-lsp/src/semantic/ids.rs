@@ -1,7 +1,8 @@
-//! Stable, module-qualified identities used by semantic analysis.
-
+use std::collections::BTreeMap;
 use std::fmt;
 
+#[allow(unused_imports)]
+pub use phalcom_modules::identity::{ModuleComponent, ModuleId as SemanticModuleId, ModulePath, ResolvedProjectId};
 use tower_lsp::lsp_types::Url;
 
 /// Stable URI namespace for source-authored core declarations.
@@ -31,6 +32,38 @@ impl ModuleId {
 impl fmt::Display for ModuleId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+/// Document-to-ModuleId mapping for LSP document seam.
+#[derive(Clone, Debug, Default)]
+pub struct DocumentModuleMap {
+    /// URI-to-semantic identity mapping for open documents.
+    pub by_uri: BTreeMap<Url, SemanticModuleId>,
+    /// Semantic identity-to-URI reverse mapping for editor surfaces.
+    pub by_module: BTreeMap<SemanticModuleId, Url>,
+}
+
+impl DocumentModuleMap {
+    /// Creates an empty document identity map.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Associates one document URI with one semantic module identity.
+    pub fn insert(&mut self, uri: Url, module: SemanticModuleId) {
+        self.by_uri.insert(uri.clone(), module.clone());
+        self.by_module.insert(module, uri);
+    }
+
+    /// Looks up semantic identity for a document URI.
+    pub fn get_by_uri(&self, uri: &Url) -> Option<&SemanticModuleId> {
+        self.by_uri.get(uri)
+    }
+
+    /// Looks up document URI for a semantic module identity.
+    pub fn get_by_module(&self, module: &SemanticModuleId) -> Option<&Url> {
+        self.by_module.get(module)
     }
 }
 

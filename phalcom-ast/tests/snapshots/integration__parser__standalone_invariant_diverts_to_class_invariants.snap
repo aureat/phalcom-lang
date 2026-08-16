@@ -1,9 +1,16 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 348
 expression: "parse(\"class Point {\\n  @invariant(x >= 0)\\n\\n  get() {\\n    return x\\n  }\\n}\\n\")"
 ---
 Program {
+    preamble: ModulePreamble {
+        metadata: [],
+        dependencies: [],
+        range: CopyRange {
+            start: 0,
+            end: 0,
+        },
+    },
     statements: [
         Class(
             ClassDef {

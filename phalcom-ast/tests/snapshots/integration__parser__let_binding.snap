@@ -1,9 +1,16 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 77
 expression: "parse(\"let x = 1 + 2\")"
 ---
 Program {
+    preamble: ModulePreamble {
+        metadata: [],
+        dependencies: [],
+        range: CopyRange {
+            start: 0,
+            end: 0,
+        },
+    },
     statements: [
         Let(
             LetBinding {

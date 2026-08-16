@@ -42,7 +42,6 @@ use crate::error::PhResult;
 use crate::heap::ClosureObject;
 use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
-use crate::value::Value;
 use crate::vm::{ClassKey, VM};
 use phalcom_ast::ast::{BindingKind, ClosureParameters, Expr, MethodCallExpr, Pattern, Program, Statement};
 use phalcom_common::range::{EmptySourceRange, SourceRange};
@@ -463,10 +462,46 @@ impl<'vm> Compiler<'vm> {
         }
 
         let mut names = Vec::new();
+        for dep in &program.preamble.dependencies {
+            match dep {
+                phalcom_ast::ast::DependencyDecl::Import(import_decl) => match import_decl {
+                    phalcom_ast::ast::ImportDecl::Module(mod_decl) => {
+                        let name = if let Some(alias) = &mod_decl.alias {
+                            alias.name.clone()
+                        } else if mod_decl.path.segments.is_empty() {
+                            match &mod_decl.path.root {
+                                phalcom_ast::ast::ImportRoot::Absolute(seg) => seg.name.clone(),
+                                phalcom_ast::ast::ImportRoot::Relative { .. } => String::new(),
+                            }
+                        } else {
+                            mod_decl.path.segments.last().unwrap().name.clone()
+                        };
+                        if !name.is_empty() {
+                            names.push(name);
+                        }
+                    }
+                    phalcom_ast::ast::ImportDecl::Selective(sel_decl) => {
+                        for item in &sel_decl.items {
+                            let name = if let Some(alias) = &item.alias {
+                                alias.name.clone()
+                            } else {
+                                item.name.clone()
+                            };
+                            names.push(name);
+                        }
+                    }
+                },
+                phalcom_ast::ast::DependencyDecl::ReExport(reexport_decl) => {
+                    for item in &reexport_decl.items {
+                        names.push(item.local_or_remote_name.clone());
+                    }
+                }
+                phalcom_ast::ast::DependencyDecl::Expose(_) => {}
+            }
+        }
         for statement in &program.statements {
             match statement {
                 Statement::Class(class) => names.push(class.name.clone()),
-                Statement::Import(import) => names.push(import.binding.clone()),
                 Statement::Let(binding) => collect_pattern(&binding.pattern, &mut names),
                 _ => {}
             }
@@ -533,8 +568,8 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
             }
-            Statement::Import(import_stmt) => {
-                self.compile_import(import_stmt)?;
+            Statement::Export(_export_decl) => {
+                // Local exports in v1 Part 1 are static declarations for interface building; no runtime opcode emitted
             }
             Statement::Return(return_stmt) => {
                 let range = return_stmt.range;
@@ -633,49 +668,6 @@ impl<'vm> Compiler<'vm> {
     /// Applies E.3's conservative full-exhaustion rule to positional `*`.
     pub(crate) fn check_bounded_expansion(&self, source: &Expr, range: SourceRange) -> Result<(), CompilerError> {
         boundedness::require_exhaustible(source, range, &self.const_fact_env())
-    }
-
-    /// Lowers `import "path" as Name` (U15, DEC-U15 A+A) to a
-    /// [`Bytecode::Import`] carrying the raw path, immediately followed by
-    /// the same [`Bytecode::DefineGlobal`] a module-level `const Name = …`
-    /// would emit — the `as Name` binding is an ordinary immutable global
-    /// ([ADR-0064](../../../docs/adr/accepted/0064-let-const-bindings-and-field-mutability.md)),
-    /// not a new binding kind.
-    ///
-    /// Restricted to a compilation unit's own top level (`self.functions`
-    /// has exactly the module body's [`FunctionState`] and its scope depth
-    /// is 0) — mirroring how `class` is a program-shape construct rather
-    /// than an ordinary statement. `import` inside a method/block/class body
-    /// is a [`CompilerError::ImportNotAtTopLevel`] compile error.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CompilerError::ImportNotAtTopLevel`] if `import_stmt`
-    /// appears anywhere but the module's own top level.
-    fn compile_import(&mut self, import_stmt: phalcom_ast::ast::ImportStatement) -> Result<(), CompilerError> {
-        if self.functions.len() > 1 || self.functions.last().unwrap().scope_depth > 0 {
-            return Err(CompilerError::ImportNotAtTopLevel);
-        }
-
-        let range = import_stmt.range;
-        let path_sym = self.vm.interner.intern(&import_stmt.path);
-        let path_idx = self.add_constant(Value::Symbol(path_sym));
-        self.emit(Bytecode::Import(path_idx), range);
-
-        // `as Name` is always an immutable module-level global — the whole
-        // binding is `const`-shaped (ADR-0064), never a local (import is
-        // top-level-only, see the guard above).
-        let name_sym = self.vm.interner.intern(&import_stmt.binding);
-        self.declare_global(name_sym, false)?;
-        // Recorded for `class_decl.rs`'s redefinition check (U-CLASSCLOSE
-        // §8): `import "m" as Point` then `class Point` must report
-        // `class.already_defined` pointing at this import, not silently
-        // succeed. `declare_global` above already rejects a second `import`
-        // of the same name, so this insert never overwrites an earlier span.
-        self.import_bindings.insert(name_sym, range);
-        let name_idx = self.add_constant(Value::Symbol(name_sym));
-        self.emit(Bytecode::DefineGlobal(name_idx), range);
-        Ok(())
     }
 }
 

@@ -18,6 +18,7 @@ pub struct Module {
 
 #[derive(Debug, Default, Clone)]
 pub struct Program {
+    pub preamble: ModulePreamble,
     pub statements: Vec<Statement>,
 }
 
@@ -58,50 +59,159 @@ pub enum Statement {
     /// `throw expr` — unwind the stack raising `expr`
     /// ([error-handling.md §1](../../../docs/spec/v0.2/error-handling.md),
     /// [ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).
-    /// Surface sugar for `expr.raise()`; the compiler additionally rejects a
-    /// syntactically-detectable non-`Error` literal operand at compile time
-    /// (error-handling.md §1: "`throw "oops"` is a compile error") — a
-    /// non-literal operand (a variable, a user `Error` construction) cannot be
-    /// statically classified and defers to the runtime `doesNotUnderstand` miss
-    /// on `raise()` instead.
     Throw {
         /// The raised expression, evaluated then sent `raise()`.
         expr: Expr,
         /// The source span of the whole `throw` statement.
         range: SourceRange,
     },
-    /// `import "path" as Name` — resolves, loads and binds another
-    /// compilation unit as a first-class [`Module`](../../../phalcom-core/src/module.rs)
-    /// namespace (U15, DEC-U15 A+A: relative file-path resolution + whole-
-    /// module binding, [object-model.md §4](../../../docs/spec/v0.2/object-model.md)).
-    ///
-    /// Only valid at a compilation unit's own top level (never inside a
-    /// method/block/class body) — the compiler rejects any other placement.
-    /// There is deliberately no bare `import "path"` (no binding) and no
-    /// selective `import { a, b } from "path"` form in Draft 0.1 (DEC-U15);
-    /// `from` is reserved for that future selective-import grammar.
-    Import(ImportStatement),
+    /// Local export declaration in the module body: `export Name, Other as Alias`.
+    Export(ExportDecl),
 }
 
-/// `import "path" as Name` (U15, DEC-U15 A+A).
-///
-/// `path` is resolved relative to the *importing file's* directory with a
-/// `.ph` extension implied (DEC-U15 resolution choice A); `binding` is the
-/// name the imported unit's [`Module`](../../../phalcom-core/src/module.rs)
-/// is bound to in the importing scope — an ordinary global, not a namespace
-/// merge (no global-namespace pollution, U15 plan §1). `as Name` is
-/// mandatory in Draft 0.1: whole-module binding only (DEC-U15 binding choice
-/// A), no selective form yet.
-#[derive(Debug, Clone)]
-pub struct ImportStatement {
-    /// The literal path string as written, e.g. `"./geometry/point"`.
-    pub path: String,
-    /// The local name the imported `Module` is bound to (`as Name`).
-    pub binding: String,
-    /// Exact source span of the local import binding.
-    pub binding_range: SourceRange,
-    /// The source span of the whole `import` statement.
+// ── Logical Import / Export / Preamble AST ────────────────────────────────
+
+/// Logical import path (e.g. `geometry.point` or `.point` or `..units`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportPath {
+    pub root: ImportRoot,
+    pub segments: Vec<PathSegment>,
     pub range: SourceRange,
+}
+
+impl std::fmt::Display for ImportPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.root {
+            ImportRoot::Absolute(seg) => {
+                f.write_str(&seg.name)?;
+            }
+            ImportRoot::Relative { dots, .. } => {
+                for _ in 0..*dots {
+                    f.write_str(".")?;
+                }
+            }
+        }
+        for (i, seg) in self.segments.iter().enumerate() {
+            if i > 0 || matches!(self.root, ImportRoot::Absolute(_)) {
+                f.write_str(".")?;
+            }
+            f.write_str(&seg.name)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImportRoot {
+    Absolute(PathSegment),
+    Relative { dots: u16, range: SourceRange },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PathSegment {
+    pub name: String,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ModulePreamble {
+    pub metadata: Vec<ModuleMetadataAttribute>,
+    pub dependencies: Vec<DependencyDecl>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DependencyDecl {
+    Import(ImportDecl),
+    ReExport(ReExportDecl),
+    Expose(ExposeDecl),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImportDecl {
+    Module(ModuleImportDecl),
+    Selective(SelectiveImportDecl),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModuleImportDecl {
+    pub path: ImportPath,
+    pub alias: Option<ImportAlias>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectiveImportDecl {
+    pub path: ImportPath,
+    pub items: Vec<ImportItem>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportAlias {
+    pub name: String,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportItem {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub alias: Option<ImportAlias>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReExportDecl {
+    pub path: ImportPath,
+    pub items: Vec<ExportItem>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportDecl {
+    pub items: Vec<ExportItem>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportAlias {
+    pub name: String,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportItem {
+    pub local_or_remote_name: String,
+    pub name_range: SourceRange,
+    pub alias: Option<ExportAlias>,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExposeDecl {
+    pub child: PathSegment,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModuleMetadataAttribute {
+    pub name: String,
+    pub arguments: Vec<MetadataLiteral>,
+    pub range: SourceRange,
+}
+
+/// Inert literal value in a module/package header attribute.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MetadataLiteral {
+    Unit,
+    Bool(bool),
+    Int(String),
+    Float(f64),
+    String(String),
+    Symbol(String),
+    Tuple(Vec<MetadataLiteral>),
+    Record(Vec<(String, MetadataLiteral)>),
 }
 
 // Note: `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`

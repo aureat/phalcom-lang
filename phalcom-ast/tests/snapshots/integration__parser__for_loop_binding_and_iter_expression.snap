@@ -1,9 +1,16 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 299
 expression: "parse(\"for (item in makeList(3)) { total = total + item }\")"
 ---
 Program {
+    preamble: ModulePreamble {
+        metadata: [],
+        dependencies: [],
+        range: CopyRange {
+            start: 0,
+            end: 0,
+        },
+    },
     statements: [
         For(
             ForStatement {

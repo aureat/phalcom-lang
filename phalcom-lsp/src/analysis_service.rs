@@ -7,7 +7,7 @@ use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use phalcom_ast::ast::{Program, Statement};
+use phalcom_ast::ast::Program;
 use tokio::sync::mpsc;
 use tower_lsp::lsp_types::Url;
 
@@ -1062,11 +1062,16 @@ fn extend_import_closure_with_source(
     seen: &mut BTreeSet<Url>,
     batch: &mut Vec<(Url, FileRevision, Arc<str>, Program)>,
 ) {
-    for statement in &program.statements {
-        let Statement::Import(import) = statement else {
-            continue;
+    for dep in &program.preamble.dependencies {
+        let path_str = match dep {
+            phalcom_ast::ast::DependencyDecl::Import(imp) => match imp {
+                phalcom_ast::ast::ImportDecl::Module(m) => m.path.to_string(),
+                phalcom_ast::ast::ImportDecl::Selective(s) => s.path.to_string(),
+            },
+            phalcom_ast::ast::DependencyDecl::ReExport(r) => r.path.to_string(),
+            phalcom_ast::ast::DependencyDecl::Expose(_) => continue,
         };
-        let Some(import_uri) = resolve_source_import(uri, &import.path) else {
+        let Some(import_uri) = resolve_source_import(uri, &path_str) else {
             continue;
         };
         let Some((revision, imported_text, imported_program)) = source_catalog.get(&import_uri) else {
@@ -1081,11 +1086,39 @@ fn extend_import_closure_with_source(
 
 fn resolve_source_import(uri: &Url, import: &str) -> Option<Url> {
     let source = uri.to_file_path().ok()?;
-    let mut candidate = source.parent()?.join(import);
-    if candidate.extension().is_none() {
-        candidate.set_extension("ph");
+    let dot_count = import.bytes().take_while(|byte| *byte == b'.').count();
+    if dot_count == 0 {
+        // Absolute logical roots require ProjectUniverse context. The LSP
+        // source catalog currently follows relative imports only.
+        return None;
     }
-    Url::from_file_path(candidate.canonicalize().ok()?).ok()
+    let logical_path = import.get(dot_count..)?;
+    if logical_path.is_empty() {
+        return None;
+    }
+    let mut base = source.parent()?.to_path_buf();
+    for _ in 1..dot_count {
+        base.pop();
+    }
+    let segments: Vec<&str> = logical_path.split('.').collect();
+    if segments.iter().any(|segment| segment.is_empty()) {
+        return None;
+    }
+    for kebab in [false, true] {
+        let mut candidate = base.clone();
+        for segment in &segments {
+            candidate.push(if kebab { segment.replace('_', "-") } else { (*segment).to_string() });
+        }
+        if candidate.extension().is_none() {
+            candidate.set_extension("ph");
+        }
+        if let Ok(path) = candidate.canonicalize()
+            && let Ok(url) = Url::from_file_path(path)
+        {
+            return Some(url);
+        }
+    }
+    None
 }
 
 fn canonical_uri(uri: &Url) -> Url {

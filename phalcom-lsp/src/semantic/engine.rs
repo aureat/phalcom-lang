@@ -803,7 +803,7 @@ class Service {
         let provider = Url::parse("file:///task17-provider.ph").expect("provider URI");
         let consumer = Url::parse("file:///task17-consumer.ph").expect("consumer URI");
         let provider_text = "class A {\n  @constructor new() { }\n  f() { 1 }\n  g() { 100 }\n}\n";
-        let consumer_text = "import \"./task17-provider\" as Provider\nclass B {\n  h() { Provider.A.new().f() }\n}\n";
+        let consumer_text = "import .task17_provider as Provider\nclass B {\n  h() { Provider.A.new().f() }\n}\n";
         (provider, consumer, provider_text, consumer_text)
     }
 

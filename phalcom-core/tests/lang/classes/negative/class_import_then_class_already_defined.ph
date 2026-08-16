@@ -1,6 +1,5 @@
-// U-CLASSCLOSE §8, decision 0066 ruling 8: an `import … as Name` and a
-// `class Name` in the same module must collide, same diagnostic as two
-// classes.
+// Modules v1 retirement guard: physical imports are rejected before the old
+// U-CLASSCLOSE import/class collision can be reached.
 import "../lib/point_holder" as Point
 
 class Point {}

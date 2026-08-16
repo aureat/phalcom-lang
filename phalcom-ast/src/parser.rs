@@ -441,7 +441,40 @@ impl<'source> Parser<'source> {
     /// `class` declaration or a `;`/newline-separated run of small statements);
     /// on failure the error is recorded and the parser synchronises to the next
     /// statement boundary before continuing.
+    // ── Program / statements ─────────────────────────────────────────────────
+
+    /// Parses a whole program in three distinct structural phases:
+    /// 1. Module/package header attributes (`@!`)
+    /// 2. Dependency preamble (`import`, `from ... import`, direct `export ... from`, `expose`)
+    /// 3. Ordinary module body statements (including local `export Name`)
     fn parse_program(&mut self) -> Program {
+        let mut preamble = ModulePreamble::default();
+
+        // 1. Consume module/package header attributes (@!)
+        let header_start = self.cur_start();
+        match self.parse_module_metadata_header() {
+            Ok(metadata) => {
+                preamble.metadata = metadata;
+            }
+            Err(err) => {
+                self.errors.push(err);
+                self.synchronize();
+            }
+        }
+
+        // 2. Consume dependency preamble (import, from, direct export ... from, expose)
+        match self.parse_module_preamble_deps() {
+            Ok(deps) => {
+                preamble.dependencies = deps;
+            }
+            Err(err) => {
+                self.errors.push(err);
+                self.synchronize();
+            }
+        }
+        preamble.range = (header_start..self.prev_end).into();
+
+        // 3. Parse ordinary module body statements
         let mut statements = Vec::new();
         loop {
             self.skip_newlines();
@@ -458,7 +491,539 @@ impl<'source> Parser<'source> {
                 }
             }
         }
-        Program { statements }
+
+        Program { preamble, statements }
+    }
+
+    /// Consumes leading `@!` module/package header attributes.
+    fn parse_module_metadata_header(&mut self) -> ParserResult<Vec<ModuleMetadataAttribute>> {
+        let mut metadata = Vec::new();
+        loop {
+            self.skip_newlines();
+            if !matches!(self.peek(), Token::AtBang) {
+                break;
+            }
+            let start = self.cur_start();
+            self.advance(); // consume '@!'
+            let name = self.expect_identifier(&["attribute name"])?;
+            let arguments = if self.eat(&Token::LParen) {
+                let args = self.parse_metadata_argument_list()?;
+                self.expect(&Token::RParen, &["\")\""])?;
+                args
+            } else {
+                Vec::new()
+            };
+            let range = (start..self.prev_end).into();
+            metadata.push(ModuleMetadataAttribute { name, arguments, range });
+            self.skip_newlines();
+        }
+        Ok(metadata)
+    }
+
+    /// Parses a parenthesized list of metadata literal arguments.
+    /// If named arguments like `key: val` are present, parses them as a record argument `MetadataLiteral::Record`.
+    fn parse_metadata_argument_list(&mut self) -> ParserResult<Vec<MetadataLiteral>> {
+        self.skip_newlines();
+        if matches!(self.peek(), Token::RParen) {
+            return Ok(Vec::new());
+        }
+        // If first token is `ident:` (named record args for the attribute):
+        if matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon) {
+            let mut fields = Vec::new();
+            loop {
+                self.skip_newlines();
+                let key = self.expect_identifier(&["record field key"])?;
+                self.expect(&Token::Colon, &["\":\""])?;
+                self.skip_newlines();
+                let val = self.parse_metadata_literal()?;
+                fields.push((key, val));
+                self.skip_newlines();
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                if matches!(self.peek(), Token::RParen) {
+                    break;
+                }
+            }
+            return Ok(vec![MetadataLiteral::Record(fields)]);
+        }
+
+        let mut args = Vec::new();
+        loop {
+            self.skip_newlines();
+            args.push(self.parse_metadata_literal()?);
+            self.skip_newlines();
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+            if matches!(self.peek(), Token::RParen) {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
+    /// Parses an inert metadata literal (unit, bool, int, float, string, symbol, tuple, record).
+    fn parse_metadata_literal(&mut self) -> ParserResult<MetadataLiteral> {
+        self.skip_newlines();
+        match self.peek().clone() {
+            Token::True => {
+                self.advance();
+                Ok(MetadataLiteral::Bool(true))
+            }
+            Token::False => {
+                self.advance();
+                Ok(MetadataLiteral::Bool(false))
+            }
+            Token::Int { digits, radix: _ } => {
+                self.advance();
+                Ok(MetadataLiteral::Int(digits))
+            }
+            Token::Float(f) => {
+                self.advance();
+                Ok(MetadataLiteral::Float(f))
+            }
+            Token::String(s) => {
+                self.advance();
+                Ok(MetadataLiteral::String(s))
+            }
+            Token::Hash => {
+                self.advance(); // '#'
+                let sym = self.expect_identifier(&["symbol name"])?;
+                Ok(MetadataLiteral::Symbol(sym))
+            }
+            Token::QuotedSymbol(s) => {
+                self.advance();
+                Ok(MetadataLiteral::Symbol(s))
+            }
+            Token::LParen => {
+                self.advance(); // '('
+                self.skip_newlines();
+                if self.eat(&Token::RParen) {
+                    return Ok(MetadataLiteral::Unit);
+                }
+                // Could be a tuple `(a, b)` or `(key: val, ...)`
+                // Check if first element is a record field `ident:`
+                if matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon) {
+                    let mut fields = Vec::new();
+                    loop {
+                        self.skip_newlines();
+                        let key = self.expect_identifier(&["record field key"])?;
+                        self.expect(&Token::Colon, &["\":\""])?;
+                        self.skip_newlines();
+                        let val = self.parse_metadata_literal()?;
+                        fields.push((key, val));
+                        self.skip_newlines();
+                        if !self.eat(&Token::Comma) {
+                            break;
+                        }
+                        if matches!(self.peek(), Token::RParen) {
+                            break; // trailing comma
+                        }
+                    }
+                    self.expect(&Token::RParen, &["\")\""])?;
+                    Ok(MetadataLiteral::Record(fields))
+                } else {
+                    let mut elements = Vec::new();
+                    loop {
+                        self.skip_newlines();
+                        elements.push(self.parse_metadata_literal()?);
+                        self.skip_newlines();
+                        if !self.eat(&Token::Comma) {
+                            break;
+                        }
+                        if matches!(self.peek(), Token::RParen) {
+                            break; // trailing comma
+                        }
+                    }
+                    self.expect(&Token::RParen, &["\")\""])?;
+                    Ok(MetadataLiteral::Tuple(elements))
+                }
+            }
+            Token::RecordLBrace => {
+                self.advance(); // '#{'
+                let mut fields = Vec::new();
+                loop {
+                    self.skip_newlines();
+                    if matches!(self.peek(), Token::RBrace) {
+                        break;
+                    }
+                    let key = self.expect_identifier(&["record field key"])?;
+                    self.expect(&Token::Colon, &["\":\""])?;
+                    self.skip_newlines();
+                    let val = self.parse_metadata_literal()?;
+                    fields.push((key, val));
+                    self.skip_newlines();
+                    if !self.eat(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.expect(&Token::RBrace, &["\"}\""])?;
+                Ok(MetadataLiteral::Record(fields))
+            }
+            _ => Err(self.error_here(strs(&["metadata literal (bool, number, string, symbol, tuple, record)"]))),
+        }
+    }
+
+    /// Consumes preamble dependency declarations (`import`, `from`, `export ... from`, `expose`).
+    fn parse_module_preamble_deps(&mut self) -> ParserResult<Vec<DependencyDecl>> {
+        let mut deps = Vec::new();
+        loop {
+            self.skip_newlines();
+            match self.peek() {
+                Token::Import => {
+                    let decl = self.parse_module_import()?;
+                    deps.push(DependencyDecl::Import(decl));
+                }
+                Token::From => {
+                    let decl = self.parse_selective_import()?;
+                    deps.push(DependencyDecl::Import(decl));
+                }
+                Token::Expose => {
+                    let decl = self.parse_expose_decl()?;
+                    deps.push(DependencyDecl::Expose(decl));
+                }
+                Token::Export => {
+                    // Check if direct re-export: `export ... from .path` vs local export: `export Name`
+                    // We lookahead: if after items there is `from`, it is ReExport.
+                    // If not, this terminates preamble and begins body.
+                    if self.is_direct_reexport_ahead() {
+                        let decl = self.parse_reexport_decl()?;
+                        deps.push(DependencyDecl::ReExport(decl));
+                    } else {
+                        break;
+                    }
+                }
+                Token::AtBang => {
+                    let start = self.cur_start();
+                    self.advance();
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(
+                            "module.attribute_outside_header: @! attributes must appear at the top of the file before imports".to_string(),
+                        ),
+                        range: start..self.prev_end,
+                    });
+                }
+                _ => break,
+            }
+            // Consume terminating newline or semicolon after preamble declaration
+            match self.peek() {
+                Token::Newline | Token::Semicolon => {
+                    self.advance();
+                }
+                Token::Eof => break,
+                _ => return Err(self.error_here(strs(&["newline", "\";\""]))),
+            }
+        }
+        Ok(deps)
+    }
+
+    /// Lookahead helper to distinguish `export Item from .path` (preamble) from `export Item` (body).
+    fn is_direct_reexport_ahead(&self) -> bool {
+        let mut p = self.pos + 1; // skip Token::Export
+        // Skip over ( items... ) or single/multiple items up to newline/semicolon/EOF
+        let mut paren_depth = 0;
+        while p < self.tokens.len() {
+            let tok = &self.tokens[p].token;
+            match tok {
+                Token::LParen => paren_depth += 1,
+                Token::RParen => {
+                    if paren_depth > 0 {
+                        paren_depth -= 1;
+                    }
+                }
+                Token::From if paren_depth == 0 => return true,
+                Token::Newline | Token::Semicolon | Token::Eof if paren_depth == 0 => return false,
+                _ => {}
+            }
+            p += 1;
+        }
+        false
+    }
+
+    /// Parses an import path: absolute `geometry.point` or relative `.point`, `..units`.
+    fn parse_import_path(&mut self) -> ParserResult<ImportPath> {
+        let start = self.cur_start();
+        let root = if matches!(self.peek(), Token::Dot | Token::DotDot | Token::DotDotDot) {
+            let dots_start = self.cur_start();
+            let mut dots: u16 = 0;
+            while matches!(self.peek(), Token::Dot | Token::DotDot | Token::DotDotDot) {
+                match self.peek() {
+                    Token::Dot => {
+                        dots += 1;
+                        self.advance();
+                    }
+                    Token::DotDot => {
+                        dots += 2;
+                        self.advance();
+                    }
+                    Token::DotDotDot => {
+                        dots += 3;
+                        self.advance();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            let dots_range = (dots_start..self.prev_end).into();
+            ImportRoot::Relative { dots, range: dots_range }
+        } else {
+            let seg_start = self.cur_start();
+            let name = self.expect_identifier(&["module path root"])?;
+            let seg_range = (seg_start..self.prev_end).into();
+            ImportRoot::Absolute(PathSegment { name, range: seg_range })
+        };
+
+        let mut segments = Vec::new();
+        // If relative with 1 or more dots, the next identifier is the first segment (if present)
+        if matches!(root, ImportRoot::Relative { .. }) {
+            if matches!(self.peek(), Token::Identifier(_)) {
+                let seg_start = self.cur_start();
+                let name = self.expect_identifier(&["path segment"])?;
+                let seg_range = (seg_start..self.prev_end).into();
+                segments.push(PathSegment { name, range: seg_range });
+            }
+        }
+
+        while self.eat(&Token::Dot) {
+            let seg_start = self.cur_start();
+            let name = self.expect_identifier(&["path segment"])?;
+            let seg_range = (seg_start..self.prev_end).into();
+            segments.push(PathSegment { name, range: seg_range });
+        }
+
+        let range = (start..self.prev_end).into();
+        Ok(ImportPath { root, segments, range })
+    }
+
+    /// Parses whole-module import: `import path (as Alias)?`.
+    fn parse_module_import(&mut self) -> ParserResult<ImportDecl> {
+        let start = self.cur_start();
+        self.advance(); // consume 'import'
+        if matches!(self.peek(), Token::String(_)) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(
+                    "physical string imports `import \"...\"` have been retired; use logical imports like `import geometry.point`".to_string(),
+                ),
+                range: start..self.tokens[self.pos].end,
+            });
+        }
+        let path = self.parse_import_path()?;
+        let alias = if self.eat(&Token::As) {
+            let alias_start = self.cur_start();
+            let name = self.expect_identifier(&["import alias"])?;
+            let range = (alias_start..self.prev_end).into();
+            Some(ImportAlias { name, range })
+        } else {
+            None
+        };
+        let range = (start..self.prev_end).into();
+        Ok(ImportDecl::Module(ModuleImportDecl { path, alias, range }))
+    }
+
+    /// Parses selective import: `from path import (Item, ...) | Item, ...`.
+    fn parse_selective_import(&mut self) -> ParserResult<ImportDecl> {
+        let start = self.cur_start();
+        self.advance(); // consume 'from'
+        let path = self.parse_import_path()?;
+        self.expect(&Token::Import, &["\"import\""])?;
+        let items = self.parse_import_items()?;
+        let range = (start..self.prev_end).into();
+        Ok(ImportDecl::Selective(SelectiveImportDecl { path, items, range }))
+    }
+
+    /// Parses import items list: flat or grouped `( ... )`.
+    fn parse_import_items(&mut self) -> ParserResult<Vec<ImportItem>> {
+        let mut items = Vec::new();
+        if self.eat(&Token::LParen) {
+            self.skip_newlines();
+            while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                let item_start = self.cur_start();
+                let name_start = self.cur_start();
+                let name = self.expect_identifier(&["imported item name"])?;
+                let name_range = (name_start..self.prev_end).into();
+                let alias = if self.eat(&Token::As) {
+                    let alias_start = self.cur_start();
+                    let alias_name = self.expect_identifier(&["import alias"])?;
+                    let alias_range = (alias_start..self.prev_end).into();
+                    Some(ImportAlias {
+                        name: alias_name,
+                        range: alias_range,
+                    })
+                } else {
+                    None
+                };
+                let item_range = (item_start..self.prev_end).into();
+                items.push(ImportItem {
+                    name,
+                    name_range,
+                    alias,
+                    range: item_range,
+                });
+                self.skip_newlines();
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                self.skip_newlines();
+            }
+            self.skip_newlines();
+            self.expect(&Token::RParen, &["\")\""])?;
+        } else {
+            loop {
+                let item_start = self.cur_start();
+                let name_start = self.cur_start();
+                let name = self.expect_identifier(&["imported item name"])?;
+                let name_range = (name_start..self.prev_end).into();
+                let alias = if self.eat(&Token::As) {
+                    let alias_start = self.cur_start();
+                    let alias_name = self.expect_identifier(&["import alias"])?;
+                    let alias_range = (alias_start..self.prev_end).into();
+                    Some(ImportAlias {
+                        name: alias_name,
+                        range: alias_range,
+                    })
+                } else {
+                    None
+                };
+                let item_range = (item_start..self.prev_end).into();
+                items.push(ImportItem {
+                    name,
+                    name_range,
+                    alias,
+                    range: item_range,
+                });
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+            }
+        }
+        Ok(items)
+    }
+
+    /// Parses direct re-export: `export Item, ... from path`.
+    fn parse_reexport_decl(&mut self) -> ParserResult<ReExportDecl> {
+        let start = self.cur_start();
+        self.advance(); // consume 'export'
+        let items = self.parse_export_items()?;
+        self.expect(&Token::From, &["\"from\""])?;
+        let path = self.parse_import_path()?;
+        let range = (start..self.prev_end).into();
+        Ok(ReExportDecl { path, items, range })
+    }
+
+    /// Parses local export declaration in body: `export Item, ...`.
+    fn parse_export_decl(&mut self) -> ParserResult<ExportDecl> {
+        let start = self.cur_start();
+        self.advance(); // consume 'export'
+        let items = self.parse_export_items()?;
+        let range = (start..self.prev_end).into();
+        Ok(ExportDecl { items, range })
+    }
+
+    /// Parses export items list: flat or grouped `( ... )`.
+    fn parse_export_items(&mut self) -> ParserResult<Vec<ExportItem>> {
+        let mut items = Vec::new();
+        if self.eat(&Token::LParen) {
+            self.skip_newlines();
+            while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                let item_start = self.cur_start();
+                let name_start = self.cur_start();
+                let local_or_remote_name = self.expect_identifier(&["exported item name"])?;
+                let name_range = (name_start..self.prev_end).into();
+                let alias = if self.eat(&Token::As) {
+                    let alias_start = self.cur_start();
+                    let alias_name = self.expect_identifier(&["export alias"])?;
+                    let alias_range = (alias_start..self.prev_end).into();
+                    Some(ExportAlias {
+                        name: alias_name,
+                        range: alias_range,
+                    })
+                } else {
+                    None
+                };
+                let item_range = (item_start..self.prev_end).into();
+                items.push(ExportItem {
+                    local_or_remote_name,
+                    name_range,
+                    alias,
+                    range: item_range,
+                });
+                self.skip_newlines();
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                self.skip_newlines();
+            }
+            self.skip_newlines();
+            self.expect(&Token::RParen, &["\")\""])?;
+        } else {
+            loop {
+                let item_start = self.cur_start();
+                let name_start = self.cur_start();
+                let local_or_remote_name = self.expect_identifier(&["exported item name"])?;
+                let name_range = (name_start..self.prev_end).into();
+                let alias = if self.eat(&Token::As) {
+                    let alias_start = self.cur_start();
+                    let alias_name = self.expect_identifier(&["export alias"])?;
+                    let alias_range = (alias_start..self.prev_end).into();
+                    Some(ExportAlias {
+                        name: alias_name,
+                        range: alias_range,
+                    })
+                } else {
+                    None
+                };
+                let item_range = (item_start..self.prev_end).into();
+                items.push(ExportItem {
+                    local_or_remote_name,
+                    name_range,
+                    alias,
+                    range: item_range,
+                });
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+            }
+        }
+        Ok(items)
+    }
+
+    /// Parses path exposure declaration: `expose .child` (package.ph only).
+    fn parse_expose_decl(&mut self) -> ParserResult<ExposeDecl> {
+        let start = self.cur_start();
+        self.advance(); // consume 'expose'
+
+        // Operand must be a single dot followed by single immediate child identifier
+        if matches!(self.peek(), Token::DotDot | Token::DotDotDot) {
+            let err_start = self.cur_start();
+            self.advance();
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("expose operand cannot ascend with `..`; must be immediate child `.child`".to_string()),
+                range: err_start..self.prev_end,
+            });
+        }
+
+        if !self.eat(&Token::Dot) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("expose operand must be an immediate child starting with `.`, e.g. `expose .child`".to_string()),
+                range: start..self.tokens[self.pos].end,
+            });
+        }
+
+        let child_start = self.cur_start();
+        let name = self.expect_identifier(&["immediate child name"])?;
+        let child_range = (child_start..self.prev_end).into();
+
+        if matches!(self.peek(), Token::Dot) {
+            self.advance();
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("expose operand must be a single immediate child segment (cannot be multi-segment like `.a.b`)".to_string()),
+                range: child_start..self.tokens[self.pos].end,
+            });
+        }
+
+        let child = PathSegment { name, range: child_range };
+        let range = (start..self.prev_end).into();
+        Ok(ExposeDecl { child, range })
     }
 
     /// Parses one top-level item into `out`.
@@ -517,7 +1082,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Let | Token::Const | Token::Return | Token::Import => return,
+                Token::Class | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
                 _ => {
                     self.advance();
                 }
@@ -525,7 +1090,7 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a small (single-line) statement: `let`, `return`, or an
+    /// Parses a small (single-line) statement: `let`, `return`, `export`, or an
     /// expression statement.
     ///
     /// # Errors
@@ -539,7 +1104,37 @@ impl<'source> Parser<'source> {
             Token::For => self.parse_for(),
             Token::Throw => self.parse_throw(),
             Token::Try => self.parse_try(),
-            Token::Import => self.parse_import(),
+            Token::Export => {
+                let export_decl = self.parse_export_decl()?;
+                Ok(Statement::Export(export_decl))
+            }
+            Token::Import | Token::From | Token::Expose => {
+                let start = self.cur_start();
+                let tok_name = match self.peek() {
+                    Token::Import => "import",
+                    Token::From => "from ... import",
+                    Token::Expose => "expose",
+                    _ => unreachable!(),
+                };
+                self.advance();
+                Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!(
+                        "import.outside_preamble: static `{}` declarations must appear in the module dependency preamble at the top of the file",
+                        tok_name
+                    )),
+                    range: start..self.prev_end,
+                })
+            }
+            Token::AtBang => {
+                let start = self.cur_start();
+                self.advance();
+                Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(
+                        "module.attribute_outside_header: @! attributes must appear at the top of the file before imports".to_string(),
+                    ),
+                    range: start..self.prev_end,
+                })
+            }
             Token::Break => {
                 let start = self.cur_start();
                 self.advance(); // 'break'
@@ -560,18 +1155,6 @@ impl<'source> Parser<'source> {
 
     /// Parses `for (binding in iter) { body }` into a [`Statement::For`]
     /// (ADR-0035 §2, iteration.md §2, U-ITER specification §1.1).
-    ///
-    /// Unlike [`Self::parse_while`], which desugars to a `whileTrue` send at
-    /// parse time, `for` is kept as a dedicated node: the compiler lowers it to
-    /// an inlined cursor `while` over the `iterate(_)` / `iteratorValue(_)`
-    /// protocol, which cannot be expressed as a single sacred send. `in` is a
-    /// **contextual keyword** (DEC-ITER-B): its [`Token::In`] is consumed only
-    /// here, so an identifier `in` elsewhere keeps working.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the parentheses, the loop-variable identifier, the
-    /// `in` separator, the iterable expression, or the brace body is malformed.
     fn parse_for(&mut self) -> ParserResult<Statement> {
         let start = self.cur_start();
         self.advance(); // 'for'
@@ -584,7 +1167,6 @@ impl<'source> Parser<'source> {
         self.expect(&Token::RParen, &["\")\""])?;
         let body = match self.parse_brace_block()? {
             Expr::Block(block) => block.body,
-            // `parse_brace_block` always yields an `Expr::Block`.
             _ => unreachable!("parse_brace_block must produce a block"),
         };
         let range = (start..self.prev_end).into();
@@ -598,57 +1180,12 @@ impl<'source> Parser<'source> {
     }
 
     /// Parses `throw expr` — surface sugar for `expr.raise()`
-    /// ([error-handling.md §1](../../../docs/spec/v0.2/error-handling.md),
-    /// [ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).
-    /// The non-`Error`-literal compile check is the compiler's job
-    /// (`phalcom-core/src/compiler/lib.rs`), not the parser's — this only
-    /// builds the node.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the thrown expression is malformed.
     fn parse_throw(&mut self) -> ParserResult<Statement> {
         let start = self.cur_start();
         self.advance(); // 'throw'
         let expr = self.parse_expr()?;
         let range = (start..self.prev_end).into();
         Ok(Statement::Throw { expr, range })
-    }
-
-    /// Parses `import "path" as Name` (U15, DEC-U15 A+A).
-    ///
-    /// `as` is [`Token::As`], a reserved word (unlike `on`'s
-    /// contextual-keyword precedent, `as` was already lexed as its own
-    /// token, unused until this unit). Grammar: `import` STRING `as` IDENT.
-    /// The binding is mandatory in Draft 0.1 (whole-module binding only,
-    /// DEC-U15); there is no bare `import "path"` and no selective `from`
-    /// form yet.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the path is not a string literal, `as` is
-    /// missing, or the binding name is not an identifier.
-    fn parse_import(&mut self) -> ParserResult<Statement> {
-        let start = self.cur_start();
-        self.advance(); // 'import'
-        let path = match self.peek().clone() {
-            Token::String(value) => {
-                self.advance();
-                value
-            }
-            _ => return Err(self.error_here(strs(&["string literal"]))),
-        };
-        self.expect(&Token::As, &["\"as\""])?;
-        let binding_start = self.cur_start();
-        let binding = self.expect_identifier(&["identifier"])?;
-        let binding_range = (binding_start..self.prev_end).into();
-        let range = (start..self.prev_end).into();
-        Ok(Statement::Import(ImportStatement {
-            path,
-            binding,
-            binding_range,
-            range,
-        }))
     }
 
     /// Parses `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`
@@ -1048,6 +1585,9 @@ impl<'source> Parser<'source> {
             Token::Break => "break",
             Token::Continue => "continue",
             Token::Import => "import",
+            Token::From => "from",
+            Token::Export => "export",
+            Token::Expose => "expose",
             Token::SelfKw => "self",
             Token::Super => "super",
             Token::In => "in",
@@ -1702,6 +2242,9 @@ impl<'source> Parser<'source> {
             Token::And => "and".to_string(),
             Token::Or => "or".to_string(),
             Token::Is => "is".to_string(),
+            // `from` is a module-syntax keyword, but remains valid as a
+            // selector for existing APIs such as `Map.from(...)`.
+            Token::From => "from".to_string(),
             _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
         };
         self.advance();
@@ -2581,7 +3124,10 @@ impl<'source> Parser<'source> {
                         }],
                         self.prev_end,
                     )?;
-                    trailing_target = TrailingTarget::None;
+                    // Keep eligibility for a following labelled closure on
+                    // the same member send, including when it starts after a
+                    // newline (`send { ... }\n  label: { ... }`).
+                    trailing_target = TrailingTarget::MemberSend;
                     continue;
                 }
                 if let Some((args, end)) = self.parse_trailing_closure_arguments()? {
@@ -2916,6 +3462,12 @@ impl<'source> Parser<'source> {
             Token::Try => {
                 self.advance();
                 Ok("try".to_string())
+            }
+            // `from` is reserved in module preambles but remains valid in
+            // message-send position (`Map.from(...)`).
+            Token::From => {
+                self.advance();
+                Ok("from".to_string())
             }
             Token::Plus => {
                 self.advance();
@@ -4649,6 +5201,12 @@ mod tests {
         };
         assert_eq!(call.method, "match");
         assert_eq!(call.args.iter().map(static_pack_label).collect::<Vec<_>>(), [Some("ok"), Some("err")]);
+    }
+
+    #[test]
+    fn labelled_trailing_closure_can_follow_bare_closure_on_newline() {
+        let parsed = parse("const x = 5.ifTrue { \"a\" }\n  ifFalse: || { \"b\" }", 0);
+        assert!(parsed.errors.is_empty(), "unexpected parse errors: {:?}", parsed.errors);
     }
 
     #[test]

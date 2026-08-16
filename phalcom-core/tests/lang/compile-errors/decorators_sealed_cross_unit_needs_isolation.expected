@@ -1,1 +1,1 @@
-unknown superclass 'Shape': it must be a class defined before 'Square'
+physical string imports `import "..."` have been retired; use logical imports like `import geometry.point`

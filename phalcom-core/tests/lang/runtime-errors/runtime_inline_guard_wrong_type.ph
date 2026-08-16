@@ -7,6 +7,6 @@
 // fails with a clean "not found" rather than mis-executing the inline path.
 
 const x = 5.ifTrue { "a" }
-  ifFalse: { "b" }
+  ifFalse: || { "b" }
 
 System.print("Never reached to print: \(x)")

@@ -709,10 +709,46 @@ fn semantic_to_completion_item(member: &CompletionMember) -> CompletionItem {
 
 fn visible_names_at(db: &SemanticSnapshot, uri: &Url, program: &Program, offset: usize) -> Vec<String> {
     let mut names = db.visible_bindings_at(uri, offset).into_iter().map(|binding| binding.name).collect::<Vec<_>>();
+    for dep in &program.preamble.dependencies {
+        match dep {
+            phalcom_ast::ast::DependencyDecl::Import(imp) => match imp {
+                phalcom_ast::ast::ImportDecl::Module(m) => {
+                    let name = if let Some(alias) = &m.alias {
+                        alias.name.clone()
+                    } else if m.path.segments.is_empty() {
+                        match &m.path.root {
+                            phalcom_ast::ast::ImportRoot::Absolute(seg) => seg.name.clone(),
+                            phalcom_ast::ast::ImportRoot::Relative { .. } => String::new(),
+                        }
+                    } else {
+                        m.path.segments.last().unwrap().name.clone()
+                    };
+                    if !name.is_empty() {
+                        names.push(name);
+                    }
+                }
+                phalcom_ast::ast::ImportDecl::Selective(s) => {
+                    for item in &s.items {
+                        let name = if let Some(alias) = &item.alias {
+                            alias.name.clone()
+                        } else {
+                            item.name.clone()
+                        };
+                        names.push(name);
+                    }
+                }
+            },
+            phalcom_ast::ast::DependencyDecl::ReExport(r) => {
+                for item in &r.items {
+                    names.push(item.local_or_remote_name.clone());
+                }
+            }
+            phalcom_ast::ast::DependencyDecl::Expose(_) => {}
+        }
+    }
     for statement in &program.statements {
         match statement {
             Statement::Class(class) => names.push(class.name.clone()),
-            Statement::Import(import) => names.push(import.binding.clone()),
             Statement::Let(binding) if binding.range.start < offset => collect_pattern_names(&binding.pattern, &mut names),
             Statement::For(for_statement) if for_statement.range.contains(offset) => names.push(for_statement.binding.clone()),
             _ => {}

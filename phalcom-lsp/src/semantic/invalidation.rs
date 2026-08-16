@@ -125,14 +125,45 @@ pub fn classify_source_change(module: &ModuleId, old: Option<&FileSourceSnapshot
 }
 
 fn imports_of(program: &Program) -> Vec<(String, String)> {
-    program
-        .statements
-        .iter()
-        .filter_map(|statement| {
-            let Statement::Import(import) = statement else { return None };
-            Some((import.path.clone(), import.binding.clone()))
-        })
-        .collect()
+    let mut out = Vec::new();
+    for dep in &program.preamble.dependencies {
+        match dep {
+            phalcom_ast::ast::DependencyDecl::Import(imp) => match imp {
+                phalcom_ast::ast::ImportDecl::Module(m) => {
+                    let binding = if let Some(alias) = &m.alias {
+                        alias.name.clone()
+                    } else if m.path.segments.is_empty() {
+                        match &m.path.root {
+                            phalcom_ast::ast::ImportRoot::Absolute(seg) => seg.name.clone(),
+                            phalcom_ast::ast::ImportRoot::Relative { .. } => String::new(),
+                        }
+                    } else {
+                        m.path.segments.last().unwrap().name.clone()
+                    };
+                    out.push((m.path.to_string(), binding));
+                }
+                phalcom_ast::ast::ImportDecl::Selective(s) => {
+                    let path_str = s.path.to_string();
+                    for item in &s.items {
+                        let binding = if let Some(alias) = &item.alias {
+                            alias.name.clone()
+                        } else {
+                            item.name.clone()
+                        };
+                        out.push((path_str.clone(), binding));
+                    }
+                }
+            },
+            phalcom_ast::ast::DependencyDecl::ReExport(r) => {
+                let path_str = r.path.to_string();
+                for item in &r.items {
+                    out.push((path_str.clone(), item.local_or_remote_name.clone()));
+                }
+            }
+            phalcom_ast::ast::DependencyDecl::Expose(_) => {}
+        }
+    }
+    out
 }
 
 fn declaration_fingerprint(surface: &ModuleSurface) -> DeclarationFingerprint {
@@ -195,7 +226,7 @@ fn top_level_source(source: &FileSourceSnapshot) -> Vec<String> {
         .statements
         .iter()
         .filter_map(|statement| {
-            if matches!(statement, Statement::Class(_) | Statement::Import(_)) {
+            if matches!(statement, Statement::Class(_) | Statement::Export(_)) {
                 return None;
             }
             let range = statement_range(statement);
@@ -215,7 +246,7 @@ fn statement_range(statement: &Statement) -> phalcom_common::range::SourceRange 
         Statement::Return(returned) => returned.range,
         Statement::Expr { range, .. } | Statement::Break { range } | Statement::Continue { range } | Statement::Throw { range, .. } => *range,
         Statement::For(for_statement) => for_statement.range,
-        Statement::Import(import) => import.range,
+        Statement::Export(export_decl) => export_decl.range,
     }
 }
 
@@ -282,9 +313,9 @@ mod tests {
     #[test]
     fn import_and_declaration_edits_have_distinct_kinds() {
         let module = ModuleId::new("file:///tmp/change.ph");
-        let old = source(module.clone(), "import \"./one\" as One\nclass A { run() {} }\n");
-        let import_edit = source(module.clone(), "import \"./two\" as Two\nclass A { run() {} }\n");
-        let declaration_edit = source(module.clone(), "import \"./one\" as One\nclass A { run(_) {} }\n");
+        let old = source(module.clone(), "import .one as One\nclass A { run() {} }\n");
+        let import_edit = source(module.clone(), "import .two as Two\nclass A { run() {} }\n");
+        let declaration_edit = source(module.clone(), "import .one as One\nclass A { run(_) {} }\n");
         assert_eq!(classify_source_change(&module, Some(&old), Some(&import_edit)), SourceChangeKind::ImportSurface);
         assert_eq!(
             classify_source_change(&module, Some(&old), Some(&declaration_edit)),

@@ -41,7 +41,7 @@ pub use facts::{
     ParameterContributions, ParameterFacts, ParameterSlot, ValueShape,
 };
 pub use flow::join_values;
-pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, FieldId, ModuleId};
+pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, DocumentModuleMap, FieldId, ModuleId};
 pub use invalidation::{InvalidationQueue, SourceChangeKind, classify_source_change};
 pub use module_graph::{ImportEdge, ModuleGraph};
 pub use occurrence::{OccurrenceIndex, OccurrenceRole, SemanticOccurrence, SemanticOccurrenceKind, SemanticTarget};
@@ -1009,7 +1009,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
         let provider_path = root.join("provider.ph");
         let consumer_path = root.join("consumer.ph");
         let provider_text = "class Product { run() { } }\nclass Factory { make() { Product.new() } }\nclass Service { consume(_ value) { value } }\n";
-        let consumer_text = "import \"./provider\" as Provider\nlet product = Provider.Factory.new().make()\nlet consumed = Provider.Service.new().consume(Provider.Product.new())\n";
+        let consumer_text = "import .provider as Provider\nlet product = Provider.Factory.new().make()\nlet consumed = Provider.Service.new().consume(Provider.Product.new())\n";
         std::fs::write(&provider_path, provider_text).unwrap();
         std::fs::write(&consumer_path, consumer_text).unwrap();
         let provider_uri = Url::from_file_path(&provider_path).unwrap();
@@ -1059,7 +1059,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
             (
                 consumer.clone(),
                 FileRevision(1),
-                parse("import \"./provider\" as Provider\nlet product = Provider.Product.new()\n", 0).program,
+                parse("import .provider as Provider\nlet product = Provider.Product.new()\n", 0).program,
             ),
         ]);
         db.update_file(&provider, FileRevision(2), &parse("class Product { newMethod() { } }", 0).program);
@@ -1075,7 +1075,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
         db.update_core(FileRevision(1), &bundled.program);
         let provider = uri("file:///created-provider.ph");
         let consumer = uri("file:///created-consumer.ph");
-        db.update_file(&consumer, FileRevision(1), &parse("import \"./created-provider\" as Provider\n", 0).program);
+        db.update_file(&consumer, FileRevision(1), &parse("import .created_provider as Provider\n", 0).program);
         db.update_file(&provider, FileRevision(1), &parse("class Product { }", 0).program);
         assert!(db.imports(&consumer)[0].target.is_some());
         assert!(db.last_rebuild_trace().unwrap().modules_recomputed.contains(&ModuleId::from_uri(&consumer)));
@@ -1090,11 +1090,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
         let consumer = uri("file:///removed-consumer.ph");
         db.update_files_batch(vec![
             (provider.clone(), FileRevision(1), parse("class Product { }", 0).program),
-            (
-                consumer.clone(),
-                FileRevision(1),
-                parse("import \"./removed-provider\" as Provider\n", 0).program,
-            ),
+            (consumer.clone(), FileRevision(1), parse("import .removed_provider as Provider\n", 0).program),
         ]);
         db.remove_file(&provider);
         assert!(db.imports(&consumer)[0].target.is_none());
@@ -1110,7 +1106,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
         let caller = uri("file:///parameter-caller.ph");
         let provider_text = "class Cat { catOnly() { } }\nclass Dog { dogOnly() { } }\nclass Service { consume(_ value) { value } }\n";
         db.update_file(&provider, FileRevision(1), &parse(provider_text, 0).program);
-        let cat_call = "import \"./parameter-provider\" as Provider\nProvider.Service.new().consume(Provider.Cat.new())\n";
+        let cat_call = "import .parameter_provider as Provider\nProvider.Service.new().consume(Provider.Cat.new())\n";
         db.update_file(&caller, FileRevision(1), &parse(cat_call, 0).program);
         let service = CallableId {
             owner: ClassId::new(ModuleId::from_uri(&provider), "Service"),
@@ -1118,7 +1114,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
             side: DispatchSide::Instance,
         };
         assert!(matches!(db.parameter_at(&service, "value").unwrap().shape, ValueShape::Instance(ClassId { name, .. }) if name == "Cat"));
-        let dog_call = "import \"./parameter-provider\" as Provider\nProvider.Service.new().consume(Provider.Dog.new())\n";
+        let dog_call = "import .parameter_provider as Provider\nProvider.Service.new().consume(Provider.Dog.new())\n";
         db.update_file(&caller, FileRevision(2), &parse(dog_call, 0).program);
         assert!(matches!(db.parameter_at(&service, "value").unwrap().shape, ValueShape::Instance(ClassId { name, .. }) if name == "Dog"));
     }
@@ -1136,7 +1132,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
             &first,
             FileRevision(1),
             &parse(
-                "import \"./join-provider\" as Provider\nclass Cat { catOnly() { } }\nProvider.Service.new().consume(Cat.new())\n",
+                "import .join_provider as Provider\nclass Cat { catOnly() { } }\nProvider.Service.new().consume(Cat.new())\n",
                 0,
             )
             .program,
@@ -1145,7 +1141,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
             &second,
             FileRevision(1),
             &parse(
-                "import \"./join-provider\" as Provider\nclass Dog { dogOnly() { } }\nProvider.Service.new().consume(Dog.new())\n",
+                "import .join_provider as Provider\nclass Dog { dogOnly() { } }\nProvider.Service.new().consume(Dog.new())\n",
                 0,
             )
             .program,
@@ -1195,7 +1191,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
             (
                 consumer.clone(),
                 FileRevision(1),
-                parse("import \"./first-user\" as First\nimport \"./second-user\" as Second\n", 0).program,
+                parse("import .first_user as First\nimport .second_user as Second\n", 0).program,
             ),
         ]);
         let imports = db.imports(&consumer);
@@ -1215,8 +1211,8 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
         let first = uri("file:///cycle-a.ph");
         let second = uri("file:///cycle-b.ph");
         db.update_files_batch(vec![
-            (first.clone(), FileRevision(1), parse("import \"./cycle-b\" as B\n", 0).program),
-            (second.clone(), FileRevision(1), parse("import \"./cycle-a\" as A\n", 0).program),
+            (first.clone(), FileRevision(1), parse("import .cycle_b as B\n", 0).program),
+            (second.clone(), FileRevision(1), parse("import .cycle_a as A\n", 0).program),
         ]);
         assert!(db.imports(&first)[0].target.is_some());
         assert!(db.imports(&second)[0].target.is_some());

@@ -177,6 +177,9 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Break
         | Token::Continue
         | Token::Import
+        | Token::From
+        | Token::Export
+        | Token::Expose
         | Token::SelfKw
         | Token::Super
         | Token::In
@@ -250,6 +253,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Arrow
         | Token::Question
         | Token::At
+        | Token::AtBang
         | Token::Underscore
         | Token::Eof => None,
 
@@ -567,7 +571,7 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<(SourceRange, Sema
             | Statement::Break { .. }
             | Statement::Continue { .. }
             | Statement::Throw { .. }
-            | Statement::Import(_) => {}
+            | Statement::Export(_) => {}
         }
     }
 }

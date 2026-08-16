@@ -60,6 +60,12 @@ pub enum Token {
     Continue,
     /// The `import` keyword.
     Import,
+    /// The `from` keyword.
+    From,
+    /// The `export` keyword.
+    Export,
+    /// The `expose` keyword.
+    Expose,
     /// The `self` keyword denoting the current receiver.
     SelfKw,
     /// The `super` keyword denoting the superclass receiver.
@@ -228,6 +234,8 @@ pub enum Token {
     Bang,
     /// The `@` punctuation mark.
     At,
+    /// The `@!` module/package header attribute token.
+    AtBang,
 
     /// The `+` addition operator.
     Plus,

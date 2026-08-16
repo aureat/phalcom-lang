@@ -1,11 +1,11 @@
-// area: compile-errors
-// spec: decorators/sealed.md; drafts/sealed-classes.md §1.3 / S-2;
-//       ADR-0045 (whole-module binding); DEFERRED CB-3
-// status: NEGATIVE
-// **This fixture pins a gap, not a guarantee.** DEFERRED CB-3 / S-2 asked for a
+// Modules v1 retirement guard: physical imports are rejected before this
+// historical cross-unit sealed-class probe can be reached.
+//
+// Historical context for the superseded probe:
+// **This fixture pinned a gap, not a guarantee.** DEFERRED CB-3 / S-2 asked for a
 // test of `@sealed`'s headline enforcement: a cross-unit subclass of a *user*
-// sealed class raising `attr.sealed_violation`. **That test cannot be written** —
-// the scenario is unreachable, on two independent grounds:
+// sealed class raising `attr.sealed_violation`. That test could not be written —
+// the scenario was unreachable, on two independent grounds:
 //
 //  1. **Ordering.** `extends` resolves its superclass at COMPILE time; `import`
 //     binds the module at RUNTIME. The error below fires before the imported

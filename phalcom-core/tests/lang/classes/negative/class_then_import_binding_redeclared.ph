@@ -1,7 +1,5 @@
-// U-CLASSCLOSE §8 table, reverse ordering: `class Point` then `import … as
-// Point` is reported as binding.redeclared, from the import side — no
-// implementation work for this direction, it falls out of the class now
-// registering in `global_bindings`. Pins the table's other half.
+// Modules v1 retirement guard: imports after body statements are rejected
+// before the old U-CLASSCLOSE binding collision can be reached.
 class Point {}
 
 import "../lib/point_holder" as Point

@@ -1,9 +1,16 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 309
 expression: "parse(\"for (x in xs) { continue }\")"
 ---
 Program {
+    preamble: ModulePreamble {
+        metadata: [],
+        dependencies: [],
+        range: CopyRange {
+            start: 0,
+            end: 0,
+        },
+    },
     statements: [
         For(
             ForStatement {

@@ -16,7 +16,6 @@ use phalcom_ast::token::Token;
 fn tokens(src: &str) -> Vec<Token> {
     Lexer::new(src).map(|spanned| spanned.expect("fixture should lex without error").1).collect()
 }
-
 #[test]
 fn let_binding() {
     insta::assert_debug_snapshot!(tokens("let x = 42"));
@@ -356,4 +355,12 @@ fn pdr0026_malformed_literals_atomic_error() {
             "Expected NumericLiteral error for input: {inp}"
         );
     }
+}
+
+#[test]
+fn module_keywords_and_atbang_tokens() {
+    assert_eq!(
+        tokens("from export expose @!"),
+        vec![Token::From, Token::Export, Token::Expose, Token::AtBang, Token::Eof,]
+    );
 }

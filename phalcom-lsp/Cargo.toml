@@ -20,6 +20,7 @@ path = "src/lib.rs"
 # runtime/heap churn.
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
+phalcom-modules = { path = "../phalcom-modules" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 # `tower-lsp` over the raw `lsp-server`+`lsp-types` stack: ADR-0056 §1
 # (DEC-LSP-A), decided. Pinned to 0.20, the current stable release; the

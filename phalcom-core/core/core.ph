@@ -280,25 +280,25 @@ class String {
   }
 
   // Replace all occurrences of `from` with `to`.
-  replace(_ from, _ to) {
-    (from.isA(String)).ifTrue(|| {}, ifFalse: || {
+  replace(_ needle, _ to) {
+    (needle.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: from must be a String")
     })
     (to.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: to must be a String")
     })
-    (from.isEmpty).ifTrue(|| {
+    (needle.isEmpty).ifTrue(|| {
       throw ArgumentError.new("replace: from must be non-empty")
     })
 
     let result = ""
     let prev = 0
-    let i = self.indexOf(from)
+    let i = self.indexOf(needle)
     while (i != -1) {
       result = result + self._$slice(prev, i) + to
-      prev = i + from._$byteCount
+      prev = i + needle._$byteCount
       let rest = self._$slice(prev, self._$byteCount)
-      let nextIdx = rest.indexOf(from)
+      let nextIdx = rest.indexOf(needle)
       (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
     }
     result = result + self._$slice(prev, self._$byteCount)

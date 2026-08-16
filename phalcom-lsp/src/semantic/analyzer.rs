@@ -619,7 +619,7 @@ fn analyze_statement(statement: &phalcom_ast::ast::Statement, context: &Analysis
         phalcom_ast::ast::Statement::Class(_)
         | phalcom_ast::ast::Statement::Break { .. }
         | phalcom_ast::ast::Statement::Continue { .. }
-        | phalcom_ast::ast::Statement::Import(_) => {}
+        | phalcom_ast::ast::Statement::Export(_) => {}
     }
 }
 

@@ -2558,7 +2558,7 @@ fn statement_range(stmt: &Statement) -> SourceRange {
         Statement::For(f) => f.range,
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
-        Statement::Import(i) => i.range,
+        Statement::Export(e) => e.range,
     }
 }
 

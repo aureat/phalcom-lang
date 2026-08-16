@@ -9,6 +9,7 @@ members = [
     "phalcom-core",
     "phalcom-repl",
     "phalcom-lsp",
+    "phalcom-modules",
 ]
 resolver = "2"
 default-members = [
@@ -21,6 +22,7 @@ default-members = [
     "phalcom-core",
     "phalcom-repl",
     "phalcom-lsp",
+    "phalcom-modules",
 ]
 
 [profile.test]
@@ -31,6 +33,8 @@ incremental = true
 
 [workspace.dependencies]
 thiserror = "2.0.12"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
 rustyline = "16.0.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = [

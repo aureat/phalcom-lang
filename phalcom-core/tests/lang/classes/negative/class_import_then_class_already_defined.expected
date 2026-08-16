@@ -1,1 +1,1 @@
-class.already_defined: class 'Point' is already defined in this module (first declared at
+physical string imports `import "..."` have been retired; use logical imports like `import geometry.point`

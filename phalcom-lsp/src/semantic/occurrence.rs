@@ -219,16 +219,7 @@ impl OccurrenceBuilder<'_> {
                     self.visit_statements(&statement.body, body_scope);
                 }
                 Statement::Throw { expr, .. } => self.visit_expr(expr, scope),
-                Statement::Import(import) => {
-                    if let Some(binding) = self.scopes.binding_for_declaration(import.binding_range) {
-                        self.push(
-                            import.binding_range,
-                            SemanticOccurrenceKind::Binding,
-                            OccurrenceRole::Declaration,
-                            SemanticTarget::Binding(binding),
-                        );
-                    }
-                }
+                Statement::Export(_) => {}
                 Statement::Break { .. } | Statement::Continue { .. } => {}
             }
         }
@@ -671,7 +662,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::For(for_statement) => for_statement.range,
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
-        Statement::Import(import) => import.range,
+        Statement::Export(export_decl) => export_decl.range,
     }
 }
 

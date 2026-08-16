@@ -627,7 +627,7 @@ fn collect_var_occurrences(statement: &Statement, names: &std::collections::Hash
             }
         }
         Statement::Throw { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
-        Statement::Break { .. } | Statement::Continue { .. } | Statement::Import(_) | Statement::Class(_) => {}
+        Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) | Statement::Class(_) => {}
     }
 }
 
@@ -814,7 +814,7 @@ impl Collector {
             Statement::For(f) => self.walk_for(f),
             Statement::Break { .. } | Statement::Continue { .. } => {}
             Statement::Throw { expr, .. } => self.walk_expr(expr),
-            Statement::Import(_) => {}
+            Statement::Export(_) => {}
         }
     }
 

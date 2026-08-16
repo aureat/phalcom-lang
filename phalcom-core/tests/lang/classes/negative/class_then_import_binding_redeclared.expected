@@ -1,1 +1,1 @@
-'Point' is already declared in this scope
+import.outside_preamble: static `import` declarations must appear in the module dependency preamble at the top of the file
