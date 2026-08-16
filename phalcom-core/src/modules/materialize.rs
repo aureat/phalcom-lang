@@ -46,7 +46,7 @@ impl VM {
         // Phase 3: Materialize declaration blueprints (classes/globals from artifact).
         for (id, compiled_mod) in &program.modules {
             let obj_ref = self.module_registry.get(id).expect("module allocated").object;
-            for decl in &compiled_mod.artifact.declarations {
+            for decl in &compiled_mod.plan.declarations {
                 match decl {
                     crate::modules::RuntimeDeclarationBlueprint::Global { symbol, .. } => {
                         let sym = self.interner.intern(&symbol.name);

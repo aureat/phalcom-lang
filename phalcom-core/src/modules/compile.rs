@@ -212,14 +212,14 @@ impl ProgramCompiler {
                 let linker = ModuleLinker::new(universe.clone(), interfaces);
                 let linked = Arc::new(linker.link(entry_id.clone(), &BTreeMap::new())?);
 
-                let artifact = ModuleArtifact::empty(&linked.modules[&entry_id]);
+                let plan = ModuleMaterializationPlan::empty(&linked.modules[&entry_id]);
                 let compiled_mod = CompiledModule {
                     id: entry_id.clone(),
                     kind: ModuleKind::Module,
                     source: None,
                     source_text: Some(source_text.clone()),
                     interface: Arc::new(linked.modules[&entry_id].interface.clone()),
-                    artifact,
+                    plan,
                     linked_reads: linked.modules[&entry_id].linked_reads.clone(),
                 };
                 let mut modules = BTreeMap::new();
@@ -317,7 +317,7 @@ impl ProgramCompiler {
                     source,
                     source_text: text,
                     interface: Arc::new(linked_module.interface.clone()),
-                    artifact: ModuleArtifact::empty(linked_module),
+                    plan: ModuleMaterializationPlan::empty(linked_module),
                     linked_reads: linked_module.linked_reads.clone(),
                 },
             );
@@ -448,7 +448,7 @@ fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCo
 }
 
 fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLocation>, source_text: Option<Arc<str>>) -> CompiledModule {
-    let artifact = ModuleArtifact::empty(module);
+    let plan = ModuleMaterializationPlan::empty(module);
     CompiledModule {
         id,
         kind: module.interface.kind,
@@ -456,6 +456,6 @@ fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLoca
         source_text,
         interface: Arc::new(module.interface.clone()),
         linked_reads: module.linked_reads.clone(),
-        artifact,
+        plan,
     }
 }
