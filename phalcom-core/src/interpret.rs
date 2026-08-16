@@ -90,13 +90,22 @@ impl VM {
         self.compile_closure_as(module, source, UnitKind::File)
     }
 
-    /// Runs a materialized compiled program: compiles module source closures and initializes the DAG.
+    /// Runs a materialized compiled program: compiles only missing initializers and initializes the DAG.
     pub fn run_compiled(&mut self, program: &CompiledProgram) -> PhResult<()> {
         self.materialize_program(program)?;
 
         for (id, compiled_mod) in &program.modules {
-            if let Some(source_text) = &compiled_mod.source_text {
-                let _ = self.compile_program_module_closure(id, source_text, program)?;
+            let record = self
+                .module_registry
+                .get(id)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("materialized module {id} missing from registry")))?;
+            if matches!(record.state, crate::modules::registry::ModuleState::Initialized | crate::modules::registry::ModuleState::Failed) {
+                continue;
+            }
+            if self.heap.module(record.object).closure.is_none() {
+                if let Some(source_text) = &compiled_mod.source_text {
+                    let _ = self.compile_program_module_closure(id, source_text, program)?;
+                }
             }
         }
 

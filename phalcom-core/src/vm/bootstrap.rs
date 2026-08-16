@@ -457,7 +457,11 @@ impl VM {
 
     /// Allocates a builtin package with `logical_name` and registers it in `vm.module_registry`.
     pub fn create_builtin_package(&mut self, logical_name: &str) -> crate::heap::ObjRef {
-        let id = phalcom_modules::ModuleId::synthetic(logical_name);
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator::default();
+        let path = phalcom_modules::ModuleComponent::from_identifier(logical_name)
+            .map(|c| phalcom_modules::ModulePath::from_components(vec![c]))
+            .unwrap_or_else(|_| phalcom_modules::ModulePath::root());
+        let id = phalcom_modules::ModuleId::synthetic(ids.allocate(), path);
         self.create_module_with_id(id, crate::heap::ModuleKind::Package, logical_name, &format!("<builtin:{logical_name}>"))
     }
 }

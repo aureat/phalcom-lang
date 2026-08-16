@@ -29,7 +29,14 @@ impl VM {
                 module_obj.metadata = Some(Arc::new(compiled_mod.interface.metadata.clone()));
                 let obj_ref = self.heap.alloc(Object::Module(Box::new(module_obj)));
                 self.module_registry
-                    .register_new(id.clone(), ModuleRecord::prepared(obj_ref))
+                    .register_new(
+                        id.clone(),
+                        ModuleRecord::prepared(
+                            obj_ref,
+                            crate::modules::registry::RuntimeProgramId(1),
+                            crate::modules::registry::ModulePlanFingerprint(0),
+                        ),
+                    )
                     .map_err(|e| RuntimeError::Internal(e.to_string()))?;
             }
         }
@@ -128,13 +135,7 @@ impl VM {
             self.heap.module_mut(obj_ref).exports = exports;
         }
 
-        // Phase 6: Install initializer closures (if available).
-        for (id, compiled_mod) in &program.modules {
-            let obj_ref = self.module_registry.get(id).expect("module allocated").object;
-            if let Some(init_closure) = compiled_mod.artifact.initializer {
-                self.heap.module_mut(obj_ref).closure = Some(init_closure);
-            }
-        }
+        // Phase 6: Top-level closures are compiled on-demand by run_compiled rather than pre-stored on plans.
 
         // Phase 7: Record entry handle on VM runtime roots.
         let entry_obj = self

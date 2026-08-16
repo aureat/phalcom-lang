@@ -81,22 +81,20 @@ impl ProjectManifest {
         }
 
         let raw_name = self.project.name.clone();
-        let namespace = if let Some(ns) = &self.project.namespace {
-            ModuleComponent::from_kebab(ns).map_err(|e| ProjectError::InvalidProjectNamespace(ns.clone(), e))?
-        } else {
-            ModuleComponent::from_kebab(&raw_name).map_err(|e| ProjectError::InvalidProjectNamespace(raw_name.clone(), e))?
-        };
+        let raw_namespace = self.project.namespace.as_ref().ok_or(ProjectError::MissingProjectNamespace)?;
+        let namespace = ModuleComponent::from_identifier(raw_namespace)
+            .map_err(|e| ProjectError::InvalidProjectNamespace(raw_namespace.clone(), e))?;
 
-        if namespace.as_str() == "core" {
+        if matches!(namespace.as_str(), "core" | "universe" | "std") {
             return Err(ProjectError::ImportRootCollision {
                 alias: namespace.as_str().to_string(),
-                reason: "reserved root 'core'".to_string(),
+                reason: format!("reserved builtin root '{}'", namespace.as_str()),
             });
         }
 
         let mut validated_deps: BTreeMap<ModuleComponent, (String, DependencySpec)> = BTreeMap::new();
         for (raw_alias, toml_val) in &self.dependencies {
-            let component = ModuleComponent::from_kebab(raw_alias).map_err(|e| ProjectError::InvalidDependencyAlias(raw_alias.clone(), e))?;
+            let component = ModuleComponent::from_identifier(raw_alias).map_err(|e| ProjectError::InvalidDependencyAlias(raw_alias.clone(), e))?;
 
             if component == namespace {
                 return Err(ProjectError::ImportRootCollision {
@@ -105,10 +103,10 @@ impl ProjectManifest {
                 });
             }
 
-            if component.as_str() == "core" {
+            if matches!(component.as_str(), "core" | "universe" | "std") {
                 return Err(ProjectError::ImportRootCollision {
                     alias: raw_alias.clone(),
-                    reason: "reserved root 'core'".to_string(),
+                    reason: format!("reserved builtin root '{}'", component.as_str()),
                 });
             }
 
@@ -172,7 +170,7 @@ impl ProjectManifest {
         }
 
         Ok(ValidatedProjectManifest {
-            name: namespace.as_str().to_string(),
+            name: raw_name.clone(),
             raw_name,
             namespace,
             source: self.project.source.clone(),

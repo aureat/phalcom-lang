@@ -11,6 +11,7 @@ fn test_project_manifest_parsing_and_validation() {
     let toml = r#"
 [project]
 name = "my-awesome-lib"
+namespace = "my_awesome_lib"
 version = "0.1.0"
 authors = ["Test Author"]
 
@@ -20,7 +21,8 @@ geometry = { path = "../geometry" }
 
     let manifest: ProjectManifest = toml::from_str(toml).expect("manifest should parse");
     let validated = manifest.validate().expect("manifest should validate");
-    assert_eq!(validated.name.as_str(), "my_awesome_lib");
+    assert_eq!(validated.name.as_str(), "my-awesome-lib");
+    assert_eq!(validated.namespace.as_str(), "my_awesome_lib");
     assert_eq!(validated.raw_name, "my-awesome-lib");
     assert_eq!(validated.dependencies.len(), 1);
 }
@@ -33,7 +35,7 @@ fn test_project_universe_and_discovery() {
     // Create project structure
     let proj_dir = root.join("app");
     fs::create_dir_all(proj_dir.join("src")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nnamespace = \"app\"\nversion = \"0.1.0\"\n").unwrap();
     fs::write(proj_dir.join("src/package.ph"), "").unwrap();
 
     let discovered = discover_owning_project(&proj_dir.join("src/main.ph")).expect("should discover project");
@@ -52,7 +54,7 @@ fn test_filesystem_source_provider_resolution() {
     let root = tmp.path();
     let proj_dir = root.join("geometry");
     fs::create_dir_all(proj_dir.join("src/shapes")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"geometry\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"geometry\"\nnamespace = \"geometry\"\nversion = \"0.1.0\"\n").unwrap();
     fs::write(proj_dir.join("src/package.ph"), "expose .shapes\n").unwrap();
     fs::write(proj_dir.join("src/shapes/package.ph"), "").unwrap();
     fs::write(proj_dir.join("src/point.ph"), "class Point {}\nexport Point\n").unwrap();
@@ -90,7 +92,7 @@ fn test_module_resolver_logical_imports_and_exposure() {
     // Create library project: geometry
     let lib_dir = root.join("geometry");
     fs::create_dir_all(lib_dir.join("src/shapes")).unwrap();
-    fs::write(lib_dir.join("project.toml"), "[project]\nname = \"geometry\"\nversion = \"0.1.0\"\n").unwrap();
+    fs::write(lib_dir.join("project.toml"), "[project]\nname = \"geometry\"\nnamespace = \"geometry\"\nversion = \"0.1.0\"\n").unwrap();
     // Exposes .point and .shapes (which exposes .circle)
     fs::write(lib_dir.join("src/package.ph"), "expose .point\nexpose .shapes\n").unwrap();
     fs::write(lib_dir.join("src/point.ph"), "class Point {}\nexport Point\n").unwrap();
@@ -103,7 +105,7 @@ fn test_module_resolver_logical_imports_and_exposure() {
     fs::create_dir_all(app_dir.join("src")).unwrap();
     fs::write(
         app_dir.join("project.toml"),
-        "[project]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ngeometry = { path = \"../geometry\" }\n",
+        "[project]\nname = \"app\"\nnamespace = \"app\"\nversion = \"0.1.0\"\n[dependencies]\ngeometry = { path = \"../geometry\" }\n",
     )
     .unwrap();
     fs::write(app_dir.join("src/package.ph"), "").unwrap();
@@ -115,7 +117,7 @@ fn test_module_resolver_logical_imports_and_exposure() {
     let mut resolver = ModuleResolver::new(&universe, &source_provider);
 
     let app_main_id = ModuleId {
-        project: app_root_id,
+        project: app_root_id.into(),
         path: ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
     };
 

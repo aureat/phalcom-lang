@@ -27,11 +27,21 @@ pub enum ModuleFailure {
     Dependency { dependency: ModuleId, cause: Box<ModuleFailure> },
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeProgramId(pub u64);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ModulePlanFingerprint(pub u64);
+
 /// Runtime lifecycle record for one materialized module.
 #[derive(Debug)]
 pub struct ModuleRecord {
     /// Handle to the heap ModuleObject.
     pub object: ObjRef,
+    /// Runtime program generation that owns this identity.
+    pub program: RuntimeProgramId,
+    /// Fingerprint of the immutable linked/materialization plan.
+    pub plan_fingerprint: ModulePlanFingerprint,
     /// Current initialization state.
     pub state: ModuleState,
     /// Sticky failure cause if state is Failed.
@@ -40,9 +50,11 @@ pub struct ModuleRecord {
 
 impl ModuleRecord {
     /// Creates a record in the `Prepared` state.
-    pub fn prepared(object: ObjRef) -> Self {
+    pub fn prepared(object: ObjRef, program: RuntimeProgramId, plan_fingerprint: ModulePlanFingerprint) -> Self {
         Self {
             object,
+            program,
+            plan_fingerprint,
             state: ModuleState::Prepared,
             failure: None,
         }

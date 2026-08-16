@@ -30,7 +30,7 @@ fn test_whole_module_reexport_end_to_end() {
     let root = tmp.path();
     let proj_dir = root.join("app");
     fs::create_dir_all(proj_dir.join("src/sub")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nentry = \"app.main\"\n").unwrap();
+    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nnamespace = \"app\"\nentry = \"app.main\"\n").unwrap();
     fs::write(proj_dir.join("src/package.ph"), "expose .sub\n").unwrap();
     fs::write(proj_dir.join("src/sub/package.ph"), "").unwrap();
     fs::write(proj_dir.join("src/sub/calculator.ph"), "let add = |a, b| { a + b }\nexport add\n").unwrap();
@@ -52,7 +52,7 @@ fn test_export_callable_arguments_dispatch() {
     let root = tmp.path();
     let proj_dir = root.join("app");
     fs::create_dir_all(proj_dir.join("src")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nentry = \"app.main\"\n").unwrap();
+    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nnamespace = \"app\"\nentry = \"app.main\"\n").unwrap();
     fs::write(proj_dir.join("src/package.ph"), "").unwrap();
     fs::write(proj_dir.join("src/ops.ph"), "let divide = |a, b| { a / b }\nexport divide\n").unwrap();
     fs::write(proj_dir.join("src/main.ph"), "import .ops as ops\nlet result = ops.divide(20, 4)\n").unwrap();
@@ -70,9 +70,9 @@ fn test_export_name_shadows_module_methods() {
     let root = tmp.path();
     let proj_dir = root.join("app");
     fs::create_dir_all(proj_dir.join("src")).unwrap();
-    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nentry = \"app.main\"\n").unwrap();
+    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"app\"\nnamespace = \"app\"\nentry = \"app.main\"\n").unwrap();
     fs::write(proj_dir.join("src/package.ph"), "").unwrap();
-    fs::write(proj_dir.join("src/meta_mod.ph"), "let name = \"custom_module_name\"\nexport name\n").unwrap();
+    fs::write(proj_dir.join("src/meta-mod.ph"), "let name = \"custom_module_name\"\nexport name\n").unwrap();
     fs::write(proj_dir.join("src/main.ph"), "import .meta_mod as m\nlet n = m.name\n").unwrap();
 
     let mut vm = VM::new();

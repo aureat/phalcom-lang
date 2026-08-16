@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
+phalcom-native-meta = { path = "../phalcom-native-meta" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }

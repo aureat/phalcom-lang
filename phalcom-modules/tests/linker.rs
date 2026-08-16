@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 fn module(name: &str) -> ModuleId {
     ModuleId {
-        project: ResolvedProjectId::from_raw(1),
+        project: ResolvedProjectId::from_raw(1).into(),
         path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
     }
 }

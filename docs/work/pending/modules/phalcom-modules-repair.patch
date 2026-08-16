@@ -1,0 +1,376 @@
+diff --git a/phalcom-modules/src/error.rs b/phalcom-modules/src/error.rs
+index 29a8211..0000000 100644
+--- a/phalcom-modules/src/error.rs
++++ b/phalcom-modules/src/error.rs
+@@ -1,6 +1,7 @@
+ //! Typed errors for manifests, projects, source resolution, and visibility.
+ 
+ use crate::identity::ModuleId;
++use phalcom_ast::error::SyntaxError;
+ use phalcom_common::range::SourceRange;
+ use std::path::PathBuf;
+ use thiserror::Error;
+@@ -75,8 +76,8 @@ pub enum ModuleLoadError {
+     #[error(transparent)]
+     Resolution(#[from] ModuleResolutionError),
+ 
+-    #[error("Parse error in module {module}: {message}")]
+-    Parse { module: ModuleId, message: String },
++    #[error("Parse error in module {module}: {error}")]
++    Parse { module: ModuleId, source: PathBuf, error: SyntaxError },
+ 
+     #[error("Interface error in module {module}: {error}")]
+     Interface { module: ModuleId, error: InterfaceError },
+@@ -95,6 +96,13 @@ pub enum InterfaceError {
+     #[error("Duplicate import binding: '{name}' is already bound in this scope")]
+     DuplicateImportBinding { name: String, range: SourceRange },
+ 
++    #[error("Duplicate declaration: '{name}' is already declared in this module")]
++    DuplicateDeclaration {
++        name: String,
++        first_range: SourceRange,
++        range: SourceRange,
++    },
++
+     #[error("Unknown export: '{name}' is not declared in this module")]
+     UnknownExport { name: String, range: SourceRange },
+ 
+diff --git a/phalcom-modules/src/interface.rs b/phalcom-modules/src/interface.rs
+index ab488f3..0000000 100644
+--- a/phalcom-modules/src/interface.rs
++++ b/phalcom-modules/src/interface.rs
+@@ -112,15 +112,7 @@ impl InterfaceBuilder {
+             match stmt {
+                 Statement::Class(class_def) => {
+                     let range = (class_def.range.start..class_def.name_range.end).into();
+-                    namespace.insert(class_def.name.clone(), ModuleNamespaceBinding::Declaration { is_const: true, range });
+-                    declarations.insert(
+-                        class_def.name.clone(),
+-                        DeclarationSurface {
+-                            name: class_def.name.clone(),
+-                            is_const: true,
+-                            range,
+-                        },
+-                    );
++                    Self::collect_declaration(&class_def.name, true, range, &mut namespace, &mut declarations)?;
+                 }
+                 Statement::Let(let_binding) => {
+                     let is_const = let_binding.kind == BindingKind::Const;
+@@ -250,6 +239,39 @@ impl InterfaceBuilder {
+         })
+     }
+ 
++    fn collect_declaration(
++        name: &str,
++        is_const: bool,
++        range: SourceRange,
++        namespace: &mut BTreeMap<String, ModuleNamespaceBinding>,
++        declarations: &mut BTreeMap<String, DeclarationSurface>,
++    ) -> Result<(), InterfaceError> {
++        if let Some(existing) = declarations.get(name) {
++            return Err(InterfaceError::DuplicateDeclaration {
++                name: name.to_string(),
++                first_range: existing.range.clone(),
++                range,
++            });
++        }
++
++        namespace.insert(
++            name.to_string(),
++            ModuleNamespaceBinding::Declaration {
++                is_const,
++                range: range.clone(),
++            },
++        );
++        declarations.insert(
++            name.to_string(),
++            DeclarationSurface {
++                name: name.to_string(),
++                is_const,
++                range,
++            },
++        );
++        Ok(())
++    }
++
+     fn collect_pattern_declarations(
+         pattern: &Pattern,
+         is_const: bool,
+@@ -259,16 +276,7 @@ impl InterfaceBuilder {
+     ) -> Result<(), InterfaceError> {
+         match pattern {
+             Pattern::Name { name, range } => {
+-                namespace.insert(name.clone(), ModuleNamespaceBinding::Declaration { is_const, range: *range });
+-                declarations.insert(
+-                    name.clone(),
+-                    DeclarationSurface {
+-                        name: name.clone(),
+-                        is_const,
+-                        range: *range,
+-                    },
+-                );
+-                Ok(())
++                Self::collect_declaration(name, is_const, range.clone(), namespace, declarations)
+             }
+             Pattern::Tuple { elements, .. } => {
+                 for elem in elements {
+diff --git a/phalcom-modules/src/manifest.rs b/phalcom-modules/src/manifest.rs
+index a1d71f7..0000000 100644
+--- a/phalcom-modules/src/manifest.rs
++++ b/phalcom-modules/src/manifest.rs
+@@ -151,7 +151,7 @@ impl ProjectManifest {
+         }
+ 
+         Ok(ValidatedProjectManifest {
+-            name: namespace.as_str().to_string(),
++            name: raw_name.clone(),
+             raw_name,
+             namespace,
+             source: self.project.source.clone(),
+diff --git a/phalcom-modules/src/resolver.rs b/phalcom-modules/src/resolver.rs
+index 5099cf5..0000000 100644
+--- a/phalcom-modules/src/resolver.rs
++++ b/phalcom-modules/src/resolver.rs
+@@ -137,6 +137,6 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
+         let interface = self.load_interface(&module_id).map_err(|e| match e {
+             ModuleLoadError::Resolution(r) => r,
+-            ModuleLoadError::Parse { message, .. } => ModuleResolutionError::InvalidModuleLayout(message),
++            ModuleLoadError::Parse { error, .. } => ModuleResolutionError::InvalidModuleLayout(error.to_string()),
+             ModuleLoadError::Interface { error, .. } => ModuleResolutionError::InvalidModuleLayout(error.to_string()),
+         })?;
+ 
+@@ -169,9 +169,10 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
+         let parse_result = phalcom_ast::parse(&source_text, 0);
+         if !parse_result.errors.is_empty() {
+             let err = &parse_result.errors[0];
+             let load_err = ModuleLoadError::Parse {
+                 module: module_id.clone(),
+-                message: format!("Parse error in {}: {}", unit.source.display_path.display(), err),
++                source: unit.source.display_path.clone(),
++                error: err.clone(),
+             };
+             self.interface_cache.insert(module_id.clone(), Err(load_err.clone()));
+             return Err(load_err);
+diff --git a/phalcom-core/src/vm/send.rs b/phalcom-core/src/vm/send.rs
+index 85f0fee..0000000 100644
+--- a/phalcom-core/src/vm/send.rs
++++ b/phalcom-core/src/vm/send.rs
+@@ -1193,7 +1193,7 @@ impl VM {
+ 
+         let target_val = match export_ref {
+             crate::heap::RuntimeExportRef::Module(target_mod) => {
+-                if arity == 0 {
++                if matches!(kind, SignatureKind::Getter) {
+                     self.stack.truncate(receiver_idx);
+                     self.stack.push(Value::Obj(target_mod));
+                     return Ok(Some(()));
+@@ -1208,7 +1208,7 @@ impl VM {
+                     .map(|v| self.surface_absence(v))
+                     .ok_or_else(|| RuntimeError::Internal(format!("binding slot {} out of range", binding.slot)))?;
+ 
+-                if arity == 0 {
++                if matches!(kind, SignatureKind::Getter) {
+                     self.stack.truncate(receiver_idx);
+                     self.stack.push(val);
+                     return Ok(Some(()));
+@@ -1253,7 +1253,7 @@ impl VM {
+ 
+         let target_val = match export_ref {
+             crate::heap::RuntimeExportRef::Module(target_mod) => {
+-                if args.is_empty() {
++                if matches!(kind, SignatureKind::Getter) {
+                     return Ok(Some(Value::Obj(target_mod)));
+                 }
+                 Value::Obj(target_mod)
+@@ -1266,7 +1266,7 @@ impl VM {
+                     .map(|v| self.surface_absence(v))
+                     .ok_or_else(|| RuntimeError::Internal(format!("binding slot {} out of range", binding.slot)))?;
+ 
+-                if args.is_empty() {
++                if matches!(kind, SignatureKind::Getter) {
+                     return Ok(Some(val));
+                 }
+                 val
+@@ -1308,4 +1308,52 @@ mod tests {
+             "generated authority must not outlive its dispatch, got {result:?}"
+         );
+     }
++
++    #[test]
++    fn module_export_distinguishes_getter_from_zero_argument_method() {
++        let mut vm = VM::new();
++        let module = vm.create_module("main", "module_export_selector_kind");
++        vm.interpret_source(
++            module,
++            "class Callable {\n  call() { 42 }\n}\nlet exported = Callable.new()\n",
++        )
++        .expect("callable export fixture should compile and run");
++
++        let exported_sym = vm.get_or_intern("exported");
++        let exported = vm
++            .heap
++            .module(module)
++            .get(exported_sym)
++            .expect("fixture should define exported");
++        let slot = vm
++            .heap
++            .module(module)
++            .slot_of(exported_sym)
++            .expect("fixture should allocate an exported slot");
++        let public_sym = vm.get_or_intern("service");
++        vm.heap.module_mut(module).exports.insert(
++            public_sym,
++            crate::heap::RuntimeExportRef::Binding(crate::modules::BindingRef {
++                module,
++                slot: u16::try_from(slot).expect("test slot fits u16"),
++            }),
++        );
++
++        let getter = vm.get_or_intern(&crate::method::make_signature("service", crate::method::SignatureKind::Getter));
++        let getter_value = vm
++            .try_module_export_send_dynamic(crate::value::Value::Obj(module), getter, &[])
++            .expect("getter export dispatch should succeed")
++            .expect("service is an export");
++        assert_eq!(getter_value, exported, "getter must read the exported binding without invoking it");
++
++        let method = vm.get_or_intern(&crate::method::make_signature("service", crate::method::SignatureKind::Method(0)));
++        let call = vm.get_or_intern(&crate::method::make_signature("call", crate::method::SignatureKind::Method(0)));
++        let expected = vm.send_dynamic(exported, call, &[]).expect("direct call() should succeed");
++        let method_value = vm
++            .try_module_export_send_dynamic(crate::value::Value::Obj(module), method, &[])
++            .expect("zero-argument method export dispatch should succeed")
++            .expect("service is an export");
++        assert_eq!(method_value, expected, "method(0) must invoke the exported value's call() protocol");
++        assert_ne!(method_value, exported, "method(0) must not be collapsed into getter semantics");
++    }
+ }
+diff --git a/phalcom-modules/tests/repair_regressions.rs b/phalcom-modules/tests/repair_regressions.rs
+index 8a4ab8b..0000000 100644
+--- a/phalcom-modules/tests/repair_regressions.rs
++++ b/phalcom-modules/tests/repair_regressions.rs
+@@ -3,7 +3,7 @@ use phalcom_ast::parser::parse;
+ use phalcom_modules::{
+     FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkedExportTarget, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath,
+-    ModuleResolutionError, ModuleResolver, ProjectError, ProjectManifest, ProjectUniverse, ResolvedProjectId, SourceProvider,
++    ModuleLoadError, ModuleResolutionError, ModuleResolver, ProjectError, ProjectManifest, ProjectUniverse, ResolvedProjectId, SourceProvider,
+ };
+ use std::collections::BTreeMap;
+ use std::fs;
+ use std::sync::Arc;
+@@ -46,6 +46,64 @@ fn test_import_body_declaration_collision_rejected() {
+     assert!(matches!(res, Err(InterfaceError::DuplicateImportBinding { .. })));
+ }
+ 
++#[test]
++fn test_duplicate_class_declaration_rejected() {
++    let program = parse("class Foo {}\nclass Foo {}\n", 0).program;
++    let res = InterfaceBuilder::build(ModuleId::synthetic("test"), ModuleKind::Module, &program);
++    assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Foo"));
++}
++
++#[test]
++fn test_duplicate_let_declaration_rejected() {
++    let program = parse("let value = 1\nlet value = 2\n", 0).program;
++    let res = InterfaceBuilder::build(ModuleId::synthetic("test"), ModuleKind::Module, &program);
++    assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "value"));
++}
++
++#[test]
++fn test_cross_kind_duplicate_declaration_rejected() {
++    let program = parse("class Foo {}\nlet Foo = 1\n", 0).program;
++    let res = InterfaceBuilder::build(ModuleId::synthetic("test"), ModuleKind::Module, &program);
++    assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Foo"));
++}
++
++#[test]
++fn test_project_display_name_remains_distinct_from_namespace() {
++    let manifest = ProjectManifest::parse(
++        "[project]\nname = \"geometry-toolkit\"\nnamespace = \"geometry_toolkit\"\n",
++    )
++    .unwrap();
++    let validated = manifest.validate().unwrap();
++    assert_eq!(validated.name, "geometry-toolkit");
++    assert_eq!(validated.namespace.as_str(), "geometry_toolkit");
++}
++
++#[test]
++fn test_module_load_error_preserves_parse_error_and_span() {
++    let tmp = TempDir::new().unwrap();
++    let proj_dir = tmp.path().join("proj");
++    fs::create_dir_all(proj_dir.join("src")).unwrap();
++    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"proj\"\n").unwrap();
++    let invalid_source = "class {\n";
++    fs::write(proj_dir.join("src/package.ph"), invalid_source).unwrap();
++
++    let expected = parse(invalid_source, 0).errors.into_iter().next().expect("fixture must contain a parse error");
++    let mut universe = ProjectUniverse::new();
++    let project_id = universe.load_root(proj_dir.join("project.toml")).unwrap();
++    let source_provider = FilesystemSourceProvider::new();
++    let mut resolver = ModuleResolver::new(&universe, &source_provider);
++    let module_id = ModuleId { project: project_id, path: ModulePath::root() };
++
++    let err = resolver.load_interface(&module_id).unwrap_err();
++    match err {
++        ModuleLoadError::Parse { source, error, .. } => {
++            assert_eq!(source, proj_dir.join("src/package.ph"));
++            assert_eq!(error, expected);
++        }
++        other => panic!("expected typed parse error, got {other:?}"),
++    }
++}
++
+ #[test]
+ fn test_whole_module_reexport_links_to_module_target() {
+     let a = ModuleId {
+@@ -132,6 +171,51 @@ fn test_confinement_violation_for_root_package() {
+     assert_eq!(unit.kind, ModuleKind::Package);
+ }
+ 
++#[cfg(unix)]
++#[test]
++fn test_symlinked_root_package_escaping_source_root_is_rejected() {
++    use std::os::unix::fs::symlink;
++
++    let tmp = TempDir::new().unwrap();
++    let proj_dir = tmp.path().join("proj");
++    let outside = tmp.path().join("outside-package.ph");
++    fs::create_dir_all(proj_dir.join("src")).unwrap();
++    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"proj\"\n").unwrap();
++    fs::write(&outside, "").unwrap();
++    symlink(&outside, proj_dir.join("src/package.ph")).unwrap();
++
++    let mut universe = ProjectUniverse::new();
++    let proj_id = universe.load_root(proj_dir.join("project.toml")).unwrap();
++    let project = universe.get_project(proj_id).unwrap();
++    let provider = FilesystemSourceProvider::new();
++    let err = provider.locate(project, &ModulePath::root()).unwrap_err();
++    assert!(matches!(err, ModuleResolutionError::ImportOutsideSourceRoot(_, _)));
++}
++
++#[cfg(unix)]
++#[test]
++fn test_duplicate_source_identity_detected_through_symlink_alias() {
++    use std::os::unix::fs::symlink;
++
++    let tmp = TempDir::new().unwrap();
++    let proj_dir = tmp.path().join("proj");
++    fs::create_dir_all(proj_dir.join("src")).unwrap();
++    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"proj\"\n").unwrap();
++    fs::write(proj_dir.join("src/package.ph"), "").unwrap();
++    fs::write(proj_dir.join("src/alpha.ph"), "class Alpha {}\n").unwrap();
++    symlink(proj_dir.join("src/alpha.ph"), proj_dir.join("src/beta.ph")).unwrap();
++
++    let mut universe = ProjectUniverse::new();
++    let proj_id = universe.load_root(proj_dir.join("project.toml")).unwrap();
++    let project = universe.get_project(proj_id).unwrap();
++    let provider = FilesystemSourceProvider::new();
++    let alpha = ModulePath::from_components(vec![ModuleComponent::from_identifier("alpha").unwrap()]);
++    let beta = ModulePath::from_components(vec![ModuleComponent::from_identifier("beta").unwrap()]);
++    provider.locate(project, &alpha).unwrap();
++    let err = provider.locate(project, &beta).unwrap_err();
++    assert!(matches!(err, ModuleResolutionError::DuplicateSourceIdentity(_)));
++}
++
+ #[test]
+ fn test_duplicate_source_identity_detected() {
+     let tmp = TempDir::new().unwrap();

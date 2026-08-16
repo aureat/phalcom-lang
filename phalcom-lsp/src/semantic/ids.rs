@@ -2,11 +2,17 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 #[allow(unused_imports)]
-pub use phalcom_modules::identity::{ModuleComponent, ModuleId as SemanticModuleId, ModulePath, ResolvedProjectId};
+pub use phalcom_modules::identity::{BuiltinProject, ModuleComponent, ModuleId as SemanticModuleId, ModulePath, ProjectIdentity, ResolvedProjectId};
 use tower_lsp::lsp_types::Url;
 
-/// Stable URI namespace for source-authored core declarations.
+/// Stable URI namespace for source-authored core declarations (kept for compatibility).
 pub const CORE_MODULE_URI: &str = "phalcom://core";
+
+/// Stable virtual URI derived from shared builtin semantic identity.
+#[allow(dead_code)]
+pub fn builtin_uri(module: &SemanticModuleId) -> Option<Url> {
+    phalcom_modules::builtin_module_uri(module).and_then(|uri| Url::parse(&uri).ok())
+}
 
 /// Identity of one source module.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

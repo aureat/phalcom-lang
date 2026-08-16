@@ -5,15 +5,16 @@ use crate::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId, 
 use crate::project::ResolvedProject;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Ownership classification of an entry before compilation/linking.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EntryOwnership {
-    ProjectOwned,
-    StandalonePackageOwned,
-    StandaloneModule,
-    Inline,
+    ProjectOwned { project: ResolvedProjectId },
+    StandalonePackageOwned { package_root: PathBuf },
+    StandaloneModule { file: PathBuf },
+    Inline { synthetic: crate::identity::SyntheticProjectId },
 }
 
 /// Module kind: an ordinary `.ph` file or a `package.ph` package descriptor.
@@ -41,9 +42,10 @@ pub trait SourceProvider {
 /// Filesystem source provider with resolution caching and kebab/snake convention handling.
 #[derive(Debug)]
 pub struct FilesystemSourceProvider {
-    cache: Mutex<HashMap<(ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
-    source_cache: Mutex<HashMap<SourceId, Arc<str>>>,
-    source_id_to_module: Mutex<HashMap<SourceId, ModuleId>>,
+    generation: AtomicU64,
+    cache: Mutex<HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
+    source_cache: Mutex<HashMap<(u64, SourceId), Arc<str>>>,
+    source_id_to_module: Mutex<HashMap<(u64, SourceId), ModuleId>>,
 }
 
 impl Default for FilesystemSourceProvider {
@@ -55,17 +57,23 @@ impl Default for FilesystemSourceProvider {
 impl FilesystemSourceProvider {
     pub fn new() -> Self {
         Self {
+            generation: AtomicU64::new(0),
             cache: Mutex::new(HashMap::new()),
             source_cache: Mutex::new(HashMap::new()),
             source_id_to_module: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Clears the resolution and source caches.
+    /// Starts a new resolver generation and clears every generation-scoped cache.
     pub fn clear_cache(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         self.cache.lock().unwrap().clear();
         self.source_cache.lock().unwrap().clear();
         self.source_id_to_module.lock().unwrap().clear();
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
     }
 
     fn locate_internal(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
@@ -84,14 +92,15 @@ impl FilesystemSourceProvider {
                 }
 
                 let module_id = ModuleId {
-                    project: project.id,
+                    project: project.id.into(),
                     path: path.clone(),
                 };
                 let source_id = SourceId(canonical.to_string_lossy().into());
 
                 {
                     let mut rev_map = self.source_id_to_module.lock().unwrap();
-                    if let Some(existing_mod) = rev_map.get(&source_id) {
+                    let key = (self.generation(), source_id.clone());
+                    if let Some(existing_mod) = rev_map.get(&key) {
                         if existing_mod != &module_id {
                             return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
                                 "source {} maps to both {} and {}",
@@ -101,7 +110,7 @@ impl FilesystemSourceProvider {
                             )));
                         }
                     } else {
-                        rev_map.insert(source_id.clone(), module_id.clone());
+                        rev_map.insert(key, module_id.clone());
                     }
                 }
 
@@ -162,14 +171,15 @@ impl FilesystemSourceProvider {
             }
 
             let module_id = ModuleId {
-                project: project.id,
+                project: project.id.into(),
                 path: path.clone(),
             };
             let source_id = SourceId(canonical.to_string_lossy().into());
 
             {
+                let generation = self.generation.load(Ordering::Relaxed);
                 let mut rev_map = self.source_id_to_module.lock().unwrap();
-                if let Some(existing_mod) = rev_map.get(&source_id) {
+                if let Some(existing_mod) = rev_map.get(&(generation, source_id.clone())) {
                     if existing_mod != &module_id {
                         return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
                             "source {} maps to both {} and {}",
@@ -179,7 +189,7 @@ impl FilesystemSourceProvider {
                         )));
                     }
                 } else {
-                    rev_map.insert(source_id.clone(), module_id.clone());
+                    rev_map.insert((generation, source_id.clone()), module_id.clone());
                 }
             }
 
@@ -207,14 +217,15 @@ impl FilesystemSourceProvider {
             }
 
             let module_id = ModuleId {
-                project: project.id,
+                project: project.id.into(),
                 path: path.clone(),
             };
             let source_id = SourceId(canonical.to_string_lossy().into());
 
             {
+                let generation = self.generation.load(Ordering::Relaxed);
                 let mut rev_map = self.source_id_to_module.lock().unwrap();
-                if let Some(existing_mod) = rev_map.get(&source_id) {
+                if let Some(existing_mod) = rev_map.get(&(generation, source_id.clone())) {
                     if existing_mod != &module_id {
                         return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
                             "source {} maps to both {} and {}",
@@ -224,7 +235,7 @@ impl FilesystemSourceProvider {
                         )));
                     }
                 } else {
-                    rev_map.insert(source_id.clone(), module_id.clone());
+                    rev_map.insert((generation, source_id.clone()), module_id.clone());
                 }
             }
 
@@ -241,94 +252,60 @@ impl FilesystemSourceProvider {
         Err(ModuleResolutionError::ModuleNotFound(format!("{}.{}", project.namespace, path)))
     }
 
-    /// Looks for a directory component by checking both kebab-case and snake_case on disk.
+    /// Looks up the one canonical physical spelling for a logical component.
     fn find_directory(&self, parent: &Path, comp: &ModuleComponent) -> Result<(PathBuf, bool), ModuleResolutionError> {
-        let snake_name = comp.as_str();
-        let kebab_name = snake_name.replace('_', "-");
-
-        let snake_dir = parent.join(snake_name);
-        let kebab_dir = parent.join(&kebab_name);
-
-        let snake_exists = snake_dir.is_dir();
-        let kebab_exists = kebab_name != snake_name && kebab_dir.is_dir();
-
-        if snake_exists && kebab_exists {
-            return Err(ModuleResolutionError::AmbiguousModule {
-                name: comp.as_str().to_string(),
-                kebab_path: kebab_dir,
-                snake_path: snake_dir,
-            });
+        let logical = comp.as_str();
+        let physical = comp.to_kebab();
+        if logical != physical {
+            let noncanonical = parent.join(logical);
+            if noncanonical.is_dir() {
+                return Err(ModuleResolutionError::NonCanonicalPhysicalName {
+                    path: noncanonical,
+                    expected: physical,
+                });
+            }
         }
-
-        if kebab_exists {
-            Ok((kebab_dir, true))
-        } else if snake_exists {
-            Ok((snake_dir, false))
+        let canonical = parent.join(&physical);
+        if canonical.is_dir() {
+            Ok((canonical, true))
         } else {
             Err(ModuleResolutionError::PackageNotFoundError(format!(
                 "Component '{}' directory not found in {}",
-                comp.as_str(),
+                logical,
                 parent.display()
             )))
         }
     }
 
-    /// Finds candidate file (`<comp>.ph`) and directory (`<comp>/package.ph`) checking kebab and snake.
+    /// Finds the canonical physical module and package candidates.
     fn find_final_candidates(&self, parent: &Path, comp: &ModuleComponent) -> Result<(Option<PathBuf>, Option<PathBuf>), ModuleResolutionError> {
-        let snake_name = comp.as_str();
-        let kebab_name = snake_name.replace('_', "-");
-
-        let snake_file = parent.join(format!("{}.ph", snake_name));
-        let kebab_file = parent.join(format!("{}.ph", kebab_name));
-
-        let snake_file_exists = snake_file.is_file();
-        let kebab_file_exists = kebab_name != snake_name && kebab_file.is_file();
-
-        if snake_file_exists && kebab_file_exists {
-            return Err(ModuleResolutionError::AmbiguousModule {
-                name: comp.as_str().to_string(),
-                kebab_path: kebab_file,
-                snake_path: snake_file,
-            });
+        let logical = comp.as_str();
+        let physical = comp.to_kebab();
+        if logical != physical {
+            let noncanonical_file = parent.join(format!("{logical}.ph"));
+            if noncanonical_file.is_file() {
+                return Err(ModuleResolutionError::NonCanonicalPhysicalName {
+                    path: noncanonical_file,
+                    expected: format!("{physical}.ph"),
+                });
+            }
+            let noncanonical_dir = parent.join(logical);
+            if noncanonical_dir.is_dir() {
+                return Err(ModuleResolutionError::NonCanonicalPhysicalName {
+                    path: noncanonical_dir,
+                    expected: physical,
+                });
+            }
         }
-
-        let resolved_file = if kebab_file_exists {
-            Some(kebab_file)
-        } else if snake_file_exists {
-            Some(snake_file)
-        } else {
-            None
-        };
-
-        let snake_dir = parent.join(snake_name);
-        let kebab_dir = parent.join(&kebab_name);
-
-        let snake_dir_exists = snake_dir.is_dir();
-        let kebab_dir_exists = kebab_name != snake_name && kebab_dir.is_dir();
-
-        if snake_dir_exists && kebab_dir_exists {
-            return Err(ModuleResolutionError::AmbiguousModule {
-                name: comp.as_str().to_string(),
-                kebab_path: kebab_dir,
-                snake_path: snake_dir,
-            });
-        }
-
-        let resolved_dir = if kebab_dir_exists {
-            Some(kebab_dir)
-        } else if snake_dir_exists {
-            Some(snake_dir)
-        } else {
-            None
-        };
-
-        Ok((resolved_file, resolved_dir))
+        let file = parent.join(format!("{physical}.ph"));
+        let dir = parent.join(&physical);
+        Ok((file.is_file().then_some(file), dir.is_dir().then_some(dir)))
     }
 }
 
 impl SourceProvider for FilesystemSourceProvider {
     fn locate(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
-        let key = (project.id, path.clone());
+        let key = (self.generation(), project.id, path.clone());
         {
             let cache = self.cache.lock().unwrap();
             if let Some(res) = cache.get(&key) {
@@ -345,7 +322,7 @@ impl SourceProvider for FilesystemSourceProvider {
     fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
         {
             let cache = self.source_cache.lock().unwrap();
-            if let Some(content) = cache.get(source) {
+            if let Some(content) = cache.get(&(self.generation(), source.clone())) {
                 return Ok(content.clone());
             }
         }
@@ -355,7 +332,7 @@ impl SourceProvider for FilesystemSourceProvider {
 
         let arc: Arc<str> = Arc::from(content);
         let mut cache = self.source_cache.lock().unwrap();
-        cache.insert(source.clone(), arc.clone());
+        cache.insert((self.generation(), source.clone()), arc.clone());
         Ok(arc)
     }
 }

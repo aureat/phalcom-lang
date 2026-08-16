@@ -1091,6 +1091,7 @@ version = "0.1.0"
 dependencies = [
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-native-meta",
  "serde",
  "tempfile",
  "thiserror",

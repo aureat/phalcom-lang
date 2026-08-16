@@ -12,6 +12,9 @@ pub enum ProjectError {
     #[error("Invalid project manifest: {0}")]
     InvalidProjectManifest(String),
 
+    #[error("Persistent projects must declare project.namespace explicitly")]
+    MissingProjectNamespace,
+
     #[error("Invalid project namespace '{0}': {1}")]
     InvalidProjectNamespace(String, InvalidModuleNameError),
 
@@ -59,8 +62,20 @@ pub enum ModuleResolutionError {
     #[error("Invalid module name '{0}': {1}")]
     InvalidModuleName(String, InvalidModuleNameError),
 
+    #[error("Non-canonical physical module/package name at '{path}'; expected '{expected}'")]
+    NonCanonicalPhysicalName { path: PathBuf, expected: String },
+
+    #[error("Parse error while resolving module {module}: {error}")]
+    Parse { module: ModuleId, error: phalcom_ast::error::SyntaxError },
+
+    #[error("Interface error while resolving module {module}: {error}")]
+    Interface { module: ModuleId, error: InterfaceError },
+
     #[error("Unknown import root: '{0}'")]
     UnknownImportRoot(String),
+
+    #[error("the public `core` import root has been retired; import from `universe` instead")]
+    LegacyCoreImportRemoved,
 
     #[error("Relative import ascends {dots} levels, which exceeds package depth {depth}")]
     RelativeImportBeyondRoot { dots: usize, depth: usize },
@@ -76,6 +91,9 @@ pub enum ModuleResolutionError {
 
     #[error("Module path not exposed: '{path}' in project '{project}' is private")]
     ModulePathNotExposed { path: String, project: String, exposed: Vec<String> },
+
+    #[error("Package surface load failed: {0}")]
+    PackageSurface(Box<ModuleLoadError>),
 
     #[error("Source provider error: {0}")]
     Source(#[from] SourceError),
@@ -97,8 +115,13 @@ pub enum ModuleLoadError {
     #[error(transparent)]
     Resolution(#[from] ModuleResolutionError),
 
-    #[error("Parse error in module {module}: {message}")]
-    Parse { module: ModuleId, message: String },
+    #[error("Parse error in module {module} ({source}): {error}", source = source.display())]
+    Parse {
+        module: ModuleId,
+        source: PathBuf,
+        #[source]
+        error: phalcom_ast::error::SyntaxError,
+    },
 
     #[error("Interface error in module {module}: {error}")]
     Interface { module: ModuleId, error: InterfaceError },
@@ -114,8 +137,22 @@ pub enum InterfaceError {
     #[error("Non-exported import: '{name}' is declared in '{module}' but not exported")]
     NonExportedImport { module: String, name: String, range: SourceRange },
 
+    #[error("Duplicate binding '{name}': previous binding at {previous_range:?}")]
+    DuplicateBinding {
+        name: String,
+        previous_range: SourceRange,
+        range: SourceRange,
+    },
+
     #[error("Duplicate import binding: '{name}' is already bound in this scope")]
     DuplicateImportBinding { name: String, range: SourceRange },
+
+    #[error("Duplicate declaration: '{name}' is already declared in this module")]
+    DuplicateDeclaration {
+        name: String,
+        first_range: SourceRange,
+        range: SourceRange,
+    },
 
     #[error("Unknown export: '{name}' is not declared in this module")]
     UnknownExport { name: String, range: SourceRange },
@@ -157,6 +194,15 @@ pub enum InvalidModuleNameError {
     #[error("Invalid leading character in '{0}': must be ASCII alphabetic or '_'")]
     InvalidLeadingChar(String),
 
-    #[error("Invalid character '{1}' in '{0}': must be ASCII alphanumeric or '_'")]
+    #[error("Invalid character '{1}' in '{0}': logical names must be lowercase ASCII snake_case")]
     InvalidChar(String, char),
+
+    #[error("Invalid physical module/package component '{0}': expected lowercase ASCII kebab-case")]
+    InvalidPhysicalForm(String),
+
+    #[error("Logical module component '{0}' is not canonical snake_case")]
+    NonCanonicalLogical(String),
+
+    #[error("Physical module component '{0}' is not canonical kebab-case")]
+    NonCanonicalPhysical(String),
 }

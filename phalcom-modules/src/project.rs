@@ -1,7 +1,7 @@
 //! Project universe, resolved projects, and project dependency graph management.
 
 use crate::error::ProjectError;
-use crate::identity::{ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId};
+use crate::identity::{BuiltinProject, ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SyntheticProjectId, SyntheticProjectIdAllocator};
 use crate::manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -33,6 +33,7 @@ impl ResolvedProject {
 pub struct ProjectUniverse {
     projects: Vec<ResolvedProject>,
     roots: BTreeMap<ProjectSourceIdentity, ResolvedProjectId>,
+    synthetic_ids: SyntheticProjectIdAllocator,
 }
 
 impl Default for ProjectUniverse {
@@ -46,6 +47,7 @@ impl ProjectUniverse {
         Self {
             projects: Vec::new(),
             roots: BTreeMap::new(),
+            synthetic_ids: SyntheticProjectIdAllocator::default(),
         }
     }
 
@@ -54,9 +56,14 @@ impl ProjectUniverse {
         &self.projects
     }
 
-    /// Gets a resolved project by its ID.
+    /// Gets a resolved project by its non-zero graph-node ID.
     pub fn get_project(&self, id: ResolvedProjectId) -> Option<&ResolvedProject> {
-        if id.is_reserved() { None } else { self.projects.get((id.raw() - 1) as usize) }
+        self.projects.get((id.raw() - 1) as usize)
+    }
+
+    /// Allocates a fresh synthetic execution identity for inline/standalone code.
+    pub fn allocate_synthetic_id(&mut self) -> SyntheticProjectId {
+        self.synthetic_ids.allocate()
     }
 
     /// Loads and resolves a root project and its full dependency graph from a `project.toml` file path.
@@ -193,8 +200,10 @@ impl ProjectUniverse {
         let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
 
         let mut import_roots = BTreeMap::new();
-        let core_comp = ModuleComponent::from_identifier("core").expect("valid identifier");
-        import_roots.insert(core_comp, (ImportRootTarget::Core, false));
+        let universe_comp = ModuleComponent::from_identifier("universe").expect("valid identifier");
+        let std_comp = ModuleComponent::from_identifier("std").expect("valid identifier");
+        import_roots.insert(universe_comp, (ImportRootTarget::Builtin(BuiltinProject::Universe), false));
+        import_roots.insert(std_comp, (ImportRootTarget::Builtin(BuiltinProject::Std), false));
         import_roots.insert(validated.namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
         for (alias, dep_id) in &resolved_dependencies {
             import_roots.insert(alias.clone(), (ImportRootTarget::Resolved(*dep_id), false));
@@ -230,16 +239,19 @@ impl ProjectUniverse {
             return Ok(id);
         }
 
-        let namespace = ModuleComponent::from_kebab(name).map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid project identifier: {e}")))?;
-        let entry_comp =
-            ModuleComponent::from_kebab(entry_component).map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid entry identifier: {e}")))?;
+        let namespace = ModuleComponent::from_identifier(&name.replace('-', "_"))
+            .map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid project identifier: {e}")))?;
+        let entry_comp = ModuleComponent::from_identifier(&entry_component.replace('-', "_"))
+            .map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid entry identifier: {e}")))?;
         let entry = Some(ModulePath::from_components(vec![entry_comp]));
 
         let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
 
         let mut import_roots = BTreeMap::new();
-        let core_comp = ModuleComponent::from_identifier("core").expect("valid identifier");
-        import_roots.insert(core_comp, (ImportRootTarget::Core, false));
+        let universe_comp = ModuleComponent::from_identifier("universe").expect("valid identifier");
+        let std_comp = ModuleComponent::from_identifier("std").expect("valid identifier");
+        import_roots.insert(universe_comp, (ImportRootTarget::Builtin(BuiltinProject::Universe), false));
+        import_roots.insert(std_comp, (ImportRootTarget::Builtin(BuiltinProject::Std), false));
         import_roots.insert(namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
 
         let resolved_project = ResolvedProject {

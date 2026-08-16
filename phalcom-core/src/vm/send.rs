@@ -1197,7 +1197,7 @@ impl VM {
 
         let target_val = match export_ref {
             crate::heap::RuntimeExportRef::Module(target_mod) => {
-                if arity == 0 {
+                if matches!(kind, SignatureKind::Getter) {
                     self.stack.truncate(receiver_idx);
                     self.stack.push(Value::Obj(target_mod));
                     return Ok(Some(()));
@@ -1212,7 +1212,7 @@ impl VM {
                     .map(|v| self.surface_absence(v))
                     .ok_or_else(|| RuntimeError::Internal(format!("binding slot {} out of range", binding.slot)))?;
 
-                if arity == 0 {
+                if matches!(kind, SignatureKind::Getter) {
                     self.stack.truncate(receiver_idx);
                     self.stack.push(val);
                     return Ok(Some(()));
@@ -1266,7 +1266,7 @@ impl VM {
 
         let target_val = match export_ref {
             crate::heap::RuntimeExportRef::Module(target_mod) => {
-                if args.is_empty() {
+                if matches!(kind, SignatureKind::Getter) {
                     return Ok(Some(Value::Obj(target_mod)));
                 }
                 Value::Obj(target_mod)
@@ -1279,7 +1279,7 @@ impl VM {
                     .map(|v| self.surface_absence(v))
                     .ok_or_else(|| RuntimeError::Internal(format!("binding slot {} out of range", binding.slot)))?;
 
-                if args.is_empty() {
+                if matches!(kind, SignatureKind::Getter) {
                     return Ok(Some(val));
                 }
                 val
@@ -1336,5 +1336,53 @@ mod tests {
             matches!(result, Err(PhError::Runtime(RuntimeError::NotAllowed(ref message))) if message.contains("internal.selector_access")),
             "generated authority must not outlive its dispatch, got {result:?}"
         );
+    }
+
+    #[test]
+    fn module_export_distinguishes_getter_from_zero_argument_method() {
+        let mut vm = VM::new();
+        let module = vm.create_module("main", "module_export_selector_kind");
+        vm.interpret_source(
+            module,
+            "class Callable {\n  call() { 42 }\n}\nlet exported = Callable.new()\n",
+        )
+        .expect("callable export fixture should compile and run");
+
+        let exported_sym = vm.interner.intern("exported");
+        let exported = vm
+            .heap
+            .module(module)
+            .get(exported_sym)
+            .expect("fixture should define exported");
+        let slot = vm
+            .heap
+            .module(module)
+            .slot_of(exported_sym)
+            .expect("fixture should allocate an exported slot");
+        let public_sym = vm.interner.intern("service");
+        vm.heap.module_mut(module).exports.insert(
+            public_sym,
+            crate::heap::RuntimeExportRef::Binding(crate::modules::BindingRef {
+                module,
+                slot: u16::try_from(slot).expect("test slot fits u16"),
+            }),
+        );
+
+        let getter = vm.get_or_intern(&crate::method::make_signature("service", crate::method::SignatureKind::Getter));
+        let getter_value = vm
+            .try_module_export_send_dynamic(crate::value::Value::Obj(module), getter, &[])
+            .expect("getter export dispatch should succeed")
+            .expect("service is an export");
+        assert_eq!(getter_value, exported, "getter must read the exported binding without invoking it");
+
+        let method = vm.get_or_intern(&crate::method::make_signature("service", crate::method::SignatureKind::Method(0)));
+        let call = vm.get_or_intern(&crate::method::make_signature("call", crate::method::SignatureKind::Method(0)));
+        let expected = vm.send_dynamic(exported, call, &[]).expect("direct call() should succeed");
+        let method_value = vm
+            .try_module_export_send_dynamic(crate::value::Value::Obj(module), method, &[])
+            .expect("zero-argument method export dispatch should succeed")
+            .expect("service is an export");
+        assert_eq!(method_value, expected, "method(0) must invoke the exported value's call() protocol");
+        assert_ne!(method_value, exported, "method(0) must not be collapsed into getter semantics");
     }
 }

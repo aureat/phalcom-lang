@@ -11,7 +11,7 @@ pub mod linkage;
 pub mod materialize;
 pub mod registry;
 
-pub use artifact::{ClassBlueprint, ModuleArtifact, RuntimeDeclarationBlueprint};
+pub use artifact::{ClassBlueprint, ModuleArtifact, ModuleMaterializationPlan, RuntimeDeclarationBlueprint};
 pub use compile::{CompiledModule, CompiledProgram, EntrySelection, ProgramCompileError, ProgramCompiler};
 pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
-pub use registry::{ModuleFailure, ModuleRecord, ModuleRegistry, ModuleState};
+pub use registry::{ModuleFailure, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleState, RuntimeProgramId};

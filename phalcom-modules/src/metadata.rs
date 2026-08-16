@@ -11,6 +11,7 @@ use std::fmt;
 pub enum MetadataTarget {
     Module,
     Package,
+    Project,
 }
 
 impl fmt::Display for MetadataTarget {
@@ -18,6 +19,7 @@ impl fmt::Display for MetadataTarget {
         match self {
             Self::Module => write!(f, "module"),
             Self::Package => write!(f, "package"),
+            Self::Project => write!(f, "project"),
         }
     }
 }
@@ -47,15 +49,8 @@ impl ModuleMetadata {
 
         let mut attributes = Vec::new();
         for attr in ast_attrs {
-            // Package-specific attribute names (e.g. expose_policy) are rejected if placed in a regular module
-            if target == MetadataTarget::Module && is_package_only_attribute(&attr.name) {
-                return Err(InterfaceError::InvalidModuleMetadata {
-                    name: attr.name.clone(),
-                    reason: "attribute is package-only and not allowed on ordinary modules".to_string(),
-                    range: attr.range,
-                });
-            }
-
+            // Unknown metadata is data, not semantics. Standardized semantic
+            // attributes must be registered explicitly rather than inferred from spelling.
             attributes.push(ModuleMetadataAttribute {
                 target,
                 name: attr.name.clone(),
@@ -66,8 +61,4 @@ impl ModuleMetadata {
 
         Ok(Self { attributes })
     }
-}
-
-fn is_package_only_attribute(name: &str) -> bool {
-    matches!(name, "expose_policy" | "package_root")
 }

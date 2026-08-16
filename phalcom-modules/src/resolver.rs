@@ -1,3 +1,4 @@
+use crate::builtin::BuiltinProjectSourceProvider;
 use crate::error::{ModuleLoadError, ModuleResolutionError};
 use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ResolvedProjectId, SourceId, SourceLocation};
 use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInterface};
@@ -25,13 +26,20 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
     /// Resolves an AST `ImportPath` written inside the context of `importer`.
     pub fn resolve_import(&mut self, importer: &ModuleId, syntax: &ImportPath) -> Result<SourceUnit, ModuleResolutionError> {
+        let importer_project_id = importer
+            .project
+            .as_resolved()
+            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("{} has no resolved user-project source authority", importer.project)))?;
         let importer_project = self
             .universe
-            .get_project(importer.project)
-            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Project {:?} not found", importer.project)))?;
+            .get_project(importer_project_id)
+            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Project {:?} not found", importer_project_id)))?;
 
         match &syntax.root {
             ImportRoot::Absolute(root_seg) => {
+                if root_seg.name == "core" {
+                    return Err(ModuleResolutionError::LegacyCoreImportRemoved);
+                }
                 let root_comp =
                     ModuleComponent::from_identifier(&root_seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(root_seg.name.clone(), e))?;
 
@@ -41,14 +49,27 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     .copied()
                     .ok_or_else(|| ModuleResolutionError::UnknownImportRoot(root_seg.name.clone()))?;
 
+                // Build target relative path from segments before selecting a provider.
+                let mut components = Vec::new();
+                for seg in &syntax.segments {
+                    let comp = ModuleComponent::from_identifier(&seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(seg.name.clone(), e))?;
+                    components.push(comp);
+                }
+                let target_path = ModulePath::from_components(components);
+
                 let target_project_id = match target_root {
-                    ImportRootTarget::Core => {
+                    ImportRootTarget::Builtin(builtin) => {
+                        let uri_path = if target_path.is_root() {
+                            String::new()
+                        } else {
+                            target_path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
+                        };
                         return Ok(SourceUnit {
-                            id: ModuleId::core(),
-                            kind: ModuleKind::Module,
+                            id: ModuleId::builtin(builtin, target_path.clone()),
+                            kind: if target_path.is_root() { ModuleKind::Package } else { ModuleKind::Module },
                             source: SourceLocation {
-                                source_id: SourceId("core".into()),
-                                display_path: PathBuf::from("<core>"),
+                                source_id: SourceId(format!("phalcom://{builtin}/{uri_path}").into()),
+                                display_path: PathBuf::from(format!("<builtin:{builtin}>/{uri_path}")),
                             },
                         });
                     }
@@ -59,14 +80,6 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     .universe
                     .get_project(target_project_id)
                     .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Target project {:?} not found", target_project_id)))?;
-
-                // Build target relative path from segments
-                let mut components = Vec::new();
-                for seg in &syntax.segments {
-                    let comp = ModuleComponent::from_identifier(&seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(seg.name.clone(), e))?;
-                    components.push(comp);
-                }
-                let target_path = ModulePath::from_components(components);
 
                 // If cross-project import, perform external path exposure check
                 if !is_self {
@@ -149,15 +162,13 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     /// Loads package exposure surface for a given package module.
     pub fn load_package_surface(&mut self, project_id: ResolvedProjectId, package_path: &ModulePath) -> Result<PackagePathSurface, ModuleResolutionError> {
         let module_id = ModuleId {
-            project: project_id,
+            project: project_id.into(),
             path: package_path.clone(),
         };
 
-        let interface = self.load_interface(&module_id).map_err(|e| match e {
-            ModuleLoadError::Resolution(r) => r,
-            ModuleLoadError::Parse { message, .. } => ModuleResolutionError::InvalidModuleLayout(message),
-            ModuleLoadError::Interface { error, .. } => ModuleResolutionError::InvalidModuleLayout(error.to_string()),
-        })?;
+        let interface = self
+            .load_interface(&module_id)
+            .map_err(|error| ModuleResolutionError::PackageSurface(Box::new(error)))?;
 
         if interface.kind != ModuleKind::Package {
             return Err(ModuleResolutionError::PackageNotFoundError(format!("{}", module_id)));
@@ -174,10 +185,20 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             return res.clone();
         }
 
+        if let crate::identity::ProjectIdentity::Builtin(builtin) = module_id.project {
+            let result = BuiltinProjectSourceProvider::new(builtin).load_interface(module_id);
+            self.interface_cache.insert(module_id.clone(), result.clone());
+            return result;
+        }
+
+        let project_id = module_id
+            .project
+            .as_resolved()
+            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("{} is not filesystem-backed by this provider", module_id.project)))?;
         let project = self
             .universe
-            .get_project(module_id.project)
-            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Project {:?} not found", module_id.project)))?;
+            .get_project(project_id)
+            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Project {:?} not found", project_id)))?;
 
         let unit = self.source.locate(project, &module_id.path)?;
         let source_text = self.source.read(&unit.source.source_id).map_err(ModuleResolutionError::Source)?;
@@ -187,7 +208,8 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             let err = &parse_result.errors[0];
             let load_err = ModuleLoadError::Parse {
                 module: module_id.clone(),
-                message: format!("Parse error in {}: {}", unit.source.display_path.display(), err),
+                source: unit.source.display_path.clone(),
+                error: err.clone(),
             };
             self.interface_cache.insert(module_id.clone(), Err(load_err.clone()));
             return Err(load_err);

@@ -82,7 +82,11 @@ impl VM {
 
     /// Allocates an ad-hoc module with a synthetic identity and registers it.
     pub fn create_module(&mut self, logical_name: &str, abs_path: &str) -> ObjRef {
-        let id = phalcom_modules::ModuleId::synthetic(logical_name);
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator::default();
+        let path = phalcom_modules::ModuleComponent::from_identifier(logical_name)
+            .map(|c| phalcom_modules::ModulePath::from_components(vec![c]))
+            .unwrap_or_else(|_| phalcom_modules::ModulePath::root());
+        let id = phalcom_modules::ModuleId::synthetic(ids.allocate(), path);
         self.create_module_with_id(id, crate::heap::ModuleKind::Module, logical_name, abs_path)
     }
 
@@ -91,7 +95,14 @@ impl VM {
         let module_sym = self.interner.intern(logical_name);
         let module = ModuleObject::new(id.clone(), kind, logical_name.to_string(), module_sym, abs_path.to_string(), None, false);
         let obj_ref = self.heap.alloc(Object::Module(Box::new(module)));
-        self.module_registry.insert(id, crate::modules::ModuleRecord::prepared(obj_ref));
+        self.module_registry.insert(
+            id,
+            crate::modules::ModuleRecord::prepared(
+                obj_ref,
+                crate::modules::registry::RuntimeProgramId(0),
+                crate::modules::registry::ModulePlanFingerprint(0),
+            ),
+        );
         obj_ref
     }
 

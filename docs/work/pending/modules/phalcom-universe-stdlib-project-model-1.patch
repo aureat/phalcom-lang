@@ -1,0 +1,952 @@
+# Phalcom Builtin Universe, Standard Library, Reflection & Project Model
+# Follow-on implementation patch for phalcom-universe-stdlib-project-model-implementation-spec.md
+# Prerequisite: phalcom-modules-repair-stabilization.patch must be applied first.
+# Original repository baseline: 5c64793299ab7f29dd7ec4d6a4e76c33dfa14167
+# Tests intentionally not run per request.
+
+diff --git a/phalcom-core/builtin/std/project.toml b/phalcom-core/builtin/std/project.toml
+new file mode 100644
+index 0000000..6620ce5
+--- /dev/null
++++ b/phalcom-core/builtin/std/project.toml
+@@ -0,0 +1,4 @@
++[project]
++name = "Phalcom Standard Library"
++namespace = "std"
++
+diff --git a/phalcom-core/builtin/std/src/json.ph b/phalcom-core/builtin/std/src/json.ph
+new file mode 100644
+index 0000000..ad1fab8
+--- /dev/null
++++ b/phalcom-core/builtin/std/src/json.ph
+@@ -0,0 +1,2 @@
++@!documentation("Standard JSON package/module surface")
++
+diff --git a/phalcom-core/builtin/std/src/package.ph b/phalcom-core/builtin/std/src/package.ph
+new file mode 100644
+index 0000000..588ad8c
+--- /dev/null
++++ b/phalcom-core/builtin/std/src/package.ph
+@@ -0,0 +1,3 @@
++@!documentation("Canonical builtin standard-library project root")
++
++expose .json
+diff --git a/phalcom-core/builtin/universe/project.toml b/phalcom-core/builtin/universe/project.toml
+new file mode 100644
+index 0000000..df42d37
+--- /dev/null
++++ b/phalcom-core/builtin/universe/project.toml
+@@ -0,0 +1,4 @@
++[project]
++name = "Phalcom Universe"
++namespace = "universe"
++
+diff --git a/phalcom-core/builtin/universe/src/package.ph b/phalcom-core/builtin/universe/src/package.ph
+new file mode 100644
+index 0000000..0fde8ad
+--- /dev/null
++++ b/phalcom-core/builtin/universe/src/package.ph
+@@ -0,0 +1,2 @@
++@!documentation("Canonical builtin universe project root")
++
+diff --git a/phalcom-core/builtin/universe/src/reflection/package.ph b/phalcom-core/builtin/universe/src/reflection/package.ph
+new file mode 100644
+index 0000000..6b81fa9
+--- /dev/null
++++ b/phalcom-core/builtin/universe/src/reflection/package.ph
+@@ -0,0 +1,3 @@
++@!documentation("Reflection package")
++
++expose .selector
+diff --git a/phalcom-core/builtin/universe/src/reflection/selector.ph b/phalcom-core/builtin/universe/src/reflection/selector.ph
+new file mode 100644
+index 0000000..bb95980
+--- /dev/null
++++ b/phalcom-core/builtin/universe/src/reflection/selector.ph
+@@ -0,0 +1,2 @@
++@!documentation("First-class selector reflection surface")
++
+diff --git a/phalcom-core/src/compiler/lib/scope.rs b/phalcom-core/src/compiler/lib/scope.rs
+index cb40f32..41b31f7 100644
+--- a/phalcom-core/src/compiler/lib/scope.rs
++++ b/phalcom-core/src/compiler/lib/scope.rs
+@@ -1,2 +1,9 @@
+     pub(super) fn add_local(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
++        let source_name = self.vm.resolve_symbol(name);
++        if phalcom_modules::DunderPolicy::default()
++            .validate_user_declaration(source_name, phalcom_modules::DunderRole::Binding)
++            .is_err()
++        {
++            return Err(CompilerError::Message(format!("dunder name '{source_name}' is language-reserved")));
++        }
+         let func = self.functions.last_mut().unwrap();
+@@ -23,3 +30,10 @@
+     pub(super) fn declare_global(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
+-        let is_throwaway = self.vm.resolve_symbol(name) == "_";
++        let source_name = self.vm.resolve_symbol(name);
++        if phalcom_modules::DunderPolicy::default()
++            .validate_user_declaration(source_name, phalcom_modules::DunderRole::Binding)
++            .is_err()
++        {
++            return Err(CompilerError::Message(format!("dunder name '{source_name}' is language-reserved")));
++        }
++        let is_throwaway = source_name == "_";
+         if !is_throwaway {
+diff --git a/phalcom-core/src/modules/materialize.rs b/phalcom-core/src/modules/materialize.rs
+index d8d92f2..433ecb3 100644
+--- a/phalcom-core/src/modules/materialize.rs
++++ b/phalcom-core/src/modules/materialize.rs
+@@ -1,2 +1,2 @@
+-use phalcom_modules::LinkedReadSpec;
++use phalcom_modules::{LinkedReadSpec, ModuleId, ModuleKind, ModulePath, ProjectIdentity};
+ use std::collections::{HashMap, HashSet};
+@@ -22,2 +22,36 @@ use std::collections::{HashMap, HashSet};
+-        // Phase 2: Global layouts are populated dynamically by top-level execution.
++
++        // Phase 2: install compiler-controlled lexical context bindings before
++        // compiling any initializer. They are structural constants, not
++        // initializer side effects, so nested closures/methods resolve the
++        // definition unit even when invoked from another module.
++        for (id, compiled_mod) in &program.modules {
++            if !newly_allocated.contains(id) {
++                continue;
++            }
++            let module_obj = self
++                .module_registry
++                .get(id)
++                .ok_or_else(|| RuntimeError::Internal(format!("module {id} missing while installing lexical context")))?
++                .object;
++
++            let package_obj = package_context(program, id)
++                .and_then(|package_id| self.module_registry.get(&package_id).map(|record| record.object));
++            let project_obj = project_context(program, id)
++                .and_then(|project_id| self.module_registry.get(&project_id).map(|record| record.object));
++
++            let module_sym = self.interner.intern("__module__");
++            let package_sym = self.interner.intern("__package__");
++            let project_sym = self.interner.intern("__project__");
++            self.heap.module_mut(module_obj).define(module_sym, crate::value::Value::Obj(module_obj))?;
++            let package_value = match package_obj {
++                Some(object) => crate::value::Value::Obj(object).wrap_some()?,
++                None => crate::value::Value::None,
++            };
++            let project_value = match project_obj {
++                Some(object) => crate::value::Value::Obj(object).wrap_some()?,
++                None => crate::value::Value::None,
++            };
++            self.heap.module_mut(module_obj).define(package_sym, package_value)?;
++            self.heap.module_mut(module_obj).define(project_sym, project_value)?;
++        }
+ 
+@@ -49 +83,26 @@ use std::collections::{HashMap, HashSet};
+ }
++
++
++fn project_context(program: &CompiledProgram, id: &ModuleId) -> Option<ModuleId> {
++    if matches!(id.project, ProjectIdentity::Synthetic(_)) {
++        return None;
++    }
++    let root = ModuleId { project: id.project, path: ModulePath::root() };
++    program.modules.get(&root).is_some_and(|module| module.kind == ModuleKind::Project).then_some(root)
++}
++
++fn package_context(program: &CompiledProgram, id: &ModuleId) -> Option<ModuleId> {
++    let own_kind = program.modules.get(id)?.kind;
++    if own_kind.is_package_like() {
++        return Some(id.clone());
++    }
++    let components = id.path.components();
++    for depth in (0..components.len()).rev() {
++        let path = ModulePath::from_components(components[..depth].to_vec());
++        let candidate = ModuleId { project: id.project, path };
++        if program.modules.get(&candidate).is_some_and(|module| module.kind.is_package_like()) {
++            return Some(candidate);
++        }
++    }
++    None
++}
+diff --git a/phalcom-core/src/universe/core_classes.rs b/phalcom-core/src/universe/core_classes.rs
+index 57e799b..5af5051 100644
+--- a/phalcom-core/src/universe/core_classes.rs
++++ b/phalcom-core/src/universe/core_classes.rs
+@@ -1,2 +1,4 @@
+         let package_class = make_core_class(heap, "Package", module_class, metaclass_class);
++        // Project is the root package object, not a wrapper around one.
++        let project_class = make_core_class(heap, "Project", package_class, metaclass_class);
+ 
+@@ -25,2 +27,3 @@
+             package_class,
++            project_class,
+             system_class,
+@@ -48,2 +51,3 @@
+             res.package_class,
++            res.project_class,
+             res.closure_class,
+@@ -71,2 +75,4 @@
+     pub package_class: ClassId,
++    /// `Project < Package`; a project root object is simultaneously its root package.
++    pub project_class: ClassId,
+     /// `System`.
+@@ -94,2 +100,3 @@
+             UniverseKey::Package => self.package_class,
++            UniverseKey::Project => self.project_class,
+             UniverseKey::System => self.system_class,
+@@ -117,2 +124,3 @@
+             package_class,
++            project_class,
+             system_class,
+@@ -140,2 +148,3 @@
+             package_class,
++            project_class,
+             system_class,
+diff --git a/phalcom-core/src/value/mod.rs b/phalcom-core/src/value/mod.rs
+index a97a706..ff8ac37 100644
+--- a/phalcom-core/src/value/mod.rs
++++ b/phalcom-core/src/value/mod.rs
+@@ -3,2 +3,3 @@
+                     crate::heap::ModuleKind::Package => vm.universe.classes.package_class,
++                    crate::heap::ModuleKind::Project => vm.universe.classes.project_class,
+                 },
+diff --git a/phalcom-core/src/vm/bootstrap.rs b/phalcom-core/src/vm/bootstrap.rs
+index 17ebd56..ea246f9 100644
+--- a/phalcom-core/src/vm/bootstrap.rs
++++ b/phalcom-core/src/vm/bootstrap.rs
+@@ -1,2 +1,3 @@
+         add_class!(package_class);
++        add_class!(project_class);
+         add_class!(system_class);
+@@ -22,2 +23,7 @@
+-        self.create_module_with_id(id, crate::heap::ModuleKind::Package, logical_name, &format!("<builtin:{logical_name}>"))
++        let kind = if matches!(logical_name, "universe" | "std") {
++            crate::heap::ModuleKind::Project
++        } else {
++            crate::heap::ModuleKind::Package
++        };
++        self.create_module_with_id(id, kind, logical_name, &format!("<builtin:{logical_name}>"))
+     }
+@@ -44,8 +50,4 @@
+-        // Add all exports/globals created by core.ph (standard library classes like Entry, Attribute, ArgumentError, Future, Path, etc.) into prelude_names
+-        {
+-            let core_mod = vm.core_module().expect("core module");
+-            for sym in vm.heap.module(core_mod).name_to_slot.keys() {
+-                vm.prelude_names.insert(*sym);
+-            }
+-        }
++        // Prelude membership is the declarative `UNIVERSE_BINDINGS.prelude`
++        // projection above. Bootstrap execution must never widen it by scanning
++        // whichever globals happened to be installed by legacy source.
+ 
+diff --git a/phalcom-modules/src/builtin.rs b/phalcom-modules/src/builtin.rs
+index 6858f9f..cdff37c 100644
+--- a/phalcom-modules/src/builtin.rs
++++ b/phalcom-modules/src/builtin.rs
+@@ -3,3 +3,3 @@
+ use crate::error::{ModuleLoadError, ModuleResolutionError};
+-use crate::identity::{BuiltinProject, ModuleId, ProjectIdentity, SourceId};
++use crate::identity::{BuiltinProject, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId};
+ use crate::interface::{DeclarationSurface, ExportSurface, UnlinkedExportTarget, UnlinkedModuleInterface};
+@@ -10,2 +10,32 @@ use std::collections::{BTreeMap, BTreeSet};
+ 
++#[derive(Clone, Copy, Debug)]
++struct BuiltinNodeSpec {
++    path: &'static [&'static str],
++    kind: ModuleKind,
++    children: &'static [&'static str],
++}
++
++const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
++    BuiltinNodeSpec { path: &[], kind: ModuleKind::Project, children: &["object", "scalar", "callable", "option", "collections", "errors", "reflection", "concurrency"] },
++    BuiltinNodeSpec { path: &["object"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["scalar"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["callable"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["option"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["collections"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["errors"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["reflection"], kind: ModuleKind::Package, children: &["selector"] },
++    BuiltinNodeSpec { path: &["reflection", "selector"], kind: ModuleKind::Module, children: &[] },
++    BuiltinNodeSpec { path: &["concurrency"], kind: ModuleKind::Package, children: &[] },
++];
++
++const STD_NODES: &[BuiltinNodeSpec] = &[
++    BuiltinNodeSpec { path: &[], kind: ModuleKind::Project, children: &["concurrent", "path", "fs", "json", "net", "testing"] },
++    BuiltinNodeSpec { path: &["concurrent"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["path"], kind: ModuleKind::Module, children: &[] },
++    BuiltinNodeSpec { path: &["fs"], kind: ModuleKind::Module, children: &[] },
++    BuiltinNodeSpec { path: &["json"], kind: ModuleKind::Module, children: &[] },
++    BuiltinNodeSpec { path: &["net"], kind: ModuleKind::Package, children: &[] },
++    BuiltinNodeSpec { path: &["testing"], kind: ModuleKind::Package, children: &[] },
++];
++
+ /// Toolchain-owned source/interface authority for one builtin project.
+@@ -31,4 +61,4 @@ use std::collections::{BTreeMap, BTreeSet};
+-        if !id.path.is_root() {
+-            return Err(ModuleResolutionError::ModuleNotFound(format!("builtin module {id} is not available in this runtime floor")).into());
+-        }
++        let node = self.node_spec(&id.path).ok_or_else(|| {
++            ModuleResolutionError::ModuleNotFound(format!("builtin module {id} is not part of the {} project graph", self.builtin))
++        })?;
+ 
+@@ -56,4 +86,10 @@ use std::collections::{BTreeMap, BTreeSet};
++        let exposed_children = node
++            .children
++            .iter()
++            .map(|name| ModuleComponent::from_identifier(name).expect("builtin graph components are canonical"))
++            .collect::<BTreeSet<_>>();
++
+         Ok(UnlinkedModuleInterface {
+             id: id.clone(),
+-            kind: ModuleKind::Package,
++            kind: node.kind,
+             declarations,
+@@ -62,3 +98,3 @@ use std::collections::{BTreeMap, BTreeSet};
+             imports: Vec::new(),
+-            exposed_children: BTreeSet::new(),
++            exposed_children,
+             metadata: ModuleMetadata::default(),
+@@ -67,2 +103,24 @@ use std::collections::{BTreeMap, BTreeSet};
+ 
++    /// Returns whether a canonical module path exists in this builtin graph.
++    pub fn contains(&self, path: &ModulePath) -> bool {
++        self.node_spec(path).is_some()
++    }
++
++    /// Returns the source-unit kind for a canonical builtin path.
++    pub fn kind(&self, path: &ModulePath) -> Option<ModuleKind> {
++        self.node_spec(path).map(|node| node.kind)
++    }
++
++    fn node_spec(&self, path: &ModulePath) -> Option<&'static BuiltinNodeSpec> {
++        let expected = path.components().iter().map(|component| component.as_str()).collect::<Vec<_>>();
++        self.nodes().iter().find(|node| node.path == expected.as_slice())
++    }
++
++    fn nodes(&self) -> &'static [BuiltinNodeSpec] {
++        match self.builtin {
++            BuiltinProject::Universe => UNIVERSE_NODES,
++            BuiltinProject::Std => STD_NODES,
++        }
++    }
++
+     fn validate_id(&self, id: &ModuleId) -> Result<(), ModuleLoadError> {
+diff --git a/phalcom-modules/src/declaration.rs b/phalcom-modules/src/declaration.rs
+new file mode 100644
+index 0000000..bf801cb
+--- /dev/null
++++ b/phalcom-modules/src/declaration.rs
+@@ -0,0 +1,128 @@
++//! Static declaration-shell planning for semantic SCCs.
++//!
++//! Runtime module initialization remains a separate DAG. This layer only
++//! predeclares stable declaration identities so mutually-referential semantic
++//! declarations can resolve without leaf-name fallback.
++
++use crate::graph::{SemanticEdgeKind, SemanticGraph, SemanticNodeId};
++use crate::identity::ModuleId;
++use std::collections::{BTreeMap, BTreeSet};
++
++#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
++pub struct DeclarationId {
++    pub module: ModuleId,
++    pub name: Box<str>,
++}
++
++impl DeclarationId {
++    pub fn semantic_node(&self) -> SemanticNodeId {
++        SemanticNodeId::Declaration { module: self.module.clone(), name: self.name.clone() }
++    }
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum DeclarationKind {
++    Class,
++    Protocol,
++    Adt,
++    Alias,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct DeclarationBlueprint {
++    pub id: DeclarationId,
++    pub kind: DeclarationKind,
++}
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum ShellState {
++    Predeclared,
++    Realized,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct DeclarationShell {
++    pub blueprint: DeclarationBlueprint,
++    pub state: ShellState,
++}
++
++#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
++pub enum DeclarationRealizationError {
++    #[error("semantic edge references declaration without a predeclared shell: {0:?}")]
++    MissingShell(SemanticNodeId),
++    #[error("inheritance cycle is illegal: {cycle:?}")]
++    InheritanceCycle { cycle: Vec<SemanticNodeId> },
++}
++
++#[derive(Clone, Debug, Default)]
++pub struct DeclarationShellTable {
++    shells: BTreeMap<SemanticNodeId, DeclarationShell>,
++}
++
++impl DeclarationShellTable {
++    /// Phase A: allocate stable shells for *all* declarations before any edge
++    /// inside a semantic SCC is resolved.
++    pub fn predeclare(&mut self, blueprints: impl IntoIterator<Item = DeclarationBlueprint>) {
++        for blueprint in blueprints {
++            self.shells.entry(blueprint.id.semantic_node()).or_insert(DeclarationShell {
++                blueprint,
++                state: ShellState::Predeclared,
++            });
++        }
++    }
++
++    pub fn get(&self, node: &SemanticNodeId) -> Option<&DeclarationShell> {
++        self.shells.get(node)
++    }
++
++    /// Phases B/C: prove every declaration edge targets a canonical shell,
++    /// independently reject superclass cycles, then mark the SCC realized.
++    pub fn realize_semantic_graph(&mut self, graph: &SemanticGraph) -> Result<(), DeclarationRealizationError> {
++        for node in graph.nodes() {
++            if matches!(node, SemanticNodeId::Declaration { .. }) && !self.shells.contains_key(&node) {
++                return Err(DeclarationRealizationError::MissingShell(node));
++            }
++            for edge in graph.edges_from(&node) {
++                if matches!(edge.to, SemanticNodeId::Declaration { .. }) && !self.shells.contains_key(&edge.to) {
++                    return Err(DeclarationRealizationError::MissingShell(edge.to.clone()));
++                }
++            }
++        }
++
++        self.reject_inheritance_cycles(graph)?;
++        for component in graph.components() {
++            for node in component {
++                if let Some(shell) = self.shells.get_mut(&node) {
++                    shell.state = ShellState::Realized;
++                }
++            }
++        }
++        Ok(())
++    }
++
++    fn reject_inheritance_cycles(&self, graph: &SemanticGraph) -> Result<(), DeclarationRealizationError> {
++        let mut superclass_only = SemanticGraph::default();
++        for node in graph.nodes() {
++            for edge in graph.edges_from(&node) {
++                if edge.kind == SemanticEdgeKind::Superclass {
++                    superclass_only.add(edge.clone());
++                }
++            }
++        }
++        for component in superclass_only.components() {
++            let self_edge = component.len() == 1
++                && superclass_only.edges_from(&component[0]).iter().any(|edge| edge.to == component[0]);
++            if component.len() > 1 || self_edge {
++                return Err(DeclarationRealizationError::InheritanceCycle { cycle: component });
++            }
++        }
++        Ok(())
++    }
++
++    pub fn realized_ids(&self) -> BTreeSet<SemanticNodeId> {
++        self.shells
++            .iter()
++            .filter_map(|(id, shell)| (shell.state == ShellState::Realized).then_some(id.clone()))
++            .collect()
++    }
++}
+diff --git a/phalcom-modules/src/dunder.rs b/phalcom-modules/src/dunder.rs
+new file mode 100644
+index 0000000..8b724b7
+--- /dev/null
++++ b/phalcom-modules/src/dunder.rs
+@@ -0,0 +1,99 @@
++//! Compiler-facing policy for Phalcom's language-reserved `__name__` lane.
++//!
++//! The runtime symbol/selector machinery intentionally remains able to represent
++//! dunder spellings. This module controls *source declaration roles*, not strings.
++
++use std::collections::BTreeMap;
++
++/// Source role in which a dunder spelling is being introduced by user syntax.
++#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
++pub enum DunderRole {
++    Binding,
++    ImportAlias,
++    Export,
++    Field,
++    Method,
++    Parameter,
++}
++
++/// Stability/override category for a standardized dunder name.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum DunderCategory {
++    /// Compiler/runtime intrinsic; user declarations are never legal.
++    Intrinsic,
++    /// Guaranteed reflection protocol; user replacement is never legal.
++    GuaranteedReflection,
++    /// Standardized policy hook legal only in the listed declaration roles.
++    Hook { roles: &'static [DunderRole] },
++}
++
++#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
++pub enum DunderPolicyError {
++    #[error("dunder name '{name}' is language-reserved and cannot be declared as {role:?}")]
++    Reserved { name: String, role: DunderRole },
++    #[error("unknown dunder name '{name}' is language-reserved")]
++    Unknown { name: String },
++}
++
++#[derive(Clone, Debug)]
++pub struct DunderPolicy {
++    standardized: BTreeMap<&'static str, DunderCategory>,
++}
++
++impl Default for DunderPolicy {
++    fn default() -> Self {
++        let mut standardized = BTreeMap::new();
++        for name in ["__module__", "__package__", "__project__"] {
++            standardized.insert(name, DunderCategory::Intrinsic);
++        }
++        for name in [
++            "__name__",
++            "__id__",
++            "__path__",
++            "__exports__",
++            "__export__",
++            "__metadata__",
++            "__understands__",
++            "__parent__",
++            "__children__",
++            "__namespace__",
++            "__dependencies__",
++            "__version__",
++            "__selectors__",
++            "__definedSelectors__",
++        ] {
++            standardized.insert(name, DunderCategory::GuaranteedReflection);
++        }
++        Self { standardized }
++    }
++}
++
++impl DunderPolicy {
++    pub fn is_dunder(name: &str) -> bool {
++        name.len() >= 4 && name.starts_with("__") && name.ends_with("__")
++    }
++
++    pub fn category(&self, name: &str) -> Option<DunderCategory> {
++        self.standardized.get(name).copied()
++    }
++
++    /// Validates a user-authored declaration role. Ordinary names are ignored.
++    pub fn validate_user_declaration(&self, name: &str, role: DunderRole) -> Result<(), DunderPolicyError> {
++        if !Self::is_dunder(name) {
++            return Ok(());
++        }
++        match self.category(name) {
++            Some(DunderCategory::Hook { roles }) if roles.contains(&role) => Ok(()),
++            Some(_) => Err(DunderPolicyError::Reserved { name: name.to_string(), role }),
++            None => Err(DunderPolicyError::Unknown { name: name.to_string() }),
++        }
++    }
++
++    /// Test/tooling extension point proving that future hooks can be admitted by
++    /// role without weakening the reservation of the whole dunder namespace.
++    pub fn with_hook(mut self, name: &'static str, roles: &'static [DunderRole]) -> Self {
++        assert!(Self::is_dunder(name), "standardized hooks must use dunder spelling");
++        self.standardized.insert(name, DunderCategory::Hook { roles });
++        self
++    }
++}
+diff --git a/phalcom-modules/src/error.rs b/phalcom-modules/src/error.rs
+index a77ed61..db39d53 100644
+--- a/phalcom-modules/src/error.rs
++++ b/phalcom-modules/src/error.rs
+@@ -1 +1,4 @@
++    #[error("dunder name '{name}' is language-reserved in source role {role}")]
++    ReservedDunder { name: String, role: &'static str, range: SourceRange },
++
+     #[error("Duplicate import binding: '{name}' is already bound in this scope")]
+diff --git a/phalcom-modules/src/interface.rs b/phalcom-modules/src/interface.rs
+index a8cfe12..51dc2bd 100644
+--- a/phalcom-modules/src/interface.rs
++++ b/phalcom-modules/src/interface.rs
+@@ -1,2 +1,2 @@
+-                    if kind != ModuleKind::Package {
++                    if !kind.is_package_like() {
+                         return Err(InterfaceError::ExposeOutsidePackage(expose.range));
+@@ -23 +23,2 @@
++use crate::dunder::{DunderPolicy, DunderRole};
+ use crate::error::InterfaceError;
+@@ -46,2 +47,3 @@ use crate::error::InterfaceError;
+                     let range = (class_def.range.start..class_def.name_range.end).into();
++                    Self::validate_dunder(&class_def.name, DunderRole::Binding, range)?;
+                     Self::declare_namespace(
+@@ -67 +69,2 @@ use crate::error::InterfaceError;
++                            Self::validate_dunder(&binding_name, DunderRole::ImportAlias, mod_decl.range)?;
+                             if namespace.contains_key(&binding_name) {
+@@ -89 +92,2 @@ use crate::error::InterfaceError;
++                                Self::validate_dunder(&binding_name, DunderRole::ImportAlias, item.range)?;
+                                 if namespace.contains_key(&binding_name) {
+@@ -111 +115,3 @@ use crate::error::InterfaceError;
++                        Self::validate_dunder(&exported_name, DunderRole::Export, item.range)?;
++                        Self::validate_dunder(&item.local_or_remote_name, DunderRole::ImportAlias, item.range)?;
+                         if exports.contains_key(&exported_name) {
+@@ -133 +139,2 @@ use crate::error::InterfaceError;
++                    Self::validate_dunder(&exported_name, DunderRole::Export, item.range)?;
+                     if exports.contains_key(&exported_name) {
+@@ -156,2 +163,3 @@ use crate::error::InterfaceError;
+             Pattern::Name { name, range } => {
++                Self::validate_dunder(name, DunderRole::Binding, *range)?;
+                 namespace.insert(name.clone(), ModuleNamespaceBinding::Declaration { is_const, range: *range });
+@@ -177 +185,18 @@ use crate::error::InterfaceError;
++    fn validate_dunder(name: &str, role: DunderRole, range: SourceRange) -> Result<(), InterfaceError> {
++        DunderPolicy::default()
++            .validate_user_declaration(name, role)
++            .map_err(|_| InterfaceError::ReservedDunder {
++                name: name.to_string(),
++                role: match role {
++                    DunderRole::Binding => "binding",
++                    DunderRole::ImportAlias => "import alias",
++                    DunderRole::Export => "export",
++                    DunderRole::Field => "field",
++                    DunderRole::Method => "method",
++                    DunderRole::Parameter => "parameter",
++                },
++                range,
++            })
++    }
++
+     fn collect_pattern_declarations(
+diff --git a/phalcom-modules/src/lib.rs b/phalcom-modules/src/lib.rs
+index fd937b9..4bd7120 100644
+--- a/phalcom-modules/src/lib.rs
++++ b/phalcom-modules/src/lib.rs
+@@ -1,2 +1,4 @@
+ pub mod builtin;
++pub mod declaration;
++pub mod dunder;
+ pub mod error;
+@@ -24,2 +26,6 @@ pub mod error;
+ pub use builtin::BuiltinProjectSourceProvider;
++pub use declaration::{
++    DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState,
++};
++pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
+ pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
+diff --git a/phalcom-modules/src/manifest.rs b/phalcom-modules/src/manifest.rs
+index da07bf9..15a7936 100644
+--- a/phalcom-modules/src/manifest.rs
++++ b/phalcom-modules/src/manifest.rs
+@@ -1,9 +1,8 @@
+         let raw_name = self.project.name.clone();
+-        let namespace = if let Some(ns) = &self.project.namespace {
+-            ModuleComponent::from_identifier(ns).map_err(|e| ProjectError::InvalidProjectNamespace(ns.clone(), e))?
+-        } else {
+-            // Compatibility path until the explicit-namespace migration gate is enabled.
+-            let derived = raw_name.replace('-', "_");
+-            ModuleComponent::from_identifier(&derived).map_err(|e| ProjectError::InvalidProjectNamespace(raw_name.clone(), e))?
+-        };
++        let ns = self.project.namespace.as_ref().ok_or_else(|| {
++            ProjectError::InvalidProjectManifest(
++                "persistent projects must declare [project].namespace explicitly in canonical snake_case".to_string(),
++            )
++        })?;
++        let namespace = ModuleComponent::from_identifier(ns).map_err(|e| ProjectError::InvalidProjectNamespace(ns.clone(), e))?;
+ 
+diff --git a/phalcom-modules/src/metadata.rs b/phalcom-modules/src/metadata.rs
+index 7339789..196304f 100644
+--- a/phalcom-modules/src/metadata.rs
++++ b/phalcom-modules/src/metadata.rs
+@@ -3,2 +3,3 @@ pub enum MetadataTarget {
+     Package,
++    Project,
+ }
+@@ -27,2 +28,3 @@ pub enum MetadataTarget {
+             Self::Package => write!(f, "package"),
++            Self::Project => write!(f, "project"),
+         }
+@@ -49,2 +51,3 @@ pub enum MetadataTarget {
+         let target = match kind {
++            ModuleKind::Project => MetadataTarget::Project,
+             ModuleKind::Package => MetadataTarget::Package,
+diff --git a/phalcom-modules/src/resolver.rs b/phalcom-modules/src/resolver.rs
+index b914c3f..e92769f 100644
+--- a/phalcom-modules/src/resolver.rs
++++ b/phalcom-modules/src/resolver.rs
+@@ -1,3 +1,5 @@
+                             id: ModuleId::builtin(builtin, target_path.clone()),
+-                            kind: if target_path.is_root() { ModuleKind::Package } else { ModuleKind::Module },
++                            kind: crate::builtin::BuiltinProjectSourceProvider::new(builtin)
++                                .kind(&target_path)
++                                .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("builtin module {builtin}.{target_path} not found")))?,
+                             source: SourceLocation {
+@@ -24,3 +26,3 @@
+                 let package_path = match importer_unit.kind {
+-                    ModuleKind::Package => importer.path.clone(),
++                    ModuleKind::Project | ModuleKind::Package => importer.path.clone(),
+                     ModuleKind::Module => importer.path.parent().unwrap_or_else(ModulePath::root),
+@@ -47,2 +49,2 @@
+-        if interface.kind != ModuleKind::Package {
++        if !interface.kind.is_package_like() {
+             return Err(ModuleResolutionError::PackageNotFoundError(format!("{}", module_id)));
+diff --git a/phalcom-modules/src/source.rs b/phalcom-modules/src/source.rs
+index de7eb6c..e426a45 100644
+--- a/phalcom-modules/src/source.rs
++++ b/phalcom-modules/src/source.rs
+@@ -1,2 +1,3 @@
+-/// Module kind: an ordinary `.ph` file or a `package.ph` package descriptor.
++/// Runtime/static source-unit kind. A Project is the root `package.ph` of a
++/// persistent or builtin project; there is no second root Package object.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+@@ -5,2 +6,10 @@ pub enum ModuleKind {
+     Package,
++    Project,
++}
++
++impl ModuleKind {
++    /// Whether the unit has package semantics (`package.ph`, exposure, children).
++    pub const fn is_package_like(self) -> bool {
++        matches!(self, Self::Package | Self::Project)
++    }
+ }
+@@ -28,3 +37,5 @@ pub enum ModuleKind {
+                     id: module_id,
+-                    kind: ModuleKind::Package,
++                    // The resolved project root `package.ph` *is* the Project.
++                    // Nested package.ph files remain Package units below.
++                    kind: ModuleKind::Project,
+                     source: SourceLocation {
+diff --git a/phalcom-modules/tests/declaration_shells.rs b/phalcom-modules/tests/declaration_shells.rs
+new file mode 100644
+index 0000000..c62da30
+--- /dev/null
++++ b/phalcom-modules/tests/declaration_shells.rs
+@@ -0,0 +1,47 @@
++use phalcom_common::range::SourceRange;
++use phalcom_modules::{
++    DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShellTable, ModuleComponent, ModuleId, ModulePath,
++    ProjectIdentity, ResolvedProjectId, SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId,
++};
++
++fn module(project: u32, name: &str) -> ModuleId {
++    ModuleId {
++        project: ProjectIdentity::Resolved(ResolvedProjectId::from_raw(project)),
++        path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
++    }
++}
++
++fn decl(module: ModuleId, name: &str) -> DeclarationId {
++    DeclarationId { module, name: name.into() }
++}
++
++#[test]
++fn mutual_semantic_references_realize_after_all_shells_exist() {
++    let a = decl(module(1, "a"), "A");
++    let b = decl(module(1, "b"), "B");
++    let mut table = DeclarationShellTable::default();
++    table.predeclare([
++        DeclarationBlueprint { id: a.clone(), kind: DeclarationKind::Class },
++        DeclarationBlueprint { id: b.clone(), kind: DeclarationKind::Class },
++    ]);
++    let mut graph = SemanticGraph::default();
++    graph.add(SemanticEdge { from: a.semantic_node(), to: b.semantic_node(), kind: SemanticEdgeKind::TypeReference, range: SourceRange::default() });
++    graph.add(SemanticEdge { from: b.semantic_node(), to: a.semantic_node(), kind: SemanticEdgeKind::TypeReference, range: SourceRange::default() });
++    table.realize_semantic_graph(&graph).unwrap();
++    assert_eq!(table.realized_ids().len(), 2);
++}
++
++#[test]
++fn inheritance_cycle_is_rejected_even_inside_a_semantic_scc() {
++    let a = decl(module(2, "a"), "A");
++    let b = decl(module(2, "b"), "B");
++    let mut table = DeclarationShellTable::default();
++    table.predeclare([
++        DeclarationBlueprint { id: a.clone(), kind: DeclarationKind::Class },
++        DeclarationBlueprint { id: b.clone(), kind: DeclarationKind::Class },
++    ]);
++    let mut graph = SemanticGraph::default();
++    graph.add(SemanticEdge { from: a.semantic_node(), to: b.semantic_node(), kind: SemanticEdgeKind::Superclass, range: SourceRange::default() });
++    graph.add(SemanticEdge { from: b.semantic_node(), to: a.semantic_node(), kind: SemanticEdgeKind::Superclass, range: SourceRange::default() });
++    assert!(matches!(table.realize_semantic_graph(&graph), Err(DeclarationRealizationError::InheritanceCycle { .. })));
++}
+diff --git a/phalcom-modules/tests/dunder_policy.rs b/phalcom-modules/tests/dunder_policy.rs
+new file mode 100644
+index 0000000..7012d86
+--- /dev/null
++++ b/phalcom-modules/tests/dunder_policy.rs
+@@ -0,0 +1,25 @@
++use phalcom_modules::{DunderPolicy, DunderPolicyError, DunderRole};
++
++#[test]
++fn runtime_spelling_is_not_the_policy_but_user_source_roles_are_reserved() {
++    let policy = DunderPolicy::default();
++    assert!(DunderPolicy::is_dunder("__module__"));
++    assert!(matches!(
++        policy.validate_user_declaration("__module__", DunderRole::Binding),
++        Err(DunderPolicyError::Reserved { .. })
++    ));
++    assert!(matches!(
++        policy.validate_user_declaration("__whatever__", DunderRole::Method),
++        Err(DunderPolicyError::Unknown { .. })
++    ));
++    assert!(policy.validate_user_declaration("ordinary_name", DunderRole::Binding).is_ok());
++}
++
++#[test]
++fn standardized_hook_can_be_opened_for_exactly_one_role() {
++    static METHOD_ONLY: &[DunderRole] = &[DunderRole::Method];
++    let policy = DunderPolicy::default().with_hook("__test_hook__", METHOD_ONLY);
++    assert!(policy.validate_user_declaration("__test_hook__", DunderRole::Method).is_ok());
++    assert!(policy.validate_user_declaration("__test_hook__", DunderRole::Field).is_err());
++    assert!(policy.validate_user_declaration("__test_hook__", DunderRole::Export).is_err());
++}
+diff --git a/phalcom-modules/tests/universe_project_model.rs b/phalcom-modules/tests/universe_project_model.rs
+new file mode 100644
+index 0000000..0feeac9
+--- /dev/null
++++ b/phalcom-modules/tests/universe_project_model.rs
+@@ -0,0 +1,21 @@
++use phalcom_modules::{BuiltinProject, BuiltinProjectSourceProvider, ModuleComponent, ModuleId, ModuleKind, ModulePath};
++
++fn path(parts: &[&str]) -> ModulePath {
++    ModulePath::from_components(parts.iter().map(|part| ModuleComponent::from_identifier(part).unwrap()).collect())
++}
++
++#[test]
++fn builtin_roots_are_projects_and_nested_nodes_have_stable_virtual_uris() {
++    let universe = BuiltinProjectSourceProvider::new(BuiltinProject::Universe);
++    let root = ModuleId::builtin(BuiltinProject::Universe, ModulePath::root());
++    assert_eq!(universe.load_interface(&root).unwrap().kind, ModuleKind::Project);
++
++    let selector = ModuleId::builtin(BuiltinProject::Universe, path(&["reflection", "selector"]));
++    assert!(universe.contains(&selector.path));
++    assert_eq!(universe.source_id(&selector).unwrap().to_string(), "phalcom://universe/reflection/selector");
++
++    let std_json = ModuleId::builtin(BuiltinProject::Std, path(&["json"]));
++    let std_provider = BuiltinProjectSourceProvider::new(BuiltinProject::Std);
++    assert_eq!(std_provider.source_id(&std_json).unwrap().to_string(), "phalcom://std/json");
++    assert_eq!(std_provider.load_interface(&std_json).unwrap().kind, ModuleKind::Module);
++}
+diff --git a/phalcom-native-meta/src/universe.rs b/phalcom-native-meta/src/universe.rs
+index bf257e7..a763ba3 100644
+--- a/phalcom-native-meta/src/universe.rs
++++ b/phalcom-native-meta/src/universe.rs
+@@ -2,2 +2,3 @@
+     Package,
++    Project,
+     System,
+@@ -25,2 +26,3 @@
+             Self::Package => "Package",
++            Self::Project => "Project",
+             Self::System => "System",
+@@ -48,2 +50,3 @@
+             "Package" => Some(Self::Package),
++            "Project" => Some(Self::Project),
+             "System" => Some(Self::System),
+@@ -73,3 +76,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -99,3 +102,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -125,3 +128,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -151,3 +154,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -177,3 +180,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -203,3 +206,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -229,3 +232,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -255,3 +258,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -281,3 +284,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -307,3 +310,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -333,3 +336,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -359,3 +362,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -385,3 +388,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -411,3 +414,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -437,3 +440,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -463,3 +466,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -489,3 +492,3 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
+     },
+@@ -516,3 +519,10 @@
+         exported: true,
+-        prelude: true,
++        prelude: false,
++    },
++    UniverseBindingSpec {
++        key: UniverseKey::Project,
++        name: "Project",
++        kind: UniverseBindingKind::Class,
++        exported: true,
++        prelude: false,
+     },

@@ -1,6 +1,5 @@
 //! VM-independent compiled module metadata.
 
-use crate::heap::ObjRef;
 use phalcom_modules::{LinkedModuleInterface, LinkedReadSpec, ModuleId, SymbolId};
 
 /// Declaration metadata materialized before ordinary module initialization.
@@ -27,28 +26,29 @@ pub struct ClassBlueprint {
 
 /// Output of compiling one linked module.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ModuleArtifact {
+pub struct ModuleMaterializationPlan {
     /// Module identity.
     pub id: ModuleId,
     /// Declaration metadata.
     pub declarations: Vec<RuntimeDeclarationBlueprint>,
-    /// Top-level initializer closure, once VM compilation has materialized it.
-    pub initializer: Option<ObjRef>,
     /// Linked interface used by runtime materialization.
     pub interface: LinkedModuleInterface,
     /// Symbolic reads consumed by `GetLinked`.
     pub linked_reads: Vec<LinkedReadSpec>,
 }
 
-impl ModuleArtifact {
+impl ModuleMaterializationPlan {
     /// Creates an empty artifact for a linked module.
     pub fn empty(module: &phalcom_modules::LinkedModule) -> Self {
         Self {
             id: module.interface.module.clone(),
             declarations: Vec::new(),
-            initializer: None,
             interface: module.interface.clone(),
             linked_reads: module.linked_reads.clone(),
         }
     }
 }
+
+/// Temporary source-compatibility alias while call sites migrate.
+#[deprecated(note = "use ModuleMaterializationPlan")]
+pub type ModuleArtifact = ModuleMaterializationPlan;
