@@ -2,32 +2,21 @@
 
 use phalcom_modules::{LinkedModuleInterface, LinkedReadSpec, ModuleId, SymbolId};
 
-/// Declaration metadata materialized before ordinary module initialization.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RuntimeDeclarationBlueprint {
-    /// A class declaration and its statically linked superclass identity.
     Class(ClassBlueprint),
-    /// A top-level global slot declaration.
     Global { symbol: SymbolId, mutable: bool },
 }
 
-/// VM-independent class declaration metadata.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClassBlueprint {
-    /// Canonical class symbol.
     pub symbol: SymbolId,
-    /// Canonical superclass symbol, if explicit.
     pub superclass: Option<SymbolId>,
-    /// Source field names in declaration order.
     pub fields: Vec<Box<str>>,
-    /// Canonical method selectors.
     pub methods: Vec<Box<str>>,
 }
 
 /// Immutable, VM-independent plan for materializing one linked module.
-///
-/// Runtime heap handles deliberately do not appear here. Heap objects and
-/// closures belong to VM materialization/execution, not to the linked plan.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleMaterializationPlan {
     pub id: ModuleId,
@@ -46,28 +35,26 @@ impl ModuleMaterializationPlan {
         }
     }
 
-    /// Produces a conservative declaration plan directly from canonical linked
-    /// global identities. Source-aware compilation replaces class entries with
-    /// richer `ClassBlueprint`s, but this fallback still predeclares every
-    /// linked module-owned global and is never empty scaffolding by design.
     pub fn from_linked(module: &phalcom_modules::LinkedModule) -> Self {
         let declarations = module
             .bindings
             .local_globals
             .keys()
             .map(|name| RuntimeDeclarationBlueprint::Global {
-                symbol: SymbolId {
-                    module: module.interface.module.clone(),
-                    name: name.clone(),
-                },
+                symbol: SymbolId { module: module.interface.module.clone(), name: name.clone() },
                 mutable: true,
             })
             .collect();
         Self::new(module, declarations)
     }
+
+    /// Temporary source-compatibility shim for the pre-repair call site. It no
+    /// longer creates an empty artifact; it constructs the active declaration
+    /// materialization plan.
+    #[deprecated(note = "use ModuleMaterializationPlan::from_linked")]
+    pub fn empty(module: &phalcom_modules::LinkedModule) -> Self {
+        Self::from_linked(module)
+    }
 }
 
-/// Transitional source-compatible name. The payload is now a truthful
-/// VM-independent materialization plan rather than a partly-materialized
-/// runtime artifact.
 pub type ModuleArtifact = ModuleMaterializationPlan;
