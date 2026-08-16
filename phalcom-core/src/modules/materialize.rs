@@ -35,12 +35,11 @@ impl VM {
                             }
                             Some(_) => continue,
                             None => {
-                                // A VM-bootstrap builtin shell may adopt exactly
-                                // one immutable builtin linked plan.
-                                self.module_registry
+                                let record = self
+                                    .module_registry
                                     .get_mut(id)
-                                    .expect("record was just observed")
-                                    .plan_fingerprint = Some(compiled_mod.plan_fingerprint);
+                                    .ok_or_else(|| RuntimeError::Internal(format!("builtin module {id} disappeared during materialization")))?;
+                                record.plan_fingerprint = Some(compiled_mod.plan_fingerprint);
                                 materialize.insert(id.clone());
                                 continue;
                             }
@@ -76,8 +75,9 @@ impl VM {
             materialize.insert(id.clone());
         }
 
-        // Phase 2/3: predeclare artifact-owned globals for newly materialized
-        // records only. Existing program records must not be rewritten.
+        // Phase 2: predeclare every module-owned global/class name before any
+        // source closure can execute. Class blueprints are refined by the
+        // source-aware plan producer; both variants reserve the canonical slot.
         for id in &materialize {
             let compiled_mod = &program.modules[id];
             let obj_ref = self
@@ -86,22 +86,25 @@ impl VM {
                 .ok_or_else(|| RuntimeError::Internal(format!("newly materialized module {id} disappeared")))?
                 .object;
             for decl in &compiled_mod.artifact.declarations {
-                match decl {
-                    crate::modules::RuntimeDeclarationBlueprint::Global { symbol, .. } => {
-                        let sym = self.interner.intern(&symbol.name);
-                        if self.heap.module(obj_ref).slot_of(sym).is_none() {
-                            self.heap.module_mut(obj_ref).declare(sym)?;
-                        }
-                    }
-                    crate::modules::RuntimeDeclarationBlueprint::Class(_class_bp) => {}
+                let symbol = match decl {
+                    crate::modules::RuntimeDeclarationBlueprint::Global { symbol, .. } => symbol,
+                    crate::modules::RuntimeDeclarationBlueprint::Class(class) => &class.symbol,
+                };
+                let sym = self.interner.intern(&symbol.name);
+                if self.heap.module(obj_ref).slot_of(sym).is_none() {
+                    self.heap.module_mut(obj_ref).declare(sym)?;
                 }
             }
         }
 
-        // Phase 4: materialize linked reads for newly materialized records.
+        // Phase 3: materialize symbolic linked reads only for new records.
         for id in &materialize {
             let compiled_mod = &program.modules[id];
-            let obj_ref = self.module_registry.get(id).expect("new module registered").object;
+            let obj_ref = self
+                .module_registry
+                .get(id)
+                .ok_or_else(|| RuntimeError::Internal(format!("new module {id} not registered")))?
+                .object;
             let mut materialized_reads = Vec::with_capacity(compiled_mod.linked_reads.len());
             for read_spec in &compiled_mod.linked_reads {
                 let runtime_read = match read_spec {
@@ -132,10 +135,14 @@ impl VM {
             self.heap.module_mut(obj_ref).linked_reads = materialized_reads;
         }
 
-        // Phase 5: materialize export tables for newly materialized records.
+        // Phase 4: materialize linked export tables only for new records.
         for id in &materialize {
             let compiled_mod = &program.modules[id];
-            let obj_ref = self.module_registry.get(id).expect("new module registered").object;
+            let obj_ref = self
+                .module_registry
+                .get(id)
+                .ok_or_else(|| RuntimeError::Internal(format!("new module {id} not registered")))?
+                .object;
             let mut exports = HashMap::new();
             for (exported_name, linked_export) in &compiled_mod.interface.exports {
                 let public_sym = self.interner.intern(exported_name);
@@ -166,20 +173,6 @@ impl VM {
             self.heap.module_mut(obj_ref).exports = exports;
         }
 
-        // Phase 6: an already-materialized module's closure is immutable. New
-        // artifact closures may be installed once; source-backed closures are
-        // compiled lazily by run_compiled.
-        for id in &materialize {
-            let compiled_mod = &program.modules[id];
-            if let Some(initializer) = compiled_mod.artifact.initializer {
-                let obj_ref = self.module_registry.get(id).expect("new module registered").object;
-                if self.heap.module(obj_ref).closure.is_none() {
-                    self.heap.module_mut(obj_ref).closure = Some(initializer);
-                }
-            }
-        }
-
-        // Runtime roots are invocation state, not module-plan state.
         let entry_obj = self
             .module_registry
             .get(&program.entry)
