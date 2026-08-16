@@ -1,6 +1,7 @@
 //! Program-level compiler seam for closed linked module plans.
 
 use super::artifact::ModuleArtifact;
+use super::registry::{ModulePlanFingerprint, RuntimeProgramId};
 use phalcom_modules::{
     LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver,
     ProjectError, ProjectUniverse, SessionSourceProvider, SourceError, SourceLocation, SourceProvider, discover_owning_project,
@@ -29,10 +30,12 @@ pub struct CompiledModule {
     pub interface: Arc<phalcom_modules::LinkedModuleInterface>,
     pub artifact: ModuleArtifact,
     pub linked_reads: Vec<phalcom_modules::LinkedReadSpec>,
+    pub plan_fingerprint: ModulePlanFingerprint,
 }
 
 #[derive(Clone, Debug)]
 pub struct CompiledProgram {
+    pub runtime_id: RuntimeProgramId,
     pub project_universe: Arc<ProjectUniverse>,
     pub linked: Arc<LinkedProgram>,
     pub modules: BTreeMap<ModuleId, CompiledModule>,
@@ -130,7 +133,6 @@ impl ProgramCompiler {
             .canonicalize()
             .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", file_path.display())))?;
 
-        // Persistent project ownership dominates all standalone forms.
         if let Some(project_root) = discover_owning_project(&canonical_file)? {
             let mut universe = ProjectUniverse::new();
             let root_id = universe.load_root(project_root.join("project.toml"))?;
@@ -150,7 +152,6 @@ impl ProgramCompiler {
             return Self::discover_and_link(universe.clone(), &provider, entry_id);
         }
 
-        // A package marker grants authority only to the contiguous package tree.
         if let Some(package_root) = discover_standalone_package_root(&canonical_file)? {
             let rel_path = canonical_file.strip_prefix(&package_root).map_err(|_| {
                 ProgramCompileError::Io(format!("file {} is not under package root {}", canonical_file.display(), package_root.display()))
@@ -163,8 +164,6 @@ impl ProgramCompiler {
             return Self::discover_and_link(universe, &provider, entry_id);
         }
 
-        // No project and no package marker: exactly one standalone module owns
-        // the session. Sibling files are not discoverable.
         let mut universe = ProjectUniverse::new();
         let synthetic = universe.allocate_synthetic_id();
         let provider = SessionSourceProvider::standalone_module(synthetic, &canonical_file)?;
@@ -234,6 +233,7 @@ impl ProgramCompiler {
             .collect();
 
         Ok(CompiledProgram {
+            runtime_id: RuntimeProgramId::fresh(),
             project_universe: universe,
             linked: linked.clone(),
             modules,
@@ -257,6 +257,7 @@ impl ProgramCompiler {
                 .map(|(id, module)| (id.clone(), compile_module(id.clone(), module, None, None)))
                 .collect();
             return Ok(CompiledProgram {
+                runtime_id: RuntimeProgramId::fresh(),
                 project_universe: linked.universe.clone(),
                 linked: linked.clone(),
                 modules,
@@ -291,6 +292,7 @@ fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCo
 }
 
 fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLocation>, source_text: Option<Arc<str>>) -> CompiledModule {
+    let fingerprint_material = format!("{id:?}\n{module:?}\n{source:?}\n{source_text:?}");
     CompiledModule {
         id,
         kind: module.interface.kind,
@@ -299,5 +301,6 @@ fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLoca
         interface: Arc::new(module.interface.clone()),
         artifact: ModuleArtifact::empty(module),
         linked_reads: module.linked_reads.clone(),
+        plan_fingerprint: ModulePlanFingerprint::from_bytes(fingerprint_material.as_bytes()),
     }
 }
