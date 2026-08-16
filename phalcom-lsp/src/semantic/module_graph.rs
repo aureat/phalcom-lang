@@ -3,11 +3,75 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use phalcom_ast::ast::Program;
+use phalcom_ast::ast::{DependencyDecl, ImportDecl, ImportPath, Program};
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
-use super::ids::ModuleId;
+use super::ids::{DocumentModuleMap, ModuleId};
+
+/// Worker-side adapter over the compiler's project/module resolver.
+///
+/// Request handlers continue to consume immutable URI-keyed snapshots. This
+/// adapter belongs to ingestion/rebuild code, where filesystem/project
+/// resolution is allowed, and records the same semantic `ModuleId` mapping
+/// used by compiler linking.
+pub struct SharedModuleResolver<'a, P: phalcom_modules::SourceProvider> {
+    resolver: phalcom_modules::ModuleResolver<'a, P>,
+    documents: DocumentModuleMap,
+}
+
+impl<'a, P: phalcom_modules::SourceProvider> SharedModuleResolver<'a, P> {
+    /// Creates a resolver adapter for one project universe and source provider.
+    pub fn new(universe: &'a phalcom_modules::ProjectUniverse, source: &'a P, documents: DocumentModuleMap) -> Self {
+        Self {
+            resolver: phalcom_modules::ModuleResolver::new(universe, source),
+            documents,
+        }
+    }
+
+    /// Returns the document/semantic identity map maintained by the adapter.
+    pub fn documents(&self) -> &DocumentModuleMap {
+        &self.documents
+    }
+
+    /// Resolves one AST import through `phalcom-modules` and returns the
+    /// document-bound LSP key for graph publication.
+    pub fn resolve(&mut self, importer: &ModuleId, path: &ImportPath) -> Result<ModuleId, phalcom_modules::ModuleResolutionError> {
+        let importer_semantic = self
+            .documents
+            .semantic_for_lsp(importer)
+            .ok_or_else(|| phalcom_modules::ModuleResolutionError::ModuleNotFound(importer.to_string()))?
+            .clone();
+        let unit = self.resolver.resolve_import(&importer_semantic, path)?;
+        let target_uri = Url::from_file_path(&unit.source.display_path)
+            .map_err(|_| phalcom_modules::ModuleResolutionError::ModuleNotFound(unit.source.display_path.display().to_string()))?;
+        let target_id = unit.id.clone();
+        self.documents.insert(target_uri, target_id.clone());
+        Ok(ModuleId::new(target_id.to_string()))
+    }
+}
+
+/// Source-level dependency kind retained by the LSP graph.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ImportEdgeKind {
+    /// Whole module object import.
+    WholeModule,
+    /// Selective value import.
+    Selective,
+    /// Public re-export.
+    ReExport,
+}
+
+/// Reverse dependency policy used by invalidation consumers.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ReverseDependencyKind {
+    /// Interface/name-resolution dependency.
+    Interface,
+    /// Eager runtime dependency.
+    Runtime,
+    /// Public re-export dependency.
+    ReExport,
+}
 
 /// One source import edge, retained even when its target is unresolved.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -21,6 +85,10 @@ pub struct ImportEdge {
     pub path: String,
     /// Resolved target, if its source file exists.
     pub target: Option<ModuleId>,
+    /// Semantic dependency kind.
+    pub kind: ImportEdgeKind,
+    /// Phase currently required by v1 semantics.
+    pub phase: phalcom_modules::DependencyPhase,
     /// Source span of the import statement.
     pub source_range: SourceRange,
 }
@@ -63,6 +131,8 @@ impl ModuleGraph {
                             binding,
                             path: path_str.clone(),
                             target: resolve_import(&module, &path_str, available),
+                            kind: ImportEdgeKind::WholeModule,
+                            phase: phalcom_modules::DependencyPhase::Runtime,
                             source_range: m.range,
                         });
                     }
@@ -80,6 +150,8 @@ impl ModuleGraph {
                                 binding,
                                 path: path_str.clone(),
                                 target: target.clone(),
+                                kind: ImportEdgeKind::Selective,
+                                phase: phalcom_modules::DependencyPhase::Runtime,
                                 source_range: item.range,
                             });
                         }
@@ -94,6 +166,8 @@ impl ModuleGraph {
                             binding: item.local_or_remote_name.clone(),
                             path: path_str.clone(),
                             target: target.clone(),
+                            kind: ImportEdgeKind::ReExport,
+                            phase: phalcom_modules::DependencyPhase::Runtime,
                             source_range: item.range,
                         });
                     }
@@ -110,6 +184,80 @@ impl ModuleGraph {
             }
         }
         self.forward.insert(module, edges);
+    }
+
+    /// Rebuilds one module's graph edges through the shared project resolver.
+    /// This is intended for worker/source-ingestion paths; unresolved imports
+    /// remain an explicit resolver error rather than being guessed from URIs.
+    pub fn update_with_shared_resolver(
+        &mut self,
+        module: ModuleId,
+        program: &Program,
+        resolver: &mut SharedModuleResolver<'_, impl phalcom_modules::SourceProvider>,
+    ) -> Result<(), phalcom_modules::ModuleResolutionError> {
+        self.remove_edges(&module);
+        let mut edges = Vec::new();
+        for dependency in &program.preamble.dependencies {
+            match dependency {
+                DependencyDecl::Import(import) => match import {
+                    ImportDecl::Module(decl) => {
+                        let target = resolver.resolve(&module, &decl.path)?;
+                        let binding = decl
+                            .alias
+                            .as_ref()
+                            .map(|alias| alias.name.clone())
+                            .or_else(|| decl.path.segments.last().map(|segment| segment.name.clone()))
+                            .unwrap_or_default();
+                        edges.push(ImportEdge {
+                            from: module.clone(),
+                            binding,
+                            path: decl.path.to_string(),
+                            target: Some(target),
+                            kind: ImportEdgeKind::WholeModule,
+                            phase: phalcom_modules::DependencyPhase::Runtime,
+                            source_range: decl.range,
+                        });
+                    }
+                    ImportDecl::Selective(decl) => {
+                        let target = resolver.resolve(&module, &decl.path)?;
+                        for item in &decl.items {
+                            edges.push(ImportEdge {
+                                from: module.clone(),
+                                binding: item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone()),
+                                path: decl.path.to_string(),
+                                target: Some(target.clone()),
+                                kind: ImportEdgeKind::Selective,
+                                phase: phalcom_modules::DependencyPhase::Runtime,
+                                source_range: item.range,
+                            });
+                        }
+                    }
+                },
+                DependencyDecl::ReExport(decl) => {
+                    let target = resolver.resolve(&module, &decl.path)?;
+                    for item in &decl.items {
+                        edges.push(ImportEdge {
+                            from: module.clone(),
+                            binding: item.local_or_remote_name.clone(),
+                            path: decl.path.to_string(),
+                            target: Some(target.clone()),
+                            kind: ImportEdgeKind::ReExport,
+                            phase: phalcom_modules::DependencyPhase::Runtime,
+                            source_range: item.range,
+                        });
+                    }
+                }
+                DependencyDecl::Expose(_) => {}
+            }
+        }
+        for edge in &edges {
+            self.reverse
+                .entry(edge.target.clone().expect("shared resolution produces target"))
+                .or_default()
+                .insert(module.clone());
+        }
+        self.forward.insert(module, edges);
+        Ok(())
     }
 
     /// Removes all edges contributed by `module`.
@@ -134,6 +282,25 @@ impl ModuleGraph {
     /// Returns modules whose imports point at `target`.
     pub fn dependents_of(&self, target: &ModuleId) -> Vec<ModuleId> {
         self.reverse.get(target).into_iter().flatten().cloned().collect()
+    }
+
+    /// Returns dependent modules filtered by semantic reverse-edge kind.
+    pub fn dependents_of_kind(&self, target: &ModuleId, kind: ReverseDependencyKind) -> Vec<ModuleId> {
+        self.forward
+            .values()
+            .flat_map(|edges| edges.iter())
+            .filter(|edge| {
+                edge.target.as_ref() == Some(target)
+                    && match kind {
+                        ReverseDependencyKind::Interface => edge.phase == phalcom_modules::DependencyPhase::InterfaceOnly,
+                        ReverseDependencyKind::Runtime => edge.phase == phalcom_modules::DependencyPhase::Runtime,
+                        ReverseDependencyKind::ReExport => edge.kind == ImportEdgeKind::ReExport,
+                    }
+            })
+            .map(|edge| edge.from.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 
     /// Repairs importers whose retained path can resolve to `provider`.
@@ -225,7 +392,7 @@ fn resolve_import(module: &ModuleId, import: &str, available: &BTreeSet<ModuleId
             .and_then(|uri| uri.to_file_path().ok())
             .and_then(|path| path.canonicalize().ok())
             .and_then(|path| Url::from_file_path(path).ok())
-            .map(|uri| ModuleId::from_uri(&uri));
+            .map(|uri| ModuleId::new(uri.to_string()));
         if canonical.as_ref().is_some_and(|id| available.contains(id)) {
             return canonical;
         }
@@ -269,7 +436,7 @@ fn import_candidates(module: &ModuleId, import: &str) -> Vec<ModuleId> {
         }
         let normalized = normalize_path(candidate);
         if let Ok(uri) = Url::from_file_path(normalized) {
-            let id = ModuleId::from_uri(&uri);
+            let id = ModuleId::new(uri.to_string());
             if !candidates.contains(&id) {
                 candidates.push(id);
             }

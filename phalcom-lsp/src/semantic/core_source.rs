@@ -116,6 +116,7 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
         source.classes.entry(class_id.clone()).or_insert_with(|| ClassSurface {
             id: class_id.clone(),
             superclass: native_class.superclass.map(|name| ClassId::new(module.clone(), name)),
+            superclass_reference: None,
             members: Default::default(),
             fields: Default::default(),
             source_range: Default::default(),

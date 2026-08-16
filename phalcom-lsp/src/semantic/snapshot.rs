@@ -10,7 +10,7 @@ use super::analyzer::{AnalysisContext, analyze_expr};
 use super::callable::CallableSummary;
 use super::dispatch::{DispatchReceiver, DispatchResolver};
 use super::facts::InferredValue;
-use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, FieldId, ModuleId};
+use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, DocumentModuleMap, FieldId, ModuleId};
 use super::module_graph::{ImportEdge, ModuleGraph};
 use super::occurrence::{OccurrenceRole, SemanticOccurrence, SemanticTarget};
 use super::query::{SemanticGeneration, SnapshotStamp};
@@ -63,6 +63,8 @@ pub struct SemanticSnapshot {
     pub parameter_facts: Arc<BTreeMap<(CallableId, String), InferredValue>>,
     /// Module import and dependency graph.
     pub graph: Arc<ModuleGraph>,
+    /// Published document-to-module mapping used at request boundaries.
+    pub documents: Arc<DocumentModuleMap>,
 }
 
 impl SemanticSnapshot {
@@ -74,8 +76,7 @@ impl SemanticSnapshot {
     /// Resolves an editor URI to the published module identity without doing
     /// filesystem work on the request path.
     pub fn module_for_uri(&self, uri: &Url) -> Option<&ModuleId> {
-        let module = ModuleId::from_uri(uri);
-        self.files.get_key_value(&module).map(|(module, _)| module)
+        self.documents.lsp_for_uri(uri).filter(|module| self.files.contains_key(*module))
     }
 
     /// Returns one published file by its resolved module identity.
@@ -85,8 +86,8 @@ impl SemanticSnapshot {
 
     /// Returns an immutable clone of one file's semantic snapshot.
     pub fn file_snapshot(&self, uri: &Url) -> Option<FileSemanticSnapshot> {
-        let module = ModuleId::from_uri(uri);
-        self.files.get(&module).map(|f| (**f).clone())
+        let module = self.module_for_uri(uri)?;
+        self.files.get(module).map(|f| (**f).clone())
     }
 
     /// Returns the file revision stamp for one module if present.
@@ -96,17 +97,17 @@ impl SemanticSnapshot {
 
     /// Returns the exact semantic occurrence covering one source offset.
     pub fn occurrence_at(&self, uri: &Url, offset: usize) -> Option<SemanticOccurrence> {
-        let module = ModuleId::from_uri(uri);
-        self.files.get(&module).and_then(|file| file.occurrences.occurrence_at(offset).cloned())
+        let module = self.module_for_uri(uri)?;
+        self.files.get(module).and_then(|file| file.occurrences.occurrence_at(offset).cloned())
     }
 
     /// Returns all references to a `SemanticTarget` in the workspace.
     pub fn references_for_target(&self, uri: &Url, target: &SemanticTarget) -> Vec<(Url, SourceRange, OccurrenceRole)> {
         match target {
             SemanticTarget::Binding(_) => {
-                let module = ModuleId::from_uri(uri);
+                let Some(module) = self.module_for_uri(uri) else { return Vec::new() };
                 self.files
-                    .get(&module)
+                    .get(module)
                     .map(|file| {
                         file.occurrences
                             .all()
@@ -120,7 +121,7 @@ impl SemanticSnapshot {
             _ => {
                 let mut results = Vec::new();
                 for (module_id, file) in self.files.iter() {
-                    if let Ok(file_uri) = Url::parse(module_id.as_str()) {
+                    if let Some(file_uri) = self.documents.uri_for_lsp(module_id) {
                         for occ in file.occurrences.all() {
                             if &occ.target == target {
                                 results.push((file_uri.clone(), occ.range, occ.role));
@@ -135,17 +136,17 @@ impl SemanticSnapshot {
 
     /// Returns lexical bindings visible at one source offset, nearest scope first.
     pub fn visible_bindings_at(&self, uri: &Url, offset: usize) -> Vec<BindingInfo> {
-        let module = ModuleId::from_uri(uri);
+        let Some(module) = self.module_for_uri(uri) else { return Vec::new() };
         self.files
-            .get(&module)
+            .get(module)
             .map(|file| file.source.scopes.visible_bindings_at(offset))
             .unwrap_or_default()
     }
 
     /// Returns one binding's declaration metadata from a file-local identity.
     pub fn binding_info(&self, uri: &Url, binding: BindingId) -> Option<BindingInfo> {
-        let module = ModuleId::from_uri(uri);
-        self.files.get(&module).and_then(|file| file.source.scopes.bindings.get(&binding).cloned())
+        let module = self.module_for_uri(uri)?;
+        self.files.get(module).and_then(|file| file.source.scopes.bindings.get(&binding).cloned())
     }
 
     /// Returns one class surface by module-qualified identity.
@@ -256,15 +257,15 @@ impl SemanticSnapshot {
 
     /// Resolves a class name in its module, with the stable core namespace as a fallback.
     pub fn class_for_name(&self, uri: &Url, name: &str) -> Option<ClassId> {
-        let module = ModuleId::from_uri(uri);
-        resolve_named_class(self.classes.as_ref(), &self.graph, &module, name)
+        let module = self.module_for_uri(uri)?;
+        resolve_named_class(self.classes.as_ref(), &self.graph, module, name)
     }
 
     /// Returns the class whose declaration contains a byte offset in `uri`.
     pub fn class_at(&self, uri: &Url, offset: usize) -> Option<ClassId> {
-        let module = ModuleId::from_uri(uri);
+        let module = self.module_for_uri(uri)?;
         self.files
-            .get(&module)?
+            .get(module)?
             .source
             .surface
             .classes
@@ -275,9 +276,9 @@ impl SemanticSnapshot {
 
     /// Returns the source-authored class whose name range contains `offset`.
     pub fn class_name_at(&self, uri: &Url, offset: usize) -> Option<ClassSurface> {
-        let module = ModuleId::from_uri(uri);
+        let module = self.module_for_uri(uri)?;
         self.files
-            .get(&module)?
+            .get(module)?
             .source
             .surface
             .classes
@@ -288,9 +289,9 @@ impl SemanticSnapshot {
 
     /// Returns the declared callable enclosing a source offset.
     pub fn member_at(&self, uri: &Url, offset: usize) -> Option<MemberSurface> {
-        let module = ModuleId::from_uri(uri);
+        let module = self.module_for_uri(uri)?;
         self.files
-            .get(&module)?
+            .get(module)?
             .source
             .surface
             .classes
@@ -309,8 +310,8 @@ impl SemanticSnapshot {
 
     /// Returns the fact visible for a local binding at a byte offset.
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
-        let module = ModuleId::from_uri(uri);
-        let file = self.files.get(&module)?;
+        let module = self.module_for_uri(uri)?;
+        let file = self.files.get(module)?;
         let binding = match file.source.scopes.resolve(file.source.scopes.scope_at(offset), name, offset) {
             NameResolution::Binding(binding) => binding,
             _ => return None,
@@ -320,10 +321,11 @@ impl SemanticSnapshot {
 
     /// Infers a parsed receiver expression against the coherent current semantic snapshot.
     pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
-        let module = ModuleId::from_uri(uri);
+        let fallback_module = ModuleId::new(uri.to_string());
+        let module = self.module_for_uri(uri).unwrap_or(&fallback_module);
 
         let mut environment = BTreeMap::new();
-        let known_classes = |name: &str| resolve_named_class(self.classes.as_ref(), &self.graph, &module, name);
+        let known_classes = |name: &str| resolve_named_class(self.classes.as_ref(), &self.graph, module, name);
         let callable_return = |id: &CallableId| return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), id);
         let field_value = |class: &ClassId, name: &str, side: DispatchSide| {
             let mut current = Some(class.clone());
@@ -345,11 +347,11 @@ impl SemanticSnapshot {
         };
         let current_class = self
             .files
-            .get(&module)
+            .get(module)
             .and_then(|file| file.source.surface.classes.values().find(|class| class.source_range.contains(offset)))
             .map(|class| class.id.clone());
         if let Some(class) = current_class.as_ref() {
-            if let Some(file) = self.files.get(&module) {
+            if let Some(file) = self.files.get(module) {
                 if let Some(member) = file
                     .source
                     .surface
@@ -367,13 +369,13 @@ impl SemanticSnapshot {
         }
         let dispatch_side = current_class.as_ref().and_then(|class| {
             self.files
-                .get(&module)
+                .get(module)
                 .and_then(|file| file.source.surface.classes.get(class))
                 .and_then(|surface| surface.all_members().find(|member| member.source_range.contains(offset)))
                 .map(|member| member.side)
         });
-        let local_facts = self.files.get(&module).map(|file| &file.local_facts);
-        let scopes = self.files.get(&module).map(|file| &file.source.scopes);
+        let local_facts = self.files.get(module).map(|file| &file.local_facts);
+        let scopes = self.files.get(module).map(|file| &file.source.scopes);
         let resolver = DispatchResolver::new(self.classes.as_ref());
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let family_resolver =
@@ -403,15 +405,15 @@ impl SemanticSnapshot {
 
     /// Returns current import edges for one module.
     pub fn imports(&self, uri: &Url) -> Vec<ImportEdge> {
-        let module = ModuleId::from_uri(uri);
-        self.graph.imports(&module).to_vec()
+        let Some(module) = self.module_for_uri(uri) else { return Vec::new() };
+        self.graph.imports(module).to_vec()
     }
 
     /// Returns a coherent revision/generation stamp for one file.
     pub fn stamp(&self, uri: &Url) -> Option<SnapshotStamp> {
-        let module = ModuleId::from_uri(uri);
+        let module = self.module_for_uri(uri)?;
         Some(SnapshotStamp {
-            revision: self.files.get(&module)?.revision,
+            revision: self.files.get(module)?.revision,
             generation: self.generation,
         })
     }

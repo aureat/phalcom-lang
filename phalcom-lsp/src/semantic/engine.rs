@@ -15,7 +15,7 @@ use super::facts::{FieldEvidenceKind, ValueShape};
 use super::facts::{FileRevision, InferredValue, ParameterContributions, ParameterFacts, ParameterSlot};
 #[cfg(test)]
 use super::ids::DispatchSide;
-use super::ids::{CORE_MODULE_URI, CallableId, ClassId, FieldId, ModuleId};
+use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DocumentModuleMap, FieldId, ModuleId};
 use super::invalidation::{SourceChangeKind, classify_source_delta};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
@@ -44,6 +44,7 @@ pub(crate) struct SemanticState {
     pub callable_dependencies: Arc<BTreeMap<CallableId, BTreeSet<CallableId>>>,
     pub callable_dependents: Arc<BTreeMap<CallableId, BTreeSet<CallableId>>>,
     pub graph: Arc<ModuleGraph>,
+    pub documents: DocumentModuleMap,
     #[cfg(test)]
     pub last_trace: Option<RebuildTrace>,
 }
@@ -109,6 +110,7 @@ impl SemanticEngine {
             field_facts: self.state.field_facts.clone(),
             parameter_facts: self.state.parameter_facts.clone(),
             graph: self.state.graph.clone(),
+            documents: Arc::new(self.state.documents.clone()),
         }
     }
 
@@ -145,11 +147,14 @@ impl SemanticEngine {
     }
 
     fn update_files_batch_inner(&mut self, files: Vec<(Url, FileRevision, Arc<str>, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+        for (uri, _, _, _) in &files {
+            self.state.documents.ensure_lsp_for_uri(uri);
+        }
         let files = files
             .into_iter()
             .filter(|(uri, revision, _, _)| {
-                let module = ModuleId::from_uri(uri);
-                self.state.files.get(&module).map_or(true, |file| *revision > file.revision)
+                let module = self.state.documents.lsp_for_uri(uri).expect("document mapping was seeded");
+                self.state.files.get(module).is_none_or(|file| *revision > file.revision)
             })
             .collect::<Vec<_>>();
         if files.is_empty() {
@@ -166,7 +171,7 @@ impl SemanticEngine {
             if cancelled() {
                 return None;
             }
-            let module = ModuleId::from_uri(&uri);
+            let module = self.state.documents.lsp_for_uri(&uri).expect("document mapping was seeded").clone();
             let old_source = self.state.files.get(&module).map(|file| file.source.clone());
             let surface = if module.as_str() == CORE_MODULE_URI {
                 core_source::build_core_surface(&program)
@@ -348,10 +353,13 @@ impl SemanticEngine {
         if cancelled() {
             return None;
         }
-        let module = ModuleId::from_uri(uri);
+        let Some(module) = self.state.documents.lsp_for_uri(uri).cloned() else {
+            return Some(self.state.generation);
+        };
         if Arc::make_mut(&mut self.state.files).remove(&module).is_none() {
             return Some(self.state.generation);
         }
+        self.state.documents.remove_uri(uri);
 
         let next_generation = SemanticGeneration(self.state.generation.0 + 1);
         let mut affected: BTreeSet<ModuleId> = self.state.graph.dependent_closure(&module).into_iter().collect();

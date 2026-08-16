@@ -42,6 +42,12 @@ pub struct DocumentModuleMap {
     pub by_uri: BTreeMap<Url, SemanticModuleId>,
     /// Semantic identity-to-URI reverse mapping for editor surfaces.
     pub by_module: BTreeMap<SemanticModuleId, Url>,
+    /// LSP-facing module keys used by the legacy semantic tables.
+    ///
+    /// These keys are derived once at the document boundary. Request and
+    /// analysis code must use this map instead of treating a URI as a module
+    /// identity.
+    pub lsp_by_uri: BTreeMap<Url, ModuleId>,
 }
 
 impl DocumentModuleMap {
@@ -53,7 +59,8 @@ impl DocumentModuleMap {
     /// Associates one document URI with one semantic module identity.
     pub fn insert(&mut self, uri: Url, module: SemanticModuleId) {
         self.by_uri.insert(uri.clone(), module.clone());
-        self.by_module.insert(module, uri);
+        self.by_module.insert(module.clone(), uri.clone());
+        self.lsp_by_uri.insert(uri, ModuleId::new(module.to_string()));
     }
 
     /// Looks up semantic identity for a document URI.
@@ -64,6 +71,40 @@ impl DocumentModuleMap {
     /// Looks up document URI for a semantic module identity.
     pub fn get_by_module(&self, module: &SemanticModuleId) -> Option<&Url> {
         self.by_module.get(module)
+    }
+
+    /// Returns the LSP-facing key assigned to one document.
+    pub fn lsp_for_uri(&self, uri: &Url) -> Option<&ModuleId> {
+        self.lsp_by_uri.get(uri)
+    }
+
+    /// Returns the semantic identity associated with one LSP-facing key.
+    pub fn semantic_for_lsp(&self, module: &ModuleId) -> Option<&SemanticModuleId> {
+        self.lsp_by_uri
+            .iter()
+            .find_map(|(uri, lsp_module)| (lsp_module == module).then(|| self.by_uri.get(uri)).flatten())
+    }
+
+    /// Returns the document URI associated with one LSP-facing key.
+    pub fn uri_for_lsp(&self, module: &ModuleId) -> Option<&Url> {
+        self.lsp_by_uri.iter().find_map(|(uri, lsp_module)| (lsp_module == module).then_some(uri))
+    }
+
+    /// Ensures an editor document has a stable LSP key.
+    ///
+    /// Project-backed documents are inserted through [`Self::insert`] by the
+    /// shared resolver. Standalone editor documents retain a boundary-only
+    /// fallback key until project discovery supplies semantic identity.
+    pub fn ensure_lsp_for_uri(&mut self, uri: &Url) -> ModuleId {
+        self.lsp_by_uri.entry(uri.clone()).or_insert_with(|| ModuleId::new(uri.to_string())).clone()
+    }
+
+    /// Removes one document mapping and returns its LSP-facing key.
+    pub fn remove_uri(&mut self, uri: &Url) -> Option<ModuleId> {
+        if let Some(module) = self.by_uri.remove(uri) {
+            self.by_module.remove(&module);
+        }
+        self.lsp_by_uri.remove(uri)
     }
 }
 

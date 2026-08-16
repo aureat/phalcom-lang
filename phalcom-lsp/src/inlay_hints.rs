@@ -172,7 +172,7 @@ fn shallow_hints_snapshot(
 /// first semantic file snapshot. Once a snapshot exists, callers must use its
 /// revision-matched facts or receive no hints.
 fn shallow_hints(doc: &Document, uri: &Url, visible_start: usize, visible_end: usize, policy: HintPolicy, suppress_obvious: bool) -> Vec<InlayHint> {
-    let module = crate::semantic::ModuleId::from_uri(uri);
+    let module = crate::semantic::ModuleId::new(uri.to_string());
     let mut hints = Vec::new();
     for statement in &doc.parse.program.statements {
         let Statement::Let(binding) = statement else { continue };

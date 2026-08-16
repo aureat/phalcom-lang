@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use phalcom_ast::ast::{AttrKind, Attribute, ClassMember, IndexAccessor, ParameterDef, Program, RestMode, Statement};
+use phalcom_ast::ast::{
+    AttrKind, Attribute, ClassMember, DependencyDecl, ImportDecl, IndexAccessor, ParameterDef, Program, RestMode, Statement, StaticSymbolRef,
+};
 use phalcom_common::range::SourceRange;
 pub use phalcom_common::selector::{Selector, SelectorPattern};
 use phalcom_native_surface::NativeReturnShape;
@@ -14,8 +16,38 @@ use super::ids::{CallableId, ClassId, DispatchSide, ModuleId};
 pub struct ModuleSurface {
     /// Module identity.
     pub module: ModuleId,
+    /// Public names exported by this module, including re-export aliases.
+    pub exports: BTreeMap<String, ExportSurface>,
+    /// Module-scope imported names and their source paths.
+    pub imports: BTreeMap<String, ImportSurface>,
+    /// Header metadata retained for documentation/reflection consumers.
+    pub metadata: phalcom_modules::ModuleMetadata,
     /// Classes declared by this module.
     pub classes: BTreeMap<ClassId, ClassSurface>,
+}
+
+/// LSP-facing export declaration surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExportSurface {
+    /// Name visible to importers.
+    pub public_name: String,
+    /// Local/original name that supplies the value.
+    pub local_name: String,
+    /// Source span of the export item.
+    pub range: SourceRange,
+}
+
+/// LSP-facing imported namespace surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportSurface {
+    /// Local name introduced by the import.
+    pub local_name: String,
+    /// Logical source path.
+    pub path: String,
+    /// Whether this local name denotes a module object.
+    pub whole_module: bool,
+    /// Source span of the import item.
+    pub range: SourceRange,
 }
 
 /// Surface of one source-authored class.
@@ -25,6 +57,8 @@ pub struct ClassSurface {
     pub id: ClassId,
     /// Explicit superclass, if written.
     pub superclass: Option<ClassId>,
+    /// Original static superclass reference, before module linking.
+    pub superclass_reference: Option<StaticSymbolRef>,
     /// Members keyed by canonical selector, preserving both dispatch sides.
     pub members: BTreeMap<String, MemberSides>,
     /// Fields keyed by source field name, preserving both storage sides.
@@ -295,12 +329,97 @@ pub enum FieldKind {
 pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurface {
     let mut surface = ModuleSurface {
         module: module.clone(),
+        exports: BTreeMap::new(),
+        imports: BTreeMap::new(),
+        metadata: phalcom_modules::ModuleMetadata::from_ast(&program.preamble.metadata, phalcom_modules::ModuleKind::Module).unwrap_or_default(),
         classes: BTreeMap::new(),
     };
+    for dependency in &program.preamble.dependencies {
+        match dependency {
+            DependencyDecl::Import(import_decl) => match import_decl {
+                ImportDecl::Module(import) => {
+                    let local_name = import
+                        .alias
+                        .as_ref()
+                        .map(|alias| alias.name.clone())
+                        .or_else(|| import.path.segments.last().map(|segment| segment.name.clone()))
+                        .or_else(|| match &import.path.root {
+                            phalcom_ast::ast::ImportRoot::Absolute(segment) => Some(segment.name.clone()),
+                            phalcom_ast::ast::ImportRoot::Relative { .. } => None,
+                        })
+                        .unwrap_or_default();
+                    if !local_name.is_empty() {
+                        surface.imports.insert(
+                            local_name.clone(),
+                            ImportSurface {
+                                local_name,
+                                path: import.path.to_string(),
+                                whole_module: true,
+                                range: import.range,
+                            },
+                        );
+                    }
+                }
+                ImportDecl::Selective(import) => {
+                    for item in &import.items {
+                        let local_name = item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone());
+                        surface.imports.insert(
+                            local_name.clone(),
+                            ImportSurface {
+                                local_name,
+                                path: import.path.to_string(),
+                                whole_module: false,
+                                range: item.range,
+                            },
+                        );
+                    }
+                }
+            },
+            DependencyDecl::ReExport(reexport) => {
+                for item in &reexport.items {
+                    let public_name = item
+                        .alias
+                        .as_ref()
+                        .map(|alias| alias.name.clone())
+                        .unwrap_or_else(|| item.local_or_remote_name.clone());
+                    surface.exports.insert(
+                        public_name.clone(),
+                        ExportSurface {
+                            public_name,
+                            local_name: item.local_or_remote_name.clone(),
+                            range: item.range,
+                        },
+                    );
+                }
+            }
+            DependencyDecl::Expose(_) => {}
+        }
+    }
     for (class_stmt_idx, statement) in program.statements.iter().enumerate() {
+        if let Statement::Export(export) = statement {
+            for item in &export.items {
+                let public_name = item
+                    .alias
+                    .as_ref()
+                    .map(|alias| alias.name.clone())
+                    .unwrap_or_else(|| item.local_or_remote_name.clone());
+                surface.exports.insert(
+                    public_name.clone(),
+                    ExportSurface {
+                        public_name,
+                        local_name: item.local_or_remote_name.clone(),
+                        range: item.range,
+                    },
+                );
+            }
+            continue;
+        }
         let Statement::Class(class) = statement else { continue };
         let id = ClassId::new(module.clone(), class.name.clone());
-        let superclass = class.superclass.as_ref().map(|parent| ClassId::new(module.clone(), parent.name.clone()));
+        let superclass_reference = class.superclass.clone();
+        let superclass = superclass_reference
+            .as_ref()
+            .map(|parent| ClassId::new(module.clone(), parent.leaf_name().to_string()));
         let class_start = class
             .attributes
             .iter()
@@ -310,6 +429,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
         let mut class_surface = ClassSurface {
             id: id.clone(),
             superclass,
+            superclass_reference,
             members: BTreeMap::new(),
             fields: BTreeMap::new(),
             source_range: (class_start..class.range.end).into(),
@@ -365,6 +485,24 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
             class_surface.members.entry(selector).or_default().insert(side, member_surface);
         }
         surface.classes.insert(id, class_surface);
+    }
+    for statement in &program.statements {
+        let Statement::Export(export) = statement else { continue };
+        for item in &export.items {
+            let public_name = item
+                .alias
+                .as_ref()
+                .map(|alias| alias.name.clone())
+                .unwrap_or_else(|| item.local_or_remote_name.clone());
+            surface.exports.insert(
+                public_name.clone(),
+                ExportSurface {
+                    public_name,
+                    local_name: item.local_or_remote_name.clone(),
+                    range: item.range,
+                },
+            );
+        }
     }
     surface
 }

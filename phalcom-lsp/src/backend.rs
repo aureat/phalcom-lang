@@ -549,8 +549,9 @@ impl Backend {
 
     fn cached_source(&self, uri: &Url) -> Option<CachedSource> {
         let source = self.closed_sources.read().expect("closed source cache lock poisoned").get(uri).cloned()?;
-        let module = crate::semantic::ModuleId::new(uri.to_string());
-        if let Some(revision) = self.semantic.snapshot().file_revision(&module)
+        let snapshot = self.semantic.snapshot();
+        if let Some(module) = snapshot.module_for_uri(uri)
+            && let Some(revision) = snapshot.file_revision(module)
             && revision != source.revision
         {
             return None;
@@ -754,8 +755,13 @@ impl Backend {
                     let mut sites = Vec::new();
                     let mut docs = Vec::new();
                     for info in infos {
+                        let module = request
+                            .semantic
+                            .module_for_uri(&info.uri)
+                            .cloned()
+                            .unwrap_or_else(|| crate::semantic::ModuleId::new(info.uri.to_string()));
                         sites.push(SelectorSite {
-                            owner: crate::semantic::ClassId::new(crate::semantic::ModuleId::from_uri(&info.uri), info.class.clone()),
+                            owner: crate::semantic::ClassId::new(module, info.class.clone()),
                             receiver: None,
                             kind: info.kind,
                         });
@@ -840,9 +846,14 @@ impl Backend {
             };
             let mut sites = Vec::new();
             let mut docs = Vec::new();
+            let snapshot = self.semantic.snapshot();
             for info in infos {
+                let module = snapshot
+                    .module_for_uri(&info.uri)
+                    .cloned()
+                    .unwrap_or_else(|| crate::semantic::ModuleId::new(info.uri.to_string()));
                 sites.push(SelectorSite {
-                    owner: crate::semantic::ClassId::new(crate::semantic::ModuleId::from_uri(&info.uri), info.class.clone()),
+                    owner: crate::semantic::ClassId::new(module, info.class.clone()),
                     receiver: None,
                     kind: info.kind,
                 });
@@ -859,7 +870,10 @@ impl Backend {
                 }
             }
             if sites.is_empty() {
-                let module = crate::semantic::ModuleId::from_uri(uri);
+                let module = snapshot
+                    .module_for_uri(uri)
+                    .cloned()
+                    .unwrap_or_else(|| crate::semantic::ModuleId::new(uri.to_string()));
                 let surface = crate::semantic::build_module_surface(module, &program);
                 for member in surface
                     .classes

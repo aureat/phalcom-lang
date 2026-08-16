@@ -71,7 +71,7 @@ pub(crate) fn shallow_receiver_completions_from_program(
     }
     let side = shallow_receiver_side(receiver);
 
-    let module = crate::semantic::ModuleId::from_uri(uri);
+    let module = crate::semantic::ModuleId::new(uri.to_string());
     let local_surface = crate::semantic::build_module_surface(module.clone(), program);
     let candidates = classes
         .iter()
@@ -98,7 +98,7 @@ pub(crate) fn shallow_receiver_completions_from_snapshot(
         return None;
     }
     let side = shallow_receiver_side(receiver);
-    let module = crate::semantic::ModuleId::from_uri(uri);
+    let module = crate::semantic::ModuleId::new(uri.to_string());
     let local_surface = crate::semantic::build_module_surface(module.clone(), program);
     let candidates = classes
         .iter()
@@ -134,7 +134,7 @@ fn shallow_receiver_classes(program: &Program, receiver: &str, offset: usize) ->
     } else if receiver == "super" {
         if let Some((class, _)) = enclosing_method(program, offset) {
             if let Some(parent) = &class.superclass {
-                classes.insert(parent.name.clone());
+                classes.insert(parent.leaf_name().to_string());
             }
         }
     } else if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {

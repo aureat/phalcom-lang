@@ -845,7 +845,7 @@ impl Collector {
             .collect();
         self.classes.push(CollectedClass {
             name: class_def.name.clone(),
-            parent: class_def.superclass.as_ref().map(|s| s.name.clone()),
+            parent: class_def.superclass.as_ref().map(|s| s.leaf_name().to_string()),
             members,
         });
 

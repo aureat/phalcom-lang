@@ -41,9 +41,9 @@ pub use facts::{
     ParameterContributions, ParameterFacts, ParameterSlot, ValueShape,
 };
 pub use flow::join_values;
-pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, DocumentModuleMap, FieldId, ModuleId};
+pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, DocumentModuleMap, FieldId, ModuleId, SemanticModuleId};
 pub use invalidation::{InvalidationQueue, SourceChangeKind, classify_source_change};
-pub use module_graph::{ImportEdge, ModuleGraph};
+pub use module_graph::{ImportEdge, ImportEdgeKind, ModuleGraph, ReverseDependencyKind, SharedModuleResolver};
 pub use occurrence::{OccurrenceIndex, OccurrenceRole, SemanticOccurrence, SemanticOccurrenceKind, SemanticTarget};
 pub use query::{SemanticGeneration, SnapshotStamp};
 pub use scope::{BindingId, BindingInfo, NameResolution, ScopeGraph, ScopeId, ScopeInfo, SemanticBindingKind};
