@@ -3,29 +3,27 @@
 use crate::error::InvalidModuleNameError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Opaque graph-node identity for a resolved project within a [`ProjectUniverse`](crate::project::ProjectUniverse).
+/// Opaque graph-node identity for a persistent resolved project within a
+/// [`ProjectUniverse`](crate::project::ProjectUniverse).
+///
+/// The numeric payload is intentionally private and non-zero. Builtin and
+/// synthetic identity are represented by [`ProjectIdentity`] variants rather
+/// than by numeric conventions.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ResolvedProjectId(u32);
+pub struct ResolvedProjectId(NonZeroU32);
 
 impl ResolvedProjectId {
-    /// Reserved project ID (0) for synthetic/core identities.
-    pub const RESERVED: Self = Self(0);
-
-    /// Constructs a `ResolvedProjectId` from raw numeric identifier.
-    pub const fn from_raw(raw: u32) -> Self {
-        Self(raw)
+    pub(crate) fn from_index(index: usize) -> Self {
+        let raw = u32::try_from(index + 1).expect("project universe cannot contain more than u32::MAX projects");
+        Self(NonZeroU32::new(raw).expect("index + 1 is non-zero"))
     }
 
-    /// Returns the raw numeric identifier.
-    pub const fn raw(self) -> u32 {
-        self.0
-    }
-
-    /// Checks if this is the reserved identifier (0).
-    pub const fn is_reserved(self) -> bool {
-        self.0 == 0
+    pub(crate) fn index(self) -> usize {
+        usize::try_from(self.0.get() - 1).expect("u32 fits usize on supported targets")
     }
 }
 
@@ -35,47 +33,143 @@ impl fmt::Display for ResolvedProjectId {
     }
 }
 
-/// Target of an import root in a project's root table.
+/// Builtin toolchain-owned project roots.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BuiltinProject {
+    Universe,
+    Std,
+}
+
+impl BuiltinProject {
+    pub const fn root_name(self) -> &'static str {
+        match self {
+            Self::Universe => "universe",
+            Self::Std => "std",
+        }
+    }
+}
+
+impl fmt::Display for BuiltinProject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.root_name())
+    }
+}
+
+/// Opaque identity for one synthetic project/unit family.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SyntheticProjectId(u64);
+
+impl fmt::Display for SyntheticProjectId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "synthetic#{}", self.0)
+    }
+}
+
+/// Allocator used by compile/runtime sessions when they need fresh synthetic
+/// identities. IDs come from one process-wide monotonic sequence so distinct
+/// session allocators cannot alias one another.
+#[derive(Debug, Default)]
+pub struct SyntheticProjectIdAllocator;
+
+static NEXT_SYNTHETIC_PROJECT_ID: AtomicU64 = AtomicU64::new(1);
+
+impl SyntheticProjectIdAllocator {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn allocate(&mut self) -> SyntheticProjectId {
+        let id = NEXT_SYNTHETIC_PROJECT_ID.fetch_add(1, Ordering::Relaxed);
+        assert!(id != 0, "synthetic project identity space exhausted");
+        SyntheticProjectId(id)
+    }
+}
+
+/// Semantic category and identity of the project/root owning a module.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ProjectIdentity {
+    Builtin(BuiltinProject),
+    Resolved(ResolvedProjectId),
+    Synthetic(SyntheticProjectId),
+}
+
+impl fmt::Display for ProjectIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Builtin(project) => write!(f, "builtin:{project}"),
+            Self::Resolved(project) => project.fmt(f),
+            Self::Synthetic(project) => project.fmt(f),
+        }
+    }
+}
+
+/// Target of an absolute import root in a project's root table.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ImportRootTarget {
-    Core,
+    Builtin(BuiltinProject),
     Resolved(ResolvedProjectId),
 }
 
-/// A validated snake_case component of a module path.
+/// A validated canonical snake_case component of a logical module path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct ModuleComponent(Box<str>);
 
 impl ModuleComponent {
-    /// Creates a component from a kebab-case string (e.g. from filesystem or manifest).
-    /// Converts `-` to `_` then validates.
+    /// Creates a logical component from canonical physical kebab-case.
     pub fn from_kebab(s: &str) -> Result<Self, InvalidModuleNameError> {
-        let converted = s.replace('-', "_");
-        Self::from_identifier(&converted)
+        if !is_canonical_kebab(s) {
+            return Err(if s.is_empty() {
+                InvalidModuleNameError::Empty
+            } else {
+                InvalidModuleNameError::NonCanonicalKebabCase(s.to_string())
+            });
+        }
+        Self::from_identifier(&s.replace('-', "_"))
     }
 
-    /// Creates a component directly from an identifier string (must be valid snake_case / identifier).
+    /// Creates a logical component directly from canonical snake_case.
     pub fn from_identifier(s: &str) -> Result<Self, InvalidModuleNameError> {
         if s.is_empty() {
             return Err(InvalidModuleNameError::Empty);
         }
-        let mut chars = s.chars();
-        let first = chars.next().unwrap();
-        if !first.is_ascii_alphabetic() && first != '_' {
-            return Err(InvalidModuleNameError::InvalidLeadingChar(s.to_string()));
-        }
-        for c in chars {
-            if !c.is_ascii_alphanumeric() && c != '_' {
-                return Err(InvalidModuleNameError::InvalidChar(s.to_string(), c));
-            }
+        if !is_canonical_snake(s) {
+            return Err(InvalidModuleNameError::NonCanonicalSnakeCase(s.to_string()));
         }
         Ok(Self(s.into()))
     }
 
-    /// Returns string slice of the component.
+    /// Returns the logical snake_case spelling.
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns the unique physical kebab-case spelling for this component.
+    pub fn to_kebab(&self) -> String {
+        self.0.replace('_', "-")
+    }
+}
+
+fn is_canonical_snake(s: &str) -> bool {
+    let mut parts = s.split('_');
+    let Some(first) = parts.next() else { return false };
+    if !is_word(first) {
+        return false;
+    }
+    parts.all(is_word)
+}
+
+fn is_canonical_kebab(s: &str) -> bool {
+    let mut parts = s.split('-');
+    let Some(first) = parts.next() else { return false };
+    if !is_word(first) {
+        return false;
+    }
+    parts.all(is_word)
+}
+
+fn is_word(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
 impl fmt::Display for ModuleComponent {
@@ -90,47 +184,45 @@ impl AsRef<str> for ModuleComponent {
     }
 }
 
-/// A project-relative logical module path.
-/// Root package is represented by an empty slice.
+/// A project-relative logical module path. Root package is represented by an
+/// empty slice.
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct ModulePath(Box<[ModuleComponent]>);
 
 impl ModulePath {
-    /// The root package path (`[]`).
     pub fn root() -> Self {
         Self(Box::new([]))
     }
 
-    /// Creates a module path from a slice of components.
     pub fn from_components(components: impl Into<Box<[ModuleComponent]>>) -> Self {
         Self(components.into())
     }
 
-    /// Returns the parent path if not root.
     pub fn parent(&self) -> Option<Self> {
         if self.0.is_empty() {
             None
         } else {
-            let parent_slice = &self.0[..self.0.len() - 1];
-            Some(Self(parent_slice.into()))
+            Some(Self(self.0[..self.0.len() - 1].into()))
         }
     }
 
-    /// Joins a child component to this path.
     pub fn join(&self, component: ModuleComponent) -> Self {
         let mut vec = self.0.to_vec();
         vec.push(component);
         Self(vec.into_boxed_slice())
     }
 
-    /// Slice of path components.
     pub fn components(&self) -> &[ModuleComponent] {
         &self.0
     }
 
-    /// Whether this is the root package path.
     pub fn is_root(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Deterministic physical path components for this logical path.
+    pub fn physical_components(&self) -> impl Iterator<Item = String> + '_ {
+        self.0.iter().map(ModuleComponent::to_kebab)
     }
 }
 
@@ -139,8 +231,7 @@ impl fmt::Debug for ModulePath {
         if self.0.is_empty() {
             write!(f, "<root>")
         } else {
-            let joined = self.0.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(".");
-            write!(f, "{joined}")
+            write!(f, "{}", self)
         }
     }
 }
@@ -153,27 +244,59 @@ impl fmt::Display for ModulePath {
 }
 
 /// Canonical toolchain identity for a module.
-/// Combines a resolved project graph node with a project-relative module path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ModuleId {
-    pub project: ResolvedProjectId,
+    pub project: ProjectIdentity,
     pub path: ModulePath,
 }
 
 impl ModuleId {
-    /// Canonical identity for the core module.
-    pub fn core() -> Self {
+    pub fn resolved(project: ResolvedProjectId, path: ModulePath) -> Self {
         Self {
-            project: ResolvedProjectId::RESERVED,
-            path: ModulePath::from_components(vec![ModuleComponent::from_identifier("core").expect("valid identifier")]),
+            project: ProjectIdentity::Resolved(project),
+            path,
         }
     }
 
-    /// Synthetic module identity for standalone or REPL code.
-    pub fn synthetic(name: &str) -> Self {
+    pub fn builtin(project: BuiltinProject, path: ModulePath) -> Self {
         Self {
-            project: ResolvedProjectId::RESERVED,
-            path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap_or_else(|_| ModuleComponent(name.into()))]),
+            project: ProjectIdentity::Builtin(project),
+            path,
+        }
+    }
+
+    pub fn synthetic(project: SyntheticProjectId, path: ModulePath) -> Self {
+        Self {
+            project: ProjectIdentity::Synthetic(project),
+            path,
+        }
+    }
+
+    pub fn universe() -> Self {
+        Self::builtin(BuiltinProject::Universe, ModulePath::root())
+    }
+
+    pub fn std() -> Self {
+        Self::builtin(BuiltinProject::Std, ModulePath::root())
+    }
+
+    /// Transitional compatibility shim. Public `core` is the builtin Universe
+    /// root identity; it is not a third identity category.
+    pub fn core() -> Self {
+        Self::universe()
+    }
+
+    pub fn resolved_project(&self) -> Option<ResolvedProjectId> {
+        match self.project {
+            ProjectIdentity::Resolved(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn builtin_project(&self) -> Option<BuiltinProject> {
+        match self.project {
+            ProjectIdentity::Builtin(project) => Some(project),
+            _ => None,
         }
     }
 }
