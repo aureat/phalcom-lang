@@ -7,9 +7,20 @@ pub mod linkage;
 pub mod materialize;
 pub mod registry;
 
-pub use artifact::{ClassBlueprint, ModuleArtifact, ModuleMaterializationPlan, RuntimeDeclarationBlueprint};
-pub use compile::{CompiledModule, CompiledProgram, EntrySelection, ProgramCompileError, ProgramCompiler};
-pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
+#[cfg(test)]
+mod tests;
+
+pub use artifact::{
+    ClassBlueprint, ModuleArtifact, ModuleMaterializationPlan, RuntimeDeclarationBlueprint,
+};
+pub use compile::{
+    CompiledModule, CompiledProgram, EntrySelection, ProgramCompileError, ProgramCompiler,
+};
+pub use linkage::{
+    BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo,
+    TopLevelBindingKind,
+};
 pub use registry::{
-    ModuleFailure, ModuleOwner, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleRegistryError, ModuleState, RuntimeProgramId,
+    ModuleFailure, ModuleOwner, ModulePlanFingerprint, ModuleRecord, ModuleRegistry,
+    ModuleRegistryError, ModuleState, RuntimeProgramId,
 };
