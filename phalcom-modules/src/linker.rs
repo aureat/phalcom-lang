@@ -145,6 +145,19 @@ impl ModuleLinker {
         }
         let mut reachable = BTreeSet::from([entry.clone()]);
         let mut pending = vec![entry.clone()];
+
+        if let Some(project_id) = entry.project.as_resolved() {
+            let root_id = ModuleId::resolved(project_id, ModulePath::root());
+            if self.interfaces.contains_key(&root_id) && reachable.insert(root_id.clone()) {
+                pending.push(root_id);
+            }
+        } else if let Some(sid) = entry.project.as_synthetic() {
+            let root_id = ModuleId::synthetic(sid, ModulePath::root());
+            if self.interfaces.contains_key(&root_id) && reachable.insert(root_id.clone()) {
+                pending.push(root_id);
+            }
+        }
+
         while let Some(module) = pending.pop() {
             let interface = self.interfaces.get(&module).expect("reachable interface exists");
             for import in &interface.imports {
@@ -163,7 +176,21 @@ impl ModuleLinker {
                         range: path.1,
                     })?;
                 if reachable.insert(target.clone()) {
-                    pending.push(target);
+                    pending.push(target.clone());
+                }
+                if let Some(project_id) = target.project.as_resolved() {
+                    let mut curr_path = target.path.parent();
+                    while let Some(parent) = curr_path {
+                        let pkg_id = ModuleId::resolved(project_id, parent.clone());
+                        if self.interfaces.contains_key(&pkg_id) && reachable.insert(pkg_id.clone()) {
+                            pending.push(pkg_id);
+                        }
+                        curr_path = parent.parent();
+                    }
+                    let root_id = ModuleId::resolved(project_id, ModulePath::root());
+                    if self.interfaces.contains_key(&root_id) && reachable.insert(root_id.clone()) {
+                        pending.push(root_id);
+                    }
                 }
             }
         }

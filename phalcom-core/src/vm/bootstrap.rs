@@ -200,11 +200,17 @@ impl VM {
         // reopen taking effect, which surfaced the gap.
         vm.run_core_module().expect("core module (core.ph) must compile and run cleanly");
 
-        // Populate prelude_names with core.ph globals for compatibility until core.ph split
+        // Populate prelude_names with core.ph globals for compatibility until core.ph split,
+        // excluding types explicitly prohibited from prelude by Spec §13.1.
         {
+            let non_prelude_names: std::collections::HashSet<&str> = ["Behavior", "Metaclass", "Selector", "Message"].into_iter().collect();
+
             let core_mod = vm.core_module().expect("core module");
-            for sym in vm.heap.module(core_mod).name_to_slot.keys() {
-                vm.prelude_names.insert(*sym);
+            for sym in vm.heap.module(core_mod).name_to_slot.keys().copied().collect::<Vec<_>>() {
+                let name = vm.resolve_symbol(sym).to_string();
+                if !non_prelude_names.contains(name.as_str()) {
+                    vm.prelude_names.insert(sym);
+                }
             }
         }
 

@@ -1,0 +1,2 @@
+expose .a
+expose .b

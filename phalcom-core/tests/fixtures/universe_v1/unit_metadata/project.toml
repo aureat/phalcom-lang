@@ -1,0 +1,4 @@
+[project]
+name = "Unit Metadata"
+namespace = "unit_metadata"
+entry = "unit_metadata.main"

@@ -1,0 +1,1 @@
+@!documentation("Interned symbol representation.")

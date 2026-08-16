@@ -36,6 +36,11 @@ path = "tests/invariants.rs"
 name = "modules_compile"
 path = "tests/modules_compile.rs"
 
+[[test]]
+name = "universe_v1"
+path = "tests/universe_v1.rs"
+
+
 [features]
 default = []
 # Per-opcode `tracing` instrumentation in the VM dispatch loop (`vm/dispatch.rs`):

@@ -1,0 +1,4 @@
+[project]
+name = "Geometry Toolkit"
+namespace = "geometry_toolkit"
+entry = "geometry_toolkit.main"

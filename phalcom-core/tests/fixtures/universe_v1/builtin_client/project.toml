@@ -1,0 +1,4 @@
+[project]
+name = "Builtin Client"
+namespace = "builtin_client"
+entry = "builtin_client.main"

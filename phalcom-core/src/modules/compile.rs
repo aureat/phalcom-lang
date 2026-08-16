@@ -307,6 +307,14 @@ impl ProgramCompiler {
                     }),
                     Some(source_text.clone()),
                 )
+            } else if let Some(builtin) = id.project.as_builtin() {
+                let builtin_provider = BuiltinProjectSourceProvider::new(builtin);
+                let text = builtin_provider.source_text(id).ok();
+                let source = builtin_provider.source_id(id).ok().map(|source_id| SourceLocation {
+                    source_id,
+                    display_path: PathBuf::from(format!("<builtin:{builtin}>/{}", id.path)),
+                });
+                (source, text)
             } else {
                 (None, None)
             };
@@ -343,8 +351,14 @@ impl ProgramCompiler {
         let mut resolved = BTreeMap::new();
         let mut visited = HashSet::new();
         let mut pending = vec![entry.clone()];
-
         visited.insert(entry.clone());
+
+        if let Some(project_id) = entry.project.as_resolved() {
+            let root_id = ModuleId::resolved(project_id, ModulePath::root());
+            if visited.insert(root_id.clone()) {
+                pending.push(root_id);
+            }
+        }
 
         let mut source_locations = BTreeMap::new();
         let mut source_texts = BTreeMap::new();
@@ -355,12 +369,40 @@ impl ProgramCompiler {
 
             if let Some(project_id) = current_id.project.as_resolved() {
                 if let Some(proj) = universe.get_project(project_id) {
+                    let mut curr_parent = current_id.path.parent();
+                    while let Some(parent) = curr_parent {
+                        let pkg_id = ModuleId::resolved(project_id, parent.clone());
+                        if visited.insert(pkg_id.clone()) {
+                            pending.push(pkg_id);
+                        }
+                        curr_parent = parent.parent();
+                    }
+
                     if let Ok(unit) = source_provider.locate(proj, &current_id.path) {
                         if let Ok(text) = source_provider.read(&unit.source.source_id) {
                             source_texts.insert(current_id.clone(), text);
                         }
                         source_locations.insert(current_id.clone(), unit.source);
                     }
+                }
+            } else if let Some(builtin) = current_id.project.as_builtin() {
+                let builtin_provider = BuiltinProjectSourceProvider::new(builtin);
+                if let Ok(text) = builtin_provider.source_text(&current_id) {
+                    source_texts.insert(current_id.clone(), text);
+                }
+                if let Ok(source_id) = builtin_provider.source_id(&current_id) {
+                    let uri_path = if current_id.path.is_root() {
+                        String::new()
+                    } else {
+                        current_id.path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
+                    };
+                    source_locations.insert(
+                        current_id.clone(),
+                        SourceLocation {
+                            source_id,
+                            display_path: PathBuf::from(format!("<builtin:{builtin}>/{uri_path}")),
+                        },
+                    );
                 }
             }
 

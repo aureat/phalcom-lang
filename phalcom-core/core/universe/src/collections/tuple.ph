@@ -1,0 +1,1 @@
+@!documentation("Fixed immutable sequence.")

@@ -1,0 +1,4 @@
+[project]
+name = "std"
+namespace = "std"
+version = "0.1.0"

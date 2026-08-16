@@ -119,7 +119,7 @@ impl Value {
     }
 
     /// Adds exactly one `Some` layer without allocating an Option wrapper.
-    pub(crate) fn wrap_some(self) -> Result<Self, RuntimeError> {
+    pub fn wrap_some(self) -> Result<Self, RuntimeError> {
         match self {
             Self::Some1(payload) => Ok(Self::Some2(payload)),
             Self::Some2(payload) => Ok(Self::Some3(payload)),

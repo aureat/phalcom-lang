@@ -1,0 +1,4 @@
+[project]
+name = "Semantic SCC"
+namespace = "semantic_scc"
+entry = "semantic_scc.main"

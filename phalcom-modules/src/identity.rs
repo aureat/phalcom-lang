@@ -103,6 +103,20 @@ impl ProjectIdentity {
             _ => None,
         }
     }
+
+    pub const fn as_builtin(self) -> Option<BuiltinProject> {
+        match self {
+            Self::Builtin(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub const fn as_synthetic(self) -> Option<SyntheticProjectId> {
+        match self {
+            Self::Synthetic(id) => Some(id),
+            _ => None,
+        }
+    }
 }
 
 impl From<ResolvedProjectId> for ProjectIdentity {

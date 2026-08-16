@@ -26,6 +26,11 @@ pub struct ResolvedProject {
 }
 
 impl ResolvedProject {
+    /// Returns whether this resolved project is a synthetic standalone package rather than a persistent project.
+    pub const fn is_standalone_package(&self) -> bool {
+        !self.persistent_project
+    }
+
     /// Returns the precomputed import root table for this project:
     /// Maps each recognized root component (self namespace + dependency aliases + core) to (ImportRootTarget, is_self).
     pub fn import_roots(&self) -> &BTreeMap<ModuleComponent, (ImportRootTarget, bool)> {

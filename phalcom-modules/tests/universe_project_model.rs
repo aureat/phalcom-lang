@@ -12,10 +12,29 @@ fn builtin_roots_are_projects_and_nested_nodes_have_stable_virtual_uris() {
 
     let selector = ModuleId::builtin(BuiltinProject::Universe, path(&["reflection", "selector"]));
     assert!(universe.contains(&selector.path));
+    // ROOT-05
     assert_eq!(universe.source_id(&selector).unwrap().to_string(), "phalcom://universe/reflection/selector");
 
     let std_json = ModuleId::builtin(BuiltinProject::Std, path(&["json"]));
     let std_provider = BuiltinProjectSourceProvider::new(BuiltinProject::Std);
+    // ROOT-05
     assert_eq!(std_provider.source_id(&std_json).unwrap().to_string(), "phalcom://std/json");
     assert_eq!(std_provider.load_interface(&std_json).unwrap().kind, ModuleKind::Module);
+}
+
+#[test]
+fn test_root_01_and_02_and_05_builtin_providers_source_text_embedded() {
+    let universe = BuiltinProjectSourceProvider::new(BuiltinProject::Universe);
+    let root_id = ModuleId::builtin(BuiltinProject::Universe, ModulePath::root());
+    let src = universe.source_text(&root_id).unwrap();
+    assert!(src.contains("expose .object"));
+
+    let selector_id = ModuleId::builtin(BuiltinProject::Universe, path(&["reflection", "selector"]));
+    let sel_src = universe.source_text(&selector_id).unwrap();
+    assert!(sel_src.contains("class Selector"));
+
+    let std_provider = BuiltinProjectSourceProvider::new(BuiltinProject::Std);
+    let json_id = ModuleId::builtin(BuiltinProject::Std, path(&["json"]));
+    let json_src = std_provider.source_text(&json_id).unwrap();
+    assert!(json_src.contains("export parse"));
 }
