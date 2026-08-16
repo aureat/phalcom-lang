@@ -381,4 +381,3 @@ impl InterfaceBuilder {
         }
     }
 }
-

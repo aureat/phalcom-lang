@@ -1342,23 +1342,12 @@ mod tests {
     fn module_export_distinguishes_getter_from_zero_argument_method() {
         let mut vm = VM::new();
         let module = vm.create_module("main", "module_export_selector_kind");
-        vm.interpret_source(
-            module,
-            "class Callable {\n  call() { 42 }\n}\nlet exported = Callable.new()\n",
-        )
-        .expect("callable export fixture should compile and run");
+        vm.interpret_source(module, "class Callable {\n  call() { 42 }\n}\nlet exported = Callable.new()\n")
+            .expect("callable export fixture should compile and run");
 
         let exported_sym = vm.interner.intern("exported");
-        let exported = vm
-            .heap
-            .module(module)
-            .get(exported_sym)
-            .expect("fixture should define exported");
-        let slot = vm
-            .heap
-            .module(module)
-            .slot_of(exported_sym)
-            .expect("fixture should allocate an exported slot");
+        let exported = vm.heap.module(module).get(exported_sym).expect("fixture should define exported");
+        let slot = vm.heap.module(module).slot_of(exported_sym).expect("fixture should allocate an exported slot");
         let public_sym = vm.interner.intern("service");
         vm.heap.module_mut(module).exports.insert(
             public_sym,

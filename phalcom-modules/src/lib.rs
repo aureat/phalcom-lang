@@ -17,9 +17,7 @@ pub mod stabilization;
 
 // Re-export common types
 pub use builtin::BuiltinProjectSourceProvider;
-pub use declaration::{
-    DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState,
-};
+pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
 pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
 pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
 pub use graph::{
@@ -27,8 +25,8 @@ pub use graph::{
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
 pub use identity::{
-    BuiltinProject, ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceLocation,
-    SyntheticProjectId, SyntheticProjectIdAllocator, builtin_module_uri,
+    BuiltinProject, ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectSourceIdentity, ResolvedProjectId, SourceId,
+    SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator, builtin_module_uri,
 };
 pub use interface::{
     DeclarationSurface, ExportSurface, ImportSurface, InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface, PackagePathSurface,
@@ -44,5 +42,3 @@ pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
 pub use resolver::ModuleResolver;
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, SourceProvider, SourceUnit};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};
-
-

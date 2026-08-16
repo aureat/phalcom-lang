@@ -12,10 +12,7 @@ fn module(project: u32, name: &str) -> ModuleId {
 }
 
 fn decl(module: ModuleId, name: &str) -> DeclarationId {
-    DeclarationId {
-        module,
-        name: name.into(),
-    }
+    DeclarationId { module, name: name.into() }
 }
 
 #[test]

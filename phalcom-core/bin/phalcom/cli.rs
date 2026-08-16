@@ -183,7 +183,10 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
             } else if canonical.join("package.ph").is_file() {
                 phalcom_core::modules::compile::EntrySelection::Package(canonical)
             } else {
-                bail!("directory '{}' is neither a Project (project.toml) nor a Package (package.ph)", canonical.display());
+                bail!(
+                    "directory '{}' is neither a Project (project.toml) nor a Package (package.ph)",
+                    canonical.display()
+                );
             }
         } else {
             phalcom_core::modules::compile::EntrySelection::Module(canonical)
@@ -214,10 +217,7 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
         Ok(program) => vm.run_compiled(&program),
         Err(err) => {
             // Structured diagnostics are formatted here, at the user-facing boundary; never reparse formatted errors.
-            if let phalcom_core::modules::compile::ProgramCompileError::ModuleLoad(
-                phalcom_modules::ModuleLoadError::Parse { source, error, .. },
-            ) = &err
-            {
+            if let phalcom_core::modules::compile::ProgramCompileError::ModuleLoad(phalcom_modules::ModuleLoadError::Parse { source, error, .. }) = &err {
                 if let Ok(source_text) = fs::read_to_string(source) {
                     let path = source.display().to_string();
                     phalcom_core::diagnostics::print_parse(&source_text, Some(&path), &error.kind.to_string(), error.range.clone());

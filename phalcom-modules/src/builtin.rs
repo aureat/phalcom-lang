@@ -222,7 +222,21 @@ const STD_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &[],
         kind: ModuleKind::ProjectRoot,
-        children: &["io", "fs", "path", "text", "regex", "json", "math", "random", "time", "process", "net", "concurrent", "testing"],
+        children: &[
+            "io",
+            "fs",
+            "path",
+            "text",
+            "regex",
+            "json",
+            "math",
+            "random",
+            "time",
+            "process",
+            "net",
+            "concurrent",
+            "testing",
+        ],
     },
     BuiltinNodeSpec {
         path: &["json"],
@@ -316,9 +330,9 @@ impl BuiltinProjectSourceProvider {
     /// Loads the immutable public interface of a builtin node.
     pub fn load_interface(&self, id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         self.validate_id(id)?;
-        let node = self.node_spec(&id.path).ok_or_else(|| {
-            ModuleResolutionError::ModuleNotFound(format!("builtin module {id} is not part of the {} project graph", self.builtin))
-        })?;
+        let node = self
+            .node_spec(&id.path)
+            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("builtin module {id} is not part of the {} project graph", self.builtin)))?;
 
         let mut declarations = BTreeMap::new();
         let mut exports = BTreeMap::new();

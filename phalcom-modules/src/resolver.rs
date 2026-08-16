@@ -60,14 +60,13 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 let target_project_id = match target_root {
                     ImportRootTarget::Builtin(builtin) => {
                         let provider = BuiltinProjectSourceProvider::new(builtin);
-                        let kind = provider.kind(&target_path).ok_or_else(|| {
-                            ModuleResolutionError::ModuleNotFound(format!("builtin module {builtin}.{target_path} not found"))
+                        let kind = provider
+                            .kind(&target_path)
+                            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("builtin module {builtin}.{target_path} not found")))?;
+                        let source_id = provider.source_id(&ModuleId::builtin(builtin, target_path.clone())).map_err(|e| match e {
+                            ModuleLoadError::Resolution(r) => r,
+                            _ => ModuleResolutionError::ModuleNotFound(format!("{e}")),
                         })?;
-                        let source_id = provider.source_id(&ModuleId::builtin(builtin, target_path.clone()))
-                            .map_err(|e| match e {
-                                ModuleLoadError::Resolution(r) => r,
-                                _ => ModuleResolutionError::ModuleNotFound(format!("{e}")),
-                            })?;
                         let uri_path = if target_path.is_root() {
                             String::new()
                         } else {

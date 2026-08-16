@@ -113,8 +113,7 @@ impl DeclarationShellTable {
             }
         }
         for component in superclass_only.components() {
-            let self_edge = component.len() == 1
-                && superclass_only.edges_from(&component[0]).iter().any(|edge| edge.to == component[0]);
+            let self_edge = component.len() == 1 && superclass_only.edges_from(&component[0]).iter().any(|edge| edge.to == component[0]);
             if component.len() > 1 || self_edge {
                 return Err(DeclarationRealizationError::InheritanceCycle { cycle: component });
             }

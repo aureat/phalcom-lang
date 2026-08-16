@@ -99,7 +99,10 @@ impl VM {
                 .module_registry
                 .get(id)
                 .ok_or_else(|| crate::error::RuntimeError::Internal(format!("materialized module {id} missing from registry")))?;
-            if matches!(record.state, crate::modules::registry::ModuleState::Initialized | crate::modules::registry::ModuleState::Failed) {
+            if matches!(
+                record.state,
+                crate::modules::registry::ModuleState::Initialized | crate::modules::registry::ModuleState::Failed
+            ) {
                 continue;
             }
             if self.heap.module(record.object).closure.is_none() {

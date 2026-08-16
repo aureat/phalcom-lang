@@ -82,8 +82,7 @@ impl ProjectManifest {
 
         let raw_name = self.project.name.clone();
         let raw_namespace = self.project.namespace.as_ref().ok_or(ProjectError::MissingProjectNamespace)?;
-        let namespace = ModuleComponent::from_identifier(raw_namespace)
-            .map_err(|e| ProjectError::InvalidProjectNamespace(raw_namespace.clone(), e))?;
+        let namespace = ModuleComponent::from_identifier(raw_namespace).map_err(|e| ProjectError::InvalidProjectNamespace(raw_namespace.clone(), e))?;
 
         if matches!(namespace.as_str(), "core" | "universe" | "std") {
             return Err(ProjectError::ImportRootCollision {

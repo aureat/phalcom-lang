@@ -129,7 +129,11 @@ impl FilesystemSourceProvider {
 
                 return Ok(SourceUnit {
                     id: module_id,
-                    kind: if project.persistent_project { ModuleKind::ProjectRoot } else { ModuleKind::Package },
+                    kind: if project.persistent_project {
+                        ModuleKind::ProjectRoot
+                    } else {
+                        ModuleKind::Package
+                    },
                     source: SourceLocation {
                         source_id,
                         display_path: pkg_file,

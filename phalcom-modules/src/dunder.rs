@@ -86,10 +86,7 @@ impl DunderPolicy {
         }
         match self.category(name) {
             Some(DunderCategory::Hook { roles }) if roles.contains(&role) => Ok(()),
-            Some(_) => Err(DunderPolicyError::Reserved {
-                name: name.to_string(),
-                role,
-            }),
+            Some(_) => Err(DunderPolicyError::Reserved { name: name.to_string(), role }),
             None => Err(DunderPolicyError::Unknown { name: name.to_string() }),
         }
     }

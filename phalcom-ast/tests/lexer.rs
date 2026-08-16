@@ -157,9 +157,8 @@ fn multiline_string_embedded_triple_quotes() {
 #[test]
 fn multiline_string_interpolation_and_source_ranges() {
     let src = "let s = \"\"\"\n    α \\(x + 1) beta\n    \"\"\"";
-    let mut lex = Lexer::new(src);
     let mut items = Vec::new();
-    while let Some(res) = lex.next() {
+    for res in Lexer::new(src) {
         items.push(res.expect("should lex"));
     }
     // Check tokens

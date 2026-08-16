@@ -46,7 +46,7 @@ impl VM {
         let package_sym = self.interner.intern("__package__");
         let project_sym = self.interner.intern("__project__");
 
-        for (id, _compiled_mod) in &program.modules {
+        for id in program.modules.keys() {
             let obj_ref = self.module_registry.get(id).expect("module allocated").object;
 
             // 1. __module__ is bound to the current module object.
