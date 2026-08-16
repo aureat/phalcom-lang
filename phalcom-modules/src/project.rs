@@ -1,38 +1,41 @@
 //! Project universe, resolved projects, and project dependency graph management.
 
 use crate::error::ProjectError;
-use crate::identity::{ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId};
+use crate::identity::{
+    BuiltinProject, ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId,
+    SyntheticProjectId, SyntheticProjectIdAllocator,
+};
 use crate::manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// A fully resolved project in the `ProjectUniverse`.
+/// A fully resolved persistent project in the `ProjectUniverse`.
 #[derive(Debug, Clone)]
 pub struct ResolvedProject {
     pub id: ResolvedProjectId,
-    pub name: String,                                                      // original name for diagnostics
-    pub namespace: ModuleComponent,                                        // canonical snake_case namespace
-    pub root_dir: PathBuf,                                                 // directory containing project.toml
-    pub source_root: PathBuf,                                              // directory containing source code (e.g. root_dir/src)
-    pub entry: Option<ModulePath>,                                         // project-relative entry module path
-    pub dependencies: BTreeMap<ModuleComponent, ResolvedProjectId>,        // alias -> resolved project id
-    pub import_roots: BTreeMap<ModuleComponent, (ImportRootTarget, bool)>, // root table
+    pub name: String,
+    pub namespace: ModuleComponent,
+    pub root_dir: PathBuf,
+    pub source_root: PathBuf,
+    pub entry: Option<ModulePath>,
+    pub dependencies: BTreeMap<ModuleComponent, ResolvedProjectId>,
+    pub import_roots: BTreeMap<ModuleComponent, (ImportRootTarget, bool)>,
     pub source_identity: ProjectSourceIdentity,
 }
 
 impl ResolvedProject {
-    /// Returns the precomputed import root table for this project:
-    /// Maps each recognized root component (self namespace + dependency aliases + core) to (ImportRootTarget, is_self).
     pub fn import_roots(&self) -> &BTreeMap<ModuleComponent, (ImportRootTarget, bool)> {
         &self.import_roots
     }
 }
 
-/// The set of all resolved projects participating in a compilation or analysis session.
+/// Persistent project graph plus the session allocator for synthetic ownership
+/// domains. Synthetic units are deliberately not inserted into `projects`.
 #[derive(Debug)]
 pub struct ProjectUniverse {
     projects: Vec<ResolvedProject>,
     roots: BTreeMap<ProjectSourceIdentity, ResolvedProjectId>,
+    synthetic_ids: SyntheticProjectIdAllocator,
 }
 
 impl Default for ProjectUniverse {
@@ -46,26 +49,29 @@ impl ProjectUniverse {
         Self {
             projects: Vec::new(),
             roots: BTreeMap::new(),
+            synthetic_ids: SyntheticProjectIdAllocator::new(),
         }
     }
 
-    /// Returns a reference to all resolved projects.
     pub fn projects(&self) -> &[ResolvedProject] {
         &self.projects
     }
 
-    /// Gets a resolved project by its ID.
     pub fn get_project(&self, id: ResolvedProjectId) -> Option<&ResolvedProject> {
-        if id.is_reserved() { None } else { self.projects.get((id.raw() - 1) as usize) }
+        self.projects.get(id.index())
     }
 
-    /// Loads and resolves a root project and its full dependency graph from a `project.toml` file path.
+    /// Allocates a fresh synthetic ownership domain for a standalone package,
+    /// standalone module, inline unit, REPL, or other ephemeral source family.
+    pub fn allocate_synthetic_id(&mut self) -> SyntheticProjectId {
+        self.synthetic_ids.allocate()
+    }
+
     pub fn load_root(&mut self, manifest_path: impl AsRef<Path>) -> Result<ResolvedProjectId, ProjectError> {
         let dep_provider = NullDependencyProvider;
         self.load_root_with_provider(manifest_path, &dep_provider)
     }
 
-    /// Loads and resolves a root project with a custom dependency provider.
     pub fn load_root_with_provider(
         &mut self,
         manifest_path: impl AsRef<Path>,
@@ -80,27 +86,21 @@ impl ProjectUniverse {
             .parent()
             .ok_or_else(|| ProjectError::InvalidProjectManifest("Manifest path has no parent directory".to_string()))?
             .to_path_buf();
-
         let source_identity = ProjectSourceIdentity::from_path(&root_dir);
-
         if let Some(&id) = self.roots.get(&source_identity) {
             return Ok(id);
         }
 
-        // We load the graph using DFS and detect cycles
         let mut visiting = Vec::new();
         let mut visited_stack = HashSet::new();
-
-        let root_id = self.resolve_project_recursive(&canonical_manifest, dep_provider, &mut visiting, &mut visited_stack)?;
-
-        Ok(root_id)
+        self.resolve_project_recursive(&canonical_manifest, dep_provider, &mut visiting, &mut visited_stack)
     }
 
     fn resolve_project_recursive(
         &mut self,
         manifest_path: &Path,
         dep_provider: &dyn DependencyProvider,
-        visiting: &mut Vec<(String, PathBuf)>, // (display_name, path)
+        visiting: &mut Vec<(String, PathBuf)>,
         visited_stack: &mut HashSet<PathBuf>,
     ) -> Result<ResolvedProjectId, ProjectError> {
         let canonical_manifest = manifest_path
@@ -111,16 +111,14 @@ impl ProjectUniverse {
             .parent()
             .ok_or_else(|| ProjectError::InvalidProjectManifest("Manifest path has no parent directory".to_string()))?
             .to_path_buf();
-
         let source_identity = ProjectSourceIdentity::from_path(&root_dir);
 
         if visited_stack.contains(&canonical_manifest) {
             let start_idx = visiting.iter().position(|(_, path)| path == &canonical_manifest).unwrap_or(0);
-            let mut chain = Vec::new();
-            for (name, _) in &visiting[start_idx..] {
+            let mut chain = visiting[start_idx..].iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
+            if let Some((name, _)) = visiting.get(start_idx) {
                 chain.push(name.clone());
             }
-            chain.push(visiting[start_idx].0.clone());
             return Err(ProjectError::ProjectDependencyCycle { chain: chain.join(" → ") });
         }
 
@@ -136,36 +134,32 @@ impl ProjectUniverse {
         } else {
             root_dir.join(&validated.source)
         };
-
         let source_root = source_root.canonicalize().map_err(|_| ProjectError::InvalidSourceRoot(source_root.clone()))?;
-
         if !source_root.is_dir() {
             return Err(ProjectError::InvalidSourceRoot(source_root));
         }
-
-        let root_package_file = source_root.join("package.ph");
-        if !root_package_file.is_file() {
+        if !source_root.join("package.ph").is_file() {
             return Err(ProjectError::MissingRootPackage(source_root));
         }
 
-        let entry = if let Some(entry_str) = validated.entry {
-            let parts: Vec<&str> = entry_str.split('.').collect();
-            // First part is namespace; remainder are relative components
+        let entry = if let Some(entry_str) = validated.entry.clone() {
+            let parts = entry_str.split('.').collect::<Vec<_>>();
             let mut components = Vec::new();
             for part in &parts[1..] {
-                let comp = ModuleComponent::from_identifier(part).map_err(|e| ProjectError::InvalidEntry(entry_str.clone(), e.to_string()))?;
-                components.push(comp);
+                components.push(
+                    ModuleComponent::from_identifier(part)
+                        .map_err(|e| ProjectError::InvalidEntry(entry_str.clone(), e.to_string()))?,
+                );
             }
             Some(ModulePath::from_components(components))
         } else {
             None
         };
 
-        visiting.push((validated.name.clone(), canonical_manifest.clone()));
+        visiting.push((validated.display_name.clone(), canonical_manifest.clone()));
         visited_stack.insert(canonical_manifest.clone());
 
         let mut resolved_dependencies = BTreeMap::new();
-
         for (alias, (_raw_alias, spec)) in validated.dependencies {
             let dep_manifest_path = match spec {
                 DependencySpec::Path { path } => {
@@ -176,25 +170,27 @@ impl ProjectUniverse {
                     }
                     dep_manifest
                 }
-                DependencySpec::Package { package, version } => {
-                    let res = dep_provider.resolve_package(&package, &version)?;
-                    res.manifest_path
-                }
+                DependencySpec::Package { package, version } => dep_provider.resolve_package(&package, &version)?.manifest_path,
             };
-
             let dep_id = self.resolve_project_recursive(&dep_manifest_path, dep_provider, visiting, visited_stack)?;
-
             resolved_dependencies.insert(alias, dep_id);
         }
 
         visiting.pop();
         visited_stack.remove(&canonical_manifest);
 
-        let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
-
+        let next_id = ResolvedProjectId::from_index(self.projects.len());
         let mut import_roots = BTreeMap::new();
-        let core_comp = ModuleComponent::from_identifier("core").expect("valid identifier");
-        import_roots.insert(core_comp, (ImportRootTarget::Core, false));
+        for builtin in [BuiltinProject::Universe, BuiltinProject::Std] {
+            let component = ModuleComponent::from_identifier(builtin.root_name()).expect("builtin root is canonical");
+            import_roots.insert(component, (ImportRootTarget::Builtin(builtin), false));
+        }
+        // Transitional compatibility: `core` is a complete alias for the
+        // builtin Universe root and never owns a separate semantic identity.
+        import_roots.insert(
+            ModuleComponent::from_identifier("core").expect("canonical compatibility root"),
+            (ImportRootTarget::Builtin(BuiltinProject::Universe), false),
+        );
         import_roots.insert(validated.namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
         for (alias, dep_id) in &resolved_dependencies {
             import_roots.insert(alias.clone(), (ImportRootTarget::Resolved(*dep_id), false));
@@ -202,7 +198,7 @@ impl ProjectUniverse {
 
         let resolved_project = ResolvedProject {
             id: next_id,
-            name: validated.name,
+            name: validated.display_name,
             namespace: validated.namespace,
             root_dir,
             source_root,
@@ -214,67 +210,52 @@ impl ProjectUniverse {
 
         self.projects.push(resolved_project);
         self.roots.insert(source_identity, next_id);
-
-        Ok(next_id)
-    }
-
-    /// Loads a synthetic single-module or package project without a `project.toml`.
-    pub fn load_synthetic_root(&mut self, name: &str, source_root: impl AsRef<Path>, entry_component: &str) -> Result<ResolvedProjectId, ProjectError> {
-        let source_root = source_root.as_ref();
-        let canonical_root = source_root
-            .canonicalize()
-            .map_err(|e| ProjectError::InvalidProjectManifest(format!("Failed to canonicalize {}: {}", source_root.display(), e)))?;
-
-        let source_identity = ProjectSourceIdentity::from_path(&canonical_root);
-        if let Some(&id) = self.roots.get(&source_identity) {
-            return Ok(id);
-        }
-
-        let namespace = ModuleComponent::from_kebab(name).map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid project identifier: {e}")))?;
-        let entry_comp =
-            ModuleComponent::from_kebab(entry_component).map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid entry identifier: {e}")))?;
-        let entry = Some(ModulePath::from_components(vec![entry_comp]));
-
-        let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
-
-        let mut import_roots = BTreeMap::new();
-        let core_comp = ModuleComponent::from_identifier("core").expect("valid identifier");
-        import_roots.insert(core_comp, (ImportRootTarget::Core, false));
-        import_roots.insert(namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
-
-        let resolved_project = ResolvedProject {
-            id: next_id,
-            name: name.to_string(),
-            namespace,
-            root_dir: canonical_root.clone(),
-            source_root: canonical_root,
-            entry,
-            dependencies: BTreeMap::new(),
-            import_roots,
-            source_identity: source_identity.clone(),
-        };
-
-        self.projects.push(resolved_project);
-        self.roots.insert(source_identity, next_id);
         Ok(next_id)
     }
 }
 
-/// Discovers the nearest enclosing project root directory containing `project.toml`.
+/// Discovers the nearest enclosing persistent project root containing
+/// `project.toml`.
 pub fn discover_owning_project(source_path: &Path) -> Result<Option<PathBuf>, ProjectError> {
     let mut current = if source_path.is_file() {
-        source_path.parent().map(|p| p.to_path_buf())
+        source_path.parent().map(Path::to_path_buf)
     } else {
         Some(source_path.to_path_buf())
     };
 
     while let Some(dir) = current {
-        let manifest = dir.join("project.toml");
-        if manifest.is_file() {
+        if dir.join("project.toml").is_file() {
             return Ok(Some(dir));
         }
-        current = dir.parent().map(|p| p.to_path_buf());
+        current = dir.parent().map(Path::to_path_buf);
     }
-
     Ok(None)
+}
+
+/// Discovers the outermost contiguous standalone-package root owning a source.
+/// A gap without `package.ph` ends package authority; a persistent project
+/// boundary always wins and therefore terminates standalone discovery.
+pub fn discover_standalone_package_root(source_path: &Path) -> Result<Option<PathBuf>, ProjectError> {
+    let canonical = source_path
+        .canonicalize()
+        .map_err(|e| ProjectError::InvalidProjectManifest(format!("Failed to canonicalize {}: {e}", source_path.display())))?;
+    let mut current = if canonical.is_file() {
+        canonical.parent().map(Path::to_path_buf)
+    } else {
+        Some(canonical)
+    };
+    let mut outermost = None;
+
+    while let Some(dir) = current {
+        if dir.join("project.toml").is_file() {
+            break;
+        }
+        if dir.join("package.ph").is_file() {
+            outermost = Some(dir.clone());
+        } else if outermost.is_some() {
+            break;
+        }
+        current = dir.parent().map(Path::to_path_buf);
+    }
+    Ok(outermost)
 }
