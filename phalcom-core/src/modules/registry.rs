@@ -4,104 +4,154 @@ use crate::error::PhError;
 use crate::heap::ObjRef;
 use phalcom_modules::ModuleId;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Lifecycle state machine for module execution.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeProgramId(u64);
+
+static NEXT_RUNTIME_PROGRAM_ID: AtomicU64 = AtomicU64::new(1);
+
+impl RuntimeProgramId {
+    pub(crate) fn fresh() -> Self {
+        let id = NEXT_RUNTIME_PROGRAM_ID.fetch_add(1, Ordering::Relaxed);
+        assert!(id != 0, "runtime program identity space exhausted");
+        Self(id)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ModulePlanFingerprint(u64);
+
+impl ModulePlanFingerprint {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        // Stable FNV-1a. This is an identity guard, not a cryptographic digest.
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        Self(hash)
+    }
+
+    pub const fn empty() -> Self {
+        Self(0xcbf29ce484222325)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModuleOwner {
+    Builtin,
+    Program(RuntimeProgramId),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModuleState {
-    /// Structure allocated, initializers not yet run.
     Prepared,
-    /// Currently running top-level initializer.
     Initializing,
-    /// Initializer completed successfully.
     Initialized,
-    /// Initializer or dependency failed.
     Failed,
 }
 
-/// Structured failure cause recorded when module initialization fails.
 #[derive(Clone, Debug)]
 pub enum ModuleFailure {
-    /// This module's own top-level initializer threw an error.
     Initializer { cause: Box<PhError> },
-    /// A required dependency failed to initialize.
     Dependency { dependency: ModuleId, cause: Box<ModuleFailure> },
 }
 
-/// Runtime lifecycle record for one materialized module.
 #[derive(Debug)]
 pub struct ModuleRecord {
-    /// Handle to the heap ModuleObject.
     pub object: ObjRef,
-    /// Current initialization state.
     pub state: ModuleState,
-    /// Sticky failure cause if state is Failed.
     pub failure: Option<ModuleFailure>,
+    pub owner: ModuleOwner,
+    /// `None` is reserved for a bootstrap-created builtin shell that has not yet
+    /// been associated with the immutable builtin plan.
+    pub plan_fingerprint: Option<ModulePlanFingerprint>,
 }
 
 impl ModuleRecord {
-    /// Creates a record in the `Prepared` state.
+    /// Compatibility constructor for ad-hoc runtime modules. Each call receives
+    /// a fresh ownership domain, so it cannot be mistaken for another program.
     pub fn prepared(object: ObjRef) -> Self {
+        Self::prepared_for(object, RuntimeProgramId::fresh(), ModulePlanFingerprint::empty())
+    }
+
+    pub fn prepared_for(object: ObjRef, program: RuntimeProgramId, fingerprint: ModulePlanFingerprint) -> Self {
         Self {
             object,
             state: ModuleState::Prepared,
             failure: None,
+            owner: ModuleOwner::Program(program),
+            plan_fingerprint: Some(fingerprint),
+        }
+    }
+
+    pub fn builtin_prepared(object: ObjRef, fingerprint: ModulePlanFingerprint) -> Self {
+        Self {
+            object,
+            state: ModuleState::Prepared,
+            failure: None,
+            owner: ModuleOwner::Builtin,
+            plan_fingerprint: Some(fingerprint),
+        }
+    }
+
+    pub fn builtin_bootstrap(object: ObjRef) -> Self {
+        Self {
+            object,
+            state: ModuleState::Initialized,
+            failure: None,
+            owner: ModuleOwner::Builtin,
+            plan_fingerprint: None,
         }
     }
 }
 
-/// Error returned when attempting to register an already existing module identity without explicit reset.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("duplicate module identity: {0}")]
-pub struct DuplicateModuleIdentity(pub ModuleId);
+pub enum ModuleRegistryError {
+    #[error("duplicate module identity: {0}")]
+    DuplicateIdentity(ModuleId),
+    #[error("module identity {module} belongs to another runtime program")]
+    ProgramOwnershipConflict { module: ModuleId },
+    #[error("module identity {module} was already materialized with a different immutable plan")]
+    PlanFingerprintMismatch { module: ModuleId },
+}
 
-/// Runtime module registry on the VM.
 #[derive(Debug, Default)]
 pub struct ModuleRegistry {
     by_id: HashMap<ModuleId, ModuleRecord>,
 }
 
 impl ModuleRegistry {
-    /// Creates an empty registry.
     pub fn new() -> Self {
         Self { by_id: HashMap::new() }
     }
 
-    /// Registers a module record under its semantic identity if not already present.
-    pub fn register_new(&mut self, id: ModuleId, record: ModuleRecord) -> Result<(), DuplicateModuleIdentity> {
+    pub fn register_new(&mut self, id: ModuleId, record: ModuleRecord) -> Result<(), ModuleRegistryError> {
         if self.by_id.contains_key(&id) {
-            Err(DuplicateModuleIdentity(id))
+            Err(ModuleRegistryError::DuplicateIdentity(id))
         } else {
             self.by_id.insert(id, record);
             Ok(())
         }
     }
 
-    /// Registers or overwrites a module record under its semantic identity.
-    pub fn insert(&mut self, id: ModuleId, record: ModuleRecord) {
-        self.by_id.insert(id, record);
-    }
-
-    /// Returns a reference to the record for `id`.
     pub fn get(&self, id: &ModuleId) -> Option<&ModuleRecord> {
         self.by_id.get(id)
     }
 
-    /// Returns a mutable reference to the record for `id`.
     pub fn get_mut(&mut self, id: &ModuleId) -> Option<&mut ModuleRecord> {
         self.by_id.get_mut(id)
     }
 
-    /// Returns whether `id` is registered.
     pub fn contains_key(&self, id: &ModuleId) -> bool {
         self.by_id.contains_key(id)
     }
 
-    /// Iterates over all registered `(ModuleId, ModuleRecord)` pairs.
     pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleRecord)> {
         self.by_id.iter()
     }
 
-    /// Traces all registered module handles for garbage collection.
     pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
         for record in self.by_id.values() {
             push(record.object);
