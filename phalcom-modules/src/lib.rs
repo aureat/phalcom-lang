@@ -12,15 +12,15 @@ pub mod resolver;
 pub mod source;
 
 // Re-export common types
-pub use error::{InterfaceError, ModuleGraphError, ModuleResolutionError, ProjectError, SourceError};
+pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
 pub use graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceGraph, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason,
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
-pub use identity::{ModuleComponent, ModuleId, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceLocation};
+pub use identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceLocation};
 pub use interface::{
-    DeclarationSurface, ExportSurface, ImportSurface, InterfaceBuilder, LinkedExport, LinkedModuleInterface, PackagePathSurface, UnlinkedExportTarget,
-    UnlinkedModuleInterface,
+    DeclarationSurface, ExportSurface, ImportSurface, InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface, PackagePathSurface,
+    UnlinkedExportTarget, UnlinkedModuleInterface,
 };
 pub use linker::{
     GlobalBindingId, ImportBindingId, LinkError, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleLinker, SymbolId, dependency_phase,
@@ -30,4 +30,4 @@ pub use manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, P
 pub use metadata::{MetadataTarget, ModuleMetadata, ModuleMetadataAttribute};
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
 pub use resolver::ModuleResolver;
-pub use source::{FilesystemSourceProvider, ModuleKind, SourceProvider, SourceUnit};
+pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, SourceProvider, SourceUnit};

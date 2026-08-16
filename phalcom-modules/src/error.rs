@@ -90,6 +90,20 @@ pub enum SourceError {
     NotFound(String),
 }
 
+// ── Module Loading Errors ──────────────────────────────────────────────────
+
+#[derive(Debug, Error, Clone, PartialEq)]
+pub enum ModuleLoadError {
+    #[error(transparent)]
+    Resolution(#[from] ModuleResolutionError),
+
+    #[error("Parse error in module {module}: {message}")]
+    Parse { module: ModuleId, message: String },
+
+    #[error("Interface error in module {module}: {error}")]
+    Interface { module: ModuleId, error: InterfaceError },
+}
+
 // ── Visibility / Binding / Interface Errors ────────────────────────────────
 
 #[derive(Debug, Error, Clone, PartialEq)]

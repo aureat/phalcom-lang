@@ -61,7 +61,7 @@ pub struct CompiledProgram {
 }
 
 /// Program-level compile errors remain structured by phase.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum ProgramCompileError {
     /// Static linking failed.
     #[error(transparent)]
@@ -81,6 +81,9 @@ pub enum ProgramCompileError {
     /// Module resolution failure.
     #[error("resolution error: {0}")]
     Resolution(#[from] ModuleResolutionError),
+    /// Module interface/load failure.
+    #[error("module load error: {0}")]
+    ModuleLoad(#[from] phalcom_modules::ModuleLoadError),
     /// Source I/O failure.
     #[error("source error: {0}")]
     Source(#[from] SourceError),
@@ -106,11 +109,9 @@ impl ProgramCompiler {
     /// Compiles an entry selection into a fully linked `CompiledProgram`.
     pub fn compile_entry_selection(entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
         match entry {
-            EntrySelection::ModuleId(entry_id) => {
-                let universe = Arc::new(ProjectUniverse::new());
-                let provider = FilesystemSourceProvider::new();
-                Self::discover_and_link(universe, provider, entry_id)
-            }
+            EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
+                "EntrySelection::ModuleId({entry_id}) cannot be compiled without an existing linked project universe; use ProgramCompiler::new(linked).compile_entry(...)"
+            ))),
             EntrySelection::Project(root_dir) => {
                 let manifest_path = if root_dir.ends_with("project.toml") {
                     root_dir

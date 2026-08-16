@@ -8,24 +8,30 @@ use crate::modules::registry::ModuleRecord;
 use crate::vm::{RuntimeRoots, VM};
 use phalcom_modules::LinkedReadSpec;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 impl VM {
     /// Materializes a closed, linked compiled program into VM module objects,
     /// global layouts, linked read slots, and export tables without running initializers.
     pub fn materialize_program(&mut self, program: &CompiledProgram) -> PhResult<()> {
-        // Phase 1: Allocate all module/package objects in the Prepared state.
+        // Phase 1: Allocate all module/package objects in the Prepared state (idempotent).
         for (id, compiled_mod) in &program.modules {
-            let display_name = id.to_string();
-            let name_sym = self.interner.intern(&display_name);
-            let path = compiled_mod
-                .source
-                .as_ref()
-                .map(|s| s.display_path.display().to_string())
-                .unwrap_or_else(|| display_name.clone());
+            if !self.module_registry.contains_key(id) {
+                let display_name = id.to_string();
+                let name_sym = self.interner.intern(&display_name);
+                let path = compiled_mod
+                    .source
+                    .as_ref()
+                    .map(|s| s.display_path.display().to_string())
+                    .unwrap_or_else(|| display_name.clone());
 
-            let module_obj = ModuleObject::new(id.clone(), compiled_mod.kind, display_name, name_sym, path, None, false);
-            let obj_ref = self.heap.alloc(Object::Module(Box::new(module_obj)));
-            self.module_registry.insert(id.clone(), ModuleRecord::prepared(obj_ref));
+                let mut module_obj = ModuleObject::new(id.clone(), compiled_mod.kind, display_name, name_sym, path, None, false);
+                module_obj.metadata = Some(Arc::new(compiled_mod.interface.metadata.clone()));
+                let obj_ref = self.heap.alloc(Object::Module(Box::new(module_obj)));
+                self.module_registry
+                    .register_new(id.clone(), ModuleRecord::prepared(obj_ref))
+                    .map_err(|e| RuntimeError::Internal(e.to_string()))?;
+            }
         }
 
         // Phase 2: Global layouts are populated dynamically by top-level execution.
@@ -88,24 +94,36 @@ impl VM {
 
             for (exported_name, linked_export) in &compiled_mod.interface.exports {
                 let public_sym = self.interner.intern(exported_name);
-                let target_mod_obj = self
-                    .module_registry
-                    .get(&linked_export.symbol.module)
-                    .ok_or_else(|| RuntimeError::Internal(format!("export target module {} not registered", linked_export.symbol.module)))?
-                    .object;
-                let target_sym = self.interner.intern(&linked_export.symbol.name);
+                match &linked_export.target {
+                    phalcom_modules::LinkedExportTarget::Binding(symbol) => {
+                        let target_mod_obj = self
+                            .module_registry
+                            .get(&symbol.module)
+                            .ok_or_else(|| RuntimeError::Internal(format!("export target module {} not registered", symbol.module)))?
+                            .object;
+                        let target_sym = self.interner.intern(&symbol.name);
 
-                let slot = match self.heap.module(target_mod_obj).slot_of(target_sym) {
-                    Some(s) => s,
-                    None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
-                };
-                exports.insert(
-                    public_sym,
-                    RuntimeExportRef::Binding(BindingRef {
-                        module: target_mod_obj,
-                        slot: slot as u16,
-                    }),
-                );
+                        let slot = match self.heap.module(target_mod_obj).slot_of(target_sym) {
+                            Some(s) => s,
+                            None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
+                        };
+                        exports.insert(
+                            public_sym,
+                            RuntimeExportRef::Binding(BindingRef {
+                                module: target_mod_obj,
+                                slot: slot as u16,
+                            }),
+                        );
+                    }
+                    phalcom_modules::LinkedExportTarget::Module(target_mod_id) => {
+                        let target_mod_obj = self
+                            .module_registry
+                            .get(target_mod_id)
+                            .ok_or_else(|| RuntimeError::Internal(format!("export target module {target_mod_id} not registered")))?
+                            .object;
+                        exports.insert(public_sym, RuntimeExportRef::Module(target_mod_obj));
+                    }
+                }
             }
             self.heap.module_mut(obj_ref).exports = exports;
         }

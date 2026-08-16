@@ -1,9 +1,7 @@
 //! Native primitives backing the M-ATTR-ROOT attribute-retention mechanism
 //! (`attribute-classes.md`): `Object#__attach`/`__attributes`/
 //! `__freezeAttributes`. Registered once on `object_class` instance-side
-//! (`universe/primitives.rs`) — since every class object, method object, and
-//! module object sits under `Object` in the metaclass tower (ADR-0002), one
-//! registration site covers all three receiver kinds.
+//! (`universe/primitives.rs`) — covering class and method receiver kinds.
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::Object;

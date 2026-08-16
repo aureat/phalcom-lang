@@ -25,6 +25,9 @@ pub enum PhError {
     #[error(transparent)]
     ModuleInitialization(#[from] Box<ModuleInitializationError>),
 
+    #[error(transparent)]
+    ProgramCompile(#[from] crate::modules::compile::ProgramCompileError),
+
     #[error("{0}")]
     StringError(String),
 

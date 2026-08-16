@@ -53,7 +53,7 @@ impl Interpreter {
 
     /// Compiles and runs an entry selection.
     pub fn run_entry(&mut self, entry: EntrySelection) -> PhResult<()> {
-        let program = ProgramCompiler::compile_entry_selection(entry).map_err(|e| PhError::StringError(e.to_string()))?;
+        let program = ProgramCompiler::compile_entry_selection(entry)?;
         self.vm.run_compiled(&program)
     }
 }

@@ -207,7 +207,13 @@ impl ModuleLinker {
                     continue;
                 };
                 let target = context.target(module, path, range)?;
-                return Ok(context.resolve_export(&target, remote)?.symbol);
+                let export = context.resolve_export(&target, remote)?;
+                let symbol = export.symbol().cloned().ok_or_else(|| LinkError::MissingBinding {
+                    module: target.clone(),
+                    name: remote.to_string(),
+                    range,
+                })?;
+                return Ok(symbol);
             }
             return Err(LinkError::MissingBinding {
                 module: module.clone(),
@@ -251,7 +257,13 @@ impl ModuleLinker {
         let name = reference.leaf_name();
         let mut context = LinkContext::new(self, resolved);
         context.collect_imports_and_graphs()?;
-        Ok(context.resolve_export(&target, name)?.symbol)
+        let export = context.resolve_export(&target, name)?;
+        let symbol = export.symbol().cloned().ok_or_else(|| LinkError::MissingBinding {
+            module: target,
+            name: name.to_string(),
+            range: reference.range,
+        })?;
+        Ok(symbol)
     }
 }
 
@@ -445,20 +457,38 @@ impl<'a> LinkContext<'a> {
                         let target = self.target(module, &decl.path, decl.range)?;
                         for item in &decl.items {
                             let local = item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone());
-                            let symbol = self.resolve_export(&target, &item.name)?.symbol;
-                            self.import_targets
-                                .insert((module.clone(), local.clone()), LinkedReadSpec::Binding(symbol.clone()));
-                            self.import_symbols.insert((module.clone(), local), Some(symbol));
+                            let linked_exp = self.resolve_export(&target, &item.name)?;
+                            match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => {
+                                    self.import_targets
+                                        .insert((module.clone(), local.clone()), LinkedReadSpec::Binding(symbol.clone()));
+                                    self.import_symbols.insert((module.clone(), local), Some(symbol.clone()));
+                                }
+                                crate::interface::LinkedExportTarget::Module(mod_id) => {
+                                    self.import_targets
+                                        .insert((module.clone(), local.clone()), LinkedReadSpec::Module(mod_id.clone()));
+                                    self.import_symbols.insert((module.clone(), local), None);
+                                }
+                            }
                         }
                     }
                     ImportSurface::ReExport(decl) => {
                         let target = self.target(module, &decl.path, decl.range)?;
                         for item in &decl.items {
                             let local = item.local_or_remote_name.clone();
-                            let symbol = self.resolve_export(&target, &item.local_or_remote_name)?.symbol;
-                            self.import_targets
-                                .insert((module.clone(), local.clone()), LinkedReadSpec::Binding(symbol.clone()));
-                            self.import_symbols.insert((module.clone(), local), Some(symbol));
+                            let linked_exp = self.resolve_export(&target, &item.local_or_remote_name)?;
+                            match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => {
+                                    self.import_targets
+                                        .insert((module.clone(), local.clone()), LinkedReadSpec::Binding(symbol.clone()));
+                                    self.import_symbols.insert((module.clone(), local), Some(symbol.clone()));
+                                }
+                                crate::interface::LinkedExportTarget::Module(mod_id) => {
+                                    self.import_targets
+                                        .insert((module.clone(), local.clone()), LinkedReadSpec::Module(mod_id.clone()));
+                                    self.import_symbols.insert((module.clone(), local), None);
+                                }
+                            }
                         }
                     }
                     ImportSurface::Module(_) => {}
@@ -515,18 +545,20 @@ impl<'a> LinkContext<'a> {
             name: name.to_string(),
             range: SourceRange::default(),
         })?;
-        let (symbol, range) = match &surface.target {
+        let (target, range) = match &surface.target {
             UnlinkedExportTarget::Local(local) => {
                 if let Some(declaration) = interface.declarations.get(local) {
                     (
-                        SymbolId {
+                        crate::interface::LinkedExportTarget::Binding(SymbolId {
                             module: module.clone(),
                             name: local.clone().into_boxed_str(),
-                        },
+                        }),
                         declaration.range,
                     )
                 } else if let Some(Some(symbol)) = self.import_symbols.get(&(module.clone(), local.clone())) {
-                    (symbol.clone(), surface.range)
+                    (crate::interface::LinkedExportTarget::Binding(symbol.clone()), surface.range)
+                } else if let Some(LinkedReadSpec::Module(target_mod)) = self.import_targets.get(&(module.clone(), local.clone())) {
+                    (crate::interface::LinkedExportTarget::Module(target_mod.clone()), surface.range)
                 } else {
                     return Err(LinkError::MissingBinding {
                         module: module.clone(),
@@ -536,15 +568,15 @@ impl<'a> LinkContext<'a> {
                 }
             }
             UnlinkedExportTarget::ReExport { path, remote } => {
-                let target = self.target(module, path, surface.range)?;
-                let linked = self.resolve_export(&target, remote)?;
-                (linked.symbol, surface.range)
+                let target_mod = self.target(module, path, surface.range)?;
+                let linked = self.resolve_export(&target_mod, remote)?;
+                (linked.target, surface.range)
             }
         };
         self.resolving_exports.remove(&key);
         let linked = LinkedExport {
             public_name: name.to_owned().into_boxed_str(),
-            symbol,
+            target,
             range,
         };
         self.linked_exports.insert(key, linked.clone());

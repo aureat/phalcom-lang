@@ -170,27 +170,9 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
             std::process::exit(66);
         }
     }
-    // Read before `cli.path`/`cli.source` are moved out below — `cli` would
-    // otherwise be partially moved and `cli.compile_mode()`'s `&self` borrow
-    // would no longer be legal.
     let compile_mode = cli.compile_mode();
     let strip_contract_metadata = cli.strip_contract_metadata;
-    let source = match read_source(cli.path.clone(), cli.source.clone()) {
-        Ok(s) => s,
-        Err(err) => {
-            eprintln!("Error: {}", err);
-            std::process::exit(74);
-        }
-    };
-    let mut vm = VM::new();
-    vm.compile_mode = compile_mode;
-    vm.strip_contract_metadata = strip_contract_metadata;
-    vm.trace_core = cli.trace_core;
-    vm.trace_format_json = cli.trace_format == "json";
-    vm.trace_fibers = cli.trace.iter().any(|t| t == "fibers");
-    if cli.trace.iter().any(|t| t == "dispatch") && !cfg!(feature = "vm-trace") {
-        eprintln!("warning: --trace=dispatch requested but the 'vm-trace' cargo feature is not enabled");
-    }
+
     let selection = if let Some(src) = &cli.source {
         phalcom_core::modules::compile::EntrySelection::Inline(src.as_str().into())
     } else if let Some(path) = &cli.path {
@@ -205,18 +187,47 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
             phalcom_core::modules::compile::EntrySelection::Module(canonical)
         }
     } else {
+        let source = match read_source(cli.path.clone(), cli.source.clone()) {
+            Ok(s) => s,
+            Err(err) => {
+                eprintln!("Error: {}", err);
+                std::process::exit(74);
+            }
+        };
         phalcom_core::modules::compile::EntrySelection::Inline(source.as_str().into())
     };
+
+    let mut vm = VM::new();
+    vm.compile_mode = compile_mode;
+    vm.strip_contract_metadata = strip_contract_metadata;
+    vm.trace_core = cli.trace_core;
+    vm.trace_format_json = cli.trace_format == "json";
+    vm.trace_fibers = cli.trace.iter().any(|t| t == "fibers");
+    if cli.trace.iter().any(|t| t == "dispatch") && !cfg!(feature = "vm-trace") {
+        eprintln!("warning: --trace=dispatch requested but the 'vm-trace' cargo feature is not enabled");
+    }
 
     let program_res = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(selection);
     let run_res = match program_res {
         Ok(program) => vm.run_compiled(&program),
         Err(err) => {
-            if let Err(parse_err) = phalcom_ast::parse_source(&source, 0) {
-                let message = parse_err.kind.to_string();
-                let path_str = cli.path.as_ref().and_then(|p| fs::canonicalize(p).ok()).map(|p| p.display().to_string());
-                phalcom_core::diagnostics::print_parse(&source, path_str.as_deref(), &message, parse_err.range);
-                std::process::exit(65);
+            if let Some(p) = &cli.path {
+                if p.is_file() {
+                    if let Ok(source) = fs::read_to_string(p) {
+                        if let Err(parse_err) = phalcom_ast::parse_source(&source, 0) {
+                            let message = parse_err.kind.to_string();
+                            let path_str = fs::canonicalize(p).ok().map(|p| p.display().to_string());
+                            phalcom_core::diagnostics::print_parse(&source, path_str.as_deref(), &message, parse_err.range);
+                            std::process::exit(65);
+                        }
+                    }
+                }
+            } else if let Some(src) = &cli.source {
+                if let Err(parse_err) = phalcom_ast::parse_source(src, 0) {
+                    let message = parse_err.kind.to_string();
+                    phalcom_core::diagnostics::print_parse(src, None, &message, parse_err.range);
+                    std::process::exit(65);
+                }
             }
             eprintln!("Compile error: {err}");
             std::process::exit(65);

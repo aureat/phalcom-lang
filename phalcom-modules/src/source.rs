@@ -7,6 +7,15 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// Ownership classification of an entry before compilation/linking.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntryOwnership {
+    ProjectOwned,
+    StandalonePackageOwned,
+    StandaloneModule,
+    Inline,
+}
+
 /// Module kind: an ordinary `.ph` file or a `package.ph` package descriptor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModuleKind {
@@ -34,6 +43,7 @@ pub trait SourceProvider {
 pub struct FilesystemSourceProvider {
     cache: Mutex<HashMap<(ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
     source_cache: Mutex<HashMap<SourceId, Arc<str>>>,
+    source_id_to_module: Mutex<HashMap<SourceId, ModuleId>>,
 }
 
 impl Default for FilesystemSourceProvider {
@@ -47,6 +57,7 @@ impl FilesystemSourceProvider {
         Self {
             cache: Mutex::new(HashMap::new()),
             source_cache: Mutex::new(HashMap::new()),
+            source_id_to_module: Mutex::new(HashMap::new()),
         }
     }
 
@@ -54,6 +65,7 @@ impl FilesystemSourceProvider {
     pub fn clear_cache(&self) {
         self.cache.lock().unwrap().clear();
         self.source_cache.lock().unwrap().clear();
+        self.source_id_to_module.lock().unwrap().clear();
     }
 
     fn locate_internal(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
@@ -65,12 +77,36 @@ impl FilesystemSourceProvider {
             let pkg_file = current_dir.join("package.ph");
             if pkg_file.is_file() {
                 let canonical = pkg_file.canonicalize().map_err(|e| SourceError::Io(e.to_string()))?;
+
+                // Confinement check: canonical path must start with project source root
+                if !canonical.starts_with(&project.source_root) {
+                    return Err(ModuleResolutionError::ImportOutsideSourceRoot(canonical, project.source_root.clone()));
+                }
+
+                let module_id = ModuleId {
+                    project: project.id,
+                    path: path.clone(),
+                };
                 let source_id = SourceId(canonical.to_string_lossy().into());
+
+                {
+                    let mut rev_map = self.source_id_to_module.lock().unwrap();
+                    if let Some(existing_mod) = rev_map.get(&source_id) {
+                        if existing_mod != &module_id {
+                            return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
+                                "source {} maps to both {} and {}",
+                                canonical.display(),
+                                existing_mod,
+                                module_id
+                            )));
+                        }
+                    } else {
+                        rev_map.insert(source_id.clone(), module_id.clone());
+                    }
+                }
+
                 return Ok(SourceUnit {
-                    id: ModuleId {
-                        project: project.id,
-                        path: path.clone(),
-                    },
+                    id: module_id,
                     kind: ModuleKind::Package,
                     source: SourceLocation {
                         source_id,
@@ -125,12 +161,30 @@ impl FilesystemSourceProvider {
                 return Err(ModuleResolutionError::ImportOutsideSourceRoot(canonical, project.source_root.clone()));
             }
 
+            let module_id = ModuleId {
+                project: project.id,
+                path: path.clone(),
+            };
             let source_id = SourceId(canonical.to_string_lossy().into());
+
+            {
+                let mut rev_map = self.source_id_to_module.lock().unwrap();
+                if let Some(existing_mod) = rev_map.get(&source_id) {
+                    if existing_mod != &module_id {
+                        return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
+                            "source {} maps to both {} and {}",
+                            canonical.display(),
+                            existing_mod,
+                            module_id
+                        )));
+                    }
+                } else {
+                    rev_map.insert(source_id.clone(), module_id.clone());
+                }
+            }
+
             return Ok(SourceUnit {
-                id: ModuleId {
-                    project: project.id,
-                    path: path.clone(),
-                },
+                id: module_id,
                 kind: ModuleKind::Module,
                 source: SourceLocation {
                     source_id,
@@ -152,12 +206,30 @@ impl FilesystemSourceProvider {
                 return Err(ModuleResolutionError::ImportOutsideSourceRoot(canonical, project.source_root.clone()));
             }
 
+            let module_id = ModuleId {
+                project: project.id,
+                path: path.clone(),
+            };
             let source_id = SourceId(canonical.to_string_lossy().into());
+
+            {
+                let mut rev_map = self.source_id_to_module.lock().unwrap();
+                if let Some(existing_mod) = rev_map.get(&source_id) {
+                    if existing_mod != &module_id {
+                        return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
+                            "source {} maps to both {} and {}",
+                            canonical.display(),
+                            existing_mod,
+                            module_id
+                        )));
+                    }
+                } else {
+                    rev_map.insert(source_id.clone(), module_id.clone());
+                }
+            }
+
             return Ok(SourceUnit {
-                id: ModuleId {
-                    project: project.id,
-                    path: path.clone(),
-                },
+                id: module_id,
                 kind: ModuleKind::Package,
                 source: SourceLocation {
                     source_id,

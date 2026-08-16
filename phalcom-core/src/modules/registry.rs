@@ -49,6 +49,11 @@ impl ModuleRecord {
     }
 }
 
+/// Error returned when attempting to register an already existing module identity without explicit reset.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("duplicate module identity: {0}")]
+pub struct DuplicateModuleIdentity(pub ModuleId);
+
 /// Runtime module registry on the VM.
 #[derive(Debug, Default)]
 pub struct ModuleRegistry {
@@ -61,7 +66,17 @@ impl ModuleRegistry {
         Self { by_id: HashMap::new() }
     }
 
-    /// Registers a module record under its semantic identity.
+    /// Registers a module record under its semantic identity if not already present.
+    pub fn register_new(&mut self, id: ModuleId, record: ModuleRecord) -> Result<(), DuplicateModuleIdentity> {
+        if self.by_id.contains_key(&id) {
+            Err(DuplicateModuleIdentity(id))
+        } else {
+            self.by_id.insert(id, record);
+            Ok(())
+        }
+    }
+
+    /// Registers or overwrites a module record under its semantic identity.
     pub fn insert(&mut self, id: ModuleId, record: ModuleRecord) {
         self.by_id.insert(id, record);
     }

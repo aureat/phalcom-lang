@@ -1063,6 +1063,7 @@ dependencies = [
  "rand",
  "ryu",
  "slotmap",
+ "tempfile",
  "thiserror",
  "tracing",
  "tracing-subscriber",

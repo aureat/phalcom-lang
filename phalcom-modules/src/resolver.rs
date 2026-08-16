@@ -1,16 +1,17 @@
-use crate::error::ModuleResolutionError;
-use crate::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
+use crate::error::{ModuleLoadError, ModuleResolutionError};
+use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ResolvedProjectId, SourceId, SourceLocation};
 use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
 use crate::source::{ModuleKind, SourceProvider, SourceUnit};
 use phalcom_ast::ast::{ImportPath, ImportRoot};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// Module resolver coordinating `ProjectUniverse` and `SourceProvider`.
 pub struct ModuleResolver<'u, P: SourceProvider> {
     pub universe: &'u ProjectUniverse,
     pub source: &'u P,
-    interface_cache: HashMap<ModuleId, Result<UnlinkedModuleInterface, ModuleResolutionError>>,
+    interface_cache: HashMap<ModuleId, Result<UnlinkedModuleInterface, ModuleLoadError>>,
 }
 
 impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
@@ -35,10 +36,24 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     ModuleComponent::from_identifier(&root_seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(root_seg.name.clone(), e))?;
 
                 let roots = importer_project.import_roots();
-                let (target_project_id, is_self) = roots
+                let (target_root, is_self) = roots
                     .get(&root_comp)
                     .copied()
                     .ok_or_else(|| ModuleResolutionError::UnknownImportRoot(root_seg.name.clone()))?;
+
+                let target_project_id = match target_root {
+                    ImportRootTarget::Core => {
+                        return Ok(SourceUnit {
+                            id: ModuleId::core(),
+                            kind: ModuleKind::Module,
+                            source: SourceLocation {
+                                source_id: SourceId("core".into()),
+                                display_path: PathBuf::from("<core>"),
+                            },
+                        });
+                    }
+                    ImportRootTarget::Resolved(id) => id,
+                };
 
                 let target_project = self
                     .universe
@@ -69,8 +84,6 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 }
 
                 // Determine importer package depth
-                // If importer is a module at path [a, b], its enclosing package is [a].
-                // If importer is a package at path [a, b], its package context is [a, b].
                 let importer_unit = self.source.locate(importer_project, &importer.path)?;
                 let package_path = match importer_unit.kind {
                     ModuleKind::Package => importer.path.clone(),
@@ -140,7 +153,12 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             path: package_path.clone(),
         };
 
-        let interface = self.load_interface(&module_id)?;
+        let interface = self.load_interface(&module_id).map_err(|e| match e {
+            ModuleLoadError::Resolution(r) => r,
+            ModuleLoadError::Parse { message, .. } => ModuleResolutionError::InvalidModuleLayout(message),
+            ModuleLoadError::Interface { error, .. } => ModuleResolutionError::InvalidModuleLayout(error.to_string()),
+        })?;
+
         if interface.kind != ModuleKind::Package {
             return Err(ModuleResolutionError::PackageNotFoundError(format!("{}", module_id)));
         }
@@ -151,7 +169,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     }
 
     /// Loads and parses the unlinked interface of a module.
-    pub fn load_interface(&mut self, module_id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleResolutionError> {
+    pub fn load_interface(&mut self, module_id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         if let Some(res) = self.interface_cache.get(module_id) {
             return res.clone();
         }
@@ -162,20 +180,30 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Project {:?} not found", module_id.project)))?;
 
         let unit = self.source.locate(project, &module_id.path)?;
-        let source_text = self.source.read(&unit.source.source_id)?;
+        let source_text = self.source.read(&unit.source.source_id).map_err(ModuleResolutionError::Source)?;
 
         let parse_result = phalcom_ast::parse(&source_text, 0);
         if !parse_result.errors.is_empty() {
             let err = &parse_result.errors[0];
-            return Err(ModuleResolutionError::InvalidModuleLayout(format!(
-                "Parse error in {}: {}",
-                unit.source.display_path.display(),
-                err
-            )));
+            let load_err = ModuleLoadError::Parse {
+                module: module_id.clone(),
+                message: format!("Parse error in {}: {}", unit.source.display_path.display(), err),
+            };
+            self.interface_cache.insert(module_id.clone(), Err(load_err.clone()));
+            return Err(load_err);
         }
 
-        let unlinked = InterfaceBuilder::build(module_id.clone(), unit.kind, &parse_result.program)
-            .map_err(|e| ModuleResolutionError::InvalidModuleLayout(e.to_string()))?;
+        let unlinked = match InterfaceBuilder::build(module_id.clone(), unit.kind, &parse_result.program) {
+            Ok(u) => u,
+            Err(e) => {
+                let load_err = ModuleLoadError::Interface {
+                    module: module_id.clone(),
+                    error: e,
+                };
+                self.interface_cache.insert(module_id.clone(), Err(load_err.clone()));
+                return Err(load_err);
+            }
+        };
 
         self.interface_cache.insert(module_id.clone(), Ok(unlinked.clone()));
         Ok(unlinked)

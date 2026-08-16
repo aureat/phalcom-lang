@@ -48,6 +48,8 @@ pub struct DocumentModuleMap {
     /// analysis code must use this map instead of treating a URI as a module
     /// identity.
     pub lsp_by_uri: BTreeMap<Url, ModuleId>,
+    /// Reverse index: LSP-facing key to URI.
+    pub uri_by_lsp: BTreeMap<ModuleId, Url>,
 }
 
 impl DocumentModuleMap {
@@ -58,9 +60,25 @@ impl DocumentModuleMap {
 
     /// Associates one document URI with one semantic module identity.
     pub fn insert(&mut self, uri: Url, module: SemanticModuleId) {
+        // Enforce bijection: remove previous associations if present
+        if let Some(old_mod) = self.by_uri.remove(&uri) {
+            self.by_module.remove(&old_mod);
+        }
+        if let Some(old_uri) = self.by_module.remove(&module) {
+            self.by_uri.remove(&old_uri);
+            if let Some(old_lsp) = self.lsp_by_uri.remove(&old_uri) {
+                self.uri_by_lsp.remove(&old_lsp);
+            }
+        }
+        if let Some(old_lsp) = self.lsp_by_uri.remove(&uri) {
+            self.uri_by_lsp.remove(&old_lsp);
+        }
+
+        let lsp_module = ModuleId::new(module.to_string());
         self.by_uri.insert(uri.clone(), module.clone());
-        self.by_module.insert(module.clone(), uri.clone());
-        self.lsp_by_uri.insert(uri, ModuleId::new(module.to_string()));
+        self.by_module.insert(module, uri.clone());
+        self.lsp_by_uri.insert(uri.clone(), lsp_module.clone());
+        self.uri_by_lsp.insert(lsp_module, uri);
     }
 
     /// Looks up semantic identity for a document URI.
@@ -80,14 +98,12 @@ impl DocumentModuleMap {
 
     /// Returns the semantic identity associated with one LSP-facing key.
     pub fn semantic_for_lsp(&self, module: &ModuleId) -> Option<&SemanticModuleId> {
-        self.lsp_by_uri
-            .iter()
-            .find_map(|(uri, lsp_module)| (lsp_module == module).then(|| self.by_uri.get(uri)).flatten())
+        self.uri_by_lsp.get(module).and_then(|uri| self.by_uri.get(uri))
     }
 
     /// Returns the document URI associated with one LSP-facing key.
     pub fn uri_for_lsp(&self, module: &ModuleId) -> Option<&Url> {
-        self.lsp_by_uri.iter().find_map(|(uri, lsp_module)| (lsp_module == module).then_some(uri))
+        self.uri_by_lsp.get(module)
     }
 
     /// Ensures an editor document has a stable LSP key.
@@ -96,7 +112,13 @@ impl DocumentModuleMap {
     /// shared resolver. Standalone editor documents retain a boundary-only
     /// fallback key until project discovery supplies semantic identity.
     pub fn ensure_lsp_for_uri(&mut self, uri: &Url) -> ModuleId {
-        self.lsp_by_uri.entry(uri.clone()).or_insert_with(|| ModuleId::new(uri.to_string())).clone()
+        if let Some(lsp_mod) = self.lsp_by_uri.get(uri) {
+            return lsp_mod.clone();
+        }
+        let lsp_mod = ModuleId::new(uri.to_string());
+        self.lsp_by_uri.insert(uri.clone(), lsp_mod.clone());
+        self.uri_by_lsp.insert(lsp_mod.clone(), uri.clone());
+        lsp_mod
     }
 
     /// Removes one document mapping and returns its LSP-facing key.
@@ -104,7 +126,11 @@ impl DocumentModuleMap {
         if let Some(module) = self.by_uri.remove(uri) {
             self.by_module.remove(&module);
         }
-        self.lsp_by_uri.remove(uri)
+        let lsp_module = self.lsp_by_uri.remove(uri);
+        if let Some(ref lsp) = lsp_module {
+            self.uri_by_lsp.remove(lsp);
+        }
+        lsp_module
     }
 }
 

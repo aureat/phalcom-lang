@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 fn module(name: &str) -> ModuleId {
     ModuleId {
-        project: ResolvedProjectId(0),
+        project: ResolvedProjectId::from_raw(1),
         path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
     }
 }
@@ -43,7 +43,7 @@ fn selective_import_and_reexport_share_canonical_symbol() {
         module: point.clone(),
         name: "Point".into(),
     };
-    assert_eq!(linked.modules[&facade].interface.exports["P"].symbol, symbol);
+    assert_eq!(linked.modules[&facade].interface.exports["P"].symbol(), Some(&symbol));
     assert_eq!(linked.modules[&consumer].linked_reads, vec![LinkedReadSpec::Binding(symbol.clone())]);
     assert_eq!(linked.modules[&consumer].bindings.imports["Point"].0, 0);
 }

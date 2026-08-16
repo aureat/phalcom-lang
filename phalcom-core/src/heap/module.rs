@@ -79,6 +79,8 @@ pub struct ModuleObject {
     pub linked_reads: Vec<RuntimeLinkedRead>,
     /// Public export table.
     pub exports: HashMap<Symbol, RuntimeExportRef>,
+    /// Module metadata retained from source.
+    pub metadata: Option<Arc<phalcom_modules::ModuleMetadata>>,
 }
 
 impl ModuleObject {
@@ -105,6 +107,7 @@ impl ModuleObject {
             namespace_frozen: false,
             linked_reads: Vec::new(),
             exports: HashMap::new(),
+            metadata: None,
         }
     }
 

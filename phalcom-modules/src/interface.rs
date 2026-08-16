@@ -33,15 +33,32 @@ pub enum UnlinkedExportTarget {
     ReExport { path: ImportPath, remote: String },
 }
 
+/// Target of a linked export: either a live global declaration or a whole module identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkedExportTarget {
+    Binding(crate::linker::SymbolId),
+    Module(ModuleId),
+}
+
 /// Canonical export after linking.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LinkedExport {
     /// Public name exposed by the exporting module.
     pub public_name: Box<str>,
-    /// Original declaration identity, preserved through aliases/re-exports.
-    pub symbol: crate::linker::SymbolId,
+    /// Export target (binding symbol or module).
+    pub target: LinkedExportTarget,
     /// Source span of the export item.
     pub range: SourceRange,
+}
+
+impl LinkedExport {
+    /// Helper returning reference to the binding symbol if target is `LinkedExportTarget::Binding`.
+    pub fn symbol(&self) -> Option<&crate::linker::SymbolId> {
+        match &self.target {
+            LinkedExportTarget::Binding(sym) => Some(sym),
+            LinkedExportTarget::Module(_) => None,
+        }
+    }
 }
 
 /// Module interface after all imports and exports are linked.
@@ -83,6 +100,13 @@ pub struct PackagePathSurface {
     pub exposed_children: BTreeSet<ModuleComponent>,
 }
 
+/// Unified namespace binding record used during source-local interface validation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ModuleNamespaceBinding {
+    Declaration { is_const: bool, range: SourceRange },
+    Import { range: SourceRange },
+}
+
 /// Module interface builder that performs source-local interface extraction and validation.
 pub struct InterfaceBuilder;
 
@@ -94,9 +118,36 @@ impl InterfaceBuilder {
         let mut exports = BTreeMap::new();
         let mut imports = Vec::new();
         let mut exposed_children = BTreeSet::new();
-        let mut local_import_bindings = BTreeMap::new(); // name -> range
+        let mut namespace = BTreeMap::new();
 
-        // 1. Process preamble dependencies
+        // ─────────────────────────────────────────────────────────────────
+        // Pass 1: Collect body declarations into namespace and declaration surface
+        // ─────────────────────────────────────────────────────────────────
+        for stmt in &program.statements {
+            match stmt {
+                Statement::Class(class_def) => {
+                    let range = (class_def.range.start..class_def.name_range.end).into();
+                    namespace.insert(class_def.name.clone(), ModuleNamespaceBinding::Declaration { is_const: true, range });
+                    declarations.insert(
+                        class_def.name.clone(),
+                        DeclarationSurface {
+                            name: class_def.name.clone(),
+                            is_const: true,
+                            range,
+                        },
+                    );
+                }
+                Statement::Let(let_binding) => {
+                    let is_const = let_binding.kind == BindingKind::Const;
+                    Self::collect_pattern_declarations(&let_binding.pattern, is_const, &mut namespace, &mut declarations)?;
+                }
+                _ => {}
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // Pass 2: Collect preamble imports and check collisions with declarations
+        // ─────────────────────────────────────────────────────────────────
         for dep in &program.preamble.dependencies {
             match dep {
                 DependencyDecl::Import(import_decl) => {
@@ -121,13 +172,13 @@ impl InterfaceBuilder {
                                 }
                             };
 
-                            if let Some(_prev_range) = local_import_bindings.get(&binding_name) {
+                            if namespace.contains_key(&binding_name) {
                                 return Err(InterfaceError::DuplicateImportBinding {
                                     name: binding_name,
                                     range: mod_decl.range,
                                 });
                             }
-                            local_import_bindings.insert(binding_name, mod_decl.range);
+                            namespace.insert(binding_name, ModuleNamespaceBinding::Import { range: mod_decl.range });
                             imports.push(ImportSurface::Module(mod_decl.clone()));
                         }
                         ImportDecl::Selective(sel_decl) => {
@@ -138,13 +189,13 @@ impl InterfaceBuilder {
                                     item.name.clone()
                                 };
 
-                                if let Some(_prev_range) = local_import_bindings.get(&binding_name) {
+                                if namespace.contains_key(&binding_name) {
                                     return Err(InterfaceError::DuplicateImportBinding {
                                         name: binding_name,
                                         range: item.range,
                                     });
                                 }
-                                local_import_bindings.insert(binding_name, item.range);
+                                namespace.insert(binding_name, ModuleNamespaceBinding::Import { range: item.range });
                             }
                             imports.push(ImportSurface::Selective(sel_decl.clone()));
                         }
@@ -166,13 +217,13 @@ impl InterfaceBuilder {
                         }
 
                         // Direct re-export creates an immutable local import binding as well
-                        if local_import_bindings.contains_key(&item.local_or_remote_name) {
+                        if namespace.contains_key(&item.local_or_remote_name) {
                             return Err(InterfaceError::DuplicateImportBinding {
                                 name: item.local_or_remote_name.clone(),
                                 range: item.range,
                             });
                         }
-                        local_import_bindings.insert(item.local_or_remote_name.clone(), item.range);
+                        namespace.insert(item.local_or_remote_name.clone(), ModuleNamespaceBinding::Import { range: item.range });
 
                         exports.insert(
                             exported_name.clone(),
@@ -200,59 +251,44 @@ impl InterfaceBuilder {
             }
         }
 
-        // 2. Process body statements: top-level declarations and local exports
+        // ─────────────────────────────────────────────────────────────────
+        // Pass 3: Validate body export statements against unified namespace
+        // ─────────────────────────────────────────────────────────────────
         for stmt in &program.statements {
-            match stmt {
-                Statement::Class(class_def) => {
-                    declarations.insert(
-                        class_def.name.clone(),
-                        DeclarationSurface {
-                            name: class_def.name.clone(),
-                            is_const: true,
-                            range: (class_def.range.start..class_def.name_range.end).into(),
+            if let Statement::Export(export_decl) = stmt {
+                for item in &export_decl.items {
+                    let exported_name = if let Some(alias) = &item.alias {
+                        alias.name.clone()
+                    } else {
+                        item.local_or_remote_name.clone()
+                    };
+
+                    if exports.contains_key(&exported_name) {
+                        return Err(InterfaceError::DuplicateExport {
+                            name: exported_name,
+                            range: item.range,
+                        });
+                    }
+
+                    // Validate that local_or_remote_name exists as a declaration or imported binding
+                    let internal = &item.local_or_remote_name;
+                    if !namespace.contains_key(internal) {
+                        return Err(InterfaceError::UnknownExport {
+                            name: internal.clone(),
+                            range: item.range,
+                        });
+                    }
+
+                    exports.insert(
+                        exported_name.clone(),
+                        ExportSurface {
+                            exported_name,
+                            internal_name: internal.clone(),
+                            target: UnlinkedExportTarget::Local(internal.clone()),
+                            range: item.range,
                         },
                     );
                 }
-                Statement::Let(let_binding) => {
-                    let is_const = let_binding.kind == BindingKind::Const;
-                    Self::collect_pattern_bindings(&let_binding.pattern, is_const, &mut declarations);
-                }
-                Statement::Export(export_decl) => {
-                    for item in &export_decl.items {
-                        let exported_name = if let Some(alias) = &item.alias {
-                            alias.name.clone()
-                        } else {
-                            item.local_or_remote_name.clone()
-                        };
-
-                        if exports.contains_key(&exported_name) {
-                            return Err(InterfaceError::DuplicateExport {
-                                name: exported_name,
-                                range: item.range,
-                            });
-                        }
-
-                        // Validate that local_or_remote_name exists as a declaration or imported binding
-                        let internal = &item.local_or_remote_name;
-                        if !declarations.contains_key(internal) && !local_import_bindings.contains_key(internal) {
-                            return Err(InterfaceError::UnknownExport {
-                                name: internal.clone(),
-                                range: item.range,
-                            });
-                        }
-
-                        exports.insert(
-                            exported_name.clone(),
-                            ExportSurface {
-                                exported_name,
-                                internal_name: internal.clone(),
-                                target: UnlinkedExportTarget::Local(internal.clone()),
-                                range: item.range,
-                            },
-                        );
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -267,9 +303,15 @@ impl InterfaceBuilder {
         })
     }
 
-    fn collect_pattern_bindings(pattern: &Pattern, is_const: bool, declarations: &mut BTreeMap<String, DeclarationSurface>) {
+    fn collect_pattern_declarations(
+        pattern: &Pattern,
+        is_const: bool,
+        namespace: &mut BTreeMap<String, ModuleNamespaceBinding>,
+        declarations: &mut BTreeMap<String, DeclarationSurface>,
+    ) -> Result<(), InterfaceError> {
         match pattern {
             Pattern::Name { name, range } => {
+                namespace.insert(name.clone(), ModuleNamespaceBinding::Declaration { is_const, range: *range });
                 declarations.insert(
                     name.clone(),
                     DeclarationSurface {
@@ -278,19 +320,22 @@ impl InterfaceBuilder {
                         range: *range,
                     },
                 );
+                Ok(())
             }
             Pattern::Tuple { elements, .. } => {
                 for elem in elements {
-                    Self::collect_pattern_bindings(elem, is_const, declarations);
+                    Self::collect_pattern_declarations(elem, is_const, namespace, declarations)?;
                 }
+                Ok(())
             }
             Pattern::List { elements, rest, .. } => {
                 for elem in elements {
-                    Self::collect_pattern_bindings(elem, is_const, declarations);
+                    Self::collect_pattern_declarations(elem, is_const, namespace, declarations)?;
                 }
                 if let Some(rest) = rest {
-                    Self::collect_pattern_bindings(rest, is_const, declarations);
+                    Self::collect_pattern_declarations(rest, is_const, namespace, declarations)?;
                 }
+                Ok(())
             }
         }
     }

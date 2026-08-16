@@ -1188,18 +1188,21 @@ impl VM {
         };
 
         let selector_str = self.resolve_symbol(selector_sym).to_string();
-        let (name, _labels, _kind) = decode_selector(&selector_str);
+        let (name, slots, kind) = decode_selector(&selector_str);
         let name_sym = self.interner.intern(&name);
 
         let Some(export_ref) = module.export(name_sym) else {
             return Ok(None);
         };
 
-        match export_ref {
+        let target_val = match export_ref {
             crate::heap::RuntimeExportRef::Module(target_mod) => {
-                self.stack.truncate(receiver_idx);
-                self.stack.push(Value::Obj(target_mod));
-                Ok(Some(()))
+                if arity == 0 {
+                    self.stack.truncate(receiver_idx);
+                    self.stack.push(Value::Obj(target_mod));
+                    return Ok(Some(()));
+                }
+                Value::Obj(target_mod)
             }
             crate::heap::RuntimeExportRef::Binding(binding) => {
                 let val = self
@@ -1212,21 +1215,36 @@ impl VM {
                 if arity == 0 {
                     self.stack.truncate(receiver_idx);
                     self.stack.push(val);
-                    Ok(Some(()))
-                } else {
-                    self.stack[receiver_idx] = val;
-                    let call_selector = crate::method::encode_selector("call", &vec![None; arity], SignatureKind::Method(arity as u8));
-                    let call_sym = self.get_or_intern(&call_selector);
-                    let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
-                    if let Some(method) = val.lookup_method(self, call_sym) {
-                        self.call_method_with_selector_as(&val, method, arity, call_sym, None, source_range, caller_authority)?;
-                    } else {
-                        self.forward_does_not_understand(receiver_idx, call_sym, source_range)?;
-                    }
-                    Ok(Some(()))
+                    return Ok(Some(()));
                 }
+                val
+            }
+        };
+
+        self.stack[receiver_idx] = target_val;
+        let call_selector = crate::method::encode_selector("call", &slots, kind);
+        let call_sym = self.get_or_intern(&call_selector);
+        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+
+        if let Some(method) = target_val.lookup_method(self, call_sym) {
+            self.call_method_with_selector_as(&target_val, method, arity, call_sym, None, source_range, caller_authority)?;
+        } else {
+            let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+            let labels = slots
+                .iter()
+                .filter_map(|slot| slot.as_ref())
+                .map(|label| self.interner.intern(label))
+                .collect::<Vec<_>>();
+            let rest = (arity == slots.len() && matches!(kind, SignatureKind::Method(_)))
+                .then(|| self.interner.intern("call"))
+                .and_then(|base| self.lookup_rest_method(target_val.class(self), base, positional_count, &labels));
+            if let Some(method) = rest {
+                self.activate_rest_method(&target_val, method, receiver_idx, positional_count, &labels, call_sym, source_range)?;
+            } else {
+                self.forward_does_not_understand(receiver_idx, call_sym, source_range)?;
             }
         }
+        Ok(Some(()))
     }
 
     /// Dynamically dispatches an export send on a Module receiver if applicable.
@@ -1239,15 +1257,20 @@ impl VM {
         };
 
         let selector_str = self.resolve_symbol(selector).to_string();
-        let (name, _labels, _kind) = decode_selector(&selector_str);
+        let (name, slots, kind) = decode_selector(&selector_str);
         let name_sym = self.interner.intern(&name);
 
         let Some(export_ref) = module.export(name_sym) else {
             return Ok(None);
         };
 
-        match export_ref {
-            crate::heap::RuntimeExportRef::Module(target_mod) => Ok(Some(Value::Obj(target_mod))),
+        let target_val = match export_ref {
+            crate::heap::RuntimeExportRef::Module(target_mod) => {
+                if args.is_empty() {
+                    return Ok(Some(Value::Obj(target_mod)));
+                }
+                Value::Obj(target_mod)
+            }
             crate::heap::RuntimeExportRef::Binding(binding) => {
                 let val = self
                     .heap
@@ -1257,14 +1280,15 @@ impl VM {
                     .ok_or_else(|| RuntimeError::Internal(format!("binding slot {} out of range", binding.slot)))?;
 
                 if args.is_empty() {
-                    Ok(Some(val))
-                } else {
-                    let call_selector = crate::method::encode_selector("call", &vec![None; args.len()], SignatureKind::Method(args.len() as u8));
-                    let call_sym = self.get_or_intern(&call_selector);
-                    self.send_dynamic(val, call_sym, args).map(Some)
+                    return Ok(Some(val));
                 }
+                val
             }
-        }
+        };
+
+        let call_selector = crate::method::encode_selector("call", &slots, kind);
+        let call_sym = self.get_or_intern(&call_selector);
+        self.send_dynamic(target_val, call_sym, args).map(Some)
     }
 }
 

@@ -16,6 +16,7 @@ mod numbers_u05;
 mod option;
 mod outgoing_packs;
 mod outgoing_packs_completion;
+mod repair_runtime_regressions;
 mod repl_immutability;
 mod repl_session;
 mod repl_source_map;

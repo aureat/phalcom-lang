@@ -40,15 +40,15 @@ fn test_sticky_failure_propagation() {
         other => panic!("expected ModuleInitializationError, got {other:?}"),
     }
 
-    // Attempting to initialize the dependent module reproduces sticky failure with dependency chain
-    let main_id = program.entry.clone();
-    let res2 = vm.initialize_single_module(&program, &main_id, &mut Vec::new());
+    // Attempting to re-initialize program reproduces sticky failure without re-running
+    let res2 = vm.initialize_program(&program);
     assert!(res2.is_err());
     let err2 = res2.unwrap_err();
     match err2 {
         PhError::ModuleInitialization(init_err) => {
             let rendered = format!("{init_err}");
-            assert!(rendered.contains("Dependency chain:"));
+            assert!(rendered.contains("ModuleInitializationError:"));
+            assert!(rendered.contains("Caused by error in module"));
         }
         other => panic!("expected ModuleInitializationError, got {other:?}"),
     }

@@ -42,7 +42,7 @@ fn test_project_universe_and_discovery() {
 
     let mut universe = ProjectUniverse::new();
     let root_id = universe.load_root(root_dir.join("project.toml")).expect("universe load succeeds");
-    assert_eq!(root_id, ResolvedProjectId(0));
+    assert_eq!(root_id, ResolvedProjectId::from_raw(1));
     assert_eq!(universe.projects().len(), 1);
 }
 

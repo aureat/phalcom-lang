@@ -12,15 +12,19 @@ fn default_source_root() -> PathBuf {
 
 /// Raw parsed `project.toml` document structure.
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectManifest {
     pub project: ProjectSection,
     #[serde(default)]
-    pub dependencies: BTreeMap<String, DependencySpec>,
+    pub dependencies: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectSection {
     pub name: String,
+    pub version: Option<String>,
+    pub authors: Option<Vec<String>>,
     pub namespace: Option<String>,
     #[serde(default = "default_source_root")]
     pub source: PathBuf,
@@ -28,7 +32,19 @@ pub struct ProjectSection {
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(untagged)]
+#[serde(deny_unknown_fields)]
+pub struct PathDependency {
+    pub path: PathBuf,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PackageDependency {
+    pub package: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum DependencySpec {
     Path { path: PathBuf },
     Package { package: String, version: String },
@@ -79,7 +95,7 @@ impl ProjectManifest {
         }
 
         let mut validated_deps: BTreeMap<ModuleComponent, (String, DependencySpec)> = BTreeMap::new();
-        for (raw_alias, spec) in &self.dependencies {
+        for (raw_alias, toml_val) in &self.dependencies {
             let component = ModuleComponent::from_kebab(raw_alias).map_err(|e| ProjectError::InvalidDependencyAlias(raw_alias.clone(), e))?;
 
             if component == namespace {
@@ -103,7 +119,43 @@ impl ProjectManifest {
                 });
             }
 
-            validated_deps.insert(component, (raw_alias.clone(), spec.clone()));
+            // Decode dependency specification with strict validation
+            let table = toml_val
+                .as_table()
+                .ok_or_else(|| ProjectError::InvalidProjectManifest(format!("dependency '{raw_alias}' must be a table")))?;
+
+            let has_path = table.contains_key("path");
+            let has_package = table.contains_key("package");
+            let has_version = table.contains_key("version");
+
+            if has_path && (has_package || has_version) {
+                return Err(ProjectError::InvalidProjectManifest(format!(
+                    "dependency '{raw_alias}' cannot specify both 'path' and 'package/version'"
+                )));
+            }
+
+            let spec = if has_path {
+                let path_dep: PathDependency = toml_val
+                    .clone()
+                    .try_into()
+                    .map_err(|e: toml::de::Error| ProjectError::InvalidProjectManifest(format!("invalid path dependency '{raw_alias}': {e}")))?;
+                DependencySpec::Path { path: path_dep.path }
+            } else if has_package || has_version {
+                let pkg_dep: PackageDependency = toml_val
+                    .clone()
+                    .try_into()
+                    .map_err(|e: toml::de::Error| ProjectError::InvalidProjectManifest(format!("invalid package dependency '{raw_alias}': {e}")))?;
+                DependencySpec::Package {
+                    package: pkg_dep.package,
+                    version: pkg_dep.version,
+                }
+            } else {
+                return Err(ProjectError::InvalidProjectManifest(format!(
+                    "dependency '{raw_alias}' must specify either 'path' or 'package' + 'version'"
+                )));
+            };
+
+            validated_deps.insert(component, (raw_alias.clone(), spec));
         }
 
         if let Some(entry) = &self.project.entry {
@@ -121,7 +173,7 @@ impl ProjectManifest {
 
         Ok(ValidatedProjectManifest {
             name: namespace.as_str().to_string(),
-            raw_name: self.project.name.clone(),
+            raw_name,
             namespace,
             source: self.project.source.clone(),
             entry: self.project.entry.clone(),

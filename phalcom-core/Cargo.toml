@@ -99,6 +99,9 @@ num-integer = "0.1"
 ryu = "1"
 criterion = { version = "0.5", optional = true }
 
+[dev-dependencies]
+tempfile = "3"
+
 [[bench]]
 name = "vm_bench"
 harness = false

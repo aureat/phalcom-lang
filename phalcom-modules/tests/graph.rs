@@ -6,7 +6,7 @@ use phalcom_modules::{
 
 fn module(name: &str) -> ModuleId {
     ModuleId {
-        project: phalcom_modules::ResolvedProjectId(0),
+        project: phalcom_modules::ResolvedProjectId::from_raw(1),
         path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
     }
 }

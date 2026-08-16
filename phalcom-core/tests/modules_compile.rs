@@ -10,12 +10,12 @@ use std::collections::BTreeMap;
 
 fn linked_module() -> LinkedModule {
     let module = ModuleId {
-        project: ResolvedProjectId(0),
+        project: ResolvedProjectId::from_raw(1),
         path: ModulePath::root(),
     };
     let symbol = SymbolId {
         module: ModuleId {
-            project: ResolvedProjectId(0),
+            project: ResolvedProjectId::from_raw(1),
             path: ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("settings").unwrap()]),
         },
         name: "mode".into(),

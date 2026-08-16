@@ -1,34 +1,30 @@
 //! Project universe, resolved projects, and project dependency graph management.
 
 use crate::error::ProjectError;
-use crate::identity::{ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId};
+use crate::identity::{ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId};
 use crate::manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// A fully resolved project in the `ProjectUniverse`.
 #[derive(Debug, Clone)]
 pub struct ResolvedProject {
     pub id: ResolvedProjectId,
-    pub name: String,                                               // original name for diagnostics
-    pub namespace: ModuleComponent,                                 // canonical snake_case namespace
-    pub root_dir: PathBuf,                                          // directory containing project.toml
-    pub source_root: PathBuf,                                       // directory containing source code (e.g. root_dir/src)
-    pub entry: Option<ModulePath>,                                  // project-relative entry module path
-    pub dependencies: BTreeMap<ModuleComponent, ResolvedProjectId>, // alias -> resolved project id
+    pub name: String,                                                      // original name for diagnostics
+    pub namespace: ModuleComponent,                                        // canonical snake_case namespace
+    pub root_dir: PathBuf,                                                 // directory containing project.toml
+    pub source_root: PathBuf,                                              // directory containing source code (e.g. root_dir/src)
+    pub entry: Option<ModulePath>,                                         // project-relative entry module path
+    pub dependencies: BTreeMap<ModuleComponent, ResolvedProjectId>,        // alias -> resolved project id
+    pub import_roots: BTreeMap<ModuleComponent, (ImportRootTarget, bool)>, // root table
     pub source_identity: ProjectSourceIdentity,
 }
 
 impl ResolvedProject {
-    /// Builds the import root table for this project:
-    /// Maps each recognized root component (self namespace + dependency aliases) to (ResolvedProjectId, is_self).
-    pub fn import_roots(&self) -> HashMap<ModuleComponent, (ResolvedProjectId, bool)> {
-        let mut roots = HashMap::new();
-        roots.insert(self.namespace.clone(), (self.id, true));
-        for (alias, dep_id) in &self.dependencies {
-            roots.insert(alias.clone(), (*dep_id, false));
-        }
-        roots
+    /// Returns the precomputed import root table for this project:
+    /// Maps each recognized root component (self namespace + dependency aliases + core) to (ImportRootTarget, is_self).
+    pub fn import_roots(&self) -> &BTreeMap<ModuleComponent, (ImportRootTarget, bool)> {
+        &self.import_roots
     }
 }
 
@@ -60,7 +56,7 @@ impl ProjectUniverse {
 
     /// Gets a resolved project by its ID.
     pub fn get_project(&self, id: ResolvedProjectId) -> Option<&ResolvedProject> {
-        self.projects.get(id.0 as usize)
+        if id.is_reserved() { None } else { self.projects.get((id.raw() - 1) as usize) }
     }
 
     /// Loads and resolves a root project and its full dependency graph from a `project.toml` file path.
@@ -119,11 +115,12 @@ impl ProjectUniverse {
         let source_identity = ProjectSourceIdentity::from_path(&root_dir);
 
         if visited_stack.contains(&canonical_manifest) {
+            let start_idx = visiting.iter().position(|(_, path)| path == &canonical_manifest).unwrap_or(0);
             let mut chain = Vec::new();
-            for (name, _) in visiting.iter() {
+            for (name, _) in &visiting[start_idx..] {
                 chain.push(name.clone());
             }
-            chain.push(visiting.first().map(|(n, _)| n.clone()).unwrap_or_else(|| "root".to_string()));
+            chain.push(visiting[start_idx].0.clone());
             return Err(ProjectError::ProjectDependencyCycle { chain: chain.join(" → ") });
         }
 
@@ -193,7 +190,16 @@ impl ProjectUniverse {
         visiting.pop();
         visited_stack.remove(&canonical_manifest);
 
-        let next_id = ResolvedProjectId(self.projects.len() as u32);
+        let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
+
+        let mut import_roots = BTreeMap::new();
+        let core_comp = ModuleComponent::from_identifier("core").expect("valid identifier");
+        import_roots.insert(core_comp, (ImportRootTarget::Core, false));
+        import_roots.insert(validated.namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
+        for (alias, dep_id) in &resolved_dependencies {
+            import_roots.insert(alias.clone(), (ImportRootTarget::Resolved(*dep_id), false));
+        }
+
         let resolved_project = ResolvedProject {
             id: next_id,
             name: validated.name,
@@ -202,6 +208,7 @@ impl ProjectUniverse {
             source_root,
             entry,
             dependencies: resolved_dependencies,
+            import_roots,
             source_identity: source_identity.clone(),
         };
 
@@ -228,7 +235,13 @@ impl ProjectUniverse {
             ModuleComponent::from_kebab(entry_component).map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid entry identifier: {e}")))?;
         let entry = Some(ModulePath::from_components(vec![entry_comp]));
 
-        let next_id = ResolvedProjectId(self.projects.len() as u32);
+        let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
+
+        let mut import_roots = BTreeMap::new();
+        let core_comp = ModuleComponent::from_identifier("core").expect("valid identifier");
+        import_roots.insert(core_comp, (ImportRootTarget::Core, false));
+        import_roots.insert(namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
+
         let resolved_project = ResolvedProject {
             id: next_id,
             name: name.to_string(),
@@ -237,6 +250,7 @@ impl ProjectUniverse {
             source_root: canonical_root,
             entry,
             dependencies: BTreeMap::new(),
+            import_roots,
             source_identity: source_identity.clone(),
         };
 

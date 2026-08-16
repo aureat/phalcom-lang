@@ -6,13 +6,40 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// Opaque graph-node identity for a resolved project within a [`ProjectUniverse`](crate::project::ProjectUniverse).
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct ResolvedProjectId(pub u32);
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ResolvedProjectId(u32);
+
+impl ResolvedProjectId {
+    /// Reserved project ID (0) for synthetic/core identities.
+    pub const RESERVED: Self = Self(0);
+
+    /// Constructs a `ResolvedProjectId` from raw numeric identifier.
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the raw numeric identifier.
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Checks if this is the reserved identifier (0).
+    pub const fn is_reserved(self) -> bool {
+        self.0 == 0
+    }
+}
 
 impl fmt::Display for ResolvedProjectId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "proj#{}", self.0)
     }
+}
+
+/// Target of an import root in a project's root table.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ImportRootTarget {
+    Core,
+    Resolved(ResolvedProjectId),
 }
 
 /// A validated snake_case component of a module path.
@@ -127,7 +154,7 @@ impl fmt::Display for ModulePath {
 
 /// Canonical toolchain identity for a module.
 /// Combines a resolved project graph node with a project-relative module path.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ModuleId {
     pub project: ResolvedProjectId,
     pub path: ModulePath,
@@ -137,7 +164,7 @@ impl ModuleId {
     /// Canonical identity for the core module.
     pub fn core() -> Self {
         Self {
-            project: ResolvedProjectId(0),
+            project: ResolvedProjectId::RESERVED,
             path: ModulePath::from_components(vec![ModuleComponent::from_identifier("core").expect("valid identifier")]),
         }
     }
@@ -145,7 +172,7 @@ impl ModuleId {
     /// Synthetic module identity for standalone or REPL code.
     pub fn synthetic(name: &str) -> Self {
         Self {
-            project: ResolvedProjectId(0),
+            project: ResolvedProjectId::RESERVED,
             path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap_or_else(|_| ModuleComponent(name.into()))]),
         }
     }
