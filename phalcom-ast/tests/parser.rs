@@ -71,6 +71,21 @@ fn class_inherits_with_is_compiles() {
 }
 
 #[test]
+fn class_inherits_from_qualified_static_symbol() {
+    let result = parse_source("class Child is base.Shape {}\n", 0).expect("qualified superclass parses");
+    let Statement::Class(class) = &result.statements[0] else {
+        panic!("expected class statement")
+    };
+    let superclass = class.superclass.as_ref().expect("explicit superclass");
+    assert_eq!(superclass.root, "base");
+    assert_eq!(
+        superclass.members.iter().map(|segment| segment.name.as_str()).collect::<Vec<_>>(),
+        vec!["Shape"]
+    );
+    assert!(!superclass.is_bare());
+}
+
+#[test]
 fn class_inherits_with_extends_produces_syntax_error() {
     let result = parse_source("class Child extends Parent {}\n", 0);
     assert!(result.is_err(), "class with extends must produce a syntax error");

@@ -434,15 +434,6 @@ impl<'source> Parser<'source> {
 
     // ── Program / statements ─────────────────────────────────────────────────
 
-    /// Parses a whole program, recovering from errors between top-level
-    /// statements.
-    ///
-    /// Blank lines are ignored. Each iteration parses one top-level item (a
-    /// `class` declaration or a `;`/newline-separated run of small statements);
-    /// on failure the error is recorded and the parser synchronises to the next
-    /// statement boundary before continuing.
-    // ── Program / statements ─────────────────────────────────────────────────
-
     /// Parses a whole program in three distinct structural phases:
     /// 1. Module/package header attributes (`@!`)
     /// 2. Dependency preamble (`import`, `from ... import`, direct `export ... from`, `expose`)
@@ -775,13 +766,11 @@ impl<'source> Parser<'source> {
 
         let mut segments = Vec::new();
         // If relative with 1 or more dots, the next identifier is the first segment (if present)
-        if matches!(root, ImportRoot::Relative { .. }) {
-            if matches!(self.peek(), Token::Identifier(_)) {
-                let seg_start = self.cur_start();
-                let name = self.expect_identifier(&["path segment"])?;
-                let seg_range = (seg_start..self.prev_end).into();
-                segments.push(PathSegment { name, range: seg_range });
-            }
+        if matches!(root, ImportRoot::Relative { .. }) && matches!(self.peek(), Token::Identifier(_)) {
+            let seg_start = self.cur_start();
+            let name = self.expect_identifier(&["path segment"])?;
+            let seg_range = (seg_start..self.prev_end).into();
+            segments.push(PathSegment { name, range: seg_range });
         }
 
         while self.eat(&Token::Dot) {
@@ -1638,15 +1627,26 @@ impl<'source> Parser<'source> {
         let name_range = (name_start..self.prev_end).into();
 
         // Superclass clause: `is` is Token::Is keyword (PDR-0030).
-        // Grammar: `class` IDENT (`is` IDENT)? `{` … `}`.
+        // Grammar: `class` IDENT (`is` STATIC_SYMBOL_REF)? `{` … `}`.
         let superclass = if matches!(self.peek(), Token::Is) {
             self.advance(); // 'is'
             let sc_start = self.cur_start();
-            let sc_name = self.expect_identifier(&["superclass name"])?;
-            let sc_range = (sc_start..self.prev_end).into();
-            Some(SuperclassRef {
-                name: sc_name,
-                range: sc_range,
+            let root_start = self.cur_start();
+            let root = self.expect_identifier(&["superclass name"])?;
+            let root_range = (root_start..self.prev_end).into();
+            let mut members = Vec::new();
+            while self.eat(&Token::Dot) {
+                let member_start = self.cur_start();
+                let name = self.expect_identifier(&["qualified superclass name"])?;
+                let range = (member_start..self.prev_end).into();
+                members.push(PathSegment { name, range });
+            }
+            let range = (sc_start..self.prev_end).into();
+            Some(StaticSymbolRef {
+                root,
+                root_range,
+                members,
+                range,
             })
         } else {
             None

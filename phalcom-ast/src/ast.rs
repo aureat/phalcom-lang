@@ -232,7 +232,7 @@ pub struct ClassDef {
     /// inherits from `Object` (object-model.md §5.1). `Some(_)` carries the
     /// superclass identifier and its span for compile-time resolution and
     /// diagnostics (PDR-0030: `is` specifies superclass).
-    pub superclass: Option<SuperclassRef>,
+    pub superclass: Option<StaticSymbolRef>,
     pub members: Vec<ClassMember>,
     /// `@name(args…)` attributes attached directly to the class header
     /// (e.g. a future class-level decorator), distinct from
@@ -367,18 +367,38 @@ pub struct Attribute {
     pub range: SourceRange,
 }
 
-/// A reference to a superclass named in a `class N is S { … }` header.
+/// A statically-resolved symbol reference used by declarations.
 ///
-/// Holds the raw identifier `S` and its source span. The name is resolved to a
-/// class value at compile time as an ordinary global lookup (object-model.md
-/// §5.1, U-INH); the span anchors an "unknown superclass" / self-inheritance
-/// diagnostic.
+/// The parser accepts a bare root (`Shape`) or a qualified path
+/// (`base.Shape`). Linkers decide whether the root is a valid module alias and
+/// whether the final exported declaration exists; this node never denotes an
+/// arbitrary runtime member send.
 #[derive(Debug, Clone)]
-pub struct SuperclassRef {
-    /// The superclass identifier as written in source.
-    pub name: String,
-    /// The source span of the identifier, for diagnostics.
+pub struct StaticSymbolRef {
+    /// Root identifier as written in source.
+    pub root: String,
+    /// Source span of the root identifier.
+    pub root_range: SourceRange,
+    /// Qualified member segments after the root.
+    pub members: Vec<PathSegment>,
+    /// Source span of the complete static reference.
     pub range: SourceRange,
+}
+
+/// Compatibility name for callers that still speak specifically about
+/// superclass references.
+pub type SuperclassRef = StaticSymbolRef;
+
+impl StaticSymbolRef {
+    /// Returns the final source name in this reference.
+    pub fn leaf_name(&self) -> &str {
+        self.members.last().map(|segment| segment.name.as_str()).unwrap_or(&self.root)
+    }
+
+    /// Returns whether this is an unqualified bare reference.
+    pub fn is_bare(&self) -> bool {
+        self.members.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]
