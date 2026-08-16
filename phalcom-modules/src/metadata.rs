@@ -1,28 +1,32 @@
-//! Inert module and package metadata attributes (`@!`).
+//! Inert declarative unit-header metadata attributes (`@!`).
 
 use crate::error::InterfaceError;
 use crate::source::ModuleKind;
-use phalcom_ast::ast::{MetadataLiteral, ModuleMetadataAttribute as AstModuleMetadataAttribute};
+use phalcom_ast::ast::{
+    MetadataLiteral, ModuleMetadataAttribute as AstModuleMetadataAttribute,
+};
 use phalcom_common::range::SourceRange;
 use std::fmt;
 
-/// Semantic target of a module/package header attribute.
+/// Semantic owner to which a parsed header attribute is attached.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MetadataTarget {
-    Module,
+    Project,
     Package,
+    Module,
 }
 
 impl fmt::Display for MetadataTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Module => write!(f, "module"),
+            Self::Project => write!(f, "project"),
             Self::Package => write!(f, "package"),
+            Self::Module => write!(f, "module"),
         }
     }
 }
 
-/// A validated, inert module or package metadata attribute.
+/// A validated, inert unit metadata attribute.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleMetadataAttribute {
     pub target: MetadataTarget,
@@ -31,43 +35,39 @@ pub struct ModuleMetadataAttribute {
     pub range: SourceRange,
 }
 
-/// Collection of metadata attributes attached to a module interface.
+/// Metadata attached to one unit interface/owner.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModuleMetadata {
     pub attributes: Vec<ModuleMetadataAttribute>,
 }
 
 impl ModuleMetadata {
-    /// Validates and constructs `ModuleMetadata` from AST attributes for the given file kind.
-    pub fn from_ast(ast_attrs: &[AstModuleMetadataAttribute], kind: ModuleKind) -> Result<Self, InterfaceError> {
+    /// Constructs inert metadata from the AST. Attribute names do not acquire
+    /// semantics here: unknown syntactically valid names are retained verbatim.
+    pub fn from_ast(
+        ast_attrs: &[AstModuleMetadataAttribute],
+        kind: ModuleKind,
+    ) -> Result<Self, InterfaceError> {
         let target = match kind {
             ModuleKind::Package => MetadataTarget::Package,
             ModuleKind::Module => MetadataTarget::Module,
         };
+        Ok(Self::with_target(ast_attrs, target))
+    }
 
-        let mut attributes = Vec::new();
-        for attr in ast_attrs {
-            // Package-specific attribute names (e.g. expose_policy) are rejected if placed in a regular module
-            if target == MetadataTarget::Module && is_package_only_attribute(&attr.name) {
-                return Err(InterfaceError::InvalidModuleMetadata {
-                    name: attr.name.clone(),
-                    reason: "attribute is package-only and not allowed on ordinary modules".to_string(),
-                    range: attr.range,
-                });
-            }
-
-            attributes.push(ModuleMetadataAttribute {
+    pub fn with_target(
+        ast_attrs: &[AstModuleMetadataAttribute],
+        target: MetadataTarget,
+    ) -> Self {
+        let attributes = ast_attrs
+            .iter()
+            .map(|attr| ModuleMetadataAttribute {
                 target,
                 name: attr.name.clone(),
                 arguments: attr.arguments.clone(),
                 range: attr.range,
-            });
-        }
-
-        Ok(Self { attributes })
+            })
+            .collect();
+        Self { attributes }
     }
-}
-
-fn is_package_only_attribute(name: &str) -> bool {
-    matches!(name, "expose_policy" | "package_root")
 }
