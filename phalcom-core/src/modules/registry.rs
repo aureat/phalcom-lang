@@ -8,9 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RuntimeProgramId(u64);
-
 static NEXT_RUNTIME_PROGRAM_ID: AtomicU64 = AtomicU64::new(1);
-
 impl RuntimeProgramId {
     pub(crate) fn fresh() -> Self {
         let id = NEXT_RUNTIME_PROGRAM_ID.fetch_add(1, Ordering::Relaxed);
@@ -21,36 +19,20 @@ impl RuntimeProgramId {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ModulePlanFingerprint(u64);
-
 impl ModulePlanFingerprint {
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        // Stable FNV-1a. This is an identity guard, not a cryptographic digest.
         let mut hash = 0xcbf29ce484222325u64;
-        for byte in bytes {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x100000001b3);
-        }
+        for byte in bytes { hash ^= u64::from(*byte); hash = hash.wrapping_mul(0x100000001b3); }
         Self(hash)
     }
-
-    pub const fn empty() -> Self {
-        Self(0xcbf29ce484222325)
-    }
+    pub const fn empty() -> Self { Self(0xcbf29ce484222325) }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ModuleOwner {
-    Builtin,
-    Program(RuntimeProgramId),
-}
+pub enum ModuleOwner { Builtin, Program(RuntimeProgramId) }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ModuleState {
-    Prepared,
-    Initializing,
-    Initialized,
-    Failed,
-}
+pub enum ModuleState { Prepared, Initializing, Initialized, Failed }
 
 #[derive(Clone, Debug)]
 pub enum ModuleFailure {
@@ -64,46 +46,21 @@ pub struct ModuleRecord {
     pub state: ModuleState,
     pub failure: Option<ModuleFailure>,
     pub owner: ModuleOwner,
-    /// `None` is reserved for a bootstrap-created builtin shell that has not yet
-    /// been associated with the immutable builtin plan.
     pub plan_fingerprint: Option<ModulePlanFingerprint>,
 }
 
 impl ModuleRecord {
-    /// Compatibility constructor for ad-hoc runtime modules. Each call receives
-    /// a fresh ownership domain, so it cannot be mistaken for another program.
     pub fn prepared(object: ObjRef) -> Self {
         Self::prepared_for(object, RuntimeProgramId::fresh(), ModulePlanFingerprint::empty())
     }
-
     pub fn prepared_for(object: ObjRef, program: RuntimeProgramId, fingerprint: ModulePlanFingerprint) -> Self {
-        Self {
-            object,
-            state: ModuleState::Prepared,
-            failure: None,
-            owner: ModuleOwner::Program(program),
-            plan_fingerprint: Some(fingerprint),
-        }
+        Self { object, state: ModuleState::Prepared, failure: None, owner: ModuleOwner::Program(program), plan_fingerprint: Some(fingerprint) }
     }
-
     pub fn builtin_prepared(object: ObjRef, fingerprint: ModulePlanFingerprint) -> Self {
-        Self {
-            object,
-            state: ModuleState::Prepared,
-            failure: None,
-            owner: ModuleOwner::Builtin,
-            plan_fingerprint: Some(fingerprint),
-        }
+        Self { object, state: ModuleState::Prepared, failure: None, owner: ModuleOwner::Builtin, plan_fingerprint: Some(fingerprint) }
     }
-
     pub fn builtin_bootstrap(object: ObjRef) -> Self {
-        Self {
-            object,
-            state: ModuleState::Initialized,
-            failure: None,
-            owner: ModuleOwner::Builtin,
-            plan_fingerprint: None,
-        }
+        Self { object, state: ModuleState::Initialized, failure: None, owner: ModuleOwner::Builtin, plan_fingerprint: None }
     }
 }
 
@@ -118,43 +75,24 @@ pub enum ModuleRegistryError {
 }
 
 #[derive(Debug, Default)]
-pub struct ModuleRegistry {
-    by_id: HashMap<ModuleId, ModuleRecord>,
-}
+pub struct ModuleRegistry { by_id: HashMap<ModuleId, ModuleRecord> }
 
 impl ModuleRegistry {
-    pub fn new() -> Self {
-        Self { by_id: HashMap::new() }
-    }
+    pub fn new() -> Self { Self { by_id: HashMap::new() } }
 
     pub fn register_new(&mut self, id: ModuleId, record: ModuleRecord) -> Result<(), ModuleRegistryError> {
-        if self.by_id.contains_key(&id) {
-            Err(ModuleRegistryError::DuplicateIdentity(id))
-        } else {
-            self.by_id.insert(id, record);
-            Ok(())
-        }
+        if self.by_id.contains_key(&id) { Err(ModuleRegistryError::DuplicateIdentity(id)) } else { self.by_id.insert(id, record); Ok(()) }
     }
 
-    pub fn get(&self, id: &ModuleId) -> Option<&ModuleRecord> {
-        self.by_id.get(id)
+    /// Crate-private compatibility for older VM construction helpers. This is
+    /// intentionally non-overwriting and delegates to `register_new`.
+    pub(crate) fn insert(&mut self, id: ModuleId, record: ModuleRecord) {
+        self.register_new(id, record).expect("VM attempted to register a duplicate semantic module identity");
     }
 
-    pub fn get_mut(&mut self, id: &ModuleId) -> Option<&mut ModuleRecord> {
-        self.by_id.get_mut(id)
-    }
-
-    pub fn contains_key(&self, id: &ModuleId) -> bool {
-        self.by_id.contains_key(id)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleRecord)> {
-        self.by_id.iter()
-    }
-
-    pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
-        for record in self.by_id.values() {
-            push(record.object);
-        }
-    }
+    pub fn get(&self, id: &ModuleId) -> Option<&ModuleRecord> { self.by_id.get(id) }
+    pub fn get_mut(&mut self, id: &ModuleId) -> Option<&mut ModuleRecord> { self.by_id.get_mut(id) }
+    pub fn contains_key(&self, id: &ModuleId) -> bool { self.by_id.contains_key(id) }
+    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModuleRecord)> { self.by_id.iter() }
+    pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) { for record in self.by_id.values() { push(record.object); } }
 }
