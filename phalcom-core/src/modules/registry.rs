@@ -2,7 +2,7 @@
 
 use crate::error::PhError;
 use crate::heap::ObjRef;
-use phalcom_modules::ModuleId;
+use phalcom_modules::{ModuleId, ProjectIdentity};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -30,7 +30,6 @@ impl ModulePlanFingerprint {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModuleOwner { Builtin, Program(RuntimeProgramId) }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModuleState { Prepared, Initializing, Initialized, Failed }
 
@@ -84,9 +83,16 @@ impl ModuleRegistry {
         if self.by_id.contains_key(&id) { Err(ModuleRegistryError::DuplicateIdentity(id)) } else { self.by_id.insert(id, record); Ok(()) }
     }
 
-    /// Crate-private compatibility for older VM construction helpers. This is
-    /// intentionally non-overwriting and delegates to `register_new`.
-    pub(crate) fn insert(&mut self, id: ModuleId, record: ModuleRecord) {
+    /// Crate-private migration seam for VM bootstrap. It is non-overwriting.
+    /// Builtin identities are converted to initialized bootstrap shells so they
+    /// can later adopt one linked interface without re-running builtin source.
+    pub(crate) fn insert(&mut self, id: ModuleId, mut record: ModuleRecord) {
+        if matches!(id.project, ProjectIdentity::Builtin(_)) {
+            record.owner = ModuleOwner::Builtin;
+            record.state = ModuleState::Initialized;
+            record.failure = None;
+            record.plan_fingerprint = None;
+        }
         self.register_new(id, record).expect("VM attempted to register a duplicate semantic module identity");
     }
 
