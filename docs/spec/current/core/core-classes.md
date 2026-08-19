@@ -188,7 +188,7 @@ reflection — U-STD (derivable over `methods` + `superclass`). Full allocation 
 | Status | ✅ (`True`/`False` fully landed; `Bool` ◐ pending `hash`-consumers/richer protocol) |
 
 **Interface — floor on `Bool`** ([census §2.6](./floor-census.md), inherited by
-`True`/`False`): `not()` · `and(_)` · `or(_)` · `ifTrue(_)` · `ifFalse(_)` ·
+`True`/`False`): `not` · `and(_)` · `or(_)` · `ifTrue(_)` · `ifFalse(_)` ·
 `ifTrue(_, ifFalse)` · `hash` (1/0 — **landed U-CORE-1**) · class-side `new()`/`new(_)`.
 `True`/`False` carry **zero** own bindings — all behaviour is reached by
 inheritance; their `.ph` bodies are empty.
@@ -458,7 +458,7 @@ these* sends on override or receiver mismatch.
 
 | Receiver | Sacred selectors |
 |---|---|
-| `Bool` | `and(_)`, `or(_)`, `not()`, `ifTrue(_)`, `ifFalse(_)`, `ifTrue(_, ifFalse)` |
+| `Bool` | `and(_)`, `or(_)`, `not`, `ifTrue(_)`, `ifFalse(_)`, `ifTrue(_, ifFalse)` |
 | `Block` | `whileTrue(_)` |
 
 **Any unit that reopens `Bool` or `Block` must keep these exact selector shapes and

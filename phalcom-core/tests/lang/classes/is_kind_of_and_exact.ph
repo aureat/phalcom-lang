@@ -10,11 +10,18 @@ System.print(3 is Number) // true
 System.print(3 is! Number) // false
 System.print(3 is Int) // true
 System.print(3 is! Int) // true
+
 System.print(3.is(Number)) // true
 System.print(3.is!(Number)) // false
 System.print(3.is(Int)) // true
 System.print(3.is!(Int)) // true
-System.print(3 is "str") // false
-System.print(3 is 4) // false
-System.print(3.is("str")) // false
+
+System.print(3 is "str" ) // false
+System.print(3 is! "str") // false
+System.print(3 is 4 ) // false
+System.print(3 is! 4) // false
+
+System.print(3.is("str") ) // false
+System.print(3.is!("str")) // false
+System.print(3.is(4) ) // false
 System.print(3.is!(4)) // false

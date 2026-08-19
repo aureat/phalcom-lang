@@ -1210,7 +1210,7 @@ class List {
   // `isA(List)` so a non-List `other` is simply unequal (E2), never a dNU.
   // Derived entirely over the floor (`size`/`at`/`isA`/`while`/`and`/`not`) —
   // no new native primitive (ADR-0019 unchanged). `and`/`not` are the
-  // language's infix/prefix operator forms (`Bool#and(_:)`/`Bool#not()`
+  // language's infix/prefix operator forms (`Bool#and(_:)`/`Bool#not`
   // dispatched by the compiler, not dotted-call syntax — `and`/`not` are
   // reserved words and cannot follow `.` as a bare identifier).
   ==(_ other) {

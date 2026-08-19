@@ -78,7 +78,7 @@ fn absence() {
 fn absence_negative() {
     // Ported from Wren `test/core/null/{no_constructor,not}.wren`: `None`
     // has no `new()` (it is an immediate variant, ADR-0007/PDR-0033) and no
-    // `not()` (Phalcom's `!` is `Bool`-only, ADR-0021 — no truthiness
+    // `not` (Phalcom's `!` is `Bool`-only, ADR-0021 — no truthiness
     // coercion makes `None` an exception) — both plain does-not-understand.
     support::check_negative("absence/negative");
 }

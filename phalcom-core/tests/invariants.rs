@@ -820,7 +820,7 @@ fn floor_census_matches_installed_bindings() {
         (c.bool_class, true, "new(_)"),
         (c.bool_class, false, "and(_)"),
         (c.bool_class, false, "or(_)"),
-        (c.bool_class, false, "not()"),
+        (c.bool_class, false, "not"),
         (c.bool_class, false, "ifTrue(_)"),
         (c.bool_class, false, "ifFalse(_)"),
         (c.bool_class, false, "ifTrue(_,ifFalse)"),

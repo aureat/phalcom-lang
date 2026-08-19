@@ -356,4 +356,11 @@ impl<'vm> Compiler<'vm> {
         let selector_idx = self.add_constant(Value::symbol(selector_sym));
         self.emit(Bytecode::Invoke(arity, selector_idx), range);
     }
+
+    /// Emits a 0-arity getter send for `name` using its raw-name selector.
+    pub(super) fn emit_getter_send(&mut self, name: &str, range: SourceRange) {
+        let selector_sym = self.vm.interner.intern(name);
+        let selector_idx = self.add_constant(Value::symbol(selector_sym));
+        self.emit(Bytecode::Invoke(0, selector_idx), range);
+    }
 }

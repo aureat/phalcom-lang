@@ -362,7 +362,7 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Bool", "new(_)", Method, Class, Public),
     native!("Bool", "and(_)", Method, Instance, Public),
     native!("Bool", "or(_)", Method, Instance, Public),
-    native_with_return!("Bool", "not()", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Bool", "not", Getter, Instance, Public, NativeReturnShape::Instance("Bool")),
     native!("Bool", "ifTrue(_)", Method, Instance, Public),
     native!("Bool", "ifFalse(_)", Method, Instance, Public),
     native!("Bool", "ifTrue(_,ifFalse)", Method, Instance, Public),

@@ -63,16 +63,6 @@ impl<'vm> Compiler<'vm> {
         (ctx.break_jumps.clone(), ctx.continue_jumps.clone())
     }
 
-    /// Emits a 0-arity getter send for `name` — the raw-name selector the
-    /// getter is installed under (matching the [`phalcom_ast::ast::Expr::GetProperty`] path), not
-    /// an [`crate::method::encode_selector`] method spelling. Used for `Option#isSome` in the
-    /// `for` condition.
-    pub(super) fn emit_getter_send(&mut self, name: &str, range: SourceRange) {
-        let sym = self.vm.interner.intern(name);
-        let idx = self.add_constant(Value::symbol(sym));
-        self.emit(Bytecode::Invoke(0, idx), range);
-    }
-
     /// Declares a loop local named `name` and returns its slot. `mutable`
     /// records whether user code may reassign it: the synthetic cursor/receiver
     /// temporaries pass `true`, the loop variable passes `false` (it behaves as

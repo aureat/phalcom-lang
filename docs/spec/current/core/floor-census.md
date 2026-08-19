@@ -434,7 +434,7 @@ three plus `Number` arithmetic — see `core.ph`'s `String` reopen.
 | `new()` , `new(_)` | static | `bool_class_new` | |
 | `and(_)` | instance | `bool_and` | ★ |
 | `or(_)` | instance | `bool_or` | ★ |
-| `not()` | instance | `bool_not` | ★ |
+| `not` | instance | `bool_not` | ★ |
 | `ifTrue(_)` | instance | `bool_if_true` | ★ |
 | `ifFalse(_)` | instance | `bool_if_false` | ★ |
 | `ifTrue(_, ifFalse)` | instance | `bool_if_true_if_false` | ★ — encoded explicitly, not via `make_signature`; interns as `ifTrue(_:ifFalse:)` |
@@ -782,7 +782,7 @@ mismatch. The core library treats this set as a **fixed interface** — a kernel
 
 | Receiver | Sacred selectors | Override-epoch flag |
 |---|---|---|
-| `Bool` | `and(_)`, `or(_)`, `not()`, `ifTrue(_)`, `ifFalse(_)`, `ifTrue(_, ifFalse)` | `Universe::bool_sacred_pristine` |
+| `Bool` | `and(_)`, `or(_)`, `not`, `ifTrue(_)`, `ifFalse(_)`, `ifTrue(_, ifFalse)` | `Universe::bool_sacred_pristine` |
 | `Block` | `whileTrue(_)` | `Universe::block_sacred_pristine` |
 
 `Universe::note_method_installed` flips the relevant flag the first time any of

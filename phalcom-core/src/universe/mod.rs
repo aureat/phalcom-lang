@@ -31,7 +31,7 @@ pub struct Universe {
     /// Handles to every bootstrapped core class and metaclass.
     pub classes: CoreClasses,
     /// Override-epoch flag for the `Bool`-receiver sacred selectors
-    /// (`and(_)`, `or(_)`, `not()`, `ifTrue(_)`, `ifFalse(_)`,
+    /// (`and(_)`, `or(_)`, `not`, `ifTrue(_)`, `ifFalse(_)`,
     /// `ifTrue(_)ifFalse(_)`). `true` from bootstrap until any of them is
     /// (re)installed directly on the kernel `Bool` class, at which point the
     /// sacred-selector inliner's [`crate::bytecode::Bytecode::GuardBool`]
@@ -138,7 +138,7 @@ impl Universe {
     /// The `Bool`-receiver sacred selectors watched by
     /// [`Universe::bool_sacred_pristine`]
     /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
-    pub const BOOL_SACRED_SELECTORS: &'static [&'static str] = &["and(_)", "or(_)", "not()", "ifTrue(_)", "ifFalse(_)", "ifTrue(_,ifFalse)"];
+    pub const BOOL_SACRED_SELECTORS: &'static [&'static str] = &["and(_)", "or(_)", "not", "ifTrue(_)", "ifFalse(_)", "ifTrue(_,ifFalse)"];
 
     /// The `Block`-receiver sacred selectors watched by
     /// [`Universe::block_sacred_pristine`]

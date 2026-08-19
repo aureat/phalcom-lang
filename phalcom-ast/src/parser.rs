@@ -2251,6 +2251,7 @@ impl<'source> Parser<'source> {
             Token::GreaterEqual => ">=".to_string(),
             Token::And => "and".to_string(),
             Token::Or => "or".to_string(),
+            Token::Not => "not".to_string(),
             Token::Is => {
                 let is_end = self.tokens[self.pos].end;
                 if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].token, Token::Bang) && self.tokens[self.pos + 1].start == is_end {
@@ -3499,9 +3500,13 @@ impl<'source> Parser<'source> {
                 self.advance();
                 Ok("*".to_string())
             }
-            Token::Power => {
+            Token::Power | Token::DoubleAsterisk => {
                 self.advance();
                 Ok("**".to_string())
+            }
+            Token::TripleAsterisk => {
+                self.advance();
+                Ok("***".to_string())
             }
             Token::Slash => {
                 self.advance();
@@ -3514,6 +3519,30 @@ impl<'source> Parser<'source> {
             Token::Percent => {
                 self.advance();
                 Ok("%".to_string())
+            }
+            Token::ShiftLeft => {
+                self.advance();
+                Ok("<<".to_string())
+            }
+            Token::ShiftRight => {
+                self.advance();
+                Ok(">>".to_string())
+            }
+            Token::Ampersand => {
+                self.advance();
+                Ok("&".to_string())
+            }
+            Token::Pipe => {
+                self.advance();
+                Ok("|".to_string())
+            }
+            Token::Caret => {
+                self.advance();
+                Ok("^".to_string())
+            }
+            Token::Tilde => {
+                self.advance();
+                Ok("~".to_string())
             }
             Token::EqualEqual => {
                 self.advance();
@@ -3546,6 +3575,10 @@ impl<'source> Parser<'source> {
             Token::Or => {
                 self.advance();
                 Ok("or".to_string())
+            }
+            Token::Not => {
+                self.advance();
+                Ok("not".to_string())
             }
             Token::Is => {
                 let is_end = self.tokens[self.pos].end;
@@ -3948,6 +3981,7 @@ impl<'source> Parser<'source> {
             Token::GreaterEqual => ">=",
             Token::And => "and",
             Token::Or => "or",
+            Token::Not => "not",
             Token::Is => "is",
             Token::Question => "?",
             _ => return None,

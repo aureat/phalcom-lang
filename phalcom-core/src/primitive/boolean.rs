@@ -96,10 +96,10 @@ pub fn bool_or(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
     block_call(vm, &args[0], &[])
 }
 
-/// Signature: `Bool::not()` — sacred logical negation.
+/// Signature: `Bool::not` — sacred logical negation.
 #[phalcom_native_macros::primitive(
     Bool,
-    "not()",
+    "not",
     params = [],
     returns = Bool,
     types = "() -> Bool",

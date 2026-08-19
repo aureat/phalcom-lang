@@ -208,7 +208,7 @@ impl Universe {
         // call sites but always deopts to exactly these on override/mismatch.
         primitive!(vm, bool_cls, "and", SignatureKind::Method(1), bool_and);
         primitive!(vm, bool_cls, "or", SignatureKind::Method(1), bool_or);
-        primitive!(vm, bool_cls, "not", SignatureKind::Method(0), bool_not);
+        primitive!(vm, bool_cls, "not", SignatureKind::Getter, bool_not);
         primitive!(vm, bool_cls, "ifTrue", SignatureKind::Method(1), bool_if_true);
         primitive!(vm, bool_cls, "ifFalse", SignatureKind::Method(1), bool_if_false);
         // control-flow.md §3's `ifTrue(_)ifFalse(_)` is Smalltalk's

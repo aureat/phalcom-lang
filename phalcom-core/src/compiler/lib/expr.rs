@@ -1228,19 +1228,15 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::Unary(unary_expr) => {
-                // U5: `-x`/`!x` lower to 0-arg sends (`negated()`/`not()`)
-                // via the single `encode_selector` helper, replacing the
-                // hand-rolled `"-"`/`"not"` lookup strings the old opcode
-                // handlers used (ADR-0012 — "do not hand-roll a divergent
-                // encoder", the F8 lesson).
+                // U5/U-IS: `-x` lowers to `negated()`, `~x` lowers to `~()`,
+                // while `not x` lowers to the `not` getter send.
                 self.compile_expr(unary_expr.expr)?;
                 let range = unary_expr.range;
-                let name = match unary_expr.op {
-                    UnaryOp::Negate => "negated",
-                    UnaryOp::Not => "not",
-                    UnaryOp::BitNot => "~",
-                };
-                self.emit_operator_send(name, 0, range);
+                match unary_expr.op {
+                    UnaryOp::Negate => self.emit_operator_send("negated", 0, range),
+                    UnaryOp::Not => self.emit_getter_send("not", range),
+                    UnaryOp::BitNot => self.emit_operator_send("~", 0, range),
+                }
             }
             Expr::SelfVar { range } => {
                 self.emit_self(range);
