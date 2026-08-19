@@ -16,13 +16,13 @@ while (i <= 2000000) {
 let sum = 0
 i = 1
 while (i <= 2000000) {
-  sum = sum + map.at(i)
+  sum = sum + map[i]
   i = i + 1
 }
 System.print(sum)
 
-i = 1
-while (i <= 2000000) {
+i = 2000000
+while (i >= 1) {
   map.remove(i)
-  i = i + 1
+  i = i - 1
 }

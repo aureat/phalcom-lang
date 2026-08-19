@@ -4,7 +4,7 @@ let list = List.new()
 
 let i = 0
 while (i < 1000000) {
-  list.add(i)
+  list.append(i)
   i = i + 1
 }
 

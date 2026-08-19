@@ -117,11 +117,21 @@ def run(binp, ph):
 
 def main():
     ap = argparse.ArgumentParser(description="Load-guarded alternating A/B (F22).")
+    ap.add_argument("--check-only", action="store_true", help="Only run quiet check and exit 0 if quiet, 3 if busy")
+    ap.add_argument("--where", default="check", help="Label for where the quiet check is performed")
     ap.add_argument("reps", type=int, nargs="?", default=15)
     ap.add_argument("rowset", nargs="?", default="full", choices=["quick", "full"])
-    ap.add_argument("--bin", action="append", required=True, metavar="LABEL=PATH",
+    ap.add_argument("--bin", action="append", required=False, metavar="LABEL=PATH",
                     help="repeat; first is the baseline. e.g. --bin base=/tmp/base --bin p4=/tmp/p4")
     a = ap.parse_args()
+
+    if a.check_only:
+        quiet_check(a.where)
+        print(f"quiet check ({a.where}) OK: load1={os.getloadavg()[0]:.2f} ncpu={NCPU}")
+        sys.exit(0)
+
+    if not a.bin:
+        sys.exit("need --bin flags unless --check-only is specified")
 
     arms = []
     for spec in a.bin:

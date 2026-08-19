@@ -18,7 +18,7 @@ Usage: scripts/bench.sh <lane> [args...]
 
   vm         release VM baseline: micro-programs, bootstrap, Skynet, Criterion
   criterion  Criterion VM micro-benches only
-  perf       combined corpus + benchmarks timing report
+  perf       combined corpus + benchmarks timing report (subcommands: run, ab, compare, show, list, layout, baseline)
   wren       output-verified Phalcom-vs-Wren timings
   math       math benchmark self-checks
   one PATH   run one .ph benchmark with the release CLI
@@ -26,7 +26,9 @@ Usage: scripts/bench.sh <lane> [args...]
 Examples:
   scripts/bench.sh vm --skip-bench
   scripts/bench.sh criterion bare_send
-  scripts/bench.sh perf --bench-only
+  scripts/bench.sh perf run --suite representation
+  scripts/bench.sh perf layout
+  scripts/bench.sh perf list
   scripts/bench.sh wren fib map_string
   scripts/bench.sh one benchmarks/wren-suite/fib.ph
 USAGE
@@ -48,8 +50,13 @@ case "$lane" in
     cargo bench -p phalcom-core --features benchmarks --bench vm_bench -- "$@"
     ;;
   perf)
+    target_dir="${CARGO_TARGET_DIR:-$(cargo metadata --format-version 1 --no-deps 2>/dev/null | grep -o '"target_directory":"[^"]*"' | cut -d'"' -f4 || echo target)}"
     cargo build --release -q -p phalcom-core --bin phalcom --bin phalcom-perf
-    exec target/release/phalcom-perf "$@"
+    if [[ "$#" -eq 0 || "${1:-}" == -* ]]; then
+      exec "$target_dir/release/phalcom-perf" run "$@"
+    else
+      exec "$target_dir/release/phalcom-perf" "$@"
+    fi
     ;;
   wren)
     cargo build --release -q -p phalcom-core --bin phalcom
@@ -65,8 +72,9 @@ case "$lane" in
       usage >&2
       exit 2
     fi
+    target_dir="${CARGO_TARGET_DIR:-target}"
     cargo build --release -q -p phalcom-core --bin phalcom
-    exec target/release/phalcom "$path"
+    exec "$target_dir/release/phalcom" "$path"
     ;;
   *)
     printf 'unknown benchmark lane: %s\n\n' "$lane" >&2

@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "name": "representation",
+  "cases": [
+    {
+      "id": "vm/bare_send",
+      "path": "benchmarks/vm/bare_send.ph",
+      "tags": ["dispatch", "quick"],
+      "heavy": false,
+      "default_samples": 5,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "0"
+      }
+    },
+    {
+      "id": "vm/arith_send",
+      "path": "benchmarks/vm/arith_send.ph",
+      "tags": ["dispatch", "quick"],
+      "heavy": false,
+      "default_samples": 5,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "3"
+      }
+    },
+    {
+      "id": "vm/rest_fallback_send",
+      "path": "benchmarks/vm/rest_fallback_send.ph",
+      "tags": ["dispatch"],
+      "heavy": false,
+      "default_samples": 5,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "6000000"
+      }
+    },
+    {
+      "id": "vm/fiber_spawn",
+      "path": "benchmarks/vm/fiber_spawn.ph",
+      "tags": ["fibers"],
+      "heavy": false,
+      "default_samples": 5,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "0"
+      }
+    },
+    {
+      "id": "wren/for",
+      "path": "benchmarks/wren-suite/for.ph",
+      "tags": ["list", "memory"],
+      "heavy": false,
+      "default_samples": 5,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "499999500000"
+      }
+    },
+    {
+      "id": "wren/map_numeric",
+      "path": "benchmarks/wren-suite/map_numeric.ph",
+      "tags": ["map", "memory"],
+      "heavy": false,
+      "default_samples": 5,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "2000001000000"
+      }
+    },
+    {
+      "id": "wren/fib",
+      "path": "benchmarks/wren-suite/fib.ph",
+      "tags": ["numeric"],
+      "heavy": false,
+      "default_samples": 5,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "317811\n317811\n317811\n317811\n317811"
+      }
+    },
+    {
+      "id": "concurrency/skynet",
+      "path": "benchmarks/concurrency/skynet.ph",
+      "tags": ["fibers", "heavy"],
+      "heavy": true,
+      "default_samples": 3,
+      "default_warmup": 1,
+      "verification": {
+        "kind": "stdout_exact",
+        "expected": "Result: 499999500000"
+      }
+    }
+  ]
+}

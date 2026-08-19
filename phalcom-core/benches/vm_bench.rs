@@ -33,7 +33,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use phalcom_core::heap::Object;
 use phalcom_core::interpret::Interpreter;
-use phalcom_core::value::Value;
 use std::hint::black_box;
 
 /// Dispatch-bound source: `benchmarks/vm/bare_send.ph`, a static
@@ -93,14 +92,20 @@ fn run_program(src: &str, checks: &[(&str, f64)]) {
             _ => panic!("main module handle is not a Module"),
         };
         match module.get(sym) {
-            Some(Value::Int(got)) => assert_eq!(
-                got as f64, expected,
-                "benchmark program computed the wrong answer: `{name}` = {got}, expected {expected}"
-            ),
-            Some(Value::Float(got)) => assert_eq!(
-                got, expected,
-                "benchmark program computed the wrong answer: `{name}` = {got}, expected {expected}"
-            ),
+            Some(val) if val.as_int().is_some() => {
+                let got = val.as_int().unwrap();
+                assert_eq!(
+                    got as f64, expected,
+                    "benchmark program computed the wrong answer: `{name}` = {got}, expected {expected}"
+                );
+            }
+            Some(val) if val.as_float().is_some() => {
+                let got = val.as_float().unwrap();
+                assert_eq!(
+                    got, expected,
+                    "benchmark program computed the wrong answer: `{name}` = {got}, expected {expected}"
+                );
+            }
             other => panic!("benchmark global `{name}` missing or not a Number: {other:?}"),
         }
     }

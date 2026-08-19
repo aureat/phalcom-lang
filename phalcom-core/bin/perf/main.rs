@@ -1,102 +1,202 @@
-//! `phalcom-perf` — combined correctness + performance runner.
-//!
-//! Runs the language acceptance corpus (`tests/lang/**`) and the Wren-suite
-//! benchmarks (`benchmarks/**`) through the built `phalcom` binary, timing
-//! every case with [`std::time::Instant`], printing a slowest-first summary
-//! table, and appending a machine-readable JSON-lines log under
-//! `target/perf-logs/` (git-ignored via the existing `*.log` rule) so runs
-//! can be diffed for regressions later.
-//!
-//! This runner reports timing and remains a correctness gate for every case it
-//! executes: corpus failures and benchmark processes that exit non-zero make
-//! it exit non-zero. A benchmark with no successful process run has no valid
-//! timing, even though benchmark stdout is not compared to an expected file.
-//! `cargo test` remains the primary correctness gate
-//! (`phalcom-core/tests/lang.rs`); this binary adds whole-process timing, which
-//! `cargo test`'s libtest harness does not surface on stable Rust.
-//!
-//! ```sh
-//! cargo build -r -p phalcom-core --bin phalcom --bin phalcom-perf
-//! target/release/phalcom-perf                         # corpus + benchmarks
-//! target/release/phalcom-perf --bench-only
-//! target/release/phalcom-perf --label concurrency --pending
-//!
-//! The ergonomic wrapper is `scripts/bench.sh perf ...`, which builds both
-//! binaries before running this report tool.
-//! ```
+mod compare;
+mod env;
+mod measure;
+mod model;
+mod store;
+mod suite;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
-/// CLI surface for `phalcom-perf`.
+use model::*;
+use suite::Lane;
+
 #[derive(Parser)]
-#[command(name = "phalcom-perf", about = "Run the corpus + benchmarks with timing, save a log")]
+#[command(name = "phalcom-perf", about = "Phalcom VM reproducible benchmark and performance tool")]
 struct Cli {
-    /// Run only the `tests/lang` acceptance corpus (skip `benchmarks/`).
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Backward compat: Run only corpus
     #[arg(long)]
     corpus_only: bool,
 
-    /// Run only `benchmarks/` (skip the acceptance corpus).
+    /// Backward compat: Run only benchmarks
     #[arg(long)]
     bench_only: bool,
 
-    /// Also run PENDING corpus fixtures (known-not-yet-passing spec targets).
+    /// Backward compat: Include pending cases
     #[arg(long)]
     pending: bool,
 
-    /// Restrict the corpus run to one top-level label directory (e.g. `concurrency`).
+    /// Backward compat: Filter label
     #[arg(long)]
     label: Option<String>,
 
-    /// Use the debug binary even if a release binary is present. Debug
-    /// timings are not representative of real performance — use only for
-    /// quick correctness iteration.
+    /// Backward compat: Force debug binary
     #[arg(long)]
     debug: bool,
 
-    /// Print the slowest N cases in the summary table (default 20).
+    /// Backward compat: Top N cases
     #[arg(long, default_value_t = 20)]
     top: usize,
 }
 
-/// Which corpus lane a case belongs to, mirroring `tests/support/mod.rs`'s
-/// PASS/NEGATIVE/PENDING model.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Lane {
-    /// Exact-stdout acceptance case.
-    Pass,
-    /// Must exit non-zero and mention a diagnostic substring, never panic.
-    Negative,
-    /// Spec target not yet implemented; run for visibility, not gating.
-    Pending,
-    /// A `benchmarks/` program: timed without stdout verification; non-zero
-    /// exit remains a hard failure because it produces no valid timing.
-    Bench,
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Run default or specified suite; optionally record
+    Run(RunArgs),
+    /// Guarded alternating A/B between two binaries
+    Ab(AbArgs),
+    /// Compare two stored runs
+    Compare(CompareArgs),
+    /// Display one stored run
+    Show(ShowArgs),
+    /// List stored runs
+    List(ListArgs),
+    /// Print representation sizes (no exec)
+    Layout(LayoutArgs),
+    /// Manage baseline runs
+    Baseline(BaselineArgs),
 }
 
-/// Outcome of running and (where applicable) verifying one case.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Status {
-    Pass,
-    Fail,
-    /// Panicked (exit 101 or a `panicked at` stderr line) — always a bug.
-    Error,
-    /// Bench case: ran to completion, no correctness check performed.
-    Ran,
+#[derive(Parser, Debug)]
+struct RunArgs {
+    #[arg(long)]
+    suite: Option<String>,
+
+    #[arg(long)]
+    case: Option<String>,
+
+    #[arg(long, default_value_t = 5)]
+    samples: usize,
+
+    #[arg(long, default_value_t = 1)]
+    warmup: usize,
+
+    #[arg(long)]
+    heavy: bool,
+
+    #[arg(long)]
+    binary: Option<PathBuf>,
+
+    #[arg(long)]
+    record: bool,
+
+    #[arg(long)]
+    name: Option<String>,
+
+    #[arg(long, default_value_t = 20)]
+    top: usize,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long)]
+    corpus_only: bool,
+
+    #[arg(long)]
+    bench_only: bool,
+
+    #[arg(long)]
+    pending: bool,
+
+    #[arg(long)]
+    label: Option<String>,
+
+    #[arg(long)]
+    debug: bool,
 }
 
-/// One timed case, ready for the summary table and the JSON log line.
-struct CaseResult {
-    lane: Lane,
-    label: String,
-    name: String,
-    status: Status,
-    ms: f64,
-    note: String,
+#[derive(Parser, Debug)]
+struct AbArgs {
+    #[arg(long)]
+    baseline_bin: PathBuf,
+
+    #[arg(long)]
+    candidate_bin: PathBuf,
+
+    #[arg(long, default_value = "representation")]
+    suite: String,
+
+    #[arg(long, default_value_t = 5)]
+    pairs: usize,
+
+    #[arg(long)]
+    quick: bool,
+
+    #[arg(long)]
+    record: bool,
+
+    #[arg(long)]
+    name: Option<String>,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Parser, Debug)]
+struct CompareArgs {
+    baseline_ref: String,
+    candidate_ref: String,
+
+    #[arg(long)]
+    gate: bool,
+
+    #[arg(long)]
+    allow_host_mismatch: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Parser, Debug)]
+struct ShowArgs {
+    run_ref: String,
+
+    #[arg(long)]
+    json: bool,
+
+    #[arg(long, default_value_t = 20)]
+    top: usize,
+}
+
+#[derive(Parser, Debug)]
+struct ListArgs {
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Parser, Debug)]
+struct LayoutArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Parser, Debug)]
+struct BaselineArgs {
+    #[command(subcommand)]
+    command: BaselineSubcommands,
+}
+
+#[derive(Subcommand, Debug)]
+enum BaselineSubcommands {
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    Promote {
+        run_id: String,
+        #[arg(long)]
+        name: String,
+    },
 }
 
 fn workspace_root() -> PathBuf {
@@ -104,19 +204,18 @@ fn workspace_root() -> PathBuf {
     root.canonicalize().unwrap_or(root)
 }
 
-fn corpus_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/lang")
-}
-
-fn benchmarks_root() -> PathBuf {
-    workspace_root().join("benchmarks")
-}
-
-/// Locates the built `phalcom` binary, preferring release for representative
-/// timings. Exits with a clear message rather than a confusing spawn error if
-/// neither profile has been built.
 fn find_phalcom_binary(force_debug: bool) -> PathBuf {
-    let target = workspace_root().join("target");
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let candidate = parent.join("phalcom");
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace_root().join("target"));
     let release = target.join("release/phalcom");
     let debug = target.join("debug/phalcom");
 
@@ -125,10 +224,7 @@ fn find_phalcom_binary(force_debug: bool) -> PathBuf {
     }
     if debug.exists() {
         if !force_debug {
-            eprintln!(
-                "warning: no release binary at {} — using debug (timings not representative); run `cargo build -r -p phalcom-core --bin phalcom` first",
-                release.display()
-            );
+            eprintln!("warning: no release binary at {} — using debug (timings not representative)", release.display());
         }
         return debug;
     }
@@ -137,355 +233,602 @@ fn find_phalcom_binary(force_debug: bool) -> PathBuf {
         release.display(),
         debug.display()
     );
-    std::process::exit(1);
-}
-
-/// Recursively finds every `.ph` file under `dir` that has a sibling
-/// `.expected` file — the same "is this a runnable case" rule
-/// `tests/support/mod.rs` applies per-directory, generalized across the
-/// whole subtree so nested `pending/`/`negative/` dirs are picked up in one
-/// walk. Import-fixture `lib/` files have no `.expected` sibling and are
-/// skipped by this rule without a special case.
-fn collect_corpus_cases(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    walk_ph_files(dir, &mut out);
-    out.retain(|p| p.with_extension("expected").exists());
-    out.sort();
-    out
-}
-
-/// Recursively finds every `.ph` file under `dir` (benchmarks have no
-/// `.expected` sidecar — timed, not verified).
-fn collect_bench_cases(dir: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    walk_ph_files(dir, &mut out);
-    out.sort();
-    out
-}
-
-fn walk_ph_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_ph_files(&path, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("ph") {
-            out.push(path);
-        }
-    }
-}
-
-/// Classifies a corpus case's lane from its path, mirroring the directory
-/// convention documented in `tests/lang/MANIFEST.md`: any `pending/`
-/// ancestor is PENDING; any `negative/` ancestor, or a top-level label that
-/// is wholly negative (`runtime-errors`/`syntax-errors`/`compile-errors`),
-/// is NEGATIVE; everything else is PASS.
-fn classify_lane(path: &Path, corpus_root: &Path) -> Lane {
-    let rel = path.strip_prefix(corpus_root).unwrap_or(path);
-    let components: Vec<&str> = rel.components().filter_map(|c| c.as_os_str().to_str()).collect();
-
-    if components.contains(&"pending") {
-        return Lane::Pending;
-    }
-    if components.contains(&"negative") {
-        return Lane::Negative;
-    }
-    match components.first() {
-        Some(&("runtime-errors" | "syntax-errors" | "compile-errors")) => Lane::Negative,
-        _ => Lane::Pass,
-    }
-}
-
-fn label_of(path: &Path, corpus_root: &Path) -> String {
-    path.strip_prefix(corpus_root)
-        .ok()
-        .and_then(|rel| rel.components().next())
-        .and_then(|c| c.as_os_str().to_str())
-        .unwrap_or("?")
-        .to_string()
-}
-
-fn case_name(path: &Path, root: &Path) -> String {
-    path.strip_prefix(root).unwrap_or(path).display().to_string()
-}
-
-fn run_timed(bin: &Path, path: &Path) -> (Output, Duration) {
-    let start = Instant::now();
-    let output = Command::new(bin).arg(path).output().expect("failed to spawn the phalcom binary");
-    (output, start.elapsed())
-}
-
-fn looks_panicked(output: &Output) -> bool {
-    output.status.code() == Some(101) || String::from_utf8_lossy(&output.stderr).contains("panicked at")
-}
-
-/// Verifies a PASS/PENDING case: exact stdout match against `.expected`
-/// (trailing-newline-insensitive, same rule as `assert_stdout_exact`).
-fn verify_pass(output: &Output, expected_path: &Path) -> (Status, String) {
-    if looks_panicked(output) {
-        return (Status::Error, "panicked".to_string());
-    }
-    let mut expected = fs::read(expected_path).unwrap_or_default();
-    let mut actual = output.stdout.clone();
-    for buf in [&mut expected, &mut actual] {
-        if buf.ends_with(b"\n") {
-            buf.pop();
-            if buf.ends_with(b"\r") {
-                buf.pop();
-            }
-        }
-    }
-    if actual == expected {
-        (Status::Pass, String::new())
-    } else {
-        (Status::Fail, "stdout mismatch".to_string())
-    }
-}
-
-/// Verifies a NEGATIVE case: non-zero exit, no panic, diagnostic substring
-/// present in stdout+stderr — same rule as `assert_negative_output`.
-fn verify_negative(output: &Output, expected_path: &Path) -> (Status, String) {
-    if looks_panicked(output) {
-        return (Status::Error, "panicked".to_string());
-    }
-    if output.status.code() == Some(0) {
-        return (Status::Fail, "unexpectedly succeeded".to_string());
-    }
-    let note = fs::read_to_string(expected_path).unwrap_or_default();
-    let note = note.trim();
-    let combined = format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    if combined.contains(note) {
-        (Status::Pass, String::new())
-    } else {
-        (Status::Fail, format!("missing diagnostic substring `{note}`"))
-    }
-}
-
-fn json_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
-}
-
-fn lane_str(lane: Lane) -> &'static str {
-    match lane {
-        Lane::Pass => "pass",
-        Lane::Negative => "negative",
-        Lane::Pending => "pending",
-        Lane::Bench => "bench",
-    }
-}
-
-fn status_str(status: Status) -> &'static str {
-    match status {
-        Status::Pass => "pass",
-        Status::Fail => "fail",
-        Status::Error => "error",
-        Status::Ran => "ran",
-    }
-}
-
-fn git_short_sha() -> String {
-    Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|| "nogit".to_string())
+    std::process::exit(2);
 }
 
 fn main() {
     let cli = Cli::parse();
-    let run_corpus = !cli.bench_only;
-    let run_bench = !cli.corpus_only;
-    let bin = find_phalcom_binary(cli.debug);
 
-    let mut results: Vec<CaseResult> = Vec::new();
-
-    if run_corpus {
-        let root = corpus_root();
-        for path in collect_corpus_cases(&root) {
-            let lane = classify_lane(&path, &root);
-            if lane == Lane::Pending && !cli.pending {
-                continue;
-            }
-            let label = label_of(&path, &root);
-            if let Some(filter) = &cli.label {
-                if &label != filter {
-                    continue;
-                }
-            }
-            let name = case_name(&path, &root);
-            let expected = path.with_extension("expected");
-            let (output, elapsed) = run_timed(&bin, &path);
-            let (status, note) = match lane {
-                Lane::Negative => verify_negative(&output, &expected),
-                _ => verify_pass(&output, &expected),
+    match cli.command {
+        Some(Commands::Layout(args)) => handle_layout(args),
+        Some(Commands::Baseline(args)) => handle_baseline(args),
+        Some(Commands::List(args)) => handle_list(args),
+        Some(Commands::Show(args)) => handle_show(args),
+        Some(Commands::Compare(args)) => handle_compare(args),
+        Some(Commands::Run(args)) => handle_run(args),
+        Some(Commands::Ab(args)) => handle_ab(args),
+        None => {
+            // Backward compatibility fallback to `run`
+            let args = RunArgs {
+                suite: None,
+                case: None,
+                samples: 1,
+                warmup: 0,
+                heavy: false,
+                binary: None,
+                record: false,
+                name: None,
+                top: cli.top,
+                json: false,
+                corpus_only: cli.corpus_only,
+                bench_only: cli.bench_only,
+                pending: cli.pending,
+                label: cli.label,
+                debug: cli.debug,
             };
-            results.push(CaseResult {
-                lane,
-                label,
-                name,
-                status,
-                ms: elapsed.as_secs_f64() * 1000.0,
-                note,
-            });
+            handle_run(args);
         }
     }
+}
 
-    if run_bench {
-        let root = benchmarks_root();
-        for path in collect_bench_cases(&root) {
-            let label = label_of(&path, &root);
-            if let Some(filter) = &cli.label {
-                if &label != filter {
-                    continue;
-                }
-            }
-            let name = case_name(&path, &root);
-            let (output, elapsed) = run_timed(&bin, &path);
-            let status = if looks_panicked(&output) {
-                Status::Error
-            } else if output.status.success() {
-                Status::Ran
-            } else {
-                Status::Fail
-            };
-            let note = if status == Status::Ran {
-                String::new()
-            } else {
-                String::from_utf8_lossy(&output.stderr).lines().next().unwrap_or("").to_string()
-            };
-            results.push(CaseResult {
-                lane: Lane::Bench,
-                label,
-                name,
-                status,
-                ms: elapsed.as_secs_f64() * 1000.0,
-                note,
-            });
+fn handle_layout(args: LayoutArgs) {
+    let layouts = env::capture_layouts();
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&layouts).unwrap());
+    } else {
+        println!("Type Layouts (representation sizes):");
+        println!("{:<25} {:>10} {:>10}", "Type Name", "Size (B)", "Align (B)");
+        println!("{}", "-".repeat(47));
+        for (name, layout) in layouts {
+            println!("{:<25} {:>10} {:>10}", name, layout.size_bytes, layout.align_bytes);
         }
     }
+}
 
-    print_summary(&results, cli.top);
-    if let Err(err) = write_log(&results) {
-        eprintln!("warning: failed to write perf log: {err}");
+fn handle_baseline(args: BaselineArgs) {
+    let ws = workspace_root();
+    match args.command {
+        BaselineSubcommands::List { json } => {
+            let index = store::load_baseline_index(&ws).unwrap_or_default();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&index).unwrap());
+            } else {
+                println!("Baselines:");
+                for (name, run_id) in index.baselines {
+                    println!("  {:<15} -> {run_id}", name);
+                }
+            }
+        }
+        BaselineSubcommands::Promote { run_id, name } => match store::promote(&ws, &run_id, &name) {
+            Ok(path) => {
+                println!("Promoted run '{run_id}' to baseline '{name}' ({})", path.display());
+            }
+            Err(err) => {
+                eprintln!("error promoting run: {err}");
+                std::process::exit(2);
+            }
+        },
+    }
+}
+
+fn handle_list(args: ListArgs) {
+    let ws = workspace_root();
+    let runs = store::list_runs(&ws, args.limit);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&runs).unwrap());
+    } else {
+        println!("{:<30} {:<15} {:<10} {:<8}", "Run ID", "Timestamp", "Suite", "Cases");
+        println!("{}", "-".repeat(65));
+        for (run_id, ts, suite_name, cases) in runs {
+            println!("{:<30} {:<15} {:<10} {:<8}", run_id, ts, suite_name, cases);
+        }
+    }
+}
+
+fn handle_show(args: ShowArgs) {
+    let ws = workspace_root();
+    match store::load_run(&ws, &args.run_ref) {
+        Ok(run) => {
+            if args.json {
+                println!("{}", run.to_json_string().unwrap());
+            } else {
+                println!("Run ID: {}", run.run_id);
+                println!("Suite: {} ({})", run.suite.name, run.suite.path);
+                println!("Git SHA: {} ({})", run.git.short_sha, run.git.branch);
+                println!("Host: {}", run.host.host_key);
+                println!("Resource Quality: {:?}", run.resource_quality);
+                println!("\nCases ({} total):", run.cases.len());
+                for case in run.cases.iter().take(args.top) {
+                    if let Some(agg) = &case.aggregate {
+                        println!("  {:<30} {:>8.2} ms wall (mad {:>.2})", case.id, agg.wall.median, agg.wall.mad);
+                    } else {
+                        println!("  {:<30} verification failure / process error", case.id);
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!("error: {err}");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn handle_compare(args: CompareArgs) {
+    let ws = workspace_root();
+    let base_run = match store::load_run(&ws, &args.baseline_ref) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error loading baseline '{}': {e}", args.baseline_ref);
+            std::process::exit(2);
+        }
+    };
+    let cand_run = match store::load_run(&ws, &args.candidate_ref) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error loading candidate '{}': {e}", args.candidate_ref);
+            std::process::exit(2);
+        }
+    };
+
+    let comp = compare::compare_runs(&base_run, &cand_run, args.allow_host_mismatch, args.gate);
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&comp).unwrap());
+    } else {
+        println!("Comparison: {} vs {}", base_run.run_id, cand_run.run_id);
+        println!("Compatible: {} (reasons: {:?})", comp.compatible, comp.incompatibility_reasons);
+        if !comp.layout_delta.is_empty() {
+            println!("Layout Deltas:");
+            for (type_name, (b, c)) in &comp.layout_delta {
+                println!("  {type_name}: {} B -> {} B", b.size_bytes, c.size_bytes);
+            }
+        }
+        println!("\n{:<30} {:>10} {:>10} {:>10} {:>8}", "Case ID", "Base (ms)", "Cand (ms)", "Delta %", "Gate");
+        println!("{}", "-".repeat(72));
+        for case in &comp.cases {
+            let base_ms = case.baseline_agg.as_ref().map(|a| a.wall.median).unwrap_or(0.0);
+            let cand_ms = case.candidate_agg.as_ref().map(|a| a.wall.median).unwrap_or(0.0);
+            let delta_pct = case.delta_pct.unwrap_or(0.0);
+            println!(
+                "{:<30} {:>10.2} {:>10.2} {:>+9.2}% {:>8}",
+                case.id, base_ms, cand_ms, delta_pct, case.gate_result
+            );
+        }
+        println!("\nVerdict: {:?}", comp.verdict);
     }
 
-    let hard_failures = results.iter().filter(|r| is_hard_failure(r)).count();
-    if hard_failures > 0 {
+    if args.gate && comp.verdict == Verdict::Regressions {
         std::process::exit(1);
     }
 }
 
-fn is_hard_failure(result: &CaseResult) -> bool {
-    result.lane != Lane::Pending && result.status != Status::Pass && result.status != Status::Ran
-}
+fn handle_run(args: RunArgs) {
+    let ws = workspace_root();
+    let bin = args.binary.unwrap_or_else(|| find_phalcom_binary(args.debug));
 
-fn print_summary(results: &[CaseResult], top: usize) {
-    let total_ms: f64 = results.iter().map(|r| r.ms).sum();
+    let meter = measure::ResourceMeter::detect();
+    let git = env::capture_git();
+    let build = env::capture_build(&bin);
+    let host = env::capture_host();
+    let layouts = env::capture_layouts();
 
-    println!("\n=== slowest {top} cases ===");
-    let mut by_time: Vec<&CaseResult> = results.iter().collect();
-    by_time.sort_by(|a, b| b.ms.partial_cmp(&a.ms).unwrap());
-    for r in by_time.iter().take(top) {
-        println!(
-            "{:>8.2} ms  [{:<8}] {:<9} {}{}",
-            r.ms,
-            lane_str(r.lane),
-            status_str(r.status),
-            r.name,
-            if r.note.is_empty() { String::new() } else { format!("  ({})", r.note) }
-        );
-    }
+    let now_ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let run_id = args.name.clone().unwrap_or_else(|| format!("{}_{}", now_ts, git.short_sha));
 
-    println!("\n=== per-label totals ===");
-    let mut labels: Vec<&str> = results.iter().map(|r| r.label.as_str()).collect();
-    labels.sort();
-    labels.dedup();
-    for label in labels {
-        let group: Vec<&CaseResult> = results.iter().filter(|r| r.label == label).collect();
-        let group_ms: f64 = group.iter().map(|r| r.ms).sum();
-        let passed = group.iter().filter(|r| r.status == Status::Pass || r.status == Status::Ran).count();
-        println!(
-            "{label:<20} {:>4} cases  {:>4} ok  {:>9.2} ms total  {:>8.2} ms avg",
-            group.len(),
-            passed,
-            group_ms,
-            group_ms / group.len().max(1) as f64
-        );
-    }
+    let suite_name = args.suite.clone().unwrap_or_else(|| "default".into());
+    let mut case_results = Vec::new();
+    let mut passed_cnt = 0;
+    let mut failed_cnt = 0;
 
-    let total = results.len();
-    let passed = results.iter().filter(|r| r.status == Status::Pass || r.status == Status::Ran).count();
-    let failed = results.iter().filter(|r| r.status == Status::Fail).count();
-    let errored = results.iter().filter(|r| r.status == Status::Error).count();
-    println!(
-        "\n=== totals ===\n{total} cases  {passed} ok  {failed} fail  {errored} error  {:.2} ms wall",
-        total_ms
-    );
-}
+    if let Ok((_manifest, suite_cases)) = suite::load_suite(&ws, &suite_name) {
+        for case_spec in suite_cases {
+            if let Some(ref filter) = args.case {
+                if !case_spec.id.contains(filter) {
+                    continue;
+                }
+            }
+            if case_spec.heavy && !args.heavy && args.case.is_none() {
+                continue;
+            }
 
-fn write_log(results: &[CaseResult]) -> std::io::Result<PathBuf> {
-    let dir = workspace_root().join("target/perf-logs");
-    fs::create_dir_all(&dir)?;
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    let path = dir.join(format!("{ts}_{}.log", git_short_sha()));
+            let num_samples = if args.samples > 1 { args.samples } else { case_spec.samples };
 
-    let mut body = String::new();
-    for r in results {
-        body.push_str(&format!(
-            "{{\"lane\":\"{}\",\"label\":\"{}\",\"case\":\"{}\",\"status\":\"{}\",\"ms\":{:.3},\"note\":\"{}\"}}\n",
-            lane_str(r.lane),
-            json_escape(&r.label),
-            json_escape(&r.name),
-            status_str(r.status),
-            r.ms,
-            json_escape(&r.note),
-        ));
-    }
-    let total_ms: f64 = results.iter().map(|r| r.ms).sum();
-    let passed = results.iter().filter(|r| r.status == Status::Pass || r.status == Status::Ran).count();
-    body.push_str(&format!(
-        "{{\"summary\":true,\"total_cases\":{},\"passed\":{},\"total_ms\":{:.3},\"timestamp\":{},\"git_sha\":\"{}\"}}\n",
-        results.len(),
-        passed,
-        total_ms,
-        ts,
-        git_short_sha()
-    ));
+            // Warmup iterations
+            for _ in 0..case_spec.warmup {
+                let _ = measure::measure_sample(meter, &bin, &case_spec.path, &case_spec.verification, 0, None);
+            }
 
-    fs::write(&path, body)?;
-    println!("\nlog: {}", path.display());
-    Ok(path)
-}
+            let mut samples = Vec::new();
+            for s_idx in 0..num_samples {
+                let (sample, _note, _stdout) = measure::measure_sample(meter, &bin, &case_spec.path, &case_spec.verification, s_idx, None);
+                samples.push(sample);
+            }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+            let aggregate = compare::compute_case_aggregate(&case_spec.id, &case_spec.tag, &samples);
+            let ok = samples.iter().all(|s| s.status == SampleStatus::Ok);
+            if ok {
+                passed_cnt += 1;
+            } else {
+                failed_cnt += 1;
+            }
 
-    fn result(lane: Lane, status: Status) -> CaseResult {
-        CaseResult {
-            lane,
-            label: String::new(),
-            name: String::new(),
-            status,
-            ms: 0.0,
-            note: String::new(),
+            case_results.push(CaseResult {
+                id: case_spec.id.clone(),
+                path: case_spec.path.to_string_lossy().to_string(),
+                verification_result: if ok { "ok".into() } else { "failed".into() },
+                samples,
+                aggregate,
+            });
+        }
+    } else {
+        // Legacy corpus/bench walk
+        let run_corpus = !args.bench_only;
+        let run_bench = !args.corpus_only;
+
+        if run_corpus {
+            let root = ws.join("phalcom-core/tests/lang");
+            for path in suite::collect_corpus_cases(&root) {
+                let lane = suite::classify_lane(&path, &root);
+                if lane == Lane::Pending && !args.pending {
+                    continue;
+                }
+                let label = suite::label_of(&path, &root);
+                if let Some(filter) = &args.label {
+                    if &label != filter {
+                        continue;
+                    }
+                }
+                let name = suite::case_name(&path, &root);
+                let verification = match lane {
+                    Lane::Negative => {
+                        let expected = fs::read_to_string(path.with_extension("expected")).unwrap_or_default();
+                        suite::CaseVerification::NegativeDiagnostic {
+                            substring: expected.trim().to_string(),
+                        }
+                    }
+                    _ => suite::CaseVerification::SidecarExpected,
+                };
+                let (sample, note, _stdout) = measure::measure_sample(meter, &bin, &path, &verification, 0, None);
+                let ok = sample.status == SampleStatus::Ok;
+                if ok {
+                    passed_cnt += 1;
+                } else {
+                    failed_cnt += 1;
+                }
+
+                let aggregate = compare::compute_case_aggregate(&name, &label, std::slice::from_ref(&sample));
+                case_results.push(CaseResult {
+                    id: name,
+                    path: path.to_string_lossy().to_string(),
+                    verification_result: if ok { "ok".into() } else { note },
+                    samples: vec![sample],
+                    aggregate,
+                });
+            }
+        }
+
+        if run_bench {
+            let root = ws.join("benchmarks");
+            for path in suite::collect_bench_cases(&root) {
+                let label = suite::label_of(&path, &root);
+                if let Some(filter) = &args.label {
+                    if &label != filter {
+                        continue;
+                    }
+                }
+                let name = suite::case_name(&path, &root);
+                let verification = suite::CaseVerification::ExitZeroOnly;
+                let (sample, note, _stdout) = measure::measure_sample(meter, &bin, &path, &verification, 0, None);
+                let ok = sample.status == SampleStatus::Ok;
+                if ok {
+                    passed_cnt += 1;
+                } else {
+                    failed_cnt += 1;
+                }
+
+                let aggregate = compare::compute_case_aggregate(&name, &label, std::slice::from_ref(&sample));
+                case_results.push(CaseResult {
+                    id: name,
+                    path: path.to_string_lossy().to_string(),
+                    verification_result: if ok { "ok".into() } else { note },
+                    samples: vec![sample],
+                    aggregate,
+                });
+            }
         }
     }
 
-    #[test]
-    fn failed_benchmark_is_a_hard_failure() {
-        assert!(is_hard_failure(&result(Lane::Bench, Status::Fail)));
+    let summary = RunSummary {
+        total_cases: case_results.len(),
+        passed: passed_cnt,
+        failed: failed_cnt,
+        contaminated: 0,
+    };
+
+    let run = BenchmarkRun {
+        schema_version: 1,
+        run_id: run_id.clone(),
+        timestamp: now_ts,
+        git,
+        build,
+        host,
+        layouts,
+        command: RunCommandMetadata {
+            subcommand: "run".into(),
+            args_summary: format!("suite={suite_name} samples={}", args.samples),
+        },
+        suite: SuiteMetadata {
+            name: suite_name,
+            path: "".into(),
+            case_count: case_results.len(),
+        },
+        resource_quality: meter.quality(),
+        cases: case_results,
+        summary,
+    };
+
+    if args.record || args.suite.is_some() {
+        if let Err(err) = store::save_local(&ws, &run, None) {
+            eprintln!("warning: failed to save run record: {err}");
+        }
     }
 
-    #[test]
-    fn pending_failure_is_not_a_hard_failure() {
-        assert!(!is_hard_failure(&result(Lane::Pending, Status::Fail)));
+    if args.json {
+        println!("{}", run.to_json_string().unwrap());
+    } else {
+        println!("Run ID: {}", run.run_id);
+        println!("Cases: {} (passed: {}, failed: {})", run.cases.len(), passed_cnt, failed_cnt);
+        for c in run.cases.iter().take(args.top) {
+            if let Some(agg) = &c.aggregate {
+                println!("  {:<35} {:>8.2} ms", c.id, agg.wall.median);
+            }
+        }
     }
 
-    #[test]
-    fn completed_benchmark_is_not_a_hard_failure() {
-        assert!(!is_hard_failure(&result(Lane::Bench, Status::Ran)));
+    if failed_cnt > 0 {
+        std::process::exit(2);
     }
+}
+
+fn handle_ab(args: AbArgs) {
+    let ws = workspace_root();
+
+    if !args.baseline_bin.exists() {
+        eprintln!("error: baseline binary does not exist at {}", args.baseline_bin.display());
+        std::process::exit(2);
+    }
+    if !args.candidate_bin.exists() {
+        eprintln!("error: candidate binary does not exist at {}", args.candidate_bin.display());
+        std::process::exit(2);
+    }
+
+    // Preflight quiet check
+    if !run_quiet_guard(&ws, "preflight") {
+        eprintln!("benchmark aborted: machine became busy; no performance verdict recorded");
+        record_contaminated_run(&ws, &args, "preflight");
+        std::process::exit(3);
+    }
+
+    let (_manifest, suite_cases) = match suite::load_suite(&ws, &args.suite) {
+        Ok(val) => val,
+        Err(err) => {
+            eprintln!("error loading suite '{}': {err}", args.suite);
+            std::process::exit(2);
+        }
+    };
+
+    let meter = measure::ResourceMeter::detect();
+    let git = env::capture_git();
+    let base_build = env::capture_build(&args.baseline_bin);
+    let cand_build = env::capture_build(&args.candidate_bin);
+    let host = env::capture_host();
+    let layouts = env::capture_layouts();
+    let now_ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
+    let run_id = args.name.clone().unwrap_or_else(|| format!("ab_{}_{}", now_ts, git.short_sha));
+
+    let pairs_count = if args.quick { 3 } else { args.pairs };
+
+    let mut base_case_results = Vec::new();
+    let mut cand_case_results = Vec::new();
+
+    for case_spec in &suite_cases {
+        if case_spec.heavy && args.quick {
+            continue;
+        }
+
+        let mut base_samples = Vec::new();
+        let mut cand_samples = Vec::new();
+
+        for pair_idx in 0..pairs_count {
+            if !run_quiet_guard(&ws, &format!("pair_{pair_idx}_{}", case_spec.id)) {
+                eprintln!("benchmark aborted: machine became busy; no performance verdict recorded");
+                record_contaminated_run(&ws, &args, "mid_run");
+                std::process::exit(3);
+            }
+
+            let (order_base, order_cand) = if pair_idx % 2 == 0 {
+                (SampleOrder::BaselineThenCandidate, SampleOrder::BaselineThenCandidate)
+            } else {
+                (SampleOrder::CandidateThenBaseline, SampleOrder::CandidateThenBaseline)
+            };
+
+            if pair_idx % 2 == 0 {
+                let (b_sample, _, _) = measure::measure_sample(meter, &args.baseline_bin, &case_spec.path, &case_spec.verification, pair_idx, Some(order_base));
+                let (c_sample, _, _) =
+                    measure::measure_sample(meter, &args.candidate_bin, &case_spec.path, &case_spec.verification, pair_idx, Some(order_cand));
+                base_samples.push(b_sample);
+                cand_samples.push(c_sample);
+            } else {
+                let (c_sample, _, _) =
+                    measure::measure_sample(meter, &args.candidate_bin, &case_spec.path, &case_spec.verification, pair_idx, Some(order_cand));
+                let (b_sample, _, _) = measure::measure_sample(meter, &args.baseline_bin, &case_spec.path, &case_spec.verification, pair_idx, Some(order_base));
+                base_samples.push(b_sample);
+                cand_samples.push(c_sample);
+            }
+        }
+
+        let base_agg = compare::compute_case_aggregate(&case_spec.id, &case_spec.tag, &base_samples);
+        let cand_agg = compare::compute_case_aggregate(&case_spec.id, &case_spec.tag, &cand_samples);
+
+        base_case_results.push(CaseResult {
+            id: case_spec.id.clone(),
+            path: case_spec.path.to_string_lossy().to_string(),
+            verification_result: "ok".into(),
+            samples: base_samples,
+            aggregate: base_agg,
+        });
+
+        cand_case_results.push(CaseResult {
+            id: case_spec.id.clone(),
+            path: case_spec.path.to_string_lossy().to_string(),
+            verification_result: "ok".into(),
+            samples: cand_samples,
+            aggregate: cand_agg,
+        });
+    }
+
+    if !run_quiet_guard(&ws, "post-run") {
+        eprintln!("benchmark aborted: machine became busy; no performance verdict recorded");
+        record_contaminated_run(&ws, &args, "post-run");
+        std::process::exit(3);
+    }
+
+    let base_run = BenchmarkRun {
+        schema_version: 1,
+        run_id: format!("{run_id}_base"),
+        timestamp: now_ts,
+        git: git.clone(),
+        build: base_build,
+        host: host.clone(),
+        layouts: layouts.clone(),
+        command: RunCommandMetadata {
+            subcommand: "ab".into(),
+            args_summary: format!("suite={} pairs={pairs_count}", args.suite),
+        },
+        suite: SuiteMetadata {
+            name: args.suite.clone(),
+            path: "".into(),
+            case_count: base_case_results.len(),
+        },
+        resource_quality: meter.quality(),
+        cases: base_case_results,
+        summary: RunSummary {
+            total_cases: suite_cases.len(),
+            passed: suite_cases.len(),
+            failed: 0,
+            contaminated: 0,
+        },
+    };
+
+    let cand_run = BenchmarkRun {
+        schema_version: 1,
+        run_id: format!("{run_id}_cand"),
+        timestamp: now_ts,
+        git,
+        build: cand_build,
+        host,
+        layouts,
+        command: RunCommandMetadata {
+            subcommand: "ab".into(),
+            args_summary: format!("suite={} pairs={pairs_count}", args.suite),
+        },
+        suite: SuiteMetadata {
+            name: args.suite,
+            path: "".into(),
+            case_count: cand_case_results.len(),
+        },
+        resource_quality: meter.quality(),
+        cases: cand_case_results,
+        summary: RunSummary {
+            total_cases: suite_cases.len(),
+            passed: suite_cases.len(),
+            failed: 0,
+            contaminated: 0,
+        },
+    };
+
+    let comp = compare::compare_runs(&base_run, &cand_run, false, true);
+
+    if args.record {
+        let _ = store::save_local(&ws, &base_run, None);
+        let _ = store::save_local(&ws, &cand_run, None);
+        let _ = store::save_comparison(&ws, &comp);
+    }
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&comp).unwrap());
+    } else {
+        println!("A/B Comparison Result ({pairs_count} pairs):");
+        println!("{:<30} {:>10} {:>10} {:>10} {:>8}", "Case ID", "Base (ms)", "Cand (ms)", "Delta %", "Gate");
+        println!("{}", "-".repeat(72));
+        for case in &comp.cases {
+            let base_ms = case.baseline_agg.as_ref().map(|a| a.wall.median).unwrap_or(0.0);
+            let cand_ms = case.candidate_agg.as_ref().map(|a| a.wall.median).unwrap_or(0.0);
+            let delta_pct = case.delta_pct.unwrap_or(0.0);
+            println!(
+                "{:<30} {:>10.2} {:>10.2} {:>+9.2}% {:>8}",
+                case.id, base_ms, cand_ms, delta_pct, case.gate_result
+            );
+        }
+        println!("\nVerdict: {:?}", comp.verdict);
+    }
+
+    if comp.verdict == Verdict::Regressions {
+        std::process::exit(1);
+    }
+}
+
+fn run_quiet_guard(workspace_root: &Path, where_label: &str) -> bool {
+    let script = workspace_root.join("benchmarks/vm/ab-guarded.py");
+    if !script.exists() {
+        return true;
+    }
+    let status = Command::new("python3")
+        .arg(&script)
+        .arg("--check-only")
+        .arg("--where")
+        .arg(where_label)
+        .status();
+
+    match status {
+        Ok(st) => st.code() == Some(0),
+        Err(_) => true,
+    }
+}
+
+fn record_contaminated_run(workspace_root: &Path, args: &AbArgs, where_label: &str) {
+    let now_ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let git = env::capture_git();
+    let run_id = args.name.clone().unwrap_or_else(|| format!("ab_contaminated_{now_ts}"));
+
+    let run = BenchmarkRun {
+        schema_version: 1,
+        run_id: run_id.clone(),
+        timestamp: now_ts,
+        git,
+        build: env::capture_build(&args.candidate_bin),
+        host: env::capture_host(),
+        layouts: env::capture_layouts(),
+        command: RunCommandMetadata {
+            subcommand: "ab".into(),
+            args_summary: format!("ab aborted at {where_label}"),
+        },
+        suite: SuiteMetadata {
+            name: args.suite.clone(),
+            path: "".into(),
+            case_count: 0,
+        },
+        resource_quality: ResourceQuality::WallOnly,
+        cases: vec![],
+        summary: RunSummary {
+            total_cases: 0,
+            passed: 0,
+            failed: 0,
+            contaminated: 1,
+        },
+    };
+
+    let _ = store::save_local(workspace_root, &run, Some(&format!("Aborted due to machine contention at {where_label}")));
 }
