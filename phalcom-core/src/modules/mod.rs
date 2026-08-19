@@ -5,13 +5,18 @@
 //! intentionally separate and belongs to the module execution work.
 
 pub mod artifact;
+pub mod builtin_materialize;
 pub mod compile;
+pub mod context;
 pub mod initialize;
 pub mod linkage;
 pub mod materialize;
+pub mod reflection_cache;
 pub mod registry;
 
 pub use artifact::{ClassBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint};
 pub use compile::{CompiledModule, CompiledProgram, EntrySelection, ProgramCompileError, ProgramCompiler};
+pub use context::ModuleExecutionContext;
 pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
-pub use registry::{ModuleFailure, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleState, RuntimeProgramId};
+pub use reflection_cache::ReflectionCache;
+pub use registry::{ModuleFailure, ModuleFailureRef, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleState, RuntimeProgramId};

@@ -33,15 +33,21 @@ impl VM {
     /// Tuple iteration. The copied lane can safely cross the target append
     /// operation, including any future GC safepoint.
     fn positional_lane(&self, value: Value) -> Option<Vec<Value>> {
-        match value {
-            Value::Unit => Some(Vec::new()),
-            Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => Some(self.heap.tuple(id).positionals().to_vec()),
-            _ => None,
+        if value.is_unit() {
+            Some(Vec::new())
+        } else if let Some(id) = value.as_obj() {
+            if matches!(self.heap.get(id), Object::Tuple(_)) {
+                Some(self.heap.tuple(id).positionals().to_vec())
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
     fn append_positional_values(&mut self, target: Value, values: Vec<Value>) -> Result<(), RuntimeError> {
-        let Value::Obj(id) = target else {
+        let Some(id) = target.as_obj() else {
             return Err(RuntimeError::Internal("positional expansion target is not an object".into()));
         };
         if matches!(self.heap.get(id), Object::PackBuilder(_)) {
@@ -80,20 +86,25 @@ impl VM {
     /// associations own no heap borrows, so destinations may re-enter the VM
     /// while consuming them.
     fn snapshot_labeled_lane(&self, source: Value) -> Result<Vec<(Symbol, Value)>, RuntimeError> {
-        match source {
-            Value::Unit => Ok(Vec::new()),
-            Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => Ok(self.heap.tuple(id).labeled_entries().collect()),
-            Value::Obj(id) if matches!(self.heap.get(id), Object::Record(_)) => Ok(self.heap.record(id).entries().collect()),
-            Value::Obj(id) if matches!(self.heap.get(id), Object::Map(_)) => self
-                .heap
-                .map(id)
-                .entries()
-                .map(|(key, value)| match key {
-                    Value::Symbol(label) => Ok((label, value)),
-                    _ => Err(RuntimeError::NonSymbolMapKeyInExpansion { found: key.type_name() }),
-                })
-                .collect(),
-            value => Err(RuntimeError::InvalidStarStarOperand { found: value.type_name() }),
+        if source.is_unit() {
+            Ok(Vec::new())
+        } else if let Some(id) = source.as_obj() {
+            match self.heap.get(id) {
+                Object::Tuple(_) => Ok(self.heap.tuple(id).labeled_entries().collect()),
+                Object::Record(_) => Ok(self.heap.record(id).entries().collect()),
+                Object::Map(_) => self
+                    .heap
+                    .map(id)
+                    .entries()
+                    .map(|(key, value)| match key.symbol_value() {
+                        Some(label) => Ok((label, value)),
+                        None => Err(RuntimeError::NonSymbolMapKeyInExpansion { found: key.type_name() }),
+                    })
+                    .collect(),
+                _ => Err(RuntimeError::InvalidStarStarOperand { found: source.type_name() }),
+            }
+        } else {
+            Err(RuntimeError::InvalidStarStarOperand { found: source.type_name() })
         }
     }
 
@@ -500,9 +511,23 @@ impl VM {
     /// # Errors
     ///
     /// Always returns `err` (the traceback is a side effect on stderr).
-    pub fn runtime_error(&mut self, err: PhError) -> PhResult<()> {
+    pub fn report_runtime_error(&mut self, err: &PhError) {
         let config = crate::diagnostics::active_render_config();
-        crate::diagnostics::traceback::render_traceback(self, &err, &config, self.trace_core, self.trace_format_json);
+        crate::diagnostics::traceback::render_traceback(self, err, &config, self.trace_core, self.trace_format_json);
+    }
+
+    /// Renders a runtime-error traceback to stderr and returns the error.
+    ///
+    /// Uses [`crate::diagnostics::traceback::render_traceback`] — the new renderer
+    /// that walks the live call stack through [`crate::vm::walk::StackWalk`] (oldest→newest,
+    /// no `.rev()`, no `frames.clone()`) and emits a Python-style traceback with the
+    /// innermost-frame caret block (IS §5.1, plan.md T4).
+    ///
+    /// # Errors
+    ///
+    /// Always returns `err` (the traceback is a side effect on stderr).
+    pub fn runtime_error(&mut self, err: PhError) -> PhResult<()> {
+        self.report_runtime_error(&err);
         Err(err)
     }
 
@@ -515,8 +540,8 @@ impl VM {
     /// diagnostic from either. In the REPL that meant no output whatsoever; in file
     /// mode the message still surfaced, but only because the CLI prints the returned
     /// `Err`, without the source excerpt this renders.
-    pub fn compiler_error(&mut self, err: PhError, module: ObjRef, source_id: u32) {
-        if let PhError::Compile(comp_err) = &err {
+    pub fn compiler_error(&mut self, err: &PhError, module: ObjRef, source_id: u32) {
+        if let PhError::Compile(comp_err) = err {
             let (msg, range) = match comp_err {
                 crate::compiler::lib::CompilerError::DestructuringWithoutInitializer(range) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::BreakOutsideLoop(range) => (comp_err.to_string(), Some(*range)),
@@ -601,7 +626,7 @@ impl VM {
     /// to user code (Invariant 4, [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
     #[inline]
     pub(crate) fn none_value(&self) -> Value {
-        Value::None
+        Value::none()
     }
 
     /// Runs the dispatch loop until the call stack empties, returning the result.
@@ -668,8 +693,8 @@ impl VM {
                         // (`switch_to_fiber_and_deliver`'s `stack.truncate`),
                         // so it never leaks.
                         if let Some(next) = self.ready_queue.pop_front() {
-                            self.stack.push(Value::Obj(next));
-                            crate::primitive::fiber::fiber_try(self, &Value::Obj(next), &[])?;
+                            self.stack.push(Value::obj(next));
+                            crate::primitive::fiber::fiber_try(self, &Value::obj(next), &[])?;
                             continue;
                         }
                         return Ok(value);
@@ -779,7 +804,7 @@ impl VM {
                                     inst.slots[1] = kind_val;
                                 }
                             }
-                            let error = Value::Obj(self.heap.alloc(Object::Instance(inst)));
+                            let error = Value::obj(self.heap.alloc(Object::Instance(inst)));
                             let rendered = e.to_string();
                             let tb = if failed == self.current {
                                 self.capture_frames(0)
@@ -934,7 +959,7 @@ impl VM {
                 inst.slots[1] = kind_val;
             }
         }
-        Value::Obj(self.heap.alloc(Object::Instance(inst)))
+        Value::obj(self.heap.alloc(Object::Instance(inst)))
     }
 
     /// Executes one `Invoke`-shaped send: IC probe, exact-selector lookup + refill,
@@ -1073,7 +1098,7 @@ impl VM {
                 // A drained frame stack with nothing left to yield means the
                 // top-level program (or a block activation) fell off its end:
                 // surface that absence as `None`, never the private sentinel.
-                let result = self.stack.pop().unwrap_or(Value::Nil);
+                let result = self.stack.pop().unwrap_or(Value::nil());
                 return Ok(self.surface_absence(result));
             }
 
@@ -1162,7 +1187,7 @@ impl VM {
                     // the callable's descriptors, then wrap it in a BlockObject
                     // stamped with the home frame token (ADR-0013, functions.md §2).
                     let template = callable.chunk.constants[idx as usize];
-                    let Value::Obj(template_id) = template else {
+                    let Some(template_id) = template.as_obj() else {
                         return Err(RuntimeError::Internal("Closure constant is not a closure".to_string()).into());
                     };
                     let descriptors = self.heap.closure(template_id).callable.upvalues.clone();
@@ -1194,7 +1219,7 @@ impl VM {
                     })));
                     let token = self.current_frame_token().expect("closure created inside a frame");
                     let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
-                    self.stack.push(Value::Obj(block));
+                    self.stack.push(Value::obj(block));
                 }
                 // `Bytecode::Nil` pushes immediate `None` (the surface
                 // absence value), never the raw private sentinel. It is emitted
@@ -1215,7 +1240,7 @@ impl VM {
                 }
                 Bytecode::DefineGlobal(idx) => {
                     let name_val = callable.chunk.constants[idx as usize];
-                    if let Value::Symbol(name_sym) = name_val {
+                    if let Some(name_sym) = name_val.symbol_value() {
                         let module_id = self.heap.closure(closure_id).module;
                         let value = *self.stack.last().unwrap();
                         self.heap.module_mut(module_id).define(name_sym, value).unwrap();
@@ -1224,7 +1249,7 @@ impl VM {
                 }
                 Bytecode::GetGlobal(idx) => {
                     let name_val = callable.chunk.constants[idx as usize];
-                    if let Value::Symbol(name_sym) = name_val {
+                    if let Some(name_sym) = name_val.symbol_value() {
                         let module_id = self.heap.closure(closure_id).module;
                         let version = self.heap.module(module_id).globals_version;
 
@@ -1279,7 +1304,7 @@ impl VM {
                 }
                 Bytecode::SetGlobal(idx) => {
                     let name_val = callable.chunk.constants[idx as usize];
-                    if let Value::Symbol(name_sym) = name_val {
+                    if let Some(name_sym) = name_val.symbol_value() {
                         let module_id = self.heap.closure(closure_id).module;
                         let version = self.heap.module(module_id).globals_version;
 
@@ -1341,7 +1366,7 @@ impl VM {
                         ))
                         .into());
                     }
-                    self.stack.insert(local_idx, Value::Nil);
+                    self.stack.insert(local_idx, Value::nil());
                 }
                 Bytecode::ReleaseScratchLocal(slot) => {
                     let local_idx = stack_offset + slot as usize;
@@ -1356,34 +1381,19 @@ impl VM {
                 }
                 Bytecode::Class(idx) => {
                     let name_val = callable.chunk.constants[idx as usize];
-                    if let Value::Symbol(name_sym) = name_val {
+                    if let Some(name_sym) = name_val.symbol_value() {
                         let name = self.resolve_symbol(name_sym).to_string();
                         let superclass = self.stack.pop().unwrap();
-                        match superclass {
-                            Value::Obj(sc_id) if self.heap.as_class(sc_id).is_some() => {
-                                // Allocate-fresh, unconditionally (U-CLASSCLOSE
-                                // §5.2, PDR-0001 ruling 4). Classes are
-                                // closed: there is no reopening, so
-                                // `Bytecode::Class` never needs to probe
-                                // `self.classes` by name — the compiler already
-                                // discriminates the one case that *isn't*
-                                // allocate-fresh (a core-module stub
-                                // completion) at compile time and emits
-                                // `Bytecode::Constant` for it instead
-                                // (`compiler/lib/class_decl.rs`'s
-                                // `classes_hit` fork), so every `Bytecode::Class`
-                                // that reaches here is a brand-new class by
-                                // construction. This is what closes the
-                                // nested-runtime-patch hole structurally: if
-                                // allocate-fresh never consults `self.classes`,
-                                // a re-executing method body has no path to any
-                                // existing class, whatever compile-time check
-                                // might have been bypassed.
+                        if let Some(sc_id) = superclass.as_obj() {
+                            if self.heap.as_class(sc_id).is_some() {
                                 let closure_module = self.heap.closure(closure_id).module;
                                 let new_class = self.create_class(closure_module, &name, Some(sc_id));
-                                self.stack.push(Value::Obj(new_class));
+                                self.stack.push(Value::obj(new_class));
+                            } else {
+                                return Err(RuntimeError::InvalidSuperClass(format!("{superclass}")).into());
                             }
-                            _ => return Err(RuntimeError::InvalidSuperClass(format!("{superclass}")).into()),
+                        } else {
+                            return Err(RuntimeError::InvalidSuperClass(format!("{superclass}")).into());
                         }
                     }
                 }
@@ -1397,7 +1407,7 @@ impl VM {
                         .copied()
                         .ok_or_else(|| RuntimeError::Internal(format!("linked read index {index} is not materialized")))?;
                     let value = match linked {
-                        crate::modules::RuntimeLinkedRead::Module(module) => Value::Obj(module),
+                        crate::modules::RuntimeLinkedRead::Module(module) => Value::obj(module),
                         crate::modules::RuntimeLinkedRead::Binding(binding) => self
                             .heap
                             .module(binding.module)
@@ -1411,13 +1421,13 @@ impl VM {
                     let spec_value = callable.chunk.constants[spec as usize];
                     let family_spec = match kind {
                         crate::bytecode::FamilySpecKind::Exact => {
-                            let Value::Symbol(symbol) = spec_value else {
+                            let Some(symbol) = spec_value.symbol_value() else {
                                 return Err(RuntimeError::Internal("exact MakeFamily constant is not a Symbol".into()).into());
                             };
                             crate::heap::FamilySpec::Exact(symbol)
                         }
                         crate::bytecode::FamilySpecKind::Pattern => {
-                            let Value::Obj(pattern) = spec_value else {
+                            let Some(pattern) = spec_value.as_obj() else {
                                 return Err(RuntimeError::Internal("pattern MakeFamily constant is not an object".into()).into());
                             };
                             if !matches!(self.heap.get(pattern), Object::SelectorPattern(_)) {
@@ -1432,10 +1442,10 @@ impl VM {
                         spec: family_spec,
                     });
                     let family_id = self.heap.alloc(family);
-                    self.stack.push(Value::Obj(family_id));
+                    self.stack.push(Value::obj(family_id));
                 }
                 Bytecode::FinalizeClass => {
-                    if let Value::Obj(class_id) = *self.stack.last().unwrap() {
+                    if let Some(class_id) = self.stack.last().unwrap().as_obj() {
                         self.finalize_class_base_names(class_id);
                         let meta_id = self.heap.class(class_id).class;
                         self.finalize_class_base_names(meta_id);
@@ -1517,7 +1527,7 @@ impl VM {
                     let selector = selector_val.as_symbol().unwrap();
                     let method_val = self.stack.pop().unwrap();
                     let class_val = *self.stack.last().unwrap();
-                    if let (Value::Obj(method_id), Value::Obj(class_id)) = (method_val, class_val) {
+                    if let (Some(method_id), Some(class_id)) = (method_val.as_obj(), class_val.as_obj()) {
                         let target_class = if is_static { self.heap.class(class_id).class } else { class_id };
                         if is_static {
                             let meta = self.heap.class(class_id).class;
@@ -1567,27 +1577,14 @@ impl VM {
                     if let Some(guard) = self.frames.last().and_then(|frame| frame.foreign_receiver_guard) {
                         self.guard_foreign_layout_access(receiver, guard)?;
                     }
-                    match receiver {
-                        Value::Obj(id) => {
-                            if let Some(instance) = self.heap.as_instance(id) {
-                                let val = instance.slots.get(slot as usize).copied().unwrap_or(Value::Nil);
-                                self.stack.push(self.surface_absence(val));
-                            } else if let Some(class) = self.heap.as_class(id) {
-                                let val = class.static_slots.get(slot as usize).copied().unwrap_or(Value::Nil);
-                                self.stack.push(self.surface_absence(val));
-                            } else {
-                                let mut val_str = receiver.to_string(self);
-                                if val_str.chars().count() > 40 {
-                                    val_str = val_str.chars().take(40).collect();
-                                }
-                                return Err(RuntimeError::AccessFieldsNonInstance {
-                                    value: val_str,
-                                    found: receiver.type_name(),
-                                }
-                                .into());
-                            }
-                        }
-                        _ => {
+                    if let Some(id) = receiver.as_obj() {
+                        if let Some(instance) = self.heap.as_instance(id) {
+                            let val = instance.slots.get(slot as usize).copied().unwrap_or(Value::nil());
+                            self.stack.push(self.surface_absence(val));
+                        } else if let Some(class) = self.heap.as_class(id) {
+                            let val = class.static_slots.get(slot as usize).copied().unwrap_or(Value::nil());
+                            self.stack.push(self.surface_absence(val));
+                        } else {
                             let mut val_str = receiver.to_string(self);
                             if val_str.chars().count() > 40 {
                                 val_str = val_str.chars().take(40).collect();
@@ -1598,6 +1595,16 @@ impl VM {
                             }
                             .into());
                         }
+                    } else {
+                        let mut val_str = receiver.to_string(self);
+                        if val_str.chars().count() > 40 {
+                            val_str = val_str.chars().take(40).collect();
+                        }
+                        return Err(RuntimeError::AccessFieldsNonInstance {
+                            value: val_str,
+                            found: receiver.type_name(),
+                        }
+                        .into());
                     }
                 }
                 Bytecode::SetField(slot) => {
@@ -1606,37 +1613,24 @@ impl VM {
                     if let Some(guard) = self.frames.last().and_then(|frame| frame.foreign_receiver_guard) {
                         self.guard_foreign_layout_access(receiver, guard)?;
                     }
-                    match receiver {
-                        Value::Obj(id) => {
-                            if self.heap.as_instance(id).is_some() {
-                                let instance = self.heap.instance_mut(id);
-                                if (slot as usize) < instance.slots.len() {
-                                    instance.slots[slot as usize] = value_to_assign;
-                                } else {
-                                    return Err(RuntimeError::Internal(format!("Field slot {slot} out of bounds")).into());
-                                }
-                                self.stack.push(value_to_assign);
-                            } else if self.heap.as_class(id).is_some() {
-                                let class = self.heap.class_mut(id);
-                                if (slot as usize) < class.static_slots.len() {
-                                    class.static_slots[slot as usize] = value_to_assign;
-                                } else {
-                                    return Err(RuntimeError::Internal(format!("Static field slot {slot} out of bounds")).into());
-                                }
-                                self.stack.push(value_to_assign);
+                    if let Some(id) = receiver.as_obj() {
+                        if self.heap.as_instance(id).is_some() {
+                            let instance = self.heap.instance_mut(id);
+                            if (slot as usize) < instance.slots.len() {
+                                instance.slots[slot as usize] = value_to_assign;
                             } else {
-                                let mut val_str = receiver.to_string(self);
-                                if val_str.chars().count() > 40 {
-                                    val_str = val_str.chars().take(40).collect();
-                                }
-                                return Err(RuntimeError::AccessFieldsNonInstance {
-                                    value: val_str,
-                                    found: receiver.type_name(),
-                                }
-                                .into());
+                                return Err(RuntimeError::Internal(format!("Field slot {slot} out of bounds")).into());
                             }
-                        }
-                        _ => {
+                            self.stack.push(value_to_assign);
+                        } else if self.heap.as_class(id).is_some() {
+                            let class = self.heap.class_mut(id);
+                            if (slot as usize) < class.static_slots.len() {
+                                class.static_slots[slot as usize] = value_to_assign;
+                            } else {
+                                return Err(RuntimeError::Internal(format!("Static field slot {slot} out of bounds")).into());
+                            }
+                            self.stack.push(value_to_assign);
+                        } else {
                             let mut val_str = receiver.to_string(self);
                             if val_str.chars().count() > 40 {
                                 val_str = val_str.chars().take(40).collect();
@@ -1647,15 +1641,25 @@ impl VM {
                             }
                             .into());
                         }
+                    } else {
+                        let mut val_str = receiver.to_string(self);
+                        if val_str.chars().count() > 40 {
+                            val_str = val_str.chars().take(40).collect();
+                        }
+                        return Err(RuntimeError::AccessFieldsNonInstance {
+                            value: val_str,
+                            found: receiver.type_name(),
+                        }
+                        .into());
                     }
                 }
                 Bytecode::NewInstance => {
                     let class_val = self.stack.pop().ok_or("Stack underflow for NewInstance class")?;
-                    if let Value::Obj(class_id) = class_val {
+                    if let Some(class_id) = class_val.as_obj() {
                         if self.heap.as_class(class_id).is_some() {
                             let field_count = self.heap.class(class_id).field_count;
                             let instance_ref = self.heap.alloc(Object::Instance(crate::heap::InstanceObject::new(class_id, field_count)));
-                            self.stack.push(Value::Obj(instance_ref));
+                            self.stack.push(Value::obj(instance_ref));
                         } else if self.heap.as_instance(class_id).is_some() {
                             // Super-construct (U-INH §3.5): a parent initializer
                             // reached via `super.construct(…)` runs on the child
@@ -1773,7 +1777,7 @@ impl VM {
                     // A bare `return;` (no operand) or a method that produced no
                     // value yields `None`, not the private sentinel
                     // (values-and-absence.md; bare-`return`→`None` pre-authorized).
-                    let return_value = self.stack.pop().unwrap_or(Value::Nil);
+                    let return_value = self.stack.pop().unwrap_or(Value::nil());
                     let return_value = self.surface_absence(return_value);
                     let popped = self.frames.pop().unwrap();
                     // Close any upvalues that still alias this frame's window so
@@ -1816,7 +1820,7 @@ impl VM {
                     // emits the expression, or `Bytecode::Nil` for a bare
                     // `return`); surface bare/absent to `None`, never the
                     // private sentinel — matching `Bytecode::Return`.
-                    let return_value = self.stack.pop().unwrap_or(Value::Nil);
+                    let return_value = self.stack.pop().unwrap_or(Value::nil());
                     let return_value = self.surface_absence(return_value);
 
                     // Close every open upvalue at or above the home frame's
@@ -1838,11 +1842,11 @@ impl VM {
                 Bytecode::Jump(offset) => self.apply_jump_offset(offset),
                 Bytecode::JumpIfFalse(offset) => {
                     let cond = self.pop()?;
-                    match cond {
-                        Value::Bool(true) => {}
-                        Value::Bool(false) => self.apply_jump_offset(offset),
-                        other => {
-                            let found = other.type_name();
+                    match cond.as_bool() {
+                        Some(true) => {}
+                        Some(false) => self.apply_jump_offset(offset),
+                        None => {
+                            let found = cond.type_name();
                             return Err(RuntimeError::Type { expected: "Bool", found }.into());
                         }
                     }
@@ -1859,7 +1863,7 @@ impl VM {
                 Bytecode::Loop(offset) => self.apply_jump_offset(offset),
                 Bytecode::GuardBool(offset) => {
                     let top = *self.stack.last().ok_or(RuntimeError::Internal("Stack underflow for GuardBool".to_string()))?;
-                    let takes_fast_path = matches!(top, Value::Bool(_)) && self.universe.bool_sacred_pristine;
+                    let takes_fast_path = top.as_bool().is_some() && self.universe.bool_sacred_pristine;
                     if !takes_fast_path {
                         self.apply_jump_offset(offset);
                     }
@@ -1871,7 +1875,7 @@ impl VM {
                 }
                 Bytecode::GuardSymbol => {
                     let value = *self.stack.last().ok_or(RuntimeError::Internal("Stack underflow for GuardSymbol".to_string()))?;
-                    if !matches!(value, Value::Symbol(_)) {
+                    if value.symbol_value().is_none() {
                         return Err(RuntimeError::Type {
                             expected: "Symbol product label",
                             found: value.type_name(),
@@ -1881,12 +1885,12 @@ impl VM {
                 }
                 Bytecode::NewArgumentPack => {
                     let id = self.heap.alloc(Object::PackBuilder(Box::new(crate::heap::ArgumentPackBuilderObject::new())));
-                    self.stack.push(Value::Obj(id));
+                    self.stack.push(Value::obj(id));
                 }
                 Bytecode::PackPushPositional => {
                     let builder = self.pop()?;
                     let value = self.pop()?;
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     self.heap.pack_builder_mut(id).push_positional(value);
@@ -1894,7 +1898,7 @@ impl VM {
                 Bytecode::PackReserveStaticLabel(index) => {
                     let builder = self.pop()?;
                     let label = callable.chunk.constants[index as usize].as_symbol().map_err(RuntimeError::Internal)?;
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     self.heap
@@ -1905,10 +1909,10 @@ impl VM {
                 Bytecode::PackReserveComputedLabel => {
                     let builder = self.pop()?;
                     let label = self.pop()?;
-                    let Value::Symbol(label) = label else {
+                    let Some(label) = label.symbol_value() else {
                         return Err(RuntimeError::ComputedLabelNotSymbol { found: label.type_name() }.into());
                     };
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     self.heap
@@ -1919,7 +1923,7 @@ impl VM {
                 Bytecode::PackFillReservedLabel => {
                     let builder = self.pop()?;
                     let value = self.pop()?;
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     self.heap
@@ -1931,14 +1935,20 @@ impl VM {
                     let complete = matches!(opcode, Bytecode::PackExpandComplete);
                     let builder = self.pop()?;
                     let operand = self.pop()?;
-                    let Value::Obj(builder) = builder else {
+                    let Some(builder) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     let entries = if complete {
-                        match operand {
-                            Value::Unit => Vec::new(),
-                            Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => self.snapshot_labeled_lane(operand)?,
-                            value => return Err(RuntimeError::InvalidStarStarStarOperand { found: value.type_name() }.into()),
+                        if operand.is_unit() {
+                            Vec::new()
+                        } else if let Some(id) = operand.as_obj() {
+                            if matches!(self.heap.get(id), Object::Tuple(_)) {
+                                self.snapshot_labeled_lane(operand)?
+                            } else {
+                                return Err(RuntimeError::InvalidStarStarStarOperand { found: operand.type_name() }.into());
+                            }
+                        } else {
+                            return Err(RuntimeError::InvalidStarStarStarOperand { found: operand.type_name() }.into());
                         }
                     } else {
                         self.snapshot_labeled_lane(operand)?
@@ -1950,7 +1960,7 @@ impl VM {
                             .map_err(|error| self.pack_builder_error(error))?;
                     }
                     if complete
-                        && let Value::Obj(id) = operand
+                        && let Some(id) = operand.as_obj()
                         && matches!(self.heap.get(id), Object::Tuple(_))
                     {
                         let values = self.heap.tuple(id).positionals().to_vec();
@@ -1972,7 +1982,7 @@ impl VM {
                 }
                 Bytecode::FinishTuplePack => {
                     let builder = self.pop()?;
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     if self.heap.pack_builder(id).has_pending() {
@@ -1991,7 +2001,7 @@ impl VM {
                         .len()
                         .checked_sub(1)
                         .ok_or(RuntimeError::Internal("missing dynamic send receiver".into()))?;
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     if self.heap.pack_builder(id).has_pending() {
@@ -2028,7 +2038,7 @@ impl VM {
                         .checked_sub(1)
                         .ok_or(RuntimeError::Internal("missing dynamic super receiver".into()))?;
                     let receiver = self.stack[receiver_idx];
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     if self.heap.pack_builder(id).has_pending() {
@@ -2088,7 +2098,7 @@ impl VM {
                     for _ in 0..labeled {
                         let value = self.pop()?;
                         let label = self.pop()?;
-                        let Value::Symbol(label) = label else {
+                        let Some(label) = label.symbol_value() else {
                             return Err(RuntimeError::Type {
                                 expected: "Symbol tuple label",
                                 found: label.type_name(),
@@ -2112,7 +2122,7 @@ impl VM {
                     for _ in 0..fields {
                         let value = self.pop()?;
                         let label = self.pop()?;
-                        let Value::Symbol(label) = label else {
+                        let Some(label) = label.symbol_value() else {
                             return Err(RuntimeError::Type {
                                 expected: "Symbol record label",
                                 found: label.type_name(),
@@ -2127,20 +2137,20 @@ impl VM {
                 }
                 Bytecode::NewRecordLiteralBuilder => {
                     let id = self.heap.alloc_record_literal_builder();
-                    self.stack.push(Value::Obj(id));
+                    self.stack.push(Value::obj(id));
                 }
                 Bytecode::RecordLiteralAppend => {
                     let value = self.pop()?;
                     let label = self.pop()?;
                     let builder = self.pop()?;
-                    let Value::Symbol(label) = label else {
+                    let Some(label) = label.symbol_value() else {
                         return Err(RuntimeError::Type {
                             expected: "Symbol Record label",
                             found: label.type_name(),
                         }
                         .into());
                     };
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
                     };
                     if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
@@ -2151,7 +2161,7 @@ impl VM {
                 Bytecode::RecordLiteralExpandLabels => {
                     let source = self.pop()?;
                     let builder = self.pop()?;
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
                     };
                     if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
@@ -2163,7 +2173,7 @@ impl VM {
                 }
                 Bytecode::FinishRecordLiteral => {
                     let builder = self.pop()?;
-                    let Value::Obj(id) = builder else {
+                    let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
                     };
                     if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
@@ -2173,7 +2183,7 @@ impl VM {
                     let product = crate::product::finish_record(self, entries).map_err(|error| crate::product::runtime_error(self, "Record field", error))?;
                     self.stack.push(product);
                 }
-                Bytecode::BeginMapLiteral => self.stack.push(Value::Obj(self.heap.alloc_map())),
+                Bytecode::BeginMapLiteral => self.stack.push(Value::obj(self.heap.alloc_map())),
                 Bytecode::MapLiteralInsertUnique => {
                     let value = self.pop()?;
                     let key = self.pop()?;
@@ -2181,7 +2191,7 @@ impl VM {
                         .stack
                         .last()
                         .ok_or(RuntimeError::Internal("Stack underflow for MapLiteralInsertUnique".to_string()))?;
-                    let Value::Obj(id) = map else {
+                    let Some(id) = map.as_obj() else {
                         return Err(RuntimeError::Internal("Map literal builder is not an object".to_string()).into());
                     };
                     if !matches!(self.heap.get(id), crate::heap::Object::Map(_)) {
@@ -2195,7 +2205,7 @@ impl VM {
                         .stack
                         .last()
                         .ok_or(RuntimeError::Internal("Stack underflow for MapLiteralExpandLabels".into()))?;
-                    let Value::Obj(id) = map else {
+                    let Some(id) = map.as_obj() else {
                         return Err(RuntimeError::Internal("Map literal builder is not an object".into()).into());
                     };
                     if !matches!(self.heap.get(id), Object::Map(_)) {
@@ -2204,7 +2214,7 @@ impl VM {
                     let entries = self.snapshot_labeled_lane(source)?;
                     let count = entries.len();
                     for (label, value) in entries.into_iter().rev() {
-                        self.stack.push(Value::Symbol(label));
+                        self.stack.push(Value::symbol(label));
                         self.stack.push(value);
                     }
                     for _ in 0..count {
@@ -2214,11 +2224,11 @@ impl VM {
                     }
                 }
                 Bytecode::FinishMapLiteral => {}
-                Bytecode::BeginListLiteral => self.stack.push(Value::Obj(self.heap.alloc_list(Vec::new()))),
+                Bytecode::BeginListLiteral => self.stack.push(Value::obj(self.heap.alloc_list(Vec::new()))),
                 Bytecode::ListLiteralAppend => {
                     let value = self.pop()?;
                     let list = self.pop()?;
-                    let Value::Obj(id) = list else {
+                    let Some(id) = list.as_obj() else {
                         return Err(RuntimeError::Internal("List literal builder is not an object".to_string()).into());
                     };
                     if !matches!(self.heap.get(id), Object::List(_)) {
@@ -2232,21 +2242,21 @@ impl VM {
                         .stack
                         .last()
                         .ok_or(RuntimeError::Internal("Stack underflow for FinishListLiteral".to_string()))?;
-                    let Value::Obj(id) = list else {
+                    let Some(id) = list.as_obj() else {
                         return Err(RuntimeError::Internal("List literal builder is not an object".to_string()).into());
                     };
                     if !matches!(self.heap.get(id), Object::List(_)) {
                         return Err(RuntimeError::Internal("List literal builder is not a List".to_string()).into());
                     }
                 }
-                Bytecode::BeginSetLiteral => self.stack.push(Value::Obj(self.heap.alloc_set())),
+                Bytecode::BeginSetLiteral => self.stack.push(Value::obj(self.heap.alloc_set())),
                 Bytecode::SetLiteralAdd => {
                     let value = self.pop()?;
                     let set = *self
                         .stack
                         .last()
                         .ok_or(RuntimeError::Internal("Stack underflow for SetLiteralAdd".to_string()))?;
-                    let Value::Obj(id) = set else {
+                    let Some(id) = set.as_obj() else {
                         return Err(RuntimeError::Internal("Set literal builder is not an object".to_string()).into());
                     };
                     if !matches!(self.heap.get(id), crate::heap::Object::Set(_)) {
@@ -2263,7 +2273,7 @@ impl VM {
                     let upper = if has_upper { Some(self.pop()?) } else { None };
                     let lower = if has_lower { Some(self.pop()?) } else { None };
                     let range = self.heap.alloc_range(lower, upper, upper_inclusive);
-                    self.stack.push(Value::Obj(range));
+                    self.stack.push(Value::obj(range));
                 }
                 Bytecode::BuildList(count) => {
                     let mut elements = Vec::with_capacity(count as usize);
@@ -2272,7 +2282,7 @@ impl VM {
                     }
                     elements.reverse();
                     let list = self.heap.alloc_list(elements);
-                    self.stack.push(Value::Obj(list));
+                    self.stack.push(Value::obj(list));
                 }
             }
             #[cfg(feature = "vm-trace")]

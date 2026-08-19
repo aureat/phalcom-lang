@@ -169,6 +169,9 @@ pub enum InterfaceError {
     #[error("Expose outside package: `expose` is only valid in package.ph")]
     ExposeOutsidePackage(SourceRange),
 
+    #[error("Builtin interface collision in module {module}: '{name}'")]
+    BuiltinInterfaceCollision { module: String, name: String },
+
     #[error("Import outside preamble: static imports and exposures must appear in the module dependency preamble")]
     ImportOutsidePreamble(SourceRange),
 

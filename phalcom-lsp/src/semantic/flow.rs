@@ -365,6 +365,23 @@ fn analyze_surface_for_callable(
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+struct BlockEffectKey {
+    start: usize,
+    end: usize,
+    bindings: Vec<(BindingId, ValueShape)>,
+}
+
+impl BlockEffectKey {
+    fn new(block: &BlockExpr, state: &FlowState) -> Self {
+        Self {
+            start: block.range.start,
+            end: block.range.end,
+            bindings: state.bindings.iter().map(|(binding, value)| (*binding, value.shape.clone())).collect(),
+        }
+    }
+}
+
 struct FlowAnalyzer<'ctx> {
     surface: &'ctx ModuleSurface,
     scopes: &'ctx ScopeGraph,
@@ -386,7 +403,7 @@ struct FlowAnalyzer<'ctx> {
     invoked_parameters: BTreeSet<usize>,
     active_parameter_bindings: BTreeMap<BindingId, usize>,
     active_target: Option<CallableId>,
-    block_effects: BTreeMap<(usize, usize, Vec<(BindingId, ValueShape)>), BlockEffects>,
+    block_effects: BTreeMap<BlockEffectKey, BlockEffects>,
     pending_returns: Vec<ReturnEvidence>,
     pending_writes: BTreeMap<BindingId, InferredValue>,
     summaries: Vec<(CallableSummary, bool)>,
@@ -1352,11 +1369,7 @@ impl FlowAnalyzer<'_> {
     }
 
     fn ensure_block_effect(&mut self, block: &BlockExpr, state: &FlowState, current_class: Option<&ClassId>, side: Option<DispatchSide>) -> BlockEffects {
-        let key = (
-            block.range.start,
-            block.range.end,
-            state.bindings.iter().map(|(binding, value)| (*binding, value.shape.clone())).collect(),
-        );
+        let key = BlockEffectKey::new(block, state);
         if let Some(effect) = self.block_effects.get(&key) {
             return effect.clone();
         }

@@ -1,0 +1,5 @@
+[project]
+name = "cycle_ab"
+namespace = "cycle_ab"
+version = "0.1.0"
+entry = "cycle_ab.a"

@@ -1,1 +1,5 @@
-@!documentation("Numeric tower: Number, Int, Float.")
+class Number {}
+
+class Int is Number {}
+
+class Float is Number {}

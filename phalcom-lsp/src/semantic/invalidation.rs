@@ -88,8 +88,6 @@ pub(crate) fn classify_source_delta(module: &ModuleId, old: Option<&FileSourceSn
         } else {
             SourceChangeKind::DeclarationSurface
         }
-    } else if module.as_str() == super::ids::CORE_MODULE_URI {
-        SourceChangeKind::BodyOnly
     } else {
         SourceChangeKind::BodyOnly
     };
@@ -256,6 +254,23 @@ pub struct InvalidationQueue {
     pending: BTreeSet<ModuleId>,
 }
 
+impl InvalidationQueue {
+    /// Adds one changed or dependent module.
+    pub fn push(&mut self, module: ModuleId) {
+        self.pending.insert(module);
+    }
+
+    /// Drains queued modules in module-id order.
+    pub fn drain(&mut self) -> impl Iterator<Item = ModuleId> + '_ {
+        std::mem::take(&mut self.pending).into_iter()
+    }
+
+    /// Returns whether no module is pending.
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,22 +359,5 @@ mod tests {
             classify_source_change(&core, Some(&core_old), Some(&core_declaration)),
             SourceChangeKind::CoreSurface
         );
-    }
-}
-
-impl InvalidationQueue {
-    /// Adds one changed or dependent module.
-    pub fn push(&mut self, module: ModuleId) {
-        self.pending.insert(module);
-    }
-
-    /// Drains queued modules in module-id order.
-    pub fn drain(&mut self) -> impl Iterator<Item = ModuleId> + '_ {
-        std::mem::take(&mut self.pending).into_iter()
-    }
-
-    /// Returns whether no module is pending.
-    pub fn is_empty(&self) -> bool {
-        self.pending.is_empty()
     }
 }

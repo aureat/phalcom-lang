@@ -1,6 +1,8 @@
 //! `phalcom-modules` — logical module system, project manifests, source identity, and path visibility for Phalcom.
 
+pub mod artifact;
 pub mod builtin;
+pub mod builtin_interface;
 pub mod declaration;
 pub mod dunder;
 pub mod error;
@@ -10,13 +12,15 @@ pub mod interface;
 pub mod linker;
 pub mod manifest;
 pub mod metadata;
+pub mod package_info;
 pub mod project;
 pub mod resolver;
 pub mod source;
 pub mod stabilization;
 
 // Re-export common types
-pub use builtin::BuiltinProjectSourceProvider;
+pub use artifact::{PackageArtifactProvider, ResolvedPackageArtifact, ResolvedPackageId as PublishedPackageId};
+pub use builtin::{BuiltinNodeSpec, BuiltinProjectSourceProvider, UNIVERSE_NODES};
 pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
 pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
 pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
@@ -36,8 +40,11 @@ pub use linker::{
     GlobalBindingId, ImportBindingId, LinkError, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleLinker, SymbolId, dependency_phase,
     module_path, resolution_key,
 };
-pub use manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest};
+pub use manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest, ValidatedProjectManifest};
 pub use metadata::{MetadataTarget, ModuleMetadata, ModuleMetadataAttribute};
+pub use package_info::{
+    PackageArtifactIdentity, PackageAuthorDescriptor, PackageInfoDescriptor, PackageOrigin, PackageRequirementDescriptor, ResolvedProjectDependencyDescriptor,
+};
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
 pub use resolver::ModuleResolver;
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, SourceProvider, SourceUnit};

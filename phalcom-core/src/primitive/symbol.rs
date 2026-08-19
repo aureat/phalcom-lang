@@ -16,7 +16,7 @@ use crate::vm::VM;
     effects = pure
 )]
 pub fn symbol_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let symbol = *expect_value!(receiver, Symbol);
+    let symbol = expect_value!(receiver, Symbol);
     let text = symbol.to_string(vm);
     Ok(vm.alloc_string_value(text))
 }
@@ -53,15 +53,18 @@ pub fn symbol_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
         }
         .into());
     };
-    match arg {
-        Value::Symbol(sym) => Ok(Value::Symbol(*sym)),
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => {
-            let text = vm.heap.string(*id).value();
-            Ok(Value::Symbol(vm.get_or_intern(&text)))
+    if let Some(sym) = arg.symbol_value() {
+        Ok(Value::symbol(sym))
+    } else if let Some(id) = arg.as_obj() {
+        if vm.heap.as_string(id).is_some() {
+            let text = vm.heap.string(id).value();
+            Ok(Value::symbol(vm.get_or_intern(&text)))
+        } else {
+            let text = arg.to_string(vm);
+            Ok(Value::symbol(vm.get_or_intern(&text)))
         }
-        other => {
-            let text = other.to_string(vm);
-            Ok(Value::Symbol(vm.get_or_intern(&text)))
-        }
+    } else {
+        let text = arg.to_string(vm);
+        Ok(Value::symbol(vm.get_or_intern(&text)))
     }
 }

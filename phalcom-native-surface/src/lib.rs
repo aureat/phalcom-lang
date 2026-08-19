@@ -193,6 +193,66 @@ pub const NATIVE_CLASSES: &[NativeClass] = &[
         name: "Resource",
         superclass: Some("Object"),
     },
+    NativeClass {
+        name: "Package",
+        superclass: Some("Module"),
+    },
+    NativeClass {
+        name: "Project",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "ProjectManifest",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "PackageInfo",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "PackageAuthor",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "PackageRequirement",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "ResolvedProjectDependency",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "ModuleDependency",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "ExportTable",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Export",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "ChildModuleTable",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Uri",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "ModuleIdentity",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "PackageIdentity",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "ProjectIdentity",
+        superclass: Some("Object"),
+    },
 ];
 
 macro_rules! native {
@@ -345,8 +405,6 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("System", "nextScheduled", Getter, Class, Public),
     native!("System", "gc", Getter, Class, Public),
     native!("System", "_$write(_)", Method, Class, Internal),
-    native!("Module", "new()", Method, Class, Public),
-    native!("Module", "doesNotUnderstand(_)", Method, Instance, Public),
     native!("List", "new()", Method, Class, Public),
     native!("List", "_$length", Getter, Instance, Internal),
     native!("List", "_$at(_)", Method, Instance, Internal),
@@ -412,6 +470,126 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Resource", "_$isClosed", Getter, Instance, Internal),
     native!("System", "_$leakReport", Getter, Class, Internal),
     native!("System", "_$strictResources(_)", Method, Class, Internal),
+    // Module
+    native!("Module", "new()", Method, Class, Public),
+    native!("Module", "doesNotUnderstand(_)", Method, Instance, Public),
+    native!("Module", "name", Getter, Instance, Public),
+    native!("Module", "namespace", Getter, Instance, Public),
+    native!("Module", "package", Getter, Instance, Public),
+    native!("Module", "rootPackage", Getter, Instance, Public),
+    native!("Module", "packageInfo", Getter, Instance, Public),
+    native!("Module", "exports", Getter, Instance, Public),
+    native!("Module", "metadata", Getter, Instance, Public),
+    native!("Module", "dependencies", Getter, Instance, Public),
+    native!("Module", "uri", Getter, Instance, Public),
+    native!("Module", "identity", Getter, Instance, Public),
+    native!("Module", "__exports__", Getter, Instance, Public),
+    native!("Module", "__export__(_)", Method, Instance, Public),
+    native!("Module", "__understands__(_)", Method, Instance, Public),
+    native!("Module", "__metadata__", Getter, Instance, Public),
+    native!("Module", "__dependencies__", Getter, Instance, Public),
+    native!("Module", "__uri__", Getter, Instance, Public),
+    native!("Module", "__name__", Getter, Instance, Public),
+    native!("Module", "__id__", Getter, Instance, Public),
+    native!("Module", "__path__", Getter, Instance, Public),
+    native!("Module", "toString", Getter, Instance, Public),
+    // Package
+    native!("Package", "package", Getter, Instance, Public),
+    native!("Package", "parentPackage", Getter, Instance, Public),
+    native!("Package", "rootPackage", Getter, Instance, Public),
+    native!("Package", "packageInfo", Getter, Instance, Public),
+    native!("Package", "children", Getter, Instance, Public),
+    native!("Package", "isRoot", Getter, Instance, Public),
+    native!("Package", "__parent__", Getter, Instance, Public),
+    native!("Package", "__children__", Getter, Instance, Public),
+    native!("Package", "__version__", Getter, Instance, Public),
+    native!("Package", "__namespace__", Getter, Instance, Public),
+    native!("Package", "toString", Getter, Instance, Public),
+    // Project
+    native!("Project", "name", Getter, Instance, Public),
+    native!("Project", "namespace", Getter, Instance, Public),
+    native!("Project", "manifest", Getter, Instance, Public),
+    native!("Project", "rootPackage", Getter, Instance, Public),
+    native!("Project", "dependencies", Getter, Instance, Public),
+    native!("Project", "developmentEntry", Getter, Instance, Public),
+    native!("Project", "identity", Getter, Instance, Public),
+    native!("Project", "toString", Getter, Instance, Public),
+    // ProjectManifest
+    native!("ProjectManifest", "name", Getter, Instance, Public),
+    native!("ProjectManifest", "namespace", Getter, Instance, Public),
+    native!("ProjectManifest", "version", Getter, Instance, Public),
+    native!("ProjectManifest", "authors", Getter, Instance, Public),
+    native!("ProjectManifest", "description", Getter, Instance, Public),
+    native!("ProjectManifest", "license", Getter, Instance, Public),
+    native!("ProjectManifest", "homepage", Getter, Instance, Public),
+    native!("ProjectManifest", "repository", Getter, Instance, Public),
+    native!("ProjectManifest", "source", Getter, Instance, Public),
+    native!("ProjectManifest", "entry", Getter, Instance, Public),
+    native!("ProjectManifest", "defaultEntry", Getter, Instance, Public),
+    native!("ProjectManifest", "dependencyDeclarations", Getter, Instance, Public),
+    native!("ProjectManifest", "dependencies", Getter, Instance, Public),
+    native!("ProjectManifest", "toString", Getter, Instance, Public),
+    // PackageInfo
+    native!("PackageInfo", "name", Getter, Instance, Public),
+    native!("PackageInfo", "namespace", Getter, Instance, Public),
+    native!("PackageInfo", "version", Getter, Instance, Public),
+    native!("PackageInfo", "authors", Getter, Instance, Public),
+    native!("PackageInfo", "description", Getter, Instance, Public),
+    native!("PackageInfo", "license", Getter, Instance, Public),
+    native!("PackageInfo", "homepage", Getter, Instance, Public),
+    native!("PackageInfo", "repository", Getter, Instance, Public),
+    native!("PackageInfo", "requirements", Getter, Instance, Public),
+    native!("PackageInfo", "defaultEntry", Getter, Instance, Public),
+    native!("PackageInfo", "identity", Getter, Instance, Public),
+    native!("PackageInfo", "toString", Getter, Instance, Public),
+    // PackageAuthor
+    native!("PackageAuthor", "name", Getter, Instance, Public),
+    native!("PackageAuthor", "email", Getter, Instance, Public),
+    native!("PackageAuthor", "url", Getter, Instance, Public),
+    // PackageRequirement
+    native!("PackageRequirement", "alias", Getter, Instance, Public),
+    native!("PackageRequirement", "package", Getter, Instance, Public),
+    native!("PackageRequirement", "versionRequirement", Getter, Instance, Public),
+    native!("PackageRequirement", "optional", Getter, Instance, Public),
+    // ResolvedProjectDependency
+    native!("ResolvedProjectDependency", "alias", Getter, Instance, Public),
+    native!("ResolvedProjectDependency", "requirement", Getter, Instance, Public),
+    native!("ResolvedProjectDependency", "packageInfo", Getter, Instance, Public),
+    native!("ResolvedProjectDependency", "rootPackage", Getter, Instance, Public),
+    native!("ResolvedProjectDependency", "origin", Getter, Instance, Public),
+    // ModuleDependency
+    native!("ModuleDependency", "module", Getter, Instance, Public),
+    native!("ModuleDependency", "phase", Getter, Instance, Public),
+    native!("ModuleDependency", "reason", Getter, Instance, Public),
+    // ExportTable
+    native!("ExportTable", "names", Getter, Instance, Public),
+    native!("ExportTable", "keys", Getter, Instance, Public),
+    native!("ExportTable", "size", Getter, Instance, Public),
+    native!("ExportTable", "contains(_)", Method, Instance, Public),
+    native!("ExportTable", "descriptor(_)", Method, Instance, Public),
+    native!("ExportTable", "get(_)", Method, Instance, Public),
+    // Export
+    native!("Export", "name", Getter, Instance, Public),
+    native!("Export", "kind", Getter, Instance, Public),
+    native!("Export", "module", Getter, Instance, Public),
+    native!("Export", "value", Getter, Instance, Public),
+    native!("Export", "isModule", Getter, Instance, Public),
+    native!("Export", "isBinding", Getter, Instance, Public),
+    // ChildModuleTable
+    native!("ChildModuleTable", "names", Getter, Instance, Public),
+    native!("ChildModuleTable", "size", Getter, Instance, Public),
+    native!("ChildModuleTable", "contains(_)", Method, Instance, Public),
+    native!("ChildModuleTable", "get(_)", Method, Instance, Public),
+    // Uri
+    native!("Uri", "toString", Getter, Instance, Public),
+    native!("Uri", "==(_)", Method, Instance, Public),
+    // ModuleIdentity
+    native!("ModuleIdentity", "uri", Getter, Instance, Public),
+    native!("ModuleIdentity", "toString", Getter, Instance, Public),
+    // PackageIdentity
+    native!("PackageIdentity", "toString", Getter, Instance, Public),
+    // ProjectIdentity
+    native!("ProjectIdentity", "toString", Getter, Instance, Public),
 ];
 
 #[cfg(test)]

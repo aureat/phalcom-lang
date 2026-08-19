@@ -2,7 +2,7 @@
 
 use crate::error::ProjectError;
 use crate::identity::ModuleComponent;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -11,7 +11,7 @@ fn default_source_root() -> PathBuf {
 }
 
 /// Raw parsed `project.toml` document structure.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectManifest {
     pub project: ProjectSection,
@@ -19,16 +19,21 @@ pub struct ProjectManifest {
     pub dependencies: BTreeMap<String, toml::Value>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectSection {
     pub name: String,
     pub version: Option<String>,
     pub authors: Option<Vec<String>>,
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
     pub namespace: Option<String>,
     #[serde(default = "default_source_root")]
     pub source: PathBuf,
     pub entry: Option<String>,
+    pub default_entry: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -51,13 +56,20 @@ pub enum DependencySpec {
 }
 
 /// Semantically validated project manifest representation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValidatedProjectManifest {
     pub name: String,
     pub raw_name: String,
     pub namespace: ModuleComponent,
+    pub version: Option<String>,
+    pub authors: Vec<String>,
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
     pub source: PathBuf,
     pub entry: Option<String>,
+    pub default_entry: Option<String>,
     pub dependencies: BTreeMap<ModuleComponent, (String, DependencySpec)>, // snake_case component -> (original kebab alias, spec)
 }
 
@@ -168,12 +180,35 @@ impl ProjectManifest {
             }
         }
 
+        if let Some(default_entry) = &self.project.default_entry {
+            if default_entry.trim().is_empty() {
+                return Err(ProjectError::InvalidEntry(
+                    default_entry.clone(),
+                    "default entry path cannot be empty".to_string(),
+                ));
+            }
+            let parts: Vec<&str> = default_entry.split('.').collect();
+            if parts.is_empty() || parts[0] != namespace.as_str() {
+                return Err(ProjectError::InvalidEntry(
+                    default_entry.clone(),
+                    format!("default entry must be rooted at self namespace '{}'", namespace.as_str()),
+                ));
+            }
+        }
+
         Ok(ValidatedProjectManifest {
             name: raw_name.clone(),
             raw_name,
             namespace,
+            version: self.project.version.clone(),
+            authors: self.project.authors.clone().unwrap_or_default(),
+            description: self.project.description.clone(),
+            license: self.project.license.clone(),
+            homepage: self.project.homepage.clone(),
+            repository: self.project.repository.clone(),
             source: self.project.source.clone(),
             entry: self.project.entry.clone(),
+            default_entry: self.project.default_entry.clone(),
             dependencies: validated_deps,
         })
     }

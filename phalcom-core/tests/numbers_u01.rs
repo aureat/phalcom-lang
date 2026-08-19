@@ -17,8 +17,8 @@ fn test_number_classes_and_abstract_instantiation() {
     assert_eq!(vm.heap.class(c.float_class).superclass, Some(c.number_class), "Float superclass must be Number");
 
     // Value::class return values
-    let int_val = Value::Int(42);
-    let float_val = Value::Float(std::f64::consts::PI);
+    let int_val = Value::int(42);
+    let float_val = Value::float(std::f64::consts::PI);
     assert_eq!(int_val.class(&vm), c.int_class);
     assert_eq!(float_val.class(&vm), c.float_class);
 
@@ -28,9 +28,9 @@ fn test_number_classes_and_abstract_instantiation() {
     assert_eq!(large_val.class(&vm), c.int_class);
 
     // Instantiation rejection for abstract Number class at both constructor arities.
-    for (signature, args) in [("new()", &[][..]), ("new(_)", &[Value::Int(1)][..])] {
+    for (signature, args) in [("new()", &[][..]), ("new(_)", &[Value::int(1)][..])] {
         let new_sym = vm.get_or_intern(signature);
-        let res = vm.send_dynamic(Value::Obj(c.number_class), new_sym, args);
+        let res = vm.send_dynamic(Value::obj(c.number_class), new_sym, args);
         assert!(res.is_err(), "Number.{signature} must raise an error");
         let err = res.unwrap_err();
         let err_str = err.to_string();
@@ -41,10 +41,10 @@ fn test_number_classes_and_abstract_instantiation() {
     }
 
     let new_one = vm.get_or_intern("new(_)");
-    assert_eq!(vm.send_dynamic(Value::Obj(c.int_class), new_one, &[Value::Int(1)]).unwrap(), Value::Int(1));
+    assert_eq!(vm.send_dynamic(Value::obj(c.int_class), new_one, &[Value::int(1)]).unwrap(), Value::int(1));
     assert_eq!(
-        vm.send_dynamic(Value::Obj(c.float_class), new_one, &[Value::Int(1)]).unwrap(),
-        Value::Float(1.0)
+        vm.send_dynamic(Value::obj(c.float_class), new_one, &[Value::int(1)]).unwrap(),
+        Value::float(1.0)
     );
 }
 
@@ -52,23 +52,22 @@ fn test_number_classes_and_abstract_instantiation() {
 fn test_large_int_normalization_and_gc() {
     let mut vm = VM::new();
 
-    // Small BigInt -> Value::Int
+    // Small BigInt -> Value::int
     let small_big = BigInt::from(100i64);
     let norm_small = normalize_bigint(small_big, &mut vm.heap);
-    assert_eq!(norm_small, Value::Int(100));
+    assert_eq!(norm_small, Value::int(100));
 
     // Large BigInt -> Object::LargeInt
     let huge_big: BigInt = BigInt::from(i64::MAX) + 1;
     let norm_huge = normalize_bigint(huge_big.clone(), &mut vm.heap);
-    match norm_huge {
-        Value::Obj(id) => {
-            let heap_obj = vm.heap.get(id);
-            match heap_obj {
-                Object::LargeInt(val) => assert_eq!(val, &huge_big),
-                _ => panic!("expected Object::LargeInt"),
-            }
+    if let Some(id) = norm_huge.as_obj() {
+        let heap_obj = vm.heap.get(id);
+        match heap_obj {
+            Object::LargeInt(val) => assert_eq!(val, &huge_big),
+            _ => panic!("expected Object::LargeInt"),
         }
-        _ => panic!("expected Value::Obj for huge BigInt"),
+    } else {
+        panic!("expected Value::obj for huge BigInt");
     }
 
     // Force GC, ensure LargeInt is preserved if rooted
@@ -76,37 +75,35 @@ fn test_large_int_normalization_and_gc() {
     vm.force_gc();
     vm.pop_root_for_test();
 
-    match norm_huge {
-        Value::Obj(id) => {
-            let heap_obj = vm.heap.get(id);
-            match heap_obj {
-                Object::LargeInt(val) => assert_eq!(val, &huge_big),
-                _ => panic!("expected Object::LargeInt to survive GC"),
-            }
+    if let Some(id) = norm_huge.as_obj() {
+        let heap_obj = vm.heap.get(id);
+        match heap_obj {
+            Object::LargeInt(val) => assert_eq!(val, &huge_big),
+            _ => panic!("expected Object::LargeInt to survive GC"),
         }
-        _ => panic!("expected Value::Obj"),
+    } else {
+        panic!("expected Value::obj");
     }
 }
 
 #[test]
 fn test_negated_i64_min_overflow() {
     let mut vm = VM::new();
-    let min_val = Value::Int(i64::MIN);
+    let min_val = Value::int(i64::MIN);
     let neg_sym = vm.get_or_intern("negated()");
     let neg_res = vm.send_dynamic(min_val, neg_sym, &[]).unwrap();
 
     // -i64::MIN overflows i64 and becomes a LargeInt
-    match neg_res {
-        Value::Obj(id) => {
-            let heap_obj = vm.heap.get(id);
-            match heap_obj {
-                Object::LargeInt(val) => {
-                    let expected = -BigInt::from(i64::MIN);
-                    assert_eq!(val, &expected);
-                }
-                _ => panic!("expected Object::LargeInt for -i64::MIN"),
+    if let Some(id) = neg_res.as_obj() {
+        let heap_obj = vm.heap.get(id);
+        match heap_obj {
+            Object::LargeInt(val) => {
+                let expected = -BigInt::from(i64::MIN);
+                assert_eq!(val, &expected);
             }
+            _ => panic!("expected Object::LargeInt for -i64::MIN"),
         }
-        _ => panic!("expected Value::Obj for -i64::MIN"),
+    } else {
+        panic!("expected Value::obj for -i64::MIN");
     }
 }

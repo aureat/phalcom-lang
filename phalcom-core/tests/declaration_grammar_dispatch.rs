@@ -12,7 +12,7 @@ use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 
 fn native_stub(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Unit)
+    Ok(Value::unit())
 }
 
 fn run_source(src: &str) -> Result<(), String> {
@@ -81,9 +81,7 @@ fn native_rest_method_installs_during_method_definition() {
         .iter()
         .copied()
         .find_map(|constant| {
-            let Value::Obj(id) = constant else {
-                return None;
-            };
+            let id = constant.as_obj()?;
             (matches!(vm.heap.get(id), Object::Method(_)) && vm.resolve_symbol(vm.heap.method(id).selector()) == "target()").then_some(id)
         })
         .expect("compiled class should carry target method constant");
@@ -105,9 +103,9 @@ fn reflective_send_uses_rest_family_fallback() {
     let receiver = vm.heap.module(main).get(vm.interner.intern("c")).expect("receiver should exist");
     let selector = vm.get_or_intern("sum(_,_)");
     let result = vm
-        .send_dynamic(receiver, selector, &[Value::Int(1), Value::Int(2)])
+        .send_dynamic(receiver, selector, &[Value::int(1), Value::int(2)])
         .expect("reflective rest send should resolve");
-    assert_eq!(result, Value::Int(2));
+    assert_eq!(result, Value::int(2));
 }
 
 #[test]
@@ -167,7 +165,7 @@ let result = c[10]
         "subscript getter and setter must not trigger duplicate selector warning/error: {:?}",
         res.err()
     );
-    assert_eq!(res.unwrap(), Value::Int(42));
+    assert_eq!(res.unwrap(), Value::int(42));
 }
 
 #[test]
@@ -245,10 +243,10 @@ let r1 = calc.add(10, to: 20)
 let r2 = calc.compute(multiplier: 3, offset: 5)
 "#;
     let res1 = eval_source(src, "r1");
-    assert_eq!(res1.unwrap(), Value::Int(30));
+    assert_eq!(res1.unwrap(), Value::int(30));
 
     let res2 = eval_source(src, "r2");
-    assert_eq!(res2.unwrap(), Value::Int(35));
+    assert_eq!(res2.unwrap(), Value::int(35));
 }
 
 #[test]
@@ -267,7 +265,7 @@ b.val = 99
 let r = b.val
 "#;
     let res = eval_source(src, "r");
-    assert_eq!(res.unwrap(), Value::Int(99));
+    assert_eq!(res.unwrap(), Value::int(99));
 }
 
 #[test]
@@ -292,7 +290,7 @@ s[100] = 777
 let r = s[100]
 "#;
     let res = eval_source(src, "r");
-    assert_eq!(res.unwrap(), Value::Int(777));
+    assert_eq!(res.unwrap(), Value::int(777));
 }
 
 // --- Access-control coverage ---
@@ -303,7 +301,7 @@ fn private_member_allows_defining_class_and_rejects_external_call() {
         "class Vault {\n  @private\n  secret { 42 }\n  reveal { secret }\n}\nlet result = Vault.new().reveal\n",
         "result",
     );
-    assert_eq!(ok.unwrap(), Value::Int(42));
+    assert_eq!(ok.unwrap(), Value::int(42));
 
     let err = run_source("class Vault {\n  @private\n  secret { 42 }\n}\nVault.new().secret\n").unwrap_err();
     assert!(err.contains("member.private_access"), "unexpected error: {err}");
@@ -315,7 +313,7 @@ fn protected_member_allows_subclass_and_rejects_external_call() {
         "class Base {\n  @protected\n  secret { 42 }\n}\nclass Child is Base {\n  reveal { secret }\n}\nlet result = Child.new().reveal\n",
         "result",
     );
-    assert_eq!(ok.unwrap(), Value::Int(42));
+    assert_eq!(ok.unwrap(), Value::int(42));
 
     let err = run_source("class Base {\n  @protected\n  secret { 42 }\n}\nBase.new().secret\n").unwrap_err();
     assert!(err.contains("member.protected_access"), "unexpected error: {err}");

@@ -25,16 +25,18 @@ pub type LegacyPrimitiveFn = fn(_vm: &mut VM, _receiver: &Value, _args: &[Value]
 
 /// A compact, non-borrowing view of the current argument window.
 ///
-/// The view owns no values and never borrows `VM::stack`. `selector` is present
-/// for shape-aware rest calls; exact legacy calls use the positional fast path.
-/// Accessors borrow the VM only for the duration of each read, so a primitive
-/// can safely keep the descriptor while mutating the VM.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `labels` is always pre-decoded: it is populated at the call site from the
+/// already-interned selector constituents, so the Family hot path never has to
+/// call `decode_selector()` to recover them.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArgumentView {
     receiver_index: usize,
     positional_count: usize,
     labeled_count: usize,
     selector: Option<Symbol>,
+    /// Pre-decoded label symbols in call order; empty for positional-only
+    /// and getter/setter calls.
+    labels: Box<[Symbol]>,
     caller_access: Option<ClassId>,
     caller_internal: bool,
 }
@@ -47,82 +49,87 @@ impl ArgumentView {
             positional_count,
             labeled_count: 0,
             selector: None,
+            labels: Box::default(),
             caller_access,
             caller_internal,
         }
     }
 
-    /// Describes a selector-shaped window without borrowing selector metadata.
-    pub(crate) fn shaped(
+    /// Describes a selector-shaped window with pre-decoded labels.
+    pub(crate) fn shaped_with_labels(
         receiver_index: usize,
         positional_count: usize,
-        labeled_count: usize,
+        labels: Box<[Symbol]>,
         selector: Symbol,
         caller_access: Option<ClassId>,
         caller_internal: bool,
     ) -> Self {
+        let labeled_count = labels.len();
         Self {
             receiver_index,
             positional_count,
             labeled_count,
             selector: Some(selector),
+            labels,
             caller_access,
             caller_internal,
         }
     }
 
     /// Number of positional values in the argument lane.
-    pub fn positional_count(self) -> usize {
+    pub fn positional_count(&self) -> usize {
         self.positional_count
     }
 
     /// Number of labeled values in the argument lane.
-    pub fn labeled_count(self) -> usize {
+    pub fn labeled_count(&self) -> usize {
         self.labeled_count
     }
 
     /// Returns positional value `index`.
-    pub fn positional(self, vm: &VM, index: usize) -> Option<Value> {
+    pub fn positional(&self, vm: &VM, index: usize) -> Option<Value> {
         (index < self.positional_count).then(|| vm.stack[self.receiver_index + 1 + index])
     }
 
     /// Returns labeled value `index` in label order.
-    pub fn labeled_value(self, vm: &VM, index: usize) -> Option<Value> {
+    pub fn labeled_value(&self, vm: &VM, index: usize) -> Option<Value> {
         (index < self.labeled_count).then(|| vm.stack[self.receiver_index + 1 + self.positional_count + index])
     }
 
     /// Returns the label for labeled lane position `index`.
-    pub fn label(self, vm: &mut VM, index: usize) -> Option<Symbol> {
-        let selector = self.selector?;
-        if index >= self.labeled_count {
-            return None;
-        }
-        let (_, slots, _) = super::decode_selector(vm.resolve_symbol(selector));
-        slots.into_iter().filter_map(|slot| slot.map(|label| vm.interner.intern(&label))).nth(index)
+    pub fn label(&self, index: usize) -> Option<Symbol> {
+        self.labels.get(index).copied()
     }
 
-    /// Returns selector labels in call order.
-    pub fn labels(self, vm: &mut VM) -> Vec<Symbol> {
-        (0..self.labeled_count).filter_map(|index| self.label(vm, index)).collect()
+    /// Returns pre-decoded label symbols in call order.
+    ///
+    /// Never calls `decode_selector()`; labels were decoded once at call-site
+    /// construction and cached in this view.
+    pub fn labels(&self) -> &[Symbol] {
+        &self.labels
     }
 
     /// Returns the source stack receiver index for VM activation helpers.
-    pub(crate) fn receiver_index(self) -> usize {
+    pub(crate) fn receiver_index(&self) -> usize {
         self.receiver_index
     }
 
     /// Returns the caller authority captured before entering the native gateway.
-    pub(crate) fn caller_authority(self) -> (Option<ClassId>, bool) {
+    pub(crate) fn caller_authority(&self) -> (Option<ClassId>, bool) {
         (self.caller_access, self.caller_internal)
     }
 
     /// Returns a view with a newly encoded call-site selector and shape.
-    pub(crate) fn with_selector(self, selector: Symbol, positional_count: usize, labeled_count: usize) -> Self {
+    pub(crate) fn with_selector(self, selector: Symbol, positional_count: usize, labels: Box<[Symbol]>) -> Self {
+        let labeled_count = labels.len();
         Self {
+            receiver_index: self.receiver_index,
             positional_count,
             labeled_count,
             selector: Some(selector),
-            ..self
+            labels,
+            caller_access: self.caller_access,
+            caller_internal: self.caller_internal,
         }
     }
 }

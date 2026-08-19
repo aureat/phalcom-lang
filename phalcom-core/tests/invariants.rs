@@ -104,10 +104,12 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 35] {
 
 /// Extracts the `f64` behind a `Number` result (test-local helper).
 fn as_number(value: Value) -> f64 {
-    match value {
-        Value::Int(n) => n as f64,
-        Value::Float(n) => n,
-        other => panic!("expected a number, got {other:?}"),
+    if let Some(n) = value.as_int() {
+        n as f64
+    } else if let Some(n) = value.as_float() {
+        n
+    } else {
+        panic!("expected a number, got {value:?}");
     }
 }
 
@@ -128,7 +130,7 @@ fn surface_nil_is_unreachable_from_user_code() {
     // U6 Invariant 4 (values-and-absence.md §3;
     // [ADR-0007](../../docs/adr/accepted/0007-option-some-none.md) /
     // [ADR-0010](../../docs/adr/accepted/0010-tagged-value-enum.md)): the private
-    // `Value::Nil` sentinel has no surface syntax. U6 removes the `nil`
+    // `Value::nil()` sentinel has no surface syntax. U6 removes the `nil`
     // keyword, so `nil` is merely an undefined identifier — no user program can
     // name, print, or compare the sentinel; it fails to compile instead.
     let mut vm = VM::new();
@@ -144,14 +146,11 @@ fn surface_nil_is_unreachable_from_user_code() {
 
 #[test]
 fn sentinel_surfaces_to_none_at_read_boundaries() {
-    let surfaced = sentinel_to_option(Value::Nil);
-    assert!(matches!(surfaced, Value::None), "the sentinel must surface to immediate None");
+    let surfaced = sentinel_to_option(phalcom_core::value::NIL);
+    assert!(surfaced.is_none(), "the sentinel must surface to immediate None");
 
-    let passthrough = sentinel_to_option(Value::Int(1));
-    assert!(
-        matches!(passthrough, Value::Int(n) if n == 1),
-        "non-sentinel values must pass through unchanged"
-    );
+    let passthrough = sentinel_to_option(Value::int(1));
+    assert_eq!(passthrough.as_int(), Some(1), "non-sentinel values must pass through unchanged");
 }
 
 #[test]
@@ -159,7 +158,7 @@ fn expression_result_absence_surfaces_to_none() {
     // U6 Invariant 4 (values-and-absence.md §3; ADR-0007/ADR-0010): an absent
     // *expression result* — one produced by a surface-reachable primitive whose
     // value flows into an arg or `print` without crossing a `Get*` read boundary
-    // — must be the `None` singleton, never the raw `Value::Nil` sentinel. This
+    // — must be the `None` singleton, never the raw `Value::nil()` sentinel. This
     // exercises the reviewer's leak set at the Value level by calling each fixed
     // primitive directly (`run_in_module` discards the top-level result, so it
     // cannot observe the value; the four programs' printed forms are pinned by
@@ -172,21 +171,21 @@ fn expression_result_absence_surfaces_to_none() {
 
     let mut vm = VM::new();
     let is_none = |value: Value, label: &str| {
-        assert!(!matches!(value, Value::Nil), "{label} leaked the raw sentinel");
-        assert!(matches!(value, Value::None), "{label} should yield immediate None");
+        assert!(!value.is_nil(), "{label} leaked the raw sentinel");
+        assert!(value.is_none(), "{label} should yield immediate None");
     };
 
-    let unused_block = Value::Int(0);
+    let unused_block = Value::int(0);
 
     // `false.ifTrue { .. }` / `true.ifFalse { .. }` — branch not taken.
-    is_none(bool_if_true(&mut vm, &Value::Bool(false), &[unused_block]).expect("ifTrue"), "false.ifTrue");
-    is_none(bool_if_false(&mut vm, &Value::Bool(true), &[unused_block]).expect("ifFalse"), "true.ifFalse");
+    is_none(bool_if_true(&mut vm, &Value::bool(false), &[unused_block]).expect("ifTrue"), "false.ifTrue");
+    is_none(bool_if_false(&mut vm, &Value::bool(true), &[unused_block]).expect("ifFalse"), "true.ifFalse");
 
     // `System.print(_)` — surface-reachable send result.
-    is_none(system_class_print(&mut vm, &Value::Int(1), &[Value::Int(1)]).expect("print"), "System.print");
+    is_none(system_class_print(&mut vm, &Value::int(1), &[Value::int(1)]).expect("print"), "System.print");
 
     // `Object.superclass` — the root class has no superclass.
-    let object = Value::Obj(vm.universe.classes.object_class);
+    let object = Value::obj(vm.universe.classes.object_class);
     is_none(class_superclass(&mut vm, &object, &[]).expect("superclass"), "Object.superclass");
 
     let module = vm.create_module("blk", "expression_result_absence_surfaces_to_none");
@@ -199,16 +198,16 @@ fn expression_result_absence_surfaces_to_none() {
 #[test]
 fn some_construction_never_wraps_the_sentinel() {
     let mut vm = VM::new();
-    let some_class = Value::Obj(vm.universe.classes.some_class);
-    let error = some_call(&mut vm, &some_class, &[Value::Nil]).expect_err("Some must reject the private Nil sentinel");
+    let some_class = Value::obj(vm.universe.classes.some_class);
+    let error = some_call(&mut vm, &some_class, &[phalcom_core::value::NIL]).expect_err("Some must reject the private Nil sentinel");
     assert!(error.to_string().contains("private Nil"), "unexpected error: {error}");
 }
 
 #[test]
 fn some_can_wrap_none() {
     let mut vm = VM::new();
-    let none = Value::None;
-    let some_class = Value::Obj(vm.universe.classes.some_class);
+    let none = Value::none();
+    let some_class = Value::obj(vm.universe.classes.some_class);
     let result = some_call(&mut vm, &some_class, &[none]);
     assert!(result.is_ok(), "Some(None) must succeed — None is a legal immediate payload");
 }
@@ -284,8 +283,8 @@ fn sealed_hierarchy_rejects_runtime_reparent_and_keeps_invariants() {
     let dog = vm.create_class(module, "Dog", Some(animal));
     let cat = vm.create_class(module, "Cat", Some(object_class));
 
-    let dog_value = Value::Obj(dog);
-    let result = class_set_superclass(&mut vm, &dog_value, &[Value::Obj(cat)]);
+    let dog_value = Value::obj(dog);
+    let result = class_set_superclass(&mut vm, &dog_value, &[Value::obj(cat)]);
 
     match result {
         Err(PhError::Runtime(RuntimeError::InvalidSetSuper)) => {}
@@ -878,6 +877,26 @@ fn floor_census_matches_installed_bindings() {
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_)"),
+        (c.module_class, false, "name"),
+        (c.module_class, false, "namespace"),
+        (c.module_class, false, "package"),
+        (c.module_class, false, "rootPackage"),
+        (c.module_class, false, "packageInfo"),
+        (c.module_class, false, "exports"),
+        (c.module_class, false, "metadata"),
+        (c.module_class, false, "dependencies"),
+        (c.module_class, false, "uri"),
+        (c.module_class, false, "identity"),
+        (c.module_class, false, "__exports__"),
+        (c.module_class, false, "__export__(_)"),
+        (c.module_class, false, "__understands__(_)"),
+        (c.module_class, false, "__metadata__"),
+        (c.module_class, false, "__dependencies__"),
+        (c.module_class, false, "__uri__"),
+        (c.module_class, false, "__name__"),
+        (c.module_class, false, "__id__"),
+        (c.module_class, false, "__path__"),
+        (c.module_class, false, "toString"),
         // §2.13 List
         (c.list_class, true, "new()"),
         (c.list_class, false, "_$length"),
@@ -1025,12 +1044,8 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(
-        expected.len(),
-        161,
-        "census must enumerate exactly 161 bindings after Family and MethodFamily reflection"
-    );
-    assert_eq!(live.len(), 161, "the live floor must be exactly 161 bindings");
+    assert_eq!(expected.len(), 181, "census must enumerate exactly 181 bindings after Module reflection");
+    assert_eq!(live.len(), 181, "the live floor must be exactly 181 bindings");
 }
 
 #[test]
@@ -1087,33 +1102,34 @@ fn isa_is_reflexive_and_superclass_closed() {
     // is on `x.class`'s superclass chain. Exercised on an immediate, a class
     // receiver, and a user instance.
     let mut vm = VM::new();
-    let number = Value::Obj(vm.universe.classes.number_class);
-    let string = Value::Obj(vm.universe.classes.string_class);
-    let object = Value::Obj(vm.universe.classes.object_class);
-    let class = Value::Obj(vm.universe.classes.class_class);
+    let number = Value::obj(vm.universe.classes.number_class);
+    let string = Value::obj(vm.universe.classes.string_class);
+    let object = Value::obj(vm.universe.classes.object_class);
+    let class = Value::obj(vm.universe.classes.class_class);
 
     // Immediate receiver `3`.
-    assert!(matches!(send1(&mut vm, Value::Int(3), "isA(_)", number), Value::Bool(true)), "3.isA(Number)");
-    assert!(
-        matches!(send1(&mut vm, Value::Int(3), "isA(_)", object), Value::Bool(true)),
+    assert_eq!(send1(&mut vm, Value::int(3), "isA(_)", number).as_bool(), Some(true), "3.isA(Number)");
+    assert_eq!(
+        send1(&mut vm, Value::int(3), "isA(_)", object).as_bool(),
+        Some(true),
         "3.isA(Object) — reflexive-to-root"
     );
-    assert!(matches!(send1(&mut vm, Value::Int(3), "isA(_)", string), Value::Bool(false)), "!3.isA(String)");
+    assert_eq!(send1(&mut vm, Value::int(3), "isA(_)", string).as_bool(), Some(false), "!3.isA(String)");
 
     // Class receiver `Number` (walks the metaclass chain, Smalltalk isKindOf:).
-    assert!(matches!(send1(&mut vm, number, "isA(_)", class), Value::Bool(true)), "Number.isA(Class)");
-    assert!(matches!(send1(&mut vm, number, "isA(_)", object), Value::Bool(true)), "Number.isA(Object)");
+    assert_eq!(send1(&mut vm, number, "isA(_)", class).as_bool(), Some(true), "Number.isA(Class)");
+    assert_eq!(send1(&mut vm, number, "isA(_)", object).as_bool(), Some(true), "Number.isA(Object)");
 
     // User instance.
     let module = vm.create_module("main", "isa_user_instance");
     vm.interpret_source(module, "class IsaFoo {}\n").expect("class decl should run");
     let foo_sym = vm.get_or_intern("IsaFoo");
     let foo_cls = *vm.classes.get(&ClassKey { module, name: foo_sym }).expect("IsaFoo registered");
-    let foo_val = Value::Obj(foo_cls);
+    let foo_val = Value::obj(foo_cls);
     let instance = send0(&mut vm, foo_val, "new()");
-    assert!(matches!(send1(&mut vm, instance, "isA(_)", foo_val), Value::Bool(true)), "aFoo.isA(IsaFoo)");
-    assert!(matches!(send1(&mut vm, instance, "isA(_)", object), Value::Bool(true)), "aFoo.isA(Object)");
-    assert!(matches!(send1(&mut vm, instance, "isA(_)", number), Value::Bool(false)), "!aFoo.isA(Number)");
+    assert_eq!(send1(&mut vm, instance, "isA(_)", foo_val).as_bool(), Some(true), "aFoo.isA(IsaFoo)");
+    assert_eq!(send1(&mut vm, instance, "isA(_)", object).as_bool(), Some(true), "aFoo.isA(Object)");
+    assert_eq!(send1(&mut vm, instance, "isA(_)", number).as_bool(), Some(false), "!aFoo.isA(Number)");
 }
 
 #[test]
@@ -1121,9 +1137,9 @@ fn hash_is_consistent_with_equality() {
     let mut vm = VM::new();
 
     // Number: 3 == 3.
-    let n3a = as_number(number_hash(&mut vm, &Value::Int(3), &[]).unwrap());
-    let n3b = as_number(number_hash(&mut vm, &Value::Int(3), &[]).unwrap());
-    let n4 = as_number(number_hash(&mut vm, &Value::Int(4), &[]).unwrap());
+    let n3a = as_number(number_hash(&mut vm, &Value::int(3), &[]).unwrap());
+    let n3b = as_number(number_hash(&mut vm, &Value::int(3), &[]).unwrap());
+    let n4 = as_number(number_hash(&mut vm, &Value::int(4), &[]).unwrap());
     assert_eq!(n3a, n3b, "3.hash == 3.hash");
     assert_ne!(n3a, n4, "3.hash != 4.hash");
 
@@ -1131,7 +1147,7 @@ fn hash_is_consistent_with_equality() {
     let s1 = vm.alloc_string_value("ab".to_string());
     let s2 = vm.alloc_string_value("ab".to_string());
     assert!(
-        matches!((s1, s2), (Value::Obj(a), Value::Obj(b)) if a != b),
+        s1.as_obj().is_some() && s2.as_obj().is_some() && s1.as_obj() != s2.as_obj(),
         "the two strings must have distinct handles"
     );
     let h1 = as_number(string_hash(&mut vm, &s1, &[]).unwrap());
@@ -1139,18 +1155,18 @@ fn hash_is_consistent_with_equality() {
     assert_eq!(h1, h2, "equal string content ⇒ equal hash");
 
     // Bool: distinct codes.
-    let ht = as_number(bool_hash(&mut vm, &Value::Bool(true), &[]).unwrap());
-    let hf = as_number(bool_hash(&mut vm, &Value::Bool(false), &[]).unwrap());
+    let ht = as_number(bool_hash(&mut vm, &Value::bool(true), &[]).unwrap());
+    let hf = as_number(bool_hash(&mut vm, &Value::bool(false), &[]).unwrap());
     assert_ne!(ht, hf, "true.hash != false.hash");
 
     // Identity object: same handle ⇒ equal hash.
-    let obj = Value::Obj(vm.universe.classes.none_class);
+    let obj = Value::obj(vm.universe.classes.none_class);
     let o1 = as_number(object_hash(&mut vm, &obj, &[]).unwrap());
     let o2 = as_number(object_hash(&mut vm, &obj, &[]).unwrap());
     assert_eq!(o1, o2, "same-handle identity hash is equal");
 
     // Symbol: stability across two references to the same interned symbol.
-    let sym = Value::Symbol(vm.get_or_intern("someSelector"));
+    let sym = Value::symbol(vm.get_or_intern("someSelector"));
     let y1 = as_number(symbol_hash(&mut vm, &sym, &[]).unwrap());
     let y2 = as_number(symbol_hash(&mut vm, &sym, &[]).unwrap());
     assert_eq!(y1, y2, "the same interned symbol hashes stably");
@@ -1159,8 +1175,8 @@ fn hash_is_consistent_with_equality() {
 #[test]
 fn hash_is_stable_across_repeated_calls() {
     let mut vm = VM::new();
-    let obj = Value::Obj(vm.universe.classes.none_class);
-    let cases: [Value; 4] = [Value::Int(42), Value::Bool(true), Value::Symbol(vm.get_or_intern("stable")), obj];
+    let obj = Value::obj(vm.universe.classes.none_class);
+    let cases: [Value; 4] = [Value::int(42), Value::bool(true), Value::symbol(vm.get_or_intern("stable")), obj];
     for value in cases {
         let first = send0(&mut vm, value, "hash");
         let second = send0(&mut vm, value, "hash");
@@ -1233,29 +1249,29 @@ fn reflection_is_side_effect_free() {
     // unchanged afterward.
     let mut vm = VM::new();
     let number_class = vm.universe.classes.number_class;
-    let receiver = Value::Obj(number_class);
+    let receiver = Value::obj(number_class);
     let before = vm.heap.class(number_class).methods.len();
 
     let n1 = behavior_name(&mut vm, &receiver, &[]).unwrap();
     let n2 = behavior_name(&mut vm, &receiver, &[]).unwrap();
-    let name1 = match n1 {
-        Value::Obj(id) => vm.heap.string(id).as_str().to_string(),
-        other => panic!("Behavior#name should return a String, got {other:?}"),
+    let name1 = match n1.as_obj() {
+        Some(id) => vm.heap.string(id).as_str().to_string(),
+        None => panic!("Behavior#name should return a String, got {n1:?}"),
     };
-    let name2 = match n2 {
-        Value::Obj(id) => vm.heap.string(id).as_str().to_string(),
-        other => panic!("Behavior#name should return a String, got {other:?}"),
+    let name2 = match n2.as_obj() {
+        Some(id) => vm.heap.string(id).as_str().to_string(),
+        None => panic!("Behavior#name should return a String, got {n2:?}"),
     };
     assert_eq!(name1, "Number");
     assert_eq!(name1, name2, "Behavior#name is deterministic");
 
-    let m1 = match behavior_methods(&mut vm, &receiver, &[]).unwrap() {
-        Value::Obj(id) => vm.heap.list(id).len(),
-        other => panic!("Behavior#methods should return a List, got {other:?}"),
+    let m1 = match behavior_methods(&mut vm, &receiver, &[]).unwrap().as_obj() {
+        Some(id) => vm.heap.list(id).len(),
+        None => panic!("Behavior#methods should return a List"),
     };
-    let m2 = match behavior_methods(&mut vm, &receiver, &[]).unwrap() {
-        Value::Obj(id) => vm.heap.list(id).len(),
-        other => panic!("Behavior#methods should return a List, got {other:?}"),
+    let m2 = match behavior_methods(&mut vm, &receiver, &[]).unwrap().as_obj() {
+        Some(id) => vm.heap.list(id).len(),
+        None => panic!("Behavior#methods should return a List"),
     };
     assert_eq!(m1, m2, "Behavior#methods returns the same count on repeat");
 
@@ -1293,29 +1309,30 @@ fn callable_tower_and_reflection_protocol() {
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
     let selector_sym = vm.get_or_intern("greet(_)");
-    let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
-    assert!(!matches!(method_value, Value::None), "methodFor should hit for a defined selector");
+    let method_value = object_method_for(&mut vm, &g, &[Value::symbol(selector_sym)]).expect("methodFor should succeed");
+    assert!(!method_value.is_none(), "methodFor should hit for a defined selector");
 
     // `arity`/`name` on the bare `Method`.
-    assert!(
-        matches!(block_arity(&mut vm, &method_value, &[]).unwrap(), Value::Int(n) if n == 1),
-        "Method#arity should be 1"
-    );
-    match block_name(&mut vm, &method_value, &[]).unwrap() {
-        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_)", "Method#name should be the encoded selector"),
-        other => panic!("Method#name should return a String, got {other:?}"),
+    assert_eq!(block_arity(&mut vm, &method_value, &[]).unwrap().as_int(), Some(1), "Method#arity should be 1");
+    match method_value.as_obj() {
+        Some(_) => {
+            let res = block_name(&mut vm, &method_value, &[]).unwrap();
+            let name_id = res.as_obj().expect("Method#name should return String");
+            assert_eq!(vm.heap.string(name_id).as_str(), "greet(_)", "Method#name should be the encoded selector");
+        }
+        None => panic!("Method#name should return a String"),
     }
 
     // `arity`/`name` on the `BoundMethod` produced by `bind(_)`.
     let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
-    assert!(
-        matches!(block_arity(&mut vm, &bound, &[]).unwrap(), Value::Int(n) if n == 1),
-        "BoundMethod#arity should be 1"
+    assert_eq!(block_arity(&mut vm, &bound, &[]).unwrap().as_int(), Some(1), "BoundMethod#arity should be 1");
+    let bound_res = block_name(&mut vm, &bound, &[]).unwrap();
+    let bound_name_id = bound_res.as_obj().expect("BoundMethod#name should return String");
+    assert_eq!(
+        vm.heap.string(bound_name_id).as_str(),
+        "greet(_)",
+        "BoundMethod#name should be the wrapped method's name"
     );
-    match block_name(&mut vm, &bound, &[]).unwrap() {
-        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_)", "BoundMethod#name should be the wrapped method's name"),
-        other => panic!("BoundMethod#name should return a String, got {other:?}"),
-    }
 }
 
 #[test]
@@ -1375,13 +1392,10 @@ fn invoke_on_and_bind_call_are_equivalent() {
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
     let selector_sym = vm.get_or_intern("greet(_)");
-    let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
+    let method_value = object_method_for(&mut vm, &g, &[Value::symbol(selector_sym)]).expect("methodFor should succeed");
 
     let arg = vm.alloc_string_value("World".to_string());
-    let method_id = match method_value {
-        Value::Obj(id) => id,
-        other => panic!("methodFor should return Method, got {other:?}"),
-    };
+    let method_id = method_value.as_obj().expect("methodFor should return Method");
     let via_invoke_on = vm.invoke_method_object(method_id, g, &[arg]).expect("synchronous host invoke should succeed");
     let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
     let via_bind_call = block_call(&mut vm, &bound, &[arg]).expect("bound.call should succeed");
@@ -1405,12 +1419,9 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
     let selector_sym = vm.get_or_intern("greet(_)");
-    let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
+    let method_value = object_method_for(&mut vm, &g, &[Value::symbol(selector_sym)]).expect("methodFor should succeed");
 
-    let method_id = match method_value {
-        Value::Obj(id) => id,
-        other => panic!("methodFor should return Method, got {other:?}"),
-    };
+    let method_id = method_value.as_obj().expect("methodFor should return Method");
     let result = vm.invoke_method_object(method_id, g, &[]);
     assert!(
         matches!(result, Err(PhError::Runtime(RuntimeError::Arity { .. }))),
@@ -1433,24 +1444,24 @@ fn bind_allows_foreign_receiver_for_representation_independent_method() {
         .expect("class + instance should run");
     let g = vm.heap.module(module).get(vm.interner.intern("g")).expect("`g` global should exist");
     let selector = vm.get_or_intern("greet(_)");
-    let method = object_method_for(&mut vm, &g, &[Value::Symbol(selector)]).expect("methodFor should return Greeter#greet(_)");
-    let bound = method_bind(&mut vm, &method, &[Value::Int(3)]).expect("foreign receiver should bind");
-    let result = block_call(&mut vm, &bound, &[Value::Int(3)]).expect("representation-independent method should activate");
-    assert_eq!(result, Value::Int(3));
+    let method = object_method_for(&mut vm, &g, &[Value::symbol(selector)]).expect("methodFor should return Greeter#greet(_)");
+    let bound = method_bind(&mut vm, &method, &[Value::int(3)]).expect("foreign receiver should bind");
+    let result = block_call(&mut vm, &bound, &[Value::int(3)]).expect("representation-independent method should activate");
+    assert_eq!(result, Value::int(3));
 }
 
 fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {
     let string = vm.alloc_string_value("hi".to_string());
-    let symbol = Value::Symbol(vm.get_or_intern("foo"));
-    let list = Value::Obj(vm.heap.alloc_list(vec![Value::Int(1), Value::Int(2)]));
-    let none = Value::None;
-    let some_class = Value::Obj(vm.universe.classes.some_class);
-    let some = some_call(vm, &some_class, &[Value::Int(42)]).expect("Some(42) should succeed");
+    let symbol = Value::symbol(vm.get_or_intern("foo"));
+    let list = Value::obj(vm.heap.alloc_list(vec![Value::int(1), Value::int(2)]));
+    let none = Value::none();
+    let some_class = Value::obj(vm.universe.classes.some_class);
+    let some = some_call(vm, &some_class, &[Value::int(42)]).expect("Some(42) should succeed");
     vec![
-        ("Number", Value::Int(42)),
+        ("Number", Value::int(42)),
         ("String", string),
         ("Symbol", symbol),
-        ("Bool", Value::Bool(true)),
+        ("Bool", Value::bool(true)),
         ("None", none),
         ("Some(_)", some),
         ("List", list),
@@ -1480,7 +1491,7 @@ fn value_object_default_tostring_is_angle_bracket_class_name() {
     let rendered = send0(&mut vm, f, "toString");
     assert_eq!(rendered.to_string(&vm), "<Foo>", "a bare user instance should render as `<ClassName>`");
 
-    let number_rendered = send0(&mut vm, Value::Int(42), "toString");
+    let number_rendered = send0(&mut vm, Value::int(42), "toString");
     assert_eq!(
         number_rendered.to_string(&vm),
         "42",
@@ -1491,12 +1502,12 @@ fn value_object_default_tostring_is_angle_bracket_class_name() {
 #[test]
 fn option_tostring_matches_none_and_wraps_some() {
     let mut vm = VM::new();
-    let none = Value::None;
+    let none = Value::none();
     let none_rendered = send0(&mut vm, none, "toString");
     assert_eq!(none_rendered.to_string(&vm), "None");
 
-    let some_class = Value::Obj(vm.universe.classes.some_class);
-    let some = some_call(&mut vm, &some_class, &[Value::Int(42)]).expect("Some(42) should succeed");
+    let some_class = Value::obj(vm.universe.classes.some_class);
+    let some = some_call(&mut vm, &some_class, &[Value::int(42)]).expect("Some(42) should succeed");
     let some_rendered = send0(&mut vm, some, "toString");
     assert_eq!(some_rendered.to_string(&vm), "Some(42)");
 
@@ -1504,7 +1515,7 @@ fn option_tostring_matches_none_and_wraps_some() {
     let some_none_rendered = send0(&mut vm, some_none, "toString");
     assert_eq!(some_none_rendered.to_string(&vm), "Some(None)");
 
-    let inner_some = some_call(&mut vm, &some_class, &[Value::Int(1)]).expect("Some(1) should succeed");
+    let inner_some = some_call(&mut vm, &some_class, &[Value::int(1)]).expect("Some(1) should succeed");
     let nested_some = some_call(&mut vm, &some_class, &[inner_some]).expect("Some(Some(1)) should succeed");
     let nested_rendered = send0(&mut vm, nested_some, "toString");
     assert_eq!(nested_rendered.to_string(&vm), "Some(Some(1))");
@@ -1546,7 +1557,7 @@ fn is_a(vm: &VM, mut class_id: ClassId, target: ClassId) -> bool {
 fn genuine_miss_raises_surface_message_not_understood() {
     let mut vm = VM::new();
     let bogus = vm.get_or_intern("frobnicate");
-    let err = vm.send_dynamic(Value::Int(3), bogus, &[]).unwrap_err();
+    let err = vm.send_dynamic(Value::int(3), bogus, &[]).unwrap_err();
 
     let raised = match err {
         PhError::Runtime(RuntimeError::Raise { error, .. }) => error,
@@ -1570,9 +1581,9 @@ fn genuine_miss_raises_surface_message_not_understood() {
         "Error#message should read the rendered miss string"
     );
 
-    let reified_message = match raised {
-        Value::Obj(id) => vm.heap.as_instance(id).expect("MessageNotUnderstood should be an InstanceObject").slots[1],
-        other => panic!("expected an Obj, got {other:?}"),
+    let reified_message = match raised.as_obj() {
+        Some(id) => vm.heap.as_instance(id).expect("MessageNotUnderstood should be an InstanceObject").slots[1],
+        None => panic!("expected an Obj"),
     };
     assert_eq!(
         reified_message.class(&vm),
@@ -1580,8 +1591,9 @@ fn genuine_miss_raises_surface_message_not_understood() {
         "slot 1 should hold a reified Message"
     );
     let reified_selector = send0(&mut vm, reified_message, "selector");
-    assert!(
-        matches!(reified_selector, Value::Symbol(sym) if sym == bogus),
+    assert_eq!(
+        reified_selector.as_symbol().ok(),
+        Some(bogus),
         "the reified Message's selector should be the missed selector"
     );
 }
@@ -1589,19 +1601,19 @@ fn genuine_miss_raises_surface_message_not_understood() {
 #[test]
 fn only_error_subclasses_respond_to_raise() {
     let mut vm = VM::new();
-    let raise_sym = Value::Symbol(vm.get_or_intern("raise()"));
+    let raise_sym = Value::symbol(vm.get_or_intern("raise()"));
 
-    let responds_to_number = send1(&mut vm, Value::Int(3), "respondsTo(_)", raise_sym);
-    assert!(matches!(responds_to_number, Value::Bool(false)), "a Number should not respond to `raise`");
+    let responds_to_number = send1(&mut vm, Value::int(3), "respondsTo(_)", raise_sym);
+    assert_eq!(responds_to_number.as_bool(), Some(false), "a Number should not respond to `raise`");
 
     let error_instance = {
         let error_class = vm.universe.classes.error_class;
         let field_count = vm.heap.class(error_class).field_count;
         let inst = phalcom_core::heap::InstanceObject::new(error_class, field_count);
-        Value::Obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)))
+        Value::obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)))
     };
     let responds_to_error = send1(&mut vm, error_instance, "respondsTo(_)", raise_sym);
-    assert!(matches!(responds_to_error, Value::Bool(true)), "an Error instance should respond to `raise`");
+    assert_eq!(responds_to_error.as_bool(), Some(true), "an Error instance should respond to `raise`");
 }
 
 #[test]
@@ -1612,14 +1624,14 @@ fn error_raise_unwinds_through_the_shared_raise_payload() {
     let mut inst = phalcom_core::heap::InstanceObject::new(error_class, field_count);
     let text = vm.alloc_string_value("boom".to_string());
     inst.slots[0] = text;
-    let error_instance = Value::Obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)));
+    let error_instance = Value::obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)));
 
     let raise_sym = vm.get_or_intern("raise()");
     let err = vm.send_dynamic(error_instance, raise_sym, &[]).unwrap_err();
     match err {
         PhError::Runtime(RuntimeError::Raise { error, rendered, .. }) => {
             assert!(
-                matches!(error, Value::Obj(id) if matches!(error_instance, Value::Obj(other) if id == other)),
+                error.as_obj().is_some() && error.as_obj() == error_instance.as_obj(),
                 "raise() should carry `self` as the raised error"
             );
             assert_eq!(rendered, "boom", "raise() should render via the `message` send");
@@ -1725,4 +1737,17 @@ let r = || { throw SubErr.new("leaf") }.on(BaseErr) |e| { "caught:" + e.message 
         "caught:leaf",
         "on(BaseErr) should catch a SubErr throw via the superclass walk"
     );
+}
+
+#[test]
+fn obj_ref_opaque_round_trip() {
+    let mut vm = VM::new();
+    let id1 = vm.heap.alloc_string("hello".to_string());
+    let v1 = Value::obj(id1);
+    assert!(v1.is_obj());
+    assert_eq!(v1.as_obj(), Some(id1));
+    // A second allocation must produce a distinct handle.
+    let id2 = vm.heap.alloc_string("world".to_string());
+    let v2 = Value::obj(id2);
+    assert_ne!(v1.as_obj(), v2.as_obj());
 }

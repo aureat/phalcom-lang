@@ -10,19 +10,19 @@ pub fn resource_register(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRe
     let site = None;
     let handle = vm.resources.open(ResourceKind::Custom(kind_str), site);
     let packed = ResourceHandle::pack(handle.index, handle.generation);
-    Ok(Value::Float(packed))
+    Ok(Value::float(packed))
 }
 
 /// Helper to extract ResourceHandle from an Instance instance slot 0.
 fn extract_handle(vm: &VM, instance_val: &Value) -> PhResult<ResourceHandle> {
-    if let Value::Obj(obj_ref) = *instance_val {
+    if let Some(obj_ref) = instance_val.as_obj() {
         let heap_obj = vm.heap.get(obj_ref);
         if let crate::heap::Object::Instance(inst) = heap_obj {
             if let Some(val) = inst.slots.first() {
-                match val {
-                    Value::Float(n) => return Ok(ResourceHandle::unpack(*n)),
-                    Value::Int(n) => return Ok(ResourceHandle::unpack(*n as f64)),
-                    _ => {}
+                if let Some(n) = val.as_float() {
+                    return Ok(ResourceHandle::unpack(n));
+                } else if let Some(n) = val.as_int() {
+                    return Ok(ResourceHandle::unpack(n as f64));
                 }
             }
         }
@@ -39,9 +39,9 @@ fn raise_use_after_close(vm: &mut VM, message: &str) -> PhResult<Value> {
     let msg_obj = vm.heap.alloc_string(message.to_string());
     let uace_cls = vm.universe.classes.use_after_close_error_class;
     let mut inst = crate::heap::InstanceObject::new(uace_cls, 4);
-    inst.slots[0] = Value::Obj(msg_obj);
+    inst.slots[0] = Value::obj(msg_obj);
     let err_obj = vm.heap.alloc(crate::heap::Object::Instance(inst));
-    let err_val = Value::Obj(err_obj);
+    let err_val = Value::obj(err_obj);
     Err(RuntimeError::Raise {
         error: err_val,
         rendered: message.to_string(),
@@ -55,8 +55,8 @@ fn raise_use_after_close(vm: &mut VM, message: &str) -> PhResult<Value> {
 pub fn resource_raw_close(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let handle = extract_handle(vm, receiver)?;
     match vm.resources.close(handle) {
-        Ok(()) => Ok(Value::None),
-        Err(crate::resource::ResourceError::AlreadyClosed) => Ok(Value::None),
+        Ok(()) => Ok(Value::none()),
+        Err(crate::resource::ResourceError::AlreadyClosed) => Ok(Value::none()),
         Err(crate::resource::ResourceError::StaleHandle) => raise_use_after_close(vm, "Resource already closed or stale"),
     }
 }
@@ -65,7 +65,7 @@ pub fn resource_raw_close(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 pub fn resource_raw_is_closed(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let handle = extract_handle(vm, receiver)?;
     let closed = vm.resources.is_closed(handle);
-    Ok(Value::Bool(closed))
+    Ok(Value::bool(closed))
 }
 
 /// `System.leakReport_` primitive.
@@ -76,24 +76,24 @@ pub fn system_leak_report(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> Ph
         let site_str = site.map(|s| format!("{}:{}", s.start, s.end)).unwrap_or_else(|| "unknown".to_string());
         let line = format!("Unclosed resource kind: {} opened at {}", kind, site_str);
         let str_obj = vm.heap.alloc_string(line);
-        str_vals.push(Value::Obj(str_obj));
+        str_vals.push(Value::obj(str_obj));
     }
     let list_obj = vm.heap.alloc_list(str_vals);
-    Ok(Value::Obj(list_obj))
+    Ok(Value::obj(list_obj))
 }
 
 /// `System.strictResources_(_)` primitive.
 pub fn system_strict_resources(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let flag = match &args[0] {
-        Value::Bool(b) => *b,
-        other => {
+    let flag = match args[0].as_bool() {
+        Some(b) => b,
+        None => {
             return Err(RuntimeError::Type {
                 expected: "Bool",
-                found: other.type_name(),
+                found: args[0].type_name(),
             }
             .into());
         }
     };
     vm.strict_resources = flag;
-    Ok(Value::None)
+    Ok(Value::none())
 }

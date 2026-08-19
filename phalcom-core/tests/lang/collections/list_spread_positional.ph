@@ -12,10 +12,10 @@ const limited = [*(0..).iter.take(3)]
 const gcList = [[1, 2], *(), System.gc]
 const large = [*(0..=65535)]
 
-System.print(mixed.toString)
-System.print(fromList.toString)
-System.print(fromRange.toString)
-System.print(fromUnit.toString)
-System.print(limited.toString)
-System.print(gcList.toString)
-System.print(large.size)
+System.print(mixed.toString)        // [0, 1, 2, 4]
+System.print(fromList.toString)     // [5, 6, 7]
+System.print(fromRange.toString)    // [0, 1, 2]
+System.print(fromUnit.toString)     // [8]
+System.print(limited.toString)      // [0, 1, 2]
+System.print(gcList.toString)       // [[1, 2], None]
+System.print(large.size)            // 65536

@@ -29,14 +29,13 @@ use crate::vm::VM;
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not an `Error` instance.
 pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let slot0 = match receiver {
-        Value::Obj(id) => vm.heap.as_instance(*id).map(|inst| inst.slots[0]),
-        _ => None,
-    }
-    .ok_or_else(|| RuntimeError::Type {
-        expected: "Error",
-        found: receiver.type_name(),
-    })?;
+    let slot0 = receiver
+        .as_obj()
+        .and_then(|id| vm.heap.as_instance(id).map(|inst| inst.slots[0]))
+        .ok_or_else(|| RuntimeError::Type {
+            expected: "Error",
+            found: receiver.type_name(),
+        })?;
     Ok(vm.surface_absence(slot0))
 }
 

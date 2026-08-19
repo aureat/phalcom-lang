@@ -39,7 +39,7 @@ fn set_mutation_error(err: MapMutationError, collection: &'static str) -> Runtim
 
 /// Signature: `Set.class::new()` — allocates an empty set.
 pub fn set_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Obj(vm.heap.alloc_set()))
+    Ok(Value::obj(vm.heap.alloc_set()))
 }
 
 /// Signature: `Set::size_` — the set's element count.
@@ -49,7 +49,7 @@ pub fn set_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`.
 pub fn set_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
-    Ok(Value::Int(vm.heap.set(id).len() as i64))
+    Ok(Value::int(vm.heap.set(id).len() as i64))
 }
 
 /// Locates `key` in the set at `id` — the `Object::Set` twin of
@@ -72,16 +72,8 @@ fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)>
         let Some(candidate_key) = vm.heap.set(id).key_at(slot) else {
             continue;
         };
-        let is_num_key = match key {
-            Value::Int(_) | Value::Float(_) => true,
-            Value::Obj(oid) => vm.heap.as_large_int(oid).is_some(),
-            _ => false,
-        };
-        let is_num_cand = match candidate_key {
-            Value::Int(_) | Value::Float(_) => true,
-            Value::Obj(oid) => vm.heap.as_large_int(oid).is_some(),
-            _ => false,
-        };
+        let is_num_key = key.is_int() || key.is_float() || key.as_obj().is_some_and(|oid| vm.heap.as_large_int(oid).is_some());
+        let is_num_cand = candidate_key.is_int() || candidate_key.is_float() || candidate_key.as_obj().is_some_and(|oid| vm.heap.as_large_int(oid).is_some());
         if is_num_key || is_num_cand {
             if crate::value::same_value_zero(candidate_key, key, &vm.heap) {
                 return Ok((bucket, Some(slot)));
@@ -121,7 +113,7 @@ pub fn set_raw_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
         // surfaced by `Set`'s `.ph` protocol.
         vm.heap
             .set_mut(id)
-            .insert_new(bucket, key, Value::Nil)
+            .insert_new(bucket, key, Value::nil())
             .map_err(|err| set_mutation_error(err, "Set"))?;
     }
     Ok(*receiver)
@@ -137,7 +129,7 @@ pub(crate) fn set_literal_add(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(
     if slot.is_none() {
         vm.heap
             .set_mut(id)
-            .insert_new(bucket, key, Value::Nil)
+            .insert_new(bucket, key, Value::nil())
             .map_err(|err| set_mutation_error(err, "Set"))?;
     }
     Ok(())
@@ -152,7 +144,7 @@ pub(crate) fn set_literal_add(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(
 pub fn set_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
     let (_, slot) = locate(vm, id, args[0])?;
-    Ok(Value::Bool(slot.is_some()))
+    Ok(Value::bool(slot.is_some()))
 }
 
 /// Signature: `Set::remove_(_)` — deletes `key` if present; idempotent (a
@@ -181,34 +173,32 @@ pub fn set_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 /// if `i` is not a non-negative integer.
 fn expect_index(value: &Value) -> PhResult<usize> {
     use crate::error::RuntimeError;
-    match value {
-        Value::Int(n) => {
-            if *n < 0 {
-                Err(RuntimeError::Type {
-                    expected: "a non-negative integer index",
-                    found: "int",
-                }
-                .into())
-            } else {
-                Ok(*n as usize)
+    if let Some(n) = value.as_int() {
+        if n < 0 {
+            Err(RuntimeError::Type {
+                expected: "a non-negative integer index",
+                found: "int",
             }
+            .into())
+        } else {
+            Ok(n as usize)
         }
-        Value::Float(n) => {
-            if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
-                Err(RuntimeError::Type {
-                    expected: "a non-negative integer index",
-                    found: "float",
-                }
-                .into())
-            } else {
-                Ok(*n as usize)
+    } else if let Some(n) = value.as_float() {
+        if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
+            Err(RuntimeError::Type {
+                expected: "a non-negative integer index",
+                found: "float",
             }
+            .into())
+        } else {
+            Ok(n as usize)
         }
-        other => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "a non-negative integer index",
-            found: other.type_name(),
+            found: value.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 

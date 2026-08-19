@@ -1,24 +1,22 @@
 //! Provider-backed builtin project interfaces and canonical virtual source identity.
 
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{BuiltinProject, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId};
-use crate::interface::{DeclarationSurface, ExportSurface, UnlinkedExportTarget, UnlinkedModuleInterface};
-use crate::metadata::ModuleMetadata;
+use crate::identity::{BuiltinProject, ModuleId, ModulePath, ProjectIdentity, SourceId};
+use crate::interface::UnlinkedModuleInterface;
 use crate::source::ModuleKind;
-use phalcom_common::range::SourceRange;
-use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug)]
-struct BuiltinNodeSpec {
-    path: &'static [&'static str],
-    kind: ModuleKind,
-    children: &'static [&'static str],
+pub struct BuiltinNodeSpec {
+    pub path: &'static [&'static str],
+    pub kind: ModuleKind,
+    #[allow(dead_code)]
+    pub children: &'static [&'static str],
 }
 
-const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
+pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &[],
-        kind: ModuleKind::ProjectRoot,
+        kind: ModuleKind::Package,
         children: &["object", "scalar", "callable", "option", "collections", "errors", "reflection", "concurrency"],
     },
     BuiltinNodeSpec {
@@ -99,6 +97,11 @@ const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &["option"],
         kind: ModuleKind::Package,
+        children: &["option"],
+    },
+    BuiltinNodeSpec {
+        path: &["option", "option"],
+        kind: ModuleKind::Module,
         children: &[],
     },
     BuiltinNodeSpec {
@@ -174,7 +177,28 @@ const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &["reflection"],
         kind: ModuleKind::Package,
-        children: &["module", "package_object", "project", "selector", "message", "attribute"],
+        children: &[
+            "module",
+            "package_object",
+            "project",
+            "project_manifest",
+            "package_info",
+            "package_author",
+            "package_requirement",
+            "resolved_project_dependency",
+            "module_dependency",
+            "export_table",
+            "export",
+            "export_kind",
+            "child_module_table",
+            "module_identity",
+            "package_identity",
+            "project_identity",
+            "uri",
+            "selector",
+            "message",
+            "attribute",
+        ],
     },
     BuiltinNodeSpec {
         path: &["reflection", "module"],
@@ -188,6 +212,76 @@ const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     },
     BuiltinNodeSpec {
         path: &["reflection", "project"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "project_manifest"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "package_info"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "package_author"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "package_requirement"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "resolved_project_dependency"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "module_dependency"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "export_table"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "export"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "export_kind"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "child_module_table"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "module_identity"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "package_identity"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "project_identity"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "uri"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -221,7 +315,7 @@ const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
 const STD_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &[],
-        kind: ModuleKind::ProjectRoot,
+        kind: ModuleKind::Package,
         children: &[
             "io",
             "fs",
@@ -240,7 +334,7 @@ const STD_NODES: &[BuiltinNodeSpec] = &[
     },
     BuiltinNodeSpec {
         path: &["json"],
-        kind: ModuleKind::Module,
+        kind: ModuleKind::Package,
         children: &[],
     },
     BuiltinNodeSpec {
@@ -250,12 +344,12 @@ const STD_NODES: &[BuiltinNodeSpec] = &[
     },
     BuiltinNodeSpec {
         path: &["fs"],
-        kind: ModuleKind::Module,
+        kind: ModuleKind::Package,
         children: &[],
     },
     BuiltinNodeSpec {
         path: &["path"],
-        kind: ModuleKind::Module,
+        kind: ModuleKind::Package,
         children: &[],
     },
     BuiltinNodeSpec {
@@ -327,97 +421,10 @@ impl BuiltinProjectSourceProvider {
         }
     }
 
-    /// Loads the immutable public interface of a builtin node.
+    /// Loads the immutable public interface of a builtin node derived from source + native overlay.
     pub fn load_interface(&self, id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         self.validate_id(id)?;
-        let node = self
-            .node_spec(&id.path)
-            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("builtin module {id} is not part of the {} project graph", self.builtin)))?;
-
-        let mut declarations = BTreeMap::new();
-        let mut exports = BTreeMap::new();
-        if self.builtin == BuiltinProject::Universe && id.path.is_root() {
-            for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.exported) {
-                let range = SourceRange::default();
-                declarations.insert(
-                    binding.name.to_string(),
-                    DeclarationSurface {
-                        name: binding.name.to_string(),
-                        is_const: true,
-                        range,
-                    },
-                );
-                exports.insert(
-                    binding.name.to_string(),
-                    ExportSurface {
-                        exported_name: binding.name.to_string(),
-                        internal_name: binding.name.to_string(),
-                        target: UnlinkedExportTarget::Local(binding.name.to_string()),
-                        range,
-                    },
-                );
-            }
-        } else if self.builtin == BuiltinProject::Universe
-            && id.path.components().len() == 2
-            && id.path.components()[0].as_str() == "reflection"
-            && id.path.components()[1].as_str() == "selector"
-        {
-            let range = SourceRange::default();
-            declarations.insert(
-                "Selector".to_string(),
-                DeclarationSurface {
-                    name: "Selector".to_string(),
-                    is_const: true,
-                    range,
-                },
-            );
-            exports.insert(
-                "Selector".to_string(),
-                ExportSurface {
-                    exported_name: "Selector".to_string(),
-                    internal_name: "Selector".to_string(),
-                    target: UnlinkedExportTarget::Local("Selector".to_string()),
-                    range,
-                },
-            );
-        } else if self.builtin == BuiltinProject::Std && id.path.components().len() == 1 && id.path.components()[0].as_str() == "json" {
-            for name in ["parse", "stringify"] {
-                let range = SourceRange::default();
-                declarations.insert(
-                    name.to_string(),
-                    DeclarationSurface {
-                        name: name.to_string(),
-                        is_const: true,
-                        range,
-                    },
-                );
-                exports.insert(
-                    name.to_string(),
-                    ExportSurface {
-                        exported_name: name.to_string(),
-                        internal_name: name.to_string(),
-                        target: UnlinkedExportTarget::Local(name.to_string()),
-                        range,
-                    },
-                );
-            }
-        }
-
-        let exposed_children = node
-            .children
-            .iter()
-            .map(|name| ModuleComponent::from_identifier(name).expect("builtin graph components are canonical"))
-            .collect::<BTreeSet<_>>();
-
-        Ok(UnlinkedModuleInterface {
-            id: id.clone(),
-            kind: node.kind,
-            declarations,
-            exports,
-            imports: Vec::new(),
-            exposed_children,
-            metadata: ModuleMetadata::default(),
-        })
+        crate::builtin_interface::BuiltinInterfaceBuilder::build(self, id)
     }
 
     /// Returns the embedded source text for a canonical builtin module.
@@ -471,6 +478,9 @@ impl BuiltinProjectSourceProvider {
                 include_str!("../../phalcom-core/core/universe/src/callable/family.ph")
             }
             (BuiltinProject::Universe, [c]) if c.as_str() == "option" => include_str!("../../phalcom-core/core/universe/src/option/package.ph"),
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "option" && m.as_str() == "option" => {
+                include_str!("../../phalcom-core/core/universe/src/option/option.ph")
+            }
             (BuiltinProject::Universe, [c]) if c.as_str() == "collections" => include_str!("../../phalcom-core/core/universe/src/collections/package.ph"),
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "iterable" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/iterable.ph")
@@ -519,6 +529,48 @@ impl BuiltinProjectSourceProvider {
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/project.ph")
             }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project_manifest" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/project-manifest.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_info" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/package-info.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_author" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/package-author.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_requirement" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/package-requirement.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "resolved_project_dependency" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/resolved-project-dependency.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module_dependency" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/module-dependency.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export_table" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/export-table.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/export.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export_kind" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/export-kind.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "child_module_table" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/child-module-table.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module_identity" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/module-identity.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_identity" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/package-identity.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project_identity" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/project-identity.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "uri" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/uri.ph")
+            }
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "selector" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/selector.ph")
             }
@@ -566,7 +618,7 @@ impl BuiltinProjectSourceProvider {
         self.nodes().iter().find(|node| node.path == expected.as_slice())
     }
 
-    fn nodes(&self) -> &'static [BuiltinNodeSpec] {
+    pub fn nodes(&self) -> &'static [BuiltinNodeSpec] {
         match self.builtin {
             BuiltinProject::Universe => UNIVERSE_NODES,
             BuiltinProject::Std => STD_NODES,

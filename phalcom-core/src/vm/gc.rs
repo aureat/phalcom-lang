@@ -73,6 +73,8 @@ impl VM {
             // Receivers under `@invariant` re-entrancy checking — the live mirror
             // of `FiberObject::checking` (U-ANNOT-CONTRACTS).
             checking,
+            // Canonical reflection cache.
+            reflection_cache,
 
             // --- Non-roots (§2.2): Symbols, integers, flags, and Rust-side state.
             // Symbols live in the interner, never the heap, and are never collected.
@@ -124,6 +126,7 @@ impl VM {
         out.extend(classes.values().copied());
         out.extend(sealed_classes.values().copied());
         out.extend(checking.iter().copied());
+        reflection_cache.trace(&mut |id| out.push(id));
         universe.each_handle(&mut |id| out.push(id));
     }
 
@@ -134,8 +137,8 @@ impl VM {
     /// truth — i.e. at a dispatch-loop safepoint, never part-way through a native
     /// primitive holding a fresh handle in a Rust local
     /// ([memory-management.md §4](../../../docs/spec/v0.2/memory-management.md)).
-    /// Safepoint-latched triggering ([`service_gc_safepoint`](Self::service_gc_safepoint))
-    /// and the [`push_temp_root`](Self::push_temp_root) escape hatch that makes
+    /// Safepoint-latched triggering (`service_gc_safepoint`)
+    /// and the `push_temp_root` escape hatch that makes
     /// the native side safe are both live.
     pub fn force_gc(&mut self) -> usize {
         let mut roots = Vec::new();

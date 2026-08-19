@@ -22,7 +22,7 @@ use crate::vm::VM;
 )]
 pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let attr = args[0];
-    let Value::Obj(id) = *receiver else {
+    let Some(id) = receiver.as_obj() else {
         return Err(RuntimeError::Type {
             expected: "Class or Method",
             found: "a non-heap value",
@@ -56,7 +56,7 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     visibility = public
 )]
 pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let Value::Obj(id) = *receiver else {
+    let Some(id) = receiver.as_obj() else {
         return Err(RuntimeError::Type {
             expected: "Class or Method",
             found: "a non-heap value",
@@ -75,7 +75,7 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
             .into());
         }
     };
-    Ok(Value::Obj(vm.heap.alloc(Object::List(crate::heap::ListObject::new(attrs)))))
+    Ok(Value::obj(vm.heap.alloc(Object::List(crate::heap::ListObject::new(attrs)))))
 }
 
 /// Signature: `Object#__freezeAttributes` — marks the receiver's attribute
@@ -88,7 +88,7 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     visibility = public
 )]
 pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let Value::Obj(id) = *receiver else {
+    let Some(id) = receiver.as_obj() else {
         return Err(RuntimeError::Type {
             expected: "Class or Method",
             found: "a non-heap value",

@@ -643,18 +643,14 @@ fn worker_loop(
             }
             if let Some(scan) = scanner.as_mut() {
                 let batch = scan.step_with_counters(ScanBudget::default(), Some(&shared.counters));
-                process_scan_batch(
-                    &db,
-                    &mut engine,
-                    workspace_index.as_ref(),
-                    source_cache.as_ref(),
-                    &shared,
-                    &event_tx,
-                    scan.mode,
-                    batch,
-                    &mut source_catalog,
-                    selected_core_uri.as_ref(),
-                );
+                let scan_env = ScanEnv {
+                    db: &db,
+                    workspace_index: workspace_index.as_deref(),
+                    source_cache: source_cache.as_ref(),
+                    shared: &shared,
+                    event_tx: &event_tx,
+                };
+                process_scan_batch(&scan_env, &mut engine, scan.mode, batch, &mut source_catalog, selected_core_uri.as_ref());
                 if !scan.has_work() {
                     scanner = None;
                     shared.scan_in_progress.store(false, Ordering::SeqCst);
@@ -672,18 +668,14 @@ fn worker_loop(
             drop(pending);
             if let Some(scan) = scanner.as_mut() {
                 let batch = scan.step_with_counters(ScanBudget::default(), Some(&shared.counters));
-                process_scan_batch(
-                    &db,
-                    &mut engine,
-                    workspace_index.as_ref(),
-                    source_cache.as_ref(),
-                    &shared,
-                    &event_tx,
-                    scan.mode,
-                    batch,
-                    &mut source_catalog,
-                    selected_core_uri.as_ref(),
-                );
+                let scan_env = ScanEnv {
+                    db: &db,
+                    workspace_index: workspace_index.as_deref(),
+                    source_cache: source_cache.as_ref(),
+                    shared: &shared,
+                    event_tx: &event_tx,
+                };
+                process_scan_batch(&scan_env, &mut engine, scan.mode, batch, &mut source_catalog, selected_core_uri.as_ref());
                 if !scan.has_work() {
                     scanner = None;
                     shared.scan_in_progress.store(false, Ordering::SeqCst);
@@ -738,17 +730,19 @@ fn worker_loop(
 
             let mut latest_generation = db.generation();
             let mut next_source_catalog = source_catalog.clone();
-            refresh_disk_sources(
-                &db,
-                workspace_index.as_ref(),
-                source_cache.as_ref(),
-                &shared,
-                &event_tx,
-                disk_refreshes,
-                &mut file_updates,
-                &mut source_texts,
-                &mut removals,
-            );
+            let scan_env = ScanEnv {
+                db: &db,
+                workspace_index: workspace_index.as_deref(),
+                source_cache: source_cache.as_ref(),
+                shared: &shared,
+                event_tx: &event_tx,
+            };
+            let mut delta = DiskRefreshDelta {
+                file_updates: &mut file_updates,
+                source_texts: &mut source_texts,
+                removals: &mut removals,
+            };
+            refresh_disk_sources(&scan_env, disk_refreshes, &mut delta);
             for uri in &removals {
                 next_source_catalog.remove(&canonical_uri(uri));
             }
@@ -863,54 +857,59 @@ fn is_open_source(shared: &WorkerShared, uri: &Url) -> bool {
     shared.open_documents.lock().expect("open document lock poisoned").contains(uri)
 }
 
-fn refresh_disk_sources(
-    db: &SemanticDb,
-    workspace_index: Option<&Arc<WorkspaceIndex>>,
-    source_cache: Option<&SourceCache>,
-    shared: &WorkerShared,
-    event_tx: &mpsc::UnboundedSender<AnalysisEvent>,
-    refreshes: BTreeSet<Url>,
-    file_updates: &mut BTreeMap<Url, (FileRevision, Program)>,
-    source_texts: &mut BTreeMap<Url, Arc<str>>,
-    removals: &mut BTreeSet<Url>,
-) {
+struct ScanEnv<'a> {
+    db: &'a SemanticDb,
+    workspace_index: Option<&'a WorkspaceIndex>,
+    source_cache: Option<&'a SourceCache>,
+    shared: &'a WorkerShared,
+    event_tx: &'a mpsc::UnboundedSender<AnalysisEvent>,
+}
+
+struct DiskRefreshDelta<'a> {
+    file_updates: &'a mut BTreeMap<Url, (FileRevision, Program)>,
+    source_texts: &'a mut BTreeMap<Url, Arc<str>>,
+    removals: &'a mut BTreeSet<Url>,
+}
+
+fn refresh_disk_sources(env: &ScanEnv<'_>, refreshes: BTreeSet<Url>, delta: &mut DiskRefreshDelta<'_>) {
     for uri in refreshes {
-        let ticket = shared.epoch.load(Ordering::Acquire);
-        let source_ticket = source_epoch(shared, &uri);
-        if is_open_source(shared, &uri) {
+        let ticket = env.shared.epoch.load(Ordering::Acquire);
+        let source_ticket = source_epoch(env.shared, &uri);
+        if is_open_source(env.shared, &uri) {
             continue;
         }
         let Ok(path) = uri.to_file_path() else {
-            removals.insert(uri);
+            delta.removals.insert(uri);
             continue;
         };
         let Ok(text) = std::fs::read_to_string(path) else {
-            if shared.epoch.load(Ordering::Acquire) != ticket || source_epoch(shared, &uri) != source_ticket || is_open_source(shared, &uri) {
+            if env.shared.epoch.load(Ordering::Acquire) != ticket || source_epoch(env.shared, &uri) != source_ticket || is_open_source(env.shared, &uri) {
                 continue;
             }
-            if let Some(index) = workspace_index {
+            if let Some(index) = env.workspace_index {
                 index.remove_file(&uri);
             }
-            if let Some(cache) = source_cache {
+            if let Some(cache) = env.source_cache {
                 cache.write().expect("closed source cache lock poisoned").remove(&canonical_uri(&uri));
             }
-            removals.insert(uri.clone());
-            let _ = event_tx.send(AnalysisEvent::WorkspaceFileRemoved { uri });
+            delta.removals.insert(uri.clone());
+            let _ = env.event_tx.send(AnalysisEvent::WorkspaceFileRemoved { uri });
             continue;
         };
         let parse = phalcom_ast::parser::parse(&text, 0);
-        if shared.epoch.load(Ordering::Acquire) != ticket || source_epoch(shared, &uri) != source_ticket || is_open_source(shared, &uri) {
+        if env.shared.epoch.load(Ordering::Acquire) != ticket || source_epoch(env.shared, &uri) != source_ticket || is_open_source(env.shared, &uri) {
             continue;
         }
         let source_text: Arc<str> = Arc::from(text.as_str());
         let program = Arc::new(parse.program);
-        let revision = db
+        let revision = env
+            .db
             .file_snapshot(&uri)
             .map_or(FileRevision(1), |file| FileRevision(file.revision.0.saturating_add(1)));
-        if let Some(index) = workspace_index {
+        if let Some(index) = env.workspace_index {
             index.update_file(uri.clone(), &program);
         }
-        if let Some(cache) = source_cache {
+        if let Some(cache) = env.source_cache {
             cache.write().expect("closed source cache lock poisoned").insert(
                 canonical_uri(&uri),
                 CachedSource {
@@ -921,30 +920,26 @@ fn refresh_disk_sources(
                 },
             );
         }
-        let _ = event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
+        let _ = env.event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
             uri: uri.clone(),
             text: source_text.clone(),
             revision,
         });
-        source_texts.insert(uri.clone(), source_text);
-        file_updates.insert(uri, (revision, (*program).clone()));
+        delta.source_texts.insert(uri.clone(), source_text);
+        delta.file_updates.insert(uri, (revision, (*program).clone()));
     }
 }
 
 fn process_scan_batch(
-    db: &SemanticDb,
+    env: &ScanEnv<'_>,
     engine: &mut SemanticEngine,
-    workspace_index: Option<&Arc<WorkspaceIndex>>,
-    source_cache: Option<&SourceCache>,
-    shared: &WorkerShared,
-    event_tx: &mpsc::UnboundedSender<AnalysisEvent>,
     mode: AnalysisMode,
     files: Vec<crate::workspace_scan::DiscoveredFile>,
     source_catalog: &mut BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
     selected_core_uri: Option<&Url>,
 ) {
     #[cfg(test)]
-    if let Some(gate) = shared.test_scan_gate.lock().expect("test scan gate lock poisoned").clone() {
+    if let Some(gate) = env.shared.test_scan_gate.lock().expect("test scan gate lock poisoned").clone() {
         gate.wait();
     }
 
@@ -953,41 +948,45 @@ fn process_scan_batch(
         if Some(&discovered.uri) == selected_core_uri {
             continue;
         }
-        let ticket = shared.epoch.load(Ordering::Acquire);
-        let source_ticket = source_epoch(shared, &discovered.uri);
-        if is_open_source(shared, &discovered.uri) {
-            shared.counters.scan_results_discarded_for_open_document.fetch_add(1, Ordering::Relaxed);
+        let ticket = env.shared.epoch.load(Ordering::Acquire);
+        let source_ticket = source_epoch(env.shared, &discovered.uri);
+        if is_open_source(env.shared, &discovered.uri) {
+            env.shared.counters.scan_results_discarded_for_open_document.fetch_add(1, Ordering::Relaxed);
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&discovered.path) else {
             continue;
         };
-        if shared.epoch.load(Ordering::Acquire) != ticket || source_epoch(shared, &discovered.uri) != source_ticket || is_open_source(shared, &discovered.uri) {
-            if is_open_source(shared, &discovered.uri) {
-                shared.counters.scan_results_discarded_for_open_document.fetch_add(1, Ordering::Relaxed);
+        if env.shared.epoch.load(Ordering::Acquire) != ticket
+            || source_epoch(env.shared, &discovered.uri) != source_ticket
+            || is_open_source(env.shared, &discovered.uri)
+        {
+            if is_open_source(env.shared, &discovered.uri) {
+                env.shared.counters.scan_results_discarded_for_open_document.fetch_add(1, Ordering::Relaxed);
             } else {
-                shared.counters.scan_results_discarded_as_stale.fetch_add(1, Ordering::Relaxed);
+                env.shared.counters.scan_results_discarded_as_stale.fetch_add(1, Ordering::Relaxed);
             }
             continue;
         }
         let _span = PerfSpan::start_with_context_and_counters(
             "workspace_source_parse",
             PerfContext {
-                generation: Some(db.generation().0),
-                epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                generation: Some(env.db.generation().0),
+                epoch: Some(env.shared.epoch.load(Ordering::Acquire)),
             },
-            shared.counters.clone(),
+            env.shared.counters.clone(),
         );
         let parse = phalcom_ast::parser::parse(&text, 0);
         let source_text: Arc<str> = Arc::from(text.as_str());
         let program = Arc::new(parse.program);
-        let revision = db
+        let revision = env
+            .db
             .file_snapshot(&discovered.uri)
             .map_or(FileRevision(1), |file| FileRevision(file.revision.0.saturating_add(1)));
-        if let Some(index) = workspace_index {
+        if let Some(index) = env.workspace_index {
             index.update_file(discovered.uri.clone(), &program);
         }
-        if let Some(cache) = source_cache {
+        if let Some(cache) = env.source_cache {
             cache.write().expect("closed source cache lock poisoned").insert(
                 canonical_uri(&discovered.uri),
                 CachedSource {
@@ -999,9 +998,9 @@ fn process_scan_batch(
             );
         }
         source_catalog.insert(canonical_uri(&discovered.uri), (revision, source_text.clone(), (*program).clone()));
-        shared.counters.workspace_files_discovered.fetch_add(1, Ordering::Relaxed);
-        shared.counters.workspace_files_parsed.fetch_add(1, Ordering::Relaxed);
-        let _ = event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
+        env.shared.counters.workspace_files_discovered.fetch_add(1, Ordering::Relaxed);
+        env.shared.counters.workspace_files_parsed.fetch_add(1, Ordering::Relaxed);
+        let _ = env.event_tx.send(AnalysisEvent::WorkspaceFileIndexed {
             uri: discovered.uri.clone(),
             text: source_text.clone(),
             revision,
@@ -1014,18 +1013,18 @@ fn process_scan_batch(
         let _span = PerfSpan::start_with_context_and_counters(
             "scan_semantic_publish",
             PerfContext {
-                generation: Some(db.generation().0),
-                epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                generation: Some(env.db.generation().0),
+                epoch: Some(env.shared.epoch.load(Ordering::Acquire)),
             },
-            shared.counters.clone(),
+            env.shared.counters.clone(),
         );
         let generation = engine.update_files_batch_with_source(semantic_files);
-        let effects = publish_engine(db, engine);
-        shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
-        let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
+        let effects = publish_engine(env.db, engine);
+        env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
+        let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
     }
     if mode == AnalysisMode::Local {
-        let open_documents = shared.open_documents.lock().expect("open document lock poisoned").clone();
+        let open_documents = env.shared.open_documents.lock().expect("open document lock poisoned").clone();
         let mut batch = Vec::new();
         let mut seen = BTreeSet::new();
         for uri in open_documents {
@@ -1042,15 +1041,15 @@ fn process_scan_batch(
             let _span = PerfSpan::start_with_context_and_counters(
                 "scan_local_publish",
                 PerfContext {
-                    generation: Some(db.generation().0),
-                    epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                    generation: Some(env.db.generation().0),
+                    epoch: Some(env.shared.epoch.load(Ordering::Acquire)),
                 },
-                shared.counters.clone(),
+                env.shared.counters.clone(),
             );
             let generation = engine.update_files_batch_with_source(batch);
-            let effects = publish_engine(db, engine);
-            shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
-            let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
+            let effects = publish_engine(env.db, engine);
+            env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
+            let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
         }
     }
 }

@@ -26,14 +26,10 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
     /// Resolves an AST `ImportPath` written inside the context of `importer`.
     pub fn resolve_import(&mut self, importer: &ModuleId, syntax: &ImportPath) -> Result<SourceUnit, ModuleResolutionError> {
-        let importer_project_id = importer
-            .project
-            .as_resolved()
-            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("{} has no resolved user-project source authority", importer.project)))?;
-        let importer_project = self
-            .universe
-            .get_project(importer_project_id)
-            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Project {:?} not found", importer_project_id)))?;
+        let importer_project = match importer.project {
+            crate::identity::ProjectIdentity::Resolved(pid) => self.universe.get_project(pid),
+            _ => None,
+        };
 
         match &syntax.root {
             ImportRoot::Absolute(root_seg) => {
@@ -43,11 +39,22 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 let root_comp =
                     ModuleComponent::from_identifier(&root_seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(root_seg.name.clone(), e))?;
 
-                let roots = importer_project.import_roots();
-                let (target_root, is_self) = roots
-                    .get(&root_comp)
-                    .copied()
-                    .ok_or_else(|| ModuleResolutionError::UnknownImportRoot(root_seg.name.clone()))?;
+                let (target_root, is_self) = if root_seg.name == "universe" {
+                    (ImportRootTarget::Builtin(crate::identity::BuiltinProject::Universe), false)
+                } else if root_seg.name == "std" {
+                    (ImportRootTarget::Builtin(crate::identity::BuiltinProject::Std), false)
+                } else if let Some(proj) = importer_project {
+                    let roots = proj.import_roots();
+                    roots
+                        .get(&root_comp)
+                        .copied()
+                        .ok_or_else(|| ModuleResolutionError::UnknownImportRoot(root_seg.name.clone()))?
+                } else {
+                    return Err(ModuleResolutionError::ModuleNotFound(format!(
+                        "standalone module {} cannot import user dependency '{}' without a project context",
+                        importer, root_seg.name
+                    )));
+                };
 
                 // Build target relative path from segments before selecting a provider.
                 let mut components = Vec::new();
@@ -104,10 +111,17 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     ));
                 }
 
+                let importer_project = importer_project.ok_or_else(|| {
+                    ModuleResolutionError::ModuleNotFound(format!(
+                        "standalone module {} cannot perform relative imports without a project context",
+                        importer
+                    ))
+                })?;
+
                 // Determine importer package depth
                 let importer_unit = self.source.locate(importer_project, &importer.path)?;
                 let package_path = match importer_unit.kind {
-                    ModuleKind::Package | ModuleKind::ProjectRoot => importer.path.clone(),
+                    ModuleKind::Package => importer.path.clone(),
                     ModuleKind::Module => importer.path.parent().unwrap_or_else(ModulePath::root),
                 };
 

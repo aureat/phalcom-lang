@@ -40,6 +40,22 @@ path = "tests/modules_compile.rs"
 name = "universe_v1"
 path = "tests/universe_v1.rs"
 
+[[test]]
+name = "module_reflection_contract"
+path = "tests/module_reflection_contract.rs"
+
+[[test]]
+name = "package_info_contract"
+path = "tests/package_info_contract.rs"
+
+[[test]]
+name = "project_reflection_contract"
+path = "tests/project_reflection_contract.rs"
+
+[[test]]
+name = "modules_linker"
+path = "tests/modules_linker.rs"
+
 
 [features]
 default = []
@@ -88,6 +104,8 @@ phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-modules = { path = "../phalcom-modules" }
 linkme = { workspace = true }
 indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = "2.0.12"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

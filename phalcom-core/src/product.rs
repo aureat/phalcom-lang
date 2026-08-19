@@ -40,14 +40,14 @@ fn unique(entries: &[(Symbol, Value)]) -> Result<(), ProductBuildError> {
 pub(crate) fn finish_tuple(vm: &mut VM, mut positionals: Vec<Value>, labeled: Vec<(Symbol, Value)>) -> Result<Value, ProductBuildError> {
     unique(&labeled)?;
     if positionals.is_empty() && labeled.is_empty() {
-        return Ok(Value::Unit);
+        return Ok(Value::unit());
     }
     let mut labels = Vec::with_capacity(labeled.len());
     for (label, value) in labeled {
         labels.push(label);
         positionals.push(value);
     }
-    Ok(Value::Obj(
+    Ok(Value::obj(
         vm.heap.alloc_tuple_nonempty(positionals.into_boxed_slice(), labels.into_boxed_slice()),
     ))
 }
@@ -60,10 +60,10 @@ pub(crate) fn finish_tuple(vm: &mut VM, mut positionals: Vec<Value>, labeled: Ve
 pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result<Value, ProductBuildError> {
     unique(&fields)?;
     if fields.is_empty() {
-        return Ok(Value::Unit);
+        return Ok(Value::unit());
     }
     let (labels, values): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
-    Ok(Value::Obj(vm.heap.alloc_record_nonempty(labels.into_boxed_slice(), values.into_boxed_slice())))
+    Ok(Value::obj(vm.heap.alloc_record_nonempty(labels.into_boxed_slice(), values.into_boxed_slice())))
 }
 
 #[cfg(test)]
@@ -80,8 +80,8 @@ mod tests {
                 let mut vm = VM::new();
                 let before = vm.heap.live_count();
 
-                assert_eq!(finish_tuple(&mut vm, Vec::new(), Vec::new()), Ok(Value::Unit));
-                assert_eq!(finish_record(&mut vm, Vec::new()), Ok(Value::Unit));
+                assert_eq!(finish_tuple(&mut vm, Vec::new(), Vec::new()), Ok(Value::unit()));
+                assert_eq!(finish_record(&mut vm, Vec::new()), Ok(Value::unit()));
 
                 assert_eq!(vm.heap.live_count(), before);
             })

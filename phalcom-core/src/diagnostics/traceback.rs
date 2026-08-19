@@ -1,7 +1,7 @@
 //! Human and JSON traceback renderers (IS §5).
 //!
 //! The single public entry point is [`render_traceback`]. It dispatches to
-//! [`render_human_traceback`] or [`render_json_traceback`] based on the caller's
+//! `render_human_traceback` or `render_json_traceback` based on the caller's
 //! `trace_format_json` flag.
 //!
 //! # Two source paths for frames
@@ -528,20 +528,20 @@ fn is_core_module(vm: &VM, module_sym: Symbol) -> bool {
 /// Returns the `kind` string for an error, or `""` when none applies.
 fn extract_kind_str(vm: &mut VM, err: &PhError) -> String {
     match err {
-        PhError::Runtime(RuntimeError::Raise {
-            error: crate::value::Value::Obj(id),
-            ..
-        }) => vm
-            .heap
-            .as_instance(*id)
-            .and_then(|instance| instance.slots.get(1))
-            .and_then(|kind| match kind {
-                crate::value::Value::Symbol(sym) => Some(vm.resolve_symbol(*sym).to_string()),
-                _ => None,
-            })
-            .unwrap_or_default(),
+        PhError::Runtime(RuntimeError::Raise { error, .. }) => {
+            if let Some(id) = error.as_obj() {
+                vm.heap
+                    .as_instance(id)
+                    .and_then(|instance| instance.slots.get(1))
+                    .and_then(|kind| kind.symbol_value())
+                    .map(|sym| vm.resolve_symbol(sym).to_string())
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            }
+        }
         PhError::Runtime(rt) => {
-            if let Some(crate::value::Value::Symbol(s)) = vm.error_kind_symbol(rt) {
+            if let Some(s) = vm.error_kind_symbol(rt).and_then(|v| v.symbol_value()) {
                 return vm.resolve_symbol(s).to_string();
             }
             String::new()

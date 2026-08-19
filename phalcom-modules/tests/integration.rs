@@ -76,7 +76,7 @@ fn test_filesystem_source_provider_resolution() {
 
     // 1. Locate package root
     let root_unit = provider.locate(project, &ModulePath::root()).unwrap();
-    assert_eq!(root_unit.kind, ModuleKind::ProjectRoot);
+    assert_eq!(root_unit.kind, ModuleKind::Package);
 
     // 2. Locate point module
     let point_path = ModulePath::from_components(vec![ModuleComponent::from_identifier("point").unwrap()]);

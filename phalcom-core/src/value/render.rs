@@ -1,9 +1,10 @@
 use crate::error::PhResult;
 use crate::heap::Object;
+use crate::value::repr::ValueTag;
 use crate::vm::VM;
 use std::fmt::{self, Debug, Display};
 
-use super::{OptionPayload, Value};
+use super::Value;
 
 impl Value {
     /// Renders this value the way `System.print` and `toString` present it.
@@ -17,18 +18,32 @@ impl Value {
     /// heap object renders via its debug form. Returns an owned [`String`]
     /// rather than allocating a heap object.
     pub fn to_string(&self, vm: &VM) -> String {
-        match self {
-            Value::Nil => "nil".to_string(),
-            Value::Unit => "()".to_string(),
-            Value::Bool(b) => bool_literal(*b).to_string(),
-            Value::Int(n) => n.to_string(),
-            Value::Float(n) => render_float(*n),
-            Value::Symbol(s) => s.to_string(vm),
-            Value::None => "None".to_string(),
-            value @ (Value::Some1(_) | Value::Some2(_) | Value::Some3(_) | Value::Some4(_) | Value::Some5(_) | Value::Some6(_) | Value::Some7(_)) => {
-                render_option(*value, vm, false)
-            }
-            Value::Obj(id) => match vm.heap.get(*id) {
+        if self.is_some() {
+            return render_option(*self, vm, false);
+        }
+        if self.is_nil() {
+            return "nil".to_string();
+        }
+        if self.is_unit() {
+            return "()".to_string();
+        }
+        if let Some(b) = self.as_bool() {
+            return bool_literal(b).to_string();
+        }
+        if let Some(n) = self.as_int() {
+            return n.to_string();
+        }
+        if let Some(n) = self.as_float() {
+            return render_float(n);
+        }
+        if let Some(s) = self.symbol_value() {
+            return s.to_string(vm);
+        }
+        if self.is_none() {
+            return "None".to_string();
+        }
+        if let Some(id) = self.as_obj() {
+            return match vm.heap.get(id) {
                 Object::LargeInt(bigint) => bigint.to_string(),
                 Object::Str(string) => string.value(),
                 Object::List(list) => {
@@ -59,30 +74,31 @@ impl Value {
                 }
                 Object::Record(_) => "<record>".to_string(),
                 _ => self.to_debug(vm),
-            },
+            };
         }
+        "<invalid value>".to_string()
     }
 
     /// Renders this value for display (`System.print`) by sending it a
     /// `toString` message, unconditionally.
     pub fn to_display_string(&self, vm: &mut VM) -> PhResult<String> {
-        if let Value::Int(_) = self {
+        if self.is_int() {
             if vm.universe.int_tostring_pristine {
                 return Ok(self.to_string(vm));
             }
-        } else if let Value::Float(_) = self {
+        } else if self.is_float() {
             if vm.universe.float_tostring_pristine {
                 return Ok(self.to_string(vm));
             }
-        } else if let Value::Symbol(_) = self {
+        } else if self.is_symbol() {
             if vm.universe.symbol_tostring_pristine {
                 return Ok(self.to_string(vm));
             }
-        } else if let Value::Obj(id) = self {
-            if vm.universe.str_tostring_pristine && matches!(vm.heap.get(*id), Object::Str(_)) {
+        } else if let Some(id) = self.as_obj() {
+            if vm.universe.str_tostring_pristine && matches!(vm.heap.get(id), Object::Str(_)) {
                 return Ok(self.to_string(vm));
             }
-            if vm.universe.int_tostring_pristine && matches!(vm.heap.get(*id), Object::LargeInt(_)) {
+            if vm.universe.int_tostring_pristine && matches!(vm.heap.get(id), Object::LargeInt(_)) {
                 return Ok(self.to_string(vm));
             }
         }
@@ -96,18 +112,32 @@ impl Value {
     /// Identical to [`Value::to_string`] except that a symbol renders as
     /// `<symbol N>`.
     pub fn to_debug(&self, vm: &VM) -> String {
-        match self {
-            Value::Nil => "nil".to_string(),
-            Value::Unit => "()".to_string(),
-            Value::Bool(b) => bool_literal(*b).to_string(),
-            Value::Int(n) => n.to_string(),
-            Value::Float(n) => render_float(*n),
-            Value::Symbol(s) => s.to_debug(),
-            Value::None => "None".to_string(),
-            value @ (Value::Some1(_) | Value::Some2(_) | Value::Some3(_) | Value::Some4(_) | Value::Some5(_) | Value::Some6(_) | Value::Some7(_)) => {
-                render_option(*value, vm, true)
-            }
-            Value::Obj(id) => match vm.heap.get(*id) {
+        if self.is_some() {
+            return render_option(*self, vm, true);
+        }
+        if self.is_nil() {
+            return "nil".to_string();
+        }
+        if self.is_unit() {
+            return "()".to_string();
+        }
+        if let Some(b) = self.as_bool() {
+            return bool_literal(b).to_string();
+        }
+        if let Some(n) = self.as_int() {
+            return n.to_string();
+        }
+        if let Some(n) = self.as_float() {
+            return render_float(n);
+        }
+        if let Some(s) = self.symbol_value() {
+            return s.to_debug();
+        }
+        if self.is_none() {
+            return "None".to_string();
+        }
+        if let Some(id) = self.as_obj() {
+            return match vm.heap.get(id) {
                 Object::LargeInt(bigint) => bigint.to_string(),
                 Object::Str(string) => string.value(),
                 Object::Instance(instance) => instance.to_debug(&vm.heap),
@@ -132,8 +162,23 @@ impl Value {
                 Object::Upvalue(_) => "<upvalue>".to_string(),
                 Object::PackBuilder(_) => "<internal pack builder>".to_string(),
                 Object::RecordLiteralBuilder(_) => "<internal Record literal builder>".to_string(),
-            },
+                Object::Project(proj) => format!("<Project {}>", proj.name),
+                Object::ProjectManifest(m) => format!("<ProjectManifest {}>", m.name),
+                Object::PackageInfo(info) => format!("<PackageInfo {}>", info.name),
+                Object::PackageAuthor(a) => format!("<PackageAuthor {}>", a.name),
+                Object::PackageRequirement(r) => format!("<PackageRequirement {}>", r.package),
+                Object::ResolvedProjectDependency(d) => format!("<ResolvedProjectDependency {}>", vm.interner.lookup(d.alias)),
+                Object::ModuleDependency(_) => "<ModuleDependency>".to_string(),
+                Object::ExportTable(_) => "<ExportTable>".to_string(),
+                Object::Export(e) => format!("<Export {}>", vm.interner.lookup(e.name)),
+                Object::ChildModuleTable(_) => "<ChildModuleTable>".to_string(),
+                Object::ModuleIdentity(id) => format!("<ModuleIdentity {}>", id.id_str),
+                Object::PackageIdentity(id) => format!("<PackageIdentity {}>", id.identity_str),
+                Object::ProjectIdentity(id) => format!("<ProjectIdentity {}>", id.identity_str),
+                Object::Uri(u) => format!("<Uri {}>", u.uri_str),
+            };
         }
+        "<invalid value>".to_string()
     }
 }
 
@@ -142,88 +187,72 @@ fn bool_literal(b: bool) -> &'static str {
     if b { "true" } else { "false" }
 }
 
+fn fmt_base_value(f: &mut fmt::Formatter<'_>, base: Value) -> fmt::Result {
+    match base.tag() {
+        ValueTag::Nil => write!(f, "nil"),
+        ValueTag::Unit => write!(f, "()"),
+        ValueTag::Bool => write!(f, "{}", base.as_bool().unwrap_or(false)),
+        ValueTag::Int => write!(f, "{}", base.as_int().unwrap_or(0)),
+        ValueTag::Float => write!(f, "{}", render_float(base.as_float().unwrap_or(0.0))),
+        ValueTag::Symbol => write!(f, "Symbol({})", base.symbol_value().map(|s| s.0).unwrap_or(0)),
+        ValueTag::Obj => {
+            if let Some(id) = base.as_obj() {
+                write!(f, "<obj {id:?}>")
+            } else {
+                write!(f, "<obj invalid>")
+            }
+        }
+        ValueTag::None => write!(f, "None"),
+    }
+}
+
 impl Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Nil => write!(f, "nil"),
-            Self::Unit => write!(f, "()"),
-            Self::Bool(b) => write!(f, "{b}"),
-            Self::Int(i) => write!(f, "{i}"),
-            Self::Float(n) => write!(f, "{}", render_float(*n)),
-            Self::Symbol(s) => write!(f, "Symbol({})", s.0),
-            Self::Obj(id) => write!(f, "<obj {id:?}>"),
-            Self::None => write!(f, "None"),
-            Self::Some1(payload) => fmt_option(f, 1, *payload, true),
-            Self::Some2(payload) => fmt_option(f, 2, *payload, true),
-            Self::Some3(payload) => fmt_option(f, 3, *payload, true),
-            Self::Some4(payload) => fmt_option(f, 4, *payload, true),
-            Self::Some5(payload) => fmt_option(f, 5, *payload, true),
-            Self::Some6(payload) => fmt_option(f, 6, *payload, true),
-            Self::Some7(payload) => fmt_option(f, 7, *payload, true),
+        let depth = self.option_depth();
+        for _ in 0..depth {
+            write!(f, "Some(")?;
         }
+        let base = self.without_some_wrappers();
+        fmt_base_value(f, base)?;
+        for _ in 0..depth {
+            write!(f, ")")?;
+        }
+        Ok(())
     }
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Nil => write!(f, "nil"),
-            Self::Unit => write!(f, "()"),
-            Self::Bool(b) => write!(f, "{b}"),
-            Self::Int(i) => write!(f, "{i}"),
-            Self::Float(n) => write!(f, "{}", render_float(*n)),
-            Self::Symbol(s) => write!(f, "Symbol({})", s.0),
-            Self::Obj(id) => write!(f, "<obj {id:?}>"),
-            Self::None => write!(f, "None"),
-            Self::Some1(payload) => fmt_option(f, 1, *payload, false),
-            Self::Some2(payload) => fmt_option(f, 2, *payload, false),
-            Self::Some3(payload) => fmt_option(f, 3, *payload, false),
-            Self::Some4(payload) => fmt_option(f, 4, *payload, false),
-            Self::Some5(payload) => fmt_option(f, 5, *payload, false),
-            Self::Some6(payload) => fmt_option(f, 6, *payload, false),
-            Self::Some7(payload) => fmt_option(f, 7, *payload, false),
+        let depth = self.option_depth();
+        for _ in 0..depth {
+            write!(f, "Some(")?;
         }
-    }
-}
-
-fn option_parts(value: Value) -> (u8, OptionPayload) {
-    match value {
-        Value::Some1(payload) => (1, payload),
-        Value::Some2(payload) => (2, payload),
-        Value::Some3(payload) => (3, payload),
-        Value::Some4(payload) => (4, payload),
-        Value::Some5(payload) => (5, payload),
-        Value::Some6(payload) => (6, payload),
-        Value::Some7(payload) => (7, payload),
-        _ => unreachable!("option_parts called for non-Some value"),
+        let base = self.without_some_wrappers();
+        fmt_base_value(f, base)?;
+        for _ in 0..depth {
+            write!(f, ")")?;
+        }
+        Ok(())
     }
 }
 
 fn render_option(value: Value, vm: &VM, debug: bool) -> String {
-    let (depth, payload) = option_parts(value);
-    let mut rendered = if debug {
-        payload.into_value().to_debug(vm)
-    } else {
-        payload.into_value().to_string(vm)
-    };
-    for _ in 0..depth {
-        rendered = format!("Some({rendered})");
-    }
-    rendered
-}
+    let depth = value.option_depth();
+    let base = value.without_some_wrappers();
+    let inner = if debug { base.to_debug(vm) } else { base.to_string(vm) };
 
-fn fmt_option(f: &mut fmt::Formatter<'_>, depth: u8, payload: OptionPayload, debug: bool) -> fmt::Result {
-    write!(f, "Some(")?;
-    if depth == 1 {
-        if debug {
-            write!(f, "{:?}", payload.into_value())?;
-        } else {
-            write!(f, "{}", payload.into_value())?;
-        }
-    } else {
-        fmt_option(f, depth - 1, payload, debug)?;
+    let depth_usize = usize::try_from(depth).unwrap_or(usize::MAX);
+    let extra = depth_usize.saturating_mul(6);
+    let mut out = String::with_capacity(inner.len().saturating_add(extra));
+
+    for _ in 0..depth {
+        out.push_str("Some(");
     }
-    write!(f, ")")
+    out.push_str(&inner);
+    for _ in 0..depth {
+        out.push(')');
+    }
+    out
 }
 
 /// Canonical shortest-roundtrip rendering for an `f64` value.

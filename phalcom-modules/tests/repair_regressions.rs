@@ -37,7 +37,7 @@ fn test_real_project_cannot_equal_core_identity() {
 
 #[test]
 fn test_distinct_same_named_synthetic_modules_have_distinct_identities() {
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let syn1 = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let syn2 = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     assert_ne!(syn1, syn2, "display/logical names must not manufacture semantic identity");
@@ -47,7 +47,7 @@ fn test_distinct_same_named_synthetic_modules_have_distinct_identities() {
 fn test_export_before_class_declaration_succeeds_order_independent() {
     let source = "export Foo\nclass Foo {}\n";
     let program = parse(source, 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let module_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let interface = InterfaceBuilder::build(module_id, ModuleKind::Module, &program).expect("export before class should succeed");
     assert!(interface.exports.contains_key("Foo"));
@@ -58,7 +58,7 @@ fn test_export_before_class_declaration_succeeds_order_independent() {
 fn test_import_body_declaration_collision_rejected() {
     let source = "import .other\nclass other {}\n";
     let program = parse(source, 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let module_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let res = InterfaceBuilder::build(module_id, ModuleKind::Module, &program);
     assert!(matches!(res, Err(InterfaceError::DuplicateBinding { .. })));
@@ -67,7 +67,7 @@ fn test_import_body_declaration_collision_rejected() {
 #[test]
 fn test_duplicate_class_declaration_rejected() {
     let program = parse("class Foo {}\nclass Foo {}\n", 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let res = InterfaceBuilder::build(ModuleId::synthetic(ids.allocate(), ModulePath::root()), ModuleKind::Module, &program);
     assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Foo"));
 }
@@ -75,7 +75,7 @@ fn test_duplicate_class_declaration_rejected() {
 #[test]
 fn test_duplicate_let_declaration_rejected() {
     let program = parse("let value = 1\nlet value = 2\n", 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let res = InterfaceBuilder::build(ModuleId::synthetic(ids.allocate(), ModulePath::root()), ModuleKind::Module, &program);
     assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "value"));
 }
@@ -83,7 +83,7 @@ fn test_duplicate_let_declaration_rejected() {
 #[test]
 fn test_cross_kind_duplicate_declaration_rejected() {
     let program = parse("class Foo {}\nlet Foo = 1\n", 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let res = InterfaceBuilder::build(ModuleId::synthetic(ids.allocate(), ModulePath::root()), ModuleKind::Module, &program);
     assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Foo"));
 }
@@ -130,7 +130,7 @@ fn test_module_load_error_preserves_parse_error_and_span() {
 fn duplicate_body_declarations_are_rejected_instead_of_overwriting() {
     let source = "class Thing {}\nclass Thing {}\n";
     let program = parse(source, 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let module_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let err = InterfaceBuilder::build(module_id, ModuleKind::Module, &program).unwrap_err();
     assert!(matches!(err, InterfaceError::DuplicateDeclaration { ref name, .. } if name == "Thing"));
@@ -140,7 +140,7 @@ fn duplicate_body_declarations_are_rejected_instead_of_overwriting() {
 fn class_and_let_share_one_checked_module_namespace() {
     let source = "class Thing {}\nlet Thing = 1\n";
     let program = parse(source, 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let module_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let err = InterfaceBuilder::build(module_id, ModuleKind::Module, &program).unwrap_err();
     assert!(matches!(err, InterfaceError::DuplicateDeclaration { ref name, .. } if name == "Thing"));
@@ -251,7 +251,7 @@ fn test_confinement_violation_for_root_package() {
 
     let provider = FilesystemSourceProvider::new();
     let unit = provider.locate(project, &ModulePath::root()).unwrap();
-    assert_eq!(unit.kind, ModuleKind::ProjectRoot);
+    assert_eq!(unit.kind, ModuleKind::Package);
 }
 
 #[cfg(unix)]
@@ -405,7 +405,7 @@ fn canonical_source_confinement_rejects_symlink_escape() {
 #[test]
 fn unknown_unit_metadata_is_inert_on_ordinary_modules() {
     let program = parse("@!package_root(\"opaque\")\nlet value = 1\n", 0).program;
-    let mut ids = SyntheticProjectIdAllocator::default();
+    let mut ids = SyntheticProjectIdAllocator;
     let id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
     let interface = InterfaceBuilder::build(id, ModuleKind::Module, &program).unwrap();
     assert_eq!(interface.metadata.attributes.len(), 1);
@@ -463,10 +463,6 @@ fn legacy_core_import_is_deliberately_not_a_public_import_root() {
 fn test_metadata_from_ast_maps_all_kinds() {
     let parsed = parse("@!doc(\"project doc\")\nlet x = 1\n", 0);
     assert!(parsed.errors.is_empty());
-
-    let meta_proj = ModuleMetadata::from_ast(&parsed.program.preamble.metadata, ModuleKind::ProjectRoot).unwrap();
-    assert_eq!(meta_proj.attributes.len(), 1);
-    assert_eq!(meta_proj.attributes[0].target, MetadataTarget::Project);
 
     let meta_pkg = ModuleMetadata::from_ast(&parsed.program.preamble.metadata, ModuleKind::Package).unwrap();
     assert_eq!(meta_pkg.attributes.len(), 1);

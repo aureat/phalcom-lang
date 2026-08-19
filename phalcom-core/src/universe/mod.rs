@@ -264,9 +264,11 @@ mod tests {
     }
 
     fn read_str_global(vm: &VM, module: crate::heap::ObjRef, name: &str) -> String {
-        match read_global(vm, module, name) {
-            Value::Obj(id) => vm.heap.string(id).as_str().to_string(),
-            other => panic!("global `{name}` is not a Str: {other:?}"),
+        let val = read_global(vm, module, name);
+        if let Some(id) = val.as_obj() {
+            vm.heap.string(id).as_str().to_string()
+        } else {
+            panic!("global `{name}` is not a Str: {val:?}");
         }
     }
 
@@ -281,7 +283,7 @@ mod tests {
             vm.universe.number_tostring_pristine,
             "post-bootstrap baseline must start pristine (VM::new calls mark_leaf_tostring_pristine last)"
         );
-        assert_eq!(Value::Int(1).to_display_string(&mut vm).unwrap(), "1");
+        assert_eq!(Value::int(1).to_display_string(&mut vm).unwrap(), "1");
 
         let number_class = vm.universe.classes.number_class;
         let selector = vm.get_or_intern("toString");
@@ -300,7 +302,7 @@ mod tests {
             "installing toString on Number must flip the leaf fast-path flag"
         );
         assert_eq!(
-            Value::Int(1).to_display_string(&mut vm).unwrap(),
+            Value::int(1).to_display_string(&mut vm).unwrap(),
             "N",
             "to_display_string must fall back to the real toString send"
         );
@@ -321,7 +323,7 @@ mod tests {
         let bool_class = vm.universe.classes.bool_class;
         let and_selector = vm.get_or_intern("and(_)");
         fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
-            Ok(Value::Bool(false))
+            Ok(Value::bool(false))
         }
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             and_selector,
@@ -348,8 +350,8 @@ let noneCheck = (n < 2).ifTrue(|| { (n < 4).ifTrue(|| { \"inner\" }) }).isNone
         vm.run_in_module(module, closure).expect("runs on the deopt path");
 
         assert_eq!(read_str_global(&vm, module, "r"), "four");
-        assert_eq!(read_global(&vm, module, "someCheck"), Value::Bool(true));
-        assert_eq!(read_global(&vm, module, "noneCheck"), Value::Bool(true));
+        assert_eq!(read_global(&vm, module, "someCheck"), Value::bool(true));
+        assert_eq!(read_global(&vm, module, "noneCheck"), Value::bool(true));
     }
 
     #[test]
@@ -362,7 +364,7 @@ let noneCheck = (n < 2).ifTrue(|| { (n < 4).ifTrue(|| { \"inner\" }) }).isNone
         let bool_class = vm.universe.classes.bool_class;
         let and_selector = vm.get_or_intern("and(_)");
         fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
-            Ok(Value::Bool(false))
+            Ok(Value::bool(false))
         }
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             and_selector,
@@ -382,10 +384,10 @@ let d = true.ifTrue || { }.isSome
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs on the deopt path");
 
-        assert_eq!(read_global(&vm, module, "a"), Value::Bool(true));
-        assert_eq!(read_global(&vm, module, "b"), Value::Bool(false));
-        assert_eq!(read_global(&vm, module, "c"), Value::Bool(true));
-        assert_eq!(read_global(&vm, module, "d"), Value::Bool(true));
+        assert_eq!(read_global(&vm, module, "a"), Value::bool(true));
+        assert_eq!(read_global(&vm, module, "b"), Value::bool(false));
+        assert_eq!(read_global(&vm, module, "c"), Value::bool(true));
+        assert_eq!(read_global(&vm, module, "d"), Value::bool(true));
     }
 
     #[test]
@@ -400,7 +402,7 @@ let d = true.ifTrue || { }.isSome
         let closure_class = vm.universe.classes.closure_class;
         let while_true_selector = vm.get_or_intern("whileTrue(_)");
         fn returns_sentinel(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
-            Ok(Value::Int(-999))
+            Ok(Value::int(-999))
         }
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             while_true_selector,
@@ -423,7 +425,7 @@ let r = || { i < 3 }.whileTrue || { i = i + 1 }
 
         assert_eq!(
             read_global(&vm, module, "r"),
-            Value::Int(-999),
+            Value::int(-999),
             "the inlined whileTrue site must deopt to the real send and honor the override, not the fast loop"
         );
     }
@@ -445,8 +447,8 @@ let baselineNone = None.isNone
 ";
         let baseline_closure = vm.compile_closure(baseline_module, baseline_source).expect("compiles");
         vm.run_in_module(baseline_module, baseline_closure).expect("runs");
-        assert_eq!(read_global(&vm, baseline_module, "baselineSome"), Value::Bool(true));
-        assert_eq!(read_global(&vm, baseline_module, "baselineNone"), Value::Bool(true));
+        assert_eq!(read_global(&vm, baseline_module, "baselineSome"), Value::bool(true));
+        assert_eq!(read_global(&vm, baseline_module, "baselineNone"), Value::bool(true));
 
         let option_class = vm.universe.classes.option_class;
         let match_selector = vm.get_or_intern("match(some,none)");
@@ -478,13 +480,13 @@ let routed = Some(1).orElse || { Some(9) }.match(some: |v| { v }, none: || { -1 
 
         assert_eq!(
             read_global(&vm, module, "someIsSome"),
-            Value::Bool(false),
+            Value::bool(false),
             "a real Some forced through the none: arm must report itself absent"
         );
-        assert_eq!(read_global(&vm, module, "someIsNone"), Value::Bool(true));
+        assert_eq!(read_global(&vm, module, "someIsNone"), Value::bool(true));
         assert_eq!(
             read_global(&vm, module, "routed"),
-            Value::Int(-1),
+            Value::int(-1),
             "the fixture's own trailing explicit .match(...) call must also route through the override"
         );
     }

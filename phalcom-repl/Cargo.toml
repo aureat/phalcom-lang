@@ -20,3 +20,11 @@ phalcom-lsp = { path = "../phalcom-lsp" }
 [[test]]
 name = "repl_phase_b"
 path = "tests/repl_phase_b.rs"
+
+[[test]]
+name = "repl_import_bugs"
+path = "tests/repl_import_bugs.rs"
+
+[[test]]
+name = "repl_imports"
+path = "tests/repl_imports.rs"

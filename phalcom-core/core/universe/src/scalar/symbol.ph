@@ -1,1 +1,1 @@
-@!documentation("Interned symbol representation.")
+class Symbol {}

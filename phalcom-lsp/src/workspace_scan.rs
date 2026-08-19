@@ -39,12 +39,26 @@ pub enum AnalysisMode {
     Workspace,
 }
 
-impl AnalysisMode {
-    /// Parse from a configuration string value.
-    pub fn from_str(s: &str) -> Self {
+/// Error returned when parsing an invalid analysis mode string.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ParseAnalysisModeError(pub String);
+
+impl std::fmt::Display for ParseAnalysisModeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid analysis mode `{}`; expected `local` or `workspace`", self.0)
+    }
+}
+
+impl std::error::Error for ParseAnalysisModeError {}
+
+impl std::str::FromStr for AnalysisMode {
+    type Err = ParseAnalysisModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim() {
-            "workspace" => Self::Workspace,
-            _ => Self::Local,
+            "local" => Ok(Self::Local),
+            "workspace" => Ok(Self::Workspace),
+            other => Err(ParseAnalysisModeError(other.to_owned())),
         }
     }
 }
@@ -479,10 +493,10 @@ mod tests {
 
     #[test]
     fn analysis_mode_from_str() {
-        assert_eq!(AnalysisMode::from_str("local"), AnalysisMode::Local);
-        assert_eq!(AnalysisMode::from_str("workspace"), AnalysisMode::Workspace);
-        assert_eq!(AnalysisMode::from_str("unknown"), AnalysisMode::Local);
-        assert_eq!(AnalysisMode::from_str("  workspace  "), AnalysisMode::Workspace);
+        assert_eq!("local".parse::<AnalysisMode>(), Ok(AnalysisMode::Local));
+        assert_eq!("workspace".parse::<AnalysisMode>(), Ok(AnalysisMode::Workspace));
+        assert!("unknown".parse::<AnalysisMode>().is_err());
+        assert_eq!("  workspace  ".parse::<AnalysisMode>(), Ok(AnalysisMode::Workspace));
     }
 
     #[test]

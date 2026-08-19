@@ -19,6 +19,7 @@ pub mod number;
 pub mod object;
 pub mod range;
 pub mod record;
+pub mod reflection;
 pub mod resource;
 pub mod set;
 pub mod string;
@@ -235,207 +236,178 @@ use crate::vm::VM;
 /// masked to 53 bits so the `as f64` cast is lossless and round-trips
 /// (`object-model.md` §8; [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
 pub(crate) fn hash_code(bits: u64) -> Value {
-    Value::Int((bits & 0x1F_FFFF_FFFF_FFFF) as i64)
+    Value::int((bits & 0x1F_FFFF_FFFF_FFFF) as i64)
 }
 
 /// Extracts a class handle from a receiver value.
-///
-/// Replaces the heap-agnostic `expect_value!(_, Class)` arm: a class is now a
-/// [`Value::Obj`] whose heap object is a [`ClassObject`](crate::heap::ClassObject).
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a class.
 pub(crate) fn expect_class(vm: &VM, value: &Value) -> PhResult<ClassId> {
-    match value {
-        Value::Obj(id) if vm.heap.as_class(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Class",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_class(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Class",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Extracts a string's contents from a receiver value.
-///
-/// Replaces the heap-agnostic `expect_value!(_, String)` arm: a string is now a
-/// [`Value::Obj`] whose heap object is a [`StringObject`](crate::heap::StringObject).
-/// Returns an owned copy so callers can subsequently allocate without holding a
-/// heap borrow.
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a string.
 pub(crate) fn expect_string(vm: &VM, value: &Value) -> PhResult<String> {
-    match value {
-        Value::Obj(id) => match vm.heap.as_string(*id) {
-            Some(string) => Ok(string.value()),
-            None => Err(RuntimeError::Type {
-                expected: "String",
-                found: value.type_name(),
-            }
-            .into()),
-        },
-        other => Err(RuntimeError::Type {
-            expected: "String",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if let Some(string) = vm.heap.as_string(id) {
+            return Ok(string.value());
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "String",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Extracts a method's [`ObjRef`] handle from a receiver value.
-///
-/// Mirrors [`expect_list`]/[`expect_class`]: a reified method is a
-/// [`Value::Obj`] whose heap object is a
-/// [`crate::method::MethodObject`] (U-CORE-3,
-/// [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a `Method`.
 pub(crate) fn expect_method(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if matches!(vm.heap.get(*id), crate::heap::Object::Method(_)) => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Method",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if matches!(vm.heap.get(id), crate::heap::Object::Method(_)) {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Method",
+        found: value.type_name(),
+    }
+    .into())
 }
 
-/// Extracts a list's [`ObjRef`] handle from a receiver value.
-///
-/// Mirrors [`expect_string`]: a list is a [`Value::Obj`] whose heap object is
-/// a [`crate::heap::ListObject`]
-/// ([ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md)).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if `value` is not a list.
 /// Extracts a bytes buffer's [`ObjRef`] handle from a receiver value.
-///
-/// Mirrors [`expect_list`]: a `Bytes` is a [`Value::Obj`] whose heap object
-/// is a [`crate::heap::BytesObject`] behind [`crate::heap::Object::Bytes`]
-/// ([PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a `Bytes`.
 pub(crate) fn expect_bytes(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if vm.heap.as_bytes(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Bytes",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_bytes(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Bytes",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 pub(crate) fn expect_list(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if vm.heap.as_list(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "List",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_list(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "List",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Extracts a map's [`ObjRef`] handle from a receiver value.
-///
-/// Mirrors [`expect_list`]: a map is a [`Value::Obj`] whose heap object is a
-/// [`crate::heap::MapObject`] behind [`crate::heap::Object::Map`]
-/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a `Map`.
 pub(crate) fn expect_map(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if vm.heap.as_map(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Map",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_map(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Map",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Extracts a set's [`ObjRef`] handle from a receiver value.
-///
-/// Mirrors [`expect_map`]: a set is a [`Value::Obj`] whose heap object is a
-/// [`crate::heap::MapObject`] behind [`crate::heap::Object::Set`]
-/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a `Set`.
 pub(crate) fn expect_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if vm.heap.as_set(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Set",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_set(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Set",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Extracts a tuple's [`ObjRef`] handle from a receiver value.
-///
-/// Mirrors [`expect_list`]: a tuple is a [`Value::Obj`] whose heap object is a
-/// [`crate::heap::TupleObject`] behind [`crate::heap::Object::Tuple`]
-/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a `Tuple`.
 pub(crate) fn expect_tuple(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if vm.heap.as_tuple(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Tuple",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_tuple(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Tuple",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Extracts a positive `Record` heap object.
 pub(crate) fn expect_record(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if vm.heap.as_record(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Record",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_record(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Record",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Extracts a range's [`ObjRef`] handle from a receiver value.
-///
-/// Mirrors [`expect_tuple`]: a range is a [`Value::Obj`] whose heap object is
-/// a [`crate::heap::RangeObject`] behind [`crate::heap::Object::Range`]
-/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a `Range`.
 pub(crate) fn expect_range(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    match value {
-        Value::Obj(id) if vm.heap.as_range(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Range",
-            found: other.type_name(),
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_range(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Range",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Sends the nullary `hash` selector to `value` and truncates the result to
@@ -446,18 +418,14 @@ pub(crate) fn expect_range(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `hash` does not answer a `Number`, or
-/// propagates any [`RuntimeError`] the `hash` send itself raises (e.g.
-/// `CannotYieldAcrossNativeFrame` if the key's `hash` attempts to
-/// `Fiber.yield` under this native frame, ADR-0030 §4 — correct, expected,
-/// not engineered around).
+/// propagates any [`RuntimeError`] the `hash` send itself raises.
 pub(crate) fn send_hash(vm: &mut VM, value: Value) -> PhResult<i64> {
     let sym = vm.get_or_intern("hash");
-    match vm.send_dynamic(value, sym, &[])? {
-        Value::Int(n) => Ok(n),
-        other => Err(RuntimeError::InvalidHash {
-            actual_type: other.type_name(),
-        }
-        .into()),
+    let res = vm.send_dynamic(value, sym, &[])?;
+    if let Some(n) = res.as_int() {
+        Ok(n)
+    } else {
+        Err(RuntimeError::InvalidHash { actual_type: res.type_name() }.into())
     }
 }
 
@@ -472,45 +440,35 @@ pub(crate) fn send_hash(vm: &mut VM, value: Value) -> PhResult<i64> {
 /// propagates any [`RuntimeError`] the `==` send itself raises.
 pub(crate) fn send_eq(vm: &mut VM, a: Value, b: Value) -> PhResult<bool> {
     let sym = vm.get_or_intern("==(_)");
-    match vm.send_dynamic(a, sym, &[b])? {
-        Value::Bool(result) => Ok(result),
-        other => Err(RuntimeError::Type {
+    let res = vm.send_dynamic(a, sym, &[b])?;
+    if let Some(result) = res.as_bool() {
+        Ok(result)
+    } else {
+        Err(RuntimeError::Type {
             expected: "Bool",
-            found: other.type_name(),
+            found: res.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
 /// Returns `true` iff `value` is one of the three native **mutable**
 /// collection arms (`List`/`Map`/`Set`) — the DEC-CT-C mutable-key rejection
-/// test. Their inherited identity `hash` is inconsistent with structural `==`
-/// (collection-protocol.md law 4), so admitting one as a `Map`/`Set` key would
-/// silently corrupt the bucket index the moment the key's contents (and thus
-/// its intended structural identity, though never its actual `hash`) change.
-/// A plain structural check on the heap variant — no reflective `isA(_)` send
-/// needed, since these three variants are exhaustively enumerable in Rust.
+/// test.
 pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
-    match value {
-        // `Bytes` joins the rejection set for the same reason (mutable ⇒
-        // identity hash, bytes.md law 5); its immutable escape hatch is
-        // `toTuple` (PDR-0011 ruling 4).
-        Value::Obj(id) => matches!(
-            vm.heap.get(*id),
+    if let Some(id) = value.as_obj() {
+        matches!(
+            vm.heap.get(id),
             crate::heap::Object::List(_) | crate::heap::Object::Map(_) | crate::heap::Object::Set(_) | crate::heap::Object::Bytes(_)
-        ),
-        _ => false,
+        )
+    } else {
+        false
     }
 }
 
 /// Builds a catchable `Error` announcing a mutable-collection `Map`/`Set` key
 /// rejection (DEC-CT-C), ready to be raised via
 /// [`RuntimeError::Raise`]/`.into()`.
-///
-/// Mirrors [`object::object_does_not_understand`]'s construction pattern: a
-/// bare `Error` instance (one field, `_message`, stamped in `VM::new`'s Phase
-/// E), not a dedicated subclass — this rejection reuses the generic `Error`
-/// root rather than minting a new kernel class for it.
 pub(crate) fn mutable_key_error(vm: &mut VM, class_name: &str) -> RuntimeError {
     let rendered = format!(
         "{class_name} key must be immutable: a List/Map/Set key has identity hash, \
@@ -520,7 +478,7 @@ pub(crate) fn mutable_key_error(vm: &mut VM, class_name: &str) -> RuntimeError {
     let field_count = vm.heap.class(error_class).field_count;
     let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
-    let error = Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(inst)));
+    let error = Value::obj(vm.heap.alloc(crate::heap::Object::Instance(inst)));
     RuntimeError::Raise {
         error,
         rendered,

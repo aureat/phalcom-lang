@@ -29,13 +29,13 @@ use crate::vm::VM;
 /// fractional, non-finite, negative, or above 255 (`bytes.md` law 2: no path
 /// by which a non-octet enters a buffer).
 fn expect_octet(value: &Value) -> PhResult<u8> {
-    if let Value::Int(n) = value {
-        if (0..=255).contains(n) {
-            return Ok(*n as u8);
+    if let Some(n) = value.as_int() {
+        if (0..=255).contains(&n) {
+            return Ok(n as u8);
         }
-    } else if let Value::Float(n) = value {
-        if n.is_finite() && n.fract() == 0.0 && (0.0..=255.0).contains(n) {
-            return Ok(*n as u8);
+    } else if let Some(n) = value.as_float() {
+        if n.is_finite() && n.fract() == 0.0 && (0.0..=255.0).contains(&n) {
+            return Ok(n as u8);
         }
     }
     Err(RuntimeError::Type {
@@ -56,7 +56,7 @@ fn expect_octet(value: &Value) -> PhResult<u8> {
 /// integer `Number`.
 pub fn bytes_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let len = expect_index(&args[0])?;
-    Ok(Value::Obj(vm.heap.alloc_bytes(BytesObject::new_zeroed(len))))
+    Ok(Value::obj(vm.heap.alloc_bytes(BytesObject::new_zeroed(len))))
 }
 
 /// Signature: `Bytes.class::fromString_(_)` — a `String`'s UTF-8 bytes.
@@ -71,7 +71,7 @@ pub fn bytes_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 pub fn bytes_class_from_string(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let string = crate::primitive::expect_string(vm, &args[0])?;
     let octets = string.into_bytes();
-    Ok(Value::Obj(vm.heap.alloc_bytes(BytesObject::from_vec(octets))))
+    Ok(Value::obj(vm.heap.alloc_bytes(BytesObject::from_vec(octets))))
 }
 
 /// Signature: `Bytes::size_` — the octet count.
@@ -84,7 +84,7 @@ pub fn bytes_class_from_string(vm: &mut VM, _receiver: &Value, args: &[Value]) -
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes`.
 pub fn bytes_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
-    Ok(Value::Int(vm.heap.bytes(id).len() as i64))
+    Ok(Value::int(vm.heap.bytes(id).len() as i64))
 }
 
 /// Signature: `Bytes::at_(_)` — raw octet read.
@@ -103,7 +103,7 @@ pub fn bytes_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     let len = vm.heap.bytes(id).len();
     match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
         super::index::NormalizedIndex::Valid(idx) => match vm.heap.bytes(id).get(idx) {
-            Some(octet) => Ok(Value::Int(octet as i64)),
+            Some(octet) => Ok(Value::int(octet as i64)),
             None => Ok(vm.none_value()),
         },
         super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
@@ -135,7 +135,7 @@ pub fn bytes_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
     };
     let octet = expect_octet(&args[1])?;
     vm.heap.bytes_mut(id).set(index, octet);
-    Ok(Value::Unit)
+    Ok(Value::unit())
 }
 
 /// Signature: `Bytes::fill_(_)` — overwrite every octet (one memset).
@@ -178,7 +178,7 @@ pub fn bytes_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
         .into());
     }
     let copy = source.as_slice()[start..end].to_vec();
-    Ok(Value::Obj(vm.heap.alloc_bytes(BytesObject::from_vec(copy))))
+    Ok(Value::obj(vm.heap.alloc_bytes(BytesObject::from_vec(copy))))
 }
 
 /// Signature: `Bytes::copyInto_(_,_)` — copy the whole receiver into another
@@ -233,7 +233,7 @@ pub fn bytes_raw_utf8(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     match std::str::from_utf8(vm.heap.bytes(id).as_slice()) {
         Ok(text) => {
             let owned = text.to_string();
-            Ok(Value::Obj(vm.heap.alloc_string(owned)))
+            Ok(Value::obj(vm.heap.alloc_string(owned)))
         }
         Err(_) => Ok(vm.none_value()),
     }
@@ -252,7 +252,7 @@ pub fn bytes_raw_utf8(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 pub fn bytes_raw_utf8_lossy(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     let owned = String::from_utf8_lossy(vm.heap.bytes(id).as_slice()).into_owned();
-    Ok(Value::Obj(vm.heap.alloc_string(owned)))
+    Ok(Value::obj(vm.heap.alloc_string(owned)))
 }
 
 /// Signature: `Bytes::equalsConstantTime_(_)` — content equality in time
@@ -280,11 +280,11 @@ pub fn bytes_raw_equals_constant_time(vm: &mut VM, receiver: &Value, args: &[Val
     let a = vm.heap.bytes(a_id).as_slice();
     let b = vm.heap.bytes(b_id).as_slice();
     if a.len() != b.len() {
-        return Ok(Value::Bool(false));
+        return Ok(Value::bool(false));
     }
     let mut acc: u8 = 0;
     for i in 0..a.len() {
         acc |= a[i] ^ b[i];
     }
-    Ok(Value::Bool(std::hint::black_box(acc) == 0))
+    Ok(Value::bool(std::hint::black_box(acc) == 0))
 }

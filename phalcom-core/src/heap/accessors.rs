@@ -578,4 +578,116 @@ impl Heap {
             _ => None,
         }
     }
+
+    pub fn project(&self, id: ObjRef) -> &crate::heap::reflection::ProjectObject {
+        match self.get(id) {
+            Object::Project(proj) => proj,
+            _ => panic!("ObjRef {id:?} is not a ProjectObject"),
+        }
+    }
+
+    pub fn project_manifest(&self, id: ObjRef) -> &crate::heap::reflection::ProjectManifestObject {
+        match self.get(id) {
+            Object::ProjectManifest(m) => m,
+            _ => panic!("ObjRef {id:?} is not a ProjectManifestObject"),
+        }
+    }
+
+    pub fn package_info(&self, id: ObjRef) -> &crate::heap::reflection::PackageInfoObject {
+        match self.get(id) {
+            Object::PackageInfo(info) => info,
+            _ => panic!("ObjRef {id:?} is not a PackageInfoObject"),
+        }
+    }
+
+    pub fn package_author(&self, id: ObjRef) -> &crate::heap::reflection::PackageAuthorObject {
+        match self.get(id) {
+            Object::PackageAuthor(a) => a,
+            _ => panic!("ObjRef {id:?} is not a PackageAuthorObject"),
+        }
+    }
+
+    pub fn package_requirement(&self, id: ObjRef) -> &crate::heap::reflection::PackageRequirementObject {
+        match self.get(id) {
+            Object::PackageRequirement(r) => r,
+            _ => panic!("ObjRef {id:?} is not a PackageRequirementObject"),
+        }
+    }
+
+    pub fn resolved_project_dependency(&self, id: ObjRef) -> &crate::heap::reflection::ResolvedProjectDependencyObject {
+        match self.get(id) {
+            Object::ResolvedProjectDependency(d) => d,
+            _ => panic!("ObjRef {id:?} is not a ResolvedProjectDependencyObject"),
+        }
+    }
+
+    pub fn module_dependency(&self, id: ObjRef) -> &crate::heap::reflection::ModuleDependencyObject {
+        match self.get(id) {
+            Object::ModuleDependency(d) => d,
+            _ => panic!("ObjRef {id:?} is not a ModuleDependencyObject"),
+        }
+    }
+
+    pub fn export_table(&self, id: ObjRef) -> &crate::heap::reflection::ExportTableObject {
+        match self.get(id) {
+            Object::ExportTable(t) => t,
+            _ => panic!("ObjRef {id:?} is not an ExportTableObject"),
+        }
+    }
+
+    pub fn export_table_mut(&mut self, id: ObjRef) -> &mut crate::heap::reflection::ExportTableObject {
+        match self.get_mut(id) {
+            Object::ExportTable(t) => t,
+            _ => panic!("ObjRef {id:?} is not an ExportTableObject"),
+        }
+    }
+
+    pub fn export(&self, id: ObjRef) -> &crate::heap::reflection::ExportObject {
+        match self.get(id) {
+            Object::Export(e) => e,
+            _ => panic!("ObjRef {id:?} is not an ExportObject"),
+        }
+    }
+
+    pub fn child_module_table(&self, id: ObjRef) -> &crate::heap::reflection::ChildModuleTableObject {
+        match self.get(id) {
+            Object::ChildModuleTable(t) => t,
+            _ => panic!("ObjRef {id:?} is not a ChildModuleTableObject"),
+        }
+    }
+
+    pub fn child_module_table_mut(&mut self, id: ObjRef) -> &mut crate::heap::reflection::ChildModuleTableObject {
+        match self.get_mut(id) {
+            Object::ChildModuleTable(t) => t,
+            _ => panic!("ObjRef {id:?} is not a ChildModuleTableObject"),
+        }
+    }
+
+    pub fn module_identity(&self, id: ObjRef) -> &crate::heap::reflection::ModuleIdentityObject {
+        match self.get(id) {
+            Object::ModuleIdentity(mid) => mid,
+            _ => panic!("ObjRef {id:?} is not a ModuleIdentityObject"),
+        }
+    }
+
+    pub fn package_identity(&self, id: ObjRef) -> &crate::heap::reflection::PackageIdentityObject {
+        match self.get(id) {
+            Object::PackageIdentity(pid) => pid,
+            _ => panic!("ObjRef {id:?} is not a PackageIdentityObject"),
+        }
+    }
+
+    pub fn project_identity(&self, id: ObjRef) -> &crate::heap::reflection::ProjectIdentityObject {
+        match self.get(id) {
+            Object::ProjectIdentity(pid) => pid,
+            _ => panic!("ObjRef {id:?} is not a ProjectIdentityObject"),
+        }
+    }
+
+    pub fn uri(&self, id: ObjRef) -> &crate::heap::reflection::UriObject {
+        match self.get(id) {
+            Object::Uri(u) => u,
+            _ => panic!("ObjRef {id:?} is not a UriObject"),
+        }
+    }
 }

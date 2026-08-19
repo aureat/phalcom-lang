@@ -27,34 +27,32 @@ use crate::vm::VM;
 /// Returns [`RuntimeError::Type`] if `value` is not a non-negative integer
 /// `Number`.
 pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
-    match value {
-        Value::Int(n) => {
-            if *n < 0 {
-                Err(RuntimeError::Type {
-                    expected: "a non-negative integer index",
-                    found: "int",
-                }
-                .into())
-            } else {
-                Ok(*n as usize)
+    if let Some(n) = value.as_int() {
+        if n < 0 {
+            Err(RuntimeError::Type {
+                expected: "a non-negative integer index",
+                found: "int",
             }
+            .into())
+        } else {
+            Ok(n as usize)
         }
-        Value::Float(n) => {
-            if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
-                Err(RuntimeError::Type {
-                    expected: "a non-negative integer index",
-                    found: "float",
-                }
-                .into())
-            } else {
-                Ok(*n as usize)
+    } else if let Some(n) = value.as_float() {
+        if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
+            Err(RuntimeError::Type {
+                expected: "a non-negative integer index",
+                found: "float",
             }
+            .into())
+        } else {
+            Ok(n as usize)
         }
-        other => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "a non-negative integer index",
-            found: other.type_name(),
+            found: value.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
@@ -76,7 +74,7 @@ pub fn tuple_from_list_internal(vm: &mut VM, _receiver: &Value, args: &[Value]) 
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Tuple`.
 pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_tuple(vm, receiver)?;
-    Ok(Value::Int(vm.heap.tuple(id).len() as i64))
+    Ok(Value::int(vm.heap.tuple(id).len() as i64))
 }
 
 pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -93,7 +91,7 @@ pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 
 pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
-    Ok(Value::Int(vm.heap.tuple(id).positional_len() as i64))
+    Ok(Value::int(vm.heap.tuple(id).positional_len() as i64))
 }
 
 pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -106,7 +104,7 @@ pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
             .labels()
             .get(idx)
             .copied()
-            .map(Value::Symbol)
+            .map(Value::symbol)
             .unwrap_or_else(|| vm.none_value())),
         super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
     }
@@ -127,7 +125,7 @@ pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 /// Signature: `Tuple::slice_(_,_)` — rebuild a canonical half-open total-order slice.
 ///
 /// `Range#sliceBounds_` owns bound interpretation. This primitive receives only
-/// canonical coordinates and reconstructs through [`finish_tuple`] so a zero-length
+/// canonical coordinates and reconstructs through `finish_tuple` so a zero-length
 /// result is the canonical `Unit` value. Values selected from the labeled suffix retain
 /// their labels and encounter order.
 ///

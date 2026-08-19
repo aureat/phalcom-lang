@@ -123,7 +123,7 @@ fn shallow_receiver_classes(program: &Program, receiver: &str, offset: usize) ->
                 _ => None,
             })
         {
-            collect_expression_classes(program, expr, offset, &mut classes);
+            collect_expression_classes(program, expr, &mut classes);
         }
     }
 
@@ -137,14 +137,14 @@ fn shallow_receiver_classes(program: &Program, receiver: &str, offset: usize) ->
                 classes.insert(parent.leaf_name().to_string());
             }
         }
-    } else if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-        if program
+    } else if receiver.chars().next().is_some_and(char::is_uppercase)
+        && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        && program
             .statements
             .iter()
             .any(|statement| matches!(statement, Statement::Class(class) if class.name == receiver))
-        {
-            classes.insert(receiver.to_string());
-        }
+    {
+        classes.insert(receiver.to_string());
     }
 
     for statement in &program.statements {
@@ -190,7 +190,7 @@ fn shallow_receiver_side(receiver: &str) -> DispatchSide {
     }
 }
 
-fn collect_expression_classes(program: &Program, expr: &Expr, offset: usize, classes: &mut std::collections::BTreeSet<String>) {
+fn collect_expression_classes(program: &Program, expr: &Expr, classes: &mut std::collections::BTreeSet<String>) {
     match expr {
         Expr::MethodCall(call) if call.method == "new" => {
             if let Expr::Var { value, .. } = &call.object {
@@ -199,7 +199,7 @@ fn collect_expression_classes(program: &Program, expr: &Expr, offset: usize, cla
         }
         Expr::MethodCall(call) => {
             let mut receivers = std::collections::BTreeSet::new();
-            collect_expression_classes(program, &call.object, offset, &mut receivers);
+            collect_expression_classes(program, &call.object, &mut receivers);
             for receiver in receivers {
                 if let Some(class) = find_method_return_class(program, &receiver, &call.method) {
                     classes.insert(class);
@@ -212,7 +212,7 @@ fn collect_expression_classes(program: &Program, expr: &Expr, offset: usize, cla
                 let Pattern::Name { name, .. } = &binding.pattern else { continue };
                 if name == value {
                     if let Some(value) = binding.value.as_ref() {
-                        collect_expression_classes(program, value, offset, classes);
+                        collect_expression_classes(program, value, classes);
                     }
                 }
             }

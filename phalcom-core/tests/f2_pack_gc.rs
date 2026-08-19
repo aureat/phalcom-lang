@@ -30,12 +30,12 @@ fn rooted_pack_builder_keeps_positional_and_labeled_values_alive() {
     let label = vm.interner.intern("f2_gc_label");
 
     let mut builder = ArgumentPackBuilderObject::new();
-    builder.push_positional(Value::Obj(positional));
+    builder.push_positional(Value::obj(positional));
     builder.reserve_label(label).expect("reserve test label");
-    builder.fill_reserved(Value::Obj(labeled)).expect("fill test label");
+    builder.fill_reserved(Value::obj(labeled)).expect("fill test label");
 
     let builder_ref = vm.heap.alloc(Object::PackBuilder(Box::new(builder)));
-    vm.push_root_for_test(Value::Obj(builder_ref));
+    vm.push_root_for_test(Value::obj(builder_ref));
     vm.force_gc();
 
     assert!(vm.heap.try_get(builder_ref).is_some(), "rooted builder must survive");

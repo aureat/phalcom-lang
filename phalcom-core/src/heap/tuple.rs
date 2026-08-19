@@ -33,13 +33,17 @@ pub struct TupleObject {
 impl TupleObject {
     /// Builds a tuple from an owned, fixed-length element buffer.
     pub(crate) fn new(values: Box<[Value]>, labels: Box<[Symbol]>) -> Self {
-        assert!(!values.is_empty(), "TupleObject must be positive-arity");
         assert!(labels.len() <= values.len(), "tuple labels must be a values suffix");
         assert!(
             labels.iter().enumerate().all(|(i, label)| !labels[..i].contains(label)),
             "tuple labels must be unique"
         );
         Self { values, labels }
+    }
+
+    /// Builds a positional tuple from a vector of values.
+    pub fn positional(values: Vec<Value>) -> Self {
+        Self::new(values.into_boxed_slice(), Box::new([]))
     }
 
     /// Returns the element count (the tuple's fixed arity).

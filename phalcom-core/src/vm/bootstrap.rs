@@ -31,6 +31,7 @@ impl VM {
             compiler_internal_dispatch_depth: 0,
             native_method_contexts: Vec::new(),
             interner,
+            reflection_cache: crate::modules::ReflectionCache::new(),
             start_time: Instant::now(),
             module_registry: crate::modules::ModuleRegistry::new(),
             runtime_roots: None,
@@ -81,20 +82,12 @@ impl VM {
         let none_sym = vm.interner.intern("None");
         vm.prelude_names.insert(none_sym);
 
-        // Create and populate builtin 'universe' package
-        let universe_pkg = vm.create_builtin_package("universe");
-        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
-            if binding.exported {
-                let class_id = vm.universe.classes.resolve(binding.key);
-                let name_sym = vm.interner.intern(binding.name);
-                vm.heap.module_mut(universe_pkg).define(name_sym, Value::Obj(class_id)).unwrap();
-            }
-        }
-        vm.heap.module_mut(universe_pkg).namespace_frozen = true;
+        // Initialize canonical builtin 'universe' package with native bindings & exports
+        let universe_pkg = crate::modules::builtin_materialize::initialize_canonical_universe(&mut vm).expect("canonical universe package initializes");
 
         // Expose 'universe' as a global in core module
         let core_module = vm.core_module().expect("core module");
-        vm.define_global(core_module, universe_sym, Value::Obj(universe_pkg)).unwrap();
+        vm.define_global(core_module, universe_sym, Value::obj(universe_pkg)).unwrap();
 
         // Stamp the kernel `Message` class's fixed-slot count (U8,
         // method-lookup.md §2). `Message` instances are built
@@ -188,19 +181,15 @@ impl VM {
         // pass is never stale — only ever a floor under it.
         vm.finalize_all_core_base_names();
 
-        // Compile and run the registered core module now that every native
+        // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each
-        // `core.ph` class-reopen (`List`, `Option`, `Some`, `System`,
+        // universe submodule's class-reopen (`List`, `Option`, `Some`, `System`,
         // …) to its bootstrapped kernel row. Must run after
         // `install_primitives` so a reopen can call the primitives it wraps
-        // (e.g. `List.at(_:)` calling `at_(_:)`). Previously `install_core`
-        // only registered the source text (for diagnostics) without ever
-        // compiling or executing it, so every `.ph` skeleton was inert; U-LIST
-        // is the first unit whose surface protocol actually depends on a
-        // reopen taking effect, which surfaced the gap.
-        vm.run_core_module().expect("core module (core.ph) must compile and run cleanly");
+        // (e.g. `List.at(_:)` calling `at_(_:)`).
+        vm.run_universe_modules().expect("universe modules must compile and run cleanly");
 
-        // Populate prelude_names with core.ph globals for compatibility until core.ph split,
+        // Populate prelude_names with universe globals for compatibility,
         // excluding types explicitly prohibited from prelude by Spec §13.1.
         {
             let non_prelude_names: std::collections::HashSet<&str> = ["Behavior", "Metaclass", "Selector", "Message"].into_iter().collect();
@@ -215,7 +204,7 @@ impl VM {
         }
 
         // Snapshot the leaf `toString` override-epoch flags now that
-        // `core.ph`'s own reopens (e.g. `String`'s `toString => self`) have
+        // universe reopens (e.g. `String`'s `toString => self`) have
         // already run and legitimately flipped some of them — see
         // `Universe::mark_leaf_tostring_pristine`'s doc for why this must
         // happen exactly here (after bootstrap, before any user code) and
@@ -231,10 +220,10 @@ impl VM {
             let core = vm.core_module().expect("core module registered by install_core");
             let none_sym = vm.interner.intern("None");
             let none_value = vm.heap.module(core).get(none_sym).expect("None global must be bound by install_core");
-            assert_eq!(none_value, Value::None, "None global must resolve to immediate absence");
+            assert_eq!(none_value, Value::none(), "None global must resolve to immediate absence");
             assert_ne!(
                 none_value,
-                Value::Obj(vm.universe.classes.none_class),
+                Value::obj(vm.universe.classes.none_class),
                 "None global must not resolve to the None class object"
             );
         }
@@ -244,19 +233,56 @@ impl VM {
         vm
     }
 
-    /// Compiles and runs the registered core module (`core.ph`).
+    /// Compiles and runs the universe modules in topological order.
     ///
     /// See the call site in [`Self::new`] for why this must run after
     /// [`Universe::install_primitives`].
     ///
     /// # Errors
     ///
-    /// Returns any [`crate::error::PhError`] raised while compiling or executing `core.ph`.
-    fn run_core_module(&mut self) -> PhResult<()> {
+    /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
+    fn run_universe_modules(&mut self) -> PhResult<()> {
         let module = self.core_module().expect("core module registered by install_core");
-        let source = include_str!("../../core/core.ph");
-        let closure = self.compile_closure(module, source)?;
-        self.run_in_module(module, closure)
+        static SOURCES: &[(&str, &str)] = &[
+            ("object/object", include_str!("../../core/universe/src/object/object.ph")),
+            ("object/class", include_str!("../../core/universe/src/object/class.ph")),
+            ("object/metaclass", include_str!("../../core/universe/src/object/metaclass.ph")),
+            ("object/behavior", include_str!("../../core/universe/src/object/behavior.ph")),
+            ("scalar/number", include_str!("../../core/universe/src/scalar/number.ph")),
+            ("scalar/string", include_str!("../../core/universe/src/scalar/string.ph")),
+            ("scalar/bool", include_str!("../../core/universe/src/scalar/bool.ph")),
+            ("scalar/symbol", include_str!("../../core/universe/src/scalar/symbol.ph")),
+            ("errors/error", include_str!("../../core/universe/src/errors/error.ph")),
+            ("errors/contracts", include_str!("../../core/universe/src/errors/contracts.ph")),
+            ("errors/argument", include_str!("../../core/universe/src/errors/argument.ph")),
+            ("errors/indexing", include_str!("../../core/universe/src/errors/indexing.ph")),
+            ("option/option", include_str!("../../core/universe/src/option/option.ph")),
+            ("callable/function", include_str!("../../core/universe/src/callable/function.ph")),
+            ("callable/method", include_str!("../../core/universe/src/callable/method.ph")),
+            ("collections/iterable", include_str!("../../core/universe/src/collections/iterable.ph")),
+            ("collections/list", include_str!("../../core/universe/src/collections/list.ph")),
+            ("collections/map", include_str!("../../core/universe/src/collections/map.ph")),
+            ("collections/set", include_str!("../../core/universe/src/collections/set.ph")),
+            ("collections/tuple", include_str!("../../core/universe/src/collections/tuple.ph")),
+            ("collections/record", include_str!("../../core/universe/src/collections/record.ph")),
+            ("collections/range", include_str!("../../core/universe/src/collections/range.ph")),
+            ("concurrency/fiber", include_str!("../../core/universe/src/concurrency/fiber.ph")),
+            ("collections/bytes", include_str!("../../core/universe/src/collections/bytes.ph")),
+            ("reflection/attribute", include_str!("../../core/universe/src/reflection/attribute.ph")),
+            ("reflection/selector", include_str!("../../core/universe/src/reflection/selector.ph")),
+        ];
+
+        for (name, source) in SOURCES {
+            let closure = self.compile_closure(module, source).map_err(|e| {
+                eprintln!("Failed compiling universe module {name}: {e:?}");
+                e
+            })?;
+            self.run_in_module(module, closure).map_err(|e| {
+                eprintln!("Failed executing universe module {name}: {e:?}");
+                e
+            })?;
+        }
+        Ok(())
     }
 
     /// Bootstraps the core module and exposes each kernel class as a global.
@@ -270,7 +296,7 @@ impl VM {
                 let class_id = self.universe.classes.$field;
                 let name = self.heap.class(class_id).name.clone();
                 let name_sym = self.interner.intern(&name);
-                self.define_global(m, name_sym, Value::Obj(class_id)).ok();
+                self.define_global(m, name_sym, Value::obj(class_id)).ok();
                 let key = crate::vm::ClassKey { module: m, name: name_sym };
                 self.classes.insert(key, class_id);
                 self.kernel_class_names.insert(name_sym);
@@ -398,7 +424,7 @@ impl VM {
 
         // Bind the `None` global to immediate absence.
         let none_global_sym = self.interner.intern("None");
-        self.define_global(m, none_global_sym, Value::None).ok();
+        self.define_global(m, none_global_sym, Value::none()).ok();
 
         // The private `nil` sentinel has no surface class global: there is no
         // `Nil` name reachable from user code (Invariant 4). The `Nil` class row
@@ -465,16 +491,18 @@ impl VM {
 
     /// Allocates a builtin package with `logical_name` and registers it in `vm.module_registry`.
     pub fn create_builtin_package(&mut self, logical_name: &str) -> crate::heap::ObjRef {
+        if logical_name == "universe" {
+            let id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinProject::Universe, phalcom_modules::ModulePath::root());
+            if let Some(rec) = self.module_registry.get(&id) {
+                return rec.object;
+            }
+        }
         let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
         let path = phalcom_modules::ModuleComponent::from_identifier(logical_name)
             .map(|c| phalcom_modules::ModulePath::from_components(vec![c]))
             .unwrap_or_else(|_| phalcom_modules::ModulePath::root());
         let id = phalcom_modules::ModuleId::synthetic(ids.allocate(), path);
-        let kind = if matches!(logical_name, "universe" | "std") {
-            crate::heap::ModuleKind::ProjectRoot
-        } else {
-            crate::heap::ModuleKind::Package
-        };
+        let kind = crate::heap::ModuleKind::Package;
         self.create_module_with_id(id, kind, logical_name, &format!("<builtin:{logical_name}>"))
     }
 }

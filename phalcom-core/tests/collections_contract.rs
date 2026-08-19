@@ -54,18 +54,21 @@ fn send1(vm: &mut VM, receiver: Value, selector: &str, arg: Value) -> Value {
 /// Extracts the `f64` behind a `Number` result (test-local helper, mirrors
 /// `tests/invariants.rs::as_number`).
 fn as_number(value: Value) -> f64 {
-    match value {
-        Value::Int(n) => n as f64,
-        Value::Float(n) => n,
-        other => panic!("expected a number, got {other:?}"),
+    if let Some(n) = value.as_int() {
+        n as f64
+    } else if let Some(n) = value.as_float() {
+        n
+    } else {
+        panic!("expected a number, got {value:?}");
     }
 }
 
 /// Extracts the `bool` behind a `Bool` result.
 fn as_bool(value: Value) -> bool {
-    match value {
-        Value::Bool(b) => b,
-        other => panic!("expected a Bool, got {other:?}"),
+    if let Some(b) = value.as_bool() {
+        b
+    } else {
+        panic!("expected a Bool, got {value:?}");
     }
 }
 
@@ -73,7 +76,7 @@ fn as_bool(value: Value) -> bool {
 /// (`List.new()` + `.append(_)`), so the harness exercises the same path user
 /// code does.
 fn build_list(vm: &mut VM, elems: &[Value]) -> Value {
-    let list_class = Value::Obj(vm.universe.classes.list_class);
+    let list_class = Value::obj(vm.universe.classes.list_class);
     let list = send0(vm, list_class, "new()");
     for elem in elems {
         send1(vm, list, "append(_)", *elem);
@@ -103,7 +106,7 @@ fn eval_literal(vm: &mut VM, literal: &str) -> Value {
 fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mut VM, &[Value]) -> Value) {
     // L1/L2: size is a Number, >= 0, and == the element count.
     for n in spec.min_arity..=3 {
-        let elems: Vec<Value> = (0..n).map(|i| Value::Int(i as i64)).collect();
+        let elems: Vec<Value> = (0..n).map(|i| Value::int(i as i64)).collect();
         let collection = build(vm, &elems);
         let size = as_number(send0(vm, collection, "size"));
         assert!(size >= 0.0, "{}: size must be >= 0, got {size}", spec.class_name);
@@ -111,7 +114,7 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
 
         // L3: at(i) recovers each element by its own `==`, for 0 <= i < n.
         for (i, elem) in elems.iter().enumerate() {
-            let got = send1(vm, collection, "at(_)", Value::Int(i as i64));
+            let got = send1(vm, collection, "at(_)", Value::int(i as i64));
             assert!(
                 as_bool(send1(vm, got, "==(_)", *elem)),
                 "{}: at({i}) should recover the element it was built with",
@@ -121,22 +124,22 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
 
         // L4: at(n) (and beyond) is immediate `None` — total, never a
         // panic, never the raw `nil` sentinel (Invariant 4).
-        let out_of_range = send1(vm, collection, "at(_)", Value::Int(n as i64));
-        assert!(matches!(out_of_range, Value::None), "{}: at(size) must surface immediate None", spec.class_name);
-        assert_ne!(out_of_range, Value::Nil, "{}: at(size) must never leak the raw sentinel", spec.class_name);
+        let out_of_range = send1(vm, collection, "at(_)", Value::int(n as i64));
+        assert!(out_of_range.is_none(), "{}: at(size) must surface immediate None", spec.class_name);
+        assert!(!out_of_range.is_nil(), "{}: at(size) must never leak the raw sentinel", spec.class_name);
     }
 
     // L5: a collection's documented growth selector grows size by one and
     // places its value at the old final index.
     if let Some(selector) = spec.mutation_selector {
-        let collection = build(vm, &[Value::Int(1), Value::Int(2)]);
+        let collection = build(vm, &[Value::int(1), Value::int(2)]);
         let old_size = as_number(send0(vm, collection, "size"));
-        let returned = send1(vm, collection, selector, Value::Int(42));
+        let returned = send1(vm, collection, selector, Value::int(42));
         let new_size = as_number(send0(vm, collection, "size"));
         assert_eq!(new_size, old_size + 1.0, "{}: {selector} must grow size by 1", spec.class_name);
-        let last = send1(vm, collection, "at(_)", Value::Int(old_size as i64));
+        let last = send1(vm, collection, "at(_)", Value::int(old_size as i64));
         assert!(
-            as_bool(send1(vm, last, "==(_)", Value::Int(42))),
+            as_bool(send1(vm, last, "==(_)", Value::int(42))),
             "{}: {selector} must place x at the old size index",
             spec.class_name
         );
@@ -147,13 +150,13 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
                 spec.class_name
             );
         } else {
-            assert_eq!(returned, Value::Unit, "{}: {selector} must return Unit", spec.class_name);
+            assert_eq!(returned, Value::unit(), "{}: {selector} must return Unit", spec.class_name);
         }
     }
 
     // E1/E3/E4: A == B (equal elements, same order) is true; A == A is true
     // (reflexive); (A == B) == (B == A) (symmetric).
-    let elems = [Value::Int(1), Value::Int(2), Value::Int(3)];
+    let elems = [Value::int(1), Value::int(2), Value::int(3)];
     let a = build(vm, &elems);
     let b = build(vm, &elems);
     let a_eq_b = as_bool(send1(vm, a, "==(_)", b));
@@ -163,12 +166,12 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
     assert_eq!(a_eq_b, b_eq_a, "{}: == must be symmetric", spec.class_name);
 
     // E2: cross-kind comparison is false, never a dNU.
-    let cross_kind = send1(vm, a, "==(_)", Value::Int(1));
+    let cross_kind = send1(vm, a, "==(_)", Value::int(1));
     assert!(!as_bool(cross_kind), "{}: == must be false across collection kinds", spec.class_name);
 
     // E1/E5: a collection differing at one index is unequal; transitivity
     // via a second equal-to-`b` collection.
-    let differing = [Value::Int(1), Value::Int(9), Value::Int(3)];
+    let differing = [Value::int(1), Value::int(9), Value::int(3)];
     let c = build(vm, &differing);
     assert!(
         !as_bool(send1(vm, a, "==(_)", c)),
@@ -217,7 +220,7 @@ fn list_satisfies_sequence_contract() {
 /// Builds a `Set` from element values through the surface protocol
 /// (`Set.new()` + `.add(_)`).
 fn build_set(vm: &mut VM, elems: &[Value]) -> Value {
-    let set_class = Value::Obj(vm.universe.classes.set_class);
+    let set_class = Value::obj(vm.universe.classes.set_class);
     let set = send0(vm, set_class, "new()");
     for elem in elems {
         send1(vm, set, "add(_)", *elem);
@@ -249,35 +252,35 @@ fn set_satisfies_sequence_contract() {
 #[test]
 fn map_key_overwrite_and_remove_idempotence() {
     let mut vm = VM::new();
-    let map_class = Value::Obj(vm.universe.classes.map_class);
+    let map_class = Value::obj(vm.universe.classes.map_class);
     let map = send0(&mut vm, map_class, "new()");
     let sym_put = vm.get_or_intern("at(_,put)");
 
-    vm.send_dynamic(map, sym_put, &[Value::Int(1), Value::Int(10)]).unwrap();
+    vm.send_dynamic(map, sym_put, &[Value::int(1), Value::int(10)]).unwrap();
     let size_after_first = as_number(send0(&mut vm, map, "size"));
     assert_eq!(size_after_first, 1.0, "one entry after first put");
 
     // Overwrite: same key, new value — size unchanged, value updated.
-    vm.send_dynamic(map, sym_put, &[Value::Int(1), Value::Int(20)]).unwrap();
+    vm.send_dynamic(map, sym_put, &[Value::int(1), Value::int(20)]).unwrap();
     let size_after_overwrite = as_number(send0(&mut vm, map, "size"));
     assert_eq!(size_after_overwrite, 1.0, "overwrite must not grow size");
-    let got = send1(&mut vm, map, "[_]", Value::Int(1));
+    let got = send1(&mut vm, map, "[_]", Value::int(1));
     assert_eq!(as_number(got), 20.0, "overwrite must update the stored value");
 
     // Missing key -> KeyError on strict [_] lookup, None on safe get(_) lookup.
     let sym_at = vm.get_or_intern("[_]");
-    let result = vm.send_dynamic(map, sym_at, &[Value::Int(999)]);
+    let result = vm.send_dynamic(map, sym_at, &[Value::int(999)]);
     assert!(result.is_err(), "strict lookup of absent key must raise KeyError");
-    let missing = send1(&mut vm, map, "get(_)", Value::Int(999));
-    assert!(matches!(missing, Value::None));
+    let missing = send1(&mut vm, map, "get(_)", Value::int(999));
+    assert!(missing.is_none());
 
     // remove(absent) is a no-op returning self.
-    let returned = send1(&mut vm, map, "remove(_)", Value::Int(999));
+    let returned = send1(&mut vm, map, "remove(_)", Value::int(999));
     assert_eq!(returned, map, "remove(absent) returns self");
     assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "remove(absent) must not shrink size");
 
     // remove(present) actually deletes.
-    send1(&mut vm, map, "remove(_)", Value::Int(1));
+    send1(&mut vm, map, "remove(_)", Value::int(1));
     assert_eq!(as_number(send0(&mut vm, map, "size")), 0.0, "remove(present) must shrink size");
 }
 
@@ -286,21 +289,21 @@ fn map_key_overwrite_and_remove_idempotence() {
 #[test]
 fn set_add_and_remove_idempotence() {
     let mut vm = VM::new();
-    let set_class = Value::Obj(vm.universe.classes.set_class);
+    let set_class = Value::obj(vm.universe.classes.set_class);
     let set = send0(&mut vm, set_class, "new()");
 
-    send1(&mut vm, set, "add(_)", Value::Int(7));
-    send1(&mut vm, set, "add(_)", Value::Int(7));
+    send1(&mut vm, set, "add(_)", Value::int(7));
+    send1(&mut vm, set, "add(_)", Value::int(7));
     assert_eq!(as_number(send0(&mut vm, set, "size")), 1.0, "duplicate add must not grow size");
-    assert!(as_bool(send1(&mut vm, set, "includes(_)", Value::Int(7))));
+    assert!(as_bool(send1(&mut vm, set, "includes(_)", Value::int(7))));
 
-    let returned = send1(&mut vm, set, "remove(_)", Value::Int(999));
+    let returned = send1(&mut vm, set, "remove(_)", Value::int(999));
     assert_eq!(returned, set, "remove(absent) returns self");
     assert_eq!(as_number(send0(&mut vm, set, "size")), 1.0, "remove(absent) must not shrink size");
 
-    send1(&mut vm, set, "remove(_)", Value::Int(7));
+    send1(&mut vm, set, "remove(_)", Value::int(7));
     assert_eq!(as_number(send0(&mut vm, set, "size")), 0.0, "remove(present) must shrink size");
-    assert!(!as_bool(send1(&mut vm, set, "includes(_)", Value::Int(7))));
+    assert!(!as_bool(send1(&mut vm, set, "includes(_)", Value::int(7))));
 }
 
 /// Builds a `Tuple` through its public product-literal syntax. The internal
@@ -308,9 +311,12 @@ fn set_add_and_remove_idempotence() {
 fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {
     let elements = elems
         .iter()
-        .map(|value| match value {
-            Value::Int(value) => value.to_string(),
-            other => panic!("Tuple contract fixture only uses integer literals, got {other:?}"),
+        .map(|value| {
+            if let Some(val) = value.as_int() {
+                val.to_string()
+            } else {
+                panic!("Tuple contract fixture only uses integer literals, got {value:?}");
+            }
         })
         .collect::<Vec<_>>();
     let literal = match elements.len() {
@@ -341,7 +347,7 @@ fn tuple_satisfies_sequence_contract() {
 #[test]
 fn empty_tuple_construction_normalizes_to_unit() {
     let mut vm = VM::new();
-    assert_eq!(build_tuple(&mut vm, &[]), Value::Unit);
+    assert_eq!(build_tuple(&mut vm, &[]), Value::unit());
 }
 
 /// `Tuple` extras (tuple-and-range.md §5): value-hash equality holds across
@@ -353,19 +359,19 @@ fn empty_tuple_construction_normalizes_to_unit() {
 #[test]
 fn tuple_value_hash_and_immutability() {
     let mut vm = VM::new();
-    let a = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
-    let b = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
+    let a = build_tuple(&mut vm, &[Value::int(1), Value::int(2)]);
+    let b = build_tuple(&mut vm, &[Value::int(1), Value::int(2)]);
     assert!(as_bool(send1(&mut vm, a, "==(_)", b)), "independently-built equal tuples must compare ==");
     let hash_a = as_number(send0(&mut vm, a, "hash"));
     let hash_b = as_number(send0(&mut vm, b, "hash"));
     assert_eq!(hash_a, hash_b, "value-equal tuples must hash equal");
 
-    let differing = build_tuple(&mut vm, &[Value::Int(1), Value::Int(3)]);
+    let differing = build_tuple(&mut vm, &[Value::int(1), Value::int(3)]);
     let hash_c = as_number(send0(&mut vm, differing, "hash"));
     assert_ne!(hash_a, hash_c, "differing tuples should (almost certainly) hash differently");
 
     // Cross-kind: a same-content List is never == a Tuple (E2).
-    let list_same_content = build_list(&mut vm, &[Value::Int(1), Value::Int(2)]);
+    let list_same_content = build_list(&mut vm, &[Value::int(1), Value::int(2)]);
     assert!(
         !as_bool(send1(&mut vm, a, "==(_)", list_same_content)),
         "Tuple must never == a List, even same content"
@@ -374,11 +380,11 @@ fn tuple_value_hash_and_immutability() {
     // No mutation selector: `at(_,put)` and `add(_)` both miss (dNU).
     let sym_put = vm.get_or_intern("at(_,put)");
     assert!(
-        vm.send_dynamic(a, sym_put, &[Value::Int(0), Value::Int(9)]).is_err(),
+        vm.send_dynamic(a, sym_put, &[Value::int(0), Value::int(9)]).is_err(),
         "Tuple must not respond to at(_,put)"
     );
     let sym_add = vm.get_or_intern("add(_)");
-    assert!(vm.send_dynamic(a, sym_add, &[Value::Int(9)]).is_err(), "Tuple must not respond to add(_)");
+    assert!(vm.send_dynamic(a, sym_add, &[Value::int(9)]).is_err(), "Tuple must not respond to add(_)");
 }
 
 /// `Tuple` as a valid `Map` key (tuple-and-range.md; the re-entrant
@@ -387,13 +393,13 @@ fn tuple_value_hash_and_immutability() {
 #[test]
 fn tuple_is_a_valid_map_key() {
     let mut vm = VM::new();
-    let map_class = Value::Obj(vm.universe.classes.map_class);
+    let map_class = Value::obj(vm.universe.classes.map_class);
     let map = send0(&mut vm, map_class, "new()");
-    let key1 = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
+    let key1 = build_tuple(&mut vm, &[Value::int(1), Value::int(2)]);
     let sym_put = vm.get_or_intern("at(_,put)");
-    vm.send_dynamic(map, sym_put, &[key1, Value::Int(9)]).unwrap();
+    vm.send_dynamic(map, sym_put, &[key1, Value::int(9)]).unwrap();
 
-    let key2 = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
+    let key2 = build_tuple(&mut vm, &[Value::int(1), Value::int(2)]);
     let got = send1(&mut vm, map, "[_]", key2);
     assert_eq!(
         as_number(got),
@@ -409,20 +415,20 @@ fn tuple_is_a_valid_map_key() {
 #[test]
 fn range_literals_drive_collection_slices() {
     let mut vm = VM::new();
-    let list = build_list(&mut vm, &[Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]);
+    let list = build_list(&mut vm, &[Value::int(0), Value::int(1), Value::int(2), Value::int(3), Value::int(4)]);
 
     let exclusive = eval_literal(&mut vm, "1..4");
     let exclusive_slice = send1(&mut vm, list, "[_]", exclusive);
     assert_eq!(as_number(send0(&mut vm, exclusive_slice, "size")), 3.0);
     for (index, expected) in [1, 2, 3].into_iter().enumerate() {
-        assert_eq!(as_number(send1(&mut vm, exclusive_slice, "at(_)", Value::Int(index as i64))), expected as f64);
+        assert_eq!(as_number(send1(&mut vm, exclusive_slice, "at(_)", Value::int(index as i64))), expected as f64);
     }
 
     let inclusive = eval_literal(&mut vm, "1..=4");
     let inclusive_slice = send1(&mut vm, list, "[_]", inclusive);
     assert_eq!(as_number(send0(&mut vm, inclusive_slice, "size")), 4.0);
     for (index, expected) in [1, 2, 3, 4].into_iter().enumerate() {
-        assert_eq!(as_number(send1(&mut vm, inclusive_slice, "at(_)", Value::Int(index as i64))), expected as f64);
+        assert_eq!(as_number(send1(&mut vm, inclusive_slice, "at(_)", Value::int(index as i64))), expected as f64);
     }
 }
 
@@ -433,15 +439,15 @@ fn range_literals_drive_collection_slices() {
 fn mutable_collection_key_is_rejected() {
     let mut vm = VM::new();
 
-    let map_class = Value::Obj(vm.universe.classes.map_class);
+    let map_class = Value::obj(vm.universe.classes.map_class);
     let map = send0(&mut vm, map_class, "new()");
-    let list_class = Value::Obj(vm.universe.classes.list_class);
+    let list_class = Value::obj(vm.universe.classes.list_class);
     let mutable_key = send0(&mut vm, list_class, "new()");
     let sym_put = vm.get_or_intern("at(_,put)");
-    let result = vm.send_dynamic(map, sym_put, &[mutable_key, Value::Int(1)]);
+    let result = vm.send_dynamic(map, sym_put, &[mutable_key, Value::int(1)]);
     assert!(result.is_err(), "Map#at(_,put) with a mutable List key must raise, not silently admit it");
 
-    let set_class = Value::Obj(vm.universe.classes.set_class);
+    let set_class = Value::obj(vm.universe.classes.set_class);
     let set = send0(&mut vm, set_class, "new()");
     let mutable_key2 = send0(&mut vm, list_class, "new()");
     let sym_add = vm.get_or_intern("add(_)");

@@ -35,7 +35,7 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
     })?;
     let (caller, internal) = args.caller_authority();
     vm.authorize_method_access_as(method_id, caller, internal)?;
-    let labels = args.labels(vm);
+    let labels = args.labels().to_vec();
     let residual_positionals = args.positional_count().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
         signature: "invokeOn",
         expected: 1,
@@ -48,7 +48,7 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
     vm.stack[receiver_index] = target;
     vm.stack.truncate(receiver_index + 1);
     vm.stack.extend_from_slice(&residual);
-    let shaped = args.with_selector(actual_selector, residual_positionals, labels.len());
+    let shaped = args.with_selector(actual_selector, residual_positionals, labels.into_boxed_slice());
     vm.activate_captured_method_as(target, method_id, shaped, phalcom_common::range::SourceRange::default())
 }
 
@@ -68,7 +68,7 @@ pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
         method: method_id,
         receiver: args[0],
     };
-    Ok(Value::Obj(vm.heap.alloc(Object::BoundMethod(bound))))
+    Ok(Value::obj(vm.heap.alloc(Object::BoundMethod(bound))))
 }
 
 /// Signature: `Method::selector` — the interned selector
@@ -80,7 +80,7 @@ pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 /// Returns [`RuntimeError::Type`] if `self` is not a `Method`.
 pub fn method_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
-    Ok(Value::Symbol(vm.heap.method(method_id).signature.selector))
+    Ok(Value::symbol(vm.heap.method(method_id).signature.selector))
 }
 
 /// Signature: `Method::holder` — the defining `Class` (or metaclass, for a
@@ -94,7 +94,7 @@ pub fn method_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 pub fn method_holder(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
     match vm.heap.method(method_id).holder {
-        Some(class_id) => Ok(Value::Obj(class_id)),
+        Some(class_id) => Ok(Value::obj(class_id)),
         None => Ok(vm.none_value()),
     }
 }

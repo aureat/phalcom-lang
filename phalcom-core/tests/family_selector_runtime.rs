@@ -3,7 +3,7 @@ use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
 use phalcom_core::bytecode::{Bytecode, FamilySpecKind};
 use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::error::{PhError, RuntimeError};
-use phalcom_core::heap::{BoundMethodFamilyObject, InstanceObject, MethodFamilyObject, Object, SelectorPatternObject};
+use phalcom_core::heap::{BoundMethodFamilyObject, InstanceObject, MethodFamilyObject, Object};
 use phalcom_core::method::{MethodObject, SignatureKind};
 use phalcom_core::primitive::block::block_call;
 use phalcom_core::primitive::class::{behavior_extract, class_new_};
@@ -39,9 +39,13 @@ fn make_family_compiles_pattern_object_without_punctuation_heuristic() {
         .compile_closure_as(module, "const f = 1::future(...)\n", UnitKind::File)
         .expect("pattern family compiles");
     let chunk = &vm.heap.closure(closure).callable.chunk;
-    let pattern = chunk.constants.iter().find_map(|constant| match constant {
-        Value::Obj(id) if matches!(vm.heap.get(*id), Object::SelectorPattern(_)) => Some(*id),
-        _ => None,
+    let pattern = chunk.constants.iter().find_map(|constant| {
+        if let Some(id) = constant.as_obj() {
+            if matches!(vm.heap.get(id), Object::SelectorPattern(_)) {
+                return Some(id);
+            }
+        }
+        None
     });
     assert!(pattern.is_some(), "pattern must be a first-class immutable heap object");
     assert!(chunk.code.iter().any(|opcode| matches!(
@@ -66,15 +70,13 @@ fn family_pattern_mismatch_returns_typed_error_before_dispatch() {
         .expect("family mismatch fixture compiles");
 
     let error = vm.run_in_module(module, closure).expect_err("mismatched family call must fail");
-    let PhError::Runtime(RuntimeError::SelectorPatternMismatch {
-        pattern,
-        selector,
-        family: Value::Obj(family_id),
-        receiver: Value::Obj(receiver_id),
-    }) = error
-    else {
+    let PhError::Runtime(RuntimeError::SelectorPatternMismatch(ctx)) = error else {
         panic!("expected typed selector-pattern mismatch, got {error:?}");
     };
+    let pattern = ctx.pattern;
+    let selector = ctx.selector;
+    let family_id = ctx.family.as_obj().expect("expected family obj");
+    let receiver_id = ctx.receiver.as_obj().expect("expected receiver obj");
 
     assert_eq!(pattern.encode(), "route(_, ...)");
     assert_eq!(selector.encode(), "route()");
@@ -99,33 +101,30 @@ fn immediately_called_exact_method_ref_uses_direct_send_shape() {
         let Bytecode::Invoke(1, selector_idx) = opcode else {
             return false;
         };
-        matches!(chunk.constants[*selector_idx as usize], Value::Symbol(symbol) if symbol == selector)
+        chunk.constants[*selector_idx as usize].as_symbol().ok() == Some(selector)
     }));
 }
 
 #[test]
 fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
     fn replacement(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> phalcom_core::error::PhResult<Value> {
-        Ok(Value::Int(9))
+        Ok(Value::int(9))
     }
 
     let mut vm = VM::new();
     let object_class = vm.universe.classes.object_class;
-    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(phalcom_core::heap::SelectorPatternObject {
-        pattern: SelectorPattern::named(
-            "name",
-            SelectorKindPattern::AnyNamed,
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            true,
-        )
-        .expect("valid pattern"),
-    })));
+    let pattern_value = SelectorPattern::named(
+        "name",
+        SelectorKindPattern::AnyNamed,
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        true,
+    )
+    .expect("valid pattern");
+    let pattern = vm.alloc_selector_pattern(pattern_value);
 
-    let first = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
-    let Value::Obj(first_id) = first else {
-        panic!("pattern extraction must return a MethodFamily")
-    };
+    let first = behavior_extract(&mut vm, &Value::obj(object_class), &[Value::obj(pattern)]).expect("pattern extraction");
+    let first_id = first.as_obj().expect("pattern extraction must return a MethodFamily");
     let old_method = vm
         .heap
         .method_family(first_id)
@@ -144,10 +143,8 @@ fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
     ))));
     vm.heap.class_mut(object_class).add_method(selector, replacement_method);
 
-    let second = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("second pattern extraction");
-    let Value::Obj(second_id) = second else {
-        panic!("second extraction must return a MethodFamily")
-    };
+    let second = behavior_extract(&mut vm, &Value::obj(object_class), &[Value::obj(pattern)]).expect("second pattern extraction");
+    let second_id = second.as_obj().expect("second extraction must return a MethodFamily");
     assert_eq!(vm.heap.method_family(first_id).exact_methods.get(&selector), Some(&old_method));
     assert_eq!(vm.heap.method_family(second_id).exact_methods.get(&selector), Some(&replacement_method));
 }
@@ -156,26 +153,23 @@ fn behavior_pattern_extraction_snapshots_effective_exact_methods() {
 fn method_family_bind_captures_receiver_without_live_selection() {
     let mut vm = VM::new();
     let object_class = vm.universe.classes.object_class;
-    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(phalcom_core::heap::SelectorPatternObject {
-        pattern: SelectorPattern::named(
-            "name",
-            SelectorKindPattern::AnyNamed,
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            true,
-        )
-        .expect("valid pattern"),
-    })));
-    let family = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
-    let bound = method_family_bind(&mut vm, &family, &[Value::Int(42)]).expect("family binding");
-    let Value::Obj(bound_id) = bound else {
-        panic!("binding must return BoundMethodFamily")
-    };
+    let pattern_value = SelectorPattern::named(
+        "name",
+        SelectorKindPattern::AnyNamed,
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        true,
+    )
+    .expect("valid pattern");
+    let pattern = vm.alloc_selector_pattern(pattern_value);
+    let family = behavior_extract(&mut vm, &Value::obj(object_class), &[Value::obj(pattern)]).expect("pattern extraction");
+    let bound = method_family_bind(&mut vm, &family, &[Value::int(42)]).expect("family binding");
+    let bound_id = bound.as_obj().expect("binding must return BoundMethodFamily");
     let Object::BoundMethodFamily(bound) = vm.heap.get(bound_id) else {
         panic!("wrong bound-family heap variant")
     };
     assert_eq!(bound.family, family.as_obj().expect("family handle"));
-    assert_eq!(bound.receiver, Value::Int(42));
+    assert_eq!(bound.receiver, Value::int(42));
 }
 
 #[test]
@@ -191,9 +185,9 @@ fn captured_method_can_use_dynamic_behavior_on_foreign_receiver() {
     let source = vm.heap.module(module).get(vm.interner.intern("source")).expect("source should exist");
     let target = vm.heap.module(module).get(vm.interner.intern("target")).expect("target should exist");
     let label_selector = vm.get_or_intern("label");
-    let method = object_method_for(&mut vm, &source, &[Value::Symbol(label_selector)]).expect("method should exist");
+    let method = object_method_for(&mut vm, &source, &[Value::symbol(label_selector)]).expect("method should exist");
     let bound = method_bind(&mut vm, &method, &[target]).expect("foreign receiver should bind");
-    assert_eq!(block_call(&mut vm, &bound, &[]).expect("foreign method should activate"), Value::Int(42));
+    assert_eq!(block_call(&mut vm, &bound, &[]).expect("foreign method should activate"), Value::int(42));
 }
 
 #[test]
@@ -209,7 +203,7 @@ fn captured_method_rejects_foreign_field_layout_before_slot_access() {
     let source = vm.heap.module(module).get(vm.interner.intern("source")).expect("source should exist");
     let target = vm.heap.module(module).get(vm.interner.intern("target")).expect("target should exist");
     let read_selector = vm.get_or_intern("read");
-    let method = object_method_for(&mut vm, &source, &[Value::Symbol(read_selector)]).expect("method should exist");
+    let method = object_method_for(&mut vm, &source, &[Value::symbol(read_selector)]).expect("method should exist");
     let bound = method_bind(&mut vm, &method, &[target]).expect("foreign receiver should bind");
     let result = block_call(&mut vm, &bound, &[]);
     assert!(
@@ -231,7 +225,7 @@ fn captured_method_nested_native_block_preserves_foreign_layout_guard() {
     let source = vm.heap.module(module).get(vm.interner.intern("source")).expect("source should exist");
     let target = vm.heap.module(module).get(vm.interner.intern("target")).expect("target should exist");
     let read_selector = vm.get_or_intern("read");
-    let method = object_method_for(&mut vm, &source, &[Value::Symbol(read_selector)]).expect("method should exist");
+    let method = object_method_for(&mut vm, &source, &[Value::symbol(read_selector)]).expect("method should exist");
     let bound = method_bind(&mut vm, &method, &[target]).expect("foreign receiver should bind");
     let result = block_call(&mut vm, &bound, &[]);
     assert!(matches!(result, Err(PhError::Runtime(RuntimeError::IncompatibleMethodLayout { selector, .. })) if selector == "read"));
@@ -251,20 +245,20 @@ fn captured_method_allows_subclass_layout_and_lexical_super() {
     let child = vm.heap.module(module).get(vm.interner.intern("child")).expect("child should exist");
 
     let read_selector = vm.get_or_intern("read");
-    let read_method = object_method_for(&mut vm, &source, &[Value::Symbol(read_selector)]).expect("read method should exist");
+    let read_method = object_method_for(&mut vm, &source, &[Value::symbol(read_selector)]).expect("read method should exist");
     let bound_read = method_bind(&mut vm, &read_method, &[child]).expect("subclass receiver should bind");
     assert!(block_call(&mut vm, &bound_read, &[]).is_ok(), "subclass field access should succeed");
 
     let super_selector = vm.get_or_intern("viaSuper");
-    let super_method = object_method_for(&mut vm, &source, &[Value::Symbol(super_selector)]).expect("super method should exist");
+    let super_method = object_method_for(&mut vm, &source, &[Value::symbol(super_selector)]).expect("super method should exist");
     let bound_super = method_bind(&mut vm, &super_method, &[child]).expect("foreign receiver should bind");
-    assert_eq!(block_call(&mut vm, &bound_super, &[]).expect("lexical super should succeed"), Value::Int(7));
+    assert_eq!(block_call(&mut vm, &bound_super, &[]).expect("lexical super should succeed"), Value::int(7));
 }
 
 #[test]
 fn captured_primitive_method_accepts_foreign_receiver() {
     fn constant(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> phalcom_core::error::PhResult<Value> {
-        Ok(Value::Int(17))
+        Ok(Value::int(17))
     }
 
     let mut vm = VM::new();
@@ -276,46 +270,46 @@ fn captured_primitive_method_accepts_foreign_receiver() {
         constant,
         object_class,
     ))));
-    let method_value = Value::Obj(method);
-    let bound = method_bind(&mut vm, &method_value, &[Value::Int(3)]).expect("primitive method should bind");
-    assert_eq!(block_call(&mut vm, &bound, &[]).expect("primitive method should activate"), Value::Int(17));
+    let method_value = Value::obj(method);
+    let bound = method_bind(&mut vm, &method_value, &[Value::int(3)]).expect("primitive method should bind");
+    assert_eq!(block_call(&mut vm, &bound, &[]).expect("primitive method should activate"), Value::int(17));
 }
 
 #[test]
 fn method_family_reflection_exposes_snapshot_routes_without_allocation_access() {
     let mut vm = VM::new();
     let object_class = vm.universe.classes.object_class;
-    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
-        pattern: SelectorPattern::named(
-            "name",
-            SelectorKindPattern::AnyNamed,
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            true,
-        )
-        .expect("valid pattern"),
-    })));
-    let family = behavior_extract(&mut vm, &Value::Obj(object_class), &[Value::Obj(pattern)]).expect("pattern extraction");
+    let pattern_value = SelectorPattern::named(
+        "name",
+        SelectorKindPattern::AnyNamed,
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        true,
+    )
+    .expect("valid pattern");
+    let pattern = vm.alloc_selector_pattern(pattern_value);
+    let family = behavior_extract(&mut vm, &Value::obj(object_class), &[Value::obj(pattern)]).expect("pattern extraction");
 
     let size = method_family_size(&mut vm, &family, &[]).expect("size should be readable");
     let selectors = method_family_selectors(&mut vm, &family, &[]).expect("selectors should be readable");
-    let selector_values = match selectors {
-        Value::Obj(id) => vm.heap.list(id).elements().to_vec(),
-        other => panic!("selectors should return List, got {other:?}"),
+    let selector_values = if let Some(id) = selectors.as_obj() {
+        vm.heap.list(id).elements().to_vec()
+    } else {
+        panic!("selectors should return List, got {selectors:?}")
     };
-    assert_eq!(size, Value::Int(selector_values.len() as i64));
-    assert!(selector_values.contains(&Value::Symbol(vm.get_or_intern("name"))));
+    assert_eq!(size, Value::int(selector_values.len() as i64));
+    assert!(selector_values.contains(&Value::symbol(vm.get_or_intern("name"))));
 
     let name_selector = vm.get_or_intern("name");
-    let method = method_family_method_for(&mut vm, &family, &[Value::Symbol(name_selector)]).expect("methodFor should be readable");
-    assert!(matches!(method, Value::Obj(id) if matches!(vm.heap.get(id), Object::Method(_))));
+    let method = method_family_method_for(&mut vm, &family, &[Value::symbol(name_selector)]).expect("methodFor should be readable");
+    assert!(matches!(method.as_obj(), Some(id) if matches!(vm.heap.get(id), Object::Method(_))));
 
-    let method_family_class = Value::Obj(vm.universe.classes.method_family_class);
+    let method_family_class = Value::obj(vm.universe.classes.method_family_class);
     assert!(matches!(
         class_new_(&mut vm, &method_family_class, &[]),
         Err(PhError::Runtime(RuntimeError::Type { .. }))
     ));
-    let bound_method_family_class = Value::Obj(vm.universe.classes.bound_method_family_class);
+    let bound_method_family_class = Value::obj(vm.universe.classes.bound_method_family_class);
     assert!(matches!(
         class_new_(&mut vm, &bound_method_family_class, &[]),
         Err(PhError::Runtime(RuntimeError::Type { .. }))
@@ -333,8 +327,8 @@ fn any_named_bound_family_prefers_method_shape_over_accessor_shapes() {
     .expect("accessor and method overloads should compile");
     let nullary = vm.heap.module(module).get(vm.interner.intern("nullary")).expect("nullary result should exist");
     let unary = vm.heap.module(module).get(vm.interner.intern("unary")).expect("unary result should exist");
-    assert_eq!(nullary, Value::Int(2));
-    assert_eq!(unary, Value::Int(4));
+    assert_eq!(nullary, Value::int(2));
+    assert_eq!(unary, Value::int(4));
 }
 
 #[test]
@@ -347,29 +341,28 @@ fn exact_setter_family_accepts_family_set_shape() {
     )
     .expect("exact setter Family should accept Family#set shape");
     let result = vm.heap.module(module).get(vm.interner.intern("result")).expect("result should exist");
-    assert_eq!(result, Value::Int(42));
+    assert_eq!(result, Value::int(42));
 }
 
 #[test]
 fn method_family_and_bound_receiver_are_gc_edges() {
     fn constant(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> phalcom_core::error::PhResult<Value> {
-        Ok(Value::Int(1))
+        Ok(Value::int(1))
     }
 
     let mut vm = VM::new();
     vm.force_gc();
     let object_class = vm.universe.classes.object_class;
     let selector = vm.get_or_intern("captured");
-    let pattern = vm.heap.alloc(Object::SelectorPattern(Box::new(SelectorPatternObject {
-        pattern: SelectorPattern::named(
-            "captured",
-            SelectorKindPattern::AnyNamed,
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
-            true,
-        )
-        .expect("valid pattern"),
-    })));
+    let pattern_value = SelectorPattern::named(
+        "captured",
+        SelectorKindPattern::AnyNamed,
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        Vec::<phalcom_common::selector::SelectorSlot>::new().into_boxed_slice(),
+        true,
+    )
+    .expect("valid pattern");
+    let pattern = vm.alloc_selector_pattern(pattern_value);
     let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_primitive(
         selector,
         SignatureKind::Getter,
@@ -387,10 +380,10 @@ fn method_family_and_bound_receiver_are_gc_edges() {
     let receiver = vm.heap.alloc(Object::Instance(InstanceObject::new(object_class, 0)));
     let bound = vm.heap.alloc(Object::BoundMethodFamily(BoundMethodFamilyObject {
         family,
-        receiver: Value::Obj(receiver),
+        receiver: Value::obj(receiver),
     }));
 
-    vm.push_root_for_test(Value::Obj(bound));
+    vm.push_root_for_test(Value::obj(bound));
     vm.force_gc();
     assert!(vm.heap.try_get(family).is_some());
     assert!(vm.heap.try_get(method).is_some());

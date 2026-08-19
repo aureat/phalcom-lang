@@ -41,161 +41,183 @@ impl VM {
             }
         }
 
-        // Phase 2: Materialize lexical context intrinsics (__module__, __package__, __project__) and ownership.
+        // Phase 2: Materialize lexical context intrinsics (__module__, __package__, __root__, __project__) and ownership.
         let module_sym = self.interner.intern("__module__");
         let package_sym = self.interner.intern("__package__");
+        let root_sym = self.interner.intern("__root__");
         let project_sym = self.interner.intern("__project__");
 
         for (id, compiled_mod) in &program.modules {
             let obj_ref = self.module_registry.get(id).expect("module allocated").object;
 
             // 1. __module__ is bound to the current module object.
-            self.define_global(obj_ref, module_sym, crate::value::Value::Obj(obj_ref))?;
+            self.define_global(obj_ref, module_sym, crate::value::Value::obj(obj_ref))?;
 
             // 2. Ownership and context resolution according to ModuleKind and ProjectIdentity.
-            match compiled_mod.kind {
-                phalcom_modules::ModuleKind::ProjectRoot => {
-                    // Spec §6 & §15.2: Project is its own root Package.
-                    // owning_package = None (it is root), owning_project = Some(self).
-                    self.heap.module_mut(obj_ref).owning_package = None;
-                    self.heap.module_mut(obj_ref).owning_project = Some(obj_ref);
-
-                    let self_val = crate::value::Value::Obj(obj_ref).wrap_some()?;
-                    self.define_global(obj_ref, package_sym, self_val)?;
-                    self.define_global(obj_ref, project_sym, self_val)?;
+            let (nearest_pkg_id, root_pkg_id, proj_pid) = match &id.project {
+                phalcom_modules::ProjectIdentity::Resolved(pid) => {
+                    let is_standalone = program.project_universe.get_project(*pid).map(|p| p.is_standalone_package()).unwrap_or(false);
+                    let parent = if id.path.is_root() {
+                        if compiled_mod.kind == phalcom_modules::ModuleKind::Package {
+                            None
+                        } else {
+                            Some(phalcom_modules::ModuleId::resolved(*pid, phalcom_modules::ModulePath::root()))
+                        }
+                    } else {
+                        id.path.parent().map(|p| phalcom_modules::ModuleId::resolved(*pid, p))
+                    };
+                    let root = if is_standalone {
+                        None
+                    } else {
+                        Some(phalcom_modules::ModuleId::resolved(*pid, phalcom_modules::ModulePath::root()))
+                    };
+                    (parent, root, if is_standalone { None } else { Some(*pid) })
                 }
-                phalcom_modules::ModuleKind::Package => {
-                    // Package: determine parent package and owning project.
-                    let (parent_pkg_id, root_proj_id) = match &id.project {
-                        phalcom_modules::ProjectIdentity::Resolved(pid) => {
-                            let is_standalone = program.project_universe.get_project(*pid).map(|p| p.is_standalone_package()).unwrap_or(false);
-                            let parent = if id.path.is_root() {
-                                None
-                            } else {
-                                id.path.parent().map(|p| phalcom_modules::ModuleId::resolved(*pid, p))
-                            };
-                            let root = if is_standalone {
-                                None
-                            } else {
-                                Some(phalcom_modules::ModuleId::resolved(*pid, phalcom_modules::ModulePath::root()))
-                            };
-                            (parent, root)
-                        }
-                        phalcom_modules::ProjectIdentity::Builtin(bid) => {
-                            let parent = if id.path.is_root() {
-                                None
-                            } else {
-                                id.path.parent().map(|p| phalcom_modules::ModuleId::builtin(*bid, p))
-                            };
-                            let root = Some(phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()));
-                            (parent, root)
-                        }
-                        phalcom_modules::ProjectIdentity::Synthetic(sid) => {
-                            let parent = if id.path.is_root() {
-                                None
-                            } else {
-                                id.path.parent().map(|p| phalcom_modules::ModuleId::synthetic(*sid, p))
-                            };
-                            (parent, None)
-                        }
-                    };
-
-                    // Set owning_package
-                    let pkg_val = if let Some(parent_id) = parent_pkg_id {
-                        if let Some(record) = self.module_registry.get(&parent_id) {
-                            let parent_obj = record.object;
-                            self.heap.module_mut(obj_ref).owning_package = Some(parent_obj);
-                            crate::value::Value::Obj(parent_obj).wrap_some()?
+                phalcom_modules::ProjectIdentity::Builtin(bid) => {
+                    let parent = if id.path.is_root() {
+                        if compiled_mod.kind == phalcom_modules::ModuleKind::Package {
+                            None
                         } else {
-                            crate::value::Value::None
-                        }
-                    } else if id.path.is_root() {
-                        // Spec §15.3: Standalone root package.ph has __package__ = Some(self).
-                        crate::value::Value::Obj(obj_ref).wrap_some()?
-                    } else {
-                        crate::value::Value::None
-                    };
-                    self.define_global(obj_ref, package_sym, pkg_val)?;
-
-                    // Set owning_project
-                    let proj_val = if let Some(root_id) = root_proj_id {
-                        if let Some(record) = self.module_registry.get(&root_id) {
-                            let proj_obj = record.object;
-                            self.heap.module_mut(obj_ref).owning_project = Some(proj_obj);
-                            crate::value::Value::Obj(proj_obj).wrap_some()?
-                        } else {
-                            crate::value::Value::None
+                            Some(phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()))
                         }
                     } else {
-                        self.heap.module_mut(obj_ref).owning_project = None;
-                        crate::value::Value::None
+                        id.path.parent().map(|p| phalcom_modules::ModuleId::builtin(*bid, p))
                     };
-                    self.define_global(obj_ref, project_sym, proj_val)?;
+                    let root = Some(phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()));
+                    (parent, root, None)
                 }
-                phalcom_modules::ModuleKind::Module => {
-                    // Ordinary Module: determine nearest package and owning project.
-                    let (nearest_pkg_id, root_proj_id) = match &id.project {
-                        phalcom_modules::ProjectIdentity::Resolved(pid) => {
-                            let is_standalone = program.project_universe.get_project(*pid).map(|p| p.is_standalone_package()).unwrap_or(false);
-                            let pkg = id
-                                .path
-                                .parent()
-                                .map(|p| phalcom_modules::ModuleId::resolved(*pid, p))
-                                .unwrap_or_else(|| phalcom_modules::ModuleId::resolved(*pid, phalcom_modules::ModulePath::root()));
-                            let root = if is_standalone {
-                                None
-                            } else {
-                                Some(phalcom_modules::ModuleId::resolved(*pid, phalcom_modules::ModulePath::root()))
-                            };
-                            (Some(pkg), root)
-                        }
-                        phalcom_modules::ProjectIdentity::Builtin(bid) => {
-                            let pkg = id
-                                .path
-                                .parent()
-                                .map(|p| phalcom_modules::ModuleId::builtin(*bid, p))
-                                .unwrap_or_else(|| phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()));
-                            let root = Some(phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()));
-                            (Some(pkg), root)
-                        }
-                        phalcom_modules::ProjectIdentity::Synthetic(sid) => {
-                            // Standalone module has no package if root path or no package.ph
-                            let pkg = id.path.parent().map(|p| phalcom_modules::ModuleId::synthetic(*sid, p));
-                            (pkg, None)
-                        }
-                    };
-
-                    // Set owning_package
-                    let pkg_val = if let Some(pkg_id) = nearest_pkg_id {
-                        if let Some(record) = self.module_registry.get(&pkg_id) {
-                            let pkg_obj = record.object;
-                            self.heap.module_mut(obj_ref).owning_package = Some(pkg_obj);
-                            crate::value::Value::Obj(pkg_obj).wrap_some()?
-                        } else {
-                            crate::value::Value::None
-                        }
-                    } else {
-                        self.heap.module_mut(obj_ref).owning_package = None;
-                        crate::value::Value::None
-                    };
-                    self.define_global(obj_ref, package_sym, pkg_val)?;
-
-                    // Set owning_project
-                    let proj_val = if let Some(root_id) = root_proj_id {
-                        if let Some(record) = self.module_registry.get(&root_id) {
-                            let proj_obj = record.object;
-                            self.heap.module_mut(obj_ref).owning_project = Some(proj_obj);
-                            crate::value::Value::Obj(proj_obj).wrap_some()?
-                        } else {
-                            crate::value::Value::None
-                        }
-                    } else {
-                        self.heap.module_mut(obj_ref).owning_project = None;
-                        crate::value::Value::None
-                    };
-                    self.define_global(obj_ref, project_sym, proj_val)?;
+                phalcom_modules::ProjectIdentity::Synthetic(sid) => {
+                    let parent = id.path.parent().map(|p| phalcom_modules::ModuleId::synthetic(*sid, p));
+                    (parent, None, None)
                 }
-            }
+            };
+
+            // Set package
+            let pkg_val = if compiled_mod.kind == phalcom_modules::ModuleKind::Package {
+                if let Some(parent_id) = nearest_pkg_id {
+                    if let Some(record) = self.module_registry.get(&parent_id) {
+                        self.heap.module_mut(obj_ref).package = Some(record.object);
+                    }
+                } else {
+                    self.heap.module_mut(obj_ref).package = Some(obj_ref);
+                }
+                crate::value::Value::obj(obj_ref).wrap_some()?
+            } else {
+                if let Some(pkg_id) = nearest_pkg_id {
+                    if let Some(record) = self.module_registry.get(&pkg_id) {
+                        let pkg_obj = record.object;
+                        self.heap.module_mut(obj_ref).package = Some(pkg_obj);
+                        crate::value::Value::obj(pkg_obj).wrap_some()?
+                    } else {
+                        crate::value::Value::none()
+                    }
+                } else {
+                    self.heap.module_mut(obj_ref).package = None;
+                    crate::value::Value::none()
+                }
+            };
+            self.define_global(obj_ref, package_sym, pkg_val)?;
+
+            // Set root_package and __root__
+            let root_val = if let Some(root_id) = root_pkg_id {
+                if let Some(record) = self.module_registry.get(&root_id) {
+                    let root_obj = record.object;
+                    self.heap.module_mut(obj_ref).root_package = Some(root_obj);
+                    crate::value::Value::obj(root_obj).wrap_some()?
+                } else {
+                    crate::value::Value::none()
+                }
+            } else {
+                self.heap.module_mut(obj_ref).root_package = None;
+                crate::value::Value::none()
+            };
+            self.define_global(obj_ref, root_sym, root_val)?;
+
+            // Set __project__ (defined only in active development project context)
+            let project_val = if let Some(pid) = proj_pid {
+                if let Some(resolved_proj) = program.project_universe.get_project(pid) {
+                    if let Some(manifest) = &resolved_proj.manifest {
+                        let root_pkg_id = phalcom_modules::ModuleId::resolved(pid, phalcom_modules::ModulePath::root());
+                        if let Some(root_record) = self.module_registry.get(&root_pkg_id) {
+                            let root_pkg_ref = root_record.object;
+                            let namespace_sym = self.interner.intern(resolved_proj.namespace.as_str());
+                            let manifest_ref = crate::modules::reflection_cache::ReflectionCache::get_or_create_project_manifest(self, manifest);
+                            let identity_ref = crate::modules::reflection_cache::ReflectionCache::get_or_create_project_identity(self, &resolved_proj.name);
+                            let dev_entry = manifest.entry.as_ref().map(|entry| {
+                                let entry_mod_id = phalcom_modules::ModuleId::resolved(
+                                    pid,
+                                    phalcom_modules::ModulePath::from_components(
+                                        entry
+                                            .split('.')
+                                            .skip(1)
+                                            .filter_map(|c| phalcom_modules::ModuleComponent::from_identifier(c).ok())
+                                            .collect::<Vec<_>>(),
+                                    ),
+                                );
+                                crate::modules::reflection_cache::ReflectionCache::get_or_create_module_identity(self, &entry_mod_id)
+                            });
+
+                            let mut dep_values: Vec<crate::value::Value> = Vec::new();
+                            for (comp, (orig_alias, spec)) in &manifest.dependencies {
+                                let req_desc = match spec {
+                                    phalcom_modules::manifest::DependencySpec::Package { package, version } => {
+                                        phalcom_modules::package_info::PackageRequirementDescriptor {
+                                            alias: comp.as_str().to_string().into_boxed_str(),
+                                            package: package.clone(),
+                                            version_requirement: version.clone(),
+                                            optional: false,
+                                        }
+                                    }
+                                    phalcom_modules::manifest::DependencySpec::Path { .. } => phalcom_modules::package_info::PackageRequirementDescriptor {
+                                        alias: comp.as_str().to_string().into_boxed_str(),
+                                        package: orig_alias.clone(),
+                                        version_requirement: "*".to_string(),
+                                        optional: false,
+                                    },
+                                };
+                                let req_ref = crate::modules::reflection_cache::ReflectionCache::get_or_create_package_requirement(self, &req_desc);
+                                let pkg_info_desc = phalcom_modules::package_info::PackageInfoDescriptor::standalone(comp.as_str());
+                                let pkg_info_ref = crate::modules::reflection_cache::ReflectionCache::get_or_create_package_info(self, &pkg_info_desc);
+                                let dep_alias = self.interner.intern(comp.as_str());
+                                let origin_sym = self.interner.intern("#workspace");
+
+                                let dep_obj = self.heap.alloc(crate::heap::Object::ResolvedProjectDependency(Box::new(
+                                    crate::heap::reflection::ResolvedProjectDependencyObject {
+                                        alias: dep_alias,
+                                        requirement: Some(req_ref),
+                                        package_info: pkg_info_ref,
+                                        root_package: root_pkg_ref,
+                                        origin_sym,
+                                    },
+                                )));
+                                dep_values.push(crate::value::Value::obj(dep_obj));
+                            }
+                            let deps_tuple = self.heap.alloc(crate::heap::Object::Tuple(crate::heap::TupleObject::positional(dep_values)));
+
+                            let proj_obj = crate::modules::reflection_cache::ReflectionCache::get_or_create_project(
+                                self,
+                                &resolved_proj.name,
+                                namespace_sym,
+                                manifest_ref,
+                                root_pkg_ref,
+                                deps_tuple,
+                                dev_entry,
+                                identity_ref,
+                            );
+                            crate::value::Value::obj(proj_obj).wrap_some()?
+                        } else {
+                            crate::value::Value::none()
+                        }
+                    } else {
+                        crate::value::Value::none()
+                    }
+                } else {
+                    crate::value::Value::none()
+                }
+            } else {
+                crate::value::Value::none()
+            };
+            self.define_global(obj_ref, project_sym, project_val)?;
         }
 
         // Phase 3: Materialize declaration blueprints (classes/globals from artifact).
@@ -319,7 +341,7 @@ impl VM {
             .compile_closure_as_with_bindings(obj_ref, source, crate::compiler::lib::UnitKind::File, bindings)
             .inspect_err(|err| {
                 let source_id = self.heap.module(obj_ref).sources.len().saturating_sub(1) as u32;
-                self.compiler_error(err.clone(), obj_ref, source_id);
+                self.compiler_error(err, obj_ref, source_id);
             })?;
         self.heap.module_mut(obj_ref).closure = Some(closure);
         Ok(closure)

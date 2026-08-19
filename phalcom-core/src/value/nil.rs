@@ -7,4 +7,4 @@
 use crate::value::Value;
 
 /// The private `nil` sentinel value.
-pub const NIL: Value = Value::Nil;
+pub const NIL: Value = Value::nil();

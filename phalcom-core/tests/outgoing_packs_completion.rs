@@ -56,9 +56,7 @@ fn global_value(interp: &mut Interpreter, module: ObjRef, name: &str) -> Value {
 }
 
 fn instance_slot(interp: &Interpreter, value: Value, slot: usize) -> Value {
-    let Value::Obj(id) = value else {
-        panic!("expected instance object, got {value:?}");
-    };
+    let id = value.as_obj().expect("expected instance object");
     let Object::Instance(instance) = interp.vm.heap.get(id) else {
         panic!("expected instance object");
     };
@@ -127,7 +125,7 @@ let result = probe.receiver(receiver).accept(*probe.makeSource(), probe.later())
     // 1 receiver, 2 operand creation, 3/3/3 complete cursor exhaustion, 9 later.
     // Any operand duplication, receiver reordering, or interleaving of `later()`
     // changes this value.
-    assert_eq!(result.expect("timing probe must execute"), Value::Int(123339));
+    assert_eq!(result.expect("timing probe must execute"), Value::int(123339));
 }
 
 #[test]
@@ -153,7 +151,7 @@ Receiver.new().take(**(left: 1,), left: probe.sideEffect())
     let probe = global_value(&mut interp, main, "probe");
     assert_eq!(
         instance_slot(&interp, probe, 0),
-        Value::Int(0),
+        Value::int(0),
         "duplicate reservation must precede value evaluation"
     );
 }
@@ -182,7 +180,7 @@ Receiver.new().take([probe.badLabel()]: probe.sideEffect())
     let probe = global_value(&mut interp, main, "probe");
     assert_eq!(
         instance_slot(&interp, probe, 0),
-        Value::Int(1),
+        Value::int(1),
         "label expression must run, but value expression must not run after Symbol validation fails"
     );
 }
@@ -207,7 +205,7 @@ sink[**(put: 1,)] = probe.sideEffect()
     let error = result.expect_err("dynamic setter must reserve compiler-owned put before RHS");
     assert!(error.contains("duplicate argument label `put`"), "unexpected error: {error}");
     let probe = global_value(&mut interp, main, "probe");
-    assert_eq!(instance_slot(&interp, probe, 0), Value::Int(0), "RHS must not run after duplicate `put`");
+    assert_eq!(instance_slot(&interp, probe, 0), Value::int(0), "RHS must not run after duplicate `put`");
 }
 
 #[test]
@@ -250,7 +248,7 @@ let result = Receiver.new().collect(*(0..).iter.take(3))
             "result",
         )
     });
-    assert_eq!(bounded.expect("take must bound an otherwise open pipeline"), Value::Int(3));
+    assert_eq!(bounded.expect("take must bound an otherwise open pipeline"), Value::int(3));
 }
 
 #[test]
@@ -325,7 +323,7 @@ let result = Receiver.new().zero(**())
             "result",
         )
     });
-    assert_eq!(labeled.expect("**Unit must contribute no labels"), Value::Int(7));
+    assert_eq!(labeled.expect("**Unit must contribute no labels"), Value::int(7));
 
     let complete = on_large_stack(|| {
         eval_source(
@@ -336,7 +334,7 @@ let result = Receiver.new().zero(***())
             "result",
         )
     });
-    assert_eq!(complete.expect("***Unit must contribute no values"), Value::Int(8));
+    assert_eq!(complete.expect("***Unit must contribute no values"), Value::int(8));
 }
 
 #[test]
@@ -353,7 +351,7 @@ let result = Receiver.new().pick(**(right: 2, left: 1))
             "result",
         )
     });
-    assert_eq!(result.expect("label order must remain selector-significant"), Value::Int(21));
+    assert_eq!(result.expect("label order must remain selector-significant"), Value::int(21));
 }
 
 #[test]
@@ -370,7 +368,7 @@ let result = Receiver.new().collect(**(x: 1,))
             "result",
         )
     });
-    assert_eq!(result.expect("labeled dynamic miss must go to dNU, not collect(*)"), Value::Int(99));
+    assert_eq!(result.expect("labeled dynamic miss must go to dNU, not collect(*)"), Value::int(99));
 }
 
 #[test]
@@ -389,7 +387,7 @@ let result = Child.new().probe((1,))
             "result",
         )
     });
-    assert_eq!(result.expect("dynamic super miss must reach dNU"), Value::Bool(true));
+    assert_eq!(result.expect("dynamic super miss must reach dNU"), Value::bool(true));
 }
 
 #[test]
@@ -403,7 +401,7 @@ let result = Receiver.new().collect(*args)
 "#
     );
     let accepted = on_large_stack(move || eval_source(&ok_source, "result"));
-    assert_eq!(accepted.expect("255 dynamic args must be legal"), Value::Int(255));
+    assert_eq!(accepted.expect("255 dynamic args must be legal"), Value::int(255));
 
     let tuple_256 = tuple_literal(256);
     let overflow_source = format!(
@@ -435,7 +433,7 @@ let result = sink[*indices] = 7
 "#
     );
     let accepted = on_large_stack(move || eval_source(&ok_source, "result"));
-    assert_eq!(accepted.expect("254 indices + put/RHS = 255 total args must be legal"), Value::Int(7));
+    assert_eq!(accepted.expect("254 indices + put/RHS = 255 total args must be legal"), Value::int(7));
 
     let indices_255 = tuple_literal(255);
     let overflow_source = format!(
@@ -468,7 +466,7 @@ let result = tuple.size
 "#
     );
     let value = on_large_stack(move || eval_source(&source, "result"));
-    assert_eq!(value.expect("dynamic Tuple may contain more than 255 values"), Value::Int(300));
+    assert_eq!(value.expect("dynamic Tuple may contain more than 255 values"), Value::int(300));
 }
 
 #[test]

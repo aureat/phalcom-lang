@@ -1,0 +1,5 @@
+[project]
+name = "chain_abc"
+namespace = "chain_abc"
+version = "0.1.0"
+entry = "chain_abc.a"

@@ -1,7 +1,7 @@
 use phalcom_common::range::SourceRange;
 use std::fmt;
 
-/// A generation-tagged handle into [`VM::resources`] (PDR-0005 §4).
+/// A generation-tagged handle into `VM::resources` (PDR-0005 §4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResourceHandle {
     pub index: u32,

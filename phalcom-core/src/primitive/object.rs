@@ -44,7 +44,7 @@ pub fn object_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     effects = pure
 )]
 pub fn object_class(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Obj(receiver.class(vm)))
+    Ok(Value::obj(receiver.class(vm)))
 }
 
 /// Signature: `Object::toString` — the default display string (U-CORE-4,
@@ -58,14 +58,7 @@ pub fn object_class(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     effects = pure
 )]
 pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    // Borrow-model care: bind the cloned name to its own `let` so the
-    // immutable `vm.heap` borrow is released before the `&mut vm` alloc below
-    // (the `object_name` idiom, this file, L25-26). Do NOT inline the clone
-    // into the alloc call.
-    let own_name = match receiver {
-        Value::Obj(id) => vm.heap.as_class(*id).map(|c| c.name.clone()),
-        _ => None,
-    };
+    let own_name = receiver.as_obj().and_then(|id| vm.heap.as_class(id).map(|c| c.name.clone()));
     if let Some(name) = own_name {
         return Ok(vm.alloc_string_value(name)); // class receiver -> own name (fixes F4)
     }
@@ -84,19 +77,18 @@ pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     effects = pure
 )]
 pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    use slotmap::Key;
-    let bits = match receiver {
-        Value::Obj(id) => id.data().as_ffi(),
-        // Defensive: every immediate overrides `hash`, so this arm is
-        // effectively unreachable. The inner `_` catch-all keeps it total
-        // *without* a closed `Value` match — a future `Value` arm (e.g.
-        // `Fiber`, forward-compat §1) still compiles here and simply inherits
-        // this identity digest until it installs its own override.
-        Value::Bool(b) => u64::from(*b),
-        Value::Int(n) => *n as u64,
-        Value::Float(n) => n.to_bits(),
-        Value::Symbol(s) => u64::from(s.0),
-        _ => 0,
+    let bits = if let Some(id) = receiver.as_obj() {
+        id.to_opaque_u64()
+    } else if let Some(b) = receiver.as_bool() {
+        u64::from(b)
+    } else if let Some(n) = receiver.as_int() {
+        n as u64
+    } else if let Some(n) = receiver.as_float() {
+        n.to_bits()
+    } else if let Some(s) = receiver.symbol_value() {
+        u64::from(s.0)
+    } else {
+        0
     };
     Ok(crate::primitive::hash_code(bits))
 }
@@ -124,7 +116,7 @@ pub fn object_set_class(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
     effects = pure
 )]
 pub fn object_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Bool(receiver.value_eq(&args[0], &vm.heap)))
+    Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
 }
 
 /// Signature: `Object::!=(_)` — the base inequality send; the logical
@@ -137,7 +129,7 @@ pub fn object_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     effects = pure
 )]
 pub fn object_neq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Bool(!receiver.value_eq(&args[0], &vm.heap)))
+    Ok(Value::bool(!receiver.value_eq(&args[0], &vm.heap)))
 }
 
 /// Shape-aware `Object#perform(_,***)` gateway. The first positional value is
@@ -149,22 +141,23 @@ pub fn object_perform_shape(vm: &mut VM, receiver: Value, args: ArgumentView) ->
         expected: 1,
         found: args.positional_count(),
     })?;
-    let selector = *expect_value!(&selector_value, Symbol);
+    let selector = expect_value!(&selector_value, Symbol);
     let positional_count = args.positional_count().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
         signature: "perform",
         expected: 1,
         found: args.positional_count(),
     })?;
-    let labels = args.labels(vm);
+    let labels = args.labels();
     let receiver_index = args.receiver_index();
     let residual = vm.stack[receiver_index + 2..].to_vec();
+    vm.stack[receiver_index] = receiver;
     vm.stack.truncate(receiver_index + 1);
     vm.stack.extend_from_slice(&residual);
     vm.dispatch_shape_at_as(
         receiver_index,
         selector,
         positional_count,
-        &labels,
+        labels,
         phalcom_common::range::SourceRange::default(),
         args.caller_authority(),
     )
@@ -180,11 +173,11 @@ pub fn object_perform_shape(vm: &mut VM, receiver: Value, args: ArgumentView) ->
     effects = pure
 )]
 pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let selector = *expect_value!(&args[0], Symbol);
+    let selector = expect_value!(&args[0], Symbol);
     let responds = receiver
         .lookup_method(vm, selector)
         .is_some_and(|method| vm.authorize_method_access(method).is_ok());
-    Ok(Value::Bool(responds))
+    Ok(Value::bool(responds))
 }
 
 /// Signature: `Object::methodFor(_)` — reifies the
@@ -197,9 +190,9 @@ pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     effects = pure
 )]
 pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let selector = *expect_value!(&args[0], Symbol);
+    let selector = expect_value!(&args[0], Symbol);
     match receiver.lookup_method(vm, selector) {
-        Some(method_id) if vm.authorize_method_access(method_id).is_ok() => Ok(Value::Obj(method_id)),
+        Some(method_id) if vm.authorize_method_access(method_id).is_ok() => Ok(Value::obj(method_id)),
         None => Ok(vm.none_value()),
         Some(_) => Ok(vm.none_value()),
     }
@@ -216,8 +209,8 @@ pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
     flow = never
 )]
 pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let selector = match message_slot(vm, &args[0], 0) {
-        Some(Value::Symbol(sym)) => vm.resolve_symbol(sym).to_string(),
+    let selector = match message_slot(vm, &args[0], 0).and_then(|v| v.symbol_value()) {
+        Some(sym) => vm.resolve_symbol(sym).to_string(),
         _ => "<unknown>".to_string(),
     };
     let mut receiver_name = receiver.to_string(vm);
@@ -249,7 +242,7 @@ pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
     let mut inst = InstanceObject::new(mnu_class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
     inst.slots[1] = args[0]; // the reified Message
-    let mnu = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
+    let mnu = Value::obj(vm.heap.alloc(Object::Instance(inst)));
 
     // Raise it through the unified unwind (NOT the retired native
     // RuntimeError::MessageNotUnderstood variant).
@@ -265,10 +258,7 @@ pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
 /// Reads slot `index` of a `Message` instance `value`, or `None` if `value` is
 /// not an [`InstanceObject`].
 fn message_slot(vm: &VM, value: &Value, index: usize) -> Option<Value> {
-    match value {
-        Value::Obj(id) => vm.heap.as_instance(*id).map(|instance| instance.slots[index]),
-        _ => None,
-    }
+    value.as_obj().and_then(|id| vm.heap.as_instance(id).map(|instance| instance.slots[index]))
 }
 
 /// Builds the "not a Message" [`RuntimeError::Type`] for the accessors.
@@ -342,11 +332,11 @@ pub fn message_args(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     visibility = internal
 )]
 pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let Value::Obj(id) = receiver else {
-        return Ok(Value::Bool(true));
+    let Some(id) = receiver.as_obj() else {
+        return Ok(Value::bool(true));
     };
-    let is_owner = vm.checking.insert(*id);
-    Ok(Value::Bool(is_owner))
+    let is_owner = vm.checking.insert(id);
+    Ok(Value::bool(is_owner))
 }
 
 /// Signature: `Object::__invariantExit()` — the exit half of the `@invariant`
@@ -359,8 +349,8 @@ pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
     visibility = internal
 )]
 pub fn object_invariant_exit(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    if let Value::Obj(id) = receiver {
-        vm.checking.remove(id);
+    if let Some(id) = receiver.as_obj() {
+        vm.checking.remove(&id);
     }
     Ok(vm.none_value())
 }

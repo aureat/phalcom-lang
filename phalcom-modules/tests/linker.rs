@@ -1,6 +1,7 @@
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-    InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, SymbolId,
+    ImportBindingId, InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse,
+    ResolvedProjectId, SymbolId, UnlinkedModuleInterface,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -12,7 +13,7 @@ fn module(name: &str) -> ModuleId {
     }
 }
 
-fn interfaces(sources: &[(ModuleId, &str)]) -> BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface> {
+fn interfaces(sources: &[(ModuleId, &str)]) -> BTreeMap<ModuleId, UnlinkedModuleInterface> {
     sources
         .iter()
         .map(|(id, source)| {
@@ -23,42 +24,199 @@ fn interfaces(sources: &[(ModuleId, &str)]) -> BTreeMap<ModuleId, phalcom_module
         .collect()
 }
 
+/// LINK-01 — Selective import of exported name succeeds and produces LinkedReadSpec::Binding
 #[test]
-fn selective_import_and_reexport_share_canonical_symbol() {
-    let point = module("point");
-    let facade = module("facade");
-    let consumer = module("consumer");
-    let interface_map = interfaces(&[
-        (point.clone(), "class Point {}\nexport Point\n"),
-        (facade.clone(), "export Point as P from .point\n"),
-        (consumer.clone(), "from .facade import P as Point\n"),
+fn link_01_selective_import_produces_binding() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let iface_map = interfaces(&[
+        (exporter.clone(), "class Exported {}\nexport Exported\n"),
+        (importer.clone(), "from .exporter import Exported\n"),
     ]);
-    let resolved = BTreeMap::from([
-        ((facade.clone(), ".point".to_string()), point.clone()),
-        ((consumer.clone(), ".facade".to_string()), facade.clone()),
-    ]);
-    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interface_map);
-    let linked = linker.link(consumer.clone(), &resolved).unwrap();
-    let symbol = SymbolId {
-        module: point.clone(),
-        name: "Point".into(),
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let linked = linker.link(importer.clone(), &resolved).expect("link should succeed");
+
+    let expected_symbol = SymbolId {
+        module: exporter.clone(),
+        name: "Exported".into(),
     };
-    assert_eq!(linked.modules[&facade].interface.exports["P"].symbol(), Some(&symbol));
-    assert_eq!(linked.modules[&consumer].linked_reads, vec![LinkedReadSpec::Binding(symbol.clone())]);
-    assert_eq!(linked.modules[&consumer].bindings.imports["Point"].0, 0);
+    assert_eq!(linked.modules[&importer].linked_reads, vec![LinkedReadSpec::Binding(expected_symbol)]);
+    assert_eq!(linked.modules[&importer].bindings.imports["Exported"], ImportBindingId(0));
 }
 
+/// LINK-02 — Selective import of non-exported name produces LinkError::MissingExport
 #[test]
-fn missing_export_is_a_link_error() {
-    let source = module("source");
-    let consumer = module("consumer");
-    let interface_map = interfaces(&[
-        (source.clone(), "class Present {}\nexport Present\n"),
-        (consumer.clone(), "from .source import Missing\n"),
+fn link_02_selective_import_missing_export() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let iface_map = interfaces(&[(exporter.clone(), "class Private {}\n"), (importer.clone(), "from .exporter import Private\n")]);
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let result = linker.link(importer, &resolved);
+
+    assert!(
+        matches!(result, Err(LinkError::MissingExport { ref name, .. }) if name == "Private"),
+        "expected MissingExport for Private, got {:?}",
+        result
+    );
+}
+
+/// LINK-03 — Module-import produces LinkedReadSpec::Module
+#[test]
+fn link_03_module_import_produces_module_spec() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let iface_map = interfaces(&[(exporter.clone(), "class Widget {}\nexport Widget\n"), (importer.clone(), "import .exporter\n")]);
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let linked = linker.link(importer.clone(), &resolved).expect("link should succeed");
+
+    assert_eq!(linked.modules[&importer].linked_reads, vec![LinkedReadSpec::Module(exporter.clone())]);
+    assert_eq!(linked.modules[&importer].bindings.imports["exporter"], ImportBindingId(0));
+}
+
+/// LINK-04 — Import alias rebinds the local name
+#[test]
+fn link_04_import_alias_rebinds_local_name() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let iface_map = interfaces(&[
+        (exporter.clone(), "class Widget {}\nexport Widget\n"),
+        (importer.clone(), "import .exporter as exp\n"),
     ]);
-    let resolved = BTreeMap::from([((consumer.clone(), ".source".to_string()), source)]);
-    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interface_map);
-    assert!(matches!(linker.link(consumer, &resolved), Err(LinkError::MissingExport { .. })));
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let linked = linker.link(importer.clone(), &resolved).expect("link should succeed");
+
+    assert_eq!(linked.modules[&importer].bindings.imports.get("exp"), Some(&ImportBindingId(0)));
+    assert_eq!(linked.modules[&importer].bindings.imports.get("exporter"), None);
+}
+
+/// LINK-05 — Re-export chains correctly to the original symbol
+#[test]
+fn link_05_reexport_chains_to_original_symbol() {
+    let mod_a = module("mod_a");
+    let mod_b = module("mod_b");
+    let mod_c = module("mod_c");
+    let iface_map = interfaces(&[
+        (mod_a.clone(), "class Foo {}\nexport Foo\n"),
+        (mod_b.clone(), "export Foo from .mod_a\n"),
+        (mod_c.clone(), "from .mod_b import Foo\n"),
+    ]);
+    let resolved = BTreeMap::from([
+        ((mod_b.clone(), ".mod_a".to_string()), mod_a.clone()),
+        ((mod_c.clone(), ".mod_b".to_string()), mod_b.clone()),
+    ]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let linked = linker.link(mod_c.clone(), &resolved).expect("link should succeed");
+
+    let original_symbol = SymbolId {
+        module: mod_a.clone(),
+        name: "Foo".into(),
+    };
+    assert_eq!(linked.modules[&mod_c].linked_reads, vec![LinkedReadSpec::Binding(original_symbol)]);
+}
+
+/// LINK-06 — Cyclic re-export produces LinkError::CyclicReExport
+#[test]
+fn link_06_cyclic_reexport_rejected() {
+    let mod_a = module("mod_a");
+    let mod_b = module("mod_b");
+    let iface_map = interfaces(&[(mod_a.clone(), "export Foo from .mod_b\n"), (mod_b.clone(), "export Foo from .mod_a\n")]);
+    let resolved = BTreeMap::from([
+        ((mod_a.clone(), ".mod_b".to_string()), mod_b.clone()),
+        ((mod_b.clone(), ".mod_a".to_string()), mod_a.clone()),
+    ]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let result = linker.link(mod_a, &resolved);
+
+    assert!(
+        matches!(result, Err(LinkError::CyclicReExport { .. })),
+        "expected CyclicReExport, got {:?}",
+        result
+    );
+}
+
+/// LINK-07 — Diamond dependency is deduplicated in initialization order
+#[test]
+fn link_07_diamond_dependency_deduplicated_order() {
+    let main_mod = module("main_mod");
+    let mod_a = module("mod_a");
+    let mod_b = module("mod_b");
+    let base_mod = module("base_mod");
+
+    let iface_map = interfaces(&[
+        (base_mod.clone(), "class Base {}\nexport Base\n"),
+        (mod_a.clone(), "from .base_mod import Base\nclass A {}\nexport A\n"),
+        (mod_b.clone(), "from .base_mod import Base\nclass B {}\nexport B\n"),
+        (main_mod.clone(), "from .mod_a import A\nfrom .mod_b import B\n"),
+    ]);
+    let resolved = BTreeMap::from([
+        ((mod_a.clone(), ".base_mod".to_string()), base_mod.clone()),
+        ((mod_b.clone(), ".base_mod".to_string()), base_mod.clone()),
+        ((main_mod.clone(), ".mod_a".to_string()), mod_a.clone()),
+        ((main_mod.clone(), ".mod_b".to_string()), mod_b.clone()),
+    ]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let linked = linker.link(main_mod.clone(), &resolved).expect("link should succeed");
+
+    let order = &linked.initialization_order;
+    // base_mod must appear exactly once
+    assert_eq!(order.iter().filter(|m| **m == base_mod).count(), 1);
+
+    let pos_base = order.iter().position(|m| *m == base_mod).unwrap();
+    let pos_a = order.iter().position(|m| *m == mod_a).unwrap();
+    let pos_b = order.iter().position(|m| *m == mod_b).unwrap();
+    let pos_main = order.iter().position(|m| *m == main_mod).unwrap();
+
+    assert!(pos_base < pos_a, "base must precede a");
+    assert!(pos_base < pos_b, "base must precede b");
+    assert!(pos_a < pos_main, "a must precede main");
+    assert!(pos_b < pos_main, "b must precede main");
+}
+
+/// LINK-08 — Missing module in link universe produces LinkError::MissingModule
+#[test]
+fn link_08_missing_module_in_universe() {
+    let entry = module("entry");
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), BTreeMap::new());
+    let result = linker.link(entry.clone(), &BTreeMap::new());
+
+    assert!(
+        matches!(result, Err(LinkError::MissingModule { ref module }) if *module == entry),
+        "expected MissingModule, got {:?}",
+        result
+    );
+}
+
+/// LINK-09 — Binding collision (same local name imported twice) produces LinkError::BindingCollision
+#[test]
+fn link_09_binding_collision_rejected() {
+    let mod_a = module("mod_a");
+    let mod_b = module("mod_b");
+    let importer = module("importer");
+
+    let iface_a = interfaces(&[(mod_a.clone(), "class Foo {}\nexport Foo\n")]).remove(&mod_a).unwrap();
+    let iface_b = interfaces(&[(mod_b.clone(), "class Foo {}\nexport Foo\n")]).remove(&mod_b).unwrap();
+
+    let mut importer_iface = interfaces(&[(importer.clone(), "from .mod_a import Foo\n")]).remove(&importer).unwrap();
+    let second_iface = interfaces(&[(importer.clone(), "from .mod_b import Foo\n")]).remove(&importer).unwrap();
+    importer_iface.imports.extend(second_iface.imports);
+
+    let iface_map = BTreeMap::from([(mod_a.clone(), iface_a), (mod_b.clone(), iface_b), (importer.clone(), importer_iface)]);
+    let resolved = BTreeMap::from([
+        ((importer.clone(), ".mod_a".to_string()), mod_a.clone()),
+        ((importer.clone(), ".mod_b".to_string()), mod_b.clone()),
+    ]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let result = linker.link(importer, &resolved);
+
+    assert!(
+        matches!(result, Err(LinkError::BindingCollision { ref name, .. }) if name == "Foo"),
+        "expected BindingCollision for Foo, got {:?}",
+        result
+    );
 }
 
 #[test]

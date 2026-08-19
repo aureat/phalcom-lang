@@ -447,6 +447,9 @@ impl<'input> Lexer<'input> {
                     self.pos += 1;
                 }
                 let slice = &self.input[start..self.pos];
+                if slice.len() >= 4 && slice.ends_with("__") {
+                    return Ok(Token::Identifier(slice.to_string()));
+                }
                 return Ok(Token::ImplementationFieldIdentifier(slice.to_string()));
             }
         } else if self.peek_at(1) == Some(b'$') {

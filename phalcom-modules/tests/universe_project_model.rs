@@ -5,10 +5,10 @@ fn path(parts: &[&str]) -> ModulePath {
 }
 
 #[test]
-fn builtin_roots_are_projects_and_nested_nodes_have_stable_virtual_uris() {
+fn builtin_roots_are_packages_and_nested_nodes_have_stable_virtual_uris() {
     let universe = BuiltinProjectSourceProvider::new(BuiltinProject::Universe);
     let root = ModuleId::builtin(BuiltinProject::Universe, ModulePath::root());
-    assert_eq!(universe.load_interface(&root).unwrap().kind, ModuleKind::ProjectRoot);
+    assert_eq!(universe.load_interface(&root).unwrap().kind, ModuleKind::Package);
 
     let selector = ModuleId::builtin(BuiltinProject::Universe, path(&["reflection", "selector"]));
     assert!(universe.contains(&selector.path));
@@ -19,7 +19,7 @@ fn builtin_roots_are_projects_and_nested_nodes_have_stable_virtual_uris() {
     let std_provider = BuiltinProjectSourceProvider::new(BuiltinProject::Std);
     // ROOT-05
     assert_eq!(std_provider.source_id(&std_json).unwrap().to_string(), "phalcom://std/json");
-    assert_eq!(std_provider.load_interface(&std_json).unwrap().kind, ModuleKind::Module);
+    assert_eq!(std_provider.load_interface(&std_json).unwrap().kind, ModuleKind::Package);
 }
 
 #[test]

@@ -80,7 +80,7 @@ fn depth_error_is_an_ordinary_catchable_raise() {
     let caught_sym = vm.get_or_intern("caught");
     let module_obj = vm.heap.module(module);
     let slot = module_obj.slot_of(caught_sym).expect("`caught` must be bound");
-    assert_eq!(module_obj.globals[slot], Value::Bool(true), "the handler must have run");
+    assert_eq!(module_obj.globals[slot], Value::bool(true), "the handler must have run");
 }
 
 #[test]

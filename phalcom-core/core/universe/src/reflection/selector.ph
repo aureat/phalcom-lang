@@ -13,3 +13,5 @@ class Selector {
     positionalCount() { _positionalCount }
     labels() { _labels }
 }
+
+export Selector

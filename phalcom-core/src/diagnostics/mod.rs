@@ -8,7 +8,7 @@
 //! - [`traceback`] — [`traceback::render_traceback`]: the human and JSON traceback renderers;
 //!   replaces the legacy `print_rt`/`print_frame` functions (plan.md T4).
 //! - This module itself keeps [`line_col`], [`print_parse`]/[`print_compile`] (restyled, IS §1)
-//!   and the legacy [`SOURCE_MAP`] until plan.md §7 deletes it.
+//!   and the legacy `SOURCE_MAP` until plan.md §7 deletes it.
 
 pub mod caret;
 pub mod style;

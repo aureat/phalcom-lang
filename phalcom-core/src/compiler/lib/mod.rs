@@ -4,7 +4,7 @@
 //! executes. String, method and superclass constants are materialized onto the
 //! [`Heap`](crate::heap::Heap) as the compiler emits them — the compiler already
 //! holds `&mut VM` and therefore the heap — and are referenced from the constant
-//! pool by `Copy` [`Value::Obj`] handles
+//! pool by `Copy` [`Value::obj`](crate::value::Value::obj) handles
 //! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md),
 //! [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
 

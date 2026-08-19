@@ -7,7 +7,6 @@
 use phalcom_core::heap::{ClassId, ObjRef, Object};
 use phalcom_core::interner::Symbol;
 use phalcom_core::method::{SignatureKind, decode_selector};
-use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::collections::{HashMap, HashSet};
 
@@ -79,10 +78,10 @@ impl ReplSnapshot {
                 globals.insert(sym, class_id);
                 global_names.insert(name_str.clone(), class_id);
 
-                if let Value::Obj(obj_ref) = val {
-                    if matches!(vm.heap.get(*obj_ref), Object::Class(_)) {
-                        classes.insert(sym, *obj_ref);
-                        class_names.insert(name_str, *obj_ref);
+                if let Some(obj_ref) = val.as_obj() {
+                    if matches!(vm.heap.get(obj_ref), Object::Class(_)) {
+                        classes.insert(sym, obj_ref);
+                        class_names.insert(name_str, obj_ref);
                     }
                 }
             }

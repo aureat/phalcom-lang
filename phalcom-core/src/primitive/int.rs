@@ -7,24 +7,24 @@ use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive, Zero};
 
 pub(crate) fn expect_int_big(val: &Value, vm: &mut VM) -> PhResult<BigInt> {
-    match val {
-        Value::Int(n) => Ok(BigInt::from(*n)),
-        Value::Obj(id) => {
-            if let Some(b) = vm.heap.as_large_int(*id) {
-                Ok(b.clone())
-            } else {
-                Err(RuntimeError::Type {
-                    expected: "Int",
-                    found: val.type_name(),
-                }
-                .into())
+    if let Some(n) = val.as_int() {
+        Ok(BigInt::from(n))
+    } else if let Some(id) = val.as_obj() {
+        if let Some(b) = vm.heap.as_large_int(id) {
+            Ok(b.clone())
+        } else {
+            Err(RuntimeError::Type {
+                expected: "Int",
+                found: val.type_name(),
             }
+            .into())
         }
-        _ => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "Int",
             found: val.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
@@ -145,7 +145,7 @@ pub fn int_shr(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
             // Shift is larger than address space; since it's nonnegative:
             // if positive, results in 0; if negative, results in -1.
             let res = if a.is_negative() { -1 } else { 0 };
-            return Ok(Value::Int(res));
+            return Ok(Value::int(res));
         }
     };
     let res = a >> b_usize;
@@ -174,11 +174,11 @@ pub fn int_bit_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             // Index is larger than address space; since it's nonnegative:
             // if positive, bit is 0; if negative, bit is 1.
             let res = if a.is_negative() { 1 } else { 0 };
-            return Ok(Value::Int(res));
+            return Ok(Value::int(res));
         }
     };
     let res = if a.bit(idx_usize as u64) { 1 } else { 0 };
-    Ok(Value::Int(res))
+    Ok(Value::int(res))
 }
 
 /// Signature: `Int::bitCount` — returns the number of 1 bits in `|self|`.
@@ -195,7 +195,7 @@ pub fn int_bit_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     let abs_a = a.abs();
     let digits = abs_a.magnitude().to_u32_digits();
     let count: u64 = digits.iter().map(|&d| d.count_ones() as u64).sum();
-    Ok(Value::Int(count as i64))
+    Ok(Value::int(count as i64))
 }
 
 /// Signature: `Int::bitLength` — returns the bit length of `|self|`.
@@ -211,7 +211,7 @@ pub fn int_bit_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     let a = expect_int_big(receiver, vm)?;
     let abs_a = a.abs();
     let len = abs_a.magnitude().bits();
-    Ok(Value::Int(len as i64))
+    Ok(Value::int(len as i64))
 }
 
 /// Signature: `Int::trailingZeros` — returns trailing zeros of `|self|`.
@@ -237,7 +237,7 @@ pub fn int_trailing_zeros(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
             break;
         }
     }
-    Ok(Value::Int(count))
+    Ok(Value::int(count))
 }
 
 /// Signature: `Int.class::new(_)` — coerces/constructs an `Int`.
@@ -251,13 +251,15 @@ pub fn int_trailing_zeros(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 )]
 pub fn int_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(arg) = args.first() else {
-        return Ok(Value::Int(0));
+        return Ok(Value::int(0));
     };
-    match arg {
-        Value::Int(n) => Ok(Value::Int(*n)),
-        Value::Obj(id) if vm.heap.as_large_int(*id).is_some() => Ok(*arg),
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => {
-            let text = vm.heap.string(*id).value();
+    if let Some(n) = arg.as_int() {
+        Ok(Value::int(n))
+    } else if let Some(id) = arg.as_obj() {
+        if vm.heap.as_large_int(id).is_some() {
+            Ok(*arg)
+        } else if vm.heap.as_string(id).is_some() {
+            let text = vm.heap.string(id).value();
             if let Err(offset) = crate::primitive::float::scan_int_text(&text) {
                 return Err(RuntimeError::NumericText {
                     target_type: "Int",
@@ -267,7 +269,7 @@ pub fn int_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult
             }
             let cleaned: String = text.chars().filter(|&c| c != '_').collect();
             if let Ok(i) = cleaned.parse::<i64>() {
-                Ok(Value::Int(i))
+                Ok(Value::int(i))
             } else if let Ok(b) = cleaned.parse::<BigInt>() {
                 Ok(normalize_bigint(b, &mut vm.heap))
             } else {
@@ -278,12 +280,20 @@ pub fn int_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult
                 }
                 .into())
             }
+        } else {
+            Err(RuntimeError::NumericConversion {
+                expected: "Int",
+                found: arg.type_name(),
+                operation: "Int.new",
+            }
+            .into())
         }
-        other => Err(RuntimeError::NumericConversion {
+    } else {
+        Err(RuntimeError::NumericConversion {
             expected: "Int",
-            found: other.type_name(),
+            found: arg.type_name(),
             operation: "Int.new",
         }
-        .into()),
+        .into())
     }
 }

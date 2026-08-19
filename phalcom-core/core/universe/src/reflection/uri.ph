@@ -1,0 +1,1 @@
+@!documentation("URI value type.")

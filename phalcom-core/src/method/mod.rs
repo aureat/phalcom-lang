@@ -127,7 +127,7 @@ impl Signature {
 /// spelling — a positional argument renders as `_`, a keyword argument as
 /// its label, slots joined by `,`).
 ///
-/// [`SignatureKind::Subscript`] ignores `name` entirely (U-INDEX,
+/// [`SignatureKind::SubscriptGet`] / [`SignatureKind::SubscriptSet`] ignore `name` entirely (U-INDEX,
 /// ADR-0060) — the bracket delimiter itself carries the selector's whole
 /// identity, so `[_]`/`[_,default]` and their `=(put)` setter counterparts use the same
 /// `comma_form_slots` every keyword method uses, just bracket- rather than
@@ -139,6 +139,39 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
         .map(|label| match label {
             None => common_selector::SelectorSlot::Positional,
             Some(text) => common_selector::SelectorSlot::Label(text.clone()),
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    common_selector::Selector::new(common_base(kind, name), common_kind, slots.clone())
+        .unwrap_or(common_selector::Selector {
+            base: common_base(kind, name),
+            kind: common_kind,
+            slots,
+        })
+        .encode()
+}
+
+/// Encodes a canonical comma-form selector string from pre-interned symbols.
+///
+/// Equivalent to `encode_selector` but takes positional count + label symbols
+/// instead of `&[Option<String>]`, avoiding an intermediate allocation.
+/// The interner is accessed once per label (`O(n)` total).
+///
+/// # Invariant
+///
+/// The result is identical to calling `encode_selector` with a slot array
+/// of `positional_count` `None`s followed by `labels.len()` `Some(label_str)`.
+pub fn encode_selector_symbols(name: &str, positional_count: usize, labels: &[Symbol], kind: SignatureKind, interner: &crate::interner::Interner) -> String {
+    let common_kind = common_kind(kind);
+    let total = positional_count + labels.len();
+    let slots = (0..total)
+        .map(|i| {
+            if i < positional_count {
+                common_selector::SelectorSlot::Positional
+            } else {
+                let label_str = interner.lookup(labels[i - positional_count]);
+                common_selector::SelectorSlot::Label(label_str.to_owned())
+            }
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();

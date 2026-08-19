@@ -34,5 +34,5 @@ pub fn range_raw_upper(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 /// Signature: `Range::upperInclusive_`.
 pub fn range_raw_upper_inclusive(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_range(vm, receiver)?;
-    Ok(Value::Bool(vm.heap.range(id).upper_inclusive()))
+    Ok(Value::bool(vm.heap.range(id).upper_inclusive()))
 }

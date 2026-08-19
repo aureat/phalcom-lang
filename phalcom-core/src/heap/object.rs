@@ -15,9 +15,12 @@ use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::value::Value;
 use indexmap::IndexMap;
-use phalcom_common::selector::SelectorPattern;
 
 use super::ArgumentPackBuilderObject;
+use super::reflection::{
+    ChildModuleTableObject, ExportObject, ExportTableObject, ModuleDependencyObject, ModuleIdentityObject, PackageAuthorObject, PackageIdentityObject,
+    PackageInfoObject, PackageRequirementObject, ProjectIdentityObject, ProjectManifestObject, ProjectObject, ResolvedProjectDependencyObject, UriObject,
+};
 use super::{ClassId, FiberObject, ObjRef, RecordLiteralBuilderObject};
 
 /// The tagged payload stored at each live [`ObjRef`] in the [`super::Heap`].
@@ -68,7 +71,7 @@ pub enum Object {
     /// A cooperative fiber — the sole concurrency primitive
     /// ([`FiberObject`], [ADR-0030](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §2).
     ///
-    /// Reached through [`Value::Obj`] exactly as a
+    /// Reached through [`Value::obj`](crate::value::Value::obj) exactly as a
     /// [`Object::List`] is — there is **no** `Value::Fiber` arm (ADR-0030 §2,
     /// forward-compat §7 D2). It owns its own value + call stacks so it can be
     /// suspended and resumed by an O(1) pointer swap of `vm.current`.
@@ -87,7 +90,7 @@ pub enum Object {
     /// A native hash set — a keys-only [`MapObject`] (DEC-CT-B): every
     /// [`Object::Set`] value shares [`MapObject`]'s backing struct with
     /// [`Object::Map`], the `.1` (value) slot of each entry always
-    /// [`Value::Nil`] and unread by `Set`'s `.ph` protocol. A distinct heap
+    /// [`crate::value::NIL`] and unread by `Set`'s `.ph` protocol. A distinct heap
     /// variant (and distinct raw-primitive bindings) from `Map`, so
     /// `aSet.class == Set`, never `Map`.
     ///
@@ -98,7 +101,7 @@ pub enum Object {
     /// `Tuple`'s backing shape (`Box<[u8]>`, length fixed at construction)
     /// with `List`'s mutability corner: contents mutable ⇒ identity
     /// `Object#hash`, not a valid `Map`/`Set` key (collection-protocol
-    /// law 4). Reached through [`Value::Obj`]; there is **no** `Value::Bytes`
+    /// law 4). Reached through [`Value::obj`](crate::value::Value::obj); there is **no** `Value::Bytes`
     /// arm (ADR-0010 minimalism). Holds no [`Value`]s, so the tracer has
     /// nothing to visit, and its drop glue frees plain memory only — no OS
     /// handle lives here, so PDR-0005 §4's back-door-finalizer hazard does
@@ -148,11 +151,39 @@ pub enum Object {
     PackBuilder(Box<ArgumentPackBuilderObject>),
     /// Private compiler/VM-only dynamic Record literal assembly state.
     RecordLiteralBuilder(Box<RecordLiteralBuilderObject>),
+    /// A project development environment ([`ProjectObject`]).
+    Project(Box<ProjectObject>),
+    /// Validated project development manifest ([`ProjectManifestObject`]).
+    ProjectManifest(Box<ProjectManifestObject>),
+    /// Durable package information ([`PackageInfoObject`]).
+    PackageInfo(Box<PackageInfoObject>),
+    /// Package author descriptor ([`PackageAuthorObject`]).
+    PackageAuthor(Box<PackageAuthorObject>),
+    /// Durable package requirement ([`PackageRequirementObject`]).
+    PackageRequirement(Box<PackageRequirementObject>),
+    /// Resolved project dependency ([`ResolvedProjectDependencyObject`]).
+    ResolvedProjectDependency(Box<ResolvedProjectDependencyObject>),
+    /// Module runtime dependency ([`ModuleDependencyObject`]).
+    ModuleDependency(Box<ModuleDependencyObject>),
+    /// Reflective public export table ([`ExportTableObject`]).
+    ExportTable(Box<ExportTableObject>),
+    /// Individual reflected export ([`ExportObject`]).
+    Export(Box<ExportObject>),
+    /// Exposed child module table ([`ChildModuleTableObject`]).
+    ChildModuleTable(Box<ChildModuleTableObject>),
+    /// Opaque module identity ([`ModuleIdentityObject`]).
+    ModuleIdentity(Box<ModuleIdentityObject>),
+    /// Opaque package artifact identity ([`PackageIdentityObject`]).
+    PackageIdentity(Box<PackageIdentityObject>),
+    /// Opaque project identity ([`ProjectIdentityObject`]).
+    ProjectIdentity(Box<ProjectIdentityObject>),
+    /// Logical URI ([`UriObject`]).
+    Uri(Box<UriObject>),
 }
 
 /// A bound `::` method reference (selectors.md §3, U16-Open, U16-Pinned).
 ///
-/// Reached through [`Value::Obj`] exactly as an [`Object::List`] is — there
+/// Reached through [`Value::obj`](crate::value::Value::obj) exactly as an [`Object::List`] is — there
 /// is no `Value::Family` arm (`Value` stays minimal, ADR-0010). All fields
 /// are `Copy`, so the object itself never needs mutable accessors: a
 /// `Family` is immutable once constructed.
@@ -172,13 +203,7 @@ pub enum FamilySpec {
     Pattern(ObjRef),
 }
 
-/// Runtime payload for a structural selector pattern. The common model is
-/// intentionally retained here until the VM's symbol-backed call matcher is
-/// introduced; this object is immutable and safe to share through constants.
-#[derive(Debug, Clone)]
-pub struct SelectorPatternObject {
-    pub pattern: SelectorPattern,
-}
+pub use super::selector_pattern::SelectorPatternObject;
 
 /// The immutable result of extracting a structural selector pattern from a
 /// behavior. Exact bindings preserve declaration/inheritance order; rest

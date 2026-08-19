@@ -14,6 +14,9 @@ pub enum BuiltinProject {
     Std,
 }
 
+/// Type alias for staged vocabulary convergence (§7).
+pub type BuiltinPackage = BuiltinProject;
+
 impl BuiltinProject {
     pub const fn import_root(self) -> &'static str {
         match self {
@@ -36,6 +39,9 @@ impl fmt::Display for BuiltinProject {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ResolvedProjectId(NonZeroU32);
 
+/// Type alias for staged vocabulary convergence (§7).
+pub type ResolvedPackageId = ResolvedProjectId;
+
 impl ResolvedProjectId {
     /// Constructs a resolved-project ID. `raw` must be non-zero.
     pub fn from_raw(raw: u32) -> Self {
@@ -57,6 +63,9 @@ impl fmt::Display for ResolvedProjectId {
 /// Process/session-local synthetic project identity used by inline and standalone execution.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SyntheticProjectId(u64);
+
+/// Type alias for staged vocabulary convergence (§7).
+pub type SyntheticExecutionId = SyntheticProjectId;
 
 impl SyntheticProjectId {
     pub const fn raw(self) -> u64 {
@@ -95,6 +104,9 @@ pub enum ProjectIdentity {
     Resolved(ResolvedProjectId),
     Synthetic(SyntheticProjectId),
 }
+
+/// Type alias for staged vocabulary convergence (§7).
+pub type ModuleOwnerId = ProjectIdentity;
 
 impl ProjectIdentity {
     pub const fn as_resolved(self) -> Option<ResolvedProjectId> {

@@ -121,9 +121,9 @@ pub struct FiberObject {
     /// fiber-switch log, the JSON trace stream) shows `seq`, never the
     /// underlying [`ObjRef`] handle, because a handle is recyclable once the
     /// collector frees its slot and is meaningless to a human reading a trace.
-    /// [`Self::new_entry`]/[`Self::new_entry_with_buffers`] leave this `0` — a
+    /// [`Self::new_entry`]/`Self::new_entry_with_buffers` leave this `0` — a
     /// placeholder immediately overwritten by the spawn site
-    /// ([`crate::primitive::fiber::new_fiber_ref`]) using
+    /// (`new_fiber_ref`) using
     /// [`crate::vm::VM`]'s own counter, since a bare [`FiberObject`] constructor
     /// has no [`crate::vm::VM`] to draw the next id from.
     pub seq: u32,
@@ -147,7 +147,7 @@ impl FiberObject {
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::Suspended,
             resumer: None,
-            result: Value::Nil,
+            result: Value::nil(),
             entry: Some(entry),
             started: false,
             resume_slot: 0,
@@ -172,7 +172,7 @@ impl FiberObject {
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::Suspended,
             resumer: None,
-            result: Value::Nil,
+            result: Value::nil(),
             entry: Some(entry),
             started: false,
             resume_slot: 0,
@@ -196,7 +196,7 @@ impl FiberObject {
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::Running,
             resumer: None,
-            result: Value::Nil,
+            result: Value::nil(),
             entry: None,
             started: true,
             resume_slot: 0,

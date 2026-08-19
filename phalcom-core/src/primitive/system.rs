@@ -46,12 +46,17 @@ pub fn system_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
     side = class
 )]
 pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let fiber_ref = match args[0] {
-        Value::Obj(id) if matches!(vm.heap.get(id), crate::heap::Object::Fiber(_)) => id,
-        _ => crate::primitive::fiber::new_fiber_ref(vm, args[0])?,
+    let fiber_ref = if let Some(id) = args[0].as_obj() {
+        if matches!(vm.heap.get(id), crate::heap::Object::Fiber(_)) {
+            id
+        } else {
+            crate::primitive::fiber::new_fiber_ref(vm, args[0])?
+        }
+    } else {
+        crate::primitive::fiber::new_fiber_ref(vm, args[0])?
     };
     vm.ready_queue.push_back(fiber_ref);
-    Ok(Value::Obj(fiber_ref))
+    Ok(Value::obj(fiber_ref))
 }
 
 /// Signature: `System::nextScheduled` — pops and returns the next queued
@@ -65,7 +70,7 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 )]
 pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match vm.ready_queue.pop_front() {
-        Some(fiber_ref) => Ok(crate::primitive::nil::wrap_some(vm, Value::Obj(fiber_ref))?),
+        Some(fiber_ref) => Ok(crate::primitive::nil::wrap_some(vm, Value::obj(fiber_ref))?),
         None => Ok(vm.none_value()),
     }
 }
@@ -95,15 +100,22 @@ pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Va
     visibility = internal
 )]
 pub fn system_raw_write(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let s = match &args[0] {
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str().to_string(),
-        other => {
+    let s = if let Some(id) = args[0].as_obj() {
+        if vm.heap.as_string(id).is_some() {
+            vm.heap.string(id).as_str().to_string()
+        } else {
             return Err(RuntimeError::Type {
                 expected: "String",
-                found: other.type_name(),
+                found: args[0].type_name(),
             }
             .into());
         }
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "String",
+            found: args[0].type_name(),
+        }
+        .into());
     };
     print!("{s}");
     Ok(vm.none_value())

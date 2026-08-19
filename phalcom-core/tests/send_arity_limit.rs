@@ -83,7 +83,7 @@ fn ordinary_send_with_255_arguments_compiles_and_executes() {
     let result = vm.get_or_intern("result");
     let module_object = vm.heap.module(module);
     let slot = module_object.slot_of(result).expect("result binding must exist");
-    assert_eq!(module_object.globals[slot], Value::Int(7));
+    assert_eq!(module_object.globals[slot], Value::int(7));
 }
 
 #[test]

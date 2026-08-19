@@ -56,7 +56,7 @@ let result = fromTuple * 100 + fromUnit * 10 + fromList
             "result",
         )
     });
-    assert_eq!(value.expect("spread source must execute"), Value::Int(203));
+    assert_eq!(value.expect("spread source must execute"), Value::int(203));
 }
 
 #[test]
@@ -85,7 +85,7 @@ let result = fromRange * 100 + fromUser * 10 + fromPipeline
             "result",
         )
     });
-    assert_eq!(value.expect("generic Iterable sources must execute"), Value::Int(332));
+    assert_eq!(value.expect("generic Iterable sources must execute"), Value::int(332));
 }
 
 #[test]
@@ -106,7 +106,7 @@ let result = fromComplete * 10 + fromLabels
             "result",
         )
     });
-    assert_eq!(value.expect("expansion source must execute"), Value::Int(27));
+    assert_eq!(value.expect("expansion source must execute"), Value::int(27));
 }
 
 #[test]
@@ -124,7 +124,7 @@ let result = Receiver.new().sum(***first, *second, ***((3, 4)))
             "result",
         )
     });
-    assert_eq!(value.expect("multiple complete expansions must preserve order"), Value::Int(1234));
+    assert_eq!(value.expect("multiple complete expansions must preserve order"), Value::int(1234));
 }
 
 #[test]
@@ -145,7 +145,7 @@ let summary = count * 100 + positionalCount * 10 + (firstLabel == #tag).ifTrue(|
             "summary",
         )
     });
-    assert_eq!(value.expect("dynamic Tuple source must execute"), Value::Int(532));
+    assert_eq!(value.expect("dynamic Tuple source must execute"), Value::int(532));
 }
 
 #[test]
@@ -168,11 +168,11 @@ let callableResult = callable(*source)
 let dnuResult = Recorder.new().missing(*((7,)))
 "#;
     let super_result = on_large_stack(|| eval_source(source, "superResult"));
-    assert_eq!(super_result.expect("dynamic super send must execute"), Value::Int(2));
+    assert_eq!(super_result.expect("dynamic super send must execute"), Value::int(2));
     let callable_result = on_large_stack(|| eval_source(source, "callableResult"));
-    assert_eq!(callable_result.expect("dynamic callable send must execute"), Value::Int(3));
+    assert_eq!(callable_result.expect("dynamic callable send must execute"), Value::int(3));
     let dnu_result = on_large_stack(|| eval_source(source, "dnuResult"));
-    assert_eq!(dnu_result.expect("dynamic dNU send must execute"), Value::Bool(true));
+    assert_eq!(dnu_result.expect("dynamic dNU send must execute"), Value::bool(true));
 }
 
 #[test]
@@ -198,7 +198,7 @@ let read = box[*index]
             "assignment",
         )
     });
-    assert_eq!(value.expect("dynamic subscript assignment must execute"), Value::Int(42));
+    assert_eq!(value.expect("dynamic subscript assignment must execute"), Value::int(42));
 
     let read = on_large_stack(|| {
         eval_source(
@@ -218,7 +218,7 @@ let read = box[*index]
             "read",
         )
     });
-    assert_eq!(read.expect("dynamic subscript read must execute"), Value::Int(42));
+    assert_eq!(read.expect("dynamic subscript read must execute"), Value::int(42));
 }
 
 #[test]
@@ -236,7 +236,7 @@ let result = receiver.sum([#left]: 3, [#right]: 4)
             "result",
         )
     });
-    assert_eq!(computed.expect("computed labels must dispatch"), Value::Int(7));
+    assert_eq!(computed.expect("computed labels must dispatch"), Value::int(7));
 
     let iterator_error = on_large_stack(|| {
         run_source(

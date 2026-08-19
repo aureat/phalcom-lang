@@ -102,9 +102,9 @@ impl ServerConfig {
         }
 
         if let Some(mode) = value.get("phalcom.analysis.mode").and_then(JsonValue::as_str) {
-            config.analysis_mode = AnalysisMode::from_str(mode);
+            config.analysis_mode = mode.parse().unwrap_or(AnalysisMode::Local);
         } else if let Some(mode) = analysis.get("mode").and_then(JsonValue::as_str) {
-            config.analysis_mode = AnalysisMode::from_str(mode);
+            config.analysis_mode = mode.parse().unwrap_or(AnalysisMode::Local);
         }
 
         if let Some(exclude) = value.get("phalcom.analysis.exclude").and_then(JsonValue::as_array) {
@@ -707,9 +707,9 @@ impl Backend {
                 let site = SelectorSite {
                     owner: member.callable.owner.clone(),
                     receiver: None,
-                    kind: hover_member_kind(&member),
+                    kind: hover_member_kind(member),
                 };
-                let phaldoc = self.member_phaldoc(&member);
+                let phaldoc = self.member_phaldoc(member);
                 let value = hover::render_selector_hover_with_value(
                     &callable.selector,
                     &[site],
@@ -731,9 +731,9 @@ impl Backend {
                 let site = SelectorSite {
                     owner: member.callable.owner.clone(),
                     receiver: None,
-                    kind: hover_member_kind(&member),
+                    kind: hover_member_kind(member),
                 };
-                let phaldoc = self.member_phaldoc(&member);
+                let phaldoc = self.member_phaldoc(member);
                 let value = hover::render_selector_hover_with_value(&field.name, &[site], phaldoc.as_ref(), None)?;
                 Some(Hover {
                     contents: markdown_contents(value),
@@ -915,9 +915,7 @@ impl Backend {
             });
         }
 
-        let Some((name, range)) = hover::identifier_at_offset(&text, offset) else {
-            return None;
-        };
+        let (name, range) = hover::identifier_at_offset(&text, offset)?;
         if index::top_level_binding_at_offset(&program, offset).is_some() {
             let phaldoc = hover::harvest_doc_for_selector(&text, &program, &line_index, &name);
             return Some(Hover {
@@ -1440,14 +1438,14 @@ impl LanguageServer for Backend {
                 }
                 SemanticTarget::Class(class_id) => {
                     if let Some(class) = request.semantic.class_surface(class_id) {
-                        if let Some(loc) = self.class_definition_location(&class) {
+                        if let Some(loc) = self.class_definition_location(class) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }
                     }
                 }
                 SemanticTarget::Callable(callable_id) => {
                     if let Some(member) = request.semantic.member_surface(callable_id) {
-                        if let Some(loc) = self.member_definition_location(&member) {
+                        if let Some(loc) = self.member_definition_location(member) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }
                     }
@@ -1459,7 +1457,7 @@ impl LanguageServer for Backend {
                         side: field.side,
                     };
                     if let Some(member) = request.semantic.member_surface(&callable) {
-                        if let Some(loc) = self.member_definition_location(&member) {
+                        if let Some(loc) = self.member_definition_location(member) {
                             return Ok(Some(GotoDefinitionResponse::Array(vec![loc])));
                         }
                     }

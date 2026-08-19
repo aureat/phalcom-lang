@@ -10,18 +10,20 @@ use num_traits::cast::ToPrimitive;
 use num_traits::identities::Zero;
 use num_traits::sign::Signed;
 
-pub const NUM_0: Value = Value::Int(0);
-pub const NUM_1: Value = Value::Int(1);
+pub const NUM_0: Value = Value::int(0);
+pub const NUM_1: Value = Value::int(1);
 
 fn integer_bits(n: &BigInt) -> usize {
     if n.is_zero() { 0 } else { n.bits() as usize }
 }
 
 fn extract_int(val: &Value, vm: &VM) -> Option<BigInt> {
-    match val {
-        Value::Int(n) => Some(BigInt::from(*n)),
-        Value::Obj(id) => vm.heap.as_large_int(*id).cloned(),
-        _ => None,
+    if let Some(n) = val.as_int() {
+        Some(BigInt::from(n))
+    } else if let Some(id) = val.as_obj() {
+        vm.heap.as_large_int(id).cloned()
+    } else {
+        None
     }
 }
 
@@ -33,8 +35,8 @@ enum EitherIntOrFloat {
 fn expect_number_big_or_float(val: &Value, vm: &VM) -> PhResult<EitherIntOrFloat> {
     if let Some(big) = extract_int(val, vm) {
         Ok(EitherIntOrFloat::Int(big))
-    } else if let Value::Float(f) = val {
-        Ok(EitherIntOrFloat::Float(*f))
+    } else if let Some(f) = val.as_float() {
+        Ok(EitherIntOrFloat::Float(f))
     } else {
         Err(RuntimeError::Type {
             expected: "number",
@@ -58,8 +60,8 @@ fn promote_pair(a: &Value, b: &Value, vm: &VM) -> PhResult<PromotedPair> {
         (EitherIntOrFloat::Float(af), EitherIntOrFloat::Int(bi)) => Ok(PromotedPair::Float(af, bi.to_f64().unwrap_or(f64::NAN))),
         (EitherIntOrFloat::Int(ai), EitherIntOrFloat::Float(bf)) => Ok(PromotedPair::Float(ai.to_f64().unwrap_or(f64::NAN), bf)),
         (EitherIntOrFloat::Int(ai), EitherIntOrFloat::Int(bi)) => {
-            if let (Value::Int(a_i), Value::Int(b_i)) = (a, b) {
-                Ok(PromotedPair::Int(*a_i, *b_i))
+            if let (Some(a_i), Some(b_i)) = (a.as_int(), b.as_int()) {
+                Ok(PromotedPair::Int(a_i, b_i))
             } else {
                 Ok(PromotedPair::Big(ai, bi))
             }
@@ -123,10 +125,10 @@ pub fn number_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhRe
     let msg = "cannot instantiate abstract class Number".to_string();
     inst.slots[0] = vm.alloc_string_value(msg.clone());
     let kind_sym = vm.get_or_intern("abstractClass");
-    inst.slots[1] = Value::Symbol(kind_sym);
+    inst.slots[1] = Value::symbol(kind_sym);
     let err_obj = vm.heap.alloc(crate::heap::Object::Instance(inst));
     Err(RuntimeError::Raise {
-        error: Value::Obj(err_obj),
+        error: Value::obj(err_obj),
         rendered: msg,
         traceback: None,
         help: None,
@@ -145,38 +147,39 @@ pub fn number_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhRe
 )]
 pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(arg) = args.first() else {
-        return Ok(Value::Float(0.0));
+        return Ok(Value::float(0.0));
     };
-    match arg {
-        Value::Float(n) => Ok(Value::Float(*n)),
-        Value::Int(n) => Ok(Value::Float(*n as f64)),
-        Value::Obj(id) => {
-            if let Some(b) = vm.heap.as_large_int(*id) {
-                Ok(Value::Float(b.to_f64().unwrap_or(f64::NAN)))
-            } else if let Some(s) = vm.heap.as_string(*id) {
-                let text = s.value();
-                if let Ok(f) = text.parse::<f64>() {
-                    Ok(Value::Float(f))
-                } else {
-                    Err(RuntimeError::TypeConversion {
-                        expected: "Float",
-                        found: "String",
-                    }
-                    .into())
-                }
+    if let Some(n) = arg.as_float() {
+        Ok(Value::float(n))
+    } else if let Some(n) = arg.as_int() {
+        Ok(Value::float(n as f64))
+    } else if let Some(id) = arg.as_obj() {
+        if let Some(b) = vm.heap.as_large_int(id) {
+            Ok(Value::float(b.to_f64().unwrap_or(f64::NAN)))
+        } else if let Some(s) = vm.heap.as_string(id) {
+            let text = s.value();
+            if let Ok(f) = text.parse::<f64>() {
+                Ok(Value::float(f))
             } else {
                 Err(RuntimeError::TypeConversion {
                     expected: "Float",
-                    found: arg.type_name(),
+                    found: "String",
                 }
                 .into())
             }
+        } else {
+            Err(RuntimeError::TypeConversion {
+                expected: "Float",
+                found: arg.type_name(),
+            }
+            .into())
         }
-        _ => Err(RuntimeError::TypeConversion {
+    } else {
+        Err(RuntimeError::TypeConversion {
             expected: "Float",
             found: arg.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
@@ -190,39 +193,36 @@ pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
     effects = pure
 )]
 pub fn number_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Int(n) => Ok(crate::primitive::hash_code(*n as u64)),
-        Value::Float(n) => {
-            let val = *n;
-            let bits = if val == 0.0 {
-                0
-            } else if val.is_finite() && val.fract() == 0.0 && val.abs() < 9_007_199_254_740_992.0 {
-                (val as i64) as u64
-            } else {
-                val.to_bits()
-            };
-            Ok(crate::primitive::hash_code(bits))
-        }
-        Value::Obj(id) => {
-            if let Some(b) = vm.heap.as_large_int(*id) {
-                // Hash of BigInt content
-                let mut state = std::collections::hash_map::DefaultHasher::new();
-                std::hash::Hash::hash(b, &mut state);
-                use std::hash::Hasher;
-                Ok(crate::primitive::hash_code(state.finish()))
-            } else {
-                Err(RuntimeError::Type {
-                    expected: "Number",
-                    found: receiver.type_name(),
-                }
-                .into())
+    if let Some(n) = receiver.as_int() {
+        Ok(crate::primitive::hash_code(n as u64))
+    } else if let Some(val) = receiver.as_float() {
+        let bits = if val == 0.0 {
+            0
+        } else if val.is_finite() && val.fract() == 0.0 && val.abs() < 9_007_199_254_740_992.0 {
+            (val as i64) as u64
+        } else {
+            val.to_bits()
+        };
+        Ok(crate::primitive::hash_code(bits))
+    } else if let Some(id) = receiver.as_obj() {
+        if let Some(b) = vm.heap.as_large_int(id) {
+            let mut state = std::collections::hash_map::DefaultHasher::new();
+            std::hash::Hash::hash(b, &mut state);
+            use std::hash::Hasher;
+            Ok(crate::primitive::hash_code(state.finish()))
+        } else {
+            Err(RuntimeError::Type {
+                expected: "Number",
+                found: receiver.type_name(),
             }
+            .into())
         }
-        _ => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "Number",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
@@ -254,7 +254,7 @@ pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     match pair {
         PromotedPair::Int(a, b) => {
             if let Some(res) = a.checked_add(b) {
-                Ok(Value::Int(res))
+                Ok(Value::int(res))
             } else {
                 let res = BigInt::from(a) + BigInt::from(b);
                 check_limit_bigint(&res, vm)?;
@@ -266,7 +266,7 @@ pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             check_limit_bigint(&res, vm)?;
             Ok(normalize_bigint(res, &mut vm.heap))
         }
-        PromotedPair::Float(a, b) => Ok(Value::Float(a + b)),
+        PromotedPair::Float(a, b) => Ok(Value::float(a + b)),
     }
 }
 
@@ -284,7 +284,7 @@ pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     match pair {
         PromotedPair::Int(a, b) => {
             if let Some(res) = a.checked_sub(b) {
-                Ok(Value::Int(res))
+                Ok(Value::int(res))
             } else {
                 let res = BigInt::from(a) - BigInt::from(b);
                 check_limit_bigint(&res, vm)?;
@@ -296,7 +296,7 @@ pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             check_limit_bigint(&res, vm)?;
             Ok(normalize_bigint(res, &mut vm.heap))
         }
-        PromotedPair::Float(a, b) => Ok(Value::Float(a - b)),
+        PromotedPair::Float(a, b) => Ok(Value::float(a - b)),
     }
 }
 
@@ -306,7 +306,7 @@ pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     match pair {
         PromotedPair::Int(a, b) => {
             if let Some(res) = a.checked_mul(b) {
-                Ok(Value::Int(res))
+                Ok(Value::int(res))
             } else {
                 let res = BigInt::from(a) * BigInt::from(b);
                 check_limit_bigint(&res, vm)?;
@@ -318,7 +318,7 @@ pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             check_limit_bigint(&res, vm)?;
             Ok(normalize_bigint(res, &mut vm.heap))
         }
-        PromotedPair::Float(a, b) => Ok(Value::Float(a * b)),
+        PromotedPair::Float(a, b) => Ok(Value::float(a * b)),
     }
 }
 
@@ -330,7 +330,7 @@ pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
         PromotedPair::Big(a, b) => (a.to_f64().unwrap_or(f64::NAN), b.to_f64().unwrap_or(f64::NAN)),
         PromotedPair::Float(a, b) => (a, b),
     };
-    Ok(Value::Float(a / b))
+    Ok(Value::float(a / b))
 }
 
 /// Signature: `Number::~/(_)` — floor division.
@@ -341,7 +341,7 @@ pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             if b == 0 {
                 return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
             }
-            Ok(Value::Int(floor_div_i64(a, b)))
+            Ok(Value::int(floor_div_i64(a, b)))
         }
         PromotedPair::Big(a, b) => {
             if b.is_zero() {
@@ -380,7 +380,7 @@ pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             if b == 0 {
                 return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
             }
-            Ok(Value::Int(floor_mod_i64(a, b)))
+            Ok(Value::int(floor_mod_i64(a, b)))
         }
         PromotedPair::Big(a, b) => {
             if b.is_zero() {
@@ -390,7 +390,7 @@ pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             check_limit_bigint(&res, vm)?;
             Ok(normalize_bigint(res, &mut vm.heap))
         }
-        PromotedPair::Float(a, b) => Ok(Value::Float(a % b)),
+        PromotedPair::Float(a, b) => Ok(Value::float(a % b)),
     }
 }
 
@@ -400,12 +400,12 @@ pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     let exp_val = &args[0];
 
     // Identity check 1: 1 ** y = 1 (or 1.0)
-    if base_val == &Value::Int(1) {
-        return Ok(if let Value::Float(_) = exp_val { Value::Float(1.0) } else { Value::Int(1) });
+    if base_val.as_int() == Some(1) {
+        return Ok(if exp_val.is_float() { Value::float(1.0) } else { Value::int(1) });
     }
     // Identity check 2: x ** 0 = 1 (or 1.0)
-    if exp_val == &Value::Int(0) {
-        return Ok(if let Value::Float(_) = base_val { Value::Float(1.0) } else { Value::Int(1) });
+    if exp_val.as_int() == Some(0) {
+        return Ok(if base_val.is_float() { Value::float(1.0) } else { Value::int(1) });
     }
 
     let base_parsed = expect_number_big_or_float(base_val, vm)?;
@@ -420,10 +420,10 @@ pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
                 if base_f == 0.0 {
                     return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
                 }
-                Ok(Value::Float(base_f.powf(exp_f)))
+                Ok(Value::float(base_f.powf(exp_f)))
             } else {
                 if base.is_zero() {
-                    return Ok(Value::Int(0));
+                    return Ok(Value::int(0));
                 }
                 // Preflight estimated bits
                 let limit = vm.numeric_policy.max_integer_bits.unwrap_or(8_388_608);
@@ -451,7 +451,7 @@ pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
             if base_f == 0.0 && exp_f < 0.0 {
                 return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
             }
-            Ok(Value::Float(base_f.powf(exp_f)))
+            Ok(Value::float(base_f.powf(exp_f)))
         }
     }
 }
@@ -460,9 +460,9 @@ pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 pub fn number_lt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
-        PromotedPair::Int(a, b) => Ok(Value::Bool(a < b)),
-        PromotedPair::Big(a, b) => Ok(Value::Bool(a < b)),
-        PromotedPair::Float(a, b) => Ok(Value::Bool(a < b)),
+        PromotedPair::Int(a, b) => Ok(Value::bool(a < b)),
+        PromotedPair::Big(a, b) => Ok(Value::bool(a < b)),
+        PromotedPair::Float(a, b) => Ok(Value::bool(a < b)),
     }
 }
 
@@ -470,9 +470,9 @@ pub fn number_lt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 pub fn number_le(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
-        PromotedPair::Int(a, b) => Ok(Value::Bool(a <= b)),
-        PromotedPair::Big(a, b) => Ok(Value::Bool(a <= b)),
-        PromotedPair::Float(a, b) => Ok(Value::Bool(a <= b)),
+        PromotedPair::Int(a, b) => Ok(Value::bool(a <= b)),
+        PromotedPair::Big(a, b) => Ok(Value::bool(a <= b)),
+        PromotedPair::Float(a, b) => Ok(Value::bool(a <= b)),
     }
 }
 
@@ -480,9 +480,9 @@ pub fn number_le(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 pub fn number_gt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
-        PromotedPair::Int(a, b) => Ok(Value::Bool(a > b)),
-        PromotedPair::Big(a, b) => Ok(Value::Bool(a > b)),
-        PromotedPair::Float(a, b) => Ok(Value::Bool(a > b)),
+        PromotedPair::Int(a, b) => Ok(Value::bool(a > b)),
+        PromotedPair::Big(a, b) => Ok(Value::bool(a > b)),
+        PromotedPair::Float(a, b) => Ok(Value::bool(a > b)),
     }
 }
 
@@ -490,42 +490,41 @@ pub fn number_gt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
-        PromotedPair::Int(a, b) => Ok(Value::Bool(a >= b)),
-        PromotedPair::Big(a, b) => Ok(Value::Bool(a >= b)),
-        PromotedPair::Float(a, b) => Ok(Value::Bool(a >= b)),
+        PromotedPair::Int(a, b) => Ok(Value::bool(a >= b)),
+        PromotedPair::Big(a, b) => Ok(Value::bool(a >= b)),
+        PromotedPair::Float(a, b) => Ok(Value::bool(a >= b)),
     }
 }
 
 /// Signature: `Number::negated()`
 pub fn number_negated(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Int(n) => {
-            if let Some(neg) = n.checked_neg() {
-                Ok(Value::Int(neg))
-            } else {
-                let big = -BigInt::from(*n);
-                check_limit_bigint(&big, vm)?;
-                Ok(normalize_bigint(big, &mut vm.heap))
-            }
+    if let Some(n) = receiver.as_int() {
+        if let Some(neg) = n.checked_neg() {
+            Ok(Value::int(neg))
+        } else {
+            let big = -BigInt::from(n);
+            check_limit_bigint(&big, vm)?;
+            Ok(normalize_bigint(big, &mut vm.heap))
         }
-        Value::Float(n) => Ok(Value::Float(-n)),
-        Value::Obj(id) => {
-            if let Some(big) = vm.heap.as_large_int(*id) {
-                let neg = -big.clone();
-                check_limit_bigint(&neg, vm)?;
-                Ok(normalize_bigint(neg, &mut vm.heap))
-            } else {
-                Err(RuntimeError::Type {
-                    expected: "number",
-                    found: receiver.type_name(),
-                }
-                .into())
+    } else if let Some(n) = receiver.as_float() {
+        Ok(Value::float(-n))
+    } else if let Some(id) = receiver.as_obj() {
+        if let Some(big) = vm.heap.as_large_int(id) {
+            let neg = -big.clone();
+            check_limit_bigint(&neg, vm)?;
+            Ok(normalize_bigint(neg, &mut vm.heap))
+        } else {
+            Err(RuntimeError::Type {
+                expected: "number",
+                found: receiver.type_name(),
             }
+            .into())
         }
-        _ => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "number",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }

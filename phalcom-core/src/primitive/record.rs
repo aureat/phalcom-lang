@@ -8,7 +8,7 @@ use crate::vm::VM;
 
 pub fn record_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_record(vm, receiver)?;
-    Ok(Value::Int(vm.heap.record(id).len() as i64))
+    Ok(Value::int(vm.heap.record(id).len() as i64))
 }
 
 pub fn record_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -20,7 +20,7 @@ pub fn record_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
         .labels()
         .get(index)
         .copied()
-        .map(Value::Symbol)
+        .map(Value::symbol)
         .unwrap_or_else(|| vm.none_value()))
 }
 

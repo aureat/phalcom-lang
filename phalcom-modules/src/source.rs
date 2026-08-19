@@ -17,21 +17,24 @@ pub enum EntryOwnership {
     Inline { synthetic: crate::identity::SyntheticProjectId },
 }
 
-/// Module kind: an ordinary `.ph` file, a package descriptor, or a project-root package.
+/// Module kind: an ordinary `.ph` file or a package descriptor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ModuleKind {
     /// An ordinary `.ph` source file.
     Module,
     /// A `package.ph` package descriptor.
     Package,
-    /// The root `package.ph` of a resolved project (targets the `Project` object).
-    ProjectRoot,
 }
 
 impl ModuleKind {
     /// Whether the unit has package semantics (`package.ph`, exposure, children).
+    pub const fn is_package(self) -> bool {
+        matches!(self, Self::Package)
+    }
+
+    /// Backwards-compatible alias for `is_package`.
     pub const fn is_package_like(self) -> bool {
-        matches!(self, Self::Package | Self::ProjectRoot)
+        self.is_package()
     }
 }
 
@@ -129,11 +132,7 @@ impl FilesystemSourceProvider {
 
                 return Ok(SourceUnit {
                     id: module_id,
-                    kind: if project.persistent_project {
-                        ModuleKind::ProjectRoot
-                    } else {
-                        ModuleKind::Package
-                    },
+                    kind: ModuleKind::Package,
                     source: SourceLocation {
                         source_id,
                         display_path: pkg_file,

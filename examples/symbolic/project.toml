@@ -1,0 +1,5 @@
+[project]
+name = "symbolic-app"
+namespace = "symbolic_app"
+version = "1.0.0"
+entry = "symbolic_app.main"

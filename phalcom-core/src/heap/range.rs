@@ -11,7 +11,7 @@
 
 use crate::value::Value;
 
-/// A native range descriptor. `Value::Nil` is private and means an omitted
+/// A native range descriptor. `Value::nil()` is private and means an omitted
 /// endpoint, avoiding an arena-wide size increase from two `Option<Value>`s.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RangeObject {
@@ -21,28 +21,28 @@ pub struct RangeObject {
 }
 
 impl RangeObject {
-    /// Builds a range, canonicalizing omitted endpoints to `Value::Nil`.
+    /// Builds a range, canonicalizing omitted endpoints to `Value::nil()`.
     pub fn new(lower: Option<Value>, upper: Option<Value>, upper_inclusive: bool) -> Self {
         assert!(!upper_inclusive || upper.is_some(), "an inclusive upper bound must be present");
         if let Some(lower) = lower {
-            assert!(!matches!(lower, Value::Nil), "a present lower bound cannot be Value::Nil");
+            assert!(!lower.is_nil(), "a present lower bound cannot be Value::nil()");
         }
         if let Some(upper) = upper {
-            assert!(!matches!(upper, Value::Nil), "a present upper bound cannot be Value::Nil");
+            assert!(!upper.is_nil(), "a present upper bound cannot be Value::nil()");
         }
         Self {
-            lower: lower.unwrap_or(Value::Nil),
-            upper: upper.unwrap_or(Value::Nil),
+            lower: lower.unwrap_or(Value::nil()),
+            upper: upper.unwrap_or(Value::nil()),
             upper_inclusive,
         }
     }
 
     pub fn lower(&self) -> Option<Value> {
-        (!matches!(self.lower, Value::Nil)).then_some(self.lower)
+        (!self.lower.is_nil()).then_some(self.lower)
     }
 
     pub fn upper(&self) -> Option<Value> {
-        (!matches!(self.upper, Value::Nil)).then_some(self.upper)
+        (!self.upper.is_nil()).then_some(self.upper)
     }
 
     pub fn upper_inclusive(&self) -> bool {

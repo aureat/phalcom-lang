@@ -24,12 +24,13 @@ fn test_model_01_and_02_and_proj_and_name_project_hierarchy() {
 
     vm.run_compiled(&program).expect("project_hierarchy runs");
 
-    // MODEL-01: Verify Project < Package < Module class relationship in kernel tower
+    // MODEL-01: Verify Project < Object, Package < Module class relationship in kernel tower
     let project_class = vm.universe.classes.project_class;
     let package_class = vm.universe.classes.package_class;
     let module_class = vm.universe.classes.module_class;
+    let object_class = vm.universe.classes.object_class;
 
-    assert_eq!(vm.heap.class(project_class).superclass, Some(package_class));
+    assert_eq!(vm.heap.class(project_class).superclass, Some(object_class));
     assert_eq!(vm.heap.class(package_class).superclass, Some(module_class));
 
     // MODEL-02: Project root package.ph has __module__, __package__, __project__ all referring to the Project object
@@ -37,21 +38,22 @@ fn test_model_01_and_02_and_proj_and_name_project_hierarchy() {
     let root_obj = vm.module_registry.get(root_id).unwrap().object;
 
     // Check structural fields on ModuleObject
-    assert_eq!(vm.heap.module(root_obj).owning_package, None);
-    assert_eq!(vm.heap.module(root_obj).owning_project, Some(root_obj));
+    assert_eq!(vm.heap.module(root_obj).package, Some(root_obj));
+    assert_eq!(vm.heap.module(root_obj).root_package, Some(root_obj));
 
     // Check globals __module__, __package__, __project__
     let mod_sym = vm.interner.intern("__module__");
     let pkg_sym = vm.interner.intern("__package__");
     let proj_sym = vm.interner.intern("__project__");
-
     let mod_val = vm.heap.module(root_obj).get(mod_sym).unwrap();
     let pkg_val = vm.heap.module(root_obj).get(pkg_sym).unwrap();
     let proj_val = vm.heap.module(root_obj).get(proj_sym).unwrap();
 
-    assert_eq!(mod_val, Value::Obj(root_obj));
-    assert_eq!(pkg_val, Value::Obj(root_obj).wrap_some().unwrap());
-    assert_eq!(proj_val, Value::Obj(root_obj).wrap_some().unwrap());
+    assert_eq!(mod_val, Value::obj(root_obj));
+    assert_eq!(pkg_val, Value::obj(root_obj).wrap_some().unwrap());
+    assert!(proj_val.is_some());
+    let proj_obj = proj_val.gc_obj_ref().unwrap();
+    assert_eq!(vm.heap.project(proj_obj).root_package, root_obj);
 
     // NAME-02: Check that module-b.ph in package-a maps to logical geometry_toolkit.package_a.module_b
     let b_mod_entry = program
@@ -77,8 +79,8 @@ fn test_model_03_standalone_package_has_no_project() {
 
     let proj_sym = vm.interner.intern("__project__");
     let proj_val = vm.heap.module(root_obj).get(proj_sym).unwrap();
-    assert_eq!(proj_val, Value::None);
-    assert_eq!(vm.heap.module(root_obj).owning_project, None);
+    assert_eq!(proj_val, Value::none());
+    assert_eq!(vm.heap.module(root_obj).root_package, None);
 }
 
 #[test]
@@ -95,10 +97,10 @@ fn test_model_04_standalone_module_has_no_package_and_no_project() {
     let pkg_sym = vm.interner.intern("__package__");
     let proj_sym = vm.interner.intern("__project__");
 
-    assert_eq!(vm.heap.module(solo_obj).get(pkg_sym).unwrap(), Value::None);
-    assert_eq!(vm.heap.module(solo_obj).get(proj_sym).unwrap(), Value::None);
-    assert_eq!(vm.heap.module(solo_obj).owning_package, None);
-    assert_eq!(vm.heap.module(solo_obj).owning_project, None);
+    assert_eq!(vm.heap.module(solo_obj).get(pkg_sym).unwrap(), Value::none());
+    assert_eq!(vm.heap.module(solo_obj).get(proj_sym).unwrap(), Value::none());
+    assert_eq!(vm.heap.module(solo_obj).package, None);
+    assert_eq!(vm.heap.module(solo_obj).root_package, None);
 }
 
 #[test]
@@ -169,13 +171,12 @@ fn test_pre_01_to_04_curated_prelude_and_shadowing() {
         assert!(!vm.prelude_names.contains(&sym), "prelude must NOT contain {name}");
     }
 
-    // NONE-01: Prelude None is immediate Value::None; universe.None is the None class object
+    // NONE-01: Prelude None is immediate Value::none(); universe.None is the None class object
     let none_sym = vm.interner.intern("None");
     assert!(vm.prelude_names.contains(&none_sym));
     let universe_pkg = vm.create_builtin_package("universe");
     let none_cls = vm.universe.classes.none_class;
-    vm.heap.module_mut(universe_pkg).define(none_sym, Value::Obj(none_cls)).unwrap();
-    assert_eq!(vm.heap.module(universe_pkg).get(none_sym).unwrap(), Value::Obj(none_cls));
+    assert_eq!(vm.heap.module(universe_pkg).get(none_sym).unwrap(), Value::obj(none_cls));
 }
 
 #[test]
@@ -235,7 +236,7 @@ fn test_meta_01_to_03_unit_metadata_fixture() {
     let root_obj = vm.module_registry.get(root_id).unwrap().object;
     let root_meta = vm.heap.module(root_obj).metadata.as_ref().unwrap();
     assert_eq!(root_meta.attributes[0].name, "documentation");
-    assert_eq!(root_meta.attributes[0].target, phalcom_modules::MetadataTarget::Project);
+    assert_eq!(root_meta.attributes[0].target, phalcom_modules::MetadataTarget::Package);
 
     let child_pkg_id = program.modules.keys().find(|id| id.path.to_string() == "child").unwrap();
     let child_pkg_obj = vm.module_registry.get(child_pkg_id).unwrap().object;

@@ -1,1 +1,3 @@
-@!documentation("Class description holding names, superclasses, and method tables.")
+class Class {
+  new() { self._$new() }
+}

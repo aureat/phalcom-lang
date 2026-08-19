@@ -79,8 +79,8 @@ impl<'vm> Compiler<'vm> {
         for arg in args {
             self.compile_pack_item(arg)?;
         }
-        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-        let defining_idx = self.add_constant(Value::Symbol(defining));
+        let selector_idx = self.add_constant(Value::symbol(selector_sym));
+        let defining_idx = self.add_constant(Value::symbol(defining));
         self.emit(Bytecode::SuperSend(argc, selector_idx, defining_idx), range);
         Ok(())
     }
@@ -353,7 +353,7 @@ impl<'vm> Compiler<'vm> {
         let labels = vec![None; arity as usize];
         let selector = encode_selector(name, &labels, SignatureKind::Method(arity));
         let selector_sym = self.vm.interner.intern(&selector);
-        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+        let selector_idx = self.add_constant(Value::symbol(selector_sym));
         self.emit(Bytecode::Invoke(arity, selector_idx), range);
     }
 }

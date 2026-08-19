@@ -1,6 +1,6 @@
 //! The stack walk — the one primitive every traceback/observability surface builds on.
 //!
-//! [`StackWalk`] iterates a live [`VM`]'s call stack ([`VM::frames`]) **oldest → newest**
+//! [`StackWalk`] iterates a live [`VM`]'s call stack (`VM::frames`) **oldest → newest**
 //! (no `.rev()`: the renderer wants Python order — "Traceback (most recent call last)" —
 //! natively, traceback implementation spec (IS) §2.1) and yields one [`FrameView`] per
 //! logical frame. Every consumer this unit's siblings build — the human traceback, the
@@ -9,7 +9,7 @@
 //!
 //! # The logical-expansion seam
 //!
-//! [`StackWalk`] yields via an internal [`StackWalk::expand`] seam that today returns
+//! [`StackWalk`] yields via an internal `StackWalk::expand` seam that today returns
 //! exactly one [`FrameView`] per physical [`CallFrame`] — a 1:1 mapping. It exists from
 //! day one, unused, because superinstruction fusion already proved that a transformation
 //! changing what one physical instruction *is* must not silently break span fidelity
@@ -208,7 +208,7 @@ impl<'vm> StackWalk<'vm> {
         } else {
             match frame.context {
                 crate::frame::CallContext::Instance { instance } => {
-                    let class_id = crate::value::Value::Obj(instance).class(self.vm);
+                    let class_id = crate::value::Value::obj(instance).class(self.vm);
                     let name = &self.vm.heap.class(class_id).name;
                     self.vm.interner.find(name)
                 }

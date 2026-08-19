@@ -22,7 +22,7 @@ use crate::vm::VM;
 pub fn class_superclass(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = expect_class(vm, receiver)?;
     match vm.heap.class(class_id).superclass {
-        Some(superclass) => Ok(Value::Obj(superclass)),
+        Some(superclass) => Ok(Value::obj(superclass)),
         None => Ok(vm.none_value()),
     }
 }
@@ -66,8 +66,8 @@ pub fn behavior_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 )]
 pub fn behavior_methods(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = expect_class(vm, receiver)?;
-    let selectors: Vec<Value> = vm.heap.class(class_id).methods.keys().map(|selector| Value::Symbol(*selector)).collect();
-    Ok(Value::Obj(vm.heap.alloc_list(selectors)))
+    let selectors: Vec<Value> = vm.heap.class(class_id).methods.keys().map(|selector| Value::symbol(*selector)).collect();
+    Ok(Value::obj(vm.heap.alloc_list(selectors)))
 }
 
 /// Signature: `Behavior#>>(_)` — extracts either one effective exact `Method`
@@ -107,23 +107,31 @@ pub fn behavior_extract_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
 }
 
 fn behavior_extract_as(vm: &mut VM, behavior: crate::heap::ClassId, rhs: &Value, caller_authority: (Option<crate::heap::ClassId>, bool)) -> PhResult<Value> {
-    match rhs {
-        Value::Symbol(selector) => match lookup_method_in_hierarchy(&vm.heap, behavior, *selector) {
+    if let Some(selector) = rhs.symbol_value() {
+        match lookup_method_in_hierarchy(&vm.heap, behavior, selector) {
             Some(method) => {
                 vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
-                Ok(Value::Obj(method))
+                Ok(Value::obj(method))
             }
             None => Ok(vm.none_value()),
-        },
-        Value::Obj(pattern) if matches!(vm.heap.get(*pattern), Object::SelectorPattern(_)) => {
-            let family = vm.capture_method_family(behavior, *pattern, caller_authority)?;
-            Ok(Value::Obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))))
         }
-        other => Err(RuntimeError::Type {
+    } else if let Some(pattern) = rhs.as_obj() {
+        if matches!(vm.heap.get(pattern), Object::SelectorPattern(_)) {
+            let family = vm.capture_method_family(behavior, pattern, caller_authority)?;
+            Ok(Value::obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))))
+        } else {
+            Err(RuntimeError::Type {
+                expected: "Symbol or SelectorPattern",
+                found: rhs.type_name(),
+            }
+            .into())
+        }
+    } else {
+        Err(RuntimeError::Type {
             expected: "Symbol or SelectorPattern",
-            found: other.type_name(),
+            found: rhs.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
@@ -162,10 +170,10 @@ pub fn class_new_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
         let msg = format!("cannot instantiate abstract class {}", target_class.name);
         inst.slots[0] = vm.alloc_string_value(msg.clone());
         let kind_sym = vm.get_or_intern("abstractClass");
-        inst.slots[1] = Value::Symbol(kind_sym);
+        inst.slots[1] = Value::symbol(kind_sym);
         let err_obj = vm.heap.alloc(Object::Instance(inst));
         return Err(RuntimeError::Raise {
-            error: Value::Obj(err_obj),
+            error: Value::obj(err_obj),
             rendered: msg,
             traceback: None,
             help: None,
@@ -181,5 +189,5 @@ pub fn class_new_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
     }
     let field_count = target_class.field_count;
     let instance = InstanceObject::new(class_id, field_count);
-    Ok(Value::Obj(vm.heap.alloc(Object::Instance(instance))))
+    Ok(Value::obj(vm.heap.alloc(Object::Instance(instance))))
 }

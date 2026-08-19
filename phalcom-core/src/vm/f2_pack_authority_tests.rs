@@ -11,7 +11,7 @@ use crate::method::{MemberVisibility, MethodObject, SignatureKind};
 use crate::value::Value;
 
 fn internal_probe_primitive(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Unit)
+    Ok(Value::unit())
 }
 
 #[test]

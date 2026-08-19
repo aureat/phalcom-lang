@@ -759,23 +759,23 @@ impl<'source> Parser<'source> {
             ImportRoot::Relative { dots, range: dots_range }
         } else {
             let seg_start = self.cur_start();
-            let name = self.expect_identifier(&["module path root"])?;
+            let name = self.expect_component_identifier(&["module path root"])?;
             let seg_range = (seg_start..self.prev_end).into();
             ImportRoot::Absolute(PathSegment { name, range: seg_range })
         };
 
         let mut segments = Vec::new();
         // If relative with 1 or more dots, the next identifier is the first segment (if present)
-        if matches!(root, ImportRoot::Relative { .. }) && matches!(self.peek(), Token::Identifier(_)) {
+        if matches!(root, ImportRoot::Relative { .. }) && Self::label_name(self.peek()).is_some() {
             let seg_start = self.cur_start();
-            let name = self.expect_identifier(&["path segment"])?;
+            let name = self.expect_component_identifier(&["path segment"])?;
             let seg_range = (seg_start..self.prev_end).into();
             segments.push(PathSegment { name, range: seg_range });
         }
 
         while self.eat(&Token::Dot) {
             let seg_start = self.cur_start();
-            let name = self.expect_identifier(&["path segment"])?;
+            let name = self.expect_component_identifier(&["path segment"])?;
             let seg_range = (seg_start..self.prev_end).into();
             segments.push(PathSegment { name, range: seg_range });
         }
@@ -999,7 +999,7 @@ impl<'source> Parser<'source> {
         }
 
         let child_start = self.cur_start();
-        let name = self.expect_identifier(&["immediate child name"])?;
+        let name = self.expect_component_identifier(&["immediate child name"])?;
         let child_range = (child_start..self.prev_end).into();
 
         if matches!(self.peek(), Token::Dot) {
@@ -1542,13 +1542,23 @@ impl<'source> Parser<'source> {
     /// Consumes an identifier token, returning its name.
     ///
     /// # Errors
-    ///
     /// Returns an error carrying `expected` if the current token is not an
     /// identifier.
     fn expect_identifier(&mut self, expected: &[&str]) -> ParserResult<String> {
         if let Token::Identifier(name) = self.peek().clone() {
             self.advance();
             Ok(name)
+        } else {
+            Err(self.error_here(strs(expected)))
+        }
+    }
+
+    /// Consumes an identifier or keyword suitable as a module path component or expose operand.
+    fn expect_component_identifier(&mut self, expected: &[&str]) -> ParserResult<String> {
+        if let Some(name) = Self::label_name(self.peek()) {
+            let s = name.to_string();
+            self.advance();
+            Ok(s)
         } else {
             Err(self.error_here(strs(expected)))
         }

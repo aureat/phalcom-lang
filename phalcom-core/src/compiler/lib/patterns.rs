@@ -44,7 +44,7 @@ impl<'vm> Compiler<'vm> {
                     // assignment path consults (ADR-0064); the same call
                     // rejects a same-scope redeclaration (L-3/L-5).
                     self.declare_global(name_sym, mutable)?;
-                    let name_idx = self.add_constant(Value::Symbol(name_sym));
+                    let name_idx = self.add_constant(Value::symbol(name_sym));
                     self.emit(Bytecode::DefineGlobal(name_idx), *range);
                 } else {
                     // Local variable — record its mutability for the
@@ -122,7 +122,7 @@ impl<'vm> Compiler<'vm> {
     /// element compiles through (ADR-0020's `at(_)`, ADR-0046 §1).
     fn emit_element_read(&mut self, value_slot: u16, index: usize, range: SourceRange) {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        let idx_const = self.add_constant(Value::Int(index as i64));
+        let idx_const = self.add_constant(Value::int(index as i64));
         self.emit(Bytecode::Constant(idx_const), range);
         self.emit_operator_send("at", 1, range);
     }
@@ -138,7 +138,7 @@ impl<'vm> Compiler<'vm> {
     fn emit_pattern_arity_check(&mut self, value_slot: u16, expected: usize, at_least: bool, message: String, range: SourceRange) {
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit_getter_send("size", range);
-        let count_idx = self.add_constant(Value::Int(expected as i64));
+        let count_idx = self.add_constant(Value::int(expected as i64));
         self.emit(Bytecode::Constant(count_idx), range);
         // `size < expected` (rest form) or `size != expected` (exact form) is
         // a mismatch — the condition pushed here is true exactly when the
@@ -155,7 +155,7 @@ impl<'vm> Compiler<'vm> {
     /// [`super::loops`]'s deopt-block-control-trap raise-and-balance idiom.
     fn emit_pattern_mismatch_raise(&mut self, message: String, range: SourceRange) {
         let error_sym = self.vm.interner.intern("Error");
-        let error_idx = self.add_constant(Value::Symbol(error_sym));
+        let error_idx = self.add_constant(Value::symbol(error_sym));
         self.emit(Bytecode::GetGlobal(error_idx), range);
         let message_obj = self.vm.alloc_string_value(message);
         let message_idx = self.add_constant(message_obj);
@@ -193,7 +193,7 @@ impl<'vm> Compiler<'vm> {
     ) -> Result<(), CompilerError> {
         // `$rest = List.new()`
         let list_sym = self.vm.interner.intern("List");
-        let list_idx = self.add_constant(Value::Symbol(list_sym));
+        let list_idx = self.add_constant(Value::symbol(list_sym));
         self.emit(Bytecode::GetGlobal(list_idx), range);
         self.emit_operator_send("new", 0, range);
         let rest_sym = self.fresh_scratch_symbol("$destructure_rest");
@@ -203,7 +203,7 @@ impl<'vm> Compiler<'vm> {
 
         // `$i = fixed_count` — scoped to this copy loop only.
         self.begin_scope();
-        let count_idx = self.add_constant(Value::Int(fixed_count as i64));
+        let count_idx = self.add_constant(Value::int(fixed_count as i64));
         self.emit(Bytecode::Constant(count_idx), range);
         let i_sym = self.fresh_scratch_symbol("$destructure_i");
         self.add_local(i_sym, true)?;
@@ -226,7 +226,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
 
         self.emit(Bytecode::GetLocal(i_slot), range);
-        let one_idx = self.add_constant(Value::Int(1));
+        let one_idx = self.add_constant(Value::int(1));
         self.emit(Bytecode::Constant(one_idx), range);
         self.emit_operator_send("+", 1, range);
         self.emit(Bytecode::SetLocal(i_slot), range);

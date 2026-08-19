@@ -11,14 +11,16 @@ use crate::value::Value;
 use crate::vm::VM;
 
 pub(crate) fn expect_method_family(vm: &VM, receiver: &Value) -> PhResult<ObjRef> {
-    match receiver {
-        Value::Obj(id) if matches!(vm.heap.get(*id), Object::MethodFamily(_)) => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "MethodFamily",
-            found: other.type_name(),
+    if let Some(id) = receiver.as_obj() {
+        if matches!(vm.heap.get(id), Object::MethodFamily(_)) {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "MethodFamily",
+        found: receiver.type_name(),
+    }
+    .into())
 }
 
 /// `MethodFamily#bind(_)` closes an immutable snapshot over a receiver. The
@@ -36,7 +38,7 @@ pub fn method_family_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
         expected: 1,
         found: 0,
     })?;
-    Ok(Value::Obj(vm.heap.alloc(Object::BoundMethodFamily(BoundMethodFamilyObject {
+    Ok(Value::obj(vm.heap.alloc(Object::BoundMethodFamily(BoundMethodFamilyObject {
         family,
         receiver: bound_receiver,
     }))))
@@ -51,16 +53,16 @@ pub fn method_family_selectors(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     let family = expect_method_family(vm, receiver)?;
     let selectors = {
         let family = vm.heap.method_family(family);
-        let mut selectors = family.exact_methods.keys().copied().map(Value::Symbol).collect::<Vec<_>>();
+        let mut selectors = family.exact_methods.keys().copied().map(Value::symbol).collect::<Vec<_>>();
         selectors.extend(
             family
                 .rest_candidates
                 .iter()
-                .map(|method| Value::Symbol(vm.heap.method(*method).signature.selector)),
+                .map(|method| Value::symbol(vm.heap.method(*method).signature.selector)),
         );
         selectors
     };
-    Ok(Value::Obj(vm.heap.alloc_list(selectors)))
+    Ok(Value::obj(vm.heap.alloc_list(selectors)))
 }
 
 /// Reports the number of captured exact and rest routes.
@@ -74,7 +76,7 @@ pub fn method_family_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
         let family = vm.heap.method_family(family);
         family.exact_methods.len() + family.rest_candidates.len()
     };
-    Ok(Value::Int(size as i64))
+    Ok(Value::int(size as i64))
 }
 
 /// `MethodFamily#methodFor(_)` returns a captured Method for its canonical
@@ -110,14 +112,16 @@ pub fn method_family_method_for_shape(vm: &mut VM, receiver: Value, args: Argume
 fn method_family_method_for_as(vm: &mut VM, receiver: &Value, args: &[Value], caller_authority: (Option<crate::heap::ClassId>, bool)) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let selector = match args.first() {
-        Some(Value::Symbol(selector)) => *selector,
-        Some(other) => {
-            return Err(RuntimeError::Type {
-                expected: "Symbol",
-                found: other.type_name(),
+        Some(arg) => match arg.symbol_value() {
+            Some(selector) => selector,
+            None => {
+                return Err(RuntimeError::Type {
+                    expected: "Symbol",
+                    found: arg.type_name(),
+                }
+                .into());
             }
-            .into());
-        }
+        },
         None => {
             return Err(RuntimeError::Arity {
                 signature: "methodFor",
@@ -139,7 +143,7 @@ fn method_family_method_for_as(vm: &mut VM, receiver: &Value, args: &[Value], ca
         })
     };
     match method {
-        Some(method) if vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() => Ok(Value::Obj(method)),
+        Some(method) if vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1).is_ok() => Ok(Value::obj(method)),
         _ => Ok(vm.none_value()),
     }
 }

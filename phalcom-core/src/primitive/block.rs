@@ -34,29 +34,23 @@ use crate::vm::VM;
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is neither a block nor a closure.
 pub(crate) fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef, Option<FrameToken>)> {
-    match receiver {
-        Value::Obj(id) => match vm.heap.get(*id) {
+    if let Some(id) = receiver.as_obj() {
+        match vm.heap.get(id) {
             Object::Block(block) => Ok((block.closure, Some(block.home_frame_token))),
-            Object::Closure(_) => Ok((*id, None)),
-            // `Method` `isA Function` and answers the *reflective* protocol
-            // (`arity`/`name`/`selector`/`holder`/`bind`/`invokeOn`), but not
-            // raw `call` while unbound — it has no receiver to run against
-            // (U-CORE-3, [ADR-0028](../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
-            // A dedicated arm ahead of the wildcard sharpens the error over
-            // the generic "expected Function, found Method" it would
-            // otherwise fall through to.
+            Object::Closure(_) => Ok((id, None)),
             Object::Method(_) => Err(RuntimeError::NotAllowed("unbound Method — use bind(_) or invokeOn(_,***)".to_string()).into()),
             _ => Err(RuntimeError::Type {
                 expected: "Function",
                 found: receiver.type_name(),
             }
             .into()),
-        },
-        other => Err(RuntimeError::Type {
-            expected: "Function",
-            found: other.type_name(),
         }
-        .into()),
+    } else {
+        Err(RuntimeError::Type {
+            expected: "Function",
+            found: receiver.type_name(),
+        }
+        .into())
     }
 }
 
@@ -67,26 +61,27 @@ pub(crate) fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::he
 /// (U-CORE-3) — neither has a [`ClosureObject`](crate::heap::ClosureObject)
 /// to read `arity` off directly, unlike `Block`/`Closure`.
 pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Obj(id) => match vm.heap.get(*id) {
-            Object::Closure(closure) => Ok(Value::Int(closure.callable.arity as i64)),
+    if let Some(id) = receiver.as_obj() {
+        match vm.heap.get(id) {
+            Object::Closure(closure) => Ok(Value::int(closure.callable.arity as i64)),
             Object::Block(block) => {
                 let closure = vm.heap.closure(block.closure);
-                Ok(Value::Int(closure.callable.arity as i64))
+                Ok(Value::int(closure.callable.arity as i64))
             }
-            Object::Method(method) => Ok(Value::Int(method.signature.positional_arity as i64)),
-            Object::BoundMethod(bound) => Ok(Value::Int(vm.heap.method(bound.method).signature.positional_arity as i64)),
+            Object::Method(method) => Ok(Value::int(method.signature.positional_arity as i64)),
+            Object::BoundMethod(bound) => Ok(Value::int(vm.heap.method(bound.method).signature.positional_arity as i64)),
             _ => Err(RuntimeError::Type {
                 expected: "Function",
                 found: receiver.type_name(),
             }
             .into()),
-        },
-        other => Err(RuntimeError::Type {
-            expected: "Function",
-            found: other.type_name(),
         }
-        .into()),
+    } else {
+        Err(RuntimeError::Type {
+            expected: "Function",
+            found: receiver.type_name(),
+        }
+        .into())
     }
 }
 
@@ -96,8 +91,8 @@ pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 /// [`Object::BoundMethod`] delegates to the name of the method it wraps
 /// (U-CORE-3).
 pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let name = match receiver {
-        Value::Obj(id) => match vm.heap.get(*id) {
+    let name = if let Some(id) = receiver.as_obj() {
+        match vm.heap.get(id) {
             Object::Closure(closure) => vm.resolve_symbol(closure.callable.name_sym).to_string(),
             Object::Block(block) => {
                 let closure = vm.heap.closure(block.closure);
@@ -115,14 +110,13 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
                 }
                 .into());
             }
-        },
-        other => {
-            return Err(RuntimeError::Type {
-                expected: "Function",
-                found: other.type_name(),
-            }
-            .into());
         }
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "Function",
+            found: receiver.type_name(),
+        }
+        .into());
     };
     Ok(vm.alloc_string_value(name))
 }
@@ -144,19 +138,25 @@ pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -
         expected: 1,
         found: args.positional_count(),
     })?;
-    let (positionals, labeled): (Vec<Value>, Vec<(crate::interner::Symbol, Value)>) = match packed {
-        Value::Unit => (Vec::new(), Vec::new()),
-        Value::Obj(id) if matches!(vm.heap.get(id), Object::Tuple(_)) => {
+    let (positionals, labeled): (Vec<Value>, Vec<(crate::interner::Symbol, Value)>) = if packed.is_unit() {
+        (Vec::new(), Vec::new())
+    } else if let Some(id) = packed.as_obj() {
+        if matches!(vm.heap.get(id), Object::Tuple(_)) {
             let tuple = vm.heap.tuple(id);
             (tuple.positionals().to_vec(), tuple.labeled_entries().collect())
-        }
-        other => {
+        } else {
             return Err(RuntimeError::Type {
                 expected: "Tuple",
-                found: other.type_name(),
+                found: packed.type_name(),
             }
             .into());
         }
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "Tuple",
+            found: packed.type_name(),
+        }
+        .into());
     };
 
     let receiver_index = args.receiver_index();
@@ -176,7 +176,8 @@ pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -
         })?),
     );
     let selector = vm.get_or_intern(&selector_text);
-    let shaped = args.with_selector(selector, positionals.len(), labeled.len());
+    let label_syms: Box<[crate::interner::Symbol]> = labeled.iter().map(|(label, _)| *label).collect();
+    let shaped = args.with_selector(selector, positionals.len(), label_syms);
     vm.activate_function(receiver, shaped, phalcom_common::range::SourceRange::default())
 }
 
@@ -198,8 +199,8 @@ pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -
 /// [`RuntimeError::Arity`] on an argument-count mismatch, or any
 /// [`RuntimeError`] raised while running the block body.
 pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    if let Value::Obj(id) = receiver {
-        if let Object::BoundMethod(bound) = vm.heap.get(*id) {
+    if let Some(id) = receiver.as_obj() {
+        if let Object::BoundMethod(bound) = vm.heap.get(id) {
             let (method_id, target) = (bound.method, bound.receiver);
             return vm.invoke_method_object(method_id, target, args);
         }
@@ -234,10 +235,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 
     let base_frames = vm.frames.len();
     let context = CallContext::Instance {
-        instance: match receiver {
-            Value::Obj(id) => *id,
-            _ => unreachable!("resolve_callable only accepts Value::Obj"),
-        },
+        instance: receiver.as_obj().expect("resolve_callable only accepts Value::Obj"),
     };
     let mut frame = vm.new_call_frame(closure_id, context, 0, stack_offset, None);
     // Stamp the block activation with its lexical home frame so a `return` in
@@ -282,7 +280,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     loop {
         let cond = block_call(vm, receiver, &[])?;
-        let Value::Bool(cond) = cond else {
+        let Some(cond) = cond.as_bool() else {
             return Err(RuntimeError::Type {
                 expected: "Bool",
                 found: cond.type_name(),
@@ -339,7 +337,7 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// protected or handler block.
 pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let class_arg = args[0];
-    let is_class = matches!(class_arg, Value::Obj(id) if matches!(vm.heap.get(id), Object::Class(_)));
+    let is_class = class_arg.as_obj().is_some_and(|id| matches!(vm.heap.get(id), Object::Class(_)));
     if !is_class {
         return Err(RuntimeError::Type {
             expected: "Class",
@@ -364,7 +362,7 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
                     let field_count = vm.heap.class(error_class).field_count;
                     let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
                     inst.slots[0] = vm.alloc_string_value(err.to_string());
-                    Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(inst)))
+                    Value::obj(vm.heap.alloc(crate::heap::Object::Instance(inst)))
                 }
             };
             match err {
@@ -394,29 +392,12 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
                     });
                 }
             }
-            // `isA(_)` is an ordinary 1-arg `.ph` `Method` (`core.ph`'s
-            // `Object#isA`), so its dispatch selector is the *encoded*
-            // form `isA(_:)`, not the bare name — mirror the ordinary
-            // `.ph` call-site encoding rather than hand-rolling the walk
-            // in Rust (error-handling.md §2: "`on` catches typed by
-            // `isA`", U-ERR plan §2.3).
-            // Unwind *before* probing. The protected block's frames are dead the
-            // moment the error escaped it, and the probe below is a full dynamic
-            // send that needs frames of its own. Probing first meant running
-            // recovery logic on top of an abandoned stack — which is merely untidy
-            // until the stack is the resource that ran out, and then it is fatal:
-            // a `RuntimeError::DepthExceeded` raised at the call-depth ceiling could
-            // never be caught, because `isA` could not get a frame to run in
-            // (PDR-0007 §2 requires the depth error be catchable).
-            //
-            // Unwinding here also covers the non-matching branch below, which
-            // previously returned `Err` without unwinding at all.
             vm.unwind_to(stack_len, frames_len);
 
             let isa_sig = crate::method::encode_selector("isA", &[None], crate::method::SignatureKind::Method(1));
             let isa_sym = vm.get_or_intern(&isa_sig);
             let matched = vm.send_dynamic(error, isa_sym, &[class_arg])?;
-            if matches!(matched, Value::Bool(true)) {
+            if matched.as_bool() == Some(true) {
                 block_call(vm, &handler, &[error])
             } else {
                 Err(err)

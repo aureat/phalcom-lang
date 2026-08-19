@@ -24,9 +24,9 @@ impl VM {
     /// Native primitives that produce strings (e.g. `toString`, string `+`) use
     /// this to move an owned [`String`] into an
     /// [`Object::Str`] and hand back a
-    /// [`Value::Obj`] handle ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
+    /// [`Value::obj`](crate::value::Value::obj) handle ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
     pub fn alloc_string_value(&mut self, text: String) -> Value {
-        Value::Obj(self.heap.alloc_string(text))
+        Value::obj(self.heap.alloc_string(text))
     }
 
     /// Allocates a bare class named `name`, wired only to `superclass`.
@@ -45,7 +45,6 @@ impl VM {
     /// the metaclass `"{name}.class"` is an instance of `Metaclass` whose
     /// superclass is `superclass`'s own metaclass (`Class` if `superclass` is
     /// `None`), and the class itself is an instance of that metaclass with the
-    /// requested `superclass`.
     /// requested `superclass`.
     pub fn create_class(&mut self, module: ObjRef, name: &str, superclass: Option<ClassId>) -> ClassId {
         let metaclass_class = self.universe.classes.metaclass_class;
@@ -70,7 +69,7 @@ impl VM {
             self.heap.class_mut(class).field_count = layout.field_count;
             self.heap.class_mut(metaclass).field_slots = layout.static_field_slots;
             self.heap.class_mut(metaclass).field_count = layout.static_field_count;
-            self.heap.class_mut(class).static_slots = vec![Value::Nil; layout.static_field_count as usize].into_boxed_slice();
+            self.heap.class_mut(class).static_slots = vec![Value::nil(); layout.static_field_count as usize].into_boxed_slice();
         }
 
         let meta_key = super::ClassKey { module, name: meta_sym };
@@ -114,6 +113,12 @@ impl VM {
     /// errors (e.g. too many globals).
     pub fn define_global(&mut self, module: ObjRef, name_sym: Symbol, val: Value) -> PhResult<usize> {
         self.heap.module_mut(module).define(name_sym, val)
+    }
+
+    /// Allocates a compiled [`SelectorPatternObject`](crate::heap::SelectorPatternObject) on the heap.
+    pub fn alloc_selector_pattern(&mut self, pattern: phalcom_common::selector::SelectorPattern) -> ObjRef {
+        let pattern_obj = crate::heap::SelectorPatternObject::compile(pattern, &mut self.interner);
+        self.heap.alloc(Object::SelectorPattern(Box::new(pattern_obj)))
     }
 
     /// Creates a user class `name` with its own metaclass and wires the tower.
@@ -179,7 +184,7 @@ impl VM {
             _ => return None,
         };
         let sym = self.interner.intern(sym_str);
-        Some(Value::Symbol(sym))
+        Some(Value::symbol(sym))
     }
 
     /// Converts a native numeric `RuntimeError` into a surface `RuntimeError::Raise`
@@ -198,7 +203,7 @@ impl VM {
         if let Some(k) = kind_val {
             inst.slots[1] = k;
         }
-        let error = Value::Obj(self.heap.alloc(crate::heap::Object::Instance(inst)));
+        let error = Value::obj(self.heap.alloc(crate::heap::Object::Instance(inst)));
         crate::error::PhError::Runtime(RuntimeError::Raise {
             error,
             rendered,
@@ -275,7 +280,7 @@ impl VM {
         // adjusts the type.
         let res = match self.run() {
             Ok(value) => Ok(value),
-            Err(err) => self.runtime_error(err).map(|()| Value::Nil),
+            Err(err) => self.runtime_error(err).map(|()| Value::nil()),
         };
 
         self.unwind_cell();

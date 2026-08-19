@@ -17,7 +17,7 @@ fn const_rebinds_across_repl_cells() {
         .compile_closure_as(module, "x = 2\n", UnitKind::Repl)
         .expect("cell 2 re-assignment compiles in Repl mode");
     let res2 = vm.run_cell(module, c2).expect("cell 2 succeeds");
-    assert_eq!(res2, Value::Int(2));
+    assert_eq!(res2, Value::int(2));
 }
 
 /// `const_redeclares_across_repl_cells`: Cell 1 `const x = 1`, cell 2 `const x = 2` — succeeds.
@@ -33,11 +33,11 @@ fn const_redeclares_across_repl_cells() {
         .compile_closure_as(module, "const x = 2\n", UnitKind::Repl)
         .expect("cell 2 const re-declaration compiles in Repl mode");
     let res2 = vm.run_cell(module, c2).expect("cell 2 succeeds");
-    assert_eq!(res2, Value::None);
+    assert_eq!(res2, Value::none());
 
     let c3 = vm.compile_closure_as(module, "x\n", UnitKind::Repl).expect("cell 3 compiles");
     let res3 = vm.run_cell(module, c3).expect("cell 3 succeeds");
-    assert_eq!(res3, Value::Int(2));
+    assert_eq!(res3, Value::int(2));
 }
 
 /// `const_assignment_errors_in_one_unit`: Both statements in ONE unit — errors.

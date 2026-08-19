@@ -18,11 +18,11 @@ pub struct InstanceObject {
 }
 
 impl InstanceObject {
-    /// Creates an instance of `class` with `field_count` slots, initialized to `Value::Nil` (ADR-0011).
+    /// Creates an instance of `class` with `field_count` slots, initialized to `Value::nil()` (ADR-0011).
     pub fn new(class: ClassId, field_count: u16) -> Self {
         Self {
             class,
-            slots: vec![Value::Nil; field_count as usize].into_boxed_slice(),
+            slots: vec![Value::nil(); field_count as usize].into_boxed_slice(),
         }
     }
 

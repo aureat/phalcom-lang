@@ -63,10 +63,10 @@ fn collects_unreachable_object() {
 fn collects_cycle() {
     let (mut vm, before) = settled_vm();
 
-    let a = alloc_instance(&mut vm, vec![Value::Nil]);
-    let b = alloc_instance(&mut vm, vec![Value::Obj(a)]);
+    let a = alloc_instance(&mut vm, vec![phalcom_core::value::NIL]);
+    let b = alloc_instance(&mut vm, vec![Value::obj(a)]);
     match vm.heap.get_mut(a) {
-        Object::Instance(inst) => inst.slots[0] = Value::Obj(b),
+        Object::Instance(inst) => inst.slots[0] = Value::obj(b),
         _ => unreachable!(),
     }
 
@@ -101,10 +101,10 @@ fn retains_transitively_then_collects_when_root_drops() {
     let (mut vm, before) = settled_vm();
 
     let leaf = alloc_instance(&mut vm, vec![]);
-    let holder = alloc_instance(&mut vm, vec![Value::Obj(leaf)]);
+    let holder = alloc_instance(&mut vm, vec![Value::obj(leaf)]);
 
     // Root the holder the way real code does — on the operand stack.
-    vm.push_root_for_test(Value::Obj(holder));
+    vm.push_root_for_test(Value::obj(holder));
     vm.force_gc();
     assert!(vm.heap.try_get(leaf).is_some(), "leaf is reachable via the rooted holder");
     assert!(vm.heap.try_get(holder).is_some());
@@ -124,11 +124,11 @@ fn deep_chain_collects_without_stack_overflow() {
 
     let mut head = alloc_instance(&mut vm, vec![]);
     for _ in 0..100_000 {
-        head = alloc_instance(&mut vm, vec![Value::Obj(head)]);
+        head = alloc_instance(&mut vm, vec![Value::obj(head)]);
     }
 
     // Rooted: mark must walk all 100k links.
-    vm.push_root_for_test(Value::Obj(head));
+    vm.push_root_for_test(Value::obj(head));
     vm.force_gc();
     assert_eq!(vm.heap.live_count(), before + 100_001, "the whole rooted chain survives");
 
@@ -145,8 +145,8 @@ fn deep_chain_collects_without_stack_overflow() {
 fn surviving_objects_keep_their_handles() {
     let (mut vm, _) = settled_vm();
 
-    let survivor = alloc_instance(&mut vm, vec![Value::Int(42)]);
-    vm.push_root_for_test(Value::Obj(survivor));
+    let survivor = alloc_instance(&mut vm, vec![Value::int(42)]);
+    vm.push_root_for_test(Value::obj(survivor));
 
     // Allocate garbage around it so the sweep genuinely has work to do.
     for _ in 0..100 {
@@ -156,7 +156,7 @@ fn surviving_objects_keep_their_handles() {
     vm.force_gc();
 
     match vm.heap.get(survivor) {
-        Object::Instance(inst) => assert_eq!(inst.slots[0], Value::Int(42)),
+        Object::Instance(inst) => assert_eq!(inst.slots[0], Value::int(42)),
         _ => panic!("survivor's handle must still name the same object"),
     }
     vm.pop_root_for_test();
@@ -166,11 +166,11 @@ fn surviving_objects_keep_their_handles() {
 #[test]
 fn system_gc_returns_none() {
     let (mut vm, _) = settled_vm();
-    let system_cls = Value::Obj(vm.universe.classes.system_class);
+    let system_cls = Value::obj(vm.universe.classes.system_class);
     use phalcom_core::primitive::system::system_gc;
     let result = system_gc(&mut vm, &system_cls, &[]).expect("System.gc primitive call");
 
-    assert_eq!(result, Value::None);
+    assert_eq!(result, Value::none());
 }
 
 /// An immediate `Some(ObjRef)` held only in the VM operand stack keeps its
@@ -179,8 +179,8 @@ fn system_gc_returns_none() {
 fn immediate_some_root_traces_wrapped_object() {
     let (mut vm, before) = settled_vm();
     let inner = alloc_instance(&mut vm, vec![]);
-    let some_class = Value::Obj(vm.universe.classes.some_class);
-    let wrapped = some_call(&mut vm, &some_class, &[Value::Obj(inner)]).expect("Some(ObjRef)");
+    let some_class = Value::obj(vm.universe.classes.some_class);
+    let wrapped = some_call(&mut vm, &some_class, &[Value::obj(inner)]).expect("Some(ObjRef)");
 
     vm.push_root_for_test(wrapped);
     vm.force_gc();
@@ -199,11 +199,11 @@ fn immediate_some_root_traces_wrapped_object() {
 fn immediate_some_heap_edge_traces_wrapped_object() {
     let (mut vm, before) = settled_vm();
     let inner = alloc_instance(&mut vm, vec![]);
-    let some_class = Value::Obj(vm.universe.classes.some_class);
-    let wrapped = some_call(&mut vm, &some_class, &[Value::Obj(inner)]).expect("Some(ObjRef)");
+    let some_class = Value::obj(vm.universe.classes.some_class);
+    let wrapped = some_call(&mut vm, &some_class, &[Value::obj(inner)]).expect("Some(ObjRef)");
     let holder = alloc_instance(&mut vm, vec![wrapped]);
 
-    vm.push_root_for_test(Value::Obj(holder));
+    vm.push_root_for_test(Value::obj(holder));
     vm.force_gc();
     assert!(vm.heap.try_get(inner).is_some(), "wrapped heap edge must keep payload alive");
     vm.pop_root_for_test();
@@ -240,7 +240,7 @@ fn system_gc_collects_garbage_from_source() {
 #[test]
 fn system_gc_is_idempotent() {
     let (mut vm, _) = settled_vm();
-    let system_cls = Value::Obj(vm.universe.classes.system_class);
+    let system_cls = Value::obj(vm.universe.classes.system_class);
     use phalcom_core::primitive::system::system_gc;
 
     system_gc(&mut vm, &system_cls, &[]).expect("first System.gc");
@@ -356,21 +356,11 @@ fn suspended_fiber_roots_its_stack() {
     };
     let fiber_sym = vm.interner.intern("fiber");
     let fiber_val = module_obj.get(fiber_sym).expect("fiber global should exist");
-    let fiber_ref = match fiber_val {
-        Value::Obj(id) => id,
-        _ => panic!("expected Fiber object returned"),
-    };
+    let fiber_ref = fiber_val.as_obj().expect("expected Fiber object returned");
 
     // Extract the yielded item from the fiber's stack.
     let fiber_obj = vm.heap.fiber(fiber_ref);
-    let yielded_ref = fiber_obj
-        .stack
-        .iter()
-        .find_map(|v| match v {
-            Value::Obj(id) => Some(*id),
-            _ => None,
-        })
-        .expect("expected object in fiber stack");
+    let yielded_ref = fiber_obj.stack.iter().find_map(|v| v.as_obj()).expect("expected object in fiber stack");
 
     // Root the fiber in Rust.
     vm.push_root_for_test(fiber_val);
@@ -391,7 +381,7 @@ fn suspended_fiber_roots_its_stack() {
         _ => panic!("expected Module"),
     };
     let fiber_idx = module_mut.name_to_slot.get(&fiber_sym).copied().unwrap();
-    module_mut.globals[fiber_idx] = Value::Nil;
+    module_mut.globals[fiber_idx] = phalcom_core::value::NIL;
 
     vm.force_gc();
 

@@ -14,11 +14,11 @@ fn globals_persist_across_cells() {
 
     let c1 = vm.compile_closure_as(module, "let x = 42\n", UnitKind::Repl).unwrap();
     let res1 = vm.run_cell(module, c1).unwrap();
-    assert_eq!(res1, Value::None, "statement cell returns surfaced absence");
+    assert_eq!(res1, Value::none(), "statement cell returns surfaced absence");
 
     let c2 = vm.compile_closure_as(module, "x\n", UnitKind::Repl).unwrap();
     let res2 = vm.run_cell(module, c2).unwrap();
-    assert_eq!(res2, Value::Int(42), "cell 2 reads global x from cell 1");
+    assert_eq!(res2, Value::int(42), "cell 2 reads global x from cell 1");
 }
 
 /// `echo_mode_keeps_final_expression`: Repl unit keeps final expression value on stack.
@@ -29,7 +29,7 @@ fn echo_mode_keeps_final_expression() {
 
     let c_repl = vm.compile_closure_as(module, "10 + 20\n", UnitKind::Repl).unwrap();
     let res_repl = vm.run_cell(module, c_repl).unwrap();
-    assert_eq!(res_repl, Value::Int(30), "Repl unit returns final expression");
+    assert_eq!(res_repl, Value::int(30), "Repl unit returns final expression");
 }
 
 /// `statement_cell_echoes_nothing`: A statement cell yields Nil (surfaced as None).
@@ -40,7 +40,7 @@ fn statement_cell_echoes_nothing() {
 
     let c_stmt = vm.compile_closure_as(module, "let a = 100\n", UnitKind::Repl).unwrap();
     let res_stmt = vm.run_cell(module, c_stmt).unwrap();
-    assert_eq!(res_stmt, Value::None, "Statement cell yields surfaced absence");
+    assert_eq!(res_stmt, Value::none(), "Statement cell yields surfaced absence");
 }
 
 /// `underscore_binds_last_value`: `_` global holds the prior cell's expression result.
@@ -51,14 +51,14 @@ fn underscore_binds_last_value() {
 
     let c1 = vm.compile_closure_as(module, "100 + 200\n", UnitKind::Repl).unwrap();
     let val1 = vm.run_cell(module, c1).unwrap();
-    assert_eq!(val1, Value::Int(300));
+    assert_eq!(val1, Value::int(300));
 
     let underscore_sym = vm.get_or_intern("_");
     vm.define_global(module, underscore_sym, val1).unwrap();
 
     let c2 = vm.compile_closure_as(module, "_ + 50\n", UnitKind::Repl).unwrap();
     let val2 = vm.run_cell(module, c2).unwrap();
-    assert_eq!(val2, Value::Int(350), "_ evaluates to 300");
+    assert_eq!(val2, Value::int(350), "_ evaluates to 300");
 }
 
 /// `open_upvalue_hygiene_across_cells`: Load-bearing test for §D10.
@@ -73,7 +73,7 @@ fn open_upvalue_hygiene_across_cells() {
 
     // Pre-declare getter as global in module so cell 1's assignment binds it
     let getter_sym = vm.get_or_intern("getter");
-    vm.define_global(module, getter_sym, Value::Nil).unwrap();
+    vm.define_global(module, getter_sym, phalcom_core::value::NIL).unwrap();
 
     // Cell 1: creates a block capturing a local `secret`, assigns getter, then raises a runtime error
     let cell1_src = "let make = || {\nlet secret = 999\ngetter = || {\nsecret\n}\nNone.non_existent_method()\n}\nmake()\n";
@@ -90,7 +90,7 @@ fn open_upvalue_hygiene_across_cells() {
     let res2 = vm.run_cell(module, c2).expect("cell 2 should execute without stack aliasing corruption");
     assert_eq!(
         res2,
-        Value::Int(999),
+        Value::int(999),
         "captured upvalue secret remains 999 and is not corrupted by cell 2's stack"
     );
 }
@@ -115,11 +115,11 @@ fn class_redefinition_shadows() {
     let c3 = vm.compile_closure_as(module, "[f1.v(), f2.v()]\n", UnitKind::Repl).unwrap();
     let res = vm.run_cell(module, c3).unwrap();
 
-    if let Value::Obj(id) = res {
+    if let Some(id) = res.as_obj() {
         if let Object::List(list) = vm.heap.get(id) {
             let elems = list.elements();
-            assert_eq!(elems[0], Value::Int(1), "f1 retains old class method v() -> 1");
-            assert_eq!(elems[1], Value::Int(2), "f2 uses new shadowed class method v() -> 2");
+            assert_eq!(elems[0], Value::int(1), "f1 retains old class method v() -> 1");
+            assert_eq!(elems[1], Value::int(2), "f2 uses new shadowed class method v() -> 2");
             return;
         }
     }

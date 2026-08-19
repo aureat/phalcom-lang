@@ -5,7 +5,6 @@ use phalcom_core::chunk::Chunk;
 use phalcom_core::error::PhError;
 use phalcom_core::heap::{ObjRef, Object};
 use phalcom_core::method::MethodKind;
-use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::collections::HashSet;
 
@@ -40,8 +39,8 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
 
     println!("{}constants:", indent_str);
     for (i, constant) in chunk.constants.iter().enumerate() {
-        let val_str = match constant {
-            Value::Obj(id) => match vm.heap.get(*id) {
+        let val_str = if let Some(id) = constant.as_obj() {
+            match vm.heap.get(id) {
                 Object::Class(c) => format!("<class {}>", c.name),
                 Object::Closure(cls) => {
                     let name = vm.resolve_symbol(cls.callable.name_sym).to_string();
@@ -60,9 +59,11 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
                     }
                 }
                 _ => format!("{:?}", constant),
-            },
-            Value::Symbol(sym) => format!("Symbol({})", vm.resolve_symbol(*sym)),
-            _ => format!("{:?}", constant),
+            }
+        } else if let Ok(sym) = constant.as_symbol() {
+            format!("Symbol({})", vm.resolve_symbol(sym))
+        } else {
+            format!("{:?}", constant)
         };
         println!("{}  [{}] {}", indent_str, i, val_str);
     }
@@ -96,7 +97,7 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
     //     `Bytecode::Method` (not `Bytecode::Closure`) to attach them, so the loop above
     //     never sees them. Walk the constant pool explicitly here.
     for constant in &chunk.constants {
-        if let Value::Obj(id) = *constant {
+        if let Some(id) = constant.as_obj() {
             if let Object::Method(m) = vm.heap.get(id) {
                 if let MethodKind::Closure(body_ref) = m.kind {
                     if visited.insert(body_ref) {

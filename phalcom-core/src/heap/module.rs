@@ -73,10 +73,10 @@ pub struct ModuleObject {
     pub global_bindings: HashMap<Symbol, bool>,
     /// Whether this module is a built-in module/package.
     pub builtin: bool,
-    /// Nearest owning Package; None if standalone Module or Project root.
-    pub owning_package: Option<ObjRef>,
-    /// Owning Project; None if standalone Module or standalone Package.
-    pub owning_project: Option<ObjRef>,
+    /// Nearest enclosing Package; None if standalone Module.
+    pub package: Option<ObjRef>,
+    /// Root package of owning project/tree; None if standalone.
+    pub root_package: Option<ObjRef>,
     /// Whether the module's global namespace is frozen against modifications.
     pub namespace_frozen: bool,
     /// Runtime materialization of symbolic `GetLinked` entries.
@@ -108,8 +108,8 @@ impl ModuleObject {
             sources: source.into_iter().collect(),
             global_bindings: HashMap::new(),
             builtin,
-            owning_package: None,
-            owning_project: None,
+            package: None,
+            root_package: None,
             namespace_frozen: false,
             linked_reads: Vec::new(),
             exports: HashMap::new(),
@@ -168,7 +168,7 @@ impl ModuleObject {
     /// Reserves a slot for a top-level variable, returning its index.
     ///
     /// Idempotent: an already-declared name returns its existing slot. Forward
-    /// references declare with [`Value::Nil`]; the real definition later calls
+    /// references declare with [`crate::value::NIL`]; the real definition later calls
     /// [`Self::set_global`].
     ///
     /// # Errors
@@ -196,7 +196,7 @@ impl ModuleObject {
         // Storage default only: a freshly-declared global slot backs its value
         // with the private sentinel until written. Never read raw — the
         // `GetGlobal` handler surfaces it to `None` (Invariant 4).
-        self.globals.push(Value::Nil);
+        self.globals.push(Value::nil());
         Ok(cur)
     }
 

@@ -131,14 +131,20 @@ impl VM {
     /// Compiles and runs `source` for `module`, reporting diagnostics on
     /// failure.
     pub fn interpret_source(&mut self, module: ObjRef, source: &str) -> PhResult<()> {
-        let closure = self.compile_closure(module, source).inspect_err(|err| {
-            let source_id = self.heap.module(module).sources.len().saturating_sub(1) as u32;
-            self.compiler_error(err.clone(), module, source_id);
-        })?;
+        let closure = match self.compile_closure(module, source) {
+            Ok(closure) => closure,
+            Err(err) => {
+                let source_id = self.heap.module(module).sources.len().saturating_sub(1) as u32;
 
-        self.run_in_module(module, closure).inspect_err(|err| {
-            let _ = self.runtime_error(err.clone());
-        })?;
+                self.compiler_error(&err, module, source_id);
+                return Err(err);
+            }
+        };
+
+        if let Err(err) = self.run_in_module(module, closure) {
+            self.report_runtime_error(&err);
+            return Err(err);
+        }
 
         Ok(())
     }

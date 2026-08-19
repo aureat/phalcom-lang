@@ -1,6 +1,5 @@
 //! Comprehensive unit and integration test suite for U-REPL Phase B (§04–§07).
 
-use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_repl::completer::PhalcomCompleter;
 use phalcom_repl::highlighter::PhalcomHighlighter;
@@ -395,8 +394,46 @@ fn reload_rebuilds_session_from_history() {
     let slot = module_obj.slot_of(val_b_sym).expect("val_b must exist after reload");
     let val = module_obj.globals[slot];
 
-    match val {
-        Value::Int(n) => assert_eq!(n, 150),
-        _ => panic!("Expected int value for val_b"),
-    }
+    assert_eq!(val.as_int(), Some(150), "Expected int value 150 for val_b");
+}
+
+#[test]
+fn test_repl_imports_persist_and_link_across_cells() {
+    let mut session = ReplSession::start(PathBuf::from("."));
+
+    let out1 = session.eval("import std.json");
+    assert!(matches!(out1, CellOutcome::Unit));
+
+    let out2 = session.eval("json");
+    assert!(matches!(out2, CellOutcome::Value(_)));
+
+    let out3 = session.eval("from universe import Object");
+    assert!(matches!(out3, CellOutcome::Unit));
+
+    let out4 = session.eval("Object");
+    assert!(matches!(out4, CellOutcome::Value(_)));
+}
+
+#[test]
+fn test_repl_universe_exports_accessible_via_dynamic_send() {
+    let mut session = ReplSession::start(PathBuf::from("."));
+
+    let out = session.eval("universe.Object");
+    assert!(matches!(out, CellOutcome::Value(_)));
+}
+
+#[test]
+fn test_repl_reload_replays_imports_cleanly() {
+    let mut session = ReplSession::start(PathBuf::from("."));
+
+    assert!(matches!(session.eval("import std.json"), CellOutcome::Unit));
+    assert!(matches!(session.eval("let num = 42"), CellOutcome::Unit));
+    assert!(matches!(session.eval("let res = num + 8"), CellOutcome::Unit));
+
+    assert!(session.reload(), ":reload must succeed with imports and bindings in history");
+
+    let res_sym = session.vm.get_or_intern("res");
+    let module_obj = session.vm.heap.module(session.module);
+    let slot = module_obj.slot_of(res_sym).expect("res exists after reload");
+    assert_eq!(module_obj.globals[slot].as_int(), Some(50));
 }

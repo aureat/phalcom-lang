@@ -1,0 +1,5 @@
+[project]
+name = "simple_export"
+namespace = "simple_export"
+version = "0.1.0"
+entry = "simple_export.importer"

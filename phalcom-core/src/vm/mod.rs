@@ -218,6 +218,8 @@ pub struct VM {
     pub prelude_names: std::collections::HashSet<Symbol>,
     /// The symbol interner backing selectors, names and string identity.
     pub interner: Interner,
+    /// Canonical reflection object cache.
+    pub reflection_cache: crate::modules::ReflectionCache,
     /// VM start time, used for `System` timing primitives.
     pub start_time: Instant,
     /// The kernel: handles to the bootstrapped core classes.

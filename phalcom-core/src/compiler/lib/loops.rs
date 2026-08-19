@@ -69,7 +69,7 @@ impl<'vm> Compiler<'vm> {
     /// `for` condition.
     pub(super) fn emit_getter_send(&mut self, name: &str, range: SourceRange) {
         let sym = self.vm.interner.intern(name);
-        let idx = self.add_constant(Value::Symbol(sym));
+        let idx = self.add_constant(Value::symbol(sym));
         self.emit(Bytecode::Invoke(0, idx), range);
     }
 
@@ -230,7 +230,7 @@ impl<'vm> Compiler<'vm> {
     /// larger follow-on left for a future unit.
     fn emit_deopt_block_control_trap(&mut self, range: SourceRange) {
         let error_sym = self.vm.interner.intern("Error");
-        let error_idx = self.add_constant(Value::Symbol(error_sym));
+        let error_idx = self.add_constant(Value::symbol(error_sym));
         self.emit(Bytecode::GetGlobal(error_idx), range);
         let message = self.vm.alloc_string_value(
             "`break`/`continue` reached through a materialized block (a deopt fallback or a real \

@@ -122,11 +122,11 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             if let Some(closure) = module.closure {
                 push(closure);
             }
-            if let Some(pkg) = module.owning_package {
+            if let Some(pkg) = module.package {
                 push(pkg);
             }
-            if let Some(proj) = module.owning_project {
-                push(proj);
+            if let Some(root_pkg) = module.root_package {
+                push(root_pkg);
             }
             for global in &module.globals {
                 trace_value(*global, push);
@@ -262,5 +262,74 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
                 trace_value(*value, push);
             }
         }
+        Object::Project(proj) => {
+            push(proj.manifest);
+            push(proj.root_package);
+            push(proj.dependencies);
+            if let Some(entry) = proj.development_entry {
+                push(entry);
+            }
+            push(proj.identity);
+        }
+        Object::ProjectManifest(manifest) => {
+            push(manifest.authors);
+            if let Some(hp) = manifest.homepage {
+                push(hp);
+            }
+            if let Some(repo) = manifest.repository {
+                push(repo);
+            }
+            push(manifest.dependency_declarations);
+        }
+        Object::PackageInfo(info) => {
+            push(info.authors);
+            if let Some(hp) = info.homepage {
+                push(hp);
+            }
+            if let Some(repo) = info.repository {
+                push(repo);
+            }
+            push(info.requirements);
+            push(info.identity);
+        }
+        Object::PackageAuthor(author) => {
+            if let Some(url) = author.url {
+                push(url);
+            }
+        }
+        Object::PackageRequirement(_) => {}
+        Object::ResolvedProjectDependency(dep) => {
+            if let Some(req) = dep.requirement {
+                push(req);
+            }
+            push(dep.package_info);
+            push(dep.root_package);
+        }
+        Object::ModuleDependency(dep) => {
+            push(dep.module);
+        }
+        Object::ExportTable(table) => {
+            push(table.module);
+            push(table.names_tuple);
+            for desc in table.descriptors.values() {
+                push(*desc);
+            }
+        }
+        Object::Export(export) => {
+            push(export.module);
+        }
+        Object::ChildModuleTable(table) => {
+            push(table.package);
+            push(table.names_tuple);
+            for child in table.children.values() {
+                push(*child);
+            }
+        }
+        Object::ModuleIdentity(id) => {
+            push(id.uri);
+        }
+        Object::PackageIdentity(_) => {}
+        Object::ProjectIdentity(_) => {}
+        Object::Uri(_) => {}
     }
 }

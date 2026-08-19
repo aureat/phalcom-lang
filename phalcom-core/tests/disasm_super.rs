@@ -8,7 +8,6 @@
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::heap::Object;
 use phalcom_core::method::MethodKind;
-use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 
 /// Collects the opcodes of every method-body closure reachable from the
@@ -17,7 +16,7 @@ fn method_body_opcodes(vm: &VM, top_closure: phalcom_core::heap::ObjRef) -> Vec<
     let mut ops = Vec::new();
     let constants = vm.heap.closure(top_closure).callable.chunk.constants.clone();
     for constant in constants {
-        if let Value::Obj(obj) = constant
+        if let Some(obj) = constant.as_obj()
             && let Object::Method(method) = vm.heap.get(obj)
             && let MethodKind::Closure(body) = method.kind
         {

@@ -47,7 +47,7 @@ pub struct ModuleInitializationError {
     pub id: phalcom_modules::ModuleId,
     pub display_name: String,
     pub source: Option<String>,
-    pub failure: crate::modules::ModuleFailure,
+    pub failure: crate::modules::ModuleFailureRef,
     pub chain: Vec<phalcom_modules::ModuleId>,
 }
 
@@ -58,14 +58,14 @@ impl std::fmt::Display for ModuleInitializationError {
         writeln!(f, "ModuleInitializationError:")?;
         writeln!(f, "  failed to initialize `{}`", self.display_name)?;
 
-        match &self.failure {
+        match self.failure.as_ref() {
             crate::modules::ModuleFailure::Initializer { cause } => {
                 writeln!(f, "\nCaused by error in module `{}`:", self.id)?;
                 writeln!(f, "  {}", cause)?;
             }
             crate::modules::ModuleFailure::Dependency { dependency, cause } => {
                 writeln!(f, "\nCaused by initialization of dependency `{}`:", dependency)?;
-                render_dependency_failure(f, cause)?;
+                render_dependency_failure(f, cause.as_ref())?;
             }
         }
 
@@ -95,6 +95,31 @@ fn format_num_arguments(args: usize) -> String {
         String::from("1 argument")
     } else {
         format!("{} arguments", args)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectorPatternMismatchContext {
+    /// Captured structural selector predicate.
+    pub pattern: SelectorPattern,
+
+    /// Concrete selector derived from the attempted invocation.
+    pub selector: Selector,
+
+    /// Invoked Family object.
+    pub family: Value,
+
+    /// Receiver retained by the Family.
+    pub receiver: Value,
+}
+
+impl std::fmt::Display for SelectorPatternMismatchContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "selector pattern mismatch: attempted selector `{}` does not match family pattern `{}`",
+            self.selector, self.pattern,
+        )
     }
 }
 
@@ -145,17 +170,8 @@ pub enum RuntimeError {
     /// A Family invocation produced a concrete selector outside its captured
     /// structural selector pattern. Validation occurs before receiver lookup;
     /// this is distinct from a later `doesNotUnderstand` dispatch miss.
-    #[error("selector pattern mismatch: attempted selector `{selector}` does not match family pattern `{pattern}`")]
-    SelectorPatternMismatch {
-        /// Captured structural selector predicate.
-        pattern: SelectorPattern,
-        /// Concrete selector derived from the attempted invocation.
-        selector: Selector,
-        /// The invoked Family object.
-        family: Value,
-        /// Receiver retained by the Family.
-        receiver: Value,
-    },
+    #[error("{0}")]
+    SelectorPatternMismatch(Box<SelectorPatternMismatchContext>),
 
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },
@@ -181,11 +197,11 @@ pub enum RuntimeError {
         limit: usize,
     },
 
-    /// The bounded immediate `Option` representation cannot encode another
-    /// wrapper without falling back to a heap object, which this runtime does
-    /// not permit.
+    /// The compact Value metadata cannot represent another Option wrapper.
+    /// This is a physical representation overflow, not an ordinary semantic
+    /// nesting limit.
     #[error("Option nesting limit exceeded ({limit}); use flatMap(_) or model the states explicitly")]
-    OptionNestingLimit { limit: u8 },
+    OptionNestingLimit { limit: u32 },
 
     /// The surface-`Error` unwind payload — the `Raise(error)` half of
     /// [ADR-0008](../../docs/adr/accepted/0008-layered-exceptions-and-result.md)'s
@@ -414,120 +430,61 @@ macro_rules! ensure_arity {
 
 #[macro_export]
 macro_rules! expect_value {
-    ($value:expr, String) => {{
-        match $value {
-            Value::String(s) => s.clone(),
-            found => {
-                return Err(RuntimeError::Type {
-                    expected: "String",
-                    found: found.type_name(),
-                }
-                .into());
-            }
-        }
-    }};
     ($value:expr, Int) => {{
-        match $value {
-            Value::Int(n) => *n,
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Int",
-                    found: other.type_name(),
-                }
-                .into());
+        if let Some(n) = ($value).as_int() {
+            n
+        } else {
+            return Err(RuntimeError::Type {
+                expected: "Int",
+                found: ($value).type_name(),
             }
+            .into());
         }
     }};
     ($value:expr, Float) => {{
-        match $value {
-            Value::Float(n) => *n,
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Float",
-                    found: other.type_name(),
-                }
-                .into());
+        if let Some(n) = ($value).as_float() {
+            n
+        } else {
+            return Err(RuntimeError::Type {
+                expected: "Float",
+                found: ($value).type_name(),
             }
+            .into());
         }
     }};
     ($value:expr, Bool) => {{
-        match $value {
-            Value::Bool(b) => b,
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Bool",
-                    found: other.type_name(),
-                }
-                .into());
+        if let Some(b) = ($value).as_bool() {
+            b
+        } else {
+            return Err(RuntimeError::Type {
+                expected: "Bool",
+                found: ($value).type_name(),
             }
+            .into());
         }
     }};
     ($value:expr, Symbol) => {{
-        match $value {
-            Value::Symbol(s) => s,
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Symbol",
-                    found: other.type_name(),
-                }
-                .into());
+        if let Some(s) = ($value).symbol_value() {
+            s
+        } else {
+            return Err(RuntimeError::Type {
+                expected: "Symbol",
+                found: ($value).type_name(),
             }
+            .into());
         }
     }};
     ($value:expr, Nil) => {{
-        match $value {
-            Value::Nil => (),
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Nil",
-                    found: other.type_name(),
-                }
-                .into());
+        if ($value).is_nil() {
+            ()
+        } else {
+            return Err(RuntimeError::Type {
+                expected: "Nil",
+                found: ($value).type_name(),
             }
+            .into());
         }
     }};
-    ($value:expr, Instance) => {{
-        match $value {
-            Value::Instance(inst) => inst,
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Instance",
-                    found: other.type_name(),
-                }
-                .into());
-            }
-        }
-    }};
-    ($value:expr, Class) => {{
-        match $value {
-            Value::Class(class) => class,
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Class",
-                    found: other.type_name(),
-                }
-                .into());
-            }
-        }
-    }};
-    ($value:expr, Method) => {{
-        match $value {
-            Value::Method(method) => method,
-            other => {
-                return Err(RuntimeError::Type {
-                    expected: "Method",
-                    found: other.type_name(),
-                }
-                .into());
-            }
-        }
-    }}; // ($value:expr, $type:ident) => {{
-        //     return Err(RuntimeError::Type {
-        //         expected: stringify!($type),
-        //         found: $value.type_name(),
-        //     }
-        //     .into());
-        // }};
 }
 
 // #[macro_export]
@@ -544,3 +501,29 @@ macro_rules! expect_value {
 //         inst
 //     }};
 // }
+
+impl RuntimeError {
+    pub(crate) fn selector_pattern_mismatch(pattern: SelectorPattern, selector: Selector, family: Value, receiver: Value) -> Self {
+        Self::SelectorPatternMismatch(Box::new(SelectorPatternMismatchContext {
+            pattern,
+            selector,
+            family,
+            receiver,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn runtime_error_transport_stays_below_large_result_threshold() {
+        let runtime = std::mem::size_of::<RuntimeError>();
+        let ph = std::mem::size_of::<PhError>();
+
+        assert!(runtime <= 120, "RuntimeError grew to {runtime} bytes; rich cold variants must be boxed");
+        assert!(ph <= 120, "PhError grew to {ph} bytes; inspect the largest inline variant");
+    }
+}

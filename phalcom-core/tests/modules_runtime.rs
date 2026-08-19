@@ -77,10 +77,10 @@ fn test_module_export_send_dispatch() {
 
     // Dispatch Config export on base module
     let config_sym = vm.interner.intern("Config");
-    let res = vm.send_dynamic(phalcom_core::value::Value::Obj(base_obj), config_sym, &[]);
+    let res = vm.send_dynamic(phalcom_core::value::Value::obj(base_obj), config_sym, &[]);
     assert!(res.is_ok(), "send_dynamic on module export should succeed: {:?}", res.err());
     let val = res.unwrap();
-    assert!(matches!(val, phalcom_core::value::Value::Obj(_)));
+    assert!(val.as_obj().is_some());
 }
 
 #[test]

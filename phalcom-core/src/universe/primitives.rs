@@ -39,6 +39,7 @@ use crate::primitive::primitive_static;
 use crate::primitive::primitive_static_internal;
 use crate::primitive::range::{range_raw_lower, range_raw_upper, range_raw_upper_inclusive};
 use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
+use crate::primitive::reflection::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
@@ -348,12 +349,181 @@ impl Universe {
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
-        // Member access as an ordinary send (object-model.md §4, U15
-        // DEC-U15): overrides `Object`'s default miss handler so `math.pi`/
-        // `math.distance(1, 2)` reach the module's own global table before
-        // falling through to `MessageNotUnderstood` — see
-        // `primitive::module::module_does_not_understand`.
         primitive!(vm, module_cls, "doesNotUnderstand", SignatureKind::Method(1), module_does_not_understand);
+        primitive!(vm, module_cls, "name", SignatureKind::Getter, module_name);
+        primitive!(vm, module_cls, "namespace", SignatureKind::Getter, module_namespace);
+        primitive!(vm, module_cls, "package", SignatureKind::Getter, module_package);
+        primitive!(vm, module_cls, "rootPackage", SignatureKind::Getter, module_root_package);
+        primitive!(vm, module_cls, "packageInfo", SignatureKind::Getter, module_package_info);
+        primitive!(vm, module_cls, "exports", SignatureKind::Getter, module_exports);
+        primitive!(vm, module_cls, "metadata", SignatureKind::Getter, module_metadata);
+        primitive!(vm, module_cls, "dependencies", SignatureKind::Getter, module_dependencies);
+        primitive!(vm, module_cls, "uri", SignatureKind::Getter, module_uri);
+        primitive!(vm, module_cls, "identity", SignatureKind::Getter, module_identity);
+        primitive!(vm, module_cls, "__exports__", SignatureKind::Getter, module_exports);
+        primitive!(vm, module_cls, "__export__", SignatureKind::Method(1), module_export_by_name);
+        primitive!(vm, module_cls, "__understands__", SignatureKind::Method(1), module_understands);
+        primitive!(vm, module_cls, "__metadata__", SignatureKind::Getter, module_metadata);
+        primitive!(vm, module_cls, "__dependencies__", SignatureKind::Getter, module_dependencies);
+        primitive!(vm, module_cls, "__uri__", SignatureKind::Getter, module_uri);
+        primitive!(vm, module_cls, "__name__", SignatureKind::Getter, module_name);
+        primitive!(vm, module_cls, "__id__", SignatureKind::Getter, module_identity);
+        primitive!(vm, module_cls, "__path__", SignatureKind::Getter, module_path);
+        primitive!(vm, module_cls, "toString", SignatureKind::Getter, module_to_string);
+
+        let package_cls = vm.universe.classes.package_class;
+        primitive!(vm, package_cls, "package", SignatureKind::Getter, package_package);
+        primitive!(vm, package_cls, "parentPackage", SignatureKind::Getter, package_parent_package);
+        primitive!(vm, package_cls, "rootPackage", SignatureKind::Getter, package_root_package);
+        primitive!(vm, package_cls, "packageInfo", SignatureKind::Getter, package_package_info);
+        primitive!(vm, package_cls, "children", SignatureKind::Getter, package_children);
+        primitive!(vm, package_cls, "isRoot", SignatureKind::Getter, package_is_root);
+        primitive!(vm, package_cls, "__parent__", SignatureKind::Getter, package_parent_package);
+        primitive!(vm, package_cls, "__children__", SignatureKind::Getter, package_children);
+        primitive!(vm, package_cls, "__version__", SignatureKind::Getter, package_version);
+        primitive!(vm, package_cls, "__namespace__", SignatureKind::Getter, package_namespace);
+        primitive!(vm, package_cls, "toString", SignatureKind::Getter, package_to_string);
+
+        let project_cls = vm.universe.classes.project_class;
+        primitive!(vm, project_cls, "name", SignatureKind::Getter, project_name);
+        primitive!(vm, project_cls, "namespace", SignatureKind::Getter, project_namespace);
+        primitive!(vm, project_cls, "manifest", SignatureKind::Getter, project_manifest);
+        primitive!(vm, project_cls, "rootPackage", SignatureKind::Getter, project_root_package);
+        primitive!(vm, project_cls, "dependencies", SignatureKind::Getter, project_dependencies);
+        primitive!(vm, project_cls, "developmentEntry", SignatureKind::Getter, project_development_entry);
+        primitive!(vm, project_cls, "identity", SignatureKind::Getter, project_identity);
+        primitive!(vm, project_cls, "toString", SignatureKind::Getter, project_to_string);
+
+        let project_manifest_cls = vm.universe.classes.project_manifest_class;
+        primitive!(vm, project_manifest_cls, "name", SignatureKind::Getter, project_manifest_name);
+        primitive!(vm, project_manifest_cls, "namespace", SignatureKind::Getter, project_manifest_namespace);
+        primitive!(vm, project_manifest_cls, "version", SignatureKind::Getter, project_manifest_version);
+        primitive!(vm, project_manifest_cls, "authors", SignatureKind::Getter, project_manifest_authors);
+        primitive!(vm, project_manifest_cls, "description", SignatureKind::Getter, project_manifest_description);
+        primitive!(vm, project_manifest_cls, "license", SignatureKind::Getter, project_manifest_license);
+        primitive!(vm, project_manifest_cls, "homepage", SignatureKind::Getter, project_manifest_homepage);
+        primitive!(vm, project_manifest_cls, "repository", SignatureKind::Getter, project_manifest_repository);
+        primitive!(vm, project_manifest_cls, "source", SignatureKind::Getter, project_manifest_source);
+        primitive!(vm, project_manifest_cls, "entry", SignatureKind::Getter, project_manifest_entry);
+        primitive!(vm, project_manifest_cls, "defaultEntry", SignatureKind::Getter, project_manifest_default_entry);
+        primitive!(
+            vm,
+            project_manifest_cls,
+            "dependencyDeclarations",
+            SignatureKind::Getter,
+            project_manifest_dependencies
+        );
+        primitive!(vm, project_manifest_cls, "dependencies", SignatureKind::Getter, project_manifest_dependencies);
+        primitive!(vm, project_manifest_cls, "toString", SignatureKind::Getter, project_manifest_to_string);
+
+        let package_info_cls = vm.universe.classes.package_info_class;
+        primitive!(vm, package_info_cls, "name", SignatureKind::Getter, package_info_name);
+        primitive!(vm, package_info_cls, "namespace", SignatureKind::Getter, package_info_namespace);
+        primitive!(vm, package_info_cls, "version", SignatureKind::Getter, package_info_version);
+        primitive!(vm, package_info_cls, "authors", SignatureKind::Getter, package_info_authors);
+        primitive!(vm, package_info_cls, "description", SignatureKind::Getter, package_info_description);
+        primitive!(vm, package_info_cls, "license", SignatureKind::Getter, package_info_license);
+        primitive!(vm, package_info_cls, "homepage", SignatureKind::Getter, package_info_homepage);
+        primitive!(vm, package_info_cls, "repository", SignatureKind::Getter, package_info_repository);
+        primitive!(vm, package_info_cls, "requirements", SignatureKind::Getter, package_info_requirements);
+        primitive!(vm, package_info_cls, "defaultEntry", SignatureKind::Getter, package_info_default_entry);
+        primitive!(vm, package_info_cls, "identity", SignatureKind::Getter, package_info_identity);
+        primitive!(vm, package_info_cls, "toString", SignatureKind::Getter, package_info_to_string);
+
+        let package_author_cls = vm.universe.classes.package_author_class;
+        primitive!(vm, package_author_cls, "name", SignatureKind::Getter, package_author_name);
+        primitive!(vm, package_author_cls, "email", SignatureKind::Getter, package_author_email);
+        primitive!(vm, package_author_cls, "url", SignatureKind::Getter, package_author_url);
+
+        let package_requirement_cls = vm.universe.classes.package_requirement_class;
+        primitive!(vm, package_requirement_cls, "alias", SignatureKind::Getter, package_requirement_alias);
+        primitive!(vm, package_requirement_cls, "package", SignatureKind::Getter, package_requirement_package);
+        primitive!(
+            vm,
+            package_requirement_cls,
+            "versionRequirement",
+            SignatureKind::Getter,
+            package_requirement_version_requirement
+        );
+        primitive!(vm, package_requirement_cls, "optional", SignatureKind::Getter, package_requirement_optional);
+
+        let resolved_project_dependency_cls = vm.universe.classes.resolved_project_dependency_class;
+        primitive!(
+            vm,
+            resolved_project_dependency_cls,
+            "alias",
+            SignatureKind::Getter,
+            resolved_project_dependency_alias
+        );
+        primitive!(
+            vm,
+            resolved_project_dependency_cls,
+            "requirement",
+            SignatureKind::Getter,
+            resolved_project_dependency_requirement
+        );
+        primitive!(
+            vm,
+            resolved_project_dependency_cls,
+            "packageInfo",
+            SignatureKind::Getter,
+            resolved_project_dependency_package_info
+        );
+        primitive!(
+            vm,
+            resolved_project_dependency_cls,
+            "rootPackage",
+            SignatureKind::Getter,
+            resolved_project_dependency_root_package
+        );
+        primitive!(
+            vm,
+            resolved_project_dependency_cls,
+            "origin",
+            SignatureKind::Getter,
+            resolved_project_dependency_origin
+        );
+
+        let module_dependency_cls = vm.universe.classes.module_dependency_class;
+        primitive!(vm, module_dependency_cls, "module", SignatureKind::Getter, module_dependency_module);
+        primitive!(vm, module_dependency_cls, "phase", SignatureKind::Getter, module_dependency_phase);
+        primitive!(vm, module_dependency_cls, "reason", SignatureKind::Getter, module_dependency_reason);
+
+        let export_table_cls = vm.universe.classes.export_table_class;
+        primitive!(vm, export_table_cls, "names", SignatureKind::Getter, export_table_names);
+        primitive!(vm, export_table_cls, "keys", SignatureKind::Getter, export_table_names);
+        primitive!(vm, export_table_cls, "size", SignatureKind::Getter, export_table_size);
+        primitive!(vm, export_table_cls, "contains", SignatureKind::Method(1), export_table_contains);
+        primitive!(vm, export_table_cls, "descriptor", SignatureKind::Method(1), export_table_descriptor);
+        primitive!(vm, export_table_cls, "get", SignatureKind::Method(1), export_table_get);
+
+        let export_cls = vm.universe.classes.export_class;
+        primitive!(vm, export_cls, "name", SignatureKind::Getter, export_name);
+        primitive!(vm, export_cls, "kind", SignatureKind::Getter, export_kind);
+        primitive!(vm, export_cls, "module", SignatureKind::Getter, export_module);
+        primitive!(vm, export_cls, "value", SignatureKind::Getter, export_value);
+        primitive!(vm, export_cls, "isModule", SignatureKind::Getter, export_is_module);
+        primitive!(vm, export_cls, "isBinding", SignatureKind::Getter, export_is_binding);
+
+        let child_module_table_cls = vm.universe.classes.child_module_table_class;
+        primitive!(vm, child_module_table_cls, "names", SignatureKind::Getter, child_module_table_names);
+        primitive!(vm, child_module_table_cls, "size", SignatureKind::Getter, child_module_table_size);
+        primitive!(vm, child_module_table_cls, "contains", SignatureKind::Method(1), child_module_table_contains);
+        primitive!(vm, child_module_table_cls, "get", SignatureKind::Method(1), child_module_table_get);
+
+        let uri_cls = vm.universe.classes.uri_class;
+        primitive!(vm, uri_cls, "toString", SignatureKind::Getter, uri_to_string);
+        primitive!(vm, uri_cls, "==", SignatureKind::Method(1), uri_eq);
+
+        let module_identity_cls = vm.universe.classes.module_identity_class;
+        primitive!(vm, module_identity_cls, "uri", SignatureKind::Getter, module_identity_uri);
+        primitive!(vm, module_identity_cls, "toString", SignatureKind::Getter, module_identity_to_string);
+
+        let package_identity_cls = vm.universe.classes.package_identity_class;
+        primitive!(vm, package_identity_cls, "toString", SignatureKind::Getter, package_identity_to_string);
+
+        let project_identity_cls = vm.universe.classes.project_identity_class;
+        primitive!(vm, project_identity_cls, "toString", SignatureKind::Getter, project_identity_to_string);
 
         // Kernel `List` (ADR-0019/0020): internal floor primitives use `_$`.
         // `_$length`/`_$at`/`_$set`/`_$push` are wrapped by `.ph`'s
@@ -580,6 +750,21 @@ fn validate_native_surface(vm: &VM) {
         classes.family_class,
         classes.resource_class,
         classes.use_after_close_error_class,
+        classes.package_class,
+        classes.project_class,
+        classes.project_manifest_class,
+        classes.package_info_class,
+        classes.package_author_class,
+        classes.package_requirement_class,
+        classes.resolved_project_dependency_class,
+        classes.module_dependency_class,
+        classes.export_table_class,
+        classes.export_class,
+        classes.child_module_table_class,
+        classes.uri_class,
+        classes.module_identity_class,
+        classes.package_identity_class,
+        classes.project_identity_class,
     ];
     let mut actual = BTreeSet::new();
     for class in rows {

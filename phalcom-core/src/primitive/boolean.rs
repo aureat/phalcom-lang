@@ -1,13 +1,4 @@
 //! Native primitives on `Bool`.
-//!
-//! Beyond `Bool.class::new(_)`, this module registers the sacred-selector
-//! *fallbacks* — the real message-send implementations of `and(_)`, `or(_)`,
-//! `not()`, `ifTrue(_)`, `ifFalse(_)` and `ifTrue(_)ifFalse(_)` (control-flow.md
-//! §2–3). They are what every `Bool`-receiver sacred send resolves to
-//! whether or not the compiler's inliner ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md))
-//! took the fast path for a given call site: the inliner's guarded jump
-//! opcodes are an optimization over calling these, never a divergent
-//! reimplementation of their semantics.
 
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::block::block_call;
@@ -28,18 +19,19 @@ use crate::vm::VM;
 )]
 pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let receiver_id = expect_class(vm, receiver)?;
-    // NOTE(U1/DEFERRED): these two prints are pre-existing debug noise carried
-    // over verbatim to keep behavior identical; they are not exercised by any
-    // golden. Flagged for removal in `docs/forge/DEFERRED.md`.
-    println!("{}", Value::Obj(receiver_id).to_string(vm));
+    println!("{}", Value::obj(receiver_id).to_string(vm));
     let arg = &args[0];
     println!("{}", arg.to_string(vm));
-    match arg {
-        Value::Bool(b) => Ok(if *b { TRUE } else { FALSE }),
-        Value::Nil => Ok(FALSE),
-        Value::Int(n) => Ok(if *n != 0 { TRUE } else { FALSE }),
-        Value::Float(n) => Ok(if *n != 0.0 { TRUE } else { FALSE }),
-        _ => Ok(TRUE),
+    if let Some(b) = arg.as_bool() {
+        Ok(if b { TRUE } else { FALSE })
+    } else if arg.is_nil() {
+        Ok(FALSE)
+    } else if let Some(n) = arg.as_int() {
+        Ok(if n != 0 { TRUE } else { FALSE })
+    } else if let Some(n) = arg.as_float() {
+        Ok(if n != 0.0 { TRUE } else { FALSE })
+    } else {
+        Ok(TRUE)
     }
 }
 
@@ -53,7 +45,7 @@ pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     effects = pure
 )]
 pub fn bool_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let bit = u64::from(matches!(receiver, Value::Bool(true)));
+    let bit = u64::from(receiver.as_bool() == Some(true));
     Ok(crate::primitive::hash_code(bit))
 }
 
@@ -63,14 +55,13 @@ pub fn bool_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a `Bool`.
 fn expect_bool(value: &Value) -> PhResult<bool> {
-    match value {
-        Value::Bool(b) => Ok(*b),
-        other => Err(RuntimeError::Type {
+    value.as_bool().ok_or_else(|| {
+        RuntimeError::Type {
             expected: "Bool",
-            found: other.type_name(),
+            found: value.type_name(),
         }
-        .into()),
-    }
+        .into()
+    })
 }
 
 /// Signature: `Bool::and(_)` — sacred, lazy logical conjunction

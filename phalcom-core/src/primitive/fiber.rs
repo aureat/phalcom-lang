@@ -71,7 +71,7 @@ fn cannot_switch_across_native_frame(vm: &mut VM, rendered: String) -> crate::er
     let field_count = vm.heap.class(class).field_count;
     let mut inst = InstanceObject::new(class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
-    let error = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
+    let error = Value::obj(vm.heap.alloc(Object::Instance(inst)));
     RuntimeError::Raise {
         error,
         rendered,
@@ -116,14 +116,16 @@ fn cannot_resume_across_native_frame(vm: &mut VM) -> crate::error::PhError {
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
 fn expect_fiber(vm: &VM, receiver: &Value) -> PhResult<ObjRef> {
-    match receiver {
-        Value::Obj(id) if vm.heap.as_fiber(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type {
-            expected: "Fiber",
-            found: other.type_name(),
+    if let Some(id) = receiver.as_obj() {
+        if vm.heap.as_fiber(id).is_some() {
+            return Ok(id);
         }
-        .into()),
     }
+    Err(RuntimeError::Type {
+        expected: "Fiber",
+        found: receiver.type_name(),
+    }
+    .into())
 }
 
 /// Validates `entry` as a `Block`/`Closure`, builds a new, not-yet-started
@@ -139,9 +141,9 @@ fn expect_fiber(vm: &VM, receiver: &Value) -> PhResult<ObjRef> {
 ///
 /// Returns [`RuntimeError::Type`] if `entry` is not a `Block`/`Closure`.
 pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
-    match entry {
-        Value::Obj(id) => match vm.heap.get(id) {
-            Object::Block(_) | Object::Closure(_) => {}
+    let entry_id = if let Some(id) = entry.as_obj() {
+        match vm.heap.get(id) {
+            Object::Block(_) | Object::Closure(_) => id,
             _ => {
                 return Err(RuntimeError::Type {
                     expected: "Function",
@@ -149,18 +151,13 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
                 }
                 .into());
             }
-        },
-        other => {
-            return Err(RuntimeError::Type {
-                expected: "Function",
-                found: other.type_name(),
-            }
-            .into());
         }
-    }
-    let entry_id = match entry {
-        Value::Obj(id) => id,
-        _ => unreachable!("checked above"),
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "Function",
+            found: entry.type_name(),
+        }
+        .into());
     };
     #[cfg(feature = "fiber-pool")]
     let mut fiber = {
@@ -238,12 +235,12 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
 ///
 /// Returns [`RuntimeError::Type`] if `args[0]` is not a `Block`/`Closure`.
 pub fn fiber_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Obj(new_fiber_ref(vm, args[0])?))
+    Ok(Value::obj(new_fiber_ref(vm, args[0])?))
 }
 
 /// Signature: `Fiber::current` — the currently-running fiber (`VM::current`).
 pub fn fiber_current(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Obj(vm.current))
+    Ok(Value::obj(vm.current))
 }
 
 /// Signature: `Fiber#isDone` — `true` once the receiver is `Done` or `Failed`.
@@ -260,7 +257,7 @@ pub fn fiber_current(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     let status = vm.heap.fiber(fiber_ref).status;
-    Ok(Value::Bool(matches!(status, FiberStatus::Done | FiberStatus::Failed)))
+    Ok(Value::bool(matches!(status, FiberStatus::Done | FiberStatus::Failed)))
 }
 
 /// Signature: `Fiber#isRoot` — `true` if the receiver is the root fiber, i.e.
@@ -274,7 +271,7 @@ pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// (`core/core.ph`) previously discovered its own root-ness by wrapping a
 /// `Fiber.yield` in `{ … }.attempt()` and inspecting the failure — but
 /// `.attempt()` is itself two nested native re-entrant frames (`block_on` +
-/// `block_call`, each bumping [`crate::vm::VM::native_reentry_depth`]), so the
+/// `block_call`, each bumping `native_reentry_depth`), so the
 /// probe tripped the restricted-yield guard it was probing for and `await`
 /// could never suspend any fiber at all ([E004]). Attempt-and-inspect cannot
 /// work when the attempt changes the answer; a predicate can.
@@ -291,7 +288,7 @@ pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
 pub fn fiber_is_root(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
-    Ok(Value::Bool(vm.heap.fiber(fiber_ref).resumer.is_none()))
+    Ok(Value::bool(vm.heap.fiber(fiber_ref).resumer.is_none()))
 }
 
 /// Signature: `Fiber#error` — the captured `Error` as `Option`, if the
@@ -415,7 +412,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
         let mut bound_args = Vec::with_capacity(shape.fixed_positionals + usize::from(shape.rest.is_some()));
         bound_args.extend_from_slice(&args[..shape.fixed_positionals]);
         if matches!(shape.rest, Some(RestKind::Positional)) {
-            bound_args.push(Value::Obj(vm.heap.alloc_list(args[shape.fixed_positionals..].to_vec())));
+            bound_args.push(Value::obj(vm.heap.alloc_list(args[shape.fixed_positionals..].to_vec())));
         }
         Some((entry, closure_id, home_frame_token, bound_args))
     } else {
@@ -434,7 +431,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
         // `vm.stack`/`vm.frames` are empty here (just taken by
         // `store_live_into` above), so the callee's fresh window starts at 0.
         let stack_offset = vm.stack.len();
-        vm.stack.push(Value::Obj(entry));
+        vm.stack.push(Value::obj(entry));
         vm.stack.extend_from_slice(&bound_args);
         let mut frame = vm.new_call_frame(closure_id, CallContext::Instance { instance: entry }, 0, stack_offset, None);
         frame.home_frame_token = home_frame_token;
@@ -452,7 +449,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
     vm.heap.fiber_mut(callee_ref).floor_depth = vm.native_reentry_depth;
     vm.current = callee_ref;
     vm.switch_pending = true;
-    Ok(Value::Nil)
+    Ok(Value::nil())
 }
 
 /// Signature: `Fiber::yield`/`yield(_)` — suspends the current fiber and
@@ -522,5 +519,5 @@ pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
 
     vm.switch_to_fiber_and_deliver(resumer, value);
     vm.switch_pending = true;
-    Ok(Value::Nil)
+    Ok(Value::nil())
 }

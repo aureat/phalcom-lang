@@ -35,7 +35,7 @@ impl ArgumentPackBuilderObject {
             return Err(PackBuilderError::DuplicateLabel(label));
         }
         self.labels.push(label);
-        self.labeled_values.push(Value::Nil);
+        self.labeled_values.push(Value::nil());
         self.pending_label = Some(self.labels.len() - 1);
         Ok(())
     }
@@ -89,10 +89,10 @@ mod tests {
         let b = Symbol(2);
         let mut pack = ArgumentPackBuilderObject::new();
         pack.reserve_label(a).unwrap();
-        pack.fill_reserved(Value::Int(1)).unwrap();
+        pack.fill_reserved(Value::int(1)).unwrap();
         pack.reserve_label(b).unwrap();
-        pack.fill_reserved(Value::Int(2)).unwrap();
-        assert_eq!(pack.labeled_values(), &[Value::Int(1), Value::Int(2)]);
-        assert_eq!(pack.append_labeled(a, Value::Int(3)), Err(PackBuilderError::DuplicateLabel(a)));
+        pack.fill_reserved(Value::int(2)).unwrap();
+        assert_eq!(pack.labeled_values(), &[Value::int(1), Value::int(2)]);
+        assert_eq!(pack.append_labeled(a, Value::int(3)), Err(PackBuilderError::DuplicateLabel(a)));
     }
 }

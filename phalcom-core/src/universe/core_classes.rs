@@ -169,8 +169,22 @@ impl Universe {
         let use_after_close_error_class = make_core_class(heap, "UseAfterCloseError", error_class, metaclass_class);
 
         let package_class = make_core_class(heap, "Package", module_class, metaclass_class);
-        // Project is the root package object, not a wrapper around one.
-        let project_class = make_core_class(heap, "Project", package_class, metaclass_class);
+        let project_class = make_core_class(heap, "Project", object_class, metaclass_class);
+
+        let project_manifest_class = make_core_class(heap, "ProjectManifest", object_class, metaclass_class);
+        let package_info_class = make_core_class(heap, "PackageInfo", object_class, metaclass_class);
+        let package_author_class = make_core_class(heap, "PackageAuthor", object_class, metaclass_class);
+        let package_requirement_class = make_core_class(heap, "PackageRequirement", object_class, metaclass_class);
+        let resolved_project_dependency_class = make_core_class(heap, "ResolvedProjectDependency", object_class, metaclass_class);
+        let module_dependency_class = make_core_class(heap, "ModuleDependency", object_class, metaclass_class);
+        let export_table_class = make_core_class(heap, "ExportTable", object_class, metaclass_class);
+        let export_class = make_core_class(heap, "Export", object_class, metaclass_class);
+        let export_kind_class = make_core_class(heap, "ExportKind", object_class, metaclass_class);
+        let child_module_table_class = make_core_class(heap, "ChildModuleTable", object_class, metaclass_class);
+        let module_identity_class = make_core_class(heap, "ModuleIdentity", object_class, metaclass_class);
+        let package_identity_class = make_core_class(heap, "PackageIdentity", object_class, metaclass_class);
+        let project_identity_class = make_core_class(heap, "ProjectIdentity", object_class, metaclass_class);
+        let uri_class = make_core_class(heap, "Uri", object_class, metaclass_class);
 
         let res = CoreClasses {
             object_class,
@@ -216,6 +230,20 @@ impl Universe {
             family_class,
             resource_class,
             use_after_close_error_class,
+            project_manifest_class,
+            package_info_class,
+            package_author_class,
+            package_requirement_class,
+            resolved_project_dependency_class,
+            module_dependency_class,
+            export_table_class,
+            export_class,
+            export_kind_class,
+            child_module_table_class,
+            module_identity_class,
+            package_identity_class,
+            project_identity_class,
+            uri_class,
         };
 
         // Mark native representation classes that cannot be allocated via generic InstanceObject::new (new_).
@@ -256,6 +284,20 @@ impl Universe {
             res.option_class,
             res.some_class,
             res.none_class,
+            res.project_manifest_class,
+            res.package_info_class,
+            res.package_author_class,
+            res.package_requirement_class,
+            res.resolved_project_dependency_class,
+            res.module_dependency_class,
+            res.export_table_class,
+            res.export_class,
+            res.export_kind_class,
+            res.child_module_table_class,
+            res.module_identity_class,
+            res.package_identity_class,
+            res.project_identity_class,
+            res.uri_class,
         ];
         for cid in native_repr_classes {
             heap.class_mut(cid).native_repr = true;
@@ -440,6 +482,34 @@ pub struct CoreClasses {
     pub resource_class: ClassId,
     /// `UseAfterCloseError`, error raised when acting on closed resource.
     pub use_after_close_error_class: ClassId,
+    /// `ProjectManifest`.
+    pub project_manifest_class: ClassId,
+    /// `PackageInfo`.
+    pub package_info_class: ClassId,
+    /// `PackageAuthor`.
+    pub package_author_class: ClassId,
+    /// `PackageRequirement`.
+    pub package_requirement_class: ClassId,
+    /// `ResolvedProjectDependency`.
+    pub resolved_project_dependency_class: ClassId,
+    /// `ModuleDependency`.
+    pub module_dependency_class: ClassId,
+    /// `ExportTable`.
+    pub export_table_class: ClassId,
+    /// `Export`.
+    pub export_class: ClassId,
+    /// `ExportKind`.
+    pub export_kind_class: ClassId,
+    /// `ChildModuleTable`.
+    pub child_module_table_class: ClassId,
+    /// `ModuleIdentity`.
+    pub module_identity_class: ClassId,
+    /// `PackageIdentity`.
+    pub package_identity_class: ClassId,
+    /// `ProjectIdentity`.
+    pub project_identity_class: ClassId,
+    /// `Uri`.
+    pub uri_class: ClassId,
 }
 
 impl CoreClasses {
@@ -490,6 +560,20 @@ impl CoreClasses {
             UniverseKey::UseAfterCloseError => self.use_after_close_error_class,
             UniverseKey::Fiber => self.fiber_class,
             UniverseKey::Resource => self.resource_class,
+            UniverseKey::ProjectManifest => self.project_manifest_class,
+            UniverseKey::PackageInfo => self.package_info_class,
+            UniverseKey::PackageAuthor => self.package_author_class,
+            UniverseKey::PackageRequirement => self.package_requirement_class,
+            UniverseKey::ResolvedProjectDependency => self.resolved_project_dependency_class,
+            UniverseKey::ModuleDependency => self.module_dependency_class,
+            UniverseKey::ExportTable => self.export_table_class,
+            UniverseKey::Export => self.export_class,
+            UniverseKey::ExportKind => self.export_kind_class,
+            UniverseKey::ChildModuleTable => self.child_module_table_class,
+            UniverseKey::ModuleIdentity => self.module_identity_class,
+            UniverseKey::PackageIdentity => self.package_identity_class,
+            UniverseKey::ProjectIdentity => self.project_identity_class,
+            UniverseKey::Uri => self.uri_class,
         }
     }
 
@@ -553,6 +637,20 @@ impl CoreClasses {
             family_class,
             resource_class,
             use_after_close_error_class,
+            project_manifest_class,
+            package_info_class,
+            package_author_class,
+            package_requirement_class,
+            resolved_project_dependency_class,
+            module_dependency_class,
+            export_table_class,
+            export_class,
+            export_kind_class,
+            child_module_table_class,
+            module_identity_class,
+            package_identity_class,
+            project_identity_class,
+            uri_class,
         } = self;
 
         for handle in [
@@ -599,6 +697,20 @@ impl CoreClasses {
             family_class,
             resource_class,
             use_after_close_error_class,
+            project_manifest_class,
+            package_info_class,
+            package_author_class,
+            package_requirement_class,
+            resolved_project_dependency_class,
+            module_dependency_class,
+            export_table_class,
+            export_class,
+            export_kind_class,
+            child_module_table_class,
+            module_identity_class,
+            package_identity_class,
+            project_identity_class,
+            uri_class,
         ] {
             push(*handle);
         }

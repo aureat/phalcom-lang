@@ -1062,6 +1062,8 @@ dependencies = [
  "phalcom-type-syntax",
  "rand",
  "ryu",
+ "serde",
+ "serde_json",
  "slotmap",
  "tempfile",
  "thiserror",

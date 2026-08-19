@@ -338,7 +338,7 @@ mod tests {
         let ip = chunk
             .code
             .iter()
-            .position(|op| matches!(op, Bytecode::Invoke(_, sel_idx) if chunk.constants[*sel_idx as usize] == Value::Symbol(selector)))
+            .position(|op| matches!(op, Bytecode::Invoke(_, sel_idx) if chunk.constants[*sel_idx as usize] == Value::symbol(selector)))
             .expect("selector's Invoke site must exist in the warmed chunk");
         assert!(chunk.caches[ip].get().is_some(), "cache must be populated after three warming sends");
         ip
@@ -377,7 +377,7 @@ mod tests {
         let old_entry = chunk.caches[ip].get().unwrap();
 
         fn returns_two(_vm: &mut crate::vm::VM, _recv: &Value, _args: &[Value]) -> crate::error::PhResult<Value> {
-            Ok(Value::Int(2))
+            Ok(Value::int(2))
         }
         let new_method = vm.heap.alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single(
             val_sym,
@@ -426,7 +426,7 @@ mod tests {
         let old_entry = chunk.caches[ip].get().unwrap();
 
         fn returns_two(_vm: &mut crate::vm::VM, _recv: &Value, _args: &[Value]) -> crate::error::PhResult<Value> {
-            Ok(Value::Int(2))
+            Ok(Value::int(2))
         }
         let new_method = vm.heap.alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single(
             get_sym,

@@ -23,6 +23,8 @@ pub struct ResolvedProject {
     /// True only for a persistent project.toml boundary. Synthetic resolved
     /// roots are standalone Package compatibility contexts, not Projects.
     pub persistent_project: bool,
+    /// The validated project manifest, if loaded from a project.toml.
+    pub manifest: Option<crate::manifest::ValidatedProjectManifest>,
 }
 
 impl ResolvedProject {
@@ -165,7 +167,7 @@ impl ProjectUniverse {
             return Err(ProjectError::MissingRootPackage(source_root));
         }
 
-        let entry = if let Some(entry_str) = validated.entry {
+        let entry = if let Some(ref entry_str) = validated.entry {
             let parts: Vec<&str> = entry_str.split('.').collect();
             // First part is namespace; remainder are relative components
             let mut components = Vec::new();
@@ -183,10 +185,10 @@ impl ProjectUniverse {
 
         let mut resolved_dependencies = BTreeMap::new();
 
-        for (alias, (_raw_alias, spec)) in validated.dependencies {
+        for (alias, (_raw_alias, spec)) in &validated.dependencies {
             let dep_manifest_path = match spec {
                 DependencySpec::Path { path } => {
-                    let dep_dir = if path.is_absolute() { path } else { root_dir.join(path) };
+                    let dep_dir = if path.is_absolute() { path.clone() } else { root_dir.join(path) };
                     let dep_manifest = dep_dir.join("project.toml");
                     if !dep_manifest.is_file() {
                         return Err(ProjectError::PathDependencyNotFound(dep_manifest));
@@ -194,14 +196,14 @@ impl ProjectUniverse {
                     dep_manifest
                 }
                 DependencySpec::Package { package, version } => {
-                    let res = dep_provider.resolve_package(&package, &version)?;
+                    let res = dep_provider.resolve_package(package, version)?;
                     res.manifest_path
                 }
             };
 
             let dep_id = self.resolve_project_recursive(&dep_manifest_path, dep_provider, visiting, visited_stack)?;
 
-            resolved_dependencies.insert(alias, dep_id);
+            resolved_dependencies.insert(alias.clone(), dep_id);
         }
 
         visiting.pop();
@@ -221,8 +223,8 @@ impl ProjectUniverse {
 
         let resolved_project = ResolvedProject {
             id: next_id,
-            name: validated.name,
-            namespace: validated.namespace,
+            name: validated.name.clone(),
+            namespace: validated.namespace.clone(),
             root_dir,
             source_root,
             entry,
@@ -230,6 +232,7 @@ impl ProjectUniverse {
             import_roots,
             source_identity: source_identity.clone(),
             persistent_project: true,
+            manifest: Some(validated),
         };
 
         self.projects.push(resolved_project);
@@ -276,6 +279,7 @@ impl ProjectUniverse {
             import_roots,
             source_identity: source_identity.clone(),
             persistent_project: false,
+            manifest: None,
         };
 
         self.projects.push(resolved_project);

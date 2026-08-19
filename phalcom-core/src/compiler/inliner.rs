@@ -122,6 +122,11 @@ pub(crate) enum SacredCall {
     WhileTrue { cond_block: Expr, body_block: Expr },
 }
 
+pub(crate) enum Recognition {
+    Sacred(SacredCall),
+    Ordinary(Box<MethodCallExpr>),
+}
+
 /// Recognizes whether `call` is a sacred-selector call site eligible for
 /// inlining (control-flow.md §3, U5-plan.md §4.2): the `(method, args)`
 /// shape must match one of the sacred selectors exactly, with every
@@ -132,23 +137,23 @@ pub(crate) enum SacredCall {
 /// send, which is correct, just not fast.
 ///
 /// Consumes `call` and returns either the recognized [`SacredCall`] or the
-/// original [`MethodCallExpr`] unchanged (`Err`) so the caller can fall
+/// original [`MethodCallExpr`] unchanged (`Ordinary`) so the caller can fall
 /// through to the ordinary send path with no cloning on the common
 /// (non-sacred) case.
-pub(crate) fn recognize(call: MethodCallExpr) -> Result<SacredCall, MethodCallExpr> {
+pub(crate) fn recognize(call: Box<MethodCallExpr>) -> Recognition {
     let is_literal_block = |a: &PackItem| matches!(a, PackItem::Positional { expr: Expr::Block(_), .. });
     match (call.method.as_str(), call.args.len()) {
         ("ifTrue", 1) if is_literal_block(&call.args[0]) => {
-            let mut args = call.args;
-            Ok(SacredCall::IfTrue {
-                receiver: call.object,
+            let MethodCallExpr { object, mut args, .. } = *call;
+            Recognition::Sacred(SacredCall::IfTrue {
+                receiver: object,
                 then_block: pack_positional_block(args.remove(0)),
             })
         }
         ("ifFalse", 1) if is_literal_block(&call.args[0]) => {
-            let mut args = call.args;
-            Ok(SacredCall::IfFalse {
-                receiver: call.object,
+            let MethodCallExpr { object, mut args, .. } = *call;
+            Recognition::Sacred(SacredCall::IfFalse {
+                receiver: object,
                 else_block: pack_positional_block(args.remove(0)),
             })
         }
@@ -156,37 +161,37 @@ pub(crate) fn recognize(call: MethodCallExpr) -> Result<SacredCall, MethodCallEx
             if is_literal_block(&call.args[0])
                 && matches!(&call.args[1], PackItem::Labeled { label: PackLabel::Static { text, .. }, value: Expr::Block(_), .. } if text == "ifFalse") =>
         {
-            let mut args = call.args;
+            let MethodCallExpr { object, mut args, .. } = *call;
             let else_block = pack_labeled_block(args.remove(1));
             let then_block = pack_positional_block(args.remove(0));
-            Ok(SacredCall::IfTrueIfFalse {
-                receiver: call.object,
+            Recognition::Sacred(SacredCall::IfTrueIfFalse {
+                receiver: object,
                 then_block,
                 else_block,
             })
         }
         ("and", 1) if is_literal_block(&call.args[0]) => {
-            let mut args = call.args;
-            Ok(SacredCall::And {
-                receiver: call.object,
+            let MethodCallExpr { object, mut args, .. } = *call;
+            Recognition::Sacred(SacredCall::And {
+                receiver: object,
                 rhs_block: pack_positional_block(args.remove(0)),
             })
         }
         ("or", 1) if is_literal_block(&call.args[0]) => {
-            let mut args = call.args;
-            Ok(SacredCall::Or {
-                receiver: call.object,
+            let MethodCallExpr { object, mut args, .. } = *call;
+            Recognition::Sacred(SacredCall::Or {
+                receiver: object,
                 rhs_block: pack_positional_block(args.remove(0)),
             })
         }
         ("whileTrue", 1) if is_literal_block(&call.args[0]) && matches!(call.object, Expr::Block(_)) => {
-            let mut args = call.args;
-            Ok(SacredCall::WhileTrue {
-                cond_block: call.object,
+            let MethodCallExpr { object, mut args, .. } = *call;
+            Recognition::Sacred(SacredCall::WhileTrue {
+                cond_block: object,
                 body_block: pack_positional_block(args.remove(0)),
             })
         }
-        _ => Err(call),
+        _ => Recognition::Ordinary(call),
     }
 }
 
@@ -248,7 +253,7 @@ impl<'vm> Compiler<'vm> {
         let owned_labels: Vec<Option<String>> = labels.iter().map(|l| l.map(str::to_string)).collect();
         let selector = encode_selector(name, &owned_labels, SignatureKind::Method(arity));
         let selector_sym = self.vm.interner.intern(&selector);
-        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+        let selector_idx = self.add_constant(Value::symbol(selector_sym));
         self.emit(Bytecode::Invoke(arity, selector_idx), range);
     }
 

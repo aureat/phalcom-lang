@@ -16,3 +16,43 @@ fn builtin_projects_are_disjoint() {
     let std = ModuleId::builtin(BuiltinProject::Std, ModulePath::root());
     assert_ne!(universe.project, std.project);
 }
+
+#[test]
+fn builtin_universe_reflection_children_load() {
+    let provider = BuiltinProjectSourceProvider::new(BuiltinProject::Universe);
+    let children = [
+        "module",
+        "package_object",
+        "project",
+        "project_manifest",
+        "package_info",
+        "package_author",
+        "package_requirement",
+        "resolved_project_dependency",
+        "module_dependency",
+        "export_table",
+        "export",
+        "export_kind",
+        "child_module_table",
+        "module_identity",
+        "package_identity",
+        "project_identity",
+        "uri",
+        "selector",
+        "message",
+        "attribute",
+    ];
+
+    for child in children {
+        let path = ModulePath::from_components(vec![
+            phalcom_modules::ModuleComponent::from_identifier("reflection").unwrap(),
+            phalcom_modules::ModuleComponent::from_identifier(child).unwrap(),
+        ]);
+        let id = ModuleId::builtin(BuiltinProject::Universe, path);
+        assert!(provider.contains(&id.path), "module path {id} should exist in provider");
+        let iface = provider.load_interface(&id).expect(&format!("interface for {id} should load"));
+        assert_eq!(iface.kind, phalcom_modules::ModuleKind::Module);
+        let src = provider.source_text(&id).expect(&format!("source text for {id} should load"));
+        assert!(!src.is_empty(), "source for {id} should not be empty");
+    }
+}

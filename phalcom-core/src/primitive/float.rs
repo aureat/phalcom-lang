@@ -5,7 +5,7 @@ use crate::value::{Value, normalize_bigint};
 use crate::vm::VM;
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{ToPrimitive, Zero};
 
 /// Convert a finite f64 exactly to a rational (Numerator, Denominator)
 pub fn float_to_rational(f: f64) -> (BigInt, BigInt) {
@@ -38,59 +38,52 @@ pub fn float_to_rational(f: f64) -> (BigInt, BigInt) {
 
 /// Helper to check if a Float receiver is finite
 fn expect_finite_float(val: &Value, vm: &mut VM) -> PhResult<f64> {
-    match val {
-        Value::Float(f) => {
-            if f.is_nan() || f.is_infinite() {
-                Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite float".to_string())))
-            } else {
-                Ok(*f)
-            }
+    if let Some(f) = val.as_float() {
+        if f.is_nan() || f.is_infinite() {
+            Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite float".to_string())))
+        } else {
+            Ok(f)
         }
-        _ => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "Float",
             found: val.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
 /// Signature: `Float::abs()`
-pub fn float_abs(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Float(f) => {
-            if f.is_nan() {
-                Ok(Value::Float(f64::NAN))
-            } else {
-                Ok(Value::Float(f.abs()))
-            }
-        }
-        _ => Err(RuntimeError::Type {
+pub fn float_abs(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Some(f) = receiver.as_float() {
+        if f.is_nan() { Ok(Value::float(f64::NAN)) } else { Ok(Value::float(f.abs())) }
+    } else {
+        Err(RuntimeError::Type {
             expected: "Float",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
 /// Signature: `Float::sign()`
-pub fn float_sign(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Float(f) => {
-            if f.is_nan() || f.is_infinite() {
-                Err(RuntimeError::NonFiniteNumber("non-finite sign".to_string()).into())
-            } else if *f == 0.0 {
-                Ok(Value::Int(0))
-            } else if f.is_sign_negative() {
-                Ok(Value::Int(-1))
-            } else {
-                Ok(Value::Int(1))
-            }
+pub fn float_sign(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Some(f) = receiver.as_float() {
+        if f.is_nan() || f.is_infinite() {
+            Err(RuntimeError::NonFiniteNumber("non-finite sign".to_string()).into())
+        } else if f == 0.0 {
+            Ok(Value::int(0))
+        } else if f.is_sign_negative() {
+            Ok(Value::int(-1))
+        } else {
+            Ok(Value::int(1))
         }
-        _ => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "Float",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
@@ -171,56 +164,58 @@ pub fn float_to_int_exact(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 }
 
 /// Signature: `Float::isInteger`
-pub fn float_is_integer(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Float(f) => {
-            if f.is_nan() || f.is_infinite() {
-                Ok(Value::Bool(false))
-            } else {
-                Ok(Value::Bool(f.fract() == 0.0))
-            }
+pub fn float_is_integer(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Some(f) = receiver.as_float() {
+        if f.is_nan() || f.is_infinite() {
+            Ok(Value::bool(false))
+        } else {
+            Ok(Value::bool(f.fract() == 0.0))
         }
-        _ => Err(RuntimeError::Type {
+    } else {
+        Err(RuntimeError::Type {
             expected: "Float",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
 /// Signature: `Float::isNaN`
-pub fn float_is_nan(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Float(f) => Ok(Value::Bool(f.is_nan())),
-        _ => Err(RuntimeError::Type {
+pub fn float_is_nan(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Some(f) = receiver.as_float() {
+        Ok(Value::bool(f.is_nan()))
+    } else {
+        Err(RuntimeError::Type {
             expected: "Float",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
 /// Signature: `Float::isFinite`
-pub fn float_is_finite(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Float(f) => Ok(Value::Bool(f.is_finite())),
-        _ => Err(RuntimeError::Type {
+pub fn float_is_finite(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Some(f) = receiver.as_float() {
+        Ok(Value::bool(f.is_finite()))
+    } else {
+        Err(RuntimeError::Type {
             expected: "Float",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
 /// Signature: `Float::isInfinite`
-pub fn float_is_infinite(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match receiver {
-        Value::Float(f) => Ok(Value::Bool(f.is_infinite())),
-        _ => Err(RuntimeError::Type {
+pub fn float_is_infinite(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Some(f) = receiver.as_float() {
+        Ok(Value::bool(f.is_infinite()))
+    } else {
+        Err(RuntimeError::Type {
             expected: "Float",
             found: receiver.type_name(),
         }
-        .into()),
+        .into())
     }
 }
 
@@ -353,69 +348,66 @@ fn parse_dec_digits(bytes: &[u8], mut i: usize) -> Result<usize, usize> {
 /// Signature: `Float.class::new(_)`
 pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(arg) = args.first() else {
-        return Ok(Value::Float(0.0));
+        return Ok(Value::float(0.0));
     };
-    match arg {
-        Value::Float(n) => Ok(Value::Float(*n)),
-        Value::Int(n) => {
-            // Check overflow boundary
-            let f = *n as f64;
-            if f.is_infinite() {
-                return Err(vm.raise_numeric_error(RuntimeError::TypeConversion {
-                    expected: "Float",
-                    found: "Int (overflow)",
-                }));
-            }
-            Ok(Value::Float(f))
+    if let Some(n) = arg.as_float() {
+        Ok(Value::float(n))
+    } else if let Some(n) = arg.as_int() {
+        let f = n as f64;
+        if f.is_infinite() {
+            return Err(vm.raise_numeric_error(RuntimeError::TypeConversion {
+                expected: "Float",
+                found: "Int (overflow)",
+            }));
         }
-        Value::Obj(id) => {
-            if let Some(b) = vm.heap.as_large_int(*id) {
-                if let Some(f) = b.to_f64() {
-                    if f.is_infinite() {
-                        Err(vm.raise_numeric_error(RuntimeError::TypeConversion {
-                            expected: "Float",
-                            found: "Int (overflow)",
-                        }))
-                    } else {
-                        Ok(Value::Float(f))
-                    }
-                } else {
+        Ok(Value::float(f))
+    } else if let Some(id) = arg.as_obj() {
+        if let Some(b) = vm.heap.as_large_int(id) {
+            if let Some(f) = b.to_f64() {
+                if f.is_infinite() {
                     Err(vm.raise_numeric_error(RuntimeError::TypeConversion {
                         expected: "Float",
                         found: "Int (overflow)",
                     }))
-                }
-            } else if let Some(s) = vm.heap.as_string(*id) {
-                let text = s.value();
-                if let Err(offset) = scan_float_text(&text) {
-                    return Err(RuntimeError::ArgumentError(format!("invalid float text at byte {}", offset)).into());
-                }
-
-                // Once validated, clean underscores and parse
-                let cleaned: String = text.chars().filter(|&c| c != '_').collect();
-                if cleaned == "NaN" {
-                    Ok(Value::Float(f64::NAN))
-                } else if cleaned == "Infinity" {
-                    Ok(Value::Float(f64::INFINITY))
-                } else if cleaned == "-Infinity" {
-                    Ok(Value::Float(f64::NEG_INFINITY))
-                } else if let Ok(f) = cleaned.parse::<f64>() {
-                    Ok(Value::Float(f))
                 } else {
-                    Err(RuntimeError::ArgumentError("invalid float text".to_string()).into())
+                    Ok(Value::float(f))
                 }
             } else {
-                Err(RuntimeError::TypeConversion {
+                Err(vm.raise_numeric_error(RuntimeError::TypeConversion {
                     expected: "Float",
-                    found: arg.type_name(),
-                }
-                .into())
+                    found: "Int (overflow)",
+                }))
             }
+        } else if let Some(s) = vm.heap.as_string(id) {
+            let text = s.value();
+            if let Err(offset) = scan_float_text(&text) {
+                return Err(RuntimeError::ArgumentError(format!("invalid float text at byte {}", offset)).into());
+            }
+
+            let cleaned: String = text.chars().filter(|&c| c != '_').collect();
+            if cleaned == "NaN" {
+                Ok(Value::float(f64::NAN))
+            } else if cleaned == "Infinity" {
+                Ok(Value::float(f64::INFINITY))
+            } else if cleaned == "-Infinity" {
+                Ok(Value::float(f64::NEG_INFINITY))
+            } else if let Ok(f) = cleaned.parse::<f64>() {
+                Ok(Value::float(f))
+            } else {
+                Err(RuntimeError::ArgumentError("invalid float text".to_string()).into())
+            }
+        } else {
+            Err(RuntimeError::TypeConversion {
+                expected: "Float",
+                found: arg.type_name(),
+            }
+            .into())
         }
-        _ => Err(RuntimeError::TypeConversion {
+    } else {
+        Err(RuntimeError::TypeConversion {
             expected: "Float",
             found: arg.type_name(),
         }
-        .into()),
+        .into())
     }
 }

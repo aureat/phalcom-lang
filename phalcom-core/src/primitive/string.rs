@@ -5,7 +5,7 @@
 //! (1) split() crashes unconditionally (core.ph:155 uses bare `List.new`, not `List.new()`)
 //! (2) trim/trimStart/trimEnd fail dispatch (declared as getters, called with `()` parens)
 //! (3) codePointAt(_) is a stub — multi-byte UTF-8 decode never implemented (lines 112 both return None)
-//! (4) Test corpus `tests/lang/strings/` empty; load-bearing tests shelved in `pending/` with #[ignore]
+//! (4) Test corpus `tests/lang/strings/` empty; load-bearing tests shelved in `pending/` with `#[ignore]`
 //! (5) Docs not synced: floor-census.md, core-classes.md, deferred-work.md still omit new bindings
 //! (6) ADR-0049 collision: two files claim same number, conflicting naming (raw* vs _ suffix per U-NATIVE-MARKER)
 //!
@@ -26,15 +26,22 @@ use crate::vm::VM;
     effects = pure
 )]
 pub fn string_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let id = match receiver {
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => *id,
-        other => {
+    let id = if let Some(id) = receiver.as_obj() {
+        if vm.heap.as_string(id).is_some() {
+            id
+        } else {
             return Err(RuntimeError::Type {
                 expected: "String",
-                found: other.type_name(),
+                found: receiver.type_name(),
             }
             .into());
         }
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "String",
+            found: receiver.type_name(),
+        }
+        .into());
     };
     let hash = u64::from(vm.heap.string(id).hash());
     Ok(crate::primitive::hash_code(hash))
@@ -85,17 +92,24 @@ pub fn string_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
     visibility = internal
 )]
 pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let s = match receiver {
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
-        other => {
+    let s = if let Some(id) = receiver.as_obj() {
+        if vm.heap.as_string(id).is_some() {
+            vm.heap.string(id).as_str()
+        } else {
             return Err(RuntimeError::Type {
                 expected: "String",
-                found: other.type_name(),
+                found: receiver.type_name(),
             }
             .into());
         }
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "String",
+            found: receiver.type_name(),
+        }
+        .into());
     };
-    Ok(Value::Int(s.len() as i64))
+    Ok(Value::int(s.len() as i64))
 }
 
 /// Signature: `String::_$byteAt(_)` — read a single raw byte from the buffer.
@@ -109,35 +123,40 @@ pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     visibility = internal
 )]
 pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let s = match receiver {
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
-        other => {
+    let s = if let Some(id) = receiver.as_obj() {
+        if vm.heap.as_string(id).is_some() {
+            vm.heap.string(id).as_str()
+        } else {
             return Err(RuntimeError::Type {
                 expected: "String",
-                found: other.type_name(),
+                found: receiver.type_name(),
             }
             .into());
         }
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "String",
+            found: receiver.type_name(),
+        }
+        .into());
     };
 
-    let idx = match &args[0] {
-        Value::Int(n) => {
-            if *n < 0 {
-                return Ok(vm.none_value());
-            }
-            *n as usize
+    let idx = if let Some(n) = args[0].as_int() {
+        if n < 0 {
+            return Ok(vm.none_value());
         }
-        Value::Float(n) => {
-            if n.fract() != 0.0 || *n < 0.0 {
-                return Ok(vm.none_value());
-            }
-            *n as usize
+        n as usize
+    } else if let Some(n) = args[0].as_float() {
+        if n.fract() != 0.0 || n < 0.0 {
+            return Ok(vm.none_value());
         }
-        _ => return Ok(vm.none_value()),
+        n as usize
+    } else {
+        return Ok(vm.none_value());
     };
 
     if idx < s.len() {
-        Ok(Value::Int(s.as_bytes()[idx] as i64))
+        Ok(Value::int(s.as_bytes()[idx] as i64))
     } else {
         Ok(vm.none_value())
     }
@@ -154,75 +173,74 @@ pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     visibility = internal
 )]
 pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let s = match receiver {
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
-        other => {
+    let s = if let Some(id) = receiver.as_obj() {
+        if vm.heap.as_string(id).is_some() {
+            vm.heap.string(id).as_str()
+        } else {
             return Err(RuntimeError::Type {
                 expected: "String",
-                found: other.type_name(),
+                found: receiver.type_name(),
             }
             .into());
         }
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "String",
+            found: receiver.type_name(),
+        }
+        .into());
     };
 
-    let start = match &args[0] {
-        Value::Int(n) => {
-            if *n < 0 {
-                return Err(RuntimeError::Type {
-                    expected: "valid index",
-                    found: "invalid number",
-                }
-                .into());
-            }
-            *n as usize
-        }
-        Value::Float(n) => {
-            if n.fract() != 0.0 || *n < 0.0 {
-                return Err(RuntimeError::Type {
-                    expected: "valid index",
-                    found: "invalid number",
-                }
-                .into());
-            }
-            *n as usize
-        }
-        _ => {
+    let start = if let Some(n) = args[0].as_int() {
+        if n < 0 {
             return Err(RuntimeError::Type {
-                expected: "number",
-                found: args[0].type_name(),
+                expected: "valid index",
+                found: "invalid number",
             }
             .into());
         }
+        n as usize
+    } else if let Some(n) = args[0].as_float() {
+        if n.fract() != 0.0 || n < 0.0 {
+            return Err(RuntimeError::Type {
+                expected: "valid index",
+                found: "invalid number",
+            }
+            .into());
+        }
+        n as usize
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "number",
+            found: args[0].type_name(),
+        }
+        .into());
     };
 
-    let end = match &args[1] {
-        Value::Int(n) => {
-            if *n < 0 {
-                return Err(RuntimeError::Type {
-                    expected: "valid index",
-                    found: "invalid number",
-                }
-                .into());
-            }
-            *n as usize
-        }
-        Value::Float(n) => {
-            if n.fract() != 0.0 || *n < 0.0 {
-                return Err(RuntimeError::Type {
-                    expected: "valid index",
-                    found: "invalid number",
-                }
-                .into());
-            }
-            *n as usize
-        }
-        _ => {
+    let end = if let Some(n) = args[1].as_int() {
+        if n < 0 {
             return Err(RuntimeError::Type {
-                expected: "number",
-                found: args[1].type_name(),
+                expected: "valid index",
+                found: "invalid number",
             }
             .into());
         }
+        n as usize
+    } else if let Some(n) = args[1].as_float() {
+        if n.fract() != 0.0 || n < 0.0 {
+            return Err(RuntimeError::Type {
+                expected: "valid index",
+                found: "invalid number",
+            }
+            .into());
+        }
+        n as usize
+    } else {
+        return Err(RuntimeError::Type {
+            expected: "number",
+            found: args[1].type_name(),
+        }
+        .into());
     };
 
     // Validate bounds and char boundaries

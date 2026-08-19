@@ -49,13 +49,14 @@ impl ValueExt for Value {
 
 /// Renders `value` without dispatching, for use when `toString` itself raised.
 fn degraded_render(value: Value, vm: &VM) -> String {
-    match value {
-        Value::Obj(id) => match vm.heap.get(id) {
+    if let Some(id) = value.as_obj() {
+        match vm.heap.get(id) {
             Object::Instance(inst) => format!("<instance of {}>", vm.heap.class(inst.class).name_copy()),
             Object::Class(c) => c.name_copy(),
             _ => value.to_string(vm),
-        },
-        _ => value.to_string(vm),
+        }
+    } else {
+        value.to_string(vm)
     }
 }
 
@@ -63,6 +64,7 @@ fn degraded_render(value: Value, vm: &VM) -> String {
 pub struct ReplSession {
     pub vm: VM,
     pub module: ObjRef,
+    pub context: phalcom_core::modules::ModuleExecutionContext,
     pub cwd: PathBuf,
     pub next_cell: usize,
     /// Every cell's source, in submission order — `:reload`'s input (§S9).
@@ -73,11 +75,13 @@ impl ReplSession {
     /// Starts a new REPL session rooted at the given working directory.
     pub fn start(cwd: PathBuf) -> ReplSession {
         let mut vm = VM::new();
+        let context = phalcom_core::modules::ModuleExecutionContext::new(cwd.clone(), "main");
         let abs_path = cwd.display().to_string();
-        let module = vm.create_module("main", &abs_path);
+        let module = vm.create_module_with_id(context.session_id.clone(), phalcom_core::heap::ModuleKind::Module, "main", &abs_path);
         ReplSession {
             vm,
             module,
+            context,
             cwd,
             next_cell: 1,
             history: Vec::new(),
@@ -106,11 +110,19 @@ impl ReplSession {
 
         let is_expr_cell = matches!(program.statements.last(), Some(Statement::Expr { .. }));
 
-        let closure = match self.vm.compile_closure_as(self.module, &src_norm, UnitKind::Repl) {
+        if let Err(err) = self.context.process_cell_dependencies(&mut self.vm, self.module, &program) {
+            eprintln!("Dependency resolution error: {err}");
+            return CellOutcome::Failed;
+        }
+
+        let closure = match self
+            .vm
+            .compile_closure_as_with_bindings(self.module, &src_norm, UnitKind::Repl, Some(self.context.bindings.clone()))
+        {
             Ok(c) => c,
             Err(err) => {
                 let source_id = (self.vm.heap.module(self.module).sources.len().saturating_sub(1)) as u32;
-                self.vm.compiler_error(err, self.module, source_id);
+                self.vm.compiler_error(&err, self.module, source_id);
                 return CellOutcome::Failed;
             }
         };
@@ -140,10 +152,12 @@ impl ReplSession {
         let old_history = std::mem::take(&mut self.history);
         let abs_path = self.cwd.display().to_string();
         let mut new_vm = VM::new();
-        let new_module = new_vm.create_module("main", &abs_path);
+        let new_context = phalcom_core::modules::ModuleExecutionContext::new(self.cwd.clone(), "main");
+        let new_module = new_vm.create_module_with_id(new_context.session_id.clone(), phalcom_core::heap::ModuleKind::Module, "main", &abs_path);
 
         self.vm = new_vm;
         self.module = new_module;
+        self.context = new_context;
         self.next_cell = 1;
         self.history = Vec::new();
 

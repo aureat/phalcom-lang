@@ -108,7 +108,7 @@ pub enum Bytecode {
 
     /// Pushes immediate `None` — the surface absence value
     /// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)) — onto the
-    /// stack. It **never** pushes the private [`crate::value::Value::Nil`]
+    /// stack. It **never** pushes the private [`crate::value::NIL`]
     /// sentinel ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
     ///
     /// Emitted both to seed an uninitialized slot (e.g. a `var x` with no
@@ -262,7 +262,7 @@ pub enum Bytecode {
     /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     Jump(i32),
 
-    /// Pops the top of the stack (expected [`crate::value::Value::Bool`]);
+    /// Pops the top of the stack (expected [`Value::bool`](crate::value::Value::bool));
     /// if it is `false`, adds `offset` to `ip` (see [`Bytecode::Jump`] for the
     /// offset convention); if it is `true`, falls through. If the popped
     /// value is not a `Bool` at all, the VM raises a runtime type error —
@@ -289,7 +289,7 @@ pub enum Bytecode {
     /// `ifFalse(_)`, `ifTrue(_)ifFalse(_)`, `and(_)`, `or(_)`).
     ///
     /// Peeks (does **not** pop) the top of the stack: if it is not
-    /// [`crate::value::Value::Bool`] **or** the kernel `Bool`'s sacred
+    /// [`Value::bool`](crate::value::Value::bool) **or** the kernel `Bool`'s sacred
     /// methods have been redefined since bootstrap
     /// (`!Universe::bool_sacred_pristine`), adds `offset` to `ip`, landing on
     /// the fallback real-send sequence the compiler emits alongside the
@@ -489,7 +489,7 @@ pub enum Bytecode {
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
-    /// histogram in [`opcode_stats`](crate::opcode_stats).
+    /// histogram in `opcode_stats`.
     pub const VARIANTS: usize = 71;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.

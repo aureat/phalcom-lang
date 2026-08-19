@@ -43,6 +43,8 @@ mod pack_builder;
 mod range;
 mod record;
 mod record_literal_builder;
+pub mod reflection;
+pub(crate) mod selector_pattern;
 mod string;
 mod trace;
 mod tuple;
@@ -57,17 +59,22 @@ pub use instance::InstanceObject;
 pub use list::ListObject;
 pub use map::MapObject;
 pub use module::{CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleKind, ModuleObject, RuntimeExportRef};
-pub use object::{BoundMethodFamilyObject, BoundMethodObject, FamilyObject, FamilySpec, MethodFamilyObject, Object, SelectorPatternObject};
+pub use object::{BoundMethodFamilyObject, BoundMethodObject, FamilyObject, FamilySpec, MethodFamilyObject, Object};
 pub use pack_builder::{ArgumentPackBuilderObject, PackBuilderError};
 pub use range::RangeObject;
 pub use record::RecordObject;
 pub use record_literal_builder::RecordLiteralBuilderObject;
+pub use reflection::{
+    ChildModuleTableObject, ExportObject, ExportTableObject, ModuleDependencyObject, ModuleIdentityObject, PackageAuthorObject, PackageIdentityObject,
+    PackageInfoObject, PackageRequirementObject, ProjectIdentityObject, ProjectManifestObject, ProjectObject, ResolvedProjectDependencyObject, UriObject,
+};
+pub use selector_pattern::SelectorPatternObject;
 pub use string::StringObject;
 pub use trace::{trace_frame, trace_object};
 pub use tuple::TupleObject;
 pub use upvalue::Upvalue;
 
-use slotmap::{SecondaryMap, SlotMap, new_key_type};
+use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
 
 new_key_type! {
     /// A `Copy` generational handle to an [`Object`] stored in the [`Heap`].
@@ -78,6 +85,18 @@ new_key_type! {
     /// ([`Heap::get`] / [`Heap::class`] / …). Realizes
     /// [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md).
     pub struct ObjRef;
+}
+
+impl ObjRef {
+    #[inline]
+    pub(crate) fn to_opaque_u64(self) -> u64 {
+        self.data().as_ffi()
+    }
+
+    #[inline]
+    pub(crate) fn from_opaque_u64(raw: u64) -> Self {
+        KeyData::from_ffi(raw).into()
+    }
 }
 
 /// An [`ObjRef`] whose referent is statically intended to be a [`ClassObject`].
@@ -324,6 +343,20 @@ impl Heap {
             Some(Object::LargeInt(_)) => "LargeInt",
             Some(Object::PackBuilder(_)) => "PackBuilder",
             Some(Object::RecordLiteralBuilder(_)) => "RecordLiteralBuilder",
+            Some(Object::Project(_)) => "Project",
+            Some(Object::ProjectManifest(_)) => "ProjectManifest",
+            Some(Object::PackageInfo(_)) => "PackageInfo",
+            Some(Object::PackageAuthor(_)) => "PackageAuthor",
+            Some(Object::PackageRequirement(_)) => "PackageRequirement",
+            Some(Object::ResolvedProjectDependency(_)) => "ResolvedProjectDependency",
+            Some(Object::ModuleDependency(_)) => "ModuleDependency",
+            Some(Object::ExportTable(_)) => "ExportTable",
+            Some(Object::Export(_)) => "Export",
+            Some(Object::ChildModuleTable(_)) => "ChildModuleTable",
+            Some(Object::ModuleIdentity(_)) => "ModuleIdentity",
+            Some(Object::PackageIdentity(_)) => "PackageIdentity",
+            Some(Object::ProjectIdentity(_)) => "ProjectIdentity",
+            Some(Object::Uri(_)) => "Uri",
             None => "<stale>",
         }
     }

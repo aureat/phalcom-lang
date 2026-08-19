@@ -659,6 +659,38 @@ pub(crate) fn rebuild_affected_state(
     Some(trace)
 }
 
+/// Diffs callable dependency edges against the currently published working
+/// graph. Unchanged callables retain their reverse edges untouched.
+fn update_callable_edges(state: &mut SemanticState) {
+    let mut identities = state.callable_dependencies.keys().cloned().collect::<BTreeSet<_>>();
+    identities.extend(state.summaries.keys().cloned());
+    for callable in identities {
+        let old = state.callable_dependencies.get(&callable).cloned().unwrap_or_default();
+        let new = state
+            .summaries
+            .get(&callable)
+            .map(|summary| summary.dependencies.iter().cloned().collect::<BTreeSet<_>>())
+            .unwrap_or_default();
+        for dependency in old.difference(&new) {
+            if let Some(dependents) = Arc::make_mut(&mut state.callable_dependents).get_mut(dependency) {
+                dependents.remove(&callable);
+            }
+        }
+        for dependency in new.difference(&old) {
+            Arc::make_mut(&mut state.callable_dependents)
+                .entry(dependency.clone())
+                .or_default()
+                .insert(callable.clone());
+        }
+        if new.is_empty() {
+            Arc::make_mut(&mut state.callable_dependencies).remove(&callable);
+        } else {
+            Arc::make_mut(&mut state.callable_dependencies).insert(callable, new);
+        }
+    }
+    Arc::make_mut(&mut state.callable_dependents).retain(|_, dependents| !dependents.is_empty());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -868,36 +900,4 @@ class Service {
         assert!(!trace.callables_recomputed.iter().any(|id| id.selector == "g()"));
         let _ = consumer;
     }
-}
-
-/// Diffs callable dependency edges against the currently published working
-/// graph. Unchanged callables retain their reverse edges untouched.
-fn update_callable_edges(state: &mut SemanticState) {
-    let mut identities = state.callable_dependencies.keys().cloned().collect::<BTreeSet<_>>();
-    identities.extend(state.summaries.keys().cloned());
-    for callable in identities {
-        let old = state.callable_dependencies.get(&callable).cloned().unwrap_or_default();
-        let new = state
-            .summaries
-            .get(&callable)
-            .map(|summary| summary.dependencies.iter().cloned().collect::<BTreeSet<_>>())
-            .unwrap_or_default();
-        for dependency in old.difference(&new) {
-            if let Some(dependents) = Arc::make_mut(&mut state.callable_dependents).get_mut(dependency) {
-                dependents.remove(&callable);
-            }
-        }
-        for dependency in new.difference(&old) {
-            Arc::make_mut(&mut state.callable_dependents)
-                .entry(dependency.clone())
-                .or_default()
-                .insert(callable.clone());
-        }
-        if new.is_empty() {
-            Arc::make_mut(&mut state.callable_dependencies).remove(&callable);
-        } else {
-            Arc::make_mut(&mut state.callable_dependencies).insert(callable, new);
-        }
-    }
-    Arc::make_mut(&mut state.callable_dependents).retain(|_, dependents| !dependents.is_empty());
 }

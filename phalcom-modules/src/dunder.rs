@@ -43,12 +43,13 @@ pub struct DunderPolicy {
 impl Default for DunderPolicy {
     fn default() -> Self {
         let mut standardized = BTreeMap::new();
-        for name in ["__module__", "__package__", "__project__"] {
+        for name in ["__module__", "__package__", "__root__", "__project__"] {
             standardized.insert(name, DunderCategory::Intrinsic);
         }
         for name in [
             "__name__",
             "__id__",
+            "__uri__",
             "__path__",
             "__exports__",
             "__export__",

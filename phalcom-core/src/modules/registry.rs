@@ -18,13 +18,17 @@ pub enum ModuleState {
     Failed,
 }
 
+use std::sync::Arc;
+
+pub type ModuleFailureRef = Arc<ModuleFailure>;
+
 /// Structured failure cause recorded when module initialization fails.
 #[derive(Clone, Debug)]
 pub enum ModuleFailure {
     /// This module's own top-level initializer threw an error.
-    Initializer { cause: Box<PhError> },
+    Initializer { cause: Arc<PhError> },
     /// A required dependency failed to initialize.
-    Dependency { dependency: ModuleId, cause: Box<ModuleFailure> },
+    Dependency { dependency: ModuleId, cause: ModuleFailureRef },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -45,7 +49,7 @@ pub struct ModuleRecord {
     /// Current initialization state.
     pub state: ModuleState,
     /// Sticky failure cause if state is Failed.
-    pub failure: Option<ModuleFailure>,
+    pub failure: Option<ModuleFailureRef>,
 }
 
 impl ModuleRecord {
