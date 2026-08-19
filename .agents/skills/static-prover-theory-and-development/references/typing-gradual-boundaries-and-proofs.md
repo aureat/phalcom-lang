@@ -89,7 +89,7 @@ rather than globally interning a new `IntBetween1And9` unless refinement types a
 If a value has dynamic language type or semantically unconstrained runtime object behavior, an operation can still become provable after runtime validation:
 
 ```text
-if x.isA(Int) {
+if x.is(Int) {
   // success path has evidence x : Int
 }
 ```

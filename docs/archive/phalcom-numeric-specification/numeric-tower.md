@@ -370,8 +370,8 @@ The following are required:
 ```phalcom
 1.class == Int
 1.0.class == Float
-Int.isA(Number)
-Float.isA(Number)
+Int.is(Number)
+Float.is(Number)
 ```
 
 Large Int representation is never reflected as a distinct class.

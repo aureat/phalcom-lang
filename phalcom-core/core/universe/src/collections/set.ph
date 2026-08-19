@@ -39,7 +39,7 @@ class Set {
   // "every element of self is in other" is sufficient since neither set
   // holds duplicates (add_ is idempotent).
   ==(_ other) {
-    if (other.isA(Set)) {
+    if (other.is(Set)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {

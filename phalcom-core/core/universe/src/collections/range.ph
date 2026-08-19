@@ -15,7 +15,7 @@ class Range is Iterable {
   @private
   isSliceCoordinate(_ value) {
     // TODO(NUMERIC-TOWER): require Int once the tower is fully landed.
-    return value.isA(Number) and ((value % 1) == 0)
+    return value.is(Number) and ((value % 1) == 0)
   }
 
   @private
@@ -172,7 +172,7 @@ class Range is Iterable {
   }
 
   ==(_ other) {
-    other.isA(Range).ifFalse || { return false }
+    other.is(Range).ifFalse || { return false }
     return (self._$lower == other._$lower) and
            (self._$upper == other._$upper) and
            (self._$upperInclusive == other._$upperInclusive)

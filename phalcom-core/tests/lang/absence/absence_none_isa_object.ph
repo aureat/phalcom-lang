@@ -7,6 +7,6 @@
 // `None` is `isA(Object)`, answers `respondsTo(_:)` like any instance, and
 // its own class name is `"None"`.
 
-System.print(None.isA(Object))
+System.print(None.is(Object))
 System.print(None.respondsTo(Symbol.new("toString")))
 System.print(None.class.name)

@@ -18,4 +18,4 @@ class Square is Shape { area { 4 }
 }
 
 System.print(Square.new().area)
-System.print(Square.new().isA(Shape))
+System.print(Square.new().is(Shape))

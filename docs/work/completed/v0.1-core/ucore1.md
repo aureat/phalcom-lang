@@ -88,7 +88,7 @@ singletons (the old U11) remain a **separate** later unit and are untouched here
 | `Object#==` / `!=` (identity, string content) | ✅ floor | `universe.rs` L246–247; `value.rs::value_eq` L226 |
 | `Object#hash` | ❌ **absent** | not in `install_primitives` (`universe.rs` L238–256) |
 | `Number`/`String`/`Symbol`/`Bool` `hash` | ❌ **absent** | — |
-| `Object#isA(_)` | ❌ **absent** | `metaclass/pending/metaclass_is_a` fails: `3.isA(Number)` → dNU `isA(_:)` |
+| `Object#isA(_)` | ❌ **absent** | `metaclass/pending/metaclass_is_a` fails: `3.is(Number)` → dNU `isA(_:)` |
 | `Behavior#name` (class's **own** name) | ❌ **wrong today** | `Object#name` (`object_name`, `object.rs` L23) returns `receiver.class(vm).name` → for a class receiver `C` this is the **metaclass** name `"C class"`, not `"C"` |
 | `Behavior#methods` (method-dict enum) | ❌ **absent** | no accessor to `ClassObject.methods` (`class.rs` L34) from `.ph` |
 | `Method` superclass | ⚠️ **wrong** | `make_core_class(heap, "Method", object_class, …)` → `Method < Object` (`universe.rs` L147); ADR-0006 requires `Method < Function` |
@@ -371,7 +371,7 @@ later-defined `core.ph` class, so it is acyclic at any position; place it first
   L138).
 - **Immediate receivers work**: `3.class` = `Number` via `object_class`
   (`value.rs::class` handles immediates), then the walk `Number → Object → None`.
-- **Class receivers work**: `Number.isA(Class)` walks the metaclass chain
+- **Class receivers work**: `Number.is(Class)` walks the metaclass chain
   (`Number class → … → Class`) → `true`, matching Smalltalk `isKindOf:`.
 
 ---
@@ -441,7 +441,7 @@ corpus (`tests/invariants.rs`).
 | # | Assertion | Where |
 |---|---|---|
 | **1.1** | Closes R-INV-0.1…0.4 (this is the first impl unit — it erects the substrate). | H + C |
-| **1.2** | `isA(_)` reflexive + superclass-closed: `x.isA(x.class)` is `true`; `x.isA(Object)` is `true` for every `x`; `x.isA(C) ⇔ C` on `x.class`'s superclass chain (test an immediate, a user instance, and a class receiver). | C |
+| **1.2** | `isA(_)` reflexive + superclass-closed: `x.is(x.class)` is `true`; `x.is(Object)` is `true` for every `x`; `x.is(C) ⇔ C` on `x.class`'s superclass chain (test an immediate, a user instance, and a class receiver). | C |
 | **1.3** | `hash`↔`==` consistency: `a == b ⇒ a.hash == b.hash`. Assert `Number` (`3==3`), `String` (two equal-content, distinct-handle strings), `Bool`, and identity objects (same handle). **Symbol caveat:** `value_eq` makes symbol pairs never `==` today (catalog-delta §2.3), so assert Symbol as **stability** (two references to the same interned symbol hash equal) rather than via surface `==`. | C |
 | **1.4** | `hash` **stable** across repeated calls on the same receiver within a run (each kind). | C |
 | **1.5** | `Method.superclass == Function`; parallel rule holds for `Method` (R-INV-0.2 incl. Method); `Method` responds to the `Function` call-protocol selectors (`arity`, `name`, `call…`, `callWith`). | H + C |
@@ -453,7 +453,7 @@ corpus (`tests/invariants.rs`).
   false.hash` → `false`; `"ab".hash == "ab".hash` → `true` (content, not handle).
   *(Goldens must not pin the exact hash number — only these relations — so any
   valid digest choice passes.)*
-- `3.isA(Number)` → `true`; `3.isA(String)` → `false`; `3.isA(Object)` → `true`.
+- `3.is(Number)` → `true`; `3.is(String)` → `false`; `3.is(Object)` → `true`.
 - `Number.name` → `"Number"` (was `"Number class"` before the fix).
 
 ### 5.4 floor-census delta (apply in the same change)
@@ -481,12 +481,12 @@ bump to 80 in lockstep with the primitive installs so the bump is deliberate.
 ### 6.1 Acceptance bar — a direct pending flip + new unit-local fixtures
 
 - **Direct flip (retire):** `git mv metaclass/pending/metaclass_is_a.* metaclass/`
-  — `3.isA(Number)`/`3.isA(String)` (already-`.expected`ed `true`/`false`) goes
+  — `3.is(Number)`/`3.is(String)` (already-`.expected`ed `true`/`false`) goes
   green on `.ph` `isA(_)` in **plain syntax**. This is the clean acceptance
   fixture (pending-retirement §4).
 - **New unit-local fixtures** (already-supported syntax; the real acceptance bar,
   per pending-retirement §4's "set your own bar, not a lexer-gated one"):
-  - `metaclass/metaclass_is_a_object_root.ph` → `System.print(3.isA(Object))` ⇒
+  - `metaclass/metaclass_is_a_object_root.ph` → `System.print(3.is(Object))` ⇒
     `true`.
   - `reflection/hash_stable.ph` → `System.print(3.hash == 3.hash)` ⇒ `true`.
   - `reflection/hash_distinct.ph` → `System.print(3.hash == 4.hash)` ⇒ `false`.
@@ -532,7 +532,7 @@ U-CORE-3, not on this unit (pending-retirement §3).
 
 ## §7. Must-not-preclude (forward-compat)
 
-| §4 Int/Float split | **Cleared.** `Number#hash` digests the **mathematical value** (integral values → their integer), so a future `Integer 2` and `Float 2.0` hash equal (open-Q2). `isA(_)` walks the class chain, so `2.isA(Number)` stays `true` when `Number` becomes an abstract root over `Integer`/`Float` (they slot under it). `Object#hash` (identity) is value-representation-agnostic. |
+| §4 Int/Float split | **Cleared.** `Number#hash` digests the **mathematical value** (integral values → their integer), so a future `Integer 2` and `Float 2.0` hash equal (open-Q2). `isA(_)` walks the class chain, so `2.is(Number)` stays `true` when `Number` becomes an abstract root over `Integer`/`Float` (they slot under it). `Object#hash` (identity) is value-representation-agnostic. |
 |---|---|
 | **§1 Value openness / concurrency** | **Cleared.** `isA(_)` is `.ph` (no closed `Value` match). `object_hash` routes non-`Obj` receivers through a `Value`-level helper with a catch-all, so adding a `Value::Fiber` arm needs no edit to `object_hash`; a `Fiber` class would inherit `Object#hash` and respond to `isA(_)` with no primitive change. `behavior_*` read the tower, not a global stack. |
 | **§3 Modules / imports** | **Cleared.** New names land on the **core module**: `isA(_)` via `core.ph` (a core-module reopen); `hash`/`name`/`methods` as primitives on tower classes reached through method lookup — **not** an ad-hoc flat global-by-raw-string table. A future `import` (open-Q8) can re-scope them without a breaking change. |

@@ -104,7 +104,7 @@ class String {
   // Find first occurrence of a substring, scanning left-to-right by byte.
   // O(n·m) naive search. Returns the byte offset, or -1 if not found.
   indexOf(_ needle) {
-    (needle.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (needle.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("indexOf: needle must be a String")
     })
     (needle.isEmpty).ifTrue(|| {
@@ -129,7 +129,7 @@ class String {
 
   // Split by delimiter substring. Returns a List of String segments.
   split(_ delimiter) {
-    (delimiter.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (delimiter.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("split: delimiter must be a String")
     })
     (delimiter.isEmpty).ifTrue(|| {
@@ -153,10 +153,10 @@ class String {
 
   // Replace all occurrences of `from` with `to`.
   replace(_ needle, _ to) {
-    (needle.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (needle.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: from must be a String")
     })
-    (to.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (to.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: to must be a String")
     })
     (needle.isEmpty).ifTrue(|| {
@@ -192,7 +192,7 @@ class String {
 
   // Trim from the start using the given charset.
   trimStart(_ chars) {
-    (chars.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (chars.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("trimStart: chars must be a String")
     })
 
@@ -218,7 +218,7 @@ class String {
 
   // Trim from the end using the given charset.
   trimEnd(_ chars) {
-    (chars.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (chars.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("trimEnd: chars must be a String")
     })
 
@@ -251,7 +251,7 @@ class String {
 
   // Repeat the string `count` times.
   *(_ count) {
-    (count.isA(Number)).ifTrue(|| {}, ifFalse: || {
+    (count.is(Number)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("*: count must be a Number")
     })
     (count >= 0).ifTrue(|| {}, ifFalse: || {

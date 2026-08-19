@@ -6,5 +6,5 @@
 
 let err = ArgumentError.new("age must be >= 0")
 System.print(err.message)
-System.print(err.isA(Error))
-System.print(err.isA(ArgumentError))
+System.print(err.is(Error))
+System.print(err.is(ArgumentError))

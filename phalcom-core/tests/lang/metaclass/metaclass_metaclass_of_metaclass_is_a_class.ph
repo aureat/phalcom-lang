@@ -11,5 +11,5 @@
 
 class Point {
 }
-System.print(Point.class.class.isA(Class))
-System.print(Point.class.isA(Class))
+System.print(Point.class.class.is(Class))
+System.print(Point.class.is(Class))

@@ -1925,43 +1925,43 @@ and does not trigger a "field on self" diagnostic.
 Once runtime and REPL convergence is complete:
 
 ```text
-ph> __module__
+>>> __module__
 <Module ...repl...>
 
-ph> __package__
+>>> __package__
 Some(<Package app>)      # project REPL
 
-ph> __root__
+>>> __root__
 Some(<Package app>)
 
-ph> __project__
+>>> __project__
 <Project app>
 ```
 
 Standalone:
 
 ```text
-ph> __module__
+>>> __module__
 <Module ...repl...>
 
-ph> __package__
+>>> __package__
 None
 
-ph> __root__
+>>> __root__
 None
 
-ph> __project__
+>>> __project__
 context diagnostic
 ```
 
 After importing:
 
 ```text
-ph> import std
-ph> std.packageInfo
+>>> import std
+>>> std.packageInfo
 <PackageInfo std ...>
 
-ph> std.__project__
+>>> std.__project__
 MessageNotUnderstood / selector absent
 ```
 

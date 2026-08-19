@@ -10,7 +10,7 @@ let map_res = list_123.map |x| {
   x * 2
 }
 System.print(counter)
-System.print(map_res.isA(List))
+System.print(map_res.is(List))
 System.print(map_res.at(0))
 System.print(map_res.at(1))
 System.print(map_res.at(2))

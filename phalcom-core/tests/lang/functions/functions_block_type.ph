@@ -5,7 +5,7 @@
 // becomes `isA(Closure)` — Phalcom's concrete callable is `Closure`, with the
 // abstract `Function` as its root (ADR-0006); `.type` becomes `.class`.
 
-System.print(|| { 0 }.isA(Closure))
-System.print(|| { 0 }.isA(Object))
-System.print(|| { 0 }.isA(String))
+System.print(|| { 0 }.is(Closure))
+System.print(|| { 0 }.is(Object))
+System.print(|| { 0 }.is(String))
 System.print(|| { 0 }.class == Closure)

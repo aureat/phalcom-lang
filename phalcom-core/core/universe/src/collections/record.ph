@@ -3,7 +3,7 @@ class Record {
   labelAt(_ index) { self._$labelAt(index) }
 
   ==(_ other) {
-    if (other.isA(Record)) {
+    if (other.is(Record)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {

@@ -6,7 +6,7 @@
 // already establishes the pattern) — ported onto `isA(_)` (walks the
 // superclass chain) and `.class` (the receiver's own defining class) instead
 // of `is`/`.type`.
-System.print("s".isA(String))
-System.print("s".isA(Object))
-System.print("s".isA(Number))
+System.print("s".is(String))
+System.print("s".is(Object))
+System.print("s".is(Number))
 System.print("s".class == String)

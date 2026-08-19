@@ -274,7 +274,7 @@ poisoning the other's optimization story.
 ## Interaction with dynamic typing
 
 Under runtime-checked types, a binding/parameter annotation is an **Install-tier
-decorator** — a wrapper that checks `arg.isA(T)` (or protocol conformance) on
+decorator** — a wrapper that checks `arg.is(T)` (or protocol conformance) on
 entry and raises `TypeError` on violation. Consequences:
 
 - Types, contracts (`@requires`/`@ensures`), and value-level decorators

@@ -74,7 +74,7 @@ the floor-division identity remains defined only for nonzero divisors.
 
 ## 4. Reflection
 
-`1.class == Int`; `1.0.class == Float`; `Int.isA(Number)` and `Float.isA(Number)` are true in
+`1.class == Int`; `1.0.class == Float`; `Int.is(Number)` and `Float.is(Number)` are true in
 the ordinary class relationship sense. `Number`, `Int`, and `Float` participate in normal selector
 reflection and method lookup. Abstractness changes allocation only: it does not hide `Number` or
 make its inherited selectors disappear.

@@ -413,7 +413,7 @@ wrong-value bugs, not a build failure), which is worse than a non-atomic build o
 
 ## 7. Test strategy (the green gate must assert) — reuse the `iteration` label
 - **Route-B protocol (PASS):** direct `xs.iterate(None)` → the bare `0` (a `Number`, **not** an
-  `Option`/`Some` instance — assert `xs.iterate(None).isA(Number)` or equivalent, not merely
+  `Option`/`Some` instance — assert `xs.iterate(None).is(Number)` or equivalent, not merely
   `== 0`, to catch an accidental `Some`-wrap regression); `xs.iterate(0)` → `1`; past-end →
   identically `None` (the singleton, `is` / identity-equal, not just `==`).
 - **Zero-allocation structural proof (disasm, PASS):** a probe class/method reproducing the

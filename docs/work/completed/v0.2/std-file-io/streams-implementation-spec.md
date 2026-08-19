@@ -56,7 +56,7 @@ class BytesReader is Resource {
 }
 ```
 
-- `read(dst)`: `dst.isA(Bytes)` guard (raise `ArgumentError` otherwise); raise
+- `read(dst)`: `dst.is(Bytes)` guard (raise `ArgumentError` otherwise); raise
   `UseAfterCloseError` if `self.isClosed` (stream-protocol §3.1 law 5 — precondition
   raise, not `Err`); copy `n = min(dst.size, remaining)` octets via
   `_data.slice(_pos, _pos + n).copyInto(dst, 0)` (two native bulk ops, zero per-byte

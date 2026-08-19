@@ -146,8 +146,8 @@ These remain ordinary object-model operations:
 Some(42).class == Some
 None.class != None
 
-Some(42).isA(Option) == true
-None.isA(Option) == true
+Some(42).is(Option) == true
+None.is(Option) == true
 ```
 
 No heap object is created to answer them.
@@ -1652,7 +1652,7 @@ System.print(Some.call(42))
 System.print(Some.new(42))
 System.print(Some(42) == Some.call(42))
 System.print(Some(42).class == Some)
-System.print(Some(42).isA(Option))
+System.print(Some(42).is(Option))
 ```
 
 Expected:

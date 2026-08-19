@@ -196,7 +196,7 @@ For each method the generator emits a **contract view**, assembling the two laye
 1. **Selector** — canonical comma-form (§4), e.g. `deposit(_)`, `move(_,to,duration)`.
 2. **Summary** — first paragraph of the `///` block (§2).
 3. **Signature + types** — params; each `x @ Type` (which desugars to
-   `@requires(x.isA(Type))`, D-contract-2) rendered as a type row.
+   `@requires(x.is(Type))`, D-contract-2) rendered as a type row.
 4. **Requires** — every `@requires` predicate, source-printed.
 5. **Ensures** — every `@ensures` predicate, with `old(...)` shown verbatim.
 6. **Invariant** — the class-level `@invariant`(s), conjoined

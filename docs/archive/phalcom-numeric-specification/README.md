@@ -77,8 +77,8 @@ The following are no longer open:
 ```text
 1.class == Int
 1.0.class == Float
-Int.isA(Number)
-Float.isA(Number)
+Int.is(Number)
+Float.is(Number)
 Number is allocator-abstract
 Bool is not numeric
 Int is exact and unbounded

@@ -13,7 +13,7 @@
 
 ## Context
 
-Type testing today is a plain message: `x.isA(T)` (`Object#isA(_)`, landed U-CORE-1,
+Type testing today is a plain message: `x.is(T)` (`Object#isA(_)`, landed U-CORE-1,
 `.ph` over the floor — [object-model.md §8](../object-model.md)). This note adds a small
 family of **surface operators** that desugar to two overridable ("magic") methods,
 giving the two membership questions a language and either polarity a spelling:
@@ -117,7 +117,7 @@ class Object {
   // This IS the existing isA(_) semantics — isA becomes an alias (below).
   // No RHS-is-a-class guard: a non-class `cls` simply never matches any `c`
   // in the chain, so the walk returns false (I-4). A guard cannot live here —
-  // `cls.isA(…)` would re-enter `is` through the alias and recurse forever.
+  // `cls.is(…)` would re-enter `is` through the alias and recurse forever.
   is(cls) {
     var c = self.class
     while (c != None) {
@@ -136,7 +136,7 @@ class Object {
 ```
 
 `is(_)` subsumes the landed `isA(_)`; `isA(_)` stays as an alias so U-CORE-1 code and
-fixtures (`3.isA(Number)`) keep working. New code uses the operators; `isA` is not
+fixtures (`3.is(Number)`) keep working. New code uses the operators; `isA` is not
 deprecated, just no longer canonical.
 
 Negation is not a method: the compiler lowers a trailing `not` particle to `.not` on the
@@ -273,7 +273,7 @@ onlySubclass(x) { return x is Widget and x is! not Widget }  // kind-of Widget, 
 |---|---|
 | I-2 | Should `is` fall through to `super.is(cls)` by default so overrides compose (shown), or is the default `is` final and non-overridable-for-lying, with only proxies granted the hook? |
 | I-3 | Does `isExactly` compare by class **identity** (`==`) or by class **name** (to survive class reloading / image migration where a class object is re-created)? Identity is stricter; name survives reload. |
-| I-4 | *(closed — `false`)* A non-class RHS returns `false`: the chain walk never matches a non-class value, so this needs no guard. A raising variant would need a **non-recursive** native class-predicate (a plain guard `cls.isA(…)` re-enters `is` via the alias and recurses forever) — deferred until such a primitive exists; it would also break U-IS's floor-0. Cost accepted: `x is 3` typos read as `false` rather than erroring. |
+| I-4 | *(closed — `false`)* A non-class RHS returns `false`: the chain walk never matches a non-class value, so this needs no guard. A raising variant would need a **non-recursive** native class-predicate (a plain guard `cls.is(…)` re-enters `is` via the alias and recurses forever) — deferred until such a primitive exists; it would also break U-IS's floor-0. Cost accepted: `x is 3` typos read as `false` rather than erroring. |
 | I-5 | Do `is!` / `is! not` earn their keep, or ship only `is` + `is not` (kind-of ± negation) and leave *exact* to the method `x.isExactly(T)`? The two-suffix grammar is orthogonal but the strict form is rarely reached for. |
 | I-6 | Interaction with `match`/destructuring ([destructuring.md](../destructuring.md)): may a pattern arm use `is T` as a guard, and if so does it bind/narrow, or stay a plain `Bool` guard? |
 | I-7 | *(closed — Fork A)* Negation is the single `not` keyword: `not x`, `x.not`, and the `is not` particle all share it; prefix `!` retires (`!=` survives); `x is not T` uses the compound-operator disambiguation rule above. The alternative (keep `!x`, make `not` only an is-particle) is rejected — one negation concept over two spellings. |

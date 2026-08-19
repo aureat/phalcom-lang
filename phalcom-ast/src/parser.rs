@@ -2251,7 +2251,15 @@ impl<'source> Parser<'source> {
             Token::GreaterEqual => ">=".to_string(),
             Token::And => "and".to_string(),
             Token::Or => "or".to_string(),
-            Token::Is => "is".to_string(),
+            Token::Is => {
+                let is_end = self.tokens[self.pos].end;
+                if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].token, Token::Bang) && self.tokens[self.pos + 1].start == is_end {
+                    self.advance(); // consume `is`
+                    self.advance(); // consume `!`
+                    return Ok("is!".to_string());
+                }
+                "is".to_string()
+            }
             // `from` is a module-syntax keyword, but remains valid as a
             // selector for existing APIs such as `Map.from(...)`.
             Token::From => "from".to_string(),
@@ -2973,7 +2981,7 @@ impl<'source> Parser<'source> {
     /// - `x is T` desugars to the send `x.is(T)` (subclass-inclusive).
     /// - `x is! T` (a `!` **contiguous** with `is`, i.e. no whitespace
     ///   between — the same adjacency test `selectors.md §2` uses for
-    ///   `#move`) desugars to `x.isExactly(T)` (live direct-class identity).
+    ///   `#move`) desugars to `x.is!(T)` (live direct-class identity).
     /// - A `not` particle immediately after `is`/`is!` is **always** the
     ///   negation particle (Python's `is not` rule: it is consumed greedily
     ///   here and is never parsed as a prefix on the RHS), wrapping the base
@@ -3008,7 +3016,7 @@ impl<'source> Parser<'source> {
 
         let rhs = self.parse_binary(4)?;
         let range = (start..self.prev_end).into();
-        let method = if strict { "isExactly" } else { "is" }.to_string();
+        let method = if strict { "is!" } else { "is" }.to_string();
         let base = Expr::MethodCall(Box::new(MethodCallExpr {
             object: left,
             method,
@@ -3540,8 +3548,15 @@ impl<'source> Parser<'source> {
                 Ok("or".to_string())
             }
             Token::Is => {
-                self.advance();
-                Ok("is".to_string())
+                let is_end = self.tokens[self.pos].end;
+                if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].token, Token::Bang) && self.tokens[self.pos + 1].start == is_end {
+                    self.advance(); // consume `is`
+                    self.advance(); // consume `!`
+                    Ok("is!".to_string())
+                } else {
+                    self.advance();
+                    Ok("is".to_string())
+                }
             }
             _ => Err(self.error_here(strs(&["identifier", "\"class\"", "operator"]))),
         }

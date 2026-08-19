@@ -42,7 +42,7 @@ Family  (a *reference* to a Method-to-be, not a subclass of Function —
 
 `Function` is **abstract** ([object-model.md §2](../object-model.md)): no value has it
 as direct class. `x.class` for any callable is `Block` or `Method`, never `Function`;
-`x.isA(Function)` is true for both. It exists only to give the two a shared protocol
+`x.is(Function)` is true for both. It exists only to give the two a shared protocol
 and one place to hang application sugar (ADR-0006; amends blocks.md §7's "a method
 *is* a Block" to "siblings under `Function`").
 

@@ -257,7 +257,7 @@ manufactures the call sites the migration would then have to chase.
 - `self.frames.clone()` (U-TRACE defect 3, `dispatch.rs:121-144`) disappears under §3 rather than
   needing its own fix.
 - Adding a `kind` value later is a Symbol, not a release-note-worthy hierarchy change.
-- **Two idioms for one question, named rather than hidden.** `e.isA(MessageNotUnderstood)` and
+- **Two idioms for one question, named rather than hidden.** `e.is(MessageNotUnderstood)` and
   `e.kind == #range` both ask "what went wrong," and Phalcom code reaches for `isA` everywhere
   ([`core.ph`](../../phalcom-core/core/core.ph) uses it ~15 times). The split is principled —
   `isA` for the three conditions that already have kernel classes and are raised as real `Raise`

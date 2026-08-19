@@ -50,7 +50,7 @@ class Path {
 
 ### 2.2 Value semantics (ruling 2)
 
-- `==(other)`: `other.isA(Path)` guard, then hash-first —
+- `==(other)`: `other.is(Path)` guard, then hash-first —
   `(_hash == other.hash) and (_bytes == other.bytes)`. The `other.bytes` copy per
   comparison is accepted: paths are short, and hash-first keeps the common unequal
   case O(1). (`Bytes#==` does the structural walk.) `!=` routes through `==`
@@ -69,7 +69,7 @@ Separator is `/` (byte 47); Windows normalization is PDR-0013 Q-1, out of scope.
 | Selector | Derivation |
 |---|---|
 | `isAbsolute` | `_bytes.size > 0 and _bytes.at(0) == 47` |
-| `join(other)` | `other.isA(Path)` guard; absolute `other` **replaces** the receiver (Rust `Path::join`'s rule, filesystem.md §2); else `Path.ofBytes(_bytes ++ "/" ++ other)` — via `concat`, collapsing a trailing separator on the receiver so exactly one separator joins them. Never normalizes `.`/`..` (law 4) |
+| `join(other)` | `other.is(Path)` guard; absolute `other` **replaces** the receiver (Rust `Path::join`'s rule, filesystem.md §2); else `Path.ofBytes(_bytes ++ "/" ++ other)` — via `concat`, collapsing a trailing separator on the receiver so exactly one separator joins them. Never normalizes `.`/`..` (law 4) |
 | `parent` | scan backward for the last separator; `None` at a root (`/` or empty); strips trailing separators first |
 | `fileName` | bytes after the last separator as a new `Path`; `None` for a root or a path ending in `/` |
 | `extension` | within `fileName`'s range, bytes after the last `.` (byte 46), decoded **strictly** via `utf8`; `None` if absent, if the name starts with the dot (`.bashrc` has no extension), or if not UTF-8 |
@@ -102,7 +102,7 @@ class OpenMode {
   static append => OpenMode.named_("append")
   static readWrite => OpenMode.named_("readWrite")
   name => _name
-  ==(other) { return other.isA(OpenMode) and (_name == other.name) }
+  ==(other) { return other.is(OpenMode) and (_name == other.name) }
   !=(other) { return not (self == other) }
   toString => "OpenMode." + _name
 }

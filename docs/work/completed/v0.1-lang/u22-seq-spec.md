@@ -111,7 +111,7 @@ class WhereView is Iterable {
 class SkipView is Iterable {
   @constructor
   new(source, count) {
-    (count.isA(Number) and (count >= 0)).ifFalse {
+    (count.is(Number) and (count >= 0)).ifFalse {
       throw Error("skip: count must be a non-negative Number")   // -> ArgumentError once landed
     }
     _source = source
@@ -139,7 +139,7 @@ class SkipView is Iterable {
 class TakeView is Iterable {
   @constructor
   new(source, count) {
-    (count.isA(Number) and (count >= 0)).ifFalse {
+    (count.is(Number) and (count >= 0)).ifFalse {
       throw Error("take: count must be a non-negative Number")
     }
     _source = source

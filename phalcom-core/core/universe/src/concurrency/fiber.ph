@@ -13,7 +13,7 @@ class System {
   @class
   writeObject(_ obj) {
     const s = obj.toString
-    (s.isA(String)).ifTrue(|| {
+    (s.is(String)).ifTrue(|| {
       System._$write(s)
     }, ifFalse: || {
       System._$write("invalid toString")
@@ -141,7 +141,7 @@ class Future {
   // future down with it, so skip those rather than scheduling a corpse.
   drain() {
     _waiters.each |w| {
-      const dead = w.isA(Fiber) and w.isDone
+      const dead = w.is(Fiber) and w.isDone
       if (not dead) {
         System.schedule(w)
       }
@@ -223,7 +223,7 @@ class Future {
   // Future. This is the Future assimilation rule used by then/map/catch.
   @class
   flatten(_ value) {
-    if (value.isA(Future)) {
+    if (value.is(Future)) {
       return value
     }
     return Future.value(value)

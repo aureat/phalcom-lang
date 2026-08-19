@@ -300,7 +300,7 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 ///
 /// Runs the receiver block (`args[0]` unused — the receiver *is* the
 /// protected block); if it completes with a caught `throw` whose `Error`
-/// `isA(args[0])` (a `Class`), restores the VM to its pre-run snapshot and
+/// `is(args[0])` (a `Class`), restores the VM to its pre-run snapshot and
 /// runs the handler block `args[1]` with the caught `Error`, returning its
 /// result. Any other outcome passes straight through:
 ///
@@ -318,7 +318,7 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 ///   §2; capture-at-boundary is PDR-0010 §3's job).
 /// - **Any other `Err`** (`DeadFrameError`, a future fiber `abort` payload,
 ///   …) — **wrapped into a synthetic base `Error` instance** carrying the
-///   rendered message, then run through the *same* `isA` probe as a real
+///   rendered message, then run through the *same* `is` probe as a real
 ///   `Raise`: a catch-all `on(Error)` catches it, a narrower class does not.
 ///   The native variant's identity is currently discarded in the wrap;
 ///   PDR-0010 §2's `kind` Symbol is the ruled fix. (This doc previously
@@ -333,7 +333,7 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `args[0]` is not a `Class`. Propagates a
-/// non-matching `Err`/an `isA` dispatch failure/any error raised running the
+/// non-matching `Err`/an `is` dispatch failure/any error raised running the
 /// protected or handler block.
 pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let class_arg = args[0];
@@ -394,7 +394,7 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
             }
             vm.unwind_to(stack_len, frames_len);
 
-            let isa_sig = crate::method::encode_selector("isA", &[None], crate::method::SignatureKind::Method(1));
+            let isa_sig = crate::method::encode_selector("is", &[None], crate::method::SignatureKind::Method(1));
             let isa_sym = vm.get_or_intern(&isa_sig);
             let matched = vm.send_dynamic(error, isa_sym, &[class_arg])?;
             if matched.as_bool() == Some(true) {

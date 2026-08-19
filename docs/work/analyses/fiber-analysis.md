@@ -792,7 +792,7 @@ When Future settles:
 ```phalcom
 drain() {
     _waiters.each |w| {
-        const dead = w.isA(Fiber) and w.isDone
+        const dead = w.is(Fiber) and w.isDone
 
         if (not dead) {
             System.schedule(w)

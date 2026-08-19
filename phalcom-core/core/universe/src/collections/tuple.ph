@@ -55,7 +55,7 @@ class Tuple {
 
   @private
   access(_ key) {
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { Some(self._$at(idx)) },
         none: || { None }
@@ -74,7 +74,7 @@ class Tuple {
   get(_ key) { self.access(key) }
 
   [_ key] {
-    if (key.isA(Range)) {
+    if (key.is(Range)) {
       return key._$sliceBounds(self.size).match(
         ok: |bounds| {
           let start = bounds[0]
@@ -85,7 +85,7 @@ class Tuple {
         err: |error| { error.raise() }
       )
     }
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
         none: || { throw KeyError.new("Tuple label not found") }
@@ -102,7 +102,7 @@ class Tuple {
   }
 
   [_ key, default] {
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
         none: || { default }
@@ -119,7 +119,7 @@ class Tuple {
   }
 
   get(_ key, orElse) {
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
         none: || { orElse.call(key) }
@@ -140,7 +140,7 @@ class Tuple {
   // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
   ==(_ other) {
-    if (other.isA(Tuple)) {
+    if (other.is(Tuple)) {
       let same = (self.size == other.size) and (self._$positionalSize == other._$positionalSize)
       let i = 0
       while (same and (i < self.size - self._$positionalSize)) {

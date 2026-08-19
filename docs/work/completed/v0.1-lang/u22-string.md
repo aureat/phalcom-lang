@@ -207,7 +207,7 @@ class ArgumentError is Error {}
 Every String argument guard in this unit follows one shape (mirrors Wren's `Fiber.abort`
 1:1, translated to the ratified `throw` surface, error-handling.md §1):
 ```phalcom
-(delimiter.isA(String)).ifTrue({}, ifFalse: {
+(delimiter.is(String)).ifTrue({}, ifFalse: {
   throw ArgumentError.new("delimiter must be a String")
 })
 ```
@@ -321,7 +321,7 @@ class System {
 
   static writeObject_(obj) {
     let s = obj.toString
-    return (s.isA(String)).ifTrue(
+    return (s.is(String)).ifTrue(
       { System.rawWrite(s) },
       ifFalse: { System.rawWrite("[invalid toString]") }
     )
@@ -407,7 +407,7 @@ wanted).
 
 ## 4. Build order (small, independently-green diffs)
 1. **`ArgumentError` + the inherited-ctor golden** — `class ArgumentError is Error {}`;
-   golden: `ArgumentError.new("x").message == "x"`, `ArgumentError.new("x").isA(Error)`,
+   golden: `ArgumentError.new("x").message == "x"`, `ArgumentError.new("x").is(Error)`,
    uncaught `throw ArgumentError.new("x")` renders/exits like any other `Error`. Green,
    `core.ph`-only, zero Rust. *(Serialize vs any concurrent `core.ph` editor.)*
 2. **The 3 `String` raw primitives + ADR-0049** — `rawByteCount`/`rawByteAt(_)`/`rawSlice(_,_)`

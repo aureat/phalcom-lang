@@ -483,7 +483,7 @@ DEC-ANNOT-D is an implementation-naming note.
   re-checking the shapes match.
 - **Contracts as gradual-typing substrate (D-contract-2, deferred not built):** not precluded —
   `MethodObject::contracts` retains reflectable predicate `Block`s exactly as D-contract-1
-  requires; a future `amount @ Number` desugar to `@requires(amount.isA(Number))` slots into the
+  requires; a future `amount @ Number` desugar to `@requires(amount.is(Number))` slots into the
   same expander registry as a new row, no reshape needed.
 - **`@sealed`/`@data` exhaustiveness (U-ANNOT-LAYOUT, downstream):** not precluded — this unit's
   `expand_class_attributes` signature (`ClassDef -> Result<ClassDef, CompilerError>`) is generic

@@ -73,7 +73,7 @@ class Object {
 ```
 - Move the existing `isA` body into `is` **verbatim** — no guard line.
 - **I-4 ratified = `false`** (non-class RHS returns false via the natural chain walk). Do **not**
-  add a `cls.isA(…)` guard: it re-enters `is` through the alias and recurses forever, and it would
+  add a `cls.is(…)` guard: it re-enters `is` through the alias and recurses forever, and it would
   target `Behavior`, which is **not bootstrapped** (ADR-0003 designs it; core.ph has only
   `Object`/`Class`/`Metaclass`, and it is absent from `phalcom-core/src/`). A raising variant is
   deferred until a non-recursive native class-predicate exists (would also break floor-0).
@@ -98,7 +98,7 @@ class Object {
   `Point is! Class` → false** (the metaclass-tower discriminator — keep this example).
 - **Override goldens:** a `Shape#is(cls)` structural override → `s is Drawable` true and
   `s is not Drawable` false "for free" (proves the single-method negation coupling).
-- **Alias regression:** an existing `isA` fixture (`3.isA(Number)`) still passes.
+- **Alias regression:** an existing `isA` fixture (`3.is(Number)`) still passes.
 - **Non-class RHS** (I-4 = false): `3 is "str"` → `false`; `3 is 4` → `false` (positive golden, not
   an error). Guards the no-guard/no-recursion decision.
 - **Negative lane** (`check_negative`): `a is B is C` (chaining) → compile error; `x is` (missing

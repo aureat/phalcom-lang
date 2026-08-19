@@ -1,7 +1,7 @@
 // area: classes
 // spec: next/is-tests.md
 // status: PASS
-// U-IS: only two magic methods exist (`is(_)`/`isExactly(_)`) — negation is
+// U-IS: only two magic methods exist (`is(_)`/`is!(_)`) — negation is
 // a compile-time `.not` wrap, not a selector. So a structural override of
 // `is(cls)` alone governs both `is` and `is not` with consistent polarity,
 // "for free": no `isNot` to separately override or get out of sync.

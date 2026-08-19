@@ -6,6 +6,6 @@
 // (Phalcom's absence value, ADR-0007 — there is no bare `nil` surface, so
 // `Null` becomes `None`'s own class); `.type` becomes `.class`.
 
-System.print(None.isA(Object))
-System.print(None.isA(Bool))
+System.print(None.is(Object))
+System.print(None.is(Bool))
 System.print(None.class == None.class)

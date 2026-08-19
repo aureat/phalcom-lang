@@ -6,7 +6,15 @@
 // not exactly `Number`. `3 is "str"` / `3 is 4` pin I-4 (a
 // non-class RHS returns `false`, never raises).
 
-System.print(3 is Number)
-System.print(3 is! Number)
-System.print(3 is "str")
-System.print(3 is 4)
+System.print(3 is Number) // true
+System.print(3 is! Number) // false
+System.print(3 is Int) // true
+System.print(3 is! Int) // true
+System.print(3.is(Number)) // true
+System.print(3.is!(Number)) // false
+System.print(3.is(Int)) // true
+System.print(3.is!(Int)) // true
+System.print(3 is "str") // false
+System.print(3 is 4) // false
+System.print(3.is("str")) // false
+System.print(3.is!(4)) // false

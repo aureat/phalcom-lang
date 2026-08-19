@@ -112,7 +112,7 @@ one, others are co-requisites. "syntax" always means **U-LEX**.
 
 | Fixture (`…/pending/`) | Cat | Real blocker (observed) | Flips when |
 |---|:--:|---|---|
-| `metaclass/metaclass_is_a` | B | ~~`3.isA(Number)` → dNU `isA(_:)`~~ **retired** — `isA(_)` landed in U-CORE-1; fixture uses plain syntax (no U-LEX gate) and has been `git mv`'d to the active lane (`status: PASS`) | **U-CORE-1 — landed/green** |
+| `metaclass/metaclass_is_a` | B | ~~`3.is(Number)` → dNU `isA(_:)`~~ **retired** — `isA(_)` landed in U-CORE-1; fixture uses plain syntax (no U-LEX gate) and has been `git mv`'d to the active lane (`status: PASS`) | **U-CORE-1 — landed/green** |
 | `absence/absence_option_none` | B | `print(None)` → `<None instance>` (needs `None#toString`) | **U-CORE-4** |
 | `absence/absence_var_defaults_to_none` | B | `var x` → `<None instance>` (needs `None#toString`) | **U-CORE-4** |
 | `bindings/binding_var_uninitialized` | B | same as above (`None#toString`) | **U-CORE-4** |
@@ -166,7 +166,7 @@ has the most (three `None#toString` fixtures). Everything reflective is
 double-gated on U-LEX. A U-CORE unit's spec should therefore treat "flips a
 pending test" as a *joint* claim with U-LEX where the fixture uses `#…`/`[…]`/`::`
 syntax, and set its own acceptance bar on a **new** unit-local fixture written in
-already-supported syntax (e.g. `3.isA(Number)`, `None.toString`) rather than
+already-supported syntax (e.g. `3.is(Number)`, `None.toString`) rather than
 waiting on the lexer.
 
 ## 5. Traceability

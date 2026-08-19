@@ -187,7 +187,7 @@ class retry {
   attempt(method, recv, args, left, type) {
     try { return method.invokeOn(recv, args) }
     catch (e: Error) {
-      if (e.isA(type) == false or left == 0) { throw e }   // rethrow non-matching / exhausted
+      if (e.is(type) == false or left == 0) { throw e }   // rethrow non-matching / exhausted
       return self.attempt(method, recv, args, left - 1, type)
     }
   }

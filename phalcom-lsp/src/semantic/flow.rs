@@ -786,7 +786,7 @@ impl FlowAnalyzer<'_> {
         let Expr::MethodCall(call) = condition else { return Some(state.clone()) };
         let is_exact = match call.method.as_str() {
             "is" => false,
-            "isExactly" => true,
+            "is!" => true,
             _ => return Some(state.clone()),
         };
         if call.args.len() != 1 {

@@ -6,7 +6,7 @@
 // operator yet — is-tests.md is an unratified proposal); `.type` becomes
 // `.class`.
 
-System.print(true.isA(Bool))
-System.print(true.isA(Object))
-System.print(true.isA(Number))
+System.print(true.is(Bool))
+System.print(true.is(Object))
+System.print(true.is(Number))
 System.print(true.class == Bool)

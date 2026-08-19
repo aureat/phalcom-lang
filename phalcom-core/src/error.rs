@@ -208,12 +208,12 @@ pub enum RuntimeError {
     /// single unwind primitive (the sibling of U10's `Return`/
     /// [`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal)).
     ///
-    /// `error` is a surface `Error` subclass instance (catchable, `isA(Error)`,
+    /// `error` is a surface `Error` subclass instance (catchable, `is(Error)`,
     /// U-CORE-6); `rendered` is a snapshot of its `message` at raise time, used
     /// only for the uncaught-render path (`{rendered}` below) — never itself
     /// read by a future `on`/`ensure`/fiber consumer, which reads `error`
     /// instead. Replaces the retired `MessageNotUnderstood` variant: a genuine
-    /// `doesNotUnderstand(_:)` miss now raises a surface
+    /// `doesNotUnderstand(_)` miss now raises a surface
     /// [`MessageNotUnderstood`](crate::universe::CoreClasses::message_not_understood_class)
     /// through this payload
     /// ([`object_does_not_understand`](crate::primitive::object::object_does_not_understand)),

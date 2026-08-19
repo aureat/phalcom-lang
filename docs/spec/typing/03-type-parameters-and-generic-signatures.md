@@ -1132,7 +1132,7 @@ class TypeParameter is TypeDescriptor {
   }
 
   equivalentTo(other: Type) -> Bool {
-    if other.isA(TypeParameter).not {
+    if other.is(TypeParameter).not {
       return false
     }
 
@@ -1250,7 +1250,7 @@ class GenericSignature {
   }
 
   equivalentTo(other: Object) -> Bool {
-    if other.isA(GenericSignature).not {
+    if other.is(GenericSignature).not {
       return false
     }
 
@@ -1360,7 +1360,7 @@ class TypeParameterRuntime {
       )
     }
 
-    if variance.isA(Variance).not {
+    if variance.is(Variance).not {
       throw self.invalid(
         code: "type.parameter.invalid_variance",
         message: "type parameter variance must be a Variance value",
@@ -1509,19 +1509,19 @@ class TypeParameterRuntime {
   @class
   @native
   ownerKind(of: TypeParameterOwner) -> Symbol {
-    if of.isA(Class) {
+    if of.is(Class) {
       return #class
     }
 
-    if of.isA(Protocol) {
+    if of.is(Protocol) {
       return #protocol
     }
 
-    if of.isA(Method) {
+    if of.is(Method) {
       return #method
     }
 
-    if of.isA(ProtocolRequirement) {
+    if of.is(ProtocolRequirement) {
       return #protocolRequirement
     }
 
@@ -1736,7 +1736,7 @@ class TypeParameterRuntime {
       return
     }
 
-    if restriction.isA(TypeParameter) {
+    if restriction.is(TypeParameter) {
       throw TypeParameterRestrictionError.new(
         TypeParameterDiagnostic.new(
           code: "type.parameter.recursive_restriction",

@@ -12,5 +12,5 @@ class B is A {
 class C is B {
 }
 const c = C.new()
-System.print(c.isA(A))
-System.print(c.isA(String))
+System.print(c.is(A))
+System.print(c.is(String))

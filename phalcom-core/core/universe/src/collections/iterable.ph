@@ -305,7 +305,7 @@ class FilterIterator is Iterator {
 class SkipIterator is Iterator {
   @constructor
   new(_ source, _ n) {
-    (n.isA(Number) and n >= 0 and n % 1 == 0).ifFalse || {
+    (n.is(Number) and n >= 0 and n % 1 == 0).ifFalse || {
       throw ArgumentError.new("skip: n must be a non-negative integer")
     }
     _source = source
@@ -327,7 +327,7 @@ class SkipIterator is Iterator {
 class TakeIterator is Iterator {
   @constructor
   new(_ source, _ n) {
-    (n.isA(Number) and n >= 0 and n % 1 == 0).ifFalse || {
+    (n.is(Number) and n >= 0 and n % 1 == 0).ifFalse || {
       throw ArgumentError.new("take: n must be a non-negative integer")
     }
     _source = source

@@ -48,7 +48,7 @@ class List {
   }
 
   [_ index] {
-    if (index.isA(Range)) { return self.sliceByRange(index) }
+    if (index.is(Range)) { return self.sliceByRange(index) }
     let raw = self._$at(index)
     let len = self.size
     let i = index
@@ -207,10 +207,10 @@ class List {
   // C.3 deliberately accepts only a finite List replacement source. General
   // Iterable replacement waits for Spec E's boundedness and re-entrancy rules.
   replace(_ range, with replacements) {
-    if (not range.isA(Range)) {
+    if (not range.is(Range)) {
       return Err.new(SliceError.new("List#replace: first argument must be a Range"))
     }
-    if (not replacements.isA(List)) {
+    if (not replacements.is(List)) {
       return Err.new(SliceError.new("List#replace: replacement must be a List"))
     }
     return range._$sliceBounds(self.size).match(
@@ -230,7 +230,7 @@ class List {
   // explicitly with a thin delegation, same as any other collection
   // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_]=(put)`.
   [_ i]=(put val) {
-    if (i.isA(Range)) { return self.replace(i, with: val).unwrap }
+    if (i.is(Range)) { return self.replace(i, with: val).unwrap }
     return self.at(i, put: val)
   }
 
@@ -243,7 +243,7 @@ class List {
   // dispatched by the compiler, not dotted-call syntax — `and`/`not` are
   // reserved words and cannot follow `.` as a bare identifier).
   ==(_ other) {
-    if (other.isA(List)) {
+    if (other.is(List)) {
       let same = (self.size == other.size)
       let i = 0
       // `and` is lazy (short-circuits); once `same` is false the loop

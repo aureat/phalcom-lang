@@ -271,7 +271,7 @@ Keep separate:
 
 ```text
 x.class == C              exact runtime class identity
-x.isA(C)                  runtime inheritance/instance relation
+x.is(C)                  runtime inheritance/instance relation
 T <: U                    static subtype relation
 shape(x)=Instance(C)      analyzer fact
 ```

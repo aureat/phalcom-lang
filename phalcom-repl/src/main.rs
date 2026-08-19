@@ -2,7 +2,7 @@
 //!
 //! Assembles the [`reedline`]-backed interactive REPL: configures the editor
 //! with tab-completion, syntax highlighting, persistent file history, and a
-//! two-state prompt (`ph>` / `...`) driven by §D7 parser classification.
+//! two-state prompt (`>>>` / `...`) driven by §D7 parser classification.
 
 use phalcom_repl::completer::PhalcomCompleter;
 use phalcom_repl::highlighter::PhalcomHighlighter;
@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-/// A two-state reedline prompt that switches between the primary (`ph>`) and
+/// A two-state reedline prompt that switches between the primary (`>>>`) and
 /// continuation (`...`) prefix once an incomplete block is detected.
 struct PhPrompt {
     primary: String,
@@ -110,7 +110,7 @@ fn main() -> Result<(), ReedlineError> {
     let history = FileBackedHistory::with_file(10_000, hist_path)?;
     rl = rl.with_history(Box::new(history));
 
-    let mut prompt = PhPrompt::new("ph>", "...");
+    let mut prompt = PhPrompt::new(">>>", "... ");
     let mut buf = String::new();
 
     loop {
@@ -181,7 +181,7 @@ fn main() -> Result<(), ReedlineError> {
                         // guarantees a raising `toString` cannot turn a successful cell
                         // into a failed one (§S4, PDR-0008 §4). Do not move it inside `eval`.
                         let display = val.to_string_guarded(&mut session.vm);
-                        println!("// => {display}");
+                        println!("..> {display}");
                     }
                     // `eval` has already printed the diagnostic for `Failed`.
                     CellOutcome::Unit | CellOutcome::Failed => {}

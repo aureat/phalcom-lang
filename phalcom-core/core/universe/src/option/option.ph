@@ -96,7 +96,7 @@ class Option {
   }
 
   ==(_ other) {
-    other.isA(Option).ifFalse || { return false }
+    other.is(Option).ifFalse || { return false }
     return self.match(
       some: |v| { other.match(some: |ov| { v == ov }, none: || { false }) },
       none: || { other.isNone }

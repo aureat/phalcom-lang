@@ -1098,7 +1098,7 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
 
 #[test]
 fn isa_is_reflexive_and_superclass_closed() {
-    // R-INV-1.2 — `x.isA(x.class)` and `x.isA(Object)` hold; `x.isA(C)` iff `C`
+    // R-INV-1.2 — `x.is(x.class)` and `x.is(Object)` hold; `x.is(C)` iff `C`
     // is on `x.class`'s superclass chain. Exercised on an immediate, a class
     // receiver, and a user instance.
     let mut vm = VM::new();
@@ -1108,17 +1108,17 @@ fn isa_is_reflexive_and_superclass_closed() {
     let class = Value::obj(vm.universe.classes.class_class);
 
     // Immediate receiver `3`.
-    assert_eq!(send1(&mut vm, Value::int(3), "isA(_)", number).as_bool(), Some(true), "3.isA(Number)");
+    assert_eq!(send1(&mut vm, Value::int(3), "is(_)", number).as_bool(), Some(true), "3.is(Number)");
     assert_eq!(
-        send1(&mut vm, Value::int(3), "isA(_)", object).as_bool(),
+        send1(&mut vm, Value::int(3), "is(_)", object).as_bool(),
         Some(true),
-        "3.isA(Object) — reflexive-to-root"
+        "3.is(Object) — reflexive-to-root"
     );
-    assert_eq!(send1(&mut vm, Value::int(3), "isA(_)", string).as_bool(), Some(false), "!3.isA(String)");
+    assert_eq!(send1(&mut vm, Value::int(3), "is(_)", string).as_bool(), Some(false), "!3.is(String)");
 
     // Class receiver `Number` (walks the metaclass chain, Smalltalk isKindOf:).
-    assert_eq!(send1(&mut vm, number, "isA(_)", class).as_bool(), Some(true), "Number.isA(Class)");
-    assert_eq!(send1(&mut vm, number, "isA(_)", object).as_bool(), Some(true), "Number.isA(Object)");
+    assert_eq!(send1(&mut vm, number, "is(_)", class).as_bool(), Some(true), "Number.is(Class)");
+    assert_eq!(send1(&mut vm, number, "is(_)", object).as_bool(), Some(true), "Number.is(Object)");
 
     // User instance.
     let module = vm.create_module("main", "isa_user_instance");
@@ -1127,9 +1127,9 @@ fn isa_is_reflexive_and_superclass_closed() {
     let foo_cls = *vm.classes.get(&ClassKey { module, name: foo_sym }).expect("IsaFoo registered");
     let foo_val = Value::obj(foo_cls);
     let instance = send0(&mut vm, foo_val, "new()");
-    assert_eq!(send1(&mut vm, instance, "isA(_)", foo_val).as_bool(), Some(true), "aFoo.isA(IsaFoo)");
-    assert_eq!(send1(&mut vm, instance, "isA(_)", object).as_bool(), Some(true), "aFoo.isA(Object)");
-    assert_eq!(send1(&mut vm, instance, "isA(_)", number).as_bool(), Some(false), "!aFoo.isA(Number)");
+    assert_eq!(send1(&mut vm, instance, "is(_)", foo_val).as_bool(), Some(true), "aFoo.is(IsaFoo)");
+    assert_eq!(send1(&mut vm, instance, "is(_)", object).as_bool(), Some(true), "aFoo.is(Object)");
+    assert_eq!(send1(&mut vm, instance, "is(_)", number).as_bool(), Some(false), "!aFoo.is(Number)");
 }
 
 #[test]

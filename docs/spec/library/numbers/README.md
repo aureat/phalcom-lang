@@ -34,8 +34,8 @@ The words **must**, **must not**, **shall**, and **shall not** are normative. **
 ```text
 1.class == Int
 1.0.class == Float
-Int.isA(Number)
-Float.isA(Number)
+Int.is(Number)
+Float.is(Number)
 Number has no instances
 Int is exact and arbitrary precision
 Float is IEEE-754 binary64

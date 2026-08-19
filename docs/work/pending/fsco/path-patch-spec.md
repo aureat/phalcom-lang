@@ -394,7 +394,7 @@ Recommended shape:
 
 ```phalcom
 join(other) {
-  if (not other.isA(Path)) {
+  if (not other.is(Path)) {
     throw ArgumentError.new("Path#join: argument must be a Path")
   }
 

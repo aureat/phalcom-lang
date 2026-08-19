@@ -7,17 +7,23 @@ class Unsupported is Error {
     if (_instance == None) {
       _instance = Unsupported.create()
     }
-    
+
     _instance
   }
 
-  @private 
-  @constructor 
+  @private
+  @constructor
   create() {
-    _message = "unsupported"
-    _kind = #unsupported
-    _cause = None
-    _displaced = None
+    // _message = "unsupported"
+    // _kind = #unsupported
+    // _cause = None
+    // _displaced = None
+    super.initialize(
+      with: "unsupported",
+      of: #unsupported,
+      from: None,
+      displaced: None
+    )
   }
 
   @class new() {

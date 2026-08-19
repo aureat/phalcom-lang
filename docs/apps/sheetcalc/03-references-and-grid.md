@@ -50,7 +50,7 @@ class Ref {
 
   // Identity is the ADDRESS ONLY. $A$1, $A1, A$1, and A1 are == and hash
   // equal — see REQ-REF-1 and the commentary below.
-  ==(o) => o.isA(Ref) and o.col == _col and o.row == _row
+  ==(o) => o.is(Ref) and o.col == _col and o.row == _row
 
   // Fold-hash over the two fields, mirroring core.ph's own Range#hash
   // (phalcom-core/core/core.ph, class Range) rather than a naive

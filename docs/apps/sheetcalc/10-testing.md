@@ -179,7 +179,7 @@ class TestCase {
       AssertionError.new("expected " + kind.name.toString + " but nothing was raised").raise()
     } else {
       let err = outcome.unwrapErr
-      if (not err.isA(kind)) {
+      if (not err.is(kind)) {
         AssertionError.new("expected " + kind.name.toString + " but got " + err.class.name.toString).raise()
       }
     }

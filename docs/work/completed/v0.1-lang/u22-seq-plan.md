@@ -196,7 +196,7 @@ class WhereView is Iterable {
 class SkipView is Iterable {
   @constructor
   new(source, count) {
-    (count.isA(Number) and (count >= 0)).ifFalse {
+    (count.is(Number) and (count >= 0)).ifFalse {
       throw Error("skip: count must be a non-negative Number")   // -> ArgumentError once landed, §2
     }
     _source = source
@@ -240,7 +240,7 @@ already-ratified `(a, b)` `Tuple` literal (ADR-0032) as the composite cursor:
 class TakeView is Iterable {
   @constructor
   new(source, count) {
-    (count.isA(Number) and (count >= 0)).ifFalse {
+    (count.is(Number) and (count >= 0)).ifFalse {
       throw Error("take: count must be a non-negative Number")
     }
     _source = source
@@ -412,7 +412,7 @@ orchestrator updates those against whichever DEC-SEQ-A branch is picked and this
   sources.
 - **The Int/Float surface split (ADR-0024, ratified but not yet implemented — `core.ph` still has a
   single flat `class Number {}` at this grounding):** not precluded — `SkipView`/`TakeView`'s guard
-  clauses check `count.isA(Number)` generically, not `Int` specifically (there is no surface `Int` class
+  clauses check `count.is(Number)` generically, not `Int` specifically (there is no surface `Int` class
   to check against yet). When the split lands, tightening the guard to `Int` is a strictly additive,
   non-breaking follow-up (a real `Int` argument already satisfies `isA(Number)` today under any sane
   tower design, so no existing caller breaks).

@@ -6,7 +6,7 @@
 // through `isA(_)` (landed U-CORE-1) instead; Wren's `.type` (a class
 // getter) is Phalcom's `.class`.
 
-System.print(Map.new().isA(Map))
-System.print(Map.new().isA(Object))
-System.print(Map.new().isA(Bool))
+System.print(Map.new().is(Map))
+System.print(Map.new().is(Object))
+System.print(Map.new().is(Bool))
 System.print(Map.new().class == Map)

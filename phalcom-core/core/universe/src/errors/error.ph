@@ -38,9 +38,12 @@ class Error {
     _displaced = None
   }
 
-  message { _message }
-
-  message=(put value) { _message = value }
+  initialize(with msg, of kind, from cause, displaced) {
+    _message = msg
+    _kind = kind
+    _cause = cause
+    _displaced = displaced
+  }
 
   kind { _kind }
 

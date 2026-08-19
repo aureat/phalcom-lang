@@ -10,8 +10,8 @@
 class Widget { render { "drawn" }
 }
 const w = Widget.new()
-System.print(w.isA(Widget))
-System.print(w.isA(Object))
-System.print(w.isA(String))
+System.print(w.is(Widget))
+System.print(w.is(Object))
+System.print(w.is(String))
 System.print(w.respondsTo(Symbol.new("render")))
 System.print(w.respondsTo(Symbol.new("nonexistent")))

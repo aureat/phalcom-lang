@@ -586,7 +586,7 @@ against the checked-in `.expected` file:
 | Fixture | Output | Matches `.expected` |
 |---|---|---|
 | `classes/is_metaclass_discriminator.ph` (`Point is Class`, `Point is! Class`) | `true` / `false` | yes |
-| `metaclass/metaclass_metaclass_of_metaclass_is_a_class.ph` (`Point.class.class.isA(Class)`, `Point.class.isA(Class)`) | `true` / `false` | yes |
+| `metaclass/metaclass_metaclass_of_metaclass_is_a_class.ph` (`Point.class.class.is(Class)`, `Point.class.is(Class)`) | `true` / `false` | yes |
 | `metaclass/metaclass_parallel_rule_builtin.ph` (`Number.class.superclass == Object.class`) | `true` | yes |
 
 The middle result is a genuine, pinned asymmetry the fixture's own header
@@ -599,9 +599,9 @@ not be surprised by.
 
 Additional fixtures read (not re-run by me, but present as golden `.ph`/
 `.expected` pairs at HEAD, so presumed passing under the project's own golden
-suite): `metaclass/metaclass_is_a.ph` (`3.isA(Number)` → `true`,
-`3.isA(String)` → `false`), `metaclass/metaclass_is_a_object_root.ph`
-(`3.isA(Object)` → `true`), `metaclass/metaclass_parallel_rule_user_class.ph`
+suite): `metaclass/metaclass_is_a.ph` (`3.is(Number)` → `true`,
+`3.is(String)` → `false`), `metaclass/metaclass_is_a_object_root.ph`
+(`3.is(Object)` → `true`), `metaclass/metaclass_parallel_rule_user_class.ph`
 (`Point.class.superclass == Point.superclass.class` → `true`),
 `reflection/reflection_class_of_instance_vs_class_vs_metaclass.ph`
 (`p.class.name`/`Point.class.name`/`Point.class.class.name` →

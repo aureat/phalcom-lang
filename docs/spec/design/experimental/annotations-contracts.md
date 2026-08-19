@@ -68,7 +68,7 @@ Cost: one map per class; predicates survive weaving.
 
 ### Gradual-typing direction, reserved not built (D-contract-2)
 
-`deposit(amount @ Number)` desugars to `@requires(amount.isA(Number))` — type
+`deposit(amount @ Number)` desugars to `@requires(amount.is(Number))` — type
 annotations *are* contracts (Findler–Felleisen: contracts are the runtime
 semantics of gradual types). Contracts are therefore Phalcom's only typing story.
 Not built now; reflectable predicates + a blame field are the substrate it needs,

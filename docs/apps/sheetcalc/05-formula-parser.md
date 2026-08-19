@@ -263,13 +263,13 @@ class Parser {
   }
 
   finishRange_(left, colonTok) {
-    (left.isA(Ast.RefLit)).ifTrue({}, ifFalse: {
+    (left.is(Ast.RefLit)).ifTrue({}, ifFalse: {
       return Err.new(ParseError.at(colonTok.pos, "':' requires a cell reference on its left"))
     })
     let rightR = self.parseExpr_(51)        // one above ':' own bp: no A1:B2:C3 chaining
     (rightR.isErr).ifTrue { return rightR }
     let right = rightR.unwrap
-    (right.isA(Ast.RefLit)).ifTrue({}, ifFalse: {
+    (right.is(Ast.RefLit)).ifTrue({}, ifFalse: {
       return Err.new(ParseError.at(colonTok.pos, "':' requires a cell reference on its right"))
     })
     return Ok.new(Ast.RangeLit.new(left, right))

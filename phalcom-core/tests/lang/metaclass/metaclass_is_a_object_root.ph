@@ -2,4 +2,4 @@
 // spec: object-model.md
 // status: PASS
 
-System.print(3.isA(Object))
+System.print(3.is(Object))

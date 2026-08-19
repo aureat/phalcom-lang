@@ -180,7 +180,7 @@ await {
     const res = { Fiber.yield(None) }.attempt()      // <- the probe
     if (res.isErr) {
       const err = res.unwrapErr
-      if (err.isA(CannotYieldAcrossNativeFrame)) {
+      if (err.is(CannotYieldAcrossNativeFrame)) {
         return err.raise()                            // <- branch 1
       }
       // Yield failed because we are on the root fiber!
@@ -324,7 +324,7 @@ program B printed.
 But look at which branch does the cleanup:
 
 ```phalcom
-if (err.isA(CannotYieldAcrossNativeFrame)) {
+if (err.is(CannotYieldAcrossNativeFrame)) {
   return err.raise()                                       // no filter
 }
 _waiters = _waiters.filter { w => w != Fiber.current }      // only branch 2 unregisters

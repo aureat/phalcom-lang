@@ -8,7 +8,7 @@
 // `.class` the current type-identity read (Wren's `.type`).
 
 const r = Range.new(2, 5, true)
-System.print(r.isA(Range))
-System.print(r.isA(Object))
-System.print(r.isA(String))
+System.print(r.is(Range))
+System.print(r.is(Object))
+System.print(r.is(String))
 System.print(r.class == Range)

@@ -14,7 +14,7 @@ const bound = method.bind(object)
 const family = object::call
 
 System.print(object(4))
-System.print(object.isA(Function))
+System.print(object.is(Function))
 System.print(|| { 0 }.class == Closure)
 System.print(method.class == Method)
 System.print(bound.class == BoundMethod)

@@ -867,7 +867,7 @@ The field storing the token is conceptually sufficient to show construction auth
 class BuiltinTypeSemantics {
   @class
   displayName(of: Type) -> String {
-    if of.isA(Class) or of.isA(Protocol) {
+    if of.is(Class) or of.is(Protocol) {
       return of.name.toString
     }
 
@@ -876,7 +876,7 @@ class BuiltinTypeSemantics {
 
   @class
   origin(of: Type) -> Type {
-    if of.isA(Class) or of.isA(Protocol) {
+    if of.is(Class) or of.is(Protocol) {
       return of
     }
 
@@ -885,7 +885,7 @@ class BuiltinTypeSemantics {
 
   @class
   arguments(of: Type) -> const List<Type> {
-    if of.isA(Class) or of.isA(Protocol) {
+    if of.is(Class) or of.is(Protocol) {
       return const []
     }
 
@@ -894,7 +894,7 @@ class BuiltinTypeSemantics {
 
   @class
   typeParameters(of: Type) -> const List<TypeParameter> {
-    if of.isA(Class) or of.isA(Protocol) {
+    if of.is(Class) or of.is(Protocol) {
       return TypeRuntime.declaredTypeParameters(of)
     }
 
@@ -903,7 +903,7 @@ class BuiltinTypeSemantics {
 
   @class
   freeParameters(of: Type) -> const List<TypeParameter> {
-    if of.isA(Class) or of.isA(Protocol) {
+    if of.is(Class) or of.is(Protocol) {
       return const []
     }
 
@@ -912,7 +912,7 @@ class BuiltinTypeSemantics {
 
   @class
   substitute(of: Type, using: TypeEnvironment) -> Type {
-    if of.isA(Class) or of.isA(Protocol) {
+    if of.is(Class) or of.is(Protocol) {
       return of
     }
 
@@ -921,7 +921,7 @@ class BuiltinTypeSemantics {
 
   @class
   equivalent(left: Type, to: Type) -> Bool {
-    if left.isA(Class) or left.isA(Protocol) {
+    if left.is(Class) or left.is(Protocol) {
       return left === to
     }
 
@@ -1050,8 +1050,8 @@ class TypeRuntime {
 
   @class
   isRecognized(candidate: Object) -> Bool {
-    return candidate.isA(Class) or
-      candidate.isA(Protocol) or
+    return candidate.is(Class) or
+      candidate.is(Protocol) or
       self.isTrustedSynthetic(candidate)
   }
 

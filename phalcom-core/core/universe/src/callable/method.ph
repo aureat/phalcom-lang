@@ -3,5 +3,5 @@
 // dictionary holds.
 class Method {
   attributes { self._$attributes }
-  attributesOfType(_ cls) { self._$attributes.filter |a| { a.isA(cls) } }
+  attributesOfType(_ cls) { self._$attributes.filter |a| { a.is(cls) } }
 }

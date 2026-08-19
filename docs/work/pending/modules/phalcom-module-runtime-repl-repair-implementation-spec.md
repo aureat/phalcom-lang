@@ -15,18 +15,18 @@ This specification repairs the semantic and runtime foundations of Phalcom's mod
 It is intentionally not a narrow patch for the observed REPL failures. The visible failures:
 
 ```text
-ph> universe
+>>> universe
 // => <Project>
 
-ph> universe.Object
+>>> universe.Object
 MessageNotUnderstood
 
-ph> import universe.callable
-ph> callable
+>>> import universe.callable
+>>> callable
 undefined variable
 
-ph> import std
-ph> std
+>>> import std
+>>> std
 undefined variable
 ```
 
@@ -1277,11 +1277,11 @@ An import in cell N must remain resolvable in cell N+1.
 Example:
 
 ```text
-ph> import std.json
-ph> json
+>>> import std.json
+>>> json
 // => <Package std.json>
 
-ph> json.parse("{}")
+>>> json.parse("{}")
 ...
 ```
 
@@ -1566,22 +1566,22 @@ The following behavior is mandatory even before the full reflection API from the
 ## 20.1 Builtins
 
 ```text
-ph> universe
+>>> universe
 // => <Package universe>
 
-ph> universe.Object
+>>> universe.Object
 // => Object
 
-ph> import universe.callable
-ph> callable
+>>> import universe.callable
+>>> callable
 // => <Package universe.callable>
 
-ph> import std
-ph> std
+>>> import std
+>>> std
 // => <Package std>
 
-ph> import std.json
-ph> json
+>>> import std.json
+>>> json
 // => <Package std.json>
 ```
 

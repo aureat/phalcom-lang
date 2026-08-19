@@ -63,7 +63,7 @@ type error):
 ```phalcom
 class List {
   ==(other) {
-    other.isA(List).ifFalse { return false }
+    other.is(List).ifFalse { return false }
     (self.size == other.size).ifFalse { return false }
     var i = 0
     while (i < self.size) {

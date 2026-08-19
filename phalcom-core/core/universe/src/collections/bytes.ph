@@ -31,7 +31,7 @@ class Bytes {
   }
 
   [_ index] {
-    if (index.isA(Range)) {
+    if (index.is(Range)) {
       return index._$sliceBounds(self.size).match(
         ok: |bounds| {
           let start = bounds[0]
@@ -80,7 +80,7 @@ class Bytes {
   // so the arithmetic tests never run on a non-Number. (No trailing `_`:
   // that marker is reserved for native primitives, and this is pure .ph.)
   isOctet(_ v) {
-    return v.isA(Number) and (v >= 0) and (v <= 255) and ((v % 1) == 0)
+    return v.is(Number) and (v >= 0) and (v <= 255) and ((v % 1) == 0)
   }
 
   // Raise-lifting writes (bytes.md law 1: precondition violations raise,
@@ -135,7 +135,7 @@ class Bytes {
   }
 
   copyInto(_ dst, _ offset) {
-    if (not dst.isA(Bytes)) {
+    if (not dst.is(Bytes)) {
       throw ArgumentError.new("Bytes#copyInto: destination must be a Bytes")
     }
     if ((offset < 0) or ((offset + self.size) > dst.size)) {
@@ -148,7 +148,7 @@ class Bytes {
   // Derivability with teeth (bytes.md §3.1): new + two native memmoves,
   // zero per-byte loops.
   concat(_ other) {
-    if (not other.isA(Bytes)) {
+    if (not other.is(Bytes)) {
       throw ArgumentError.new("Bytes#concat: argument must be a Bytes")
     }
     const out = Bytes.new(self.size + other.size)
@@ -163,7 +163,7 @@ class Bytes {
   // Short-circuits — correct here, and exactly why it must never be the
   // secret-comparison spelling (bytes.md §8).
   ==(_ other) {
-    if (other.isA(Bytes)) {
+    if (other.is(Bytes)) {
       let same = (self.size == other.size)
       let i = 0
       // `and` is lazy: once `same` is false the loop exits without another
@@ -201,7 +201,7 @@ class Bytes {
 
   @class
   fromString(_ s) {
-    if (not s.isA(String)) {
+    if (not s.is(String)) {
       throw ArgumentError.new("Bytes.fromString: argument must be a String")
     }
     return Bytes._$fromString(s)
@@ -212,7 +212,7 @@ class Bytes {
   // non-octet element raises the named contract error.
   @class
   fromList(_ list) {
-    if (not list.isA(List)) {
+    if (not list.is(List)) {
       throw ArgumentError.new("Bytes.fromList: argument must be a List")
     }
     const out = Bytes.new(list.size)
@@ -238,7 +238,7 @@ class OpenMode {
   @class
   readWrite { OpenMode.named("readWrite") }
   name { _name }
-  ==(_ other) { return other.isA(OpenMode) and (_name == other.name) }
+  ==(_ other) { return other.is(OpenMode) and (_name == other.name) }
   !=(_ other) { return not (self == other) }
   toString { "OpenMode." + _name }
 }
@@ -246,7 +246,7 @@ class OpenMode {
 class Path {
   @constructor
   of(_ s) {
-    if (not s.isA(String)) {
+    if (not s.is(String)) {
       throw ArgumentError.new("Path.of: argument must be a String")
     }
     _bytes = Bytes.fromString(s)
@@ -255,7 +255,7 @@ class Path {
 
   @constructor
   ofBytes(_ b) {
-    if (not b.isA(Bytes)) {
+    if (not b.is(Bytes)) {
       throw ArgumentError.new("Path.ofBytes: argument must be a Bytes")
     }
     _bytes = b.slice(0, b.size)
@@ -277,7 +277,7 @@ class Path {
   hash { _hash }
 
   ==(_ other) {
-    if (not other.isA(Path)) { return false }
+    if (not other.is(Path)) { return false }
     if (_hash != other.hash) { return false }
     return _bytes == other.bytes
   }
@@ -287,7 +287,7 @@ class Path {
   isAbsolute { (_bytes.size > 0) and (_bytes.at(0) == 47) }
 
   join(_ other) {
-    if (not other.isA(Path)) {
+    if (not other.is(Path)) {
       throw ArgumentError.new("Path#join: argument must be a Path")
     }
     if (other.isAbsolute) {

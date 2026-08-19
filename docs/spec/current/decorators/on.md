@@ -56,7 +56,7 @@ runtime as `attr.frozen`; and `Behavior#attributes`/`Method#attributes`/
    `reserveSlot`/`slotAt`/`setSlotAt` and the `Invocation` object do not exist.
 3. **`inherited:` (A-2) is unimplemented.** `validate_attribute_class` reads only the
    tier name from `@On`'s args; `attributesOfType(cls)` in `core.ph` (L1612) is a flat
-   `self.__attributes.filter { a => a.isA(cls) }` with **no superclass chain-walk**.
+   `self.__attributes.filter { a => a.is(cls) }` with **no superclass chain-walk**.
    `inherited: true` has no effect.
 4. **Validation only reaches *direct* subclasses.** `is_attribute_class` is
    `superclass.name == "Attribute"` (class_decl.rs L64) — a *direct* `is
@@ -333,7 +333,7 @@ The retained-instance store is a native `_attributes` slot on the class object,
 ```phalcom
 class Method {
   attributes => _attributes                                  // native slot, Rust-backed
-  attributesOfType(cls) => _attributes.filter { a => a.isA(cls) }   // pure .ph
+  attributesOfType(cls) => _attributes.filter { a => a.is(cls) }   // pure .ph
 }
 ```
 

@@ -1110,7 +1110,7 @@ class ProtocolParameter {
   }
 
   equivalentTo(other: Object) -> Bool {
-    if other.isA(ProtocolParameter).not {
+    if other.is(ProtocolParameter).not {
       return false
     }
 
@@ -1243,7 +1243,7 @@ class ProtocolRequirement {
   }
 
   equivalentTo(other: Object) -> Bool {
-    if other.isA(ProtocolRequirement).not {
+    if other.is(ProtocolRequirement).not {
       return false
     }
 
@@ -1718,7 +1718,7 @@ class ProtocolRuntime {
       )
     }
 
-    if owner.isA(Module).not {
+    if owner.is(Module).not {
       throw self.invalidMetadata(
         code: "type.protocol.manual.invalid_owner",
         message: "first-version protocols require a module owner",

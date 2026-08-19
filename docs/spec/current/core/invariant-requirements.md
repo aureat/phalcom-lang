@@ -113,7 +113,7 @@ this unit adds."** "H" = `verify_invariants` (boot); "C" = corpus.
 | # | Invariant | Where |
 |---|---|---|
 | 1.1 | Closes R-INV-0.1…0.4 (this is the first impl unit — it stands up the audit substrate). | H + C |
-| 1.2 | `isA(_)` is reflexive and superclass-closed: `x.isA(x.class)` is `true`; `x.isA(Object)` is `true` for every `x`; `x.isA(C)` ⇔ `C` is on `x.class`'s superclass chain. | C |
+| 1.2 | `isA(_)` is reflexive and superclass-closed: `x.is(x.class)` is `true`; `x.is(Object)` is `true` for every `x`; `x.is(C)` ⇔ `C` is on `x.class`'s superclass chain. | C |
 | 1.3 | `hash` is **consistent with `==`**: `a == b` ⇒ `a.hash == b.hash` (the Map/Set precondition, object-model §4). Assert over immediates (`Number`, `String`, `Symbol`, `Bool`) and identity objects. | C |
 | 1.4 | `hash` is **stable** across calls on the same receiver within a run. | C |
 | 1.5 | If `Method` is re-parented under `Function` (§4.1 ruling), the parallel rule (R-INV-0.2) still holds for `Method`, and `Method` responds to the `Function` call-protocol selectors. | H + C |

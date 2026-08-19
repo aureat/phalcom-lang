@@ -7,6 +7,6 @@
 // membership check has no Phalcom analog and is dropped here).
 
 const l = []
-System.print(l.isA(List))
-System.print(l.isA(Object))
-System.print(l.isA(Bool))
+System.print(l.is(List))
+System.print(l.is(Object))
+System.print(l.is(Bool))

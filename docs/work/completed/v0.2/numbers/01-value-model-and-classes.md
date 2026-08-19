@@ -34,7 +34,7 @@ Replace the flat numeric representation with `Value::Int(i64)`, `Value::Float(f6
 
 - `Number.new()`, `Number.new(1)`, and reflective `Number.send(#new, ...)` each raise
   `#abstractClass`; `Number.respondsTo(#new)` keeps ordinary lookup behavior.
-- `Int.new()` / `Float.new()` remain constructible; `Int.isA(Number)` and `Float.isA(Number)`.
+- `Int.new()` / `Float.new()` remain constructible; `Int.is(Number)` and `Float.is(Number)`.
 - `i64::MIN.negated` normalizes to `LargeInt`; a traced `LargeInt` survives forced collection.
 - Existing nonnumeric values preserve type/class, hash, render, and equality behavior.
 

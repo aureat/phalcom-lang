@@ -198,7 +198,7 @@ class Capability {
   // Results cross the membrane wrapped in the SAME revoker, so the whole reachable
   // graph is governed and dies together. Leaf values pass through untouched.
   wrap(v) {
-    if (v.isA(Number) or v.isA(String) or v.isA(Bool)) { return v }
+    if (v.is(Number) or v.is(String) or v.is(Bool)) { return v }
     return Capability.on(target: v, allow: _allow, via: _via)
   }
 }

@@ -80,7 +80,7 @@
   the hashability law's precondition, ADR-0019 amendment). `isA(_)` is confirmed
   present at `core.ph` L9 (derived over `class`/`==`/`superclass`, no native
   primitive — `floor-census.md` L48–49). This was a **hard, ordered dependency**
-  (the `.ph` `==` body dispatches `other.isA(List)`); it is now **satisfied**.
+  (the `.ph` `==` body dispatches `other.is(List)`); it is now **satisfied**.
 - **U-LIST** (ADR-0020) — the native-array `List` and its `size`/`at`/`add`/`each`
   protocol. Landed; re-verified current at `core.ph` L143–160 (⚠ *`core.ph` is one
   of U-CORE-4's concurrently-edited files — re-confirm this range at dispatch*).
@@ -220,7 +220,7 @@ For collections `A`, `B` of the same kind:
 | Law | Statement |
 |---|---|
 | **E1 structural** | `A == B` iff `A.size == B.size` **and** `A.at(i) == B.at(i)` for all `i` (order-sensitive, via each element's own `==`). For `Set`/`Map` (unordered), "same elements/entries" replaces index-wise. |
-| **E2 cross-kind** | `A == B` is `false` when `B` is not the same collection kind (guard: `B.isA(<kind>)`). Follows Python (`[1,2] != (1,2)`). |
+| **E2 cross-kind** | `A == B` is `false` when `B` is not the same collection kind (guard: `B.is(<kind>)`). Follows Python (`[1,2] != (1,2)`). |
 | **E3 reflexive** | `A == A` is `true`. *(Caveat: holds for well-behaved elements; a `NaN` element breaks it — see SD-2 and §Risk.)* |
 | **E4 symmetric** | `(A == B) == (B == A)`. |
 | **E5 transitive** | `A == B ∧ B == C ⇒ A == C`. |
@@ -295,7 +295,7 @@ class List {
   // the floor — no new primitive (ADR-0019 unchanged). Requires U-CORE-1's
   // `isA(_)`.
   ==(other) {
-    if (other.isA(List)) {
+    if (other.is(List)) {
       var same = (self.size == other.size)
       var i = 0
       // `and(_)` is eager; when `same` is already false we still evaluate the
@@ -609,7 +609,7 @@ and (b) a self-referential list (`l.add(l)`) recurses unboundedly.
   out-of-scope for a frozen-floor contract unit.
 
 **SD-3 — Cross-kind equality guard: `isA(List)` vs exact class?** §2 E2 uses
-`other.isA(List)`.
+`other.is(List)`.
 - *Recommendation: **`isA(List)`*** (Liskov-friendly: a `List` subclass compares
   structurally). Exact-class (`other.class == self.class`) is the stricter
   alternative; pick it only if a future subclass must be equality-incomparable with

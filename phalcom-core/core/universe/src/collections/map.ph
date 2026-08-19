@@ -99,11 +99,11 @@ class Map {
   // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
   @class
   from(_ record) {
-    if ((not record.isA(Record)) and (not record.isA(Unit))) {
+    if ((not record.is(Record)) and (not record.is(Unit))) {
       throw ArgumentError.new("Map.from: argument must be a Record or Unit")
     }
     let result = Map.new()
-    if (record.isA(Record)) {
+    if (record.is(Record)) {
       let i = 0
       while (i < record._$size) {
         result.insert(record._$valueAt(i), for: record._$labelAt(i))
@@ -121,7 +121,7 @@ class Map {
   // over keys — `includes`/`get` do the membership + value work, not raw
   // index comparison). Guarded by `isA(Map)` so a non-Map is simply unequal.
   ==(_ other) {
-    if (other.isA(Map)) {
+    if (other.is(Map)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {

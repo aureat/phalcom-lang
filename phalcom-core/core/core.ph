@@ -10,7 +10,7 @@ class Object {
   //
   // No RHS-is-a-class guard: a non-class `cls` never equals any `c` in the
   // chain, so the walk naturally falls through to `false` (is-tests.md I-4,
-  // ratified `false`). Do not add a `cls.isA(...)`-style guard here — it
+  // ratified `false`). Do not add a `cls.is(...)`-style guard here — it
   // would recurse through the `isA` alias below forever, and it would target
   // `Behavior`, which is not bootstrapped in this codebase (ADR-0003 designs
   // it; core.ph has only `Object`/`Class`/`Metaclass`).
@@ -25,12 +25,7 @@ class Object {
 
   // Exact test: true iff `cls` is the receiver's *live, direct* class —
   // no superclass walk. Backs the `x is! T` surface (is-tests.md).
-  isExactly(_ cls) { self.class == cls }
-
-  // Back-compat alias (U-CORE-1) — `is(_)` is now the primary kind-of test;
-  // `isA` is retained so existing internal (`List#==` etc.) and user callers
-  // keep working unchanged.
-  isA(_ cls) { self.is(cls) }
+  is!(_ cls) { self.class == cls }
 }
 
 class Class {
@@ -232,7 +227,7 @@ class String {
   // Find first occurrence of a substring, scanning left-to-right by byte.
   // O(n·m) naive search. Returns the byte offset, or -1 if not found.
   indexOf(_ needle) {
-    (needle.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (needle.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("indexOf: needle must be a String")
     })
     (needle.isEmpty).ifTrue(|| {
@@ -257,7 +252,7 @@ class String {
 
   // Split by delimiter substring. Returns a List of String segments.
   split(_ delimiter) {
-    (delimiter.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (delimiter.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("split: delimiter must be a String")
     })
     (delimiter.isEmpty).ifTrue(|| {
@@ -281,10 +276,10 @@ class String {
 
   // Replace all occurrences of `from` with `to`.
   replace(_ needle, _ to) {
-    (needle.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (needle.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: from must be a String")
     })
-    (to.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (to.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: to must be a String")
     })
     (needle.isEmpty).ifTrue(|| {
@@ -320,7 +315,7 @@ class String {
 
   // Trim from the start using the given charset.
   trimStart(_ chars) {
-    (chars.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (chars.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("trimStart: chars must be a String")
     })
 
@@ -346,7 +341,7 @@ class String {
 
   // Trim from the end using the given charset.
   trimEnd(_ chars) {
-    (chars.isA(String)).ifTrue(|| {}, ifFalse: || {
+    (chars.is(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("trimEnd: chars must be a String")
     })
 
@@ -379,7 +374,7 @@ class String {
 
   // Repeat the string `count` times.
   *(_ count) {
-    (count.isA(Number)).ifTrue(|| {}, ifFalse: || {
+    (count.is(Number)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("*: count must be a Number")
     })
     (count >= 0).ifTrue(|| {}, ifFalse: || {
@@ -594,7 +589,7 @@ class Option {
   }
 
   ==(_ other) {
-    other.isA(Option).ifFalse || { return false }
+    other.is(Option).ifFalse || { return false }
     return self.match(
       some: |v| { other.match(some: |ov| { v == ov }, none: || { false }) },
       none: || { other.isNone }
@@ -1024,7 +1019,7 @@ class List {
   }
 
   [_ index] {
-    if (index.isA(Range)) { return self.sliceByRange(index) }
+    if (index.is(Range)) { return self.sliceByRange(index) }
     let raw = self._$at(index)
     let len = self.size
     let i = index
@@ -1183,10 +1178,10 @@ class List {
   // C.3 deliberately accepts only a finite List replacement source. General
   // Iterable replacement waits for Spec E's boundedness and re-entrancy rules.
   replace(_ range, with replacements) {
-    if (not range.isA(Range)) {
+    if (not range.is(Range)) {
       return Err.new(SliceError.new("List#replace: first argument must be a Range"))
     }
-    if (not replacements.isA(List)) {
+    if (not replacements.is(List)) {
       return Err.new(SliceError.new("List#replace: replacement must be a List"))
     }
     return range._$sliceBounds(self.size).match(
@@ -1206,7 +1201,7 @@ class List {
   // explicitly with a thin delegation, same as any other collection
   // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_]=(put)`.
   [_ i]=(put val) {
-    if (i.isA(Range)) { return self.replace(i, with: val).unwrap }
+    if (i.is(Range)) { return self.replace(i, with: val).unwrap }
     return self.at(i, put: val)
   }
 
@@ -1219,7 +1214,7 @@ class List {
   // dispatched by the compiler, not dotted-call syntax — `and`/`not` are
   // reserved words and cannot follow `.` as a bare identifier).
   ==(_ other) {
-    if (other.isA(List)) {
+    if (other.is(List)) {
       let same = (self.size == other.size)
       let i = 0
       // `and` is lazy (short-circuits); once `same` is false the loop
@@ -1357,11 +1352,11 @@ class Map {
   // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
   @class
   from(_ record) {
-    if ((not record.isA(Record)) and (not record.isA(Unit))) {
+    if ((not record.is(Record)) and (not record.is(Unit))) {
       throw ArgumentError.new("Map.from: argument must be a Record or Unit")
     }
     let result = Map.new()
-    if (record.isA(Record)) {
+    if (record.is(Record)) {
       let i = 0
       while (i < record._$size) {
         result.insert(record._$valueAt(i), for: record._$labelAt(i))
@@ -1379,7 +1374,7 @@ class Map {
   // over keys — `includes`/`get` do the membership + value work, not raw
   // index comparison). Guarded by `isA(Map)` so a non-Map is simply unequal.
   ==(_ other) {
-    if (other.isA(Map)) {
+    if (other.is(Map)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
@@ -1444,7 +1439,7 @@ class Set {
   // "every element of self is in other" is sufficient since neither set
   // holds duplicates (add_ is idempotent).
   ==(_ other) {
-    if (other.isA(Set)) {
+    if (other.is(Set)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
@@ -1519,7 +1514,7 @@ class Tuple {
 
   @private
   access(_ key) {
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { Some(self._$at(idx)) },
         none: || { None }
@@ -1538,7 +1533,7 @@ class Tuple {
   get(_ key) { self.access(key) }
 
   [_ key] {
-    if (key.isA(Range)) {
+    if (key.is(Range)) {
       return key._$sliceBounds(self.size).match(
         ok: |bounds| {
           let start = bounds[0]
@@ -1549,7 +1544,7 @@ class Tuple {
         err: |error| { error.raise() }
       )
     }
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
         none: || { throw KeyError.new("Tuple label not found") }
@@ -1566,7 +1561,7 @@ class Tuple {
   }
 
   [_ key, default] {
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
         none: || { default }
@@ -1583,7 +1578,7 @@ class Tuple {
   }
 
   get(_ key, orElse) {
-    if (key.isA(Symbol)) {
+    if (key.is(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
         none: || { orElse.call(key) }
@@ -1604,7 +1599,7 @@ class Tuple {
   // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
   ==(_ other) {
-    if (other.isA(Tuple)) {
+    if (other.is(Tuple)) {
       let same = (self.size == other.size) and (self._$positionalSize == other._$positionalSize)
       let i = 0
       while (same and (i < self.size - self._$positionalSize)) {
@@ -1654,7 +1649,7 @@ class Record {
   labelAt(_ index) { self._$labelAt(index) }
 
   ==(_ other) {
-    if (other.isA(Record)) {
+    if (other.is(Record)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
@@ -1748,7 +1743,7 @@ class Range is Iterable {
   @private
   isSliceCoordinate(_ value) {
     // TODO(NUMERIC-TOWER): require Int once the tower is fully landed.
-    return value.isA(Number) and ((value % 1) == 0)
+    return value.is(Number) and ((value % 1) == 0)
   }
 
   @private
@@ -1905,7 +1900,7 @@ class Range is Iterable {
   }
 
   ==(_ other) {
-    other.isA(Range).ifFalse || { return false }
+    other.is(Range).ifFalse || { return false }
     return (self._$lower == other._$lower) and
            (self._$upper == other._$upper) and
            (self._$upperInclusive == other._$upperInclusive)
@@ -1961,7 +1956,7 @@ class Bytes {
   }
 
   [_ index] {
-    if (index.isA(Range)) {
+    if (index.is(Range)) {
       return index._$sliceBounds(self.size).match(
         ok: |bounds| {
           let start = bounds[0]
@@ -2010,7 +2005,7 @@ class Bytes {
   // so the arithmetic tests never run on a non-Number. (No trailing `_`:
   // that marker is reserved for native primitives, and this is pure .ph.)
   isOctet(_ v) {
-    return v.isA(Number) and (v >= 0) and (v <= 255) and ((v % 1) == 0)
+    return v.is(Number) and (v >= 0) and (v <= 255) and ((v % 1) == 0)
   }
 
   // Raise-lifting writes (bytes.md law 1: precondition violations raise,
@@ -2065,7 +2060,7 @@ class Bytes {
   }
 
   copyInto(_ dst, _ offset) {
-    if (not dst.isA(Bytes)) {
+    if (not dst.is(Bytes)) {
       throw ArgumentError.new("Bytes#copyInto: destination must be a Bytes")
     }
     if ((offset < 0) or ((offset + self.size) > dst.size)) {
@@ -2078,7 +2073,7 @@ class Bytes {
   // Derivability with teeth (bytes.md §3.1): new + two native memmoves,
   // zero per-byte loops.
   concat(_ other) {
-    if (not other.isA(Bytes)) {
+    if (not other.is(Bytes)) {
       throw ArgumentError.new("Bytes#concat: argument must be a Bytes")
     }
     const out = Bytes.new(self.size + other.size)
@@ -2093,7 +2088,7 @@ class Bytes {
   // Short-circuits — correct here, and exactly why it must never be the
   // secret-comparison spelling (bytes.md §8).
   ==(_ other) {
-    if (other.isA(Bytes)) {
+    if (other.is(Bytes)) {
       let same = (self.size == other.size)
       let i = 0
       // `and` is lazy: once `same` is false the loop exits without another
@@ -2131,7 +2126,7 @@ class Bytes {
 
   @class
   fromString(_ s) {
-    if (not s.isA(String)) {
+    if (not s.is(String)) {
       throw ArgumentError.new("Bytes.fromString: argument must be a String")
     }
     return Bytes._$fromString(s)
@@ -2142,7 +2137,7 @@ class Bytes {
   // non-octet element raises the named contract error.
   @class
   fromList(_ list) {
-    if (not list.isA(List)) {
+    if (not list.is(List)) {
       throw ArgumentError.new("Bytes.fromList: argument must be a List")
     }
     const out = Bytes.new(list.size)
@@ -2168,7 +2163,7 @@ class OpenMode {
   @class
   readWrite { OpenMode.named("readWrite") }
   name { _name }
-  ==(_ other) { return other.isA(OpenMode) and (_name == other.name) }
+  ==(_ other) { return other.is(OpenMode) and (_name == other.name) }
   !=(_ other) { return not (self == other) }
   toString { "OpenMode." + _name }
 }
@@ -2176,7 +2171,7 @@ class OpenMode {
 class Path {
   @constructor
   of(_ s) {
-    if (not s.isA(String)) {
+    if (not s.is(String)) {
       throw ArgumentError.new("Path.of: argument must be a String")
     }
     _bytes = Bytes.fromString(s)
@@ -2185,7 +2180,7 @@ class Path {
 
   @constructor
   ofBytes(_ b) {
-    if (not b.isA(Bytes)) {
+    if (not b.is(Bytes)) {
       throw ArgumentError.new("Path.ofBytes: argument must be a Bytes")
     }
     _bytes = b.slice(0, b.size)
@@ -2207,7 +2202,7 @@ class Path {
   hash { _hash }
 
   ==(_ other) {
-    if (not other.isA(Path)) { return false }
+    if (not other.is(Path)) { return false }
     if (_hash != other.hash) { return false }
     return _bytes == other.bytes
   }
@@ -2217,7 +2212,7 @@ class Path {
   isAbsolute { (_bytes.size > 0) and (_bytes.at(0) == 47) }
 
   join(_ other) {
-    if (not other.isA(Path)) {
+    if (not other.is(Path)) {
       throw ArgumentError.new("Path#join: argument must be a Path")
     }
     if (other.isAbsolute) {
@@ -2359,7 +2354,7 @@ class FilterIterator is Iterator {
 class SkipIterator is Iterator {
   @constructor
   new(_ source, _ n) {
-    (n.isA(Number) and n >= 0 and n % 1 == 0).ifFalse || {
+    (n.is(Number) and n >= 0 and n % 1 == 0).ifFalse || {
       throw ArgumentError.new("skip: n must be a non-negative integer")
     }
     _source = source
@@ -2381,7 +2376,7 @@ class SkipIterator is Iterator {
 class TakeIterator is Iterator {
   @constructor
   new(_ source, _ n) {
-    (n.isA(Number) and n >= 0 and n % 1 == 0).ifFalse || {
+    (n.is(Number) and n >= 0 and n % 1 == 0).ifFalse || {
       throw ArgumentError.new("take: n must be a non-negative integer")
     }
     _source = source
@@ -2459,7 +2454,7 @@ class System {
   @class
   writeObject(_ obj) {
     const s = obj.toString
-    (s.isA(String)).ifTrue(|| {
+    (s.is(String)).ifTrue(|| {
       System._$write(s)
     }, ifFalse: || {
       System._$write("invalid toString")
@@ -2587,7 +2582,7 @@ class Future {
   // future down with it, so skip those rather than scheduling a corpse.
   drain() {
     _waiters.each |w| {
-      const dead = w.isA(Fiber) and w.isDone
+      const dead = w.is(Fiber) and w.isDone
       if (not dead) {
         System.schedule(w)
       }
@@ -2669,7 +2664,7 @@ class Future {
   // Future. This is the Future assimilation rule used by then/map/catch.
   @class
   flatten(_ value) {
-    if (value.isA(Future)) {
+    if (value.is(Future)) {
       return value
     }
     return Future.value(value)
@@ -2900,7 +2895,7 @@ class Runtime is Tier {}
 // reopen-with-fields would trip read-before-write).
 class Behavior {
   attributes { self._$attributes }
-  attributesOfType(_ cls) { self._$attributes.filter |a| { a.isA(cls) } }
+  attributesOfType(_ cls) { self._$attributes.filter |a| { a.is(cls) } }
 }
 
 // `Method#attributes`/`#attributesOfType(_)` — the same reflection surface
@@ -2908,7 +2903,7 @@ class Behavior {
 // dictionary holds.
 class Method {
   attributes { self._$attributes }
-  attributesOfType(_ cls) { self._$attributes.filter |a| { a.isA(cls) } }
+  attributesOfType(_ cls) { self._$attributes.filter |a| { a.is(cls) } }
 }
 
 // ============================================================================
