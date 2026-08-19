@@ -462,8 +462,8 @@ these dispatch on real `True`/`False` receivers; there is no implicit coercion.
 
 | Selector | Side | Class | Native fn | Notes |
 |---|---|---|---|---|
-| `call(_)` | static | `Some` | `some_call` | canonical present-value construction; immediate bounded `Some1`…`Some7`, no instance fields |
-| `new(_)` | static | `Some` | `some_new` | compatibility alias for `Some.call(_)`; same immediate bounded representation |
+| `call(_)` | static | `Some` | `some_call` | canonical present-value construction; encoded as `with_some_depth(1)` on the inner value, 32-bit depth in `meta` bits 8..=39 (Spec 2), no heap wrapper |
+| `new(_)` | static | `Some` | `some_new` | compatibility alias for `Some.call(_)`; same immediate representation |
 | `match(some, none)`† | instance | `Option` | `option_match` | the eliminator, on abstract `Option` so `Some`/`None` inherit it (values-and-absence.md §3.2); encoded explicitly; interns as `match(some:none:)` |
 
 † rendered from `encode_selector("match", [Some("some"), Some("none")], Method(2))`.

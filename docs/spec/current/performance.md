@@ -49,7 +49,7 @@ bind implementers and reviewers alike; a unit that violates one is not mergeable
   inline-cache layout must not block NaN-boxing; an added superinstruction must not
   exhaust the opcode budget a later one needs.
 
-- **P5 — Reconcile with the locked contract.** The tagged `enum Value` API
+- **P5 — Reconcile with the locked contract.** The 16-byte tagged `Value` API
   ([ADR-0010](../../adr/0010-tagged-value-enum.md)), the `ClassId`-keyed
   inline-cache seam ([ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md)),
   comma-canonical selector encoding, and the handle/arena heap

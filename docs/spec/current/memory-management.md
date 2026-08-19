@@ -276,10 +276,11 @@ loop), so pinning is a liveness guarantee, not a cycle workaround.
   the most-allocated variant, so a `Box` would add an indirection and an allocation
   for no size win. (ADR-0050 §9's variant list predates this measurement; this table
   supersedes it.)
-- **`Value` size.** `Value` is a 16-byte tagged enum today. NaN-boxing to a single
-  8-byte word is deferred behind the `Value` API
-  ([ADR-0010](../../adr/0010-tagged-value-enum.md)); §2.3's object accessor is the
-  seam that keeps the collector independent of this.
+- **`Value` size.** `Value` is a 16-byte explicit tagged struct (`payload: u64,
+  meta: u64`) today, down from the 24-byte enum it replaced (a density gain of
+  33% per stack slot). NaN-boxing to a single 8-byte word is deferred behind
+  the `Value` API ([ADR-0010](../../adr/0010-tagged-value-enum.md)); §2.3's
+  object accessor is the seam that keeps the collector independent of this.
 - **Fiber-stack pooling.** Fiber operand/frame `Vec`s may be pooled and reused
   across fiber deaths to cut allocation churn; this is a memory-management
   optimization orthogonal to reclamation and changes no observable semantics.

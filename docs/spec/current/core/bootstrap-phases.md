@@ -87,8 +87,9 @@ must be preserved by any change to `VM::new`:
 
 1. **B → D.** `install_core` reads `self.universe.classes.*` to bind globals;
    the tower must exist first.
-2. **E → F.** `some_call` (F) wraps through `Value::wrap_some`; the bounded
-   `Some1`…`Some7` representation has no instance-field write or heap wrapper.
+2. **E → F.** `some_call` (F) wraps through `Value::wrap_some`; Option wrapping uses
+   the 32-bit depth field in `meta` (Spec 2); there are no `Some1`…`Some7`
+   variants, and no instance-field write or heap wrapper.
    `Some` and `None` class rows still exist before primitive installation so
    ordinary immediate receiver lookup has valid metadata.
 3. **F → G.** `core.ph` reopens invoke the primitives they wrap

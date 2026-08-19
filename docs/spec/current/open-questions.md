@@ -167,11 +167,12 @@ before the work it blocks begins.
     an immediate value with no heap singleton**; the `Nil` sentinel is **surfaced to
     `None`** one-directionally at read boundaries (`Nil → None`, never the reverse),
     so an uninitialized `var` reads as `None` without construction. `Some(x)` is
-    represented by bounded immediate `Some1`…`Some7` variants, with no heap wrapper.
+    represented by setting the 32-bit depth field in `meta` bits 8..=39 to the
+    nesting count; no bounded limit or separate heap wrapper is needed. The
+    `Some1`…`Some7` immediate variant names are retired (Spec 2).
     **Deferred physical optimization:** NaN-boxing, pointer tagging, or niche
     encoding remains open after the correctness substrate, slotted behind the
-    existing
-    `surface_none` boundary once there is a GC + benchmarks to justify it.
+    existing `surface_none` boundary once there is a GC + benchmarks to justify it.
 
 14. ~~**`Family` introspection.**~~ **RESOLVED** (ruling, no ADR): ship `Family`
     ([Selectors §3](selectors.md#3-method-references-)) as a **callable value only**
