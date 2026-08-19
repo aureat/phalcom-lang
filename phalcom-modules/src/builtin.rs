@@ -152,7 +152,7 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &["errors"],
         kind: ModuleKind::Package,
-        children: &["error", "argument", "indexing", "contracts"],
+        children: &["error", "argument", "indexing", "contracts", "unsupported", "unimplemented"],
     },
     BuiltinNodeSpec {
         path: &["errors", "error"],
@@ -171,6 +171,16 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     },
     BuiltinNodeSpec {
         path: &["errors", "contracts"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "unsupported"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "unimplemented"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -518,6 +528,12 @@ impl BuiltinProjectSourceProvider {
             }
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "contracts" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/contracts.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "unsupported" => {
+                include_str!("../../phalcom-core/core/universe/src/errors/unsupported.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "unimplemented" => {
+                include_str!("../../phalcom-core/core/universe/src/errors/unimplemented.ph")
             }
             (BuiltinProject::Universe, [c]) if c.as_str() == "reflection" => include_str!("../../phalcom-core/core/universe/src/reflection/package.ph"),
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module" => {

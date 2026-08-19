@@ -13,6 +13,11 @@
 // U-ERR: `throw ArgumentError("age must be >= 0")`-style user `Error`
 // subclasses need this to carry a real `message`).
 class Error {
+  _message // : Option<String>
+  _kind // : Option<Symbol>
+  _cause // : Option<Error>
+  _displaced // : Option<?>
+
   // Preserved bare 0-arg form (many pre-U-ERR call sites — `Error.new()` in
   // Fiber/Future fixtures — rely on it; declaring *any* `new`-named
   // `@constructor` drops the generic inherited bare allocator, U7, so this must
@@ -24,6 +29,7 @@ class Error {
     _cause = None
     _displaced = None
   }
+
   @constructor
   new(_ msg) {
     _message = msg
@@ -31,12 +37,22 @@ class Error {
     _cause = None
     _displaced = None
   }
+
+  message { _message }
+
+  message=(put value) { _message = value }
+
   kind { _kind }
-  kind=(put val) { _kind = val }
+
+  kind=(put value) { _kind = value }
+
   cause { _cause }
-  cause=(put val) { _cause = val }
+
+  cause=(put value) { _cause = value }
+
   displaced { _displaced }
-  displaced=(put val) { _displaced = val }
+
+  displaced=(put value) { _displaced = value }
 }
 
 
@@ -88,6 +104,7 @@ class Result {
   // with `Option#toString`'s pattern, R-INV-4.1).
   toString { self.match(ok: |v| { "Ok(" + v.toString + ")" }, err: |e| { "Err(" + e.toString + ")" }) }
 }
+
 
 class Ok is Result {
   @constructor

@@ -256,6 +256,8 @@ impl VM {
             ("errors/contracts", include_str!("../../core/universe/src/errors/contracts.ph")),
             ("errors/argument", include_str!("../../core/universe/src/errors/argument.ph")),
             ("errors/indexing", include_str!("../../core/universe/src/errors/indexing.ph")),
+            ("errors/unsupported", include_str!("../../core/universe/src/errors/unsupported.ph")),
+            ("errors/unimplemented", include_str!("../../core/universe/src/errors/unimplemented.ph")),
             ("option/option", include_str!("../../core/universe/src/option/option.ph")),
             ("callable/function", include_str!("../../core/universe/src/callable/function.ph")),
             ("callable/method", include_str!("../../core/universe/src/callable/method.ph")),
