@@ -87,10 +87,10 @@ fn test_large_int_normalization_and_gc() {
 }
 
 #[test]
-fn test_negated_i64_min_overflow() {
+fn test_negate_i64_min_overflow() {
     let mut vm = VM::new();
     let min_val = Value::int(i64::MIN);
-    let neg_sym = vm.get_or_intern("negated()");
+    let neg_sym = vm.get_or_intern("-");
     let neg_res = vm.send_dynamic(min_val, neg_sym, &[]).unwrap();
 
     // -i64::MIN overflows i64 and becomes a LargeInt
@@ -106,4 +106,53 @@ fn test_negated_i64_min_overflow() {
     } else {
         panic!("expected Value::obj for -i64::MIN");
     }
+}
+
+#[test]
+fn test_unary_operators_and_getters() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "test_unary_ops");
+
+    vm.interpret_source(
+        module,
+        "let x = 42;\nlet a = +42;\nlet b = -42;\nlet c = ~0;\nlet d = not true;\nlet ga = x.+;\nlet gb = x.-;\nlet gc = (0).~;\nlet gd = true.not;\n",
+    )
+    .expect("unary ops and getters should interpret");
+
+    let a = vm.heap.module(module).get(vm.interner.intern("a")).unwrap();
+    assert_eq!(a.as_int(), Some(42));
+
+    let b = vm.heap.module(module).get(vm.interner.intern("b")).unwrap();
+    assert_eq!(b.as_int(), Some(-42));
+
+    let c = vm.heap.module(module).get(vm.interner.intern("c")).unwrap();
+    assert_eq!(c.as_int(), Some(-1));
+
+    let d = vm.heap.module(module).get(vm.interner.intern("d")).unwrap();
+    assert_eq!(d.as_bool(), Some(false));
+
+    let ga = vm.heap.module(module).get(vm.interner.intern("ga")).unwrap();
+    assert_eq!(ga.as_int(), Some(42));
+
+    let gb = vm.heap.module(module).get(vm.interner.intern("gb")).unwrap();
+    assert_eq!(gb.as_int(), Some(-42));
+
+    let gc = vm.heap.module(module).get(vm.interner.intern("gc")).unwrap();
+    assert_eq!(gc.as_int(), Some(-1));
+
+    let gd = vm.heap.module(module).get(vm.interner.intern("gd")).unwrap();
+    assert_eq!(gd.as_bool(), Some(false));
+
+    // Dynamic sends for the 4 bare getter selectors:
+    let plus_sym = vm.get_or_intern("+");
+    assert_eq!(vm.send_dynamic(Value::int(42), plus_sym, &[]).unwrap().as_int(), Some(42));
+
+    let minus_sym = vm.get_or_intern("-");
+    assert_eq!(vm.send_dynamic(Value::int(42), minus_sym, &[]).unwrap().as_int(), Some(-42));
+
+    let tilde_sym = vm.get_or_intern("~");
+    assert_eq!(vm.send_dynamic(Value::int(0), tilde_sym, &[]).unwrap().as_int(), Some(-1));
+
+    let not_sym = vm.get_or_intern("not");
+    assert_eq!(vm.send_dynamic(Value::bool(true), not_sym, &[]).unwrap().as_bool(), Some(false));
 }

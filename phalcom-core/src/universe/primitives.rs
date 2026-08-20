@@ -24,8 +24,8 @@ use crate::primitive::method_family::{method_family_bind, method_family_method_f
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_call, some_new};
 use crate::primitive::number::{
-    number_add, number_class_new, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul,
-    number_negated, number_pow, number_sub, number_to_string,
+    number_add, number_class_new, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negate,
+    number_pow, number_sub, number_to_string, number_unary_plus,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
@@ -142,7 +142,11 @@ impl Universe {
         primitive!(vm, number_cls, "<=", SignatureKind::Method(1), number_le);
         primitive!(vm, number_cls, ">", SignatureKind::Method(1), number_gt);
         primitive!(vm, number_cls, ">=", SignatureKind::Method(1), number_ge);
-        primitive!(vm, number_cls, "negated", SignatureKind::Method(0), number_negated);
+        // Unary arithmetic getters: `+x` (identity) and `-x` (negation).
+        // Registered as Getters so `-` and `+` bare-selectors dispatch without
+        // parentheses (e.g. `x.-` == `-x`, `x.+` == `+x`).
+        primitive!(vm, number_cls, "+", SignatureKind::Getter, number_unary_plus);
+        primitive!(vm, number_cls, "-", SignatureKind::Getter, number_negate);
         // Value digest (ADR-0023): overrides `Object#hash` with a hash of the
         // mathematical value, class-agnostically (forward-compat §4).
         primitive!(vm, number_cls, "hash", SignatureKind::Getter, number_hash);
@@ -157,7 +161,8 @@ impl Universe {
         primitive!(vm, int_cls, "&", SignatureKind::Method(1), int_and);
         primitive!(vm, int_cls, "|", SignatureKind::Method(1), int_or);
         primitive!(vm, int_cls, "^", SignatureKind::Method(1), int_xor);
-        primitive!(vm, int_cls, "~", SignatureKind::Method(0), int_not);
+        // Bitwise NOT getter: `~x` lowers to bare selector `~` (Getter).
+        primitive!(vm, int_cls, "~", SignatureKind::Getter, int_not);
         primitive!(vm, int_cls, "<<", SignatureKind::Method(1), int_shl);
         primitive!(vm, int_cls, ">>", SignatureKind::Method(1), int_shr);
         primitive!(vm, int_cls, "bitAt", SignatureKind::Method(1), int_bit_at);

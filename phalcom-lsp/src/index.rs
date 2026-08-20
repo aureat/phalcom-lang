@@ -667,6 +667,14 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
             collect_var_occurrences_in_expr(&b.left, names, out);
             collect_var_occurrences_in_expr(&b.right, names, out);
         }
+        Expr::Membership(m) => {
+            collect_var_occurrences_in_expr(&m.left, names, out);
+            collect_var_occurrences_in_expr(&m.right, names, out);
+        }
+        Expr::IsMembership(m) => {
+            collect_var_occurrences_in_expr(&m.left, names, out);
+            collect_var_occurrences_in_expr(&m.candidates, names, out);
+        }
         Expr::MethodCall(m) => {
             collect_var_occurrences_in_expr(&m.object, names, out);
             for arg in &m.args {
@@ -937,6 +945,14 @@ impl Collector {
             Expr::Binary(b) => {
                 self.walk_expr(&b.left);
                 self.walk_expr(&b.right);
+            }
+            Expr::Membership(m) => {
+                self.walk_expr(&m.left);
+                self.walk_expr(&m.right);
+            }
+            Expr::IsMembership(m) => {
+                self.walk_expr(&m.left);
+                self.walk_expr(&m.candidates);
             }
             Expr::MethodCall(m) => {
                 self.walk_expr(&m.object);

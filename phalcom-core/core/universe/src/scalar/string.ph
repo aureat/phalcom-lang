@@ -127,6 +127,16 @@ class String {
     return -1
   }
 
+  contains(_ needle) {
+    (needle.is(String)).ifFalse || {
+      throw ArgumentError.new("contains: needle must be a String")
+    }
+    if (needle.isEmpty) { return true }
+    return self.indexOf(needle) != -1
+  }
+
+  includes(_ needle) { self.contains(needle) }
+
   // Split by delimiter substring. Returns a List of String segments.
   split(_ delimiter) {
     (delimiter.is(String)).ifTrue(|| {}, ifFalse: || {

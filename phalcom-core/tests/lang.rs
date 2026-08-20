@@ -58,6 +58,11 @@ fn control_flow() {
 }
 
 #[test]
+fn membership() {
+    support::check_pass("membership");
+}
+
+#[test]
 fn syntax_errors() {
     support::check_negative("syntax-errors");
 }

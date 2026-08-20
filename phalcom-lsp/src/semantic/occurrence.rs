@@ -394,6 +394,37 @@ impl OccurrenceBuilder<'_> {
                 self.visit_expr(&binary.left, scope);
                 self.visit_expr(&binary.right, scope);
             }
+            Expr::Membership(m) => {
+                if let Some(range) = m.op_range {
+                    let op_name = if m.negated { "not in" } else { "in" };
+                    self.push(
+                        range,
+                        SemanticOccurrenceKind::Operator,
+                        OccurrenceRole::Reference,
+                        SemanticTarget::Operator(op_name.to_string()),
+                    );
+                }
+                self.visit_expr(&m.left, scope);
+                self.visit_expr(&m.right, scope);
+            }
+            Expr::IsMembership(m) => {
+                if let Some(range) = m.op_range {
+                    let op_name = match (m.strict, m.negated) {
+                        (false, false) => "is in",
+                        (true, false) => "is! in",
+                        (false, true) => "is not in",
+                        (true, true) => "is! not in",
+                    };
+                    self.push(
+                        range,
+                        SemanticOccurrenceKind::Operator,
+                        OccurrenceRole::Reference,
+                        SemanticTarget::Operator(op_name.to_string()),
+                    );
+                }
+                self.visit_expr(&m.left, scope);
+                self.visit_expr(&m.candidates, scope);
+            }
             Expr::UnqualifiedCall(call) => {
                 if let Some(range) = call.name_range {
                     let target = match self.scopes.resolve(self.scopes.scope_at(range.start), &call.name, range.start) {
@@ -694,7 +725,8 @@ fn binary_name(op: &BinaryOp) -> String {
 
 fn unary_name(op: &UnaryOp) -> String {
     match op {
-        UnaryOp::Negate => "-",
+        UnaryOp::Plus => "+",
+        UnaryOp::Minus => "-",
         UnaryOp::Not => "not",
         UnaryOp::BitNot => "~",
     }

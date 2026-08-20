@@ -140,7 +140,7 @@ class Range is Iterable {
     return self._$upperInclusive.ifTrue(|| { diff + 1 }, ifFalse: || { diff })
   }
 
-  includes(_ x) {
+  contains(_ x) {
     let lowerOpt = self._$lower
     let upperOpt = self._$upper
 
@@ -150,6 +150,8 @@ class Range is Iterable {
     })
     return lowerOk and upperOk
   }
+
+  includes(_ x) { self.contains(x) }
 
   at(_ i) {
     let lowerOpt = self._$lower

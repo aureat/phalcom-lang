@@ -250,6 +250,16 @@ class String {
     return -1
   }
 
+  contains(_ needle) {
+    (needle.is(String)).ifFalse || {
+      throw ArgumentError.new("contains: needle must be a String")
+    }
+    if (needle.isEmpty) { return true }
+    return self.indexOf(needle) != -1
+  }
+
+  includes(_ needle) { self.contains(needle) }
+
   // Split by delimiter substring. Returns a List of String segments.
   split(_ delimiter) {
     (delimiter.is(String)).ifTrue(|| {}, ifFalse: || {
@@ -782,7 +792,7 @@ class Iterable {
     return result
   }
 
-  includes(_ x) {
+  contains(_ x) {
     let found = false
     let c = self.iterate(None)
     while (c != None) {
@@ -791,6 +801,8 @@ class Iterable {
     }
     return found
   }
+
+  includes(_ x) { self.contains(x) }
 
   isEmpty { self.size == 0 }
 
@@ -1324,7 +1336,8 @@ class Map {
   // `m[k] = v` shares insert's key identity and encounter-order semantics.
   [_ k]=(put val) { self._$put(k, val) }
 
-  includes(_ k) { self._$has(k) }
+  contains(_ k) { self._$has(k) }
+  includes(_ k) { self.contains(k) }
 
   // Removes an association. The raw primitive returns its former value, but
   // the public mutable-collection protocol is chainable.
@@ -1420,7 +1433,8 @@ class Set {
     return self
   }
 
-  includes(_ v) { self._$has(v) }
+  contains(_ v) { self._$has(v) }
+  includes(_ v) { self.contains(v) }
 
   remove(_ v) {
     self._$remove(v)
@@ -1868,7 +1882,7 @@ class Range is Iterable {
     return self._$upperInclusive.ifTrue(|| { diff + 1 }, ifFalse: || { diff })
   }
 
-  includes(_ x) {
+  contains(_ x) {
     let lowerOpt = self._$lower
     let upperOpt = self._$upper
 
@@ -1878,6 +1892,8 @@ class Range is Iterable {
     })
     return lowerOk and upperOk
   }
+
+  includes(_ x) { self.contains(x) }
 
   at(_ i) {
     let lowerOpt = self._$lower

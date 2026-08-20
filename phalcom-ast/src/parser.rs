@@ -2941,15 +2941,20 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         let mut left = self.parse_unary()?;
         loop {
-            // `is`/`is!`/`is not`/`is! not` sit at the equality tier (prec 3)
-            // but are not a `binary_op` entry — they carry affixes (a
-            // contiguous `!` for strict, a `not` particle for negation) and
-            // are non-chaining, so [`Parser::parse_is`] handles the whole
-            // suffix itself. Gated to `min_prec <= 3` so a nested RHS
-            // (`parse_binary(4)`, comparison-tier-and-above) never re-enters
-            // this arm, keeping `is` from chaining through recursion.
+            // `is`/`is!`/`is not`/`is! not`/`is in`/`is! in`/`is not in`/`is! not in`
+            // sit at the equality tier (prec 3) but are not a `binary_op` entry.
+            // Gated to `min_prec <= 3` so a nested RHS (`parse_binary(4)`)
+            // never re-enters these arms, keeping operators from chaining through recursion.
             if min_prec <= 3 && matches!(self.peek(), Token::Is) {
                 left = self.parse_is(left, start)?;
+                continue;
+            }
+            if min_prec <= 3 && matches!(self.peek(), Token::Not) && matches!(self.peek_next(), Token::In) {
+                left = self.parse_not_in(left, start)?;
+                continue;
+            }
+            if min_prec <= 3 && matches!(self.peek(), Token::In) {
+                left = self.parse_in(left, start)?;
                 continue;
             }
             let Some((prec, op)) = binary_op(self.peek()) else {
@@ -2974,31 +2979,61 @@ impl<'source> Parser<'source> {
         Ok(left)
     }
 
+    /// Parses `x in y`.
+    fn parse_in(&mut self, left: Expr, start: usize) -> ParserResult<Expr> {
+        let op_start = self.cur_start();
+        self.advance(); // consume `in`
+        let op_range: SourceRange = (op_start..self.prev_end).into();
+        if matches!(self.peek(), Token::Not) {
+            return Err(self.error_here(strs(&["an expression (did you mean `not in`? Write `x not in y`)"])));
+        }
+        let right = self.parse_binary(4)?;
+        let range = (start..self.prev_end).into();
+        if matches!(self.peek(), Token::Is) {
+            return Err(self.error_here(strs(&["an expression (chained `is` is not allowed — the result of `in` is a `Bool`)"])));
+        }
+        if matches!(self.peek(), Token::In) || (matches!(self.peek(), Token::Not) && matches!(self.peek_next(), Token::In)) {
+            return Err(self.error_here(strs(&["an expression (chained membership test is not allowed — the result is a `Bool`)"])));
+        }
+        Ok(Expr::Membership(Box::new(MembershipExpr {
+            left,
+            right,
+            negated: false,
+            op_range: Some(op_range),
+            range,
+        })))
+    }
+
+    /// Parses `x not in y`.
+    fn parse_not_in(&mut self, left: Expr, start: usize) -> ParserResult<Expr> {
+        let op_start = self.cur_start();
+        self.advance(); // consume `not`
+        self.advance(); // consume `in`
+        let op_range: SourceRange = (op_start..self.prev_end).into();
+        if matches!(self.peek(), Token::Not) {
+            return Err(self.error_here(strs(&["an expression (did you mean `not in`? Write `x not in y`)"])));
+        }
+        let right = self.parse_binary(4)?;
+        let range = (start..self.prev_end).into();
+        if matches!(self.peek(), Token::Is) {
+            return Err(self.error_here(strs(&["an expression (chained `is` is not allowed — the result of `not in` is a `Bool`)"])));
+        }
+        if matches!(self.peek(), Token::In) || (matches!(self.peek(), Token::Not) && matches!(self.peek_next(), Token::In)) {
+            return Err(self.error_here(strs(&["an expression (chained membership test is not allowed — the result is a `Bool`)"])));
+        }
+        Ok(Expr::Membership(Box::new(MembershipExpr {
+            left,
+            right,
+            negated: true,
+            op_range: Some(op_range),
+            range,
+        })))
+    }
+
     /// Parses the `is` type-test operator suite (`is`, `is!`, `is not`,
-    /// `is! not`) following `left`, desugaring into existing AST nodes —
-    /// no dedicated `is` node exists.
-    ///
-    /// Per [is-tests.md](../../../docs/spec/v0.2/next/is-tests.md):
-    /// - `x is T` desugars to the send `x.is(T)` (subclass-inclusive).
-    /// - `x is! T` (a `!` **contiguous** with `is`, i.e. no whitespace
-    ///   between — the same adjacency test `selectors.md §2` uses for
-    ///   `#move`) desugars to `x.is!(T)` (live direct-class identity).
-    /// - A `not` particle immediately after `is`/`is!` is **always** the
-    ///   negation particle (Python's `is not` rule: it is consumed greedily
-    ///   here and is never parsed as a prefix on the RHS), wrapping the base
-    ///   send in `Expr::Unary(UnaryOp::Not)`.
-    /// - `is` is **non-chaining**: the desugared result is `Bool`, so a
-    ///   second `is` immediately following is a compile error rather than a
-    ///   silently-accepted `(x is T) is U`.
-    ///
-    /// The RHS is parsed at the comparison tier and above
-    /// (`parse_binary(4)`), matching the equality tier `is` itself occupies.
-    ///
-    /// # Errors
-    ///
-    /// Propagates any error from the RHS class expression, or returns a
-    /// [`SyntaxError`] if another `is` immediately follows the result.
+    /// `is! not`, `is in`, `is! in`, `is not in`, `is! not in`) following `left`.
     fn parse_is(&mut self, left: Expr, start: usize) -> ParserResult<Expr> {
+        let op_start = self.cur_start();
         self.advance(); // consume `is`
         let is_end = self.prev_end;
 
@@ -3014,6 +3049,30 @@ impl<'source> Parser<'source> {
         // `not` particle: greedy, always the negation particle here — never
         // a prefix on the RHS.
         let negate = self.eat(&Token::Not);
+
+        if matches!(self.peek(), Token::In) {
+            self.advance(); // consume `in`
+            let op_range: SourceRange = (op_start..self.prev_end).into();
+            if matches!(self.peek(), Token::Not) {
+                return Err(self.error_here(strs(&["an expression (did you mean `is not in` or `is! not in`?)"])));
+            }
+            let candidates = self.parse_binary(4)?;
+            let range = (start..self.prev_end).into();
+            if matches!(self.peek(), Token::Is) {
+                return Err(self.error_here(strs(&["an expression (chained `is` is not allowed — the result of `is in` is a `Bool`)"])));
+            }
+            if matches!(self.peek(), Token::In) || (matches!(self.peek(), Token::Not) && matches!(self.peek_next(), Token::In)) {
+                return Err(self.error_here(strs(&["an expression (chained membership test is not allowed — the result is a `Bool`)"])));
+            }
+            return Ok(Expr::IsMembership(Box::new(IsMembershipExpr {
+                left,
+                candidates,
+                strict,
+                negated: negate,
+                op_range: Some(op_range),
+                range,
+            })));
+        }
 
         let rhs = self.parse_binary(4)?;
         let range = (start..self.prev_end).into();
@@ -3039,26 +3098,31 @@ impl<'source> Parser<'source> {
         if matches!(self.peek(), Token::Is) {
             return Err(self.error_here(strs(&["an expression (chained `is` is not allowed — the result of `is` is a `Bool`)"])));
         }
+        if matches!(self.peek(), Token::In) || (matches!(self.peek(), Token::Not) && matches!(self.peek_next(), Token::In)) {
+            return Err(self.error_here(strs(&["an expression (chained membership test is not allowed — the result is a `Bool`)"])));
+        }
 
         Ok(result)
     }
 
-    /// Parses a prefix unary expression (`-x`, `not x`), or delegates to
-    /// [`Parser::parse_call`].
+    /// Parses a prefix unary expression (`+x`, `-x`, `not x`, `~x`), or
+    /// delegates to [`Parser::parse_call`].
     ///
+    /// All four operators lower to bare getter sends (`+`, `-`, `not`, `~`).
     /// `not` is the sole boolean-negation prefix (`syntax/grammar.md`'s
-    /// `unary := ( "-" | "not" ) unary`, `syntax/expressions.md` precedence
-    /// table row 9). U-NEG retires prefix `!` (`Token::Bang`) as an
-    /// expression operator — `Token::Bang` now survives only inside the
-    /// lexer's `!=` (`Token::BangEqual`) disambiguation; a bare `!` in
-    /// expression position is a parse error.
+    /// `unary := ( "+" | "-" | "not" | "~" ) unary`,
+    /// `syntax/expressions.md` precedence table row 9). U-NEG retires prefix
+    /// `!` (`Token::Bang`) as an expression operator — `Token::Bang` now
+    /// survives only inside the lexer's `!=` (`Token::BangEqual`)
+    /// disambiguation; a bare `!` in expression position is a parse error.
     ///
     /// # Errors
     ///
     /// Propagates any error from the operand expression.
     fn parse_unary(&mut self) -> ParserResult<Expr> {
         let op = match self.peek() {
-            Token::Minus => UnaryOp::Negate,
+            Token::Plus => UnaryOp::Plus,
+            Token::Minus => UnaryOp::Minus,
             Token::Not => UnaryOp::Not,
             Token::Tilde => UnaryOp::BitNot,
             _ => return self.parse_power(),

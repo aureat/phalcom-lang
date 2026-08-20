@@ -858,6 +858,10 @@ pub enum Expr {
     SetLiteral(Box<SetLiteralExpr>),
     /// A List literal written with `[ value, ... ]` syntax.
     ListLiteral(Box<ListLiteralExpr>),
+    /// A membership test `left in right` or `left not in right`.
+    Membership(Box<MembershipExpr>),
+    /// A type membership test `left is in candidates` / `left is! in candidates` / `left is not in candidates` / `left is! not in candidates`.
+    IsMembership(Box<IsMembershipExpr>),
 }
 
 impl Expr {
@@ -896,6 +900,8 @@ impl Expr {
             Expr::MapLiteral(e) => e.range,
             Expr::SetLiteral(e) => e.range,
             Expr::ListLiteral(e) => e.range,
+            Expr::Membership(e) => e.range,
+            Expr::IsMembership(e) => e.range,
         }
     }
 }
@@ -1388,8 +1394,13 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone)]
 pub enum UnaryOp {
-    Negate,
+    /// Unary `+x` — lowers to the `+` getter send.
+    Plus,
+    /// Unary `-x` — lowers to the `-` getter send.
+    Minus,
+    /// Prefix `not x` — lowers to the `not` getter send.
     Not,
+    /// Prefix `~x` — lowers to the `~` getter send.
     BitNot,
 }
 
@@ -1429,5 +1440,24 @@ pub struct BlockExpr {
     pub params: ClosureParameters,
     pub body: Vec<Statement>,
     pub expr_body: bool,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct MembershipExpr {
+    pub left: Expr,
+    pub right: Expr,
+    pub negated: bool,
+    pub op_range: Option<SourceRange>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct IsMembershipExpr {
+    pub left: Expr,
+    pub candidates: Expr,
+    pub strict: bool,
+    pub negated: bool,
+    pub op_range: Option<SourceRange>,
     pub range: SourceRange,
 }

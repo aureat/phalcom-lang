@@ -446,6 +446,14 @@ impl ScopeBuilder {
                 self.visit_expr(scope, &binary.left);
                 self.visit_expr(scope, &binary.right);
             }
+            Expr::Membership(m) => {
+                self.visit_expr(scope, &m.left);
+                self.visit_expr(scope, &m.right);
+            }
+            Expr::IsMembership(m) => {
+                self.visit_expr(scope, &m.left);
+                self.visit_expr(scope, &m.candidates);
+            }
             Expr::UnqualifiedCall(call) => self.visit_pack_items(scope, &call.args),
             Expr::MethodCall(call) => {
                 self.visit_expr(scope, &call.object);

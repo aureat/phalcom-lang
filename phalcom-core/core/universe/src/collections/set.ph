@@ -20,7 +20,8 @@ class Set {
     return self
   }
 
-  includes(_ v) { self._$has(v) }
+  contains(_ v) { self._$has(v) }
+  includes(_ v) { self.contains(v) }
 
   remove(_ v) {
     self._$remove(v)

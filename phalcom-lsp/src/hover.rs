@@ -139,11 +139,14 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "import",
         "Imports a logical module into scope, optionally under an alias: `import .path as Name` (modules.md).",
     ),
-    ("in", "Introduces the iterable of a `for` loop: `for (x in coll) { ... }` (iteration.md §2)."),
+    (
+        "in",
+        "Membership test (`x in y` calls `y.contains(x)`) and loop keyword (`for (x in coll) { ... }`).",
+    ),
     ("as", "Binds an import under an alias: `import .path as Name` (modules.md)."),
     (
         "is",
-        "Class inheritance header keyword (`class Sub is Super`) and type-test operator (`x is Type`, `x is not Type`).",
+        "Class inheritance header keyword (`class Sub is Super`), type-test operator (`x is Type`, `x is not Type`), and type-membership test (`x is in Types`).",
     ),
     (
         "and",
@@ -155,7 +158,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ),
     (
         "not",
-        "Boolean negation, unified on the `not` keyword (U-NEG): `not b` sends the negation selector to `b`.",
+        "Boolean negation (`not b`), inequality particle (`x not in y`), and type-negation particle (`x is not Type`).",
     ),
     (
         "construct",

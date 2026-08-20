@@ -496,8 +496,11 @@ pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     }
 }
 
-/// Signature: `Number::negated()`
-pub fn number_negated(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+/// Signature: `Number::-` — arithmetic negation (unary `-x`).
+///
+/// Returns the additive inverse of the receiver. Promotes `i64::MIN` to a
+/// `LargeInt` to avoid overflow.
+pub fn number_negate(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(n) = receiver.as_int() {
         if let Some(neg) = n.checked_neg() {
             Ok(Value::int(neg))
@@ -527,4 +530,12 @@ pub fn number_negated(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
         }
         .into())
     }
+}
+
+/// Signature: `Number::+` — unary plus identity (unary `+x`).
+///
+/// Returns the receiver unchanged. Defined so user-defined classes and
+/// numeric subclasses can override the `+` getter when needed.
+pub fn number_unary_plus(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(receiver.clone())
 }

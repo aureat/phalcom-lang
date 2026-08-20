@@ -7,5 +7,5 @@
 
 const a = (4,)
 System.print(3.perform(Symbol.new("+(_)"), ***a))
-System.print(3.perform(Symbol.new("negated()"), ***()))
+System.print(3.perform(Symbol.new("-"), ***()))
 System.print(3.perform(Symbol.new("+(_)"), ***a) == 7)

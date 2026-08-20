@@ -737,3 +737,103 @@ fn parse_rejects_invalid_expose_syntax() {
     let err2 = parse_display("expose .shapes.circle\n");
     assert!(err2.contains("must be a single immediate child segment"), "unexpected: {err2}");
 }
+
+#[test]
+fn parse_membership_operators() {
+    // 1. in
+    let p1 = parse_source("x in y\n", 0).expect("x in y should parse");
+    match &p1.statements[0] {
+        Statement::Expr { expr: Expr::Membership(m), .. } => {
+            assert!(!m.negated);
+            assert!(matches!(m.left, Expr::Var { .. }));
+            assert!(matches!(m.right, Expr::Var { .. }));
+        }
+        other => panic!("expected Membership, got {other:?}"),
+    }
+
+    // 2. not in
+    let p2 = parse_source("x not in y\n", 0).expect("x not in y should parse");
+    match &p2.statements[0] {
+        Statement::Expr { expr: Expr::Membership(m), .. } => {
+            assert!(m.negated);
+            assert!(matches!(m.left, Expr::Var { .. }));
+            assert!(matches!(m.right, Expr::Var { .. }));
+        }
+        other => panic!("expected Membership negated, got {other:?}"),
+    }
+
+    // 3. is in
+    let p3 = parse_source("x is in ys\n", 0).expect("x is in ys should parse");
+    match &p3.statements[0] {
+        Statement::Expr {
+            expr: Expr::IsMembership(m), ..
+        } => {
+            assert!(!m.strict);
+            assert!(!m.negated);
+        }
+        other => panic!("expected IsMembership, got {other:?}"),
+    }
+
+    // 4. is! in
+    let p4 = parse_source("x is! in ys\n", 0).expect("x is! in ys should parse");
+    match &p4.statements[0] {
+        Statement::Expr {
+            expr: Expr::IsMembership(m), ..
+        } => {
+            assert!(m.strict);
+            assert!(!m.negated);
+        }
+        other => panic!("expected IsMembership strict, got {other:?}"),
+    }
+
+    // 5. is not in
+    let p5 = parse_source("x is not in ys\n", 0).expect("x is not in ys should parse");
+    match &p5.statements[0] {
+        Statement::Expr {
+            expr: Expr::IsMembership(m), ..
+        } => {
+            assert!(!m.strict);
+            assert!(m.negated);
+        }
+        other => panic!("expected IsMembership negated, got {other:?}"),
+    }
+
+    // 6. is! not in
+    let p6 = parse_source("x is! not in ys\n", 0).expect("x is! not in ys should parse");
+    match &p6.statements[0] {
+        Statement::Expr {
+            expr: Expr::IsMembership(m), ..
+        } => {
+            assert!(m.strict);
+            assert!(m.negated);
+        }
+        other => panic!("expected IsMembership strict negated, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_membership_precedence() {
+    let p = parse_source("a + b in c * d\n", 0).expect("should parse");
+    match &p.statements[0] {
+        Statement::Expr { expr: Expr::Membership(m), .. } => {
+            assert!(matches!(m.left, Expr::Binary(..)));
+            assert!(matches!(m.right, Expr::Binary(..)));
+        }
+        other => panic!("expected Membership with binary operands, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_membership_errors_and_non_chaining() {
+    let err1 = parse_display("x in not y\n");
+    assert!(err1.contains("did you mean `not in`?"), "unexpected: {err1}");
+
+    let err2 = parse_display("x is in not y\n");
+    assert!(err2.contains("did you mean `is not in` or `is! not in`?"), "unexpected: {err2}");
+
+    let err3 = parse_display("a in b in c\n");
+    assert!(err3.contains("chained"), "unexpected: {err3}");
+
+    let err4 = parse_display("a is in xs is in ys\n");
+    assert!(err4.contains("chained"), "unexpected: {err4}");
+}

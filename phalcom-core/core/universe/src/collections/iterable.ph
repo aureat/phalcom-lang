@@ -77,7 +77,7 @@ class Iterable {
     return result
   }
 
-  includes(_ x) {
+  contains(_ x) {
     let found = false
     let c = self.iterate(None)
     while (c != None) {
@@ -86,6 +86,8 @@ class Iterable {
     }
     return found
   }
+
+  includes(_ x) { self.contains(x) }
 
   isEmpty { self.size == 0 }
 

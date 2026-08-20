@@ -71,7 +71,8 @@ class Map {
   // `m[k] = v` shares insert's key identity and encounter-order semantics.
   [_ k]=(put val) { self._$put(k, val) }
 
-  includes(_ k) { self._$has(k) }
+  contains(_ k) { self._$has(k) }
+  includes(_ k) { self.contains(k) }
 
   // Removes an association. The raw primitive returns its former value, but
   // the public mutable-collection protocol is chainable.

@@ -1057,7 +1057,7 @@ impl FlowAnalyzer<'_> {
         match expr {
             Expr::Unary(unary) => {
                 let value = self.context_value(&unary.expr, state, current_class, side);
-                let selector = format!("{}()", unary_selector_name(&unary.op));
+                let selector = unary_selector_name(&unary.op).to_string();
                 self.emit_send(&unary.expr, &value, &selector, Vec::new(), false, unary.range, state, current_class, side);
                 self.collect_events(&unary.expr, state, current_class, side);
             }
@@ -1090,6 +1090,14 @@ impl FlowAnalyzer<'_> {
                 }
                 self.collect_events(&binary.left, state, current_class, side);
                 self.collect_events(&binary.right, state, current_class, side);
+            }
+            Expr::Membership(m) => {
+                self.collect_events(&m.left, state, current_class, side);
+                self.collect_events(&m.right, state, current_class, side);
+            }
+            Expr::IsMembership(m) => {
+                self.collect_events(&m.left, state, current_class, side);
+                self.collect_events(&m.candidates, state, current_class, side);
             }
             Expr::UnqualifiedCall(call) => {
                 let args = self.arguments(&call.args, state, current_class, side);

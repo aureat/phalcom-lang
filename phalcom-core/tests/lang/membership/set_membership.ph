@@ -1,0 +1,7 @@
+let s = Set.new()
+s.add(1)
+s.add(2)
+s.add(3)
+System.print(2 in s)
+System.print(4 in s)
+System.print(4 not in s)

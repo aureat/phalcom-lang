@@ -27,6 +27,25 @@ async fn current_syntax_uses_readable_semantic_token_expectations() {
     lsp.finish().await;
 }
 
+#[tokio::test]
+async fn membership_operators_semantic_tokens() {
+    let src = "let a = 1 in [1, 2]\nlet b = 3 not in [1, 2]\nlet c = 1 is in (Number, String)\nlet d = 1 is! in (Number, String)\nlet e = 1 is not in (String, Bool)\nlet f = 1 is! not in (String, Bool)\n";
+    let uri = "file:///test_membership.ph";
+
+    let mut lsp = TestLsp::start().await;
+    let init = lsp.initialize(None).await;
+    lsp.open(uri, src).await;
+
+    let response = lsp.semantic_tokens_full(uri).await;
+    let decoded = decode(src, &init, &response);
+
+    assert_pair(&decoded, "in", "keyword");
+    assert_pair(&decoded, "not", "keyword");
+    assert_pair(&decoded, "is", "keyword");
+
+    lsp.finish().await;
+}
+
 fn assert_pair(decoded: &[(String, String)], text: &str, kind: &str) {
     assert!(
         decoded.iter().any(|(token_text, token_kind)| token_text == text && token_kind == kind),

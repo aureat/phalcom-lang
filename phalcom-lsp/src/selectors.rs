@@ -202,10 +202,11 @@ pub(crate) fn binary_selector_name(op: &BinaryOp) -> Option<&'static str> {
     })
 }
 
-/// Maps a unary operator to the selector emitted by the compiler.
+/// Maps a unary operator to the bare getter selector emitted by the compiler.
 pub(crate) fn unary_selector_name(op: &UnaryOp) -> &'static str {
     match op {
-        UnaryOp::Negate => "negated",
+        UnaryOp::Plus => "+",
+        UnaryOp::Minus => "-",
         UnaryOp::Not => "not",
         UnaryOp::BitNot => "~",
     }

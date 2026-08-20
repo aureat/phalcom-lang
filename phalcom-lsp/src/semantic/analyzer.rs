@@ -106,7 +106,7 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
                     return InferredValue::exact_boolean(!value, range);
                 }
             }
-            let selector = unary_selector_name(&unary.op).to_string() + "()";
+            let selector = unary_selector_name(&unary.op).to_string();
             analyze_send(&unary.expr, &operand, &selector, false, range, context)
         }
         Expr::Binary(binary) => {
@@ -314,6 +314,16 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             })))),
             range,
         ),
+        Expr::Membership(m) => {
+            analyze_expr(&m.left, context);
+            analyze_expr(&m.right, context);
+            exact(ValueShape::Instance(core_class("Bool")), range)
+        }
+        Expr::IsMembership(m) => {
+            analyze_expr(&m.left, context);
+            analyze_expr(&m.candidates, context);
+            exact(ValueShape::Instance(core_class("Bool")), range)
+        }
     }
 }
 

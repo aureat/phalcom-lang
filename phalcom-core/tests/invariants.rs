@@ -801,7 +801,8 @@ fn floor_census_matches_installed_bindings() {
         (c.number_class, false, "<=(_)"),
         (c.number_class, false, ">(_)"),
         (c.number_class, false, ">=(_)"),
-        (c.number_class, false, "negated()"),
+        (c.number_class, false, "+"),        // unary plus (identity)
+        (c.number_class, false, "-"),        // unary minus (negation)
         (c.number_class, false, "hash"),     // NEW (ADR-0023)
         (c.number_class, false, "toString"), // NEW_VALUE_TOSTRING (U-CORE-4)
         (c.number_class, true, "new()"),
@@ -1044,8 +1045,8 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(expected.len(), 181, "census must enumerate exactly 181 bindings after Module reflection");
-    assert_eq!(live.len(), 181, "the live floor must be exactly 181 bindings");
+    assert_eq!(expected.len(), 182, "census must enumerate exactly 182 bindings after Number + getter addition");
+    assert_eq!(live.len(), 182, "the live floor must be exactly 182 bindings");
 }
 
 #[test]

@@ -140,6 +140,8 @@ fn is_pure_expr(expr: &Expr) -> bool {
         Expr::Assignment(_) | Expr::SetProperty(_) | Expr::SetIndex(_) => false,
         Expr::Unary(u) => is_pure_expr(&u.expr),
         Expr::Binary(b) => is_pure_expr(&b.left) && is_pure_expr(&b.right),
+        Expr::Membership(m) => is_pure_expr(&m.left) && is_pure_expr(&m.right),
+        Expr::IsMembership(m) => is_pure_expr(&m.left) && is_pure_expr(&m.candidates),
         Expr::MethodCall(m) => {
             // impure list: mutable sends like add, remove, put, or setter name=
             let impure_names = [
@@ -223,6 +225,8 @@ fn contains_old_call(expr: &Expr) -> bool {
         }
         Expr::Unary(u) => contains_old_call(&u.expr),
         Expr::Binary(b) => contains_old_call(&b.left) || contains_old_call(&b.right),
+        Expr::Membership(m) => contains_old_call(&m.left) || contains_old_call(&m.right),
+        Expr::IsMembership(m) => contains_old_call(&m.left) || contains_old_call(&m.candidates),
         Expr::Index(i) => contains_old_call(&i.object) || i.args.iter().any(contains_old_call_in_pack_item),
         Expr::GetProperty(g) => contains_old_call(&g.object),
         Expr::MapLiteral(map) => map.entries.iter().any(|entry| match entry {
@@ -485,6 +489,14 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
         Expr::Binary(b) => {
             rewrite_old_calls(&mut b.left, old_lets)?;
             rewrite_old_calls(&mut b.right, old_lets)?;
+        }
+        Expr::Membership(m) => {
+            rewrite_old_calls(&mut m.left, old_lets)?;
+            rewrite_old_calls(&mut m.right, old_lets)?;
+        }
+        Expr::IsMembership(m) => {
+            rewrite_old_calls(&mut m.left, old_lets)?;
+            rewrite_old_calls(&mut m.candidates, old_lets)?;
         }
         Expr::Index(i) => {
             rewrite_old_calls(&mut i.object, old_lets)?;

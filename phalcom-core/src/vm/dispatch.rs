@@ -1366,6 +1366,14 @@ impl VM {
                         ))
                         .into());
                     }
+                    let higher_keys: Vec<usize> = self.open_upvalues.range(local_idx..).map(|(&idx, _)| idx).collect();
+                    for old_idx in higher_keys.into_iter().rev() {
+                        let cell = self.open_upvalues.remove(&old_idx).unwrap();
+                        if let Upvalue::Open { slot: s, .. } = self.heap.upvalue_mut(cell) {
+                            *s += 1;
+                        }
+                        self.open_upvalues.insert(old_idx + 1, cell);
+                    }
                     self.stack.insert(local_idx, Value::nil());
                 }
                 Bytecode::ReleaseScratchLocal(slot) => {
@@ -1377,7 +1385,19 @@ impl VM {
                         ))
                         .into());
                     }
+                    if let Some(cell) = self.open_upvalues.remove(&local_idx) {
+                        let value = self.stack[local_idx];
+                        *self.heap.upvalue_mut(cell) = Upvalue::Closed(value);
+                    }
                     self.stack.remove(local_idx);
+                    let higher_keys: Vec<usize> = self.open_upvalues.range((local_idx + 1)..).map(|(&idx, _)| idx).collect();
+                    for old_idx in higher_keys {
+                        let cell = self.open_upvalues.remove(&old_idx).unwrap();
+                        if let Upvalue::Open { slot: s, .. } = self.heap.upvalue_mut(cell) {
+                            *s -= 1;
+                        }
+                        self.open_upvalues.insert(old_idx - 1, cell);
+                    }
                 }
                 Bytecode::Class(idx) => {
                     let name_val = callable.chunk.constants[idx as usize];

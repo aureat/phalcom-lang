@@ -3,8 +3,8 @@ use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, NormalizedSelectorSpec, PackItem, PackLabel, ProductLabel,
-    RecordLiteralEntry, SelectorSpecSyntax, SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
+    BinaryOp, BlockExpr, ClosureParameters, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, NormalizedSelectorSpec, PackItem,
+    PackLabel, ProductLabel, RecordLiteralEntry, SelectorSpecSyntax, SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
 
@@ -1228,15 +1228,95 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::Unary(unary_expr) => {
-                // U5/U-IS: `-x` lowers to `negated()`, `~x` lowers to `~()`,
-                // while `not x` lowers to the `not` getter send.
+                // All four unary operators lower to bare getter sends so user-defined
+                // classes can implement them as zero-arg getters with bare selector
+                // names: `+`, `-`, `not`, `~`.
                 self.compile_expr(unary_expr.expr)?;
                 let range = unary_expr.range;
                 match unary_expr.op {
-                    UnaryOp::Negate => self.emit_operator_send("negated", 0, range),
+                    UnaryOp::Plus => self.emit_getter_send("+", range),
+                    UnaryOp::Minus => self.emit_getter_send("-", range),
                     UnaryOp::Not => self.emit_getter_send("not", range),
-                    UnaryOp::BitNot => self.emit_operator_send("~", 0, range),
+                    UnaryOp::BitNot => self.emit_getter_send("~", range),
                 }
+            }
+            Expr::Membership(m) => {
+                let range = m.range;
+                let left_slot = self.reserve_pack_scratch("$mem_left", range)?;
+                self.compile_expr(m.left)?;
+                self.emit(Bytecode::SetLocal(left_slot), range);
+                self.emit(Bytecode::Pop, range);
+
+                let right_slot = self.reserve_pack_scratch("$mem_right", range)?;
+                self.compile_expr(m.right)?;
+                self.emit(Bytecode::SetLocal(right_slot), range);
+                self.emit(Bytecode::Pop, range);
+
+                self.emit(Bytecode::GetLocal(right_slot), range);
+                self.emit(Bytecode::GetLocal(left_slot), range);
+
+                self.emit_operator_send("contains", 1, range);
+                if m.negated {
+                    self.emit_getter_send("not", range);
+                }
+
+                self.release_pack_scratch_from(left_slot, 2, range);
+            }
+            Expr::IsMembership(m) => {
+                let range = m.range;
+                let left_sym = self.fresh_scratch_symbol("$is_mem_left");
+                self.add_local(left_sym, true)?;
+                let left_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+                self.emit(Bytecode::ReserveScratchLocal(left_slot), range);
+                self.compile_expr(m.left)?;
+                self.emit(Bytecode::SetLocal(left_slot), range);
+                self.emit(Bytecode::Pop, range);
+
+                let cand_slot = self.reserve_pack_scratch("$is_mem_cand", range)?;
+                self.compile_expr(m.candidates)?;
+                self.emit(Bytecode::SetLocal(cand_slot), range);
+                self.emit(Bytecode::Pop, range);
+
+                self.emit(Bytecode::GetLocal(cand_slot), range);
+
+                let candidate_param_name = "$is_mem_c".to_string();
+                let method_name = if m.strict { "is!" } else { "is" }.to_string();
+                let left_var_name = self.vm.resolve_symbol(left_sym).to_string();
+
+                let body_expr = Expr::MethodCall(Box::new(MethodCallExpr {
+                    object: Expr::Var { value: left_var_name, range },
+                    method: method_name,
+                    method_range: None,
+                    args: vec![PackItem::Positional {
+                        expr: Expr::Var {
+                            value: candidate_param_name.clone(),
+                            range,
+                        },
+                        range,
+                    }],
+                    range,
+                }));
+
+                let block_expr = Expr::Block(Box::new(BlockExpr {
+                    params: ClosureParameters::fixed(vec![candidate_param_name]),
+                    body: vec![Statement::Expr { expr: body_expr, range }],
+                    expr_body: true,
+                    range,
+                }));
+
+                self.compile_expr(block_expr)?;
+
+                let labels = [Some("where".to_string())];
+                let selector = encode_selector("any", &labels, SignatureKind::Method(1));
+                let selector_sym = self.vm.interner.intern(&selector);
+                let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                self.emit(Bytecode::Invoke(1, selector_idx), range);
+
+                if m.negated {
+                    self.emit_getter_send("not", range);
+                }
+
+                self.release_pack_scratch_from(left_slot, 2, range);
             }
             Expr::SelfVar { range } => {
                 self.emit_self(range);
