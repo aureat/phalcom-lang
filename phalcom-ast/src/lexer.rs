@@ -85,7 +85,9 @@ impl<'input> Lexer<'input> {
     /// in the source.
     pub fn new(input: &'input str) -> Self {
         let bytes = input.as_bytes();
-        let pos = if bytes.starts_with(b"#!") {
+        // Keep the conventional `#!/path` shebang carve-out while leaving
+        // standalone `#!` available as a symbol literal.
+        let pos = if bytes.starts_with(b"#!/") {
             bytes.iter().position(|&b| b == b'\n').unwrap_or(bytes.len())
         } else {
             0

@@ -84,6 +84,7 @@ impl Universe {
         let bound_method_family_class = make_core_class(heap, "BoundMethodFamily", function_class, metaclass_class);
         let method_class = make_core_class(heap, "Method", object_class, metaclass_class);
         let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class);
+        let selector_pattern_class = make_core_class(heap, "SelectorPattern", object_class, metaclass_class);
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
         let system_class = make_core_class(heap, "System", object_class, metaclass_class);
 
@@ -206,6 +207,7 @@ impl Universe {
             method_family_class,
             bound_method_family_class,
             symbol_class,
+            selector_pattern_class,
             module_class,
             package_class,
             project_class,
@@ -257,6 +259,7 @@ impl Universe {
             res.true_class,
             res.false_class,
             res.symbol_class,
+            res.selector_pattern_class,
             res.list_class,
             res.map_class,
             res.set_class,
@@ -383,6 +386,8 @@ pub struct CoreClasses {
     pub bound_method_family_class: ClassId,
     /// `Symbol`.
     pub symbol_class: ClassId,
+    /// `SelectorPattern`, the runtime class of structural selector patterns.
+    pub selector_pattern_class: ClassId,
     /// `Module`.
     pub module_class: ClassId,
     /// `Package < Module`.
@@ -530,6 +535,7 @@ impl CoreClasses {
             UniverseKey::True => self.true_class,
             UniverseKey::False => self.false_class,
             UniverseKey::Symbol => self.symbol_class,
+            UniverseKey::SelectorPattern => self.selector_pattern_class,
             UniverseKey::Function => self.function_class,
             UniverseKey::Closure => self.closure_class,
             UniverseKey::BoundMethod => self.bound_method_class,
@@ -613,6 +619,7 @@ impl CoreClasses {
             method_family_class,
             bound_method_family_class,
             symbol_class,
+            selector_pattern_class,
             module_class,
             package_class,
             project_class,
@@ -673,6 +680,7 @@ impl CoreClasses {
             method_family_class,
             bound_method_family_class,
             symbol_class,
+            selector_pattern_class,
             module_class,
             package_class,
             project_class,

@@ -1026,6 +1026,10 @@ impl Collector {
                     let selector = comma_form_from_labels(name, labels);
                     self.references.push((selector, s.range));
                 }
+                phalcom_ast::ast::SymbolLiteralKind::Subscript { labels, setter } => {
+                    let selector = index_selector_from_labels(labels, *setter);
+                    self.references.push((selector, s.range));
+                }
                 phalcom_ast::ast::SymbolLiteralKind::Pattern(pattern) => {
                     if let Ok(normalized) = pattern.normalize() {
                         self.references.push((normalized.encode(), s.range));

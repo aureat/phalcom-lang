@@ -118,6 +118,10 @@ pub const NATIVE_CLASSES: &[NativeClass] = &[
         superclass: Some("Object"),
     },
     NativeClass {
+        name: "SelectorPattern",
+        superclass: Some("Object"),
+    },
+    NativeClass {
         name: "Option",
         superclass: Some("Object"),
     },

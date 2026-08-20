@@ -62,9 +62,32 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
                     exact(ValueShape::Instance(core_class("Symbol")), range)
                 }
             }
+            SymbolLiteralKind::Subscript { labels, setter } => {
+                let slots = labels
+                    .iter()
+                    .map(|label| match label {
+                        Some(label) => SelectorSlot::Label(label.clone()),
+                        None => SelectorSlot::Positional,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let selector = if *setter {
+                    Selector::subscript_set(slots)
+                } else {
+                    Selector::subscript_get(slots)
+                };
+                selector.map_or_else(
+                    |_| exact(ValueShape::Instance(core_class("Symbol")), range),
+                    |selector| exact(ValueShape::Selector(selector), range),
+                )
+            }
             SymbolLiteralKind::Pattern(syntax) => {
                 if let Ok(pattern) = SelectorPattern::new(
-                    SelectorBase::Named(syntax.base.clone()),
+                    if syntax.is_subscript {
+                        SelectorBase::Subscript
+                    } else {
+                        SelectorBase::Named(syntax.base.clone())
+                    },
                     syntax.kind.clone(),
                     syntax.prefix.iter().map(|s| s.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
                     syntax.suffix.iter().map(|s| s.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
@@ -719,6 +742,10 @@ fn product_label(label: &ProductLabel) -> String {
             symbol: SymbolLiteralKind::Pattern(SelectorPatternSyntax { base: name, .. }),
             ..
         } => name.clone(),
+        ProductLabel::Static {
+            symbol: SymbolLiteralKind::Subscript { .. },
+            ..
+        } => "[]".to_string(),
         ProductLabel::Computed { .. } => "?".to_string(),
     }
 }

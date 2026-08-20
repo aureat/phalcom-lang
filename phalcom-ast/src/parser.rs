@@ -2252,22 +2252,14 @@ impl<'source> Parser<'source> {
             Token::And => "and".to_string(),
             Token::Or => "or".to_string(),
             Token::Not => "not".to_string(),
-            Token::Is => {
-                let is_end = self.tokens[self.pos].end;
-                if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].token, Token::Bang) && self.tokens[self.pos + 1].start == is_end {
-                    self.advance(); // consume `is`
-                    self.advance(); // consume `!`
-                    return Ok("is!".to_string());
-                }
-                "is".to_string()
-            }
+            Token::Is => "is".to_string(),
             // `from` is a module-syntax keyword, but remains valid as a
             // selector for existing APIs such as `Map.from(...)`.
             Token::From => "from".to_string(),
             _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
         };
         self.advance();
-        Ok(name)
+        Ok(self.extend_selector_name(name))
     }
 
     /// Parses a parenthesized parameter list. Declaration labels use the
@@ -3525,137 +3517,70 @@ impl<'source> Parser<'source> {
     ///
     /// Returns an error if the token following `.` is none of the above.
     fn parse_property_name(&mut self) -> ParserResult<String> {
-        match self.peek().clone() {
+        let name = match self.peek().clone() {
             Token::Identifier(name)
             | Token::FieldIdentifier(name)
             | Token::ImplementationFieldIdentifier(name)
-            | Token::ImplementationSelectorIdentifier(name) => {
-                self.advance();
-                Ok(name)
-            }
-            Token::Class => {
-                self.advance();
-                Ok("class".to_string())
-            }
+            | Token::ImplementationSelectorIdentifier(name) => name,
+            Token::Class => "class".to_string(),
             // `try` is a genuine reserved keyword (statement-leading, ADR-0031
             // §4) but must still resolve as an ordinary selector in message
             // position — `fiber.try(...)`/`fiber.try` (`Fiber#try`, ADR-0030)
             // predates this unit and must keep parsing.
-            Token::Try => {
-                self.advance();
-                Ok("try".to_string())
-            }
+            Token::Try => "try".to_string(),
             // `from` is reserved in module preambles but remains valid in
             // message-send position (`Map.from(...)`).
-            Token::From => {
-                self.advance();
-                Ok("from".to_string())
-            }
-            Token::Plus => {
-                self.advance();
-                Ok("+".to_string())
-            }
-            Token::Minus => {
-                self.advance();
-                Ok("-".to_string())
-            }
-            Token::Asterisk => {
-                self.advance();
-                Ok("*".to_string())
-            }
-            Token::Power | Token::DoubleAsterisk => {
-                self.advance();
-                Ok("**".to_string())
-            }
-            Token::TripleAsterisk => {
-                self.advance();
-                Ok("***".to_string())
-            }
-            Token::Slash => {
-                self.advance();
-                Ok("/".to_string())
-            }
-            Token::SlashTilde => {
-                self.advance();
-                Ok("~/".to_string())
-            }
-            Token::Percent => {
-                self.advance();
-                Ok("%".to_string())
-            }
-            Token::ShiftLeft => {
-                self.advance();
-                Ok("<<".to_string())
-            }
-            Token::ShiftRight => {
-                self.advance();
-                Ok(">>".to_string())
-            }
-            Token::Ampersand => {
-                self.advance();
-                Ok("&".to_string())
-            }
-            Token::Pipe => {
-                self.advance();
-                Ok("|".to_string())
-            }
-            Token::Caret => {
-                self.advance();
-                Ok("^".to_string())
-            }
-            Token::Tilde => {
-                self.advance();
-                Ok("~".to_string())
-            }
-            Token::EqualEqual => {
-                self.advance();
-                Ok("==".to_string())
-            }
-            Token::BangEqual => {
-                self.advance();
-                Ok("!=".to_string())
-            }
-            Token::Less => {
-                self.advance();
-                Ok("<".to_string())
-            }
-            Token::LessEqual => {
-                self.advance();
-                Ok("<=".to_string())
-            }
-            Token::Greater => {
-                self.advance();
-                Ok(">".to_string())
-            }
-            Token::GreaterEqual => {
-                self.advance();
-                Ok(">=".to_string())
-            }
-            Token::And => {
-                self.advance();
-                Ok("and".to_string())
-            }
-            Token::Or => {
-                self.advance();
-                Ok("or".to_string())
-            }
-            Token::Not => {
-                self.advance();
-                Ok("not".to_string())
-            }
-            Token::Is => {
-                let is_end = self.tokens[self.pos].end;
-                if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].token, Token::Bang) && self.tokens[self.pos + 1].start == is_end {
-                    self.advance(); // consume `is`
-                    self.advance(); // consume `!`
-                    Ok("is!".to_string())
-                } else {
-                    self.advance();
-                    Ok("is".to_string())
-                }
-            }
-            _ => Err(self.error_here(strs(&["identifier", "\"class\"", "operator"]))),
+            Token::From => "from".to_string(),
+            Token::Plus => "+".to_string(),
+            Token::Minus => "-".to_string(),
+            Token::Asterisk => "*".to_string(),
+            Token::Power | Token::DoubleAsterisk => "**".to_string(),
+            Token::TripleAsterisk => "***".to_string(),
+            Token::Slash => "/".to_string(),
+            Token::SlashTilde => "~/".to_string(),
+            Token::Percent => "%".to_string(),
+            Token::ShiftLeft => "<<".to_string(),
+            Token::ShiftRight => ">>".to_string(),
+            Token::Ampersand => "&".to_string(),
+            Token::Pipe => "|".to_string(),
+            Token::Caret => "^".to_string(),
+            Token::Tilde => "~".to_string(),
+            Token::EqualEqual => "==".to_string(),
+            Token::BangEqual => "!=".to_string(),
+            Token::Less => "<".to_string(),
+            Token::LessEqual => "<=".to_string(),
+            Token::Greater => ">".to_string(),
+            Token::GreaterEqual => ">=".to_string(),
+            Token::And => "and".to_string(),
+            Token::Or => "or".to_string(),
+            Token::Not => "not".to_string(),
+            Token::Is => "is".to_string(),
+            _ => return Err(self.error_here(strs(&["identifier", "\"class\"", "operator"]))),
+        };
+        self.advance();
+        Ok(self.extend_selector_name(name))
+    }
+
+    /// Extends a selector base with syntax that is lexed as separate punctuation
+    /// while preserving adjacency. This keeps `try!` and `*args` ordinary names
+    /// without making those spellings expression-level identifiers.
+    fn extend_selector_name(&mut self, mut name: String) -> String {
+        if let Some(next) = self.tokens.get(self.pos)
+            && next.start == self.prev_end
+            && matches!(next.token, Token::Bang)
+        {
+            self.advance();
+            name.push('!');
         }
+        if matches!(name.as_str(), "*" | "**" | "***")
+            && let Some(next) = self.tokens.get(self.pos)
+            && next.start == self.prev_end
+            && let Token::Identifier(suffix) = &next.token
+        {
+            name.push_str(suffix);
+            self.advance();
+        }
+        name
     }
 
     /// Parses a `{ statements }` body into a 0-parameter, statement-bodied
@@ -3829,25 +3754,7 @@ impl<'source> Parser<'source> {
             Token::Hash => {
                 let spec = self.parse_selector_spec_after_hash()?;
                 let kind = match spec {
-                    SelectorSpecSyntax::Exact(exact) => match exact.kind {
-                        phalcom_common::selector::SelectorKind::Getter => SymbolLiteralKind::Name(exact.base),
-                        phalcom_common::selector::SelectorKind::Method => SymbolLiteralKind::Selector {
-                            name: exact.base,
-                            labels: exact
-                                .slots
-                                .into_iter()
-                                .map(|slot| match slot.slot {
-                                    phalcom_common::selector::SelectorSlot::Positional => None,
-                                    phalcom_common::selector::SelectorSlot::Label(label) => Some(label),
-                                })
-                                .collect(),
-                        },
-                        phalcom_common::selector::SelectorKind::Setter => SymbolLiteralKind::Selector {
-                            name: format!("{}=", exact.base),
-                            labels: vec![Some("put".to_string())],
-                        },
-                        _ => return Err(self.error_here(strs(&["a named selector symbol"]))),
-                    },
+                    SelectorSpecSyntax::Exact(exact) => exact_symbol_kind(exact),
                     SelectorSpecSyntax::Pattern(pattern) => SymbolLiteralKind::Pattern(SelectorPatternSyntax { ..pattern }),
                 };
                 Ok(Expr::Symbol(Box::new(SymbolExpr {
@@ -4191,27 +4098,80 @@ impl<'source> Parser<'source> {
 
     fn parse_selector_spec_body(&mut self) -> ParserResult<SelectorSpecSyntax> {
         let base_start = self.cur_start();
-        let base = self.parse_property_name()?;
-        let base_range = (base_start..self.prev_end).into();
 
-        // Operators are complete one-positional selectors in source syntax.
-        if is_selector_operator(&base) {
-            let range = (base_start..self.prev_end).into();
+        // Bracket selectors have no named base. Keep them structural all the
+        // way through normalization so `#[_]` and `#[...]` use the same common
+        // selector model as ordinary index sends.
+        if self.eat(&Token::LBracket) {
+            let bracket_start = self.tokens[self.pos.saturating_sub(1)].start;
+            let (prefix, suffix, gap_range, mut end) = self.parse_selector_spec_slots(Token::RBracket)?;
+            let setter = if self.eat(&Token::Equal) {
+                self.expect(&Token::LParen, &["\"(put)\""])?;
+                let put = self.expect_identifier(&["\"put\""])?;
+                if put != "put" {
+                    return Err(self.error_here(strs(&["\"put\""])));
+                }
+                self.expect(&Token::RParen, &["\")\""])?;
+                end = self.prev_end;
+                true
+            } else {
+                false
+            };
+            let base_range = (bracket_start..bracket_start + 1).into();
+            let range = (base_start..end).into();
+            if let Some(gap_range) = gap_range {
+                return Ok(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                    base: String::new(),
+                    kind: phalcom_common::selector::SelectorKindPattern::Exact(if setter {
+                        phalcom_common::selector::SelectorKind::SubscriptSet
+                    } else {
+                        phalcom_common::selector::SelectorKind::SubscriptGet
+                    }),
+                    prefix,
+                    suffix,
+                    is_subscript: true,
+                    gap_range,
+                    base_range,
+                    range,
+                }));
+            }
+            let mut slots = prefix;
+            slots.extend(suffix);
             return Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
-                base,
-                kind: phalcom_common::selector::SelectorKind::Method,
-                slots: vec![SelectorSlotSyntax {
-                    slot: phalcom_common::selector::SelectorSlot::Positional,
-                    range: base_range,
-                }],
+                base: String::new(),
+                kind: if setter {
+                    phalcom_common::selector::SelectorKind::SubscriptSet
+                } else {
+                    phalcom_common::selector::SelectorKind::SubscriptGet
+                },
+                slots,
+                is_subscript: true,
                 base_range,
                 range,
             }));
         }
 
-        if matches!(self.peek(), Token::LParen) && self.prev_end == self.cur_start() {
+        // Punctuation spellings are valid bare symbols even where the same
+        // token has no expression-level meaning.
+        if let Some(base) = self.parse_standalone_symbol_punctuation() {
+            let range = (base_start..self.prev_end).into();
+            let base_range = range;
+            return Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                base,
+                kind: phalcom_common::selector::SelectorKind::Getter,
+                slots: Vec::new(),
+                is_subscript: false,
+                base_range,
+                range,
+            }));
+        }
+
+        let base = self.parse_property_name()?;
+        let base_range = (base_start..self.prev_end).into();
+
+        if matches!(self.peek(), Token::LParen) {
             self.advance();
-            let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots()?;
+            let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots(Token::RParen)?;
             let range = (base_start..end).into();
             if let Some(gap_range) = gap_range {
                 return Ok(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
@@ -4219,6 +4179,7 @@ impl<'source> Parser<'source> {
                     kind: phalcom_common::selector::SelectorKindPattern::Exact(phalcom_common::selector::SelectorKind::Method),
                     prefix,
                     suffix,
+                    is_subscript: false,
                     gap_range,
                     base_range,
                     range,
@@ -4230,6 +4191,7 @@ impl<'source> Parser<'source> {
                 base,
                 kind: phalcom_common::selector::SelectorKind::Method,
                 slots,
+                is_subscript: false,
                 base_range,
                 range,
             }));
@@ -4245,6 +4207,7 @@ impl<'source> Parser<'source> {
                     kind: phalcom_common::selector::SelectorKindPattern::Exact(phalcom_common::selector::SelectorKind::Setter),
                     prefix: Vec::new(),
                     suffix: Vec::new(),
+                    is_subscript: false,
                     gap_range,
                     base_range,
                     range,
@@ -4261,6 +4224,7 @@ impl<'source> Parser<'source> {
                 base,
                 kind: phalcom_common::selector::SelectorKind::Setter,
                 slots: Vec::new(),
+                is_subscript: false,
                 base_range,
                 range,
             }));
@@ -4274,6 +4238,7 @@ impl<'source> Parser<'source> {
                 kind: phalcom_common::selector::SelectorKindPattern::AnyNamed,
                 prefix: Vec::new(),
                 suffix: Vec::new(),
+                is_subscript: false,
                 gap_range,
                 base_range,
                 range,
@@ -4285,12 +4250,13 @@ impl<'source> Parser<'source> {
             base,
             kind: phalcom_common::selector::SelectorKind::Getter,
             slots: Vec::new(),
+            is_subscript: false,
             base_range,
             range,
         }))
     }
 
-    fn parse_selector_spec_slots(&mut self) -> ParserResult<SelectorSpecSlots> {
+    fn parse_selector_spec_slots(&mut self, end: Token) -> ParserResult<SelectorSpecSlots> {
         let mut prefix = Vec::new();
         let mut suffix = Vec::new();
         let mut gap_range = None;
@@ -4298,7 +4264,7 @@ impl<'source> Parser<'source> {
         let mut seen_label = false;
         loop {
             self.skip_newlines();
-            if self.eat(&Token::RParen) {
+            if self.eat(&end) {
                 return Ok((prefix, suffix, gap_range, self.prev_end));
             }
             let slot_start = self.cur_start();
@@ -4332,11 +4298,24 @@ impl<'source> Parser<'source> {
             if self.eat(&Token::Comma) {
                 continue;
             }
-            if self.eat(&Token::RParen) {
+            if self.eat(&end) {
                 return Ok((prefix, suffix, gap_range, self.prev_end));
             }
-            return Err(self.error_here(strs(&["\",\"", "\")\""])));
+            return Err(self.error_here(strs(&["\",\"", "closing selector delimiter"])));
         }
+    }
+
+    fn parse_standalone_symbol_punctuation(&mut self) -> Option<String> {
+        let name = match self.peek() {
+            Token::Bang => "!",
+            Token::Question => "?",
+            Token::QuestionDot => "?.",
+            Token::CoalesceQuestion => "??",
+            Token::DotDotDot => "...",
+            _ => return None,
+        };
+        self.advance();
+        Some(name.to_string())
     }
 
     /// Returns whether a component-token hash symbol ends immediately before
@@ -4803,15 +4782,32 @@ fn symbol_text(symbol: &SymbolLiteralKind) -> String {
                 .join(",");
             format!("{name}({slots})")
         }
+        SymbolLiteralKind::Subscript { labels, setter } => {
+            let slots = labels
+                .iter()
+                .map(|label| label.clone().unwrap_or_else(|| "_".to_string()))
+                .collect::<Vec<_>>()
+                .join(",");
+            if *setter { format!("[{slots}]=(put)") } else { format!("[{slots}]") }
+        }
         SymbolLiteralKind::Pattern(pattern) => pattern.base.clone(),
     }
 }
 
-fn is_selector_operator(name: &str) -> bool {
-    matches!(name, "+" | "-" | "*" | "**" | "***" | "/" | "~/" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">=")
-}
-
 fn exact_symbol_kind(spec: ExactSelectorSyntax) -> SymbolLiteralKind {
+    if spec.is_subscript {
+        return SymbolLiteralKind::Subscript {
+            labels: spec
+                .slots
+                .into_iter()
+                .map(|slot| match slot.slot {
+                    phalcom_common::selector::SelectorSlot::Positional => None,
+                    phalcom_common::selector::SelectorSlot::Label(label) => Some(label),
+                })
+                .collect(),
+            setter: matches!(spec.kind, phalcom_common::selector::SelectorKind::SubscriptSet),
+        };
+    }
     match spec.kind {
         phalcom_common::selector::SelectorKind::Getter => SymbolLiteralKind::Name(spec.base),
         phalcom_common::selector::SelectorKind::Setter => SymbolLiteralKind::Selector {

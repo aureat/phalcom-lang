@@ -323,6 +323,7 @@ impl VM {
         add_class!(false_class);
         add_class!(method_class);
         add_class!(symbol_class);
+        add_class!(selector_pattern_class);
         add_class!(system_class);
         add_class!(function_class);
         add_class!(closure_class);
@@ -463,6 +464,7 @@ impl VM {
             c.closure_class,
             c.bound_method_class,
             c.symbol_class,
+            c.selector_pattern_class,
             c.module_class,
             c.package_class,
             c.project_class,

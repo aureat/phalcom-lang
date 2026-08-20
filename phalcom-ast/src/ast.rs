@@ -1087,6 +1087,8 @@ pub struct ExactSelectorSyntax {
     pub base: String,
     pub kind: SelectorKind,
     pub slots: Vec<SelectorSlotSyntax>,
+    /// `true` for bracket/index selectors such as `#[_]`.
+    pub is_subscript: bool,
     pub base_range: SourceRange,
     pub range: SourceRange,
 }
@@ -1097,6 +1099,8 @@ pub struct SelectorPatternSyntax {
     pub kind: SelectorKindPattern,
     pub prefix: Vec<SelectorSlotSyntax>,
     pub suffix: Vec<SelectorSlotSyntax>,
+    /// `true` for bracket/index patterns such as `#[...]`.
+    pub is_subscript: bool,
     pub gap_range: SourceRange,
     pub base_range: SourceRange,
     pub range: SourceRange,
@@ -1117,7 +1121,11 @@ pub enum NormalizedSelectorSpec {
 impl ExactSelectorSyntax {
     pub fn normalize(&self) -> Result<Selector, SelectorError> {
         Selector::new(
-            phalcom_common::selector::SelectorBase::Named(self.base.clone()),
+            if self.is_subscript {
+                phalcom_common::selector::SelectorBase::Subscript
+            } else {
+                phalcom_common::selector::SelectorBase::Named(self.base.clone())
+            },
             self.kind,
             self.slots.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
         )
@@ -1127,7 +1135,11 @@ impl ExactSelectorSyntax {
 impl SelectorPatternSyntax {
     pub fn normalize(&self) -> Result<SelectorPattern, SelectorError> {
         SelectorPattern::new(
-            phalcom_common::selector::SelectorBase::Named(self.base.clone()),
+            if self.is_subscript {
+                phalcom_common::selector::SelectorBase::Subscript
+            } else {
+                phalcom_common::selector::SelectorBase::Named(self.base.clone())
+            },
             self.kind.clone(),
             self.prefix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
             self.suffix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
@@ -1216,6 +1228,13 @@ pub enum SymbolLiteralKind {
         /// Per-argument labels in declared order; `None` is the positional
         /// placeholder `_`.
         labels: Vec<Option<String>>,
+    },
+    /// An exact bracket selector such as `#[_]` or `#[_]=(put)`.
+    Subscript {
+        /// Index slots, with `None` representing `_`.
+        labels: Vec<Option<String>>,
+        /// Whether this is the bracket setter spelling `]=(put)`.
+        setter: bool,
     },
     /// A structural selector pattern such as `#name(...)` or
     /// `#name(_, ..., tail)`. It remains an AST value until the compiler

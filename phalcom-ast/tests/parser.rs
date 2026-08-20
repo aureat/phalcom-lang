@@ -326,6 +326,69 @@ fn symbol_selector_rejects_interior_positional() {
 }
 
 #[test]
+fn symbol_operator_forms_preserve_exact_spelling_and_explicit_shape() {
+    for (source, expected) in [
+        ("#+", SymbolLiteralKind::Name("+".into())),
+        (
+            "#+()",
+            SymbolLiteralKind::Selector {
+                name: "+".into(),
+                labels: vec![],
+            },
+        ),
+        (
+            "#+(_) ",
+            SymbolLiteralKind::Selector {
+                name: "+".into(),
+                labels: vec![None],
+            },
+        ),
+        ("#*", SymbolLiteralKind::Name("*".into())),
+        ("#**", SymbolLiteralKind::Name("**".into())),
+        ("#***", SymbolLiteralKind::Name("***".into())),
+    ] {
+        let source = format!("let s = {source}\n");
+        let program = parse_source(&source, 0).expect("symbol should parse");
+        let Statement::Let(binding) = &program.statements[0] else {
+            panic!("expected let")
+        };
+        let Some(Expr::Symbol(symbol)) = &binding.value else {
+            panic!("expected symbol")
+        };
+        assert_eq!(format!("{:#?}", symbol.kind), format!("{expected:#?}"), "{source:?}");
+    }
+}
+
+#[test]
+fn symbol_operator_patterns_and_whitespace_are_structural() {
+    for source in ["#+...", "#+(...)", "#+(_, ...)", "#method (_, _)", "#+ ()"] {
+        let source = format!("let s = {source}\n");
+        parse_source(&source, 0).expect("selector symbol should parse");
+    }
+    let program = parse_source("let s = #method(_, _)()\n", 0).expect("postfix call should parse");
+    let Statement::Let(binding) = &program.statements[0] else {
+        panic!("expected let")
+    };
+    let Some(Expr::MethodCall(call)) = &binding.value else {
+        panic!("expected call")
+    };
+    assert_eq!(call.method, "call");
+    assert!(matches!(call.object, Expr::Symbol(_)));
+}
+
+#[test]
+fn symbol_punctuation_bang_rest_and_bracket_forms_parse() {
+    for source in [
+        "#!", "#?", "#?.", "#??", "#...", "#try!", "#try!(_)", "#a!", "#a!(_) ", "#*args", "#**args", "#***args", "#[_]", "#[_,_]", "#[x,y]", "#[...]",
+    ] {
+        let source = format!("let s = {source}\n");
+        parse_source(&source, 0).expect("symbol form should parse");
+    }
+    parse_source("let s = #[...]=(put)\n", 0).expect("subscript pattern setter should parse");
+    parse_source("let s = #\"!\"\n", 0).expect("quoted symbol should parse");
+}
+
+#[test]
 fn multiple_statements() {
     insta::assert_snapshot!(parse("let x = 1\nlet y = 2"));
 }

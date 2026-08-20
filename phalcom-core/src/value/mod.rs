@@ -137,7 +137,7 @@ impl Value {
                 // through `Value::obj` exactly as `Object::List` is; no
                 // `Value::Family` arm (ADR-0010 keeps `Value` minimal).
                 Object::Family(_) => vm.universe.classes.family_class,
-                Object::SelectorPattern(_) => vm.universe.classes.object_class,
+                Object::SelectorPattern(_) => vm.universe.classes.selector_pattern_class,
                 Object::MethodFamily(_) => vm.universe.classes.method_family_class,
                 Object::BoundMethodFamily(_) => vm.universe.classes.bound_method_family_class,
                 Object::LargeInt(_) => vm.universe.classes.int_class,

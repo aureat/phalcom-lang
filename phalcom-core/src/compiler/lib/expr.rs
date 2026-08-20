@@ -768,6 +768,18 @@ impl<'vm> Compiler<'vm> {
                         let arity = checked_send_arity("pinned selector", labels.len(), range)?;
                         encode_selector(&name, &labels, SignatureKind::Method(arity))
                     }
+                    SymbolLiteralKind::Subscript { labels, setter } => {
+                        let arity = checked_send_arity("pinned subscript selector", labels.len(), range)?;
+                        encode_selector(
+                            "[]",
+                            &labels,
+                            if setter {
+                                SignatureKind::SubscriptSet(arity)
+                            } else {
+                                SignatureKind::SubscriptGet(arity)
+                            },
+                        )
+                    }
                     SymbolLiteralKind::Pattern(pattern) => {
                         let normalized = SelectorSpecSyntax::Pattern(pattern)
                             .normalize()
@@ -1401,6 +1413,18 @@ impl<'vm> Compiler<'vm> {
             SymbolLiteralKind::Selector { name, labels } => {
                 let arity = checked_send_arity("symbol selector", labels.len(), range)?;
                 encode_selector(&name, &labels, SignatureKind::Method(arity))
+            }
+            SymbolLiteralKind::Subscript { labels, setter } => {
+                let arity = checked_send_arity("symbol subscript selector", labels.len(), range)?;
+                encode_selector(
+                    "[]",
+                    &labels,
+                    if setter {
+                        SignatureKind::SubscriptSet(arity)
+                    } else {
+                        SignatureKind::SubscriptGet(arity)
+                    },
+                )
             }
             SymbolLiteralKind::Pattern(_) => return Err(CompilerError::Message("selector patterns are not product labels".into())),
         };

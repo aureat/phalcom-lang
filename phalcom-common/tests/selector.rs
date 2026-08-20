@@ -86,6 +86,23 @@ fn malformed_runtime_selector_decode_is_total() {
 }
 
 #[test]
+fn operators_punctuation_and_subscripts_are_valid_selector_shapes() {
+    for selector in [
+        Selector::getter("+"),
+        Selector::method("+", vec![SelectorSlot::Positional]),
+        Selector::method("try!", vec![SelectorSlot::Label("value".into())]),
+        Selector::getter("?."),
+        Selector::subscript_get(vec![SelectorSlot::Positional, SelectorSlot::Label("key".into())]),
+        Selector::subscript_set(vec![SelectorSlot::Positional]),
+    ] {
+        let selector = selector.expect("selector shape should be valid");
+        assert_eq!(Selector::try_decode_exact(&selector.encode()).unwrap(), selector);
+    }
+    let pattern = SelectorPattern::named_method("+", vec![SelectorSlot::Positional], Vec::<SelectorSlot>::new(), true).unwrap();
+    assert!(pattern.matches(&Selector::method("+", vec![SelectorSlot::Positional, SelectorSlot::Label("tail".into())]).unwrap()));
+}
+
+#[test]
 fn runtime_decode_preserves_rest_family_markers_after_labels() {
     let selector = Selector::decode("labeled(timeout,**)");
     assert_eq!(selector.base, phalcom_common::selector::SelectorBase::Named("labeled".into()));

@@ -164,9 +164,7 @@ impl Selector {
         let inner = &text[open + 1..text.len() - 1];
         if inner == "put" {
             let name = head.strip_suffix('=').ok_or_else(|| SelectorError::InvalidSyntax(text.to_string()))?;
-            if !is_identifier(name) {
-                return Err(SelectorError::InvalidSyntax(text.to_string()));
-            }
+            validate_named_base(name)?;
             return Self::setter(name);
         }
 
@@ -427,7 +425,7 @@ fn decode_runtime_form(text: &str) -> Option<Selector> {
     let inner = &text[open + 1..text.len() - 1];
     if inner == "put" {
         let name = head.strip_suffix('=')?;
-        if is_identifier(name) {
+        if validate_named_base(name).is_ok() {
             return Some(Selector {
                 base: SelectorBase::Named(name.to_string()),
                 kind: SelectorKind::Setter,
@@ -506,15 +504,6 @@ fn decode_label_component_strict(component: &str) -> Result<String, SelectorErro
         bytes.push((high * 16 + low) as u8);
     }
     String::from_utf8(bytes).map_err(|_| SelectorError::InvalidSyntax(component.to_string()))
-}
-
-fn is_identifier(text: &str) -> bool {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(c) if c.is_alphabetic() || c == '_' => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
 impl fmt::Display for Selector {

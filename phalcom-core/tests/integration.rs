@@ -21,4 +21,5 @@ mod repl_immutability;
 mod repl_session;
 mod repl_source_map;
 mod send_arity_limit;
+mod symbol_selector;
 mod traceback;

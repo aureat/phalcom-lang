@@ -591,6 +591,7 @@ impl OccurrenceBuilder<'_> {
                     phalcom_ast::ast::SymbolLiteralKind::Selector { name, .. } => {
                         (SourceRange::new(symbol.range.start + 1, symbol.range.start + 1 + name.len()), name.clone())
                     }
+                    phalcom_ast::ast::SymbolLiteralKind::Subscript { .. } => (SourceRange::new(symbol.range.start + 1, symbol.range.end), "[]".to_string()),
                     phalcom_ast::ast::SymbolLiteralKind::Pattern(syntax) => (syntax.base_range, syntax.base.clone()),
                 };
                 self.push(

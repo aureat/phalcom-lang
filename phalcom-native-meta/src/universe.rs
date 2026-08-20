@@ -20,6 +20,7 @@ pub enum UniverseKey {
     True,
     False,
     Symbol,
+    SelectorPattern,
 
     Function,
     Closure,
@@ -89,6 +90,7 @@ impl UniverseKey {
             Self::True => "True",
             Self::False => "False",
             Self::Symbol => "Symbol",
+            Self::SelectorPattern => "SelectorPattern",
             Self::Function => "Function",
             Self::Closure => "Closure",
             Self::BoundMethod => "BoundMethod",
@@ -151,6 +153,7 @@ impl UniverseKey {
             "True" => Some(Self::True),
             "False" => Some(Self::False),
             "Symbol" => Some(Self::Symbol),
+            "SelectorPattern" => Some(Self::SelectorPattern),
             "Function" => Some(Self::Function),
             "Closure" => Some(Self::Closure),
             "BoundMethod" => Some(Self::BoundMethod),
@@ -306,6 +309,13 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         kind: UniverseBindingKind::Class,
         exported: true,
         prelude: true,
+    },
+    UniverseBindingSpec {
+        key: UniverseKey::SelectorPattern,
+        name: "SelectorPattern",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: false,
     },
     UniverseBindingSpec {
         key: UniverseKey::Function,
