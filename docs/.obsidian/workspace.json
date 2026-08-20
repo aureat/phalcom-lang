@@ -187,6 +187,10 @@
   },
   "active": "e351412831514433",
   "lastOpenFiles": [
+    "spec/selectors.md",
+    "spec/phalcom-selectors.md",
+    "spec/symbols.md",
+    "spec/phalcom-symbols.md",
     "superpowers/specs/2026-08-20-variant-global-recognition-design.md",
     "spec/next/semantics/in-membership-operators-implementation-spec.md",
     "spec/primitives/float.md",
@@ -217,11 +221,7 @@
     "work/completed/numbers/04-float-protocol-and-text.md",
     "work/completed/numbers/03-int-and-largeint.md",
     "work/completed/numbers/02-literals-and-power-syntax.md",
-    "work/completed/numbers/01-value-model-and-classes.md",
     "work/completed/numbers",
-    "work/completed/send-arity-limit.md",
-    "work/analyses/files/a2.md",
-    "work/analyses/files/a1.md",
     "work/analyses/files"
   ]
 }
