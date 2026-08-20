@@ -122,6 +122,11 @@ smuggle a second, unrelated feature into this draft. This is a deliberate
 Draft 0.1 simplification — a future namespacing feature can rescope variant
 names without changing the sealed/exhaustiveness semantics.
 
+Variant names are predeclared in the compilation unit's known-global inventory
+before member bodies are lowered, ensuring references to sibling variants from
+enclosing class methods resolve as globals rather than implicit self-sends.
+Runtime sibling definition remains sequenced after the enclosing class definition.
+
 ### Visitor dispatch — a generated method, not new `match` grammar
 
 `annotation-paradigm-bridges.md`'s original sketch used `shape.match { Circle(r) => ... }`

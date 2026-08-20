@@ -363,3 +363,27 @@ fn module_keywords_and_atbang_tokens() {
         vec![Token::From, Token::Export, Token::Expose, Token::AtBang, Token::Eof,]
     );
 }
+
+#[test]
+fn operator_selector_following_number() {
+    assert_eq!(
+        tokens("5.- 5.+ 5.~ 5.-()"),
+        vec![
+            Token::Int { digits: "5".into(), radix: 10 },
+            Token::Dot,
+            Token::Minus,
+            Token::Int { digits: "5".into(), radix: 10 },
+            Token::Dot,
+            Token::Plus,
+            Token::Int { digits: "5".into(), radix: 10 },
+            Token::Dot,
+            Token::Tilde,
+            Token::Int { digits: "5".into(), radix: 10 },
+            Token::Dot,
+            Token::Minus,
+            Token::LParen,
+            Token::RParen,
+            Token::Eof,
+        ]
+    );
+}

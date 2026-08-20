@@ -60,7 +60,9 @@ rejected rather than converted into sends. Implementation fields and `_$name`
 selectors are available only to privileged core/runtime source.
 
 Ordinary unresolved names use `local → upvalue → known global → implicit self`
-resolution. Namespace-directed `_field`, `__field`, and `_$name` forms always
+resolution (known globals include declared classes, let/const bindings, linked
+module imports, and generated compile-time global declarations such as `@variant`
+siblings). Namespace-directed `_field`, `__field`, and `_$name` forms always
 target `self`; nested blocks retain the enclosing member's lexical receiver and
 access class.
 

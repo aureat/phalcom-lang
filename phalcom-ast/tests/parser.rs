@@ -837,3 +837,70 @@ fn parse_membership_errors_and_non_chaining() {
     let err4 = parse_display("a is in xs is in ys\n");
     assert!(err4.contains("chained"), "unexpected: {err4}");
 }
+
+#[test]
+fn parse_operator_property_on_number() {
+    let p1 = parse_source("5.-\n", 0).expect("5.- should parse");
+    match &p1.statements[0] {
+        Statement::Expr {
+            expr: Expr::GetProperty(g), ..
+        } => {
+            assert_eq!(g.property, "-");
+            assert!(matches!(g.object, Expr::Int { .. }));
+        }
+        other => panic!("expected GetProperty, got {other:?}"),
+    }
+
+    let p2 = parse_source("5.-()\n", 0).expect("5.-() should parse");
+    match &p2.statements[0] {
+        Statement::Expr { expr: Expr::MethodCall(m), .. } => {
+            assert_eq!(m.method, "-");
+            assert!(m.args.is_empty());
+            assert!(matches!(m.object, Expr::Int { .. }));
+        }
+        other => panic!("expected MethodCall, got {other:?}"),
+    }
+
+    let p3 = parse_source("5.+()\n", 0).expect("5.+() should parse");
+    match &p3.statements[0] {
+        Statement::Expr { expr: Expr::MethodCall(m), .. } => {
+            assert_eq!(m.method, "+");
+            assert!(m.args.is_empty());
+            assert!(matches!(m.object, Expr::Int { .. }));
+        }
+        other => panic!("expected MethodCall, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_membership_range_precedence() {
+    let p1 = parse_source("5 in 1..=5\n", 0).expect("5 in 1..=5 should parse");
+    match &p1.statements[0] {
+        Statement::Expr { expr: Expr::Membership(m), .. } => {
+            assert!(matches!(m.left, Expr::Int { .. }));
+            match &m.right {
+                Expr::Range(r) => {
+                    assert!(r.upper_inclusive);
+                    assert!(matches!(r.lower.as_ref().unwrap(), Expr::Int { .. }));
+                    assert!(matches!(r.upper.as_ref().unwrap(), Expr::Int { .. }));
+                }
+                other => panic!("expected Range on RHS of in, got {other:?}"),
+            }
+        }
+        other => panic!("expected Membership, got {other:?}"),
+    }
+
+    let p2 = parse_source("5 in 1..5\n", 0).expect("5 in 1..5 should parse");
+    match &p2.statements[0] {
+        Statement::Expr { expr: Expr::Membership(m), .. } => {
+            assert!(matches!(m.left, Expr::Int { .. }));
+            match &m.right {
+                Expr::Range(r) => {
+                    assert!(!r.upper_inclusive);
+                }
+                other => panic!("expected Range on RHS of in, got {other:?}"),
+            }
+        }
+        other => panic!("expected Membership, got {other:?}"),
+    }
+}

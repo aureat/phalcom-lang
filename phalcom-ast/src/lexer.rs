@@ -285,10 +285,39 @@ impl<'input> Lexer<'input> {
             return Err(LexicalError::NumericLiteral(start..self.pos));
         }
 
-        // A trailing decimal point is not a Float literal. Preserve `5.foo`
-        // and `5..6` as ordinary member/range tokenization, but reject a
-        // numeric candidate ending at `5.` atomically.
-        if self.peek_at(0) == Some(b'.') && !matches!(self.peek_at(1), Some(b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'.')) {
+        // A trailing decimal point is not a Float literal. Preserve `5.foo`,
+        // `5.-`, `5.+`, and `5..6` as ordinary member/operator/range tokenization,
+        // but reject a numeric candidate ending at `5.` atomically.
+        if self.peek_at(0) == Some(b'.')
+            && !matches!(
+                self.peek_at(1),
+                Some(
+                    b'0'..=b'9'
+                    | b'a'..=b'z'
+                    | b'A'..=b'Z'
+                    | b'_'
+                    | b'.'
+                    | b'+'
+                    | b'-'
+                    | b'*'
+                    | b'/'
+                    | b'~'
+                    | b'%'
+                    | b'<'
+                    | b'='
+                    | b'!'
+                    | b'>'
+                    | b'&'
+                    | b'|'
+                    | b'^'
+                    | b'?'
+                    | b'@'
+                    | b':'
+                    | b'#'
+                    | b'[',
+                )
+            )
+        {
             return Err(LexicalError::NumericLiteral(start..self.pos + 1));
         }
 

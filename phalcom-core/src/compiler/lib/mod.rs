@@ -455,7 +455,25 @@ impl<'vm> Compiler<'vm> {
         Ok(closure)
     }
 
+    /// Predeclare known globals in the compilation unit before member lowering.
+    ///
+    /// Inventories direct top-level declarations (class names, pattern bindings,
+    /// and linked import bindings) as well as generated sibling class names from
+    /// direct `@variant` definitions (`ClassMember::Variant`), so that references
+    /// to sibling variants from within enclosing class member bodies resolve as
+    /// global names rather than falling back to implicit self-sends.
+    /// Note: compile-time name visibility is established here, while runtime sibling
+    /// class definition remains sequenced after the enclosing class definition.
     fn predeclare_known_globals(&mut self, program: &Program) {
+        fn collect_class_global_names(class: &phalcom_ast::ast::ClassDef, out: &mut Vec<String>) {
+            out.push(class.name.clone());
+            for member in &class.members {
+                if let phalcom_ast::ast::ClassMember::Variant(variant) = member {
+                    out.push(variant.name.clone());
+                }
+            }
+        }
+
         fn collect_pattern(pattern: &phalcom_ast::ast::Pattern, out: &mut Vec<String>) {
             match pattern {
                 phalcom_ast::ast::Pattern::Name { name, .. } => out.push(name.clone()),
@@ -478,7 +496,7 @@ impl<'vm> Compiler<'vm> {
         let mut names = Vec::new();
         for statement in &program.statements {
             match statement {
-                Statement::Class(class) => names.push(class.name.clone()),
+                Statement::Class(class) => collect_class_global_names(class, &mut names),
                 Statement::Let(binding) => collect_pattern(&binding.pattern, &mut names),
                 _ => {}
             }

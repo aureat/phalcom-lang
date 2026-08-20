@@ -2659,7 +2659,7 @@ impl<'source> Parser<'source> {
     /// Propagates any error from the operand expressions.
     fn parse_assignment(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
-        let left = self.parse_range()?;
+        let left = self.parse_coalesce()?;
 
         if let Some(op) = compound_op(self.peek()) {
             let op_start = self.cur_start();
@@ -2711,15 +2711,13 @@ impl<'source> Parser<'source> {
         Ok(left)
     }
 
-    /// Parses the non-associative Range tier immediately above assignment.
-    /// Endpoint expressions use the existing non-assignment tier, leaving this
-    /// layer reversible when a full precedence table is ratified.
+    /// Parses the non-associative Range tier between comparison and additive expressions.
     fn parse_range(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         let lower = if matches!(self.peek(), Token::DotDot | Token::DotDotEqual) {
             None
         } else {
-            Some(self.parse_coalesce()?)
+            Some(self.parse_binary(5)?)
         };
 
         let upper_inclusive = match self.peek() {
@@ -2728,7 +2726,7 @@ impl<'source> Parser<'source> {
             _ => return Ok(lower.expect("range parser reaches this branch only after parsing an expression")),
         };
         self.advance();
-        let upper = self.starts_expression().then(|| self.parse_coalesce()).transpose()?;
+        let upper = self.starts_expression().then(|| self.parse_binary(5)).transpose()?;
         if upper_inclusive && upper.is_none() {
             return Err(self.error_here(strs(&["an upper bound after `..=`"])));
         }
@@ -2766,6 +2764,7 @@ impl<'source> Parser<'source> {
                 | Token::RecordLBrace
                 | Token::LBrace
                 | Token::Pipe
+                | Token::Plus
                 | Token::Minus
                 | Token::Not
                 | Token::Tilde
@@ -2939,7 +2938,7 @@ impl<'source> Parser<'source> {
     /// Propagates any error from the operand expressions.
     fn parse_binary(&mut self, min_prec: u8) -> ParserResult<Expr> {
         let start = self.cur_start();
-        let mut left = self.parse_unary()?;
+        let mut left = if min_prec <= 4 { self.parse_range()? } else { self.parse_unary()? };
         loop {
             // `is`/`is!`/`is not`/`is! not`/`is in`/`is! in`/`is not in`/`is! not in`
             // sit at the equality tier (prec 3) but are not a `binary_op` entry.
