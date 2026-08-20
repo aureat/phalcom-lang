@@ -8,7 +8,7 @@
   [values-and-absence.md](../values-and-absence.md) (`Bool`, `not`, the branch protocol) ·
   [selectors.md](../selectors.md) (selector identity, the `#`-adjacency rule)
 - Related:
-  [proxy.md](proxy.md) (a proxy overrides `is` to masquerade; `isExactly` stays honest) ·
+  [proxy.md](proxy.md) (a proxy overrides `is` to masquerade; `is!` stays honest) ·
   [callables.md](callables.md) · [implicit-self.md](implicit-self.md) (keyword-desugar precedent)
 
 ## Context
@@ -34,14 +34,19 @@ Negation is **the word `not`**, not a leading bang. There is no `!is` / `!is!`.
 
 | Surface | Reads | Desugars to |
 |---|---|---|
-| `x is T`      | x is a kind-of T         | `x.is(T)` |
-| `x is! T`     | x is **exactly** a T     | `x.isExactly(T)` |
-| `x is not T`  | x is **not** a kind-of T | `x.is(T).not` |
-| `x is! not T` | x is **not exactly** a T | `x.isExactly(T).not` |
+| `x is T`             | x is a kind-of T                | `x.is(T)` |
+| `x is! T`            | x is **exactly** a T            | `x.is!(T)` |
+| `x is not T`         | x is **not** a kind-of T        | `x.is(T).not` |
+| `x is! not T`        | x is **not exactly** a T        | `x.is!(T).not` |
+| `x in y`             | x is an element of y            | `y.contains(x)` |
+| `x not in y`         | x is not an element of y        | `y.contains(x).not` |
+| `x is in Types`      | x is a kind-of any type in Types| `Types.any(where: \|c\| x is c)` |
+| `x is! in Types`     | x is exactly any type in Types  | `Types.any(where: \|c\| x is! c)` |
+| `x is not in Types`  | x is not any type in Types      | `(Types.any(where: \|c\| x is c)).not` |
+| `x is! not in Types` | x is not exactly any type in Types | `(Types.any(where: \|c\| x is! c)).not` |
 
-All four yield a `Bool`. Only **two magic methods** exist — `is(_)` and `isExactly(_)`;
-negation is a compile-time `.not` wrap on the result, not a separate selector. So an
-override of `is(_)` automatically governs both `is` and `is not` with consistent polarity.
+All membership and type-test forms yield a `Bool`. Only **two magic methods** exist for type testing — `is(_)` and `is!(_)`, while collection containment dispatches to `contains(_)`.
+Negation is a compile-time `.not` wrap on the result.
 
 `is not` carries the conventional English/Python meaning ("is not a kind-of"); *strict*
 keeps its own trailing suffix `!`. The two suffixes are independent bits, so `is! not`
@@ -67,12 +72,12 @@ There is **no prefix `!`**. General boolean negation is `not x`; inequality stay
 > pure parser desugar — `Parser::parse_is` (`phalcom-ast/src/parser.rs`), hooked into
 > `parse_binary`'s equality tier (`min_prec <= 3`) rather than a `binary_op` table
 > entry, since `is` carries affixes and is non-chaining. No new AST variant: the base
-> send desugars to an `Expr::MethodCall` (`is`/`isExactly`) and negation wraps it in
+> send desugars to an `Expr::MethodCall` (`is`/`is!`) and negation wraps it in
 > `Expr::Unary(UnaryOp::Not)`, reusing the existing lowering — no compiler.rs change,
 > no new bytecode. `is!` needs no dedicated lexer token: strictness is a parser-level
 > contiguous-span check (`self.cur_start() == is_end`, mirroring the `#move` adjacency
 > rule), exactly the "lexer alternative" this doc flagged as unneeded. `core.ph`'s
-> `Object#is`/`#isExactly`/`#isA` land exactly as specified above (no RHS-is-a-class
+> `Object#is`/`#is!` land exactly as specified above (no RHS-is-a-class
 > guard; I-4 = `false`).
 >
 > **Worked-example discrepancy:** the "Semantics" section's `3 is! Number` /
@@ -118,26 +123,19 @@ class Object {
   // No RHS-is-a-class guard: a non-class `cls` simply never matches any `c`
   // in the chain, so the walk returns false (I-4). A guard cannot live here —
   // `cls.is(…)` would re-enter `is` through the alias and recurse forever.
-  is(cls) {
-    var c = self.class
+  is(_ cls) {
+    let c = self.class
     while (c != None) {
-      (c == cls).ifTrue { return true }
+      (c == cls).ifTrue || { return true }
       c = c.superclass          // None at the root terminates the walk
     }
     return false
   }
 
   // exact: the receiver's CURRENT direct class, identity-compared. No chain walk.
-  isExactly(cls) => self.class == cls
-
-  // retained name for the landed kernel method; now an alias over `is`.
-  isA(cls) => self.is(cls)
+  is!(_ cls) { self.class == cls }
 }
 ```
-
-`is(_)` subsumes the landed `isA(_)`; `isA(_)` stays as an alias so U-CORE-1 code and
-fixtures (`3.is(Number)`) keep working. New code uses the operators; `isA` is not
-deprecated, just no longer canonical.
 
 Negation is not a method: the compiler lowers a trailing `not` particle to `.not` on the
 `Bool` result (`Bool#not`, core.ph). No `isNot` selector exists.
@@ -166,7 +164,7 @@ Point is Class         // true  — a class is a kind-of Class
 Point is! Class        // false — Point's direct class is its metaclass, not Class itself
 ```
 
-"**Currently**" is load-bearing: `isExactly` reads the *live* `self.class`. If the object
+"**Currently**" is load-bearing: `is!` reads the *live* `self.class`. If the object
 model admits `become:` / conditional re-parent (U-CORE-3), an object's direct class can
 change at runtime, and `is!` reflects the class *right now*, not at construction. `is`
 likewise re-walks the *current* chain on every call — neither result is cached across a
@@ -180,21 +178,21 @@ follows automatically:
 ```phalcom
 // Protocol-based membership: answer `is Drawable` structurally.
 class Shape {
-  is(cls) { (cls == Drawable).ifTrue { return true };  return super.is(cls) }
+  is(_ cls) { (cls == Drawable).ifTrue || { return true };  return super.is(cls) }
 }
 // now `s is Drawable` → true and `s is not Drawable` → false, for free.
 
 // Proxy masquerade (proxy.md P-2): a transparent wrapper claims its target's kind,
 // so it substitutes — but a boundary proxy stays HONEST about exact identity.
 class Trace : Proxy {
-  is(cls)        => _target.is(cls)        // kind-of transparent: `view is Order` → true
-  isExactly(cls) => _target.isExactly(cls) // a Capability would NOT forward this
+  is(_ cls)  => _target.is(cls)  // kind-of transparent: `view is Order` → true
+  is!(_ cls) => _target.is!(cls) // a Capability would NOT forward this
 }
 ```
 
 Policy (mirrors [proxy.md P-2](proxy.md)): a *transparency* proxy (`Trace`, `Lazy`)
 forwards **both** so it fully substitutes; a *boundary* proxy (`Capability` membrane)
-forwards `is` (passes kind-of checks) but answers `isExactly` **as itself** — the
+forwards `is` (passes kind-of checks) but answers `is!` **as itself** — the
 boundary genuinely *is* a different identity, and security code that must not be fooled
 tests with `is!` / `is! not`.
 
@@ -215,13 +213,13 @@ tests with `is!` / `is! not`.
   `Bool` and nothing else, so `if (x is T)` feeds the branch protocol a `Bool` — no
   Option/nil reaches the branch. Consistent with the no-truthiness floor
   ([values-and-absence.md](../values-and-absence.md)).
-- **Inline cache ⊗ mutable hierarchy.** `is`/`isExactly` read `self.class` and the
+- **Inline cache ⊗ mutable hierarchy.** `is`/`is!` read `self.class` and the
   superchain live; a reparent/`become:` bumps the class generation so any IC on the
-  `is(_)`/`isExactly(_)` send invalidates — the discipline every send already needs. The
+  `is(_)`/`is!(_)` send invalidates — the discipline every send already needs. The
   *result* is never cached; recomputed per call.
 - **Override ⊗ security.** `is` being overridable means a hostile object can *claim*
   `is Number`. Code guarding a trust boundary uses `is!` / `is! not` (exact, and by policy
-  un-forwarded across a membrane), or checks the raw target before wrapping. `isExactly`'s
+  un-forwarded across a membrane), or checks the raw target before wrapping. `is!`'s
   default (`self.class == cls`) cannot be spoofed without overriding it, and a boundary
   proxy is specified not to forward it.
 
@@ -230,8 +228,8 @@ tests with `is!` / `is! not`.
 - **`is` and `not` as identifiers.** `is` becomes a reserved keyword; `let is = …` and a
   parameter named `is` are illegal. `not` is *already* a reserved token and now does
   double duty (prefix boolean negation + `is not` particle), so it too cannot be an
-  identifier. The *methods* `.is(_)` / `.isExactly(_)` are still callable in dot form and
-  as `#is(_)` / `#isExactly(_)`; only the bareword operator positions are reserved.
+  identifier. The *methods* `.is(_)` / `.is!(_)` are still callable in dot form and
+  as `#is(_)` / `#is!(_)`; only the bareword operator positions are reserved.
 - **Prefix `!` as boolean negation.** Retired in favour of `not x`. `!=` survives as its
   own token. This is the single negation concept the language commits to.
 - **Smart-casting / flow narrowing.** In statically-typed languages `x is T` narrows `x`
@@ -249,19 +247,19 @@ tests with `is!` / `is! not`.
 ```phalcom
 // dispatch on kind
 draw(shape) {
-  (shape is Circle).ifTrue { return self.drawCircle(shape) }
-  (shape is Polygon).ifTrue { return self.drawPolygon(shape) }
+  (shape is Circle).ifTrue || { return self.drawCircle(shape) }
+  (shape is Polygon).ifTrue || { return self.drawPolygon(shape) }
   UnsupportedShape.new(shape).raise()
 }
 
 // exact-class fast path (skip the subclass-general branch)
 render(node) {
-  (node is! TextNode).ifTrue { return node.text }   // exactly TextNode, no subclass hook
+  (node is! TextNode).ifTrue || { return node.text }   // exactly TextNode, no subclass hook
   return self.renderGeneric(node)
 }
 
 // negation reads naturally
-guard(x) { (x is not Number).ifTrue { TypeError.new(need: Number).raise() } }
+guard(x) { (x is not Number).ifTrue || { TypeError.new(need: Number).raise() } }
 
 // "a T but not the base T itself"
 onlySubclass(x) { return x is Widget and x is! not Widget }  // kind-of Widget, not exactly Widget
@@ -272,8 +270,8 @@ onlySubclass(x) { return x is Widget and x is! not Widget }  // kind-of Widget, 
 | # | Question |
 |---|---|
 | I-2 | Should `is` fall through to `super.is(cls)` by default so overrides compose (shown), or is the default `is` final and non-overridable-for-lying, with only proxies granted the hook? |
-| I-3 | Does `isExactly` compare by class **identity** (`==`) or by class **name** (to survive class reloading / image migration where a class object is re-created)? Identity is stricter; name survives reload. |
+| I-3 | Does `is!` compare by class **identity** (`==`) or by class **name** (to survive class reloading / image migration where a class object is re-created)? Identity is stricter; name survives reload. |
 | I-4 | *(closed — `false`)* A non-class RHS returns `false`: the chain walk never matches a non-class value, so this needs no guard. A raising variant would need a **non-recursive** native class-predicate (a plain guard `cls.is(…)` re-enters `is` via the alias and recurses forever) — deferred until such a primitive exists; it would also break U-IS's floor-0. Cost accepted: `x is 3` typos read as `false` rather than erroring. |
-| I-5 | Do `is!` / `is! not` earn their keep, or ship only `is` + `is not` (kind-of ± negation) and leave *exact* to the method `x.isExactly(T)`? The two-suffix grammar is orthogonal but the strict form is rarely reached for. |
+| I-5 | Do `is!` / `is! not` earn their keep, or ship only `is` + `is not` (kind-of ± negation) and leave *exact* to the method `x.is!(T)`? The two-suffix grammar is orthogonal but the strict form is rarely reached for. |
 | I-6 | Interaction with `match`/destructuring ([destructuring.md](../destructuring.md)): may a pattern arm use `is T` as a guard, and if so does it bind/narrow, or stay a plain `Bool` guard? |
 | I-7 | *(closed — Fork A)* Negation is the single `not` keyword: `not x`, `x.not`, and the `is not` particle all share it; prefix `!` retires (`!=` survives); `x is not T` uses the compound-operator disambiguation rule above. The alternative (keep `!x`, make `not` only an is-particle) is rejected — one negation concept over two spellings. |
