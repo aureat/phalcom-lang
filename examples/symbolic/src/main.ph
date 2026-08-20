@@ -15,14 +15,12 @@ from .base import (
 // const expr2 = z + w
 // System.print(z.toRepr)
 
-@sealed
+@sealed @data
 class Ordering {
-  @get _kind
-
-  @class _less
-  @class _equal
-  @class _greater
-  @class _unordered
+  @variant Less()
+  @variant Equal()
+  @variant Greater()
+  @variant Unordered(type1:, type2:)
 
   @private
   @constructor
@@ -30,46 +28,10 @@ class Ordering {
     _kind = kind
   }
 
-  @class
-  less {
-    if (_less == None) {
-      _less = Ordering.create(#less)
-    }
-
-    _less
-  }
-
-  @class
-  equal {
-    if (_equal == None) {
-      _equal = Ordering.create(#equal)
-    }
-
-    _equal
-  }
-
-  @class
-  greater {
-    if (_greater == None) {
-      _greater = Ordering.create(#greater)
-    }
-
-    _greater
-  }
-
-  @class
-  unordered {
-    if (_unordered == None) {
-      _unordered = Ordering.create(#unordered)
-    }
-
-    _unordered
-  }
-
-  @class
-  new() {
-    Error.new("Ordering values cannot be constructed directly").raise()
-  }
+  @class less { Less.new() }
+  @class equal { Equal.new() }
+  @class greater { Greater.new() }
+  @class unordered(_ type1, _ type2) { Unordered.new(type1: type1, type2: type2) }
 
   reverse {
     if (self == Ordering.less) {
@@ -82,15 +44,12 @@ class Ordering {
 
     self
   }
-
-  toString { toRepr }
-
-  toRepr { "Ordering.\(kind.toString.trimStart("#"))" }
 }
 
-System.print(Ordering.less) // "Ordering.less"
-System.print(Ordering.less == Ordering.less) // true
-System.print(Ordering.less is Ordering) // true
+System.print(Ordering.less)
+System.print(Ordering.less == Ordering.less)
+System.print(Ordering.unordered(String, Number).type1)
+System.print(Ordering.unordered(String, Number).type2)
 
 const main = |*args| {
   // System.print(expr1.toRepr)
