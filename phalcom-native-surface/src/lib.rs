@@ -254,6 +254,14 @@ pub const NATIVE_CLASSES: &[NativeClass] = &[
         superclass: Some("Object"),
     },
     NativeClass {
+        name: "Ordering",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Ellipsis",
+        superclass: Some("Object"),
+    },
+    NativeClass {
         name: "ProjectIdentity",
         superclass: Some("Object"),
     },
@@ -294,6 +302,9 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native_with_return!("Object", "hash", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
     native_with_return!("Object", "==(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native_with_return!("Object", "!=(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Object", "===(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Object", "matches(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Object", "understands(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native!("Object", "perform(_,***)", Method, Instance, Public),
     native!("Object", "respondsTo(_)", Method, Instance, Public),
     native!("Object", "doesNotUnderstand(_)", Method, Instance, Public),
@@ -325,6 +336,8 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native_with_return!("Number", "<=(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native_with_return!("Number", ">(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native_with_return!("Number", ">=(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Number", "compare(_)", Method, Instance, Public, NativeReturnShape::Instance("Ordering")),
+    native_with_return!("SelectorPattern", "matches(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native!("Number", "+", Getter, Instance, Public),
     native!("Number", "-", Getter, Instance, Public),
     native_with_return!("Number", "hash", Getter, Instance, Public, NativeReturnShape::Instance("Int")),

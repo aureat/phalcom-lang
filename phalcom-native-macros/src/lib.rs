@@ -604,7 +604,7 @@ fn cross_check_selector_and_params(selector: &Selector, params: &ParameterTuple,
 fn emit_type_expr_spec(ty: &TypeExpr, binders: &[String]) -> Result<TokenStream2> {
     match ty {
         TypeExpr::Unknown => Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Unknown)),
-        TypeExpr::Nothing => Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Nothing)),
+        TypeExpr::Never => Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Never)),
         TypeExpr::SelfType => Ok(quote!(&::phalcom_native_meta::TypeExprSpec::SelfType)),
         TypeExpr::Universe(name) => {
             let key = UniverseKey::from_name(name).ok_or_else(|| Error::new(Span::call_site(), format!("unknown universe type 'universe.{name}'")))?;

@@ -6,7 +6,7 @@ use thiserror::Error;
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum TypeExpr {
     Unknown,
-    Nothing,
+    Never,
     SelfType,
     Named(String),
     Universe(String),
@@ -63,6 +63,7 @@ enum Token {
     Ident(String),
     SelfKw,
     Nothing,
+    Never,
     Unknown,
     Universe,
     Dot,
@@ -159,6 +160,7 @@ impl<'a> Lexer<'a> {
                 match ident.as_str() {
                     "Self" => Ok(Token::SelfKw),
                     "Nothing" => Ok(Token::Nothing),
+                    "Never" => Ok(Token::Never),
                     "Unknown" => Ok(Token::Unknown),
                     "universe" => Ok(Token::Universe),
                     _ => Ok(Token::Ident(ident)),
@@ -211,6 +213,7 @@ impl<'a> Parser<'a> {
                     Token::Eof => "end of input",
                     Token::SelfKw => "'Self'",
                     Token::Nothing => "'Nothing'",
+                    Token::Never => "'Never'",
                     Token::Unknown => "'Unknown'",
                     Token::Universe => "'universe'",
                 },
@@ -246,7 +249,11 @@ impl<'a> Parser<'a> {
             }
             Token::Nothing => {
                 self.advance()?;
-                Ok(TypeExpr::Nothing)
+                Ok(TypeExpr::Never)
+            }
+            Token::Never => {
+                self.advance()?;
+                Ok(TypeExpr::Never)
             }
             Token::Unknown => {
                 self.advance()?;
@@ -446,7 +453,7 @@ impl fmt::Display for TypeExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TypeExpr::Unknown => write!(f, "Unknown"),
-            TypeExpr::Nothing => write!(f, "Nothing"),
+            TypeExpr::Never => write!(f, "Nothing"),
             TypeExpr::SelfType => write!(f, "Self"),
             TypeExpr::Named(name) => write!(f, "{name}"),
             TypeExpr::Universe(name) => write!(f, "universe.{name}"),
@@ -531,7 +538,7 @@ mod tests {
     fn test_parse_basic_types() {
         assert_eq!(parse_type_expr("Object").unwrap(), TypeExpr::Named("Object".into()));
         assert_eq!(parse_type_expr("Self").unwrap(), TypeExpr::SelfType);
-        assert_eq!(parse_type_expr("Nothing").unwrap(), TypeExpr::Nothing);
+        assert_eq!(parse_type_expr("Nothing").unwrap(), TypeExpr::Never);
         assert_eq!(parse_type_expr("Unknown").unwrap(), TypeExpr::Unknown);
         assert_eq!(
             parse_type_expr("universe.BoundMethodFamily").unwrap(),

@@ -5,7 +5,7 @@ use crate::universe::UniverseKey;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum TypeExprSpec {
     Unknown,
-    Nothing,
+    Never,
     SelfType,
     Universe(UniverseKey),
     Parameter(&'static str),
