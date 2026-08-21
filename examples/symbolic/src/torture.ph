@@ -10,7 +10,9 @@
 
 import .module as Module
 from .base import (Base, Theme)
+
 expose .support
+
 export Demo, render
 
 
@@ -56,11 +58,12 @@ class Option {
 
 @derive(Equatable, Printable)
 class Demo is Base {
-  const _kind = #demo
   _name
   _count = 0
-  @class
-  _default_name = "anonymous"
+
+  const _kind = #demo
+
+  @class _default_name = "anonymous"
 
   @constructor
   new(_ name, count) {
@@ -70,7 +73,7 @@ class Demo is Base {
 
   @class
   default() {
-    Demo.new(self._default_name, 0)
+    Demo.new(_default_name, 0)
   }
 
   name {
@@ -183,7 +186,7 @@ let tuple_with_spread = (1, 2, *point)
 let labeled_tuple = (x: 1, y: 2, ** #{z: 3})
 
 let values = [1, 2, 3,]
-let empty_list = []
+let empty_list = [0]
 let list_with_spread = [0, *values, 4]
 
 let record = #{
