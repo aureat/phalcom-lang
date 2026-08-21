@@ -297,6 +297,14 @@ struct Parser<'source> {
     /// reject as an undefined variable instead of silently binding it to
     /// `self.class`.
     in_class_body: bool,
+    /// Ranges whose expression was explicitly wrapped in parentheses. The
+    /// AST intentionally keeps ordinary grouping transparent, but a small
+    /// amount of syntax context is needed to distinguish `(a <=> b) === c`
+    /// from the forbidden unparenthesized `a <=> b === c` chain.
+    parenthesized_ranges: Vec<(usize, usize)>,
+    /// Disabled while parsing a refutable-header scrutinee so its following
+    /// body brace cannot be consumed as a trailing closure argument.
+    trailing_closures_enabled: bool,
     /// Syntax errors recovered so far, in discovery order.
     errors: Vec<SyntaxError>,
 }
@@ -335,6 +343,8 @@ impl<'source> Parser<'source> {
             pos: 0,
             prev_end: offset,
             in_class_body: false,
+            parenthesized_ranges: Vec::new(),
+            trailing_closures_enabled: true,
             errors,
         }
     }
@@ -1153,30 +1163,52 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses `for (binding in iter) { body }` into a [`Statement::For`]
+    /// Parses `for pattern [at index] in iter, ... { body }` into a
+    /// [`Statement::For`]. Parentheses are handled by the pattern grammar, so
+    /// `(x, y)` is a tuple pattern rather than a header wrapper.
     /// (ADR-0035 §2, iteration.md §2, U-ITER specification §1.1).
     fn parse_for(&mut self) -> ParserResult<Statement> {
         let start = self.cur_start();
         self.advance(); // 'for'
-        self.expect(&Token::LParen, &["\"(\""])?;
-        let binding_start = self.cur_start();
-        let binding = self.expect_identifier(&["loop variable"])?;
-        let binding_range = (binding_start..self.prev_end).into();
-        self.expect(&Token::In, &["\"in\""])?;
-        let iter = self.parse_expr()?;
-        self.expect(&Token::RParen, &["\")\""])?;
+        let mut lanes = Vec::new();
+        loop {
+            let lane_start = self.cur_start();
+            let pattern = self.parse_pattern()?;
+            let index = if matches!(self.peek(), Token::Identifier(name) if name == "at") {
+                self.advance();
+                let index_start = self.cur_start();
+                let name = self.expect_identifier(&["iteration index name"])?;
+                Some(ForIndexBinding {
+                    name,
+                    range: (index_start..self.prev_end).into(),
+                })
+            } else {
+                None
+            };
+            self.expect(&Token::In, &["\"in\""])?;
+            // The loop body starts with `{`, which must remain outside the
+            // iterable expression. In particular, member-call parsing can
+            // otherwise attach it as a trailing closure to `iter`.
+            let trailing_closures_enabled = self.trailing_closures_enabled;
+            self.trailing_closures_enabled = false;
+            let iter = self.parse_expr()?;
+            self.trailing_closures_enabled = trailing_closures_enabled;
+            lanes.push(ForLane {
+                pattern,
+                index,
+                iter,
+                range: (lane_start..self.prev_end).into(),
+            });
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+        }
         let body = match self.parse_brace_block()? {
             Expr::Block(block) => block.body,
             _ => unreachable!("parse_brace_block must produce a block"),
         };
         let range = (start..self.prev_end).into();
-        Ok(Statement::For(ForStatement {
-            binding,
-            binding_range,
-            iter,
-            body,
-            range,
-        }))
+        Ok(Statement::For(ForStatement { lanes, body, range }))
     }
 
     /// Parses `throw expr` — surface sugar for `expr.raise()`
@@ -1403,6 +1435,9 @@ impl<'source> Parser<'source> {
         match self.peek() {
             Token::LParen => self.parse_tuple_pattern(),
             Token::LBracket => self.parse_list_pattern(),
+            Token::RecordLBrace => self.parse_record_pattern(),
+            Token::LBrace => self.parse_map_pattern(),
+            Token::Identifier(_) if matches!(self.peek_next(), Token::LParen) => self.parse_variant_pattern(),
             _ => {
                 let start = self.cur_start();
                 let name = self.expect_identifier(&["identifier", "\"(\"", "\"[\""])?;
@@ -1410,6 +1445,137 @@ impl<'source> Parser<'source> {
                 Ok(Pattern::Name { name, range })
             }
         }
+    }
+
+    /// Parses `Variant(pattern, ...)`, including zero-payload `Variant()`.
+    fn parse_variant_pattern(&mut self) -> ParserResult<Pattern> {
+        let start = self.cur_start();
+        let constructor = self.expect_identifier(&["variant constructor"])?;
+        self.expect(&Token::LParen, &["\"(\""])?;
+        let mut arguments = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                arguments.push(self.parse_pattern()?);
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                if matches!(self.peek(), Token::RParen) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RParen, &["\")\""])?;
+        Ok(Pattern::Variant {
+            constructor,
+            arguments,
+            range: (start..self.prev_end).into(),
+        })
+    }
+
+    fn parse_pattern_label(&mut self) -> ParserResult<String> {
+        match self.peek().clone() {
+            Token::Identifier(name) => {
+                self.advance();
+                Ok(name)
+            }
+            Token::QuotedSymbol(name) => {
+                self.advance();
+                Ok(name)
+            }
+            Token::Hash => {
+                self.advance();
+                match self.peek().clone() {
+                    Token::Identifier(name) => {
+                        self.advance();
+                        Ok(name)
+                    }
+                    Token::QuotedSymbol(name) => {
+                        self.advance();
+                        Ok(name)
+                    }
+                    _ => Err(self.error_here(strs(&["a static pattern key"]))),
+                }
+            }
+            _ => Err(self.error_here(strs(&["a static pattern key"]))),
+        }
+    }
+
+    /// Parses an open record pattern `#{field: pattern, ...}`.
+    fn parse_record_pattern(&mut self) -> ParserResult<Pattern> {
+        let start = self.cur_start();
+        self.advance(); // `#{`
+        let mut entries = Vec::new();
+        if !matches!(self.peek(), Token::RBrace) {
+            loop {
+                let entry_start = self.cur_start();
+                let label = self.parse_pattern_label()?;
+                self.expect(&Token::Colon, &["\":\""])?;
+                let pattern = self.parse_pattern()?;
+                entries.push(RecordPatternEntry {
+                    label,
+                    pattern,
+                    range: (entry_start..self.prev_end).into(),
+                });
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                if matches!(self.peek(), Token::RBrace) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        Ok(Pattern::Record {
+            entries,
+            range: (start..self.prev_end).into(),
+        })
+    }
+
+    /// Parses an open map pattern `{key: pattern, ...}`. Keys are deliberately
+    /// literal/static in this first implementation.
+    fn parse_map_pattern(&mut self) -> ParserResult<Pattern> {
+        let start = self.cur_start();
+        self.advance(); // `{`
+        let mut entries = Vec::new();
+        if !matches!(self.peek(), Token::RBrace) {
+            loop {
+                let entry_start = self.cur_start();
+                let key = match self.peek().clone() {
+                    Token::Hash => MapPatternKey::Symbol(self.parse_pattern_label()?),
+                    Token::QuotedSymbol(name) => {
+                        self.advance();
+                        MapPatternKey::String(name)
+                    }
+                    Token::String(value) => {
+                        self.advance();
+                        MapPatternKey::String(value)
+                    }
+                    Token::Int { digits, radix } => {
+                        self.advance();
+                        MapPatternKey::Int { digits, radix }
+                    }
+                    _ => return Err(self.error_here(strs(&["a static map pattern key"]))),
+                };
+                self.expect(&Token::Colon, &["\":\""])?;
+                let pattern = self.parse_pattern()?;
+                entries.push(MapPatternEntry {
+                    key,
+                    pattern,
+                    range: (entry_start..self.prev_end).into(),
+                });
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                if matches!(self.peek(), Token::RBrace) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        Ok(Pattern::Map {
+            entries,
+            range: (start..self.prev_end).into(),
+        })
     }
 
     /// Parses a parenthesized pattern `(p)` or a tuple pattern
@@ -2259,11 +2425,13 @@ impl<'source> Parser<'source> {
             Token::Caret => "^".to_string(),
             Token::Tilde => "~".to_string(),
             Token::EqualEqual => "==".to_string(),
+            Token::TripleEqual => "===".to_string(),
             Token::BangEqual => "!=".to_string(),
             Token::Less => "<".to_string(),
             Token::LessEqual => "<=".to_string(),
             Token::Greater => ">".to_string(),
             Token::GreaterEqual => ">=".to_string(),
+            Token::Spaceship => "<=>".to_string(),
             Token::And => "and".to_string(),
             Token::Or => "or".to_string(),
             Token::Not => "not".to_string(),
@@ -2750,32 +2918,38 @@ impl<'source> Parser<'source> {
 
     /// Determines endpoint presence from grammar, not whitespace.
     fn starts_expression(&self) -> bool {
-        matches!(
-            self.peek(),
+        match self.peek() {
             Token::If
-                | Token::While
-                | Token::True
-                | Token::False
-                | Token::Int { .. }
-                | Token::Float(_)
-                | Token::String(_)
-                | Token::StringInterp(_)
-                | Token::Hash
-                | Token::QuotedSymbol(_)
-                | Token::Identifier(_)
-                | Token::SelfKw
-                | Token::Class
-                | Token::Super
-                | Token::LBracket
-                | Token::LParen
-                | Token::RecordLBrace
-                | Token::LBrace
-                | Token::Pipe
-                | Token::Plus
-                | Token::Minus
-                | Token::Not
-                | Token::Tilde
-        )
+            | Token::While
+            | Token::True
+            | Token::False
+            | Token::Int { .. }
+            | Token::Float(_)
+            | Token::String(_)
+            | Token::StringInterp(_)
+            | Token::Hash
+            | Token::QuotedSymbol(_)
+            | Token::Identifier(_)
+            | Token::SelfKw
+            | Token::Class
+            | Token::Super
+            | Token::LBracket
+            | Token::LParen
+            | Token::RecordLBrace
+            | Token::Pipe
+            | Token::Plus
+            | Token::Minus
+            | Token::Not
+            | Token::Tilde
+            | Token::DotDotDot => true,
+            Token::LBrace => {
+                (matches!(self.peek_next(), Token::Identifier(_))
+                    && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
+                    || self.starts_computed_map_literal()
+                    || matches!(self.peek_next(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power)
+            }
+            _ => false,
+        }
     }
 
     /// Parses a `??` null-coalescing chain (right-associative), desugaring to
@@ -2946,6 +3120,8 @@ impl<'source> Parser<'source> {
     fn parse_binary(&mut self, min_prec: u8) -> ParserResult<Expr> {
         let start = self.cur_start();
         let mut left = if min_prec <= 4 { self.parse_range()? } else { self.parse_unary()? };
+        let mut chain_operands: Option<Vec<Expr>> = None;
+        let mut chain_operators: Vec<(RelationOp, SourceRange)> = Vec::new();
         loop {
             // `is`/`is!`/`is not`/`is! not`/`is in`/`is! in`/`is not in`/`is! not in`
             // sit at the equality tier (prec 3) but are not a `binary_op` entry.
@@ -2963,7 +3139,21 @@ impl<'source> Parser<'source> {
                 left = self.parse_in(left, start)?;
                 continue;
             }
-            let Some((prec, op)) = binary_op(self.peek()) else {
+            let (prec, op) = if let Some((prec, op)) = binary_op(self.peek()) {
+                (prec, RelationOp::Binary(op))
+            } else if min_prec <= 4 {
+                let Some(op) = contextual_relation_op(self.peek()) else {
+                    if let Some(operands) = chain_operands.take() {
+                        left = finish_chain(
+                            operands,
+                            std::mem::take(&mut chain_operators),
+                            (start..self.prev_end).into(),
+                        );
+                    }
+                    break;
+                };
+                (4, op)
+            } else {
                 break;
             };
             if prec < min_prec {
@@ -2974,15 +3164,56 @@ impl<'source> Parser<'source> {
             let op_range: SourceRange = (op_start..self.prev_end).into();
             let right = self.parse_binary(prec + 1)?;
             let range = (start..self.prev_end).into();
-            left = Expr::Binary(Box::new(BinaryExpr {
-                op,
-                op_range: Some(op_range),
-                left,
-                right,
-                range,
-            }));
+            if let RelationOp::Binary(binary) = op.clone()
+                && is_chain_relation(&binary)
+            {
+                if matches!(&left, Expr::Binary(expr) if matches!(&expr.op, BinaryOp::Compare))
+                    && !self.was_parenthesized(&left)
+                {
+                    return Err(self.error_here(strs(&["parenthesize `<=>` before chaining another relation"])));
+                }
+                if let Some(operands) = &mut chain_operands {
+                    operands.push(right);
+                } else {
+                    chain_operands = Some(vec![left.clone(), right]);
+                }
+                chain_operators.push((RelationOp::Binary(binary), op_range));
+            } else if matches!(op, RelationOp::Matches | RelationOp::Understands) {
+                if let Some(operands) = &mut chain_operands {
+                    operands.push(right);
+                } else {
+                    chain_operands = Some(vec![left.clone(), right]);
+                }
+                chain_operators.push((op, op_range));
+            } else {
+                if let Some(operands) = chain_operands.take() {
+                    left = finish_chain(
+                        operands,
+                        std::mem::take(&mut chain_operators),
+                        range,
+                    );
+                }
+                let RelationOp::Binary(binary) = op else {
+                    unreachable!("non-chain contextual relation handled above")
+                };
+                left = Expr::Binary(Box::new(BinaryExpr {
+                    op: binary,
+                    op_range: Some(op_range),
+                    left,
+                    right,
+                    range,
+                }));
+            }
+        }
+        if let Some(operands) = chain_operands {
+            left = finish_chain(operands, chain_operators, (start..self.prev_end).into());
         }
         Ok(left)
+    }
+
+    fn was_parenthesized(&self, expr: &Expr) -> bool {
+        let range = expr.range();
+        self.parenthesized_ranges.contains(&(range.start, range.end))
     }
 
     /// Parses `x in y`.
@@ -3202,7 +3433,7 @@ impl<'source> Parser<'source> {
             }
 
             if trailing_target == TrailingTarget::MemberSend {
-                if matches!(self.peek(), Token::LBrace) {
+                if self.trailing_closures_enabled && matches!(self.peek(), Token::LBrace) {
                     let end_before = self.cur_start();
                     let closure = self.parse_brace_block()?;
                     expr = self.attach_trailing_arguments(
@@ -3219,7 +3450,9 @@ impl<'source> Parser<'source> {
                     trailing_target = TrailingTarget::MemberSend;
                     continue;
                 }
-                if let Some((args, end)) = self.parse_trailing_closure_arguments()? {
+                if self.trailing_closures_enabled
+                    && let Some((args, end)) = self.parse_trailing_closure_arguments()?
+                {
                     expr = self.attach_trailing_arguments(expr, args, end)?;
                     // Keep member-send eligibility for a following labeled
                     // trailing closure (`send || {} label: || {}`).
@@ -3561,11 +3794,13 @@ impl<'source> Parser<'source> {
             Token::Caret => "^".to_string(),
             Token::Tilde => "~".to_string(),
             Token::EqualEqual => "==".to_string(),
+            Token::TripleEqual => "===".to_string(),
             Token::BangEqual => "!=".to_string(),
             Token::Less => "<".to_string(),
             Token::LessEqual => "<=".to_string(),
             Token::Greater => ">".to_string(),
             Token::GreaterEqual => ">=".to_string(),
+            Token::Spaceship => "<=>".to_string(),
             Token::And => "and".to_string(),
             Token::Or => "or".to_string(),
             Token::Not => "not".to_string(),
@@ -3660,9 +3895,35 @@ impl<'source> Parser<'source> {
     fn parse_if(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         self.advance(); // 'if'
-        self.expect(&Token::LParen, &["\"(\""])?;
+        if self.eat(&Token::Let) {
+            let pattern = self.parse_pattern()?;
+            self.expect(&Token::Equal, &["\"=\""])?;
+            let trailing_closures_enabled = self.trailing_closures_enabled;
+            self.trailing_closures_enabled = false;
+            let value = self.parse_expr()?;
+            self.trailing_closures_enabled = trailing_closures_enabled;
+            let then_body = match self.parse_brace_block()? {
+                Expr::Block(block) => *block,
+                _ => unreachable!("parse_brace_block must produce a block"),
+            };
+            let else_body = if self.eat(&Token::Else) {
+                Some(match self.parse_brace_block()? {
+                    Expr::Block(block) => *block,
+                    _ => unreachable!("parse_brace_block must produce a block"),
+                })
+            } else {
+                None
+            };
+            let range = (start..self.prev_end).into();
+            return Ok(Expr::IfLet(Box::new(IfLetExpr {
+                pattern,
+                value,
+                then_body,
+                else_body,
+                range,
+            })));
+        }
         let cond = self.parse_expr()?;
-        self.expect(&Token::RParen, &["\")\""])?;
         let then_arm = self.parse_brace_block()?;
         let then_range = then_arm.range();
 
@@ -3709,9 +3970,21 @@ impl<'source> Parser<'source> {
     fn parse_while(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         self.advance(); // 'while'
-        self.expect(&Token::LParen, &["\"(\""])?;
+        if self.eat(&Token::Let) {
+            let pattern = self.parse_pattern()?;
+            self.expect(&Token::Equal, &["\"=\""])?;
+            let trailing_closures_enabled = self.trailing_closures_enabled;
+            self.trailing_closures_enabled = false;
+            let value = self.parse_expr()?;
+            self.trailing_closures_enabled = trailing_closures_enabled;
+            let body = match self.parse_brace_block()? {
+                Expr::Block(block) => block.body,
+                _ => unreachable!("parse_brace_block must produce a block"),
+            };
+            let range = (start..self.prev_end).into();
+            return Ok(Expr::WhileLet(Box::new(WhileLetExpr { pattern, value, body, range })));
+        }
         let cond = self.parse_expr()?;
-        self.expect(&Token::RParen, &["\")\""])?;
         let cond_block = Self::wrap_expr_as_block(cond);
         let body = self.parse_brace_block()?;
         let body_range = body.range();
@@ -3749,6 +4022,10 @@ impl<'source> Parser<'source> {
             Token::False => {
                 self.advance();
                 Ok(Expr::Boolean { value: false, range })
+            }
+            Token::DotDotDot => {
+                self.advance();
+                Ok(Expr::Ellipsis { range })
             }
             Token::Int { digits, radix } => {
                 self.advance();
@@ -3966,11 +4243,13 @@ impl<'source> Parser<'source> {
             Token::Caret => "^",
             Token::Tilde => "~",
             Token::EqualEqual => "==",
+            Token::TripleEqual => "===",
             Token::BangEqual => "!=",
             Token::Less => "<",
             Token::LessEqual => "<=",
             Token::Greater => ">",
             Token::GreaterEqual => ">=",
+            Token::Spaceship => "<=>",
             Token::And => "and",
             Token::Or => "or",
             Token::Not => "not",
@@ -4524,6 +4803,8 @@ impl<'source> Parser<'source> {
             if !self.eat(&Token::Comma) {
                 self.skip_newlines();
                 self.expect(&Token::RParen, &[")"])?;
+                let expr_range = expr.range();
+                self.parenthesized_ranges.push((expr_range.start, expr_range.end));
                 return Ok(expr);
             }
             let range = expr.range();
@@ -4877,11 +5158,13 @@ fn binary_op(token: &Token) -> Option<(u8, BinaryOp)> {
         Token::Or => (1, BinaryOp::Or),
         Token::And => (2, BinaryOp::And),
         Token::EqualEqual => (3, BinaryOp::Equal),
+        Token::TripleEqual => (3, BinaryOp::Same),
         Token::BangEqual => (3, BinaryOp::NotEqual),
         Token::Less => (4, BinaryOp::LessThan),
         Token::LessEqual => (4, BinaryOp::LessThanOrEqual),
         Token::Greater => (4, BinaryOp::GreaterThan),
         Token::GreaterEqual => (4, BinaryOp::GreaterThanOrEqual),
+        Token::Spaceship => (4, BinaryOp::Compare),
         Token::Plus => (5, BinaryOp::Add),
         Token::Minus => (5, BinaryOp::Subtract),
         Token::Asterisk => (6, BinaryOp::Multiply),
@@ -4896,6 +5179,51 @@ fn binary_op(token: &Token) -> Option<(u8, BinaryOp)> {
         Token::Pipe => (2, BinaryOp::BitOr),
         _ => return None,
     })
+}
+
+fn contextual_relation_op(token: &Token) -> Option<RelationOp> {
+    match token {
+        Token::Identifier(name) if name == "matches" => Some(RelationOp::Matches),
+        Token::Identifier(name) if name == "understands" => Some(RelationOp::Understands),
+        _ => None,
+    }
+}
+
+fn finish_chain(operands: Vec<Expr>, mut operators: Vec<(RelationOp, SourceRange)>, range: SourceRange) -> Expr {
+    if operands.len() == 2 && operators.len() == 1 {
+        let (op, op_range) = operators.remove(0);
+        if let RelationOp::Binary(binary) = op {
+            let mut it = operands.into_iter();
+            let left = it.next().unwrap();
+            let right = it.next().unwrap();
+            return Expr::Binary(Box::new(BinaryExpr {
+                op: binary,
+                op_range: Some(op_range),
+                left,
+                right,
+                range,
+            }));
+        }
+        operators.push((op, op_range));
+    }
+    Expr::ComparisonChain(Box::new(ComparisonChainExpr {
+        operands,
+        operators: operators.into_iter().map(|(op, _)| op).collect(),
+        range,
+    }))
+}
+
+fn is_chain_relation(op: &BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Equal
+            | BinaryOp::Same
+            | BinaryOp::NotEqual
+            | BinaryOp::LessThan
+            | BinaryOp::LessThanOrEqual
+            | BinaryOp::GreaterThan
+            | BinaryOp::GreaterThanOrEqual
+    )
 }
 
 /// Maps a compound-assignment token (`+=`, `-=`, ...) to the [`BinaryOp`] it
@@ -4955,6 +5283,66 @@ mod tests {
     fn parse_error_exits_with_first_error() {
         let err = parse_source("let = )", 0).unwrap_err();
         assert_eq!(err.range, 4..5);
+    }
+
+    #[test]
+    fn new_operators_and_expression_ellipsis_parse() {
+        let Statement::Expr { expr: Expr::Binary(binary), .. } = only_statement("1 === 1") else {
+            panic!("expected exact-sameness binary expression");
+        };
+        assert!(matches!(binary.op, BinaryOp::Same));
+
+        let Statement::Expr { expr: Expr::Binary(binary), .. } = only_statement("a <=> b") else {
+            panic!("expected spaceship binary expression");
+        };
+        assert!(matches!(binary.op, BinaryOp::Compare));
+
+        let Statement::Expr { expr: Expr::Ellipsis { .. }, .. } = only_statement("...") else {
+            panic!("expected expression ellipsis");
+        };
+    }
+
+    #[test]
+    fn control_headers_accept_grouped_and_unwrapped_conditions() {
+        assert!(parse("if value { value }", 0).errors.is_empty());
+        assert!(parse("if (value or other) { value }", 0).errors.is_empty());
+        assert!(parse("while value { break }", 0).errors.is_empty());
+        assert!(parse("while (value and other) { break }", 0).errors.is_empty());
+    }
+
+    #[test]
+    fn for_lanes_preserve_tuple_patterns_and_contextual_at() {
+        let Statement::For(for_statement) = only_statement("for (x, y) at i in pairs, z in values { x }") else {
+            panic!("expected for statement");
+        };
+        assert_eq!(for_statement.lanes.len(), 2);
+        assert!(matches!(for_statement.lanes[0].pattern, Pattern::Tuple { .. }));
+        assert_eq!(for_statement.lanes[0].index.as_ref().map(|index| index.name.as_str()), Some("i"));
+        assert!(matches!(&for_statement.lanes[1].pattern, Pattern::Name { name, .. } if name == "z"));
+    }
+
+    #[test]
+    fn contextual_relations_form_explicit_comparison_chains() {
+        let Statement::Expr { expr: Expr::ComparisonChain(chain), .. } = only_statement("a < b <= c matches pattern") else {
+            panic!("expected comparison chain");
+        };
+        assert_eq!(chain.operands.len(), 4);
+        assert!(matches!(chain.operators[0], RelationOp::Binary(BinaryOp::LessThan)));
+        assert!(matches!(chain.operators[1], RelationOp::Binary(BinaryOp::LessThanOrEqual)));
+        assert!(matches!(chain.operators[2], RelationOp::Matches));
+    }
+
+    #[test]
+    fn if_let_and_while_let_are_explicit_nodes() {
+        let Statement::Expr { expr: Expr::IfLet(if_let), .. } = only_statement("if let Some(value) = option { value } else { None }") else {
+            panic!("expected if let expression");
+        };
+        assert!(matches!(if_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));
+
+        let Statement::Expr { expr: Expr::WhileLet(while_let), .. } = only_statement("while let Some(value) = next() { value }") else {
+            panic!("expected while let expression");
+        };
+        assert!(matches!(while_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));
     }
 
     /// Returns the single statement of a program that must parse cleanly.

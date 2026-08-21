@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-expression: "parse(\"for (x in xs) { break }\")"
+expression: "parse(\"for x in xs { break }\")"
 ---
 Program {
     preamble: ModulePreamble {
@@ -14,29 +14,40 @@ Program {
     statements: [
         For(
             ForStatement {
-                binding: "x",
-                binding_range: CopyRange {
-                    start: 5,
-                    end: 6,
-                },
-                iter: Var {
-                    value: "xs",
-                    range: CopyRange {
-                        start: 10,
-                        end: 12,
+                lanes: [
+                    ForLane {
+                        pattern: Name {
+                            name: "x",
+                            range: CopyRange {
+                                start: 4,
+                                end: 5,
+                            },
+                        },
+                        index: None,
+                        iter: Var {
+                            value: "xs",
+                            range: CopyRange {
+                                start: 9,
+                                end: 11,
+                            },
+                        },
+                        range: CopyRange {
+                            start: 4,
+                            end: 11,
+                        },
                     },
-                },
+                ],
                 body: [
                     Break {
                         range: CopyRange {
-                            start: 16,
-                            end: 21,
+                            start: 14,
+                            end: 19,
                         },
                     },
                 ],
                 range: CopyRange {
                     start: 0,
-                    end: 23,
+                    end: 21,
                 },
             },
         ),

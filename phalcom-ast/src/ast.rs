@@ -31,7 +31,7 @@ pub enum Statement {
         expr: Expr,
         range: SourceRange,
     },
-    /// `for (binding in iter) { body }` — the cursor loop (ADR-0035 §2,
+    /// `for pattern [at index] in iter { body }` — the cursor loop (ADR-0035 §2,
     /// iteration.md §2). Lowered by the compiler to an inlined cursor `while`
     /// over the two-selector protocol `iterate(_)` / `iteratorValue(_)` —
     /// **never** to `coll.each { … }` (ADR-0035 §2), so a `for` body inside a
@@ -734,15 +734,69 @@ pub enum Pattern {
         /// The source span of the whole `[…]` pattern.
         range: SourceRange,
     },
+    /// A sealed/unit or payload-bearing variant pattern such as `None()` or
+    /// `Some(value)`.
+    Variant {
+        /// Constructor/variant class name.
+        constructor: String,
+        /// Positional payload patterns in declaration order.
+        arguments: Vec<Pattern>,
+        /// Source span of the complete constructor pattern.
+        range: SourceRange,
+    },
+    /// An open record pattern such as `#{name: value}`.
+    Record {
+        /// Required field patterns.
+        entries: Vec<RecordPatternEntry>,
+        /// Source span of the complete record pattern.
+        range: SourceRange,
+    },
+    /// An open map pattern such as `{#name: value}`.
+    Map {
+        /// Required key/value patterns.
+        entries: Vec<MapPatternEntry>,
+        /// Source span of the complete map pattern.
+        range: SourceRange,
+    },
 }
 
 impl Pattern {
     /// Returns this pattern's source span.
     pub fn range(&self) -> SourceRange {
         match self {
-            Pattern::Name { range, .. } | Pattern::Tuple { range, .. } | Pattern::List { range, .. } => *range,
+            Pattern::Name { range, .. }
+            | Pattern::Tuple { range, .. }
+            | Pattern::List { range, .. }
+            | Pattern::Variant { range, .. }
+            | Pattern::Record { range, .. }
+            | Pattern::Map { range, .. } => *range,
         }
     }
+}
+
+/// A required record field in a pattern.
+#[derive(Debug, Clone)]
+pub struct RecordPatternEntry {
+    pub label: String,
+    pub pattern: Pattern,
+    pub range: SourceRange,
+}
+
+/// A stable literal key and required value pattern in a map pattern.
+#[derive(Debug, Clone)]
+pub struct MapPatternEntry {
+    pub key: MapPatternKey,
+    pub pattern: Pattern,
+    pub range: SourceRange,
+}
+
+/// Keys accepted by the first map-pattern implementation. Arbitrary key
+/// expressions remain deliberately outside pattern syntax.
+#[derive(Debug, Clone)]
+pub enum MapPatternKey {
+    Symbol(String),
+    String(String),
+    Int { digits: String, radix: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -761,18 +815,28 @@ pub struct ReturnStatement {
 /// the U-ITER specification §3 for the exact desugar.
 #[derive(Debug, Clone)]
 pub struct ForStatement {
-    /// The loop variable, freshly bound to each element in turn (behaves as a
-    /// `let` per iteration; iteration.md §2).
-    pub binding: String,
-    /// The source span of just the loop binding identifier.
-    pub binding_range: SourceRange,
-    /// The iterable expression, evaluated **once** into a synthetic temporary
-    /// before the loop (U-ITER specification §3.3).
-    pub iter: Expr,
+    /// Non-empty lockstep lanes, each evaluated once from left to right.
+    pub lanes: Vec<ForLane>,
     /// The loop body statements, run once per element under jump-based control
     /// flow (no `block_call` on the taken path, ADR-0035 §2).
     pub body: Vec<Statement>,
     /// The source span covering the whole `for` statement.
+    pub range: SourceRange,
+}
+
+/// One `for` lane: `pattern [at ordinal] in iterable`.
+#[derive(Debug, Clone)]
+pub struct ForLane {
+    pub pattern: Pattern,
+    pub index: Option<ForIndexBinding>,
+    pub iter: Expr,
+    pub range: SourceRange,
+}
+
+/// A source binding for the zero-based ordinal of one `for` lane.
+#[derive(Debug, Clone)]
+pub struct ForIndexBinding {
+    pub name: String,
     pub range: SourceRange,
 }
 
@@ -822,6 +886,14 @@ pub enum Expr {
     Range(Box<RangeExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
+    /// A relational chain whose middle operands are evaluated once.
+    ComparisonChain(Box<ComparisonChainExpr>),
+    /// A refutable pattern conditional.
+    IfLet(Box<IfLetExpr>),
+    /// A refutable pattern loop.
+    WhileLet(Box<WhileLetExpr>),
+    /// The ordinary expression value represented by `...`.
+    Ellipsis { range: SourceRange },
     /// A call written without an explicit receiver, e.g. `foo(value)`.
     ///
     /// This remains distinct from a call to a value's `call` protocol until
@@ -885,6 +957,10 @@ impl Expr {
             Expr::Range(e) => e.range,
             Expr::Unary(e) => e.range,
             Expr::Binary(e) => e.range,
+            Expr::ComparisonChain(e) => e.range,
+            Expr::IfLet(e) => e.range,
+            Expr::WhileLet(e) => e.range,
+            Expr::Ellipsis { range } => *range,
             Expr::UnqualifiedCall(e) => e.range,
             Expr::MethodCall(e) => e.range,
             Expr::ImplementationSelector { range, .. } => *range,
@@ -923,6 +999,41 @@ pub struct BinaryExpr {
     pub op_range: Option<SourceRange>,
     pub left: Expr,
     pub right: Expr,
+    pub range: SourceRange,
+}
+
+/// A Python-style chained relation, e.g. `a < b <= c`.
+#[derive(Debug, Clone)]
+pub struct ComparisonChainExpr {
+    pub operands: Vec<Expr>,
+    pub operators: Vec<RelationOp>,
+    pub range: SourceRange,
+}
+
+/// Boolean-producing relation operators allowed in comparison chains.
+#[derive(Debug, Clone)]
+pub enum RelationOp {
+    Binary(BinaryOp),
+    Matches,
+    Understands,
+}
+
+/// `if let pattern = value { then } else { otherwise }`.
+#[derive(Debug, Clone)]
+pub struct IfLetExpr {
+    pub pattern: Pattern,
+    pub value: Expr,
+    pub then_body: BlockExpr,
+    pub else_body: Option<BlockExpr>,
+    pub range: SourceRange,
+}
+
+/// `while let pattern = value { body }`.
+#[derive(Debug, Clone)]
+pub struct WhileLetExpr {
+    pub pattern: Pattern,
+    pub value: Expr,
+    pub body: Vec<Statement>,
     pub range: SourceRange,
 }
 
@@ -1402,11 +1513,13 @@ pub enum BinaryOp {
     BitXor,
     BitOr,
     Equal,
+    Same,
     NotEqual,
     LessThan,
     LessThanOrEqual,
     GreaterThan,
     GreaterThanOrEqual,
+    Compare,
     And,
     Or,
 }

@@ -1087,10 +1087,12 @@ impl<'input> Lexer<'input> {
             b'%' if next == Some(b'=') => (2, Token::PercentEqual),
             b'%' => (1, Token::Percent),
             b'<' if next == Some(b'<') => (2, Token::ShiftLeft),
+            b'=' if next == Some(b'=') && self.peek_at(2) == Some(b'=') => (3, Token::TripleEqual),
             b'=' if next == Some(b'=') => (2, Token::EqualEqual),
             b'=' => (1, Token::Equal),
             b'!' if next == Some(b'=') => (2, Token::BangEqual),
             b'!' => (1, Token::Bang),
+            b'<' if next == Some(b'=') && self.peek_at(2) == Some(b'>') => (3, Token::Spaceship),
             b'<' if next == Some(b'=') => (2, Token::LessEqual),
             b'<' => (1, Token::Less),
             b'>' if next == Some(b'>') => (2, Token::ShiftRight),
@@ -1168,9 +1170,11 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Percent
             // Comparison.
             | Token::EqualEqual
+            | Token::TripleEqual
             | Token::BangEqual
             | Token::Less
             | Token::LessEqual
+            | Token::Spaceship
             | Token::Greater
             | Token::GreaterEqual
             // Logical keywords.

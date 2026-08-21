@@ -178,12 +178,12 @@ fn parser_retains_exact_written_operator_and_subscript_ranges() {
 
 #[test]
 fn parser_retains_exact_written_binding_and_parameter_ranges() {
-    let source = "for (item in items) { item }\n";
+    let source = "for item in items { item }\n";
     let program = parse_source(source, 0).expect("for statement parses");
     let Statement::For(for_statement) = &program.statements[0] else {
         panic!("expected for statement");
     };
-    assert_eq!(source_slice(source, for_statement.binding_range), "item");
+    assert_eq!(source_slice(source, for_statement.lanes[0].pattern.range()), "item");
 
     let source = "let mapper = |value| value\n";
     let program = parse_source(source, 0).expect("closure parses");
@@ -581,27 +581,27 @@ fn postfix_call_preserves_unqualified_call() {
 
 #[test]
 fn for_loop_over_list() {
-    insta::assert_snapshot!(parse("for (x in xs) { System.print(x) }"));
+    insta::assert_snapshot!(parse("for x in xs { System.print(x) }"));
 }
 
 #[test]
 fn for_loop_binding_and_iter_expression() {
-    insta::assert_snapshot!(parse("for (item in makeList(3)) { total = total + item }"));
+    insta::assert_snapshot!(parse("for item in makeList(3) { total = total + item }"));
 }
 
 #[test]
 fn break_statement_parses() {
-    insta::assert_snapshot!(parse("for (x in xs) { break }"));
+    insta::assert_snapshot!(parse("for x in xs { break }"));
 }
 
 #[test]
 fn continue_statement_parses() {
-    insta::assert_snapshot!(parse("for (x in xs) { continue }"));
+    insta::assert_snapshot!(parse("for x in xs { continue }"));
 }
 
 #[test]
 fn for_missing_in_is_error() {
-    insta::assert_snapshot!(parse("for (x xs) { }"));
+    insta::assert_snapshot!(parse("for x xs { }"));
 }
 
 // --- `@` attributes (U-ANNOT-CONTRACTS, annotations-legality-grammar.md) ---

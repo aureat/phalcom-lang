@@ -163,12 +163,16 @@ pub enum Token {
     Equal,
     /// The `==` equality operator.
     EqualEqual,
+    /// The `===` exact runtime sameness operator.
+    TripleEqual,
     /// The `!=` inequality operator.
     BangEqual,
     /// The `<` less-than operator.
     Less,
     /// The `<=` less-than-or-equal operator.
     LessEqual,
+    /// The `<=>` bilateral ordering operator.
+    Spaceship,
     /// The `>` greater-than operator.
     Greater,
     /// The `>=` greater-than-or-equal operator.

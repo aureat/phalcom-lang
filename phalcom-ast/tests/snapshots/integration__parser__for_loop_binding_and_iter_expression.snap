@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-expression: "parse(\"for (item in makeList(3)) { total = total + item }\")"
+expression: "parse(\"for item in makeList(3) { total = total + item }\")"
 ---
 Program {
     preamble: ModulePreamble {
@@ -14,42 +14,53 @@ Program {
     statements: [
         For(
             ForStatement {
-                binding: "item",
-                binding_range: CopyRange {
-                    start: 5,
-                    end: 9,
-                },
-                iter: UnqualifiedCall(
-                    UnqualifiedCallExpr {
-                        name: "makeList",
-                        name_range: Some(
-                            CopyRange {
-                                start: 13,
-                                end: 21,
+                lanes: [
+                    ForLane {
+                        pattern: Name {
+                            name: "item",
+                            range: CopyRange {
+                                start: 4,
+                                end: 8,
                             },
-                        ),
-                        args: [
-                            Positional {
-                                expr: Int {
-                                    digits: "3",
-                                    radix: 10,
-                                    range: CopyRange {
-                                        start: 22,
-                                        end: 23,
+                        },
+                        index: None,
+                        iter: UnqualifiedCall(
+                            UnqualifiedCallExpr {
+                                name: "makeList",
+                                name_range: Some(
+                                    CopyRange {
+                                        start: 12,
+                                        end: 20,
                                     },
-                                },
+                                ),
+                                args: [
+                                    Positional {
+                                        expr: Int {
+                                            digits: "3",
+                                            radix: 10,
+                                            range: CopyRange {
+                                                start: 21,
+                                                end: 22,
+                                            },
+                                        },
+                                        range: CopyRange {
+                                            start: 21,
+                                            end: 22,
+                                        },
+                                    },
+                                ],
                                 range: CopyRange {
-                                    start: 22,
+                                    start: 12,
                                     end: 23,
                                 },
                             },
-                        ],
+                        ),
                         range: CopyRange {
-                            start: 13,
-                            end: 24,
+                            start: 4,
+                            end: 23,
                         },
                     },
-                ),
+                ],
                 body: [
                     Expr {
                         expr: Assignment(
@@ -57,8 +68,8 @@ Program {
                                 name: Var {
                                     value: "total",
                                     range: CopyRange {
-                                        start: 28,
-                                        end: 33,
+                                        start: 26,
+                                        end: 31,
                                     },
                                 },
                                 value: Binary(
@@ -66,45 +77,45 @@ Program {
                                         op: Add,
                                         op_range: Some(
                                             CopyRange {
-                                                start: 42,
-                                                end: 43,
+                                                start: 40,
+                                                end: 41,
                                             },
                                         ),
                                         left: Var {
                                             value: "total",
                                             range: CopyRange {
-                                                start: 36,
-                                                end: 41,
+                                                start: 34,
+                                                end: 39,
                                             },
                                         },
                                         right: Var {
                                             value: "item",
                                             range: CopyRange {
-                                                start: 44,
-                                                end: 48,
+                                                start: 42,
+                                                end: 46,
                                             },
                                         },
                                         range: CopyRange {
-                                            start: 36,
-                                            end: 48,
+                                            start: 34,
+                                            end: 46,
                                         },
                                     },
                                 ),
                                 range: CopyRange {
-                                    start: 28,
-                                    end: 48,
+                                    start: 26,
+                                    end: 46,
                                 },
                             },
                         ),
                         range: CopyRange {
-                            start: 28,
-                            end: 48,
+                            start: 26,
+                            end: 46,
                         },
                     },
                 ],
                 range: CopyRange {
                     start: 0,
-                    end: 50,
+                    end: 48,
                 },
             },
         ),

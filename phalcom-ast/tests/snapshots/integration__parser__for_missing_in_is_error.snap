@@ -1,5 +1,5 @@
 ---
 source: phalcom-ast/tests/parser.rs
-expression: "parse(\"for (x xs) { }\")"
+expression: "parse(\"for x xs { }\")"
 ---
-Err: SyntaxError { kind: UnrecognizedToken { token: "xs", expected: ["\"in\""] }, range: 7..9 }
+Err: SyntaxError { kind: UnrecognizedToken { token: "xs", expected: ["\"in\""] }, range: 6..8 }

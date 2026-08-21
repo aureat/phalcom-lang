@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-expression: "parse(\"for (x in xs) { System.print(x) }\")"
+expression: "parse(\"for x in xs { System.print(x) }\")"
 ---
 Program {
     preamble: ModulePreamble {
@@ -14,18 +14,29 @@ Program {
     statements: [
         For(
             ForStatement {
-                binding: "x",
-                binding_range: CopyRange {
-                    start: 5,
-                    end: 6,
-                },
-                iter: Var {
-                    value: "xs",
-                    range: CopyRange {
-                        start: 10,
-                        end: 12,
+                lanes: [
+                    ForLane {
+                        pattern: Name {
+                            name: "x",
+                            range: CopyRange {
+                                start: 4,
+                                end: 5,
+                            },
+                        },
+                        index: None,
+                        iter: Var {
+                            value: "xs",
+                            range: CopyRange {
+                                start: 9,
+                                end: 11,
+                            },
+                        },
+                        range: CopyRange {
+                            start: 4,
+                            end: 11,
+                        },
                     },
-                },
+                ],
                 body: [
                     Expr {
                         expr: MethodCall(
@@ -33,15 +44,15 @@ Program {
                                 object: Var {
                                     value: "System",
                                     range: CopyRange {
-                                        start: 16,
-                                        end: 22,
+                                        start: 14,
+                                        end: 20,
                                     },
                                 },
                                 method: "print",
                                 method_range: Some(
                                     CopyRange {
-                                        start: 23,
-                                        end: 28,
+                                        start: 21,
+                                        end: 26,
                                     },
                                 ),
                                 args: [
@@ -49,31 +60,31 @@ Program {
                                         expr: Var {
                                             value: "x",
                                             range: CopyRange {
-                                                start: 29,
-                                                end: 30,
+                                                start: 27,
+                                                end: 28,
                                             },
                                         },
                                         range: CopyRange {
-                                            start: 29,
-                                            end: 30,
+                                            start: 27,
+                                            end: 28,
                                         },
                                     },
                                 ],
                                 range: CopyRange {
-                                    start: 16,
-                                    end: 31,
+                                    start: 14,
+                                    end: 29,
                                 },
                             },
                         ),
                         range: CopyRange {
-                            start: 16,
-                            end: 31,
+                            start: 14,
+                            end: 29,
                         },
                     },
                 ],
                 range: CopyRange {
                     start: 0,
-                    end: 33,
+                    end: 31,
                 },
             },
         ),
