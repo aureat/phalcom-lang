@@ -621,7 +621,9 @@ fn collect_var_occurrences(statement: &Statement, names: &std::collections::Hash
         }
         Statement::Expr { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
         Statement::For(f) => {
-            collect_var_occurrences_in_expr(&f.iter, names, out);
+            for lane in &f.lanes {
+                collect_var_occurrences_in_expr(&lane.iter, names, out);
+            }
             for s in &f.body {
                 collect_var_occurrences(s, names, out);
             }
@@ -649,7 +651,8 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         | Expr::ImplementationSelector { .. }
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. }
-        | Expr::Symbol(_) => {}
+        | Expr::Symbol(_)
+        | Expr::Ellipsis { .. } => {}
         Expr::Assignment(a) => {
             collect_var_occurrences_in_expr(&a.name, names, out);
             collect_var_occurrences_in_expr(&a.value, names, out);
@@ -674,6 +677,28 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         Expr::IsMembership(m) => {
             collect_var_occurrences_in_expr(&m.left, names, out);
             collect_var_occurrences_in_expr(&m.candidates, names, out);
+        }
+        Expr::ComparisonChain(chain) => {
+            for operand in &chain.operands {
+                collect_var_occurrences_in_expr(operand, names, out);
+            }
+        }
+        Expr::IfLet(if_let) => {
+            collect_var_occurrences_in_expr(&if_let.value, names, out);
+            for statement in &if_let.then_body.body {
+                collect_var_occurrences(statement, names, out);
+            }
+            if let Some(else_body) = &if_let.else_body {
+                for statement in &else_body.body {
+                    collect_var_occurrences(statement, names, out);
+                }
+            }
+        }
+        Expr::WhileLet(while_let) => {
+            collect_var_occurrences_in_expr(&while_let.value, names, out);
+            for statement in &while_let.body {
+                collect_var_occurrences(statement, names, out);
+            }
         }
         Expr::MethodCall(m) => {
             collect_var_occurrences_in_expr(&m.object, names, out);
@@ -827,7 +852,9 @@ impl Collector {
     }
 
     fn walk_for(&mut self, f: &ForStatement) {
-        self.walk_expr(&f.iter);
+        for lane in &f.lanes {
+            self.walk_expr(&lane.iter);
+        }
         for statement in &f.body {
             self.walk_statement(statement);
         }
@@ -954,6 +981,29 @@ impl Collector {
                 self.walk_expr(&m.left);
                 self.walk_expr(&m.candidates);
             }
+            Expr::ComparisonChain(chain) => {
+                for operand in &chain.operands {
+                    self.walk_expr(operand);
+                }
+            }
+            Expr::IfLet(if_let) => {
+                self.walk_expr(&if_let.value);
+                for statement in &if_let.then_body.body {
+                    self.walk_statement(statement);
+                }
+                if let Some(else_body) = &if_let.else_body {
+                    for statement in &else_body.body {
+                        self.walk_statement(statement);
+                    }
+                }
+            }
+            Expr::WhileLet(while_let) => {
+                self.walk_expr(&while_let.value);
+                for statement in &while_let.body {
+                    self.walk_statement(statement);
+                }
+            }
+            Expr::Ellipsis { .. } => {}
             Expr::MethodCall(m) => {
                 self.walk_expr(&m.object);
                 if let (Some(labels), Some(range)) = (static_pack_labels(&m.args), m.method_range) {

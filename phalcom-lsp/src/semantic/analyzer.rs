@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use phalcom_ast::ast::{
     BinaryOp, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, NormalizedSelectorSpec, PackItem, PackLabel, ProductLabel,
-    RecordLiteralEntry, SelectorPatternSyntax, SetLiteralEntry, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
+    RecordLiteralEntry, RelationOp, SelectorPatternSyntax, SetLiteralEntry, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 pub use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
 
@@ -158,6 +158,14 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
                     }
                 }
             }
+            if matches!(binary.op, BinaryOp::Same) {
+                return exact(ValueShape::Instance(core_class("Bool")), range);
+            }
+            if matches!(binary.op, BinaryOp::Compare) {
+                let _ = analyze_send(&binary.left, &left, "compare(_)", false, range, context);
+                let _ = analyze_send(&binary.right, &right, "compare(_)", false, range, context);
+                return exact(ValueShape::Instance(core_class("Ordering")), range);
+            }
             let selector = match binary.op {
                 BinaryOp::And => Some("and(_)".to_string()),
                 BinaryOp::Or => Some("or(_)".to_string()),
@@ -165,7 +173,31 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             };
             let Some(selector) = selector else { return flow(ValueShape::Unknown, range) };
             let dynamic = matches!(binary.op, BinaryOp::And | BinaryOp::Or) && matches!(right.shape, ValueShape::Unknown);
-            analyze_send(&binary.left, &left, &selector, dynamic, range, context)
+            let direct = analyze_send(&binary.left, &left, &selector, dynamic, range, context);
+            if matches!(
+                binary.op,
+                BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::IntegerDivide
+                    | BinaryOp::Power
+                    | BinaryOp::Modulo
+                    | BinaryOp::ShiftLeft
+                    | BinaryOp::ShiftRight
+                    | BinaryOp::BitAnd
+                    | BinaryOp::BitXor
+                    | BinaryOp::BitOr
+            ) {
+                let reflected_selector = selector.strip_suffix("(_)").map_or_else(|| selector.clone(), |name| format!("{name}(from)"));
+                let reflected = analyze_send(&binary.right, &right, &reflected_selector, false, range, context);
+                let known = [direct, reflected]
+                    .into_iter()
+                    .filter(|value| !matches!(value.shape, ValueShape::Unknown))
+                    .collect::<Vec<_>>();
+                return if known.is_empty() { flow(ValueShape::Unknown, range) } else { super::flow::join_values(known) };
+            }
+            direct
         }
         Expr::UnqualifiedCall(call) => analyze_unqualified_call(call.name.as_str(), &call.args, range, context),
         Expr::MethodCall(call) => {
@@ -372,6 +404,43 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             analyze_expr(&m.candidates, context);
             exact(ValueShape::Instance(core_class("Bool")), range)
         }
+        Expr::ComparisonChain(chain) => {
+            let operands = chain.operands.iter().map(|operand| analyze_expr(operand, context)).collect::<Vec<_>>();
+            for (index, relation) in chain.operators.iter().enumerate() {
+                let left = &operands[index];
+                let right = &operands[index + 1];
+                match relation {
+                    RelationOp::Matches => {
+                        let _ = analyze_send(&chain.operands[index + 1], right, "matches(_)", false, range, context);
+                    }
+                    RelationOp::Understands => {
+                        let _ = analyze_send(&chain.operands[index], left, "understands(_)", false, range, context);
+                    }
+                    RelationOp::Binary(_) => {}
+                }
+            }
+            exact(ValueShape::Instance(core_class("Bool")), range)
+        }
+        Expr::IfLet(if_let) => {
+            analyze_expr(&if_let.value, context);
+            for statement in &if_let.then_body.body {
+                analyze_statement(statement, context);
+            }
+            if let Some(else_body) = &if_let.else_body {
+                for statement in &else_body.body {
+                    analyze_statement(statement, context);
+                }
+            }
+            flow(ValueShape::Unknown, range)
+        }
+        Expr::WhileLet(while_let) => {
+            analyze_expr(&while_let.value, context);
+            for statement in &while_let.body {
+                analyze_statement(statement, context);
+            }
+            flow(ValueShape::Unknown, range)
+        }
+        Expr::Ellipsis { .. } => exact(ValueShape::Instance(core_class("Ellipsis")), range),
     }
 }
 
@@ -697,7 +766,9 @@ fn analyze_statement(statement: &phalcom_ast::ast::Statement, context: &Analysis
             let _ = analyze_expr(expr, context);
         }
         phalcom_ast::ast::Statement::For(for_statement) => {
-            let _ = analyze_expr(&for_statement.iter, context);
+            for lane in &for_statement.lanes {
+                let _ = analyze_expr(&lane.iter, context);
+            }
             for statement in &for_statement.body {
                 analyze_statement(statement, context);
             }

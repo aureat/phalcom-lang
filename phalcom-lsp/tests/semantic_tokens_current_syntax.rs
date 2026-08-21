@@ -75,6 +75,27 @@ async fn modules_decorators_and_all_class_member_forms_are_highlighted() {
     lsp.finish().await;
 }
 
+#[tokio::test]
+async fn operator_symbols_and_hashless_family_selectors_follow_parser_syntax() {
+    let src = "const bare = #+\nconst exact = #+(_)\nconst family = value::+\nconst pattern = value::+(_, ...)\n";
+    let uri = "file:///test_operator_symbols_and_families.ph";
+
+    let mut lsp = TestLsp::start().await;
+    let init = lsp.initialize(None).await;
+    lsp.open(uri, src).await;
+
+    let response = lsp.semantic_tokens_full(uri).await;
+    let decoded = decode(src, &init, &response);
+
+    assert_pair(&decoded, "#", "selector");
+    assert_pair(&decoded, "+", "selector");
+    // Family references use the parser's hashless selector syntax, but their
+    // operator spelling is a reference expression rather than a declaration.
+    assert_pair(&decoded, "+", "operator");
+
+    lsp.finish().await;
+}
+
 fn assert_pair(decoded: &[(String, String)], text: &str, kind: &str) {
     assert!(
         decoded.iter().any(|(token_text, token_kind)| token_text == text && token_kind == kind),

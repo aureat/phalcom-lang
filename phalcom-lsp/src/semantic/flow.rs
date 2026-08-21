@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, Pattern, SetLiteralEntry, Statement,
+    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, RelationOp, SetLiteralEntry, Statement,
     TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
@@ -283,7 +283,6 @@ fn analyze_surface_for_callable(
                 }
             }
         }
-
         for member in class.all_members() {
             if target_callable.is_some_and(|target| target != &member.callable) {
                 continue;
@@ -993,20 +992,29 @@ impl FlowAnalyzer<'_> {
         side: Option<DispatchSide>,
         target: Option<&CallableId>,
     ) -> StatementFlow {
-        let iterable = self.eval(&statement.iter, state, current_class, side);
+        let iterables = statement
+            .lanes
+            .iter()
+            .map(|lane| self.eval(&lane.iter, state, current_class, side))
+            .collect::<Vec<_>>();
         let entry = state.clone();
         let mut header = entry.clone();
         let mut exits = vec![entry.clone()];
         let mut returns = Vec::new();
         let mut throws = false;
-        let binding = self.scopes.binding_for_declaration(statement.binding_range);
-        let element = InferredValue::flow(iterable.shape.element_shape(), statement.binding_range);
 
         for iteration in 0..MAX_FLOW_FIXPOINT_ITERS {
             let mut loop_state = header.clone();
-            if let Some(binding) = binding {
-                loop_state.bindings.insert(binding, element.clone());
-                self.local_facts.record(binding, statement.binding_range, element.clone());
+            for (lane, iterable) in statement.lanes.iter().zip(&iterables) {
+                let element = InferredValue::flow(iterable.shape.element_shape(), lane.pattern.range());
+                self.bind_pattern(&lane.pattern, &element, &mut loop_state);
+                if let Some(index) = &lane.index
+                    && let Some(binding) = self.scopes.binding_for_declaration(index.range)
+                {
+                    let index_value = InferredValue::flow(ValueShape::Unknown, index.range);
+                    loop_state.bindings.insert(binding, index_value.clone());
+                    self.local_facts.record(binding, index.range, index_value);
+                }
             }
             let body = self.analyze_statements(&statement.body, &mut loop_state, current_class, side, target);
             returns.extend(body.returns);
@@ -1069,6 +1077,21 @@ impl FlowAnalyzer<'_> {
                         _ => ValueShape::List(Box::new(ValueShape::Unknown)),
                     };
                     self.bind_pattern(rest, &InferredValue::flow(rest_shape, rest.range()), state);
+                }
+            }
+            Pattern::Variant { arguments, .. } => {
+                for argument in arguments {
+                    self.bind_pattern(argument, &InferredValue::flow(ValueShape::Unknown, argument.range()), state);
+                }
+            }
+            Pattern::Record { entries, .. } => {
+                for entry in entries {
+                    self.bind_pattern(&entry.pattern, &InferredValue::flow(ValueShape::Unknown, entry.pattern.range()), state);
+                }
+            }
+            Pattern::Map { entries, .. } => {
+                for entry in entries {
+                    self.bind_pattern(&entry.pattern, &InferredValue::flow(ValueShape::Unknown, entry.pattern.range()), state);
                 }
             }
         }
@@ -1167,6 +1190,8 @@ impl FlowAnalyzer<'_> {
                 let selector = match binary.op {
                     BinaryOp::And => Some("and(_)".to_string()),
                     BinaryOp::Or => Some("or(_)".to_string()),
+                    BinaryOp::Same => None,
+                    BinaryOp::Compare => Some("compare(_)".to_string()),
                     _ => binary_selector_name(&binary.op).map(|name| format!("{name}(_)")),
                 };
                 if let Some(selector) = selector {
@@ -1176,7 +1201,7 @@ impl FlowAnalyzer<'_> {
                         &selector,
                         vec![AnalyzedArgument {
                             label: None,
-                            value: right,
+                            value: right.clone(),
                             binding: None,
                             block_effect: None,
                             range: binary.right.range(),
@@ -1187,6 +1212,45 @@ impl FlowAnalyzer<'_> {
                         current_class,
                         side,
                     );
+                    if matches!(
+                        binary.op,
+                        BinaryOp::Compare
+                            | BinaryOp::Add
+                            | BinaryOp::Subtract
+                            | BinaryOp::Multiply
+                            | BinaryOp::Divide
+                            | BinaryOp::IntegerDivide
+                            | BinaryOp::Power
+                            | BinaryOp::Modulo
+                            | BinaryOp::ShiftLeft
+                            | BinaryOp::ShiftRight
+                            | BinaryOp::BitAnd
+                            | BinaryOp::BitXor
+                            | BinaryOp::BitOr
+                    ) {
+                        let reflected_selector = if matches!(binary.op, BinaryOp::Compare) {
+                            selector.clone()
+                        } else {
+                            selector.strip_suffix("(_)").map_or_else(|| selector.clone(), |name| format!("{name}(from)"))
+                        };
+                        self.emit_send(
+                            &binary.right,
+                            &right,
+                            &reflected_selector,
+                            vec![AnalyzedArgument {
+                                label: (!matches!(binary.op, BinaryOp::Compare)).then(|| "from".to_string()),
+                                value: left.clone(),
+                                binding: None,
+                                block_effect: None,
+                                range: binary.left.range(),
+                            }],
+                            false,
+                            binary.range,
+                            state,
+                            current_class,
+                            side,
+                        );
+                    }
                 }
                 self.collect_events(&binary.left, state, current_class, side);
                 self.collect_events(&binary.right, state, current_class, side);
@@ -1198,6 +1262,100 @@ impl FlowAnalyzer<'_> {
             Expr::IsMembership(m) => {
                 self.collect_events(&m.left, state, current_class, side);
                 self.collect_events(&m.candidates, state, current_class, side);
+            }
+            Expr::ComparisonChain(chain) => {
+                let operands = chain.operands.iter().map(|operand| self.context_value(operand, state, current_class, side)).collect::<Vec<_>>();
+                for (index, relation) in chain.operators.iter().enumerate() {
+                    let left = &operands[index];
+                    let right = &operands[index + 1];
+                    let (object, receiver, selector, argument, label) = match relation {
+                        RelationOp::Matches => (
+                            &chain.operands[index + 1],
+                            right,
+                            "matches(_)".to_string(),
+                            left.clone(),
+                            None,
+                        ),
+                        RelationOp::Understands => (
+                            &chain.operands[index],
+                            left,
+                            "understands(_)".to_string(),
+                            right.clone(),
+                            None,
+                        ),
+                        RelationOp::Binary(BinaryOp::Same) => continue,
+                        RelationOp::Binary(BinaryOp::Compare) => (
+                            &chain.operands[index],
+                            left,
+                            "compare(_)".to_string(),
+                            right.clone(),
+                            None,
+                        ),
+                        RelationOp::Binary(op) => (
+                            &chain.operands[index],
+                            left,
+                            format!("{}(_)" , binary_selector_name(op).unwrap_or("<unknown>")),
+                            right.clone(),
+                            None,
+                        ),
+                    };
+                    self.emit_send(
+                        object,
+                        receiver,
+                        &selector,
+                        vec![AnalyzedArgument {
+                            label,
+                            value: argument,
+                            binding: None,
+                            block_effect: None,
+                            range: chain.operands[index + 1].range(),
+                        }],
+                        false,
+                        chain.range,
+                        state,
+                        current_class,
+                        side,
+                    );
+                    if matches!(relation, RelationOp::Binary(BinaryOp::Compare)) {
+                        self.emit_send(
+                            &chain.operands[index + 1],
+                            right,
+                            "compare(_)" ,
+                            vec![AnalyzedArgument {
+                                label: None,
+                                value: left.clone(),
+                                binding: None,
+                                block_effect: None,
+                                range: chain.operands[index].range(),
+                            }],
+                            false,
+                            chain.range,
+                            state,
+                            current_class,
+                            side,
+                        );
+                    }
+                }
+                for operand in &chain.operands {
+                    self.collect_events(operand, state, current_class, side);
+                }
+            }
+            Expr::IfLet(if_let) => {
+                self.collect_events(&if_let.value, state, current_class, side);
+                self.collect_block_facts(&if_let.then_body, state, current_class, side);
+                if let Some(else_body) = &if_let.else_body {
+                    self.collect_block_facts(else_body, state, current_class, side);
+                }
+            }
+            Expr::WhileLet(while_let) => {
+                self.collect_events(&while_let.value, state, current_class, side);
+                let block = BlockExpr {
+                    params: Default::default(),
+                    body: while_let.body.clone(),
+                    expr_body: false,
+                    range: while_let.range,
+                };
+                self.collect_block_facts(&block, state, current_class, side);
             }
             Expr::UnqualifiedCall(call) => {
                 let args = self.arguments(&call.args, state, current_class, side);
@@ -1388,21 +1546,11 @@ impl FlowAnalyzer<'_> {
             }
             Expr::Block(block) => self.collect_block_facts(block, state, current_class, side),
             Expr::MethodRef(reference) => {
+                // A family reference evaluates and retains its receiver and
+                // selector specification. It does not invoke or resolve a
+                // method until the family is called; the call arm below
+                // handles exact and patterned family dispatch.
                 self.collect_events(&reference.receiver, state, current_class, side);
-                if let MethodRefKind::Pinned { name, labels } = &reference.kind {
-                    let receiver = self.value(&reference.receiver, state, current_class, side);
-                    let selector = crate::selectors::comma_form_from_labels(name, labels);
-                    for target in receiver_targets(&reference.receiver, &receiver.shape, current_class, side) {
-                        if let Some(resolved) = (self.resolve_member)(&target, &selector) {
-                            self.events.push(AnalysisEvent::Call(ResolvedCall {
-                                target: resolved.callable,
-                                site: reference.range,
-                                args: Vec::new(),
-                                dynamic: false,
-                            }));
-                        }
-                    }
-                }
             }
             Expr::Range(range) => {
                 if let Some(lower) = &range.lower {
@@ -1468,7 +1616,8 @@ impl FlowAnalyzer<'_> {
             | Expr::SelfVar { .. }
             | Expr::SuperVar { .. }
             | Expr::ImplementationSelector { .. }
-            | Expr::Symbol { .. } => {}
+            | Expr::Symbol { .. }
+            | Expr::Ellipsis { .. } => {}
         }
     }
 

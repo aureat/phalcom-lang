@@ -80,7 +80,10 @@ pub(crate) fn classify_source_delta(module: &ModuleId, old: Option<&FileSourceSn
             top_level_changed: true,
         };
     };
-    let kind = if imports_of(&old.program) != imports_of(&new.program) || old.surface.exports != new.surface.exports {
+    let kind = if imports_of(&old.program) != imports_of(&new.program)
+        || old.surface.exports != new.surface.exports
+        || old.surface.exposed_children != new.surface.exposed_children
+    {
         SourceChangeKind::ImportSurface
     } else if declaration_fingerprint(&old.surface) != declaration_fingerprint(&new.surface) {
         if module.as_str() == super::ids::CORE_MODULE_URI {

@@ -416,14 +416,36 @@ impl ScopeBuilder {
                     self.declare_pattern(scope, rest, SemanticBindingKind::Destructure, mutable);
                 }
             }
+            Pattern::Variant { arguments, .. } => {
+                for argument in arguments {
+                    self.declare_pattern(scope, argument, SemanticBindingKind::Destructure, mutable);
+                }
+            }
+            Pattern::Record { entries, .. } => {
+                for entry in entries {
+                    self.declare_pattern(scope, &entry.pattern, SemanticBindingKind::Destructure, mutable);
+                }
+            }
+            Pattern::Map { entries, .. } => {
+                for entry in entries {
+                    self.declare_pattern(scope, &entry.pattern, SemanticBindingKind::Destructure, mutable);
+                }
+            }
         }
     }
 
     fn visit_for(&mut self, parent: ScopeId, statement: &ForStatement) {
-        self.visit_expr(parent, &statement.iter);
+        for lane in &statement.lanes {
+            self.visit_expr(parent, &lane.iter);
+        }
         let body_range = statements_range(&statement.body);
         let scope = self.new_scope(parent, body_range);
-        self.declare(scope, statement.binding.clone(), SemanticBindingKind::ForBinding, statement.binding_range, true);
+        for lane in &statement.lanes {
+            self.declare_pattern(scope, &lane.pattern, SemanticBindingKind::ForBinding, true);
+            if let Some(index) = &lane.index {
+                self.declare(scope, index.name.clone(), SemanticBindingKind::ForBinding, index.range, true);
+            }
+        }
         self.visit_statements(scope, &statement.body, false);
     }
 
@@ -445,6 +467,26 @@ impl ScopeBuilder {
             Expr::Binary(binary) => {
                 self.visit_expr(scope, &binary.left);
                 self.visit_expr(scope, &binary.right);
+            }
+            Expr::ComparisonChain(chain) => {
+                for operand in &chain.operands {
+                    self.visit_expr(scope, operand);
+                }
+            }
+            Expr::IfLet(if_let) => {
+                self.visit_expr(scope, &if_let.value);
+                let then_scope = self.new_scope(scope, if_let.then_body.range);
+                self.declare_pattern(then_scope, &if_let.pattern, SemanticBindingKind::Destructure, true);
+                self.visit_block(then_scope, &if_let.then_body);
+                if let Some(else_body) = &if_let.else_body {
+                    self.visit_block(scope, else_body);
+                }
+            }
+            Expr::WhileLet(while_let) => {
+                let loop_scope = self.new_scope(scope, while_let.range);
+                self.visit_expr(loop_scope, &while_let.value);
+                self.declare_pattern(loop_scope, &while_let.pattern, SemanticBindingKind::Destructure, true);
+                self.visit_statements(loop_scope, &while_let.body, false);
             }
             Expr::Membership(m) => {
                 self.visit_expr(scope, &m.left);
@@ -539,7 +581,8 @@ impl ScopeBuilder {
             | Expr::SelfVar { .. }
             | Expr::SuperVar { .. }
             | Expr::ImplementationSelector { .. }
-            | Expr::Symbol { .. } => {}
+            | Expr::Symbol { .. }
+            | Expr::Ellipsis { .. } => {}
         }
     }
 

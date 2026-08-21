@@ -193,11 +193,13 @@ pub(crate) fn binary_selector_name(op: &BinaryOp) -> Option<&'static str> {
         BinaryOp::BitXor => "^",
         BinaryOp::BitOr => "|",
         BinaryOp::Equal => "==",
+        BinaryOp::Same => "===",
         BinaryOp::NotEqual => "!=",
         BinaryOp::LessThan => "<",
         BinaryOp::LessThanOrEqual => "<=",
         BinaryOp::GreaterThan => ">",
         BinaryOp::GreaterThanOrEqual => ">=",
+        BinaryOp::Compare => "<=>",
         BinaryOp::And | BinaryOp::Or => return None,
     })
 }

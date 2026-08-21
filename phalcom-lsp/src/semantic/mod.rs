@@ -868,7 +868,7 @@ class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped()
         let bundled = core_source::bundled_parse();
         db.update_core(FileRevision(1), &bundled.program);
         let uri = uri("file:///loop-flow.ph");
-        let source = "class Product { @constructor new() { } }\nclass Factory { choose(_ values) {\nlet result = 1\nfor (item in values) {\nresult = Product.new()\ncontinue\n}\nresult\n} }\n";
+        let source = "class Product { @constructor new() { } }\nclass Factory { choose(_ values) {\nlet result = 1\nfor item in values {\nresult = Product.new()\ncontinue\n}\nresult\n} }\n";
         let parsed = parse(source, 0);
         assert!(parsed.errors.is_empty(), "loop parse errors: {:?}", parsed.errors);
         db.update_file(&uri, FileRevision(1), &parsed.program);

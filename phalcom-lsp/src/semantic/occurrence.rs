@@ -201,25 +201,36 @@ impl OccurrenceBuilder<'_> {
                 }
                 Statement::Expr { expr, .. } => self.visit_expr(expr, scope),
                 Statement::For(statement) => {
-                    self.visit_expr(&statement.iter, scope);
+                    for lane in &statement.lanes {
+                        self.visit_expr(&lane.iter, scope);
+                        self.visit_pattern_declarations(&lane.pattern, scope);
+                        if let Some(index) = &lane.index
+                            && let Some(binding) = self.scopes.binding_for_declaration(index.range)
+                        {
+                            self.push(
+                                index.range,
+                                SemanticOccurrenceKind::Binding,
+                                OccurrenceRole::Declaration,
+                                SemanticTarget::Binding(binding),
+                            );
+                        }
+                    }
                     let body_scope = statement
                         .body
                         .first()
                         .map(statement_range)
                         .map(|range| self.scopes.scope_at(range.start))
                         .unwrap_or(scope);
-                    if let Some(binding) = self.scopes.binding_for_declaration(statement.binding_range) {
-                        self.push(
-                            statement.binding_range,
-                            SemanticOccurrenceKind::Binding,
-                            OccurrenceRole::Declaration,
-                            SemanticTarget::Binding(binding),
-                        );
-                    }
                     self.visit_statements(&statement.body, body_scope);
                 }
                 Statement::Throw { expr, .. } => self.visit_expr(expr, scope),
-                Statement::Export(_) => {}
+                Statement::Export(export) => {
+                    for item in &export.items {
+                        if let Some(target) = self.name_target(&item.local_or_remote_name, item.name_range, scope) {
+                            self.push(item.name_range, target_kind(&target), OccurrenceRole::Reference, target);
+                        }
+                    }
+                }
                 Statement::Break { .. } | Statement::Continue { .. } => {}
             }
         }
@@ -342,6 +353,21 @@ impl OccurrenceBuilder<'_> {
                     self.visit_pattern_declarations(rest, _scope);
                 }
             }
+            Pattern::Variant { arguments, .. } => {
+                for argument in arguments {
+                    self.visit_pattern_declarations(argument, _scope);
+                }
+            }
+            Pattern::Record { entries, .. } => {
+                for entry in entries {
+                    self.visit_pattern_declarations(&entry.pattern, _scope);
+                }
+            }
+            Pattern::Map { entries, .. } => {
+                for entry in entries {
+                    self.visit_pattern_declarations(&entry.pattern, _scope);
+                }
+            }
         }
     }
 
@@ -393,6 +419,27 @@ impl OccurrenceBuilder<'_> {
                 }
                 self.visit_expr(&binary.left, scope);
                 self.visit_expr(&binary.right, scope);
+            }
+            Expr::ComparisonChain(chain) => {
+                for operand in &chain.operands {
+                    self.visit_expr(operand, scope);
+                }
+            }
+            Expr::IfLet(if_let) => {
+                self.visit_expr(&if_let.value, scope);
+                self.visit_pattern_declarations(&if_let.pattern, scope);
+                let then_scope = self.scopes.scope_at(if_let.then_body.range.start);
+                self.visit_statements(&if_let.then_body.body, then_scope);
+                if let Some(else_body) = &if_let.else_body {
+                    let else_scope = self.scopes.scope_at(else_body.range.start);
+                    self.visit_statements(&else_body.body, else_scope);
+                }
+            }
+            Expr::WhileLet(while_let) => {
+                self.visit_expr(&while_let.value, scope);
+                self.visit_pattern_declarations(&while_let.pattern, scope);
+                let body_scope = self.scopes.scope_at(while_let.range.start);
+                self.visit_statements(&while_let.body, body_scope);
             }
             Expr::Membership(m) => {
                 if let Some(range) = m.op_range {
@@ -607,7 +654,8 @@ impl OccurrenceBuilder<'_> {
             | Expr::Boolean { .. }
             | Expr::SelfVar { .. }
             | Expr::SuperVar { .. }
-            | Expr::ImplementationSelector { .. } => {}
+            | Expr::ImplementationSelector { .. }
+            | Expr::Ellipsis { .. } => {}
         }
     }
 
@@ -713,11 +761,13 @@ fn binary_name(op: &BinaryOp) -> String {
         BinaryOp::BitXor => "^",
         BinaryOp::BitOr => "|",
         BinaryOp::Equal => "==",
+        BinaryOp::Same => "===",
         BinaryOp::NotEqual => "!=",
         BinaryOp::LessThan => "<",
         BinaryOp::LessThanOrEqual => "<=",
         BinaryOp::GreaterThan => ">",
         BinaryOp::GreaterThanOrEqual => ">=",
+        BinaryOp::Compare => "<=>",
         BinaryOp::And => "and",
         BinaryOp::Or => "or",
     }

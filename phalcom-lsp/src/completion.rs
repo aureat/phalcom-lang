@@ -280,7 +280,9 @@ fn collect_field_constructor_assignments(statements: &[Statement], field: &str, 
                 }
             }
             Statement::For(for_statement) => {
-                collect_field_constructor_expr(&for_statement.iter, field, classes);
+                for lane in &for_statement.lanes {
+                    collect_field_constructor_expr(&lane.iter, field, classes);
+                }
                 collect_field_constructor_assignments(&for_statement.body, field, classes);
             }
             _ => {}
@@ -327,7 +329,9 @@ fn collect_argument_constructor_classes(statement: &Statement, method_name: &str
             }
         }
         Statement::For(for_statement) => {
-            collect_argument_constructor_expr(&for_statement.iter, method_name, parameter, classes);
+            for lane in &for_statement.lanes {
+                collect_argument_constructor_expr(&lane.iter, method_name, parameter, classes);
+            }
             for nested in &for_statement.body {
                 collect_argument_constructor_classes(nested, method_name, parameter, classes);
             }
@@ -750,7 +754,14 @@ fn visible_names_at(db: &SemanticSnapshot, uri: &Url, program: &Program, offset:
         match statement {
             Statement::Class(class) => names.push(class.name.clone()),
             Statement::Let(binding) if binding.range.start < offset => collect_pattern_names(&binding.pattern, &mut names),
-            Statement::For(for_statement) if for_statement.range.contains(offset) => names.push(for_statement.binding.clone()),
+            Statement::For(for_statement) if for_statement.range.contains(offset) => {
+                for lane in &for_statement.lanes {
+                    collect_pattern_names(&lane.pattern, &mut names);
+                    if let Some(index) = &lane.index {
+                        names.push(index.name.clone());
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -769,6 +780,9 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
                 collect_pattern_names(rest, out);
             }
         }
+        Pattern::Variant { arguments, .. } => arguments.iter().for_each(|argument| collect_pattern_names(argument, out)),
+        Pattern::Record { entries, .. } => entries.iter().for_each(|entry| collect_pattern_names(&entry.pattern, out)),
+        Pattern::Map { entries, .. } => entries.iter().for_each(|entry| collect_pattern_names(&entry.pattern, out)),
     }
 }
 

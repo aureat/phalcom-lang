@@ -1,6 +1,6 @@
 //! Source-authored module, class, and member surfaces.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use phalcom_ast::ast::{
     AttrKind, Attribute, ClassMember, DependencyDecl, ImportDecl, IndexAccessor, ParameterDef, Program, RestMode, Statement, StaticSymbolRef,
@@ -20,6 +20,8 @@ pub struct ModuleSurface {
     pub exports: BTreeMap<String, ExportSurface>,
     /// Module-scope imported names and their source paths.
     pub imports: BTreeMap<String, ImportSurface>,
+    /// Child module names exposed by a package declaration.
+    pub exposed_children: BTreeSet<String>,
     /// Header metadata retained for documentation/reflection consumers.
     pub metadata: phalcom_modules::ModuleMetadata,
     /// Classes declared by this module.
@@ -331,6 +333,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
         module: module.clone(),
         exports: BTreeMap::new(),
         imports: BTreeMap::new(),
+        exposed_children: BTreeSet::new(),
         metadata: phalcom_modules::ModuleMetadata::from_ast(&program.preamble.metadata, phalcom_modules::ModuleKind::Module).unwrap_or_default(),
         classes: BTreeMap::new(),
     };
@@ -392,7 +395,9 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                     );
                 }
             }
-            DependencyDecl::Expose(_) => {}
+            DependencyDecl::Expose(expose) => {
+                surface.exposed_children.insert(expose.child.name.clone());
+            }
         }
     }
     for (class_stmt_idx, statement) in program.statements.iter().enumerate() {
@@ -809,5 +814,20 @@ class C {
         let matches = class.members_matching(DispatchSide::Instance, &pattern).collect::<Vec<_>>();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].callable.selector, "sum(_)");
+    }
+
+    #[test]
+    fn module_surface_preserves_logical_module_declarations() {
+        let program = parse(
+            "import .provider as Provider\nfrom ..shared import (Thing as T)\nexpose .child\nexport T as Public\n",
+            0,
+        )
+        .program;
+        let surface = build_module_surface(ModuleId::new("file:///package/main.ph"), &program);
+
+        assert_eq!(surface.imports["Provider"].path, ".provider");
+        assert_eq!(surface.imports["T"].path, "..shared");
+        assert_eq!(surface.exports["Public"].local_name, "T");
+        assert!(surface.exposed_children.contains("child"));
     }
 }

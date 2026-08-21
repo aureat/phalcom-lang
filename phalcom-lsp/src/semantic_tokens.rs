@@ -203,11 +203,13 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
 
         Token::Equal
         | Token::EqualEqual
+        | Token::TripleEqual
         | Token::BangEqual
         | Token::Less
         | Token::LessEqual
         | Token::Greater
         | Token::GreaterEqual
+        | Token::Spaceship
         | Token::PlusEqual
         | Token::MinusEqual
         | Token::AsteriskEqual
@@ -316,6 +318,48 @@ fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
             }
         }
     }
+}
+
+/// Upgrades operator spellings immediately following a contiguous `#` to
+/// selector tokens. The lexer intentionally emits the hash and operator as
+/// separate tokens; the parser decides whether their adjacency forms a
+/// symbol, so this pass mirrors that same source-boundary rule for editor
+/// coloring. Whitespace-separated `# +` remains unchanged and is not a valid
+/// parser symbol.
+fn apply_symbol_operator_overrides(text: &str, raw: &mut Vec<RawToken>) {
+    let operator_spellings = [
+        "***", "**", "~/", "<<", ">>", "==", "!=", "<=", ">=", "?.", "??", "...", "+", "-", "*", "/", "%", "&", "|", "^", "~", "<", ">", "!", "?",
+    ];
+    let hash_ranges = raw
+        .iter()
+        .filter(|token| token.kind == SemanticTokenKind::Selector && text.as_bytes().get(token.start) == Some(&b'#'))
+        .map(|token| (token.start, token.end))
+        .collect::<Vec<_>>();
+    for (_, hash_end) in hash_ranges {
+        let Some(rest) = text.get(hash_end..) else { continue };
+        let Some(spelling) = operator_spellings.iter().find(|spelling| rest.starts_with(**spelling)) else {
+            continue;
+        };
+        let end = hash_end + spelling.len();
+        let boundary = text
+            .as_bytes()
+            .get(end)
+            .copied()
+            .is_none_or(|byte| byte.is_ascii_whitespace() || matches!(byte, b'(' | b'[' | b'=' | b'.' | b',' | b')' | b']'));
+        if !boundary {
+            continue;
+        }
+        if let Some(token) = raw.iter_mut().find(|token| token.start == hash_end && token.end == end) {
+            token.kind = SemanticTokenKind::Selector;
+        } else {
+            raw.push(RawToken {
+                start: hash_end,
+                end,
+                kind: SemanticTokenKind::Selector,
+            });
+        }
+    }
+    raw.sort_by_key(|token| (token.start, token.end));
 }
 
 fn is_builtin_attribute_name(token: &Token) -> bool {
@@ -473,6 +517,7 @@ fn encode(text: &str, line_index: &LineIndex, raw: &[RawToken]) -> Vec<SemanticT
 pub fn tokens_for(db: &SemanticDb, uri: &Url, text: &str, line_index: &LineIndex) -> Vec<SemanticToken> {
     let mut raw = Vec::new();
     collect_tokens(text, 0, &mut raw);
+    apply_symbol_operator_overrides(text, &mut raw);
     apply_semantic_overrides(db, uri, text, &mut raw);
     encode(text, line_index, &raw)
 }
@@ -481,6 +526,7 @@ pub fn tokens_for(db: &SemanticDb, uri: &Url, text: &str, line_index: &LineIndex
 pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
     let mut raw = Vec::new();
     collect_tokens(&request.document.text, 0, &mut raw);
+    apply_symbol_operator_overrides(&request.document.text, &mut raw);
     if let Some(file) = request.exact_file() {
         apply_occurrence_overrides(file, &mut raw);
         apply_decl_name_overrides_program(&file.source.program, &mut raw);
@@ -705,6 +751,20 @@ mod tests {
     #[test]
     fn bare_name_symbol_emits_hash_and_base_tokens() {
         assert_eq!(kinds("#move"), vec![SemanticTokenKind::Selector, SemanticTokenKind::Variable]);
+    }
+
+    #[test]
+    fn operator_symbols_color_operator_spelling_as_selector() {
+        let mut raw = Vec::new();
+        let text = "#+ #- #** #<< #?. #... #*args # +";
+        collect_tokens(text, 0, &mut raw);
+        apply_symbol_operator_overrides(text, &mut raw);
+        let selector_ranges = raw
+            .iter()
+            .filter(|token| token.kind == SemanticTokenKind::Selector)
+            .map(|token| &text[token.start..token.end])
+            .collect::<Vec<_>>();
+        assert_eq!(selector_ranges, vec!["#", "+", "#", "-", "#", "**", "#", "<<", "#", "?.", "#", "...", "#", "#"]);
     }
 
     #[test]
