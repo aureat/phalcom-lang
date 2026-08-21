@@ -457,6 +457,7 @@ fn native_object_items() -> Vec<CompletionItem> {
 fn shallow_member_item(selector: &str, kind: crate::index::MemberKind, owner: &str) -> CompletionItem {
     let (item_kind, insert_text, insert_text_format) = match kind {
         crate::index::MemberKind::Getter => (CompletionItemKind::PROPERTY, selector.to_string(), InsertTextFormat::PLAIN_TEXT),
+        crate::index::MemberKind::Field => (CompletionItemKind::FIELD, selector.to_string(), InsertTextFormat::PLAIN_TEXT),
         crate::index::MemberKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(selector), InsertTextFormat::SNIPPET),
         crate::index::MemberKind::Method | crate::index::MemberKind::StaticMethod | crate::index::MemberKind::Construct => {
             (CompletionItemKind::METHOD, method_snippet(selector), InsertTextFormat::SNIPPET)
@@ -695,7 +696,8 @@ fn semantic_visibility_allowed(db: &SemanticSnapshot, member: &CompletionMember,
 
 fn semantic_to_completion_item(member: &CompletionMember) -> CompletionItem {
     let (kind, insert_text, insert_text_format) = match member.kind {
-        MemberKind::Getter | MemberKind::Field => (CompletionItemKind::PROPERTY, member.selector.clone(), InsertTextFormat::PLAIN_TEXT),
+        MemberKind::Getter => (CompletionItemKind::PROPERTY, member.selector.clone(), InsertTextFormat::PLAIN_TEXT),
+        MemberKind::Field => (CompletionItemKind::FIELD, member.selector.clone(), InsertTextFormat::PLAIN_TEXT),
         MemberKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(&member.selector), InsertTextFormat::SNIPPET),
         MemberKind::Method | MemberKind::Index | MemberKind::Variant => {
             (CompletionItemKind::METHOD, method_snippet(&member.selector), InsertTextFormat::SNIPPET)

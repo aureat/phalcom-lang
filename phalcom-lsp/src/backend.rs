@@ -79,7 +79,7 @@ impl Default for ServerConfig {
             analysis_mode: AnalysisMode::Local,
             analysis_exclude: Vec::new(),
             inlay_hints: HintPolicy::Stable,
-            suppress_obvious: true,
+            suppress_obvious: false,
         }
     }
 }
@@ -734,7 +734,8 @@ impl Backend {
                     kind: hover_member_kind(member),
                 };
                 let phaldoc = self.member_phaldoc(member);
-                let value = hover::render_selector_hover_with_value(&field.name, &[site], phaldoc.as_ref(), None)?;
+                let inferred = request.semantic.field_value(&field.owner, &field.name, field.side);
+                let value = hover::render_selector_hover_with_value(&field.name, &[site], phaldoc.as_ref(), inferred.as_ref())?;
                 Some(Hover {
                     contents: markdown_contents(value),
                     range: Some(span),
@@ -1062,7 +1063,7 @@ fn hover_member_kind(member: &crate::semantic::MemberSurface) -> crate::index::M
     match member.kind {
         crate::semantic::MemberKind::Getter => crate::index::MemberKind::Getter,
         crate::semantic::MemberKind::Setter => crate::index::MemberKind::Setter,
-        crate::semantic::MemberKind::Field => crate::index::MemberKind::Getter,
+        crate::semantic::MemberKind::Field => crate::index::MemberKind::Field,
         crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
             if member.side == crate::semantic::DispatchSide::Class && member.is_constructor {
                 crate::index::MemberKind::Construct

@@ -688,7 +688,14 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
             });
             collect_decl_names(&setter_def.body, out);
         }
-        ClassMember::Field(_) | ClassMember::Variant(_) => {}
+        ClassMember::Field(field_def) => {
+            out.push(DeclNameOverride {
+                range: field_def.name_range,
+                kind: SemanticTokenKind::Property,
+                is_index: false,
+            });
+        }
+        ClassMember::Variant(_) => {}
         ClassMember::Index(index_def) => {
             out.push(DeclNameOverride {
                 range: index_def.name_range,

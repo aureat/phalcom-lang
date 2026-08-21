@@ -727,7 +727,7 @@ pub struct SelectorSite {
 }
 
 /// Renders a member kind as the lowercase word `render_selector_hover` shows
-/// (`"method"`, `"getter"`, `"setter"`, `"class method"`, `"construct"`).
+/// (`"method"`, `"getter"`, `"setter"`, `"class method"`, `"construct"`, `"field"`).
 fn kind_word(kind: crate::index::MemberKind) -> &'static str {
     use crate::index::MemberKind;
     match kind {
@@ -736,6 +736,7 @@ fn kind_word(kind: crate::index::MemberKind) -> &'static str {
         MemberKind::Method => "method",
         MemberKind::StaticMethod => "class method",
         MemberKind::Construct => "construct",
+        MemberKind::Field => "field",
     }
 }
 
@@ -765,6 +766,8 @@ pub fn render_selector_hover_with_value(
     }
 
     let mut sections = Vec::new();
+
+    let is_field = sites.iter().any(|site| site.kind == crate::index::MemberKind::Field);
 
     if sites.is_empty() {
         // A purely local, Phaldoc-only hover still gets a label so it never
@@ -805,8 +808,9 @@ pub fn render_selector_hover_with_value(
     }
 
     if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
+        let label = if is_field { "Observed value" } else { "Observed return" };
         sections.push(format!(
-            "**Observed return:** `{}`\n\nConfidence: {}",
+            "**{label}:** `{}`\n\nConfidence: {}",
             crate::semantic::render_value_shape(&value.shape),
             crate::semantic::confidence_name(value.confidence)
         ));

@@ -285,6 +285,16 @@ pub struct InferredValue {
 }
 
 impl InferredValue {
+    /// Creates an unknown fact.
+    pub fn unknown() -> Self {
+        Self {
+            shape: ValueShape::Unknown,
+            known_boolean: None,
+            confidence: Confidence::Heuristic,
+            provenance: Vec::new(),
+        }
+    }
+
     /// Creates an exact syntax fact.
     pub fn exact(shape: ValueShape, range: SourceRange) -> Self {
         Self {

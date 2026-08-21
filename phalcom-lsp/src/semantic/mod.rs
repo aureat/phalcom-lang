@@ -33,7 +33,7 @@ use tower_lsp::lsp_types::Url;
 
 use crate::perf::{PerfCounters, PerfCountersHandle};
 
-pub use callable::{CallableSummary, SummaryEffects};
+pub use callable::{CallableSignature, CallableSummary, ParameterSignature, SummaryEffects};
 pub use core_source::NativeReturnShape;
 use dispatch::{ClassTable, SummaryTable};
 pub use facts::{

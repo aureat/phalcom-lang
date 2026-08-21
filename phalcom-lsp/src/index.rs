@@ -33,6 +33,8 @@ pub enum MemberKind {
     StaticMethod,
     /// A class-side constructor.
     Construct,
+    /// A declared class field.
+    Field,
 }
 
 impl MemberKind {
@@ -478,7 +480,8 @@ fn member_kind(member: &ClassMember) -> MemberKind {
         ClassMember::Method(_) => MemberKind::Method,
         ClassMember::Getter(_) => MemberKind::Getter,
         ClassMember::Setter(_) => MemberKind::Setter,
-        ClassMember::Field(_) | ClassMember::Variant(_) => MemberKind::Getter,
+        ClassMember::Field(_) => MemberKind::Field,
+        ClassMember::Variant(_) => MemberKind::Getter,
         // A bracket subscript method (U-INDEX, ADR-0060: `[idx] { ... }`) is
         // an ordinary dispatchable instance method, just with no name token
         // — closest existing completion shape is `MemberKind::Method`.

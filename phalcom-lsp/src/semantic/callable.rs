@@ -2,9 +2,35 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use phalcom_ast::ast::RestMode;
+
 use super::facts::{InferredValue, ParameterFacts};
 use super::ids::CallableId;
 use super::query::SemanticGeneration;
+
+/// Signature of a callable with resolved parameter and return values.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallableSignature {
+    /// Callable identity.
+    pub callable: CallableId,
+    /// Resolved parameter signatures.
+    pub parameters: Vec<ParameterSignature>,
+    /// Inferred return value.
+    pub returns: InferredValue,
+}
+
+/// Signature of one parameter in a callable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParameterSignature {
+    /// Local parameter binding name.
+    pub name: String,
+    /// External call label, if any.
+    pub label: Option<String>,
+    /// Rest capture mode.
+    pub rest_mode: RestMode,
+    /// Inferred parameter value.
+    pub value: InferredValue,
+}
 
 /// Summary of a source callable's inferred inputs and output.
 #[derive(Clone, Debug, Eq, PartialEq)]

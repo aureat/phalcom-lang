@@ -7,7 +7,7 @@ use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
 use super::analyzer::{AnalysisContext, analyze_expr};
-use super::callable::CallableSummary;
+use super::callable::{CallableSignature, CallableSummary, ParameterSignature};
 use super::dispatch::{DispatchReceiver, DispatchResolver};
 use super::facts::InferredValue;
 use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, DocumentModuleMap, FieldId, ModuleId};
@@ -250,6 +250,55 @@ impl SemanticSnapshot {
         return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), id)
     }
 
+    /// Returns a callable's structured signature with resolved parameters and return value.
+    pub fn callable_signature(&self, id: &CallableId) -> Option<CallableSignature> {
+        let surface = self.member_surface(id)?;
+        let returns = self.return_for_callable(id).unwrap_or_else(InferredValue::unknown);
+        let summary = self.callable_summary(id);
+        let parameters = surface
+            .params
+            .iter()
+            .enumerate()
+            .map(|(idx, param)| {
+                let value = self
+                    .parameter_at(id, &param.name)
+                    .or_else(|| summary.and_then(|s| s.params.get(idx).cloned()))
+                    .unwrap_or_else(InferredValue::unknown);
+                ParameterSignature {
+                    name: param.name.clone(),
+                    label: param.label.clone(),
+                    rest_mode: param.rest_mode,
+                    value,
+                }
+            })
+            .collect();
+        Some(CallableSignature {
+            callable: id.clone(),
+            parameters,
+            returns,
+        })
+    }
+
+    /// Resolves an inferred field fact for a class and side.
+    pub fn field_value(&self, class: &ClassId, name: &str, side: DispatchSide) -> Option<InferredValue> {
+        let mut current = Some(class.clone());
+        let mut seen = BTreeSet::new();
+        while let Some(owner) = current {
+            if !seen.insert(owner.clone()) {
+                break;
+            }
+            if let Some(value) = self.field_facts.get(&FieldId {
+                owner: owner.clone(),
+                name: name.to_string(),
+                side,
+            }) {
+                return Some(value.clone());
+            }
+            current = self.classes.get(&owner).and_then(|surface| surface.superclass.clone());
+        }
+        None
+    }
+
     /// Returns the joined call-site fact observed for one callable parameter.
     pub fn parameter_at(&self, id: &CallableId, name: &str) -> Option<InferredValue> {
         self.parameter_facts.get(&(id.clone(), name.to_string())).cloned()
@@ -327,24 +376,7 @@ impl SemanticSnapshot {
         let mut environment = BTreeMap::new();
         let known_classes = |name: &str| resolve_named_class(self.classes.as_ref(), &self.graph, module, name);
         let callable_return = |id: &CallableId| return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), id);
-        let field_value = |class: &ClassId, name: &str, side: DispatchSide| {
-            let mut current = Some(class.clone());
-            let mut seen = BTreeSet::new();
-            while let Some(owner) = current {
-                if !seen.insert(owner.clone()) {
-                    break;
-                }
-                if let Some(value) = self.field_facts.get(&FieldId {
-                    owner: owner.clone(),
-                    name: name.to_string(),
-                    side,
-                }) {
-                    return Some(value.clone());
-                }
-                current = self.classes.get(&owner).and_then(|surface| surface.superclass.clone());
-            }
-            None
-        };
+        let field_value = |class: &ClassId, name: &str, side: DispatchSide| self.field_value(class, name, side);
         let current_class = self
             .files
             .get(module)
