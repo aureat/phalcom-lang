@@ -1264,37 +1264,23 @@ impl FlowAnalyzer<'_> {
                 self.collect_events(&m.candidates, state, current_class, side);
             }
             Expr::ComparisonChain(chain) => {
-                let operands = chain.operands.iter().map(|operand| self.context_value(operand, state, current_class, side)).collect::<Vec<_>>();
+                let operands = chain
+                    .operands
+                    .iter()
+                    .map(|operand| self.context_value(operand, state, current_class, side))
+                    .collect::<Vec<_>>();
                 for (index, relation) in chain.operators.iter().enumerate() {
                     let left = &operands[index];
                     let right = &operands[index + 1];
                     let (object, receiver, selector, argument, label) = match relation {
-                        RelationOp::Matches => (
-                            &chain.operands[index + 1],
-                            right,
-                            "matches(_)".to_string(),
-                            left.clone(),
-                            None,
-                        ),
-                        RelationOp::Understands => (
-                            &chain.operands[index],
-                            left,
-                            "understands(_)".to_string(),
-                            right.clone(),
-                            None,
-                        ),
+                        RelationOp::Matches => (&chain.operands[index + 1], right, "matches(_)".to_string(), left.clone(), None),
+                        RelationOp::Understands => (&chain.operands[index], left, "understands(_)".to_string(), right.clone(), None),
                         RelationOp::Binary(BinaryOp::Same) => continue,
-                        RelationOp::Binary(BinaryOp::Compare) => (
-                            &chain.operands[index],
-                            left,
-                            "compare(_)".to_string(),
-                            right.clone(),
-                            None,
-                        ),
+                        RelationOp::Binary(BinaryOp::Compare) => (&chain.operands[index], left, "compare(_)".to_string(), right.clone(), None),
                         RelationOp::Binary(op) => (
                             &chain.operands[index],
                             left,
-                            format!("{}(_)" , binary_selector_name(op).unwrap_or("<unknown>")),
+                            format!("{}(_)", binary_selector_name(op).unwrap_or("<unknown>")),
                             right.clone(),
                             None,
                         ),
@@ -1320,7 +1306,7 @@ impl FlowAnalyzer<'_> {
                         self.emit_send(
                             &chain.operands[index + 1],
                             right,
-                            "compare(_)" ,
+                            "compare(_)",
                             vec![AnalyzedArgument {
                                 label: None,
                                 value: left.clone(),

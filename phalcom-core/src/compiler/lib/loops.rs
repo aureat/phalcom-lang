@@ -114,10 +114,7 @@ impl<'vm> Compiler<'vm> {
     ///
     /// Propagates any error compiling the iterable expression or the body.
     pub(super) fn compile_for(&mut self, for_stmt: ForStatement) -> Result<(), CompilerError> {
-        if for_stmt.lanes.len() != 1
-            || for_stmt.lanes[0].index.is_some()
-            || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. })
-        {
+        if for_stmt.lanes.len() != 1 || for_stmt.lanes[0].index.is_some() || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. }) {
             return self.compile_for_lanes(for_stmt);
         }
         let range = for_stmt.range;
@@ -145,7 +142,9 @@ impl<'vm> Compiler<'vm> {
         // 3. Declare the loop variable once (rebound each step); placeholder.
         self.emit(Bytecode::Nil, range);
         let Pattern::Name { name, .. } = &lane.pattern else {
-            return Err(CompilerError::Message("structured for patterns require generalized loop binding lowering".into()));
+            return Err(CompilerError::Message(
+                "structured for patterns require generalized loop binding lowering".into(),
+            ));
         };
         let binding_slot = self.declare_loop_local(name, false)?;
 

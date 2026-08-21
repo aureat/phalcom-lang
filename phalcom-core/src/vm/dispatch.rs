@@ -1731,9 +1731,7 @@ impl VM {
                         .stack
                         .get(self.stack.len().checked_sub(2).ok_or(RuntimeError::Internal("missing bilateral lhs".into()))?)
                         .ok_or(RuntimeError::Internal("missing bilateral lhs".into()))?;
-                    let reflected = callable.chunk.constants[selector_idx as usize]
-                        .as_symbol()
-                        .map_err(RuntimeError::Internal)?;
+                    let reflected = callable.chunk.constants[selector_idx as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     let lhs_class = lhs.class(self);
                     let rhs_class = rhs.class(self);
                     let prefer = is_strict_subclass(&self.heap, rhs_class, lhs_class)
@@ -1747,11 +1745,13 @@ impl VM {
                     missing_offset,
                 } => {
                     let arity = arity as usize;
-                    let receiver_idx = self.stack.len().checked_sub(arity + 1).ok_or(RuntimeError::Internal("bilateral stack underflow".into()))?;
+                    let receiver_idx = self
+                        .stack
+                        .len()
+                        .checked_sub(arity + 1)
+                        .ok_or(RuntimeError::Internal("bilateral stack underflow".into()))?;
                     let receiver = self.stack[receiver_idx];
-                    let selector = callable.chunk.constants[selector as usize]
-                        .as_symbol()
-                        .map_err(RuntimeError::Internal)?;
+                    let selector = callable.chunk.constants[selector as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     if let Some(method) = receiver.lookup_method(self, selector) {
                         self.call_method(&receiver, method, arity, callable.chunk.span_at(ip))?;
                     } else {
@@ -1789,11 +1789,7 @@ impl VM {
                     let lhs = self.pop()?;
                     self.stack.push(Value::bool(lhs.same_as(&rhs)));
                 }
-                Bytecode::RaiseUnsupported {
-                    operator,
-                    direct,
-                    reflected,
-                } => {
+                Bytecode::RaiseUnsupported { operator, direct, reflected } => {
                     let rhs = self.pop()?;
                     let lhs = self.pop()?;
                     let symbol_text = |index: u16| -> Result<String, RuntimeError> {
@@ -1802,15 +1798,13 @@ impl VM {
                             .map(|symbol| self.resolve_symbol(symbol).to_owned())
                             .map_err(RuntimeError::Internal)
                     };
-                    return Err(RuntimeError::UnsupportedOperation(Box::new(
-                        crate::error::UnsupportedOperationContext {
-                            operator: symbol_text(operator)?,
-                            lhs: self.heap.class(lhs.class(self)).name.clone(),
-                            rhs: self.heap.class(rhs.class(self)).name.clone(),
-                            direct: symbol_text(direct)?,
-                            reflected: symbol_text(reflected)?,
-                        },
-                    ))
+                    return Err(RuntimeError::UnsupportedOperation(Box::new(crate::error::UnsupportedOperationContext {
+                        operator: symbol_text(operator)?,
+                        lhs: self.heap.class(lhs.class(self)).name.clone(),
+                        rhs: self.heap.class(rhs.class(self)).name.clone(),
+                        direct: symbol_text(direct)?,
+                        reflected: symbol_text(reflected)?,
+                    }))
                     .into());
                 }
                 Bytecode::InvokeCompilerInternal(arity, selector_idx) => {

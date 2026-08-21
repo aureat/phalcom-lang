@@ -2943,8 +2943,7 @@ impl<'source> Parser<'source> {
             | Token::Tilde
             | Token::DotDotDot => true,
             Token::LBrace => {
-                (matches!(self.peek_next(), Token::Identifier(_))
-                    && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
+                (matches!(self.peek_next(), Token::Identifier(_)) && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
                     || self.starts_computed_map_literal()
                     || matches!(self.peek_next(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power)
             }
@@ -3144,11 +3143,7 @@ impl<'source> Parser<'source> {
             } else if min_prec <= 4 {
                 let Some(op) = contextual_relation_op(self.peek()) else {
                     if let Some(operands) = chain_operands.take() {
-                        left = finish_chain(
-                            operands,
-                            std::mem::take(&mut chain_operators),
-                            (start..self.prev_end).into(),
-                        );
+                        left = finish_chain(operands, std::mem::take(&mut chain_operators), (start..self.prev_end).into());
                     }
                     break;
                 };
@@ -3167,9 +3162,7 @@ impl<'source> Parser<'source> {
             if let RelationOp::Binary(binary) = op.clone()
                 && is_chain_relation(&binary)
             {
-                if matches!(&left, Expr::Binary(expr) if matches!(&expr.op, BinaryOp::Compare))
-                    && !self.was_parenthesized(&left)
-                {
+                if matches!(&left, Expr::Binary(expr) if matches!(&expr.op, BinaryOp::Compare)) && !self.was_parenthesized(&left) {
                     return Err(self.error_here(strs(&["parenthesize `<=>` before chaining another relation"])));
                 }
                 if let Some(operands) = &mut chain_operands {
@@ -3187,11 +3180,7 @@ impl<'source> Parser<'source> {
                 chain_operators.push((op, op_range));
             } else {
                 if let Some(operands) = chain_operands.take() {
-                    left = finish_chain(
-                        operands,
-                        std::mem::take(&mut chain_operators),
-                        range,
-                    );
+                    left = finish_chain(operands, std::mem::take(&mut chain_operators), range);
                 }
                 let RelationOp::Binary(binary) = op else {
                     unreachable!("non-chain contextual relation handled above")
@@ -5287,17 +5276,26 @@ mod tests {
 
     #[test]
     fn new_operators_and_expression_ellipsis_parse() {
-        let Statement::Expr { expr: Expr::Binary(binary), .. } = only_statement("1 === 1") else {
+        let Statement::Expr {
+            expr: Expr::Binary(binary), ..
+        } = only_statement("1 === 1")
+        else {
             panic!("expected exact-sameness binary expression");
         };
         assert!(matches!(binary.op, BinaryOp::Same));
 
-        let Statement::Expr { expr: Expr::Binary(binary), .. } = only_statement("a <=> b") else {
+        let Statement::Expr {
+            expr: Expr::Binary(binary), ..
+        } = only_statement("a <=> b")
+        else {
             panic!("expected spaceship binary expression");
         };
         assert!(matches!(binary.op, BinaryOp::Compare));
 
-        let Statement::Expr { expr: Expr::Ellipsis { .. }, .. } = only_statement("...") else {
+        let Statement::Expr {
+            expr: Expr::Ellipsis { .. }, ..
+        } = only_statement("...")
+        else {
             panic!("expected expression ellipsis");
         };
     }
@@ -5323,7 +5321,11 @@ mod tests {
 
     #[test]
     fn contextual_relations_form_explicit_comparison_chains() {
-        let Statement::Expr { expr: Expr::ComparisonChain(chain), .. } = only_statement("a < b <= c matches pattern") else {
+        let Statement::Expr {
+            expr: Expr::ComparisonChain(chain),
+            ..
+        } = only_statement("a < b <= c matches pattern")
+        else {
             panic!("expected comparison chain");
         };
         assert_eq!(chain.operands.len(), 4);
@@ -5339,7 +5341,11 @@ mod tests {
         };
         assert!(matches!(if_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));
 
-        let Statement::Expr { expr: Expr::WhileLet(while_let), .. } = only_statement("while let Some(value) = next() { value }") else {
+        let Statement::Expr {
+            expr: Expr::WhileLet(while_let),
+            ..
+        } = only_statement("while let Some(value) = next() { value }")
+        else {
             panic!("expected while let expression");
         };
         assert!(matches!(while_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));

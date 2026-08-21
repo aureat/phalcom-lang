@@ -70,9 +70,7 @@ fn promote_pair(a: &Value, b: &Value, vm: &VM) -> PhResult<PromotedPair> {
 }
 
 fn cooperative_pair(a: &Value, b: &Value, vm: &VM) -> PhResult<Option<PromotedPair>> {
-    if (extract_int(a, vm).is_none() && a.as_float().is_none())
-        || (extract_int(b, vm).is_none() && b.as_float().is_none())
-    {
+    if (extract_int(a, vm).is_none() && a.as_float().is_none()) || (extract_int(b, vm).is_none() && b.as_float().is_none()) {
         return Ok(None);
     }
     promote_pair(a, b, vm).map(Some)
@@ -565,11 +563,14 @@ pub fn number_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
             None => return ordering_value(vm, "unordered"),
         },
     };
-    ordering_value(vm, match selector {
-        std::cmp::Ordering::Less => "less",
-        std::cmp::Ordering::Equal => "equal",
-        std::cmp::Ordering::Greater => "greater",
-    })
+    ordering_value(
+        vm,
+        match selector {
+            std::cmp::Ordering::Less => "less",
+            std::cmp::Ordering::Equal => "equal",
+            std::cmp::Ordering::Greater => "greater",
+        },
+    )
 }
 
 /// Signature: `Number::-` — arithmetic negation (unary `-x`).

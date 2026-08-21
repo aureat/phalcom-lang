@@ -195,7 +195,11 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
                     .into_iter()
                     .filter(|value| !matches!(value.shape, ValueShape::Unknown))
                     .collect::<Vec<_>>();
-                return if known.is_empty() { flow(ValueShape::Unknown, range) } else { super::flow::join_values(known) };
+                return if known.is_empty() {
+                    flow(ValueShape::Unknown, range)
+                } else {
+                    super::flow::join_values(known)
+                };
             }
             direct
         }

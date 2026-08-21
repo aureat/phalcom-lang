@@ -334,9 +334,7 @@ impl<'vm> Compiler<'vm> {
                     && let MemberKey::Selector(_, selector) = &key
                     && matches!(selector.as_str(), "===(_)" | "===")
                 {
-                    return Err(CompilerError::Message(format!(
-                        "reserved semantic selector `{selector}` cannot be declared",
-                    )));
+                    return Err(CompilerError::Message(format!("reserved semantic selector `{selector}` cannot be declared",)));
                 }
                 if let Some((_, first_range)) = seen.get(&key) {
                     let first_range = *first_range;

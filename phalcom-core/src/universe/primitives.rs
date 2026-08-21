@@ -24,8 +24,8 @@ use crate::primitive::method_family::{method_family_bind, method_family_method_f
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_call, some_new};
 use crate::primitive::number::{
-    number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negate,
-    number_pow, number_sub, number_to_string, number_unary_plus,
+    number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod,
+    number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
@@ -41,8 +41,8 @@ use crate::primitive::primitive_static_internal;
 use crate::primitive::range::{range_raw_lower, range_raw_upper, range_raw_upper_inclusive};
 use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
 use crate::primitive::reflection::*;
-use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::selector_pattern::selector_pattern_matches;
+use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_raw_write, system_schedule};

@@ -515,7 +515,9 @@ pub enum Bytecode {
 
     /// Validates a successful `compare(_)` result as an `Ordering`, optionally
     /// applying its `reverse` operation for a reflected candidate.
-    ValidateOrdering { reverse: bool },
+    ValidateOrdering {
+        reverse: bool,
+    },
 
     /// Intrinsic exact representation/identity sameness for surface `===`.
     Same,

@@ -1373,14 +1373,14 @@ impl<'vm> Compiler<'vm> {
                 let idx = self.add_constant(Value::obj(closure));
                 self.emit(Bytecode::Closure(idx), block_expr.range);
             } // Expr::Call(call_expr) => {
-              //     // TODO: Implement function call compilation
-              //     self.compile_expr(call_expr.callee)?;
-              //     for arg in call_expr.args {
-              //         self.compile_expr(arg)?;
-              //     }
-              //     // For now, push Nil as a placeholder for the return value
-              //     self.emit(Bytecode::Nil);
-              // }
+            //     // TODO: Implement function call compilation
+            //     self.compile_expr(call_expr.callee)?;
+            //     for arg in call_expr.args {
+            //         self.compile_expr(arg)?;
+            //     }
+            //     // For now, push Nil as a placeholder for the return value
+            //     self.emit(Bytecode::Nil);
+            // }
             Expr::ComparisonChain(chain) => {
                 if chain.operands.len() < 2 || chain.operators.len() + 1 != chain.operands.len() {
                     return Err(CompilerError::Message("invalid comparison chain".into()));

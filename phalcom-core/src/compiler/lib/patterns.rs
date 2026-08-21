@@ -479,12 +479,7 @@ impl<'vm> Compiler<'vm> {
                 self.emit_required_class_check(value_slot, "Map", *range);
                 for entry in entries {
                     let key_val = self.pattern_key_value(&entry.key);
-                    let child = self.emit_required_lookup_value(
-                        value_slot,
-                        key_val,
-                        entry.range,
-                        "destructuring map missing key".into(),
-                    )?;
+                    let child = self.emit_required_lookup_value(value_slot, key_val, entry.range, "destructuring map missing key".into())?;
                     self.compile_pattern_bind_from_slot(&entry.pattern, child, mutable, as_global)?;
                 }
                 Ok(())

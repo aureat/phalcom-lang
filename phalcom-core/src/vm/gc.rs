@@ -127,7 +127,7 @@ impl VM {
         out.extend(classes.values().copied());
         out.extend(sealed_classes.values().copied());
         out.extend(checking.iter().copied());
-            reflection_cache.trace(&mut |id| out.push(id));
+        reflection_cache.trace(&mut |id| out.push(id));
         for value in [semantic_roots.unsupported, semantic_roots.ellipsis] {
             if let Some(id) = value.gc_obj_ref() {
                 out.push(id);

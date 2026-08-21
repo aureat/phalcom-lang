@@ -893,7 +893,9 @@ pub enum Expr {
     /// A refutable pattern loop.
     WhileLet(Box<WhileLetExpr>),
     /// The ordinary expression value represented by `...`.
-    Ellipsis { range: SourceRange },
+    Ellipsis {
+        range: SourceRange,
+    },
     /// A call written without an explicit receiver, e.g. `foo(value)`.
     ///
     /// This remains distinct from a call to a value's `call` protocol until
