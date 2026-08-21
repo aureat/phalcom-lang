@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "spec/primitives/newer syntax.md",
+                "file": "spec/primitives/Untitled.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "newer syntax"
+              "title": "Untitled"
             }
           }
         ]
@@ -187,6 +187,8 @@
   },
   "active": "e351412831514433",
   "lastOpenFiles": [
+    "spec/primitives/newer syntax.md",
+    "spec/primitives/Untitled.md",
     "spec/selectors.md",
     "spec/phalcom-selectors.md",
     "spec/symbols.md",
@@ -194,7 +196,6 @@
     "superpowers/specs/2026-08-20-variant-global-recognition-design.md",
     "spec/next/semantics/in-membership-operators-implementation-spec.md",
     "spec/primitives/float.md",
-    "spec/primitives/newer syntax.md",
     "spec/primitives",
     "work/pending/collections/F.2-pre-F3-amended-completion-gate-final.md",
     "work/analyses/hashbrown-in-phalcom-next-hour.md",
@@ -220,7 +221,6 @@
     "work/completed/numbers/05-numeric-errors-and-tracebacks.md",
     "work/completed/numbers/04-float-protocol-and-text.md",
     "work/completed/numbers/03-int-and-largeint.md",
-    "work/completed/numbers/02-literals-and-power-syntax.md",
     "work/completed/numbers",
     "work/analyses/files"
   ]
