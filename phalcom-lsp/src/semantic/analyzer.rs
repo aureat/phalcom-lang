@@ -128,6 +128,9 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
                 if let Some(value) = operand.known_boolean {
                     return InferredValue::exact_boolean(!value, range);
                 }
+                if operand.shape == ValueShape::Instance(core_class("Bool")) {
+                    return flow(ValueShape::Instance(core_class("Bool")), range);
+                }
             }
             let selector = unary_selector_name(&unary.op).to_string();
             analyze_send(&unary.expr, &operand, &selector, false, range, context)
@@ -290,22 +293,32 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             ),
             range,
         ),
-        Expr::RecordLiteral(record) => exact(
-            ValueShape::Record(
-                record
-                    .entries
-                    .iter()
-                    .filter_map(|entry| match entry {
-                        RecordLiteralEntry::Field(field) => Some((product_label(&field.label), analyze_expr(&field.value, context).shape)),
-                        RecordLiteralEntry::Expansion { expr, .. } => {
-                            let _ = analyze_expr(expr, context);
-                            None
+        Expr::RecordLiteral(record) => {
+            let mut fields = Vec::new();
+            let mut dynamic = false;
+            for entry in &record.entries {
+                match entry {
+                    RecordLiteralEntry::Field(field) => {
+                        insert_record_field(&mut fields, product_label(&field.label), analyze_expr(&field.value, context).shape);
+                    }
+                    RecordLiteralEntry::Expansion { expr, .. } => {
+                        let shape = analyze_expr(expr, context).shape;
+                        if let ValueShape::Record(expanded) = shape {
+                            for (label, value) in expanded {
+                                insert_record_field(&mut fields, label, value);
+                            }
+                        } else {
+                            dynamic = true;
                         }
-                    })
-                    .collect(),
-            ),
-            range,
-        ),
+                    }
+                }
+            }
+            if dynamic {
+                exact(ValueShape::Unknown, range)
+            } else {
+                exact(ValueShape::Record(fields), range)
+            }
+        }
         Expr::MapLiteral(map) => {
             let mut keys = Vec::new();
             let mut values = Vec::new();
@@ -331,12 +344,24 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             })))),
             range,
         ),
-        Expr::ListLiteral(list) => exact(
-            ValueShape::List(Box::new(ValueShape::bounded_union(list.elements.iter().map(|element| match element {
-                ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => analyze_expr(expr, context).shape,
-            })))),
-            range,
-        ),
+        Expr::ListLiteral(list) => {
+            let mut elements = Vec::new();
+            let mut has_expansion = false;
+            for element in &list.elements {
+                match element {
+                    ListLiteralElement::Element { expr, .. } => elements.push(analyze_expr(expr, context).shape),
+                    ListLiteralElement::Expansion { expr, .. } => {
+                        has_expansion = true;
+                        elements.push(analyze_expr(expr, context).shape.element_shape());
+                    }
+                }
+            }
+            if has_expansion {
+                exact(ValueShape::List(Box::new(ValueShape::bounded_union(elements))), range)
+            } else {
+                exact(ValueShape::ExactList(elements), range)
+            }
+        }
         Expr::Membership(m) => {
             analyze_expr(&m.left, context);
             analyze_expr(&m.right, context);
@@ -581,6 +606,26 @@ fn analyze_trusted_type_test(
     range: phalcom_common::range::SourceRange,
     context: &AnalysisContext<'_>,
 ) -> Option<InferredValue> {
+    if matches!(call.method.as_str(), "is" | "is!") && call.args.len() == 1 {
+        let PackItem::Positional { expr, .. } = &call.args[0] else {
+            return Some(flow(ValueShape::Instance(core_class("Bool")), range));
+        };
+        let target = match analyze_expr(expr, context).shape {
+            ValueShape::ClassObject(class) => class,
+            _ => return Some(flow(ValueShape::Instance(core_class("Bool")), range)),
+        };
+        let result = match &receiver.shape {
+            ValueShape::Instance(instance) => {
+                if call.method == "is!" {
+                    instance == &target
+                } else {
+                    (context.is_same_or_subclass)(instance, &target)
+                }
+            }
+            _ => return Some(flow(ValueShape::Instance(core_class("Bool")), range)),
+        };
+        return Some(InferredValue::exact_boolean(result, range));
+    }
     if !call.method.starts_with("is") || call.method.len() <= 2 || !call.args.is_empty() {
         return None;
     }
@@ -594,6 +639,14 @@ fn analyze_trusted_type_test(
         _ => return None,
     };
     Some(InferredValue::exact_boolean(result, range))
+}
+
+fn insert_record_field(fields: &mut Vec<(String, ValueShape)>, label: String, value: ValueShape) {
+    if let Some((_, existing)) = fields.iter_mut().find(|(existing, _)| existing == &label) {
+        *existing = value;
+    } else {
+        fields.push((label, value));
+    }
 }
 
 fn receiver_targets(expr: &Expr, shape: &ValueShape, context: &AnalysisContext<'_>) -> Vec<DispatchReceiver> {
@@ -1004,6 +1057,82 @@ mod tests {
             analyze_source_expression(source, "super.value", Some(("Child", DispatchSide::Instance)), BTreeMap::new(), returns).shape,
             ValueShape::Instance(core_class("Int"))
         );
+    }
+
+    #[test]
+    fn collection_spreads_and_record_expansions_transfer_shapes() {
+        let int = ValueShape::Instance(core_class("Int"));
+        let string = ValueShape::Instance(core_class("String"));
+        let values = ValueShape::List(Box::new(int.clone()));
+        let list = analyze_source_expression(
+            "class Holder {}\n",
+            "[0, *values, 4]",
+            None,
+            BTreeMap::from([("values".to_string(), InferredValue::flow(values, Default::default()))]),
+            BTreeMap::new(),
+        );
+        assert_eq!(list.shape, ValueShape::List(Box::new(int.clone())));
+
+        let record = analyze_source_expression(
+            "class Holder {}\n",
+            "#{**record, selected: false}",
+            None,
+            BTreeMap::from([(
+                "record".to_string(),
+                InferredValue::flow(
+                    ValueShape::Record(vec![("selected".to_string(), int), ("kept".to_string(), string.clone())]),
+                    Default::default(),
+                ),
+            )]),
+            BTreeMap::new(),
+        );
+        assert_eq!(
+            record.shape,
+            ValueShape::Record(vec![
+                ("selected".to_string(), ValueShape::Instance(core_class("Bool"))),
+                ("kept".to_string(), string)
+            ])
+        );
+    }
+
+    #[test]
+    fn type_tests_use_argument_class_and_preserve_boolean_shape() {
+        let source = "class Number {}\n";
+        let answer = InferredValue::flow(
+            ValueShape::Instance(ClassId::new(ModuleId::new("file:///analyzer_cases.ph"), "Number")),
+            Default::default(),
+        );
+        let exact = analyze_source_expression(
+            source,
+            "answer is Number",
+            None,
+            BTreeMap::from([(String::from("answer"), answer.clone())]),
+            BTreeMap::new(),
+        );
+        assert_eq!(exact.shape, ValueShape::Instance(core_class("Bool")));
+        assert_eq!(exact.known_boolean, Some(true));
+
+        for expression in ["answer is! Number", "answer is not Number", "answer is! not Number"] {
+            let result = analyze_source_expression(
+                source,
+                expression,
+                None,
+                BTreeMap::from([(String::from("answer"), answer.clone())]),
+                BTreeMap::new(),
+            );
+            assert_eq!(result.shape, ValueShape::Instance(core_class("Bool")), "{expression}");
+            assert_eq!(result.known_boolean, Some(!expression.contains("not")), "{expression}");
+        }
+
+        let unknown = analyze_source_expression(
+            source,
+            "answer is Number",
+            None,
+            BTreeMap::from([(String::from("answer"), InferredValue::flow(ValueShape::Unknown, Default::default()))]),
+            BTreeMap::new(),
+        );
+        assert_eq!(unknown.shape, ValueShape::Instance(core_class("Bool")));
+        assert_eq!(unknown.known_boolean, None);
     }
 
     #[test]

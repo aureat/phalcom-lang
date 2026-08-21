@@ -759,4 +759,81 @@ class Service {
         shape = shape.join(&ValueShape::Instance(ClassId::new(module, "C8")));
         assert_eq!(shape, ValueShape::Unknown);
     }
+
+    #[test]
+    fn exact_list_shapes_drive_nested_destructuring_and_rest() {
+        let text = "let [first, second, *tail] = [1, 2, 3]\nlet [(nx, ny), last] = [(1, 2), 3]\n";
+        let module = ModuleId::new("file:///destructure.ph");
+        let parsed = parse(text, 0).program;
+        let surface = super::super::surface::build_module_surface(module.clone(), &parsed);
+        let source = FileSourceSnapshot {
+            module: module.clone(),
+            text: Arc::from(text),
+            program: Arc::new(parsed),
+            scopes: super::super::scope::build_scope_graph(module.clone(), &parse(text, 0).program),
+            callables: surface.callable_index(),
+            surface,
+        };
+        let facts = analyze_source(
+            &source,
+            &BTreeMap::new(),
+            &ModuleGraph::default(),
+            &BTreeMap::new(),
+            &ParameterFacts::default(),
+            SemanticGeneration(0),
+            &PerfCounters::new(),
+        )
+        .local_facts;
+        for name in ["first", "second", "nx", "ny", "last"] {
+            let binding = source.scopes.bindings.values().find(|binding| binding.name == name).expect("binding").id;
+            assert_eq!(
+                facts.value_before(binding, text.len()).unwrap().shape,
+                ValueShape::Instance(core_class("Int")),
+                "{name}"
+            );
+        }
+        let tail_binding = source.scopes.bindings.values().find(|binding| binding.name == "tail").expect("tail binding").id;
+        assert_eq!(
+            facts.value_before(tail_binding, text.len()).unwrap().shape,
+            ValueShape::List(Box::new(ValueShape::Instance(core_class("Int"))))
+        );
+    }
+
+    #[test]
+    fn control_expression_values_transfer_through_let_and_return() {
+        let text = "let cond = true\nlet x = if (cond) { true } else { false }\nx = if (cond) { false } else { true }\nclass Factory { choose(_ cond) { return if (cond) { 1 } else { 2 } } }\n";
+        let module = ModuleId::new("file:///control-expressions.ph");
+        let parsed = parse(text, 0).program;
+        let surface = super::super::surface::build_module_surface(module.clone(), &parsed);
+        let source = FileSourceSnapshot {
+            module: module.clone(),
+            text: Arc::from(text),
+            program: Arc::new(parsed),
+            scopes: super::super::scope::build_scope_graph(module.clone(), &parse(text, 0).program),
+            callables: surface.callable_index(),
+            surface,
+        };
+        let analysis = analyze_source(
+            &source,
+            &source.surface.classes,
+            &ModuleGraph::default(),
+            &BTreeMap::new(),
+            &ParameterFacts::default(),
+            SemanticGeneration(0),
+            &PerfCounters::new(),
+        );
+        let x_binding = source.scopes.bindings.values().find(|binding| binding.name == "x").expect("x binding").id;
+        assert_eq!(
+            analysis.local_facts.value_before(x_binding, text.len()).unwrap().shape,
+            ValueShape::Instance(core_class("Bool"))
+        );
+        let factory = ClassId::new(module, "Factory");
+        let summary = &analysis
+            .summaries
+            .iter()
+            .find(|(summary, _)| summary.callable.owner == factory && summary.callable.selector == "choose(_)")
+            .expect("choose summary")
+            .0;
+        assert_eq!(summary.returns.shape, ValueShape::Instance(core_class("Int")));
+    }
 }

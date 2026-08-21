@@ -57,6 +57,7 @@ pub fn render_value_shape(shape: &ValueShape) -> String {
         ValueShape::ClassObject(class) => format!("{} class", class.name),
         ValueShape::Module(module) => module.to_string(),
         ValueShape::Tuple(elements) => format!("({})", elements.iter().map(render_value_shape).collect::<Vec<_>>().join(", ")),
+        ValueShape::ExactList(elements) => format!("List<{}>", render_value_shape(&ValueShape::bounded_union(elements.iter().cloned()))),
         ValueShape::Record(fields) => format!(
             "#{{{}}}",
             fields

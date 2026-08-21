@@ -462,6 +462,35 @@ impl FlowAnalyzer<'_> {
         value
     }
 
+    /// Evaluates an expression whose control-flow sends may update the caller state.
+    ///
+    /// Ordinary expression analysis remains owned by `analyze_expr`; this seam only
+    /// supplies structured flow for control expressions and assignment RHS values.
+    fn eval_expr_flow(
+        &mut self,
+        expr: &Expr,
+        state: &mut FlowState,
+        current_class: Option<&ClassId>,
+        side: Option<DispatchSide>,
+        target: Option<&CallableId>,
+    ) -> Option<StatementFlow> {
+        if let Expr::Assignment(assignment) = expr {
+            let mut flow = self.eval_expr_flow(&assignment.value, state, current_class, side, target)?;
+            let value = flow
+                .tail_value
+                .clone()
+                .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, assignment.value.range()));
+            if let Some(mut normal) = flow.normal.take() {
+                self.apply_assignment_value(expr, &value, &mut normal, current_class, side, target);
+                *state = normal.clone();
+                flow.normal = Some(normal);
+            }
+            flow.tail_value = Some(value);
+            return Some(flow);
+        }
+        self.analyze_control_expression(expr, state, current_class, side, target)
+    }
+
     fn analyze_statements(
         &mut self,
         statements: &[Statement],
@@ -517,11 +546,28 @@ impl FlowAnalyzer<'_> {
     ) -> StatementFlow {
         match statement {
             Statement::Let(binding) => {
-                let value = binding
-                    .value
-                    .as_ref()
-                    .map(|expr| self.eval(expr, state, current_class, side))
-                    .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, binding.range));
+                let Some(expr) = binding.value.as_ref() else {
+                    let value = InferredValue::flow(ValueShape::Unknown, binding.range);
+                    self.bind_pattern(&binding.pattern, &value, state);
+                    return StatementFlow {
+                        normal: Some(state.clone()),
+                        ..StatementFlow::default()
+                    };
+                };
+                if let Some(mut flow) = self.eval_expr_flow(expr, state, current_class, side, target) {
+                    let value = flow
+                        .tail_value
+                        .clone()
+                        .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, expr.range()));
+                    if let Some(mut normal) = flow.normal.take() {
+                        self.bind_pattern(&binding.pattern, &value, &mut normal);
+                        *state = normal.clone();
+                        flow.normal = Some(normal);
+                    }
+                    flow.tail_value = None;
+                    return flow;
+                }
+                let value = self.eval(expr, state, current_class, side);
                 self.bind_pattern(&binding.pattern, &value, state);
                 StatementFlow {
                     normal: Some(state.clone()),
@@ -529,7 +575,19 @@ impl FlowAnalyzer<'_> {
                 }
             }
             Statement::Expr { expr, .. } => {
-                if let Some(flow) = self.analyze_control_expression(expr, state, current_class, side, target) {
+                if let Some(mut flow) = self.eval_expr_flow(expr, state, current_class, side, target) {
+                    let value = flow
+                        .tail_value
+                        .clone()
+                        .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, expr.range()));
+                    if let Some(mut normal) = flow.normal.take() {
+                        if !matches!(expr, Expr::Assignment(_)) {
+                            self.apply_assignment_value(expr, &value, &mut normal, current_class, side, target);
+                        }
+                        *state = normal.clone();
+                        flow.normal = Some(normal);
+                    }
+                    flow.tail_value = Some(value);
                     return flow;
                 }
                 let value = self.eval(expr, state, current_class, side);
@@ -541,6 +599,28 @@ impl FlowAnalyzer<'_> {
                 }
             }
             Statement::Return(return_statement) => {
+                if let Some(mut flow) = return_statement
+                    .value
+                    .as_ref()
+                    .and_then(|expr| self.eval_expr_flow(expr, state, current_class, side, target))
+                {
+                    let value = flow
+                        .tail_value
+                        .clone()
+                        .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, return_statement.range));
+                    if flow.normal.is_some() {
+                        if let Some(target) = target.cloned() {
+                            flow.returns.push(ReturnEvidence {
+                                target,
+                                value,
+                                range: return_statement.range,
+                            });
+                        }
+                    }
+                    flow.normal = None;
+                    flow.tail_value = None;
+                    return flow;
+                }
                 let value = return_statement
                     .value
                     .as_ref()
@@ -641,7 +721,7 @@ impl FlowAnalyzer<'_> {
                             target,
                         ))
                     }
-                    "ifTrue(_:ifFalse:)" => {
+                    "ifTrue(_,ifFalse)" => {
                         let then_block = positional_block(&call.args, 0)?;
                         let else_block = labeled_block(&call.args, "ifFalse")?;
                         Some(self.analyze_if(
@@ -975,13 +1055,20 @@ impl FlowAnalyzer<'_> {
                 for (index, element) in elements.iter().enumerate() {
                     let shape = match &value.shape {
                         ValueShape::Tuple(values) => values.get(index).cloned().unwrap_or(ValueShape::Unknown),
+                        ValueShape::ExactList(values) => values.get(index).cloned().unwrap_or(ValueShape::Unknown),
                         ValueShape::List(element) => (**element).clone(),
                         _ => ValueShape::Unknown,
                     };
                     self.bind_pattern(element, &InferredValue::flow(shape, element.range()), state);
                 }
                 if let Pattern::List { rest: Some(rest), .. } = pattern {
-                    self.bind_pattern(rest, &InferredValue::flow(ValueShape::List(Box::new(ValueShape::Unknown)), rest.range()), state);
+                    let rest_shape = match &value.shape {
+                        ValueShape::ExactList(values) => ValueShape::List(Box::new(ValueShape::bounded_union(values.iter().skip(elements.len()).cloned()))),
+                        ValueShape::List(element) => ValueShape::List(element.clone()),
+                        ValueShape::Tuple(values) => ValueShape::List(Box::new(ValueShape::bounded_union(values.iter().skip(elements.len()).cloned()))),
+                        _ => ValueShape::List(Box::new(ValueShape::Unknown)),
+                    };
+                    self.bind_pattern(rest, &InferredValue::flow(rest_shape, rest.range()), state);
                 }
             }
         }
@@ -997,12 +1084,25 @@ impl FlowAnalyzer<'_> {
     ) {
         let Expr::Assignment(assignment) = expr else { return };
         let value = self.value(&assignment.value, state, current_class, side);
+        self.apply_assignment_value(expr, &value, state, current_class, side, target);
+    }
+
+    fn apply_assignment_value(
+        &mut self,
+        expr: &Expr,
+        value: &InferredValue,
+        state: &mut FlowState,
+        current_class: Option<&ClassId>,
+        side: Option<DispatchSide>,
+        target: Option<&CallableId>,
+    ) {
+        let Expr::Assignment(assignment) = expr else { return };
         match assignment.name.as_ref() {
             Expr::Var { value: name, range } => {
                 let binding = self.scopes.resolve(self.scopes.scope_at(range.start), name, range.start);
                 let super::scope::NameResolution::Binding(binding) = binding else { return };
                 if self.scopes.bindings.get(&binding).is_some_and(|info| info.mutable) {
-                    let fact = InferredValue::flow(value.shape, *range);
+                    let fact = InferredValue::flow(value.shape.clone(), *range);
                     state.bindings.insert(binding, fact.clone());
                     self.local_facts.record(binding, *range, fact);
                 }
@@ -1025,7 +1125,7 @@ impl FlowAnalyzer<'_> {
                         })
                     })
                     .unwrap_or(DispatchSide::Instance);
-                let fact = InferredValue::flow(value.shape, *range);
+                let fact = InferredValue::flow(value.shape.clone(), *range);
                 let field = FieldId {
                     owner: class.clone(),
                     name: name.clone(),

@@ -63,6 +63,8 @@ pub enum ValueShape {
     Module(ModuleId),
     /// A tuple with positional shape knowledge.
     Tuple(Vec<ValueShape>),
+    /// A literal list with exact positional shape knowledge.
+    ExactList(Vec<ValueShape>),
     /// A record with statically known labels where available.
     Record(Vec<(String, ValueShape)>),
     /// A list and its joined element shape.
@@ -122,6 +124,19 @@ impl ValueShape {
         match (self, other) {
             (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
             (Self::List(left), Self::List(right)) => Self::List(Box::new(left.join(right))),
+            (Self::ExactList(left), Self::ExactList(right)) if left.len() == right.len() => {
+                Self::ExactList(left.iter().zip(right).map(|(a, b)| a.join(b)).collect())
+            }
+            (Self::ExactList(left), Self::ExactList(right)) => Self::List(Box::new(ValueShape::bounded_union(left.iter().chain(right.iter()).cloned()))),
+            (Self::ExactList(elements), Self::List(element)) | (Self::List(element), Self::ExactList(elements)) => {
+                let exact_element = ValueShape::bounded_union(elements.iter().cloned());
+                let joined = if elements.is_empty() {
+                    (**element).clone()
+                } else {
+                    exact_element.join(element)
+                };
+                Self::List(Box::new(joined))
+            }
             (Self::Set(left), Self::Set(right)) => Self::Set(Box::new(left.join(right))),
             (Self::Range(left), Self::Range(right)) => Self::Range(Box::new(left.join(right))),
             (
@@ -216,6 +231,7 @@ impl ValueShape {
         match self {
             Self::List(element) | Self::Set(element) | Self::Range(element) => (**element).clone(),
             Self::Tuple(elements) => Self::bounded_union(elements.iter().cloned()),
+            Self::ExactList(elements) => Self::bounded_union(elements.iter().cloned()),
             _ => Self::Unknown,
         }
     }
@@ -815,5 +831,23 @@ mod tests {
         }));
         let joined_mf = mf_1.join(&mf_2);
         assert_eq!(joined_mf, ValueShape::Union(vec![mf_1, mf_2]));
+    }
+
+    #[test]
+    fn exact_list_join_preserves_positions_until_shape_must_widen() {
+        let int = ValueShape::Instance(ClassId::new(ModuleId::new("file:///core.ph"), "Int"));
+        let string = ValueShape::Instance(ClassId::new(ModuleId::new("file:///core.ph"), "String"));
+        assert_eq!(
+            ValueShape::ExactList(vec![int.clone(), string.clone()]).join(&ValueShape::ExactList(vec![int.clone(), int.clone()])),
+            ValueShape::ExactList(vec![int.clone(), ValueShape::Union(vec![string, int.clone()])])
+        );
+        assert_eq!(
+            ValueShape::ExactList(vec![int.clone()]).join(&ValueShape::ExactList(vec![int.clone(), int.clone()])),
+            ValueShape::List(Box::new(int.clone()))
+        );
+        assert_eq!(
+            ValueShape::ExactList(Vec::new()).join(&ValueShape::List(Box::new(int.clone()))),
+            ValueShape::List(Box::new(int))
+        );
     }
 }
