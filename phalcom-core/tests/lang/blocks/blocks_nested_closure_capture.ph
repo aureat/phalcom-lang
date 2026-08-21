@@ -6,7 +6,7 @@
 // inner closure keeps working correctly after the outer block's frame is
 // gone (chained open->closed upvalue promotion), and is reusable.
 const makeAdder = |base| {
-  |n| { n + base }
+  |n| n + base
 }
 const addTen = makeAdder.call(10)
 System.print(addTen.call(5))

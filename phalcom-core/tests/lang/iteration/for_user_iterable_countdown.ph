@@ -7,4 +7,4 @@ class Countdown is Iterable {
   }
   iteratorValue(_ cursor) { cursor }
 }
-for (x in Countdown.from(n: 3)) { System.print(x) }
+for x in Countdown.from(n: 3) { System.print(x) }

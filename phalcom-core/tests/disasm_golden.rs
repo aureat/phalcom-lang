@@ -60,18 +60,19 @@ fn bytecode_lines_contain_line_number() {
 
 // ── Invoke shows resolved selector name ───────────────────────────────────────
 
+// ── Invoke shows resolved selector name ───────────────────────────────────────
+
 #[test]
 fn invoke_shows_selector_name_not_raw_index() {
-    // `1 + 2` fuses to InvokeConst; the disassembler must print the selector
-    // symbol name (e.g. `+(_)`) rather than a raw constant index.
-    let out = disasm_stdout("1 + 2\n");
+    // `1.plus(2)` compiles to InvokeConst / Invoke; the disassembler must print the selector
+    // symbol name (e.g. `plus(_)`) rather than a raw constant index.
+    let out = disasm_stdout("1.plus(2)\n");
     // Look for any Invoke or InvokeConst / InvokeLocal line with a selector.
     // The format is: `Invoke(<selector>, <arity>)` or `InvokeConst(<idx>, <arity>, <selector>)`.
     let has_named = out.lines().any(|l| {
-        // Named Invoke: first char after `(` should eventually contain a non-digit alpha.
-        (l.contains("Invoke(") || l.contains("InvokeConst(") || l.contains("InvokeLocal(")) && !l.contains("[shadowed dead slot]") && l.contains("+") // the `+(_)` selector
+        (l.contains("Invoke(") || l.contains("InvokeConst(") || l.contains("InvokeLocal(")) && !l.contains("[shadowed dead slot]") && l.contains("plus")
     });
-    assert!(has_named, "expected an Invoke-family line with the '+' selector name; output:\n{out}");
+    assert!(has_named, "expected an Invoke-family line with the 'plus' selector name; output:\n{out}");
 }
 
 // ── Upvalue capture annotation ────────────────────────────────────────────────
@@ -101,8 +102,8 @@ fn closure_with_upvalue_shows_captures_annotation() {
 
 #[test]
 fn fused_invoke_shows_shadowed_slot() {
-    // `1 + 2` compiles to InvokeConst, which leaves a dead Invoke at ip+1.
-    let out = disasm_stdout("1 + 2\n");
+    // `1.plus(2)` compiles to InvokeConst, which leaves a dead Invoke at ip+1.
+    let out = disasm_stdout("1.plus(2)\n");
     // The dead slot must be labelled.
     assert!(
         out.contains("[shadowed dead slot]"),

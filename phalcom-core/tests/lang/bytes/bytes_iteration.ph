@@ -5,7 +5,7 @@
 // each), empty-buffer termination, fromList/toList inverses.
 
 let sum = 0
-for (x in Bytes.fromList([1, 2, 3])) { sum = sum + x }
+for x in Bytes.fromList([1, 2, 3]) { sum = sum + x }
 System.print(sum)
 Bytes.fromList([10, 20]).each |x| { System.print(x) }
 let empty_visits = 0

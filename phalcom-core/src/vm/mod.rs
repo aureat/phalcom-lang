@@ -128,6 +128,19 @@ pub struct RuntimeRoots {
     pub entry: Option<ObjRef>,
 }
 
+/// Late-bound VM-owned identities required by language semantics. These are
+/// populated only after the universe sources have materialized their canonical
+/// singleton/class values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticRoots {
+    /// Canonical `Unsupported.instance` value.
+    pub unsupported: Value,
+    /// Canonical `Ellipsis.instance` value.
+    pub ellipsis: Value,
+    /// Runtime class object for `Ordering`.
+    pub ordering_class: ClassId,
+}
+
 /// The bytecode virtual machine: owns the [`Heap`], the operand stack, and the
 /// call stack, and drives dispatch.
 ///
@@ -196,6 +209,8 @@ pub struct VM {
     pub module_registry: crate::modules::ModuleRegistry,
     /// Direct runtime roots for core and entry modules.
     pub runtime_roots: Option<RuntimeRoots>,
+    /// Canonical semantic values, initialized after universe bootstrap.
+    pub semantic_roots: SemanticRoots,
 
     /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
     pub classes: HashMap<ClassKey, ClassId>,

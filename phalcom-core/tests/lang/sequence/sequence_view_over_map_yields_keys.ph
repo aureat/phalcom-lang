@@ -6,7 +6,7 @@
 let map = {a: 1, b: 2, c: 3}
 let view = map.iter.map |x| { x }
 let result = []
-for (x in view) {
+for x in view {
   result.append(x)
 }
 System.print(result.size == 3)

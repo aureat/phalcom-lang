@@ -8,7 +8,7 @@ let view = coll.iter.filter |x| { x > 3 }
 let mapped = view.map |x| { x * 2 }
 let limited = mapped.take(3)
 let result = []
-for (x in limited) {
+for x in limited {
   result.append(x)
 }
 System.print(result.at(0))

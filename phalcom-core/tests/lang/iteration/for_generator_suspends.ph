@@ -8,7 +8,7 @@
 // native frame.
 
 const f = Fiber.new || {
-  for (x in [1, 2, 3]) { Fiber.yield(x) }
+  for x in [1, 2, 3] { Fiber.yield(x) }
 }
 System.print(f.call())
 System.print(f.call())

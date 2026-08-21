@@ -346,6 +346,15 @@ impl Value {
 
         false
     }
+
+    /// Tests exact sameness for the `===` operator. Immediate values compare
+    /// by their complete tagged representation; heap values compare by object
+    /// handle identity. No numeric coercion, string/content comparison, or
+    /// `Some` unwrapping is performed.
+    #[inline]
+    pub fn same_as(&self, other: &Value) -> bool {
+        self.same_bits(*other)
+    }
 }
 
 pub fn same_value_zero(a: Value, b: Value, heap: &crate::heap::Heap) -> bool {

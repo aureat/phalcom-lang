@@ -78,7 +78,6 @@ class Map {
   // the public mutable-collection protocol is chainable.
   remove(_ k) {
     self._$remove(k)
-    return self
   }
 
   clear {

@@ -26,4 +26,21 @@ class Object {
   // Exact test: true iff `cls` is the receiver's *live, direct* class —
   // no superclass walk. Backs the `x is! T` surface (is-tests.md).
   is!(_ cls) { self.class == cls }
+
+  // Default ordering relations are derived from the bilateral compare
+  // protocol. Numeric classes retain their specialized primitive methods;
+  // other classes can implement only compare(_) and inherit this surface.
+  <(_ other) { (self <=> other).kind === #less }
+
+  <=(_ other) {
+    let order = (self <=> other)
+    (order.kind === #less) or (order.kind === #equal)
+  }
+
+  >(_ other) { (self <=> other).kind === #greater }
+
+  >=(_ other) {
+    let order = (self <=> other)
+    (order.kind === #greater) or (order.kind === #equal)
+  }
 }

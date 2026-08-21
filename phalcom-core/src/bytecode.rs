@@ -75,6 +75,13 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "RecordLiteralExpandLabels",
     "FinishRecordLiteral",
     "MapLiteralExpandLabels",
+    "GetEllipsis",
+    "BilateralPreferReflected",
+    "TryInvokeExact",
+    "JumpIfUnsupported",
+    "ValidateOrdering",
+    "Same",
+    "RaiseUnsupported",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -485,12 +492,47 @@ pub enum Bytecode {
     FinishRecordLiteral,
     /// Snapshots one `**source` and inserts its labeled lane into a Map.
     MapLiteralExpandLabels,
+
+    /// Pushes the VM-rooted canonical `ellipsis` singleton.
+    GetEllipsis,
+
+    /// Pushes whether the reflected bilateral candidate should run before the
+    /// direct candidate. The top two stack values are `lhs`, then `rhs`.
+    BilateralPreferReflected(u16),
+
+    /// Invokes an exact fixed-arity selector. A lookup miss discards the
+    /// receiver and arguments and branches to `missing_offset`; it never
+    /// enters `doesNotUnderstand` or a rest-family fallback.
+    TryInvokeExact {
+        arity: u8,
+        selector: u16,
+        missing_offset: i32,
+    },
+
+    /// Pops the top value and branches only when it is the exact VM-rooted
+    /// canonical `unsupported` singleton.
+    JumpIfUnsupported(i32),
+
+    /// Validates a successful `compare(_)` result as an `Ordering`, optionally
+    /// applying its `reverse` operation for a reflected candidate.
+    ValidateOrdering { reverse: bool },
+
+    /// Intrinsic exact representation/identity sameness for surface `===`.
+    Same,
+
+    /// Raises the final bilateral unsupported-operands error. The stack must
+    /// contain `lhs`, then `rhs`; selector constants identify diagnostics.
+    RaiseUnsupported {
+        operator: u16,
+        direct: u16,
+        reflected: u16,
+    },
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 71;
+    pub const VARIANTS: usize = 78;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -572,6 +614,13 @@ impl Bytecode {
             Bytecode::RecordLiteralExpandLabels => 68,
             Bytecode::FinishRecordLiteral => 69,
             Bytecode::MapLiteralExpandLabels => 70,
+            Bytecode::GetEllipsis => 71,
+            Bytecode::BilateralPreferReflected(..) => 72,
+            Bytecode::TryInvokeExact { .. } => 73,
+            Bytecode::JumpIfUnsupported(..) => 74,
+            Bytecode::ValidateOrdering { .. } => 75,
+            Bytecode::Same => 76,
+            Bytecode::RaiseUnsupported { .. } => 77,
         }
     }
 

@@ -15,7 +15,7 @@ class Truthy {
     ifTrue(_ block) { return block.call() }
 }
 
-for (x in [1, 2, 3]) {
+for x in [1, 2, 3] {
     if (Truthy.new()) { continue }
     System.print(x)
 }

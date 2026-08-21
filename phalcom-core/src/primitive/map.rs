@@ -205,12 +205,12 @@ pub fn map_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     Ok(Value::bool(slot.is_some()))
 }
 
-/// Signature: `Map::remove_(_)` — deletes the entry for `key` if present;
+/// Signature: `Map::remove(_)` — deletes the entry for `key` if present;
 /// returning `Some(removed_value)` when present and `None` when absent.
 ///
 /// # Errors
 ///
-/// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Map`, or
+/// Returns [`RuntimeError::Type`] if the receiver is not a `Map`, or
 /// propagates a `hash`/`==` send failure.
 pub fn map_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;

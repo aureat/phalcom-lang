@@ -490,6 +490,21 @@ impl<'vm> Compiler<'vm> {
                         collect_pattern(rest, out);
                     }
                 }
+                phalcom_ast::ast::Pattern::Variant { arguments, .. } => {
+                    for argument in arguments {
+                        collect_pattern(argument, out);
+                    }
+                }
+                phalcom_ast::ast::Pattern::Record { entries, .. } => {
+                    for entry in entries {
+                        collect_pattern(&entry.pattern, out);
+                    }
+                }
+                phalcom_ast::ast::Pattern::Map { entries, .. } => {
+                    for entry in entries {
+                        collect_pattern(&entry.pattern, out);
+                    }
+                }
             }
         }
 

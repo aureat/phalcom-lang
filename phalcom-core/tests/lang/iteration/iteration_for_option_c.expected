@@ -1,0 +1,17 @@
+0: apple
+1: banana
+2: cherry
+1 -> one
+2 -> two
+3 -> three
+[0,0]: 1 -> one
+[1,1]: 2 -> two
+[2,2]: 3 -> three
+indexed 0: apple
+indexed 1: banana
+indexed 2: cherry
+zipped 1 -> one
+zipped 2 -> two
+zipped 3 -> three
+pair 10 + 100 = 110
+pair 20 + 200 = 220

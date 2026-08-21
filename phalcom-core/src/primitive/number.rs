@@ -69,6 +69,15 @@ fn promote_pair(a: &Value, b: &Value, vm: &VM) -> PhResult<PromotedPair> {
     }
 }
 
+fn cooperative_pair(a: &Value, b: &Value, vm: &VM) -> PhResult<Option<PromotedPair>> {
+    if (extract_int(a, vm).is_none() && a.as_float().is_none())
+        || (extract_int(b, vm).is_none() && b.as_float().is_none())
+    {
+        return Ok(None);
+    }
+    promote_pair(a, b, vm).map(Some)
+}
+
 fn check_limit_bigint(n: &BigInt, vm: &mut VM) -> PhResult<()> {
     let limit = vm.numeric_policy.max_integer_bits.unwrap_or(8_388_608);
     if integer_bits(n) > limit {
@@ -250,7 +259,9 @@ pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     effects = pure
 )]
 pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
+    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
     match pair {
         PromotedPair::Int(a, b) => {
             if let Some(res) = a.checked_add(b) {
@@ -280,7 +291,9 @@ pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     effects = pure
 )]
 pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
+    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
     match pair {
         PromotedPair::Int(a, b) => {
             if let Some(res) = a.checked_sub(b) {
@@ -302,7 +315,9 @@ pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 
 /// Signature: `Number::*(_)`
 pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
+    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
     match pair {
         PromotedPair::Int(a, b) => {
             if let Some(res) = a.checked_mul(b) {
@@ -324,7 +339,9 @@ pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 
 /// Signature: `Number::/(_)` — true division.
 pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
+    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
     let (a, b) = match pair {
         PromotedPair::Int(a, b) => (a as f64, b as f64),
         PromotedPair::Big(a, b) => (a.to_f64().unwrap_or(f64::NAN), b.to_f64().unwrap_or(f64::NAN)),
@@ -335,7 +352,9 @@ pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 
 /// Signature: `Number::~/(_)` — floor division.
 pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
+    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
     match pair {
         PromotedPair::Int(a, b) => {
             if b == 0 {
@@ -374,7 +393,9 @@ pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 
 /// Signature: `Number::%(_)`
 pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let pair = promote_pair(receiver, &args[0], vm)?;
+    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
     match pair {
         PromotedPair::Int(a, b) => {
             if b == 0 {
@@ -398,6 +419,10 @@ pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let base_val = receiver;
     let exp_val = &args[0];
+
+    let Some(_pair) = cooperative_pair(base_val, exp_val, vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
 
     // Identity check 1: 1 ** y = 1 (or 1.0)
     if base_val.as_int() == Some(1) {
@@ -494,6 +519,57 @@ pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
         PromotedPair::Big(a, b) => Ok(Value::bool(a >= b)),
         PromotedPair::Float(a, b) => Ok(Value::bool(a >= b)),
     }
+}
+
+fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
+    let ordering_class = vm.semantic_roots.ordering_class;
+    let static_name = vm.interner.intern(&format!("_{selector}"));
+    let meta = vm.heap.class(ordering_class).class;
+    let static_slot = vm
+        .heap
+        .class(meta)
+        .field_slots
+        .get(&static_name)
+        .copied()
+        .ok_or_else(|| RuntimeError::Internal(format!("Ordering static field `{static_name:?}` unavailable")))?;
+    if let Some(value) = vm.heap.class(ordering_class).static_slots.get(static_slot as usize).copied()
+        && !value.is_nil()
+    {
+        return Ok(value);
+    }
+
+    let kind_slot = vm
+        .heap
+        .class(ordering_class)
+        .field_slots
+        .get(&vm.interner.intern("_kind"))
+        .copied()
+        .ok_or_else(|| RuntimeError::Internal("Ordering kind field unavailable".to_string()))?;
+    let mut instance = crate::heap::InstanceObject::new(ordering_class, vm.heap.class(ordering_class).field_count);
+    instance.slots[kind_slot as usize] = Value::symbol(vm.interner.intern(selector));
+    let value = Value::obj(vm.heap.alloc(crate::heap::Object::Instance(instance)));
+    vm.heap.class_mut(ordering_class).static_slots[static_slot as usize] = value;
+    Ok(value)
+}
+
+/// Signature: `Number::<=> ( _)` — returns the canonical Ordering singleton.
+pub fn number_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
+        return Ok(vm.semantic_roots.unsupported);
+    };
+    let selector = match pair {
+        PromotedPair::Int(a, b) => a.cmp(&b),
+        PromotedPair::Big(a, b) => a.cmp(&b),
+        PromotedPair::Float(a, b) => match a.partial_cmp(&b) {
+            Some(order) => order,
+            None => return ordering_value(vm, "unordered"),
+        },
+    };
+    ordering_value(vm, match selector {
+        std::cmp::Ordering::Less => "less",
+        std::cmp::Ordering::Equal => "equal",
+        std::cmp::Ordering::Greater => "greater",
+    })
 }
 
 /// Signature: `Number::-` — arithmetic negation (unary `-x`).

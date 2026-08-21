@@ -12,5 +12,5 @@ class Source {
   calls { _calls }
 }
 const s = Source.new()
-for (x in s.makeList) { System.print(x) }
+for x in s.makeList { System.print(x) }
 System.print(s.calls)

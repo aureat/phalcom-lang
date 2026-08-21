@@ -330,6 +330,14 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Variant(_) => continue,
                 };
+                if self.vm.core_module() != Some(self.module)
+                    && let MemberKey::Selector(_, selector) = &key
+                    && matches!(selector.as_str(), "===(_)" | "===")
+                {
+                    return Err(CompilerError::Message(format!(
+                        "reserved semantic selector `{selector}` cannot be declared",
+                    )));
+                }
                 if let Some((_, first_range)) = seen.get(&key) {
                     let first_range = *first_range;
                     let source = self.source_text();
@@ -1378,7 +1386,9 @@ fn collect_assigned_fields_stmt(stmt: &Statement, fields: &mut Vec<Symbol>, inte
             // A field assigned only inside a `for` body must still be
             // collected into the class layout (ADR-0035; U-ITER), or its
             // first read would trip `ReadBeforeWrite`.
-            collect_assigned_fields(&for_stmt.iter, fields, interner);
+            for lane in &for_stmt.lanes {
+                collect_assigned_fields(&lane.iter, fields, interner);
+            }
             for body_stmt in &for_stmt.body {
                 collect_assigned_fields_stmt(body_stmt, fields, interner);
             }

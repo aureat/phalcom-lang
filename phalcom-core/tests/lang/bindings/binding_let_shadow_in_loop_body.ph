@@ -8,7 +8,7 @@
 
 const x = 100
 let seen = []
-for (i in [1, 2]) {
+for i in [1, 2] {
   const x = i
   seen.append(x)
 }

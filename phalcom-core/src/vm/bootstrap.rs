@@ -1,6 +1,6 @@
 use crate::error::PhResult;
 use crate::heap::CORE_MODULE_NAME;
-use crate::heap::Object;
+use crate::heap::{ClassId, Object};
 use crate::universe::Universe;
 use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -35,6 +35,11 @@ impl VM {
             start_time: Instant::now(),
             module_registry: crate::modules::ModuleRegistry::new(),
             runtime_roots: None,
+            semantic_roots: crate::vm::SemanticRoots {
+                unsupported: Value::nil(),
+                ellipsis: Value::nil(),
+                ordering_class: ClassId::default(),
+            },
             classes: HashMap::new(),
             kernel_class_names: std::collections::HashSet::new(),
             prelude_names: std::collections::HashSet::new(),
@@ -189,6 +194,33 @@ impl VM {
         // (e.g. `List.at(_:)` calling `at_(_:)`).
         vm.run_universe_modules().expect("universe modules must compile and run cleanly");
 
+        // Semantic roots are late-bound to the exact values exported by the
+        // universe sources. No Rust replacement is valid for these identities.
+        {
+            let core = vm.core_module().expect("core module registered by install_core");
+            let unsupported = vm
+                .heap
+                .module(core)
+                .get(vm.interner.intern("unsupported"))
+                .expect("universe must export canonical unsupported");
+            let ellipsis = vm
+                .heap
+                .module(core)
+                .get(vm.interner.intern("ellipsis"))
+                .expect("universe must export canonical ellipsis");
+            let ordering = vm
+                .heap
+                .module(core)
+                .get(vm.interner.intern("Ordering"))
+                .and_then(|value| value.as_obj())
+                .expect("universe must export Ordering class");
+            vm.semantic_roots = crate::vm::SemanticRoots {
+                unsupported,
+                ellipsis,
+                ordering_class: ordering,
+            };
+        }
+
         // Populate prelude_names with universe globals for compatibility,
         // excluding types explicitly prohibited from prelude by Spec §13.1.
         {
@@ -248,6 +280,8 @@ impl VM {
             ("object/class", include_str!("../../core/universe/src/object/class.ph")),
             ("object/metaclass", include_str!("../../core/universe/src/object/metaclass.ph")),
             ("object/behavior", include_str!("../../core/universe/src/object/behavior.ph")),
+            ("object/ellipsis", include_str!("../../core/universe/src/object/ellipsis.ph")),
+            ("object/ordering", include_str!("../../core/universe/src/object/ordering.ph")),
             ("scalar/number", include_str!("../../core/universe/src/scalar/number.ph")),
             ("scalar/string", include_str!("../../core/universe/src/scalar/string.ph")),
             ("scalar/bool", include_str!("../../core/universe/src/scalar/bool.ph")),

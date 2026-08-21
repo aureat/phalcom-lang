@@ -722,7 +722,7 @@ class Iterable {
   }
 
   each(_ f) {
-    for (x in self) {
+    for x in self {
       f.call(x)
     }
     return ()
@@ -807,21 +807,21 @@ class Iterable {
   isEmpty { self.size == 0 }
 
   all(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifFalse || { return false }
     }
     return true
   }
 
   any(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return true }
     }
     return false
   }
 
   none(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return false }
     }
     return true
@@ -829,18 +829,18 @@ class Iterable {
 
   count {
     let n = 0
-    for (x in self) { n = n + 1 }
+    for x in self { n = n + 1 }
     return n
   }
 
   count(where f) {
     let n = 0
-    for (x in self) { f.call(x).ifTrue || { n = n + 1 } }
+    for x in self { f.call(x).ifTrue || { n = n + 1 } }
     return n
   }
 
   find(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return Some(x) }
     }
     return None
@@ -848,7 +848,7 @@ class Iterable {
 
   index(where f) {
     let index = 0
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return Some(index) }
       index = index + 1
     }
@@ -864,7 +864,7 @@ class Iterable {
     // joining large collections should be aware of this limitation.
     let first = true
     let result = ""
-    for (x in self) {
+    for x in self {
       first.ifFalse || { result = result + sep }
       first = false
       result = result + x.toString
@@ -877,7 +877,7 @@ class Iterable {
   // retained as an alias.
   fold(initial initial, using f) {
     let acc = initial
-    for (x in self) {
+    for x in self {
       acc = f.call(acc, x)
     }
     return acc
@@ -898,7 +898,7 @@ class Iterable {
 
   group(by block) {
     let result = Map.new()
-    for (x in self) {
+    for x in self {
       let key = block.call(x)
       let list = result.get(key).match(
         some: |list| { list },
@@ -916,7 +916,7 @@ class Iterable {
   partition(where predicate) {
     let accepted = List.new()
     let rejected = List.new()
-    for (x in self) {
+    for x in self {
       predicate.call(x).ifTrue(|| { accepted.append(x) }, ifFalse: || { rejected.append(x) })
     }
     return (accepted, rejected)
@@ -924,7 +924,7 @@ class Iterable {
 
   toSet {
     let result = Set.new()
-    for (x in self) {
+    for x in self {
       result.add(x)
     }
     return result
@@ -932,7 +932,7 @@ class Iterable {
 
   toMap {
     let result = Map.new()
-    for (entry in self) {
+    for entry in self {
       let key = entry.key
       if (result.includes(key)) {
         return Err.new(DuplicateKeyError.new(key))
@@ -944,7 +944,7 @@ class Iterable {
 
   toMap(merging block) {
     let result = Map.new()
-    for (entry in self) {
+    for entry in self {
       let key = entry.key
       let val = entry.value
       result.get(key).match(
@@ -962,7 +962,7 @@ class Iterable {
 
   toList {
     let result = List.new()
-    for (x in self) { result.append(x) }
+    for x in self { result.append(x) }
     return result
   }
 
@@ -1127,7 +1127,7 @@ class List {
   removeAll(where predicate) {
     let retained = List.new()
     let count = 0
-    for (x in self) {
+    for x in self {
       if (predicate.call(x)) {
         count = count + 1
       } else {
@@ -1162,7 +1162,7 @@ class List {
 
   // U-STD item 4 (U-ITER-FIX plan §"Not in this unit", DEC-ITER-A resolved):
   // drives the cursor protocol (`iterate(_)`/`iteratorValue(_)`, ADR-0035 §1)
-  // rather than a raw `size`/`at(_)` index walk. `for (x in self)` compiles
+  // rather than a raw `size`/`at(_)` index walk. `for x in self` compiles
   // to the same `Invoke`-only `iterate`/`iteratorValue`/`isSome` loop as any
   // user iterable (spec §3.1) — no `block_call`, no index math — so `each`
   // (and everything below built over it: `map`/`filter`/`reduce`/`includes`)
@@ -2129,7 +2129,7 @@ class Bytes {
 
   toList {
     const out = []
-    for (b in self) {
+    for b in self {
       out.append(b)
     }
     return out

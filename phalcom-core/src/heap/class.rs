@@ -90,6 +90,31 @@ pub fn lookup_method_in_hierarchy(heap: &Heap, mut class: ClassId, selector: Sym
     }
 }
 
+/// Looks up an exact selector and returns both method handle and defining
+/// class. Used by bilateral dispatch to distinguish a reflected implementation
+/// introduced by a strict subtype from one inherited from the left operand.
+pub fn lookup_method_with_definer(heap: &Heap, mut class: ClassId, selector: Symbol) -> Option<(ObjRef, ClassId)> {
+    loop {
+        let current = heap.class(class);
+        if let Some(&method) = current.methods.get(&selector) {
+            return Some((method, class));
+        }
+        class = current.superclass?;
+    }
+}
+
+/// Returns whether `sub` is strictly below `sup` in the instance-side class
+/// hierarchy.
+pub fn is_strict_subclass(heap: &Heap, mut sub: ClassId, sup: ClassId) -> bool {
+    while let Some(parent) = heap.class(sub).superclass {
+        if parent == sup {
+            return true;
+        }
+        sub = parent;
+    }
+    false
+}
+
 impl ClassObject {
     /// Creates an unwired class row: `name` set, links defaulted.
     ///

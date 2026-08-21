@@ -2,6 +2,17 @@ class Record {
   size { self._$size }
   labelAt(_ index) { self._$labelAt(index) }
 
+  // Safe label lookup for record patterns and ordinary reflection. The
+  // Option result distinguishes a missing label from a stored None value.
+  get(_ key) {
+    let i = 0
+    while (i < self.size) {
+      if (self.labelAt(i) === key) { return Some(self._$valueAt(i)) }
+      i = i + 1
+    }
+    None
+  }
+
   ==(_ other) {
     if (other.is(Record)) {
       let same = (self.size == other.size)

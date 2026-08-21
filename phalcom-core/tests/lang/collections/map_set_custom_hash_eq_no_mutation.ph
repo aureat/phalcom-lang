@@ -7,8 +7,10 @@
 // work through the locked window, and a Set built over the same key class
 // behaves identically.
 
-class Pt { x { _x }
+class Pt {
+  x { _x }
   y { _y }
+
   @constructor
   new(_ x, _ y) {
     _x = x
@@ -34,7 +36,8 @@ System.print(m.size)
 System.print(m[p1])
 m.at(p3, put: "c")
 System.print(m.size)
-m.remove(p2)
+const removedValue = m.remove(p2)
+System.print(removedValue)
 System.print(m.size)
 System.print(m.includes(p1))
 System.print(m.includes(p3))

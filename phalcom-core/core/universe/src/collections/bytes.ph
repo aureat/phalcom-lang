@@ -188,7 +188,7 @@ class Bytes {
 
   toList {
     const out = []
-    for (b in self) {
+    for b in self {
       out.append(b)
     }
     return out

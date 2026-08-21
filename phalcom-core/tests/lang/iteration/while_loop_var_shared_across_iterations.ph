@@ -11,6 +11,6 @@ while (i < 3) {
   closures.append(|| { i })
   i = i + 1
 }
-for (c in closures) {
+for c in closures {
   System.print(c.call())
 }

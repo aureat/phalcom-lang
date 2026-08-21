@@ -1,6 +1,6 @@
 use crate::bytecode::Bytecode;
 use crate::value::Value;
-use phalcom_ast::ast::ForStatement;
+use phalcom_ast::ast::{ForStatement, Pattern};
 use phalcom_common::range::SourceRange;
 
 use super::Compiler;
@@ -69,10 +69,12 @@ impl<'vm> Compiler<'vm> {
     /// a per-iteration `let`, iteration.md §2) — the compiler still rebinds it
     /// each step through a direct [`Bytecode::SetLocal`], which bypasses the
     /// user-facing immutability check.
-    fn declare_loop_local(&mut self, name: &str, mutable: bool) -> Result<usize, CompilerError> {
+    pub(super) fn declare_loop_local(&mut self, name: &str, mutable: bool) -> Result<usize, CompilerError> {
         let sym = self.vm.interner.intern(name);
         self.add_local(sym, mutable)?;
-        Ok(self.functions.last().unwrap().num_locals - 1)
+        let slot = self.functions.last().unwrap().num_locals - 1;
+        self.emit(Bytecode::ReserveScratchLocal(slot as u16), SourceRange::default());
+        Ok(slot)
     }
 
     /// Lowers `for (binding in iter) { body }` to an inlined cursor `while`
@@ -112,13 +114,23 @@ impl<'vm> Compiler<'vm> {
     ///
     /// Propagates any error compiling the iterable expression or the body.
     pub(super) fn compile_for(&mut self, for_stmt: ForStatement) -> Result<(), CompilerError> {
+        if for_stmt.lanes.len() != 1
+            || for_stmt.lanes[0].index.is_some()
+            || !matches!(for_stmt.lanes[0].pattern, Pattern::Name { .. })
+        {
+            return self.compile_for_lanes(for_stmt);
+        }
         let range = for_stmt.range;
         // A fresh scope keeps the synthetic temporaries and the loop variable
         // out of the enclosing scope after the loop.
         self.begin_scope();
 
         // 1. Evaluate the iterable exactly once into `$coll`.
-        self.compile_expr(for_stmt.iter)?;
+        let lane = for_stmt
+            .lanes
+            .first()
+            .ok_or_else(|| CompilerError::Message("for requires at least one lane".into()))?;
+        self.compile_expr(lane.iter.clone())?;
         let coll_slot = self.declare_loop_local("$for_coll", true)?;
         self.emit(Bytecode::SetLocal(coll_slot as u16), range);
 
@@ -132,7 +144,10 @@ impl<'vm> Compiler<'vm> {
 
         // 3. Declare the loop variable once (rebound each step); placeholder.
         self.emit(Bytecode::Nil, range);
-        let binding_slot = self.declare_loop_local(&for_stmt.binding, false)?;
+        let Pattern::Name { name, .. } = &lane.pattern else {
+            return Err(CompilerError::Message("structured for patterns require generalized loop binding lowering".into()));
+        };
+        let binding_slot = self.declare_loop_local(name, false)?;
 
         // 4. Enter the loop context so body `break`/`continue` resolve here.
         self.push_loop_context();
@@ -200,6 +215,172 @@ impl<'vm> Compiler<'vm> {
 
         self.end_scope(range);
         Ok(())
+    }
+
+    fn compile_for_lanes(&mut self, for_stmt: ForStatement) -> Result<(), CompilerError> {
+        let range = for_stmt.range;
+        let lanes = for_stmt.lanes;
+        if lanes.is_empty() {
+            return Err(CompilerError::Message("for requires at least one lane".into()));
+        }
+        self.begin_scope();
+
+        let mut collections = Vec::with_capacity(lanes.len());
+        let mut cursors = Vec::with_capacity(lanes.len());
+        let mut indices = Vec::with_capacity(lanes.len());
+        for (number, lane) in lanes.iter().enumerate() {
+            self.compile_expr(lane.iter.clone())?;
+            let collection = self.declare_loop_local(&format!("$for_coll_{number}"), true)? as u16;
+            self.emit(Bytecode::SetLocal(collection), lane.range);
+            collections.push(collection);
+
+            self.emit(Bytecode::GetLocal(collection), lane.range);
+            self.emit(Bytecode::Nil, lane.range);
+            self.emit_operator_send("iterate", 1, lane.range);
+            let cursor = self.declare_loop_local(&format!("$for_cursor_{number}"), true)? as u16;
+            self.emit(Bytecode::SetLocal(cursor), lane.range);
+            cursors.push(cursor);
+
+            indices.push(if let Some(index) = &lane.index {
+                let slot = self.declare_loop_local(&index.name, true)? as u16;
+                self.emit(Bytecode::Nil, index.range);
+                self.emit(Bytecode::SetLocal(slot), index.range);
+                self.emit(Bytecode::Pop, index.range);
+                Some(slot)
+            } else {
+                None
+            });
+        }
+        let ordinal = self.declare_loop_local("$for_ordinal", true)? as u16;
+        let zero = self.add_constant(Value::int(0));
+        self.emit(Bytecode::Constant(zero), range);
+        self.emit(Bytecode::SetLocal(ordinal), range);
+        self.emit(Bytecode::Pop, range);
+
+        // Pattern leaves and yielded values are stable loop locals. Only
+        // matcher extraction temporaries are created/released per iteration.
+        let mut lane_values = Vec::with_capacity(lanes.len());
+        for (number, lane) in lanes.iter().enumerate() {
+            let slot = self.reserve_pack_scratch(&format!("$for_value_{number}"), lane.range)?;
+            lane_values.push(slot);
+        }
+        for lane in &lanes {
+            self.declare_pattern_locals(&lane.pattern, false)?;
+        }
+
+        self.push_loop_context();
+        let loop_start = self.chunk_len();
+        self.emit(Bytecode::GetLocal(cursors[0]), range);
+        let first_none = self.emit_forward_jump(Bytecode::JumpIfNone, range);
+        let mut live_when_none = Vec::new();
+        for cursor in cursors.iter().skip(1) {
+            self.emit(Bytecode::GetLocal(*cursor), range);
+            let none = self.emit_forward_jump(Bytecode::JumpIfNone, range);
+            live_when_none.push(none);
+        }
+
+        let mut pattern_failures = Vec::new();
+        for (number, lane) in lanes.iter().enumerate() {
+            self.emit(Bytecode::GetLocal(collections[number]), lane.range);
+            self.emit(Bytecode::GetLocal(cursors[number]), lane.range);
+            self.emit_operator_send("iteratorValue", 1, lane.range);
+            self.emit(Bytecode::SetLocal(lane_values[number]), lane.range);
+            self.emit(Bytecode::Pop, lane.range);
+            let temporary_base = self.functions.last().unwrap().num_locals;
+            self.emit_pattern_match_tests(&lane.pattern, lane_values[number], &mut pattern_failures)?;
+            self.commit_pattern_bindings(&lane.pattern, lane_values[number])?;
+            let temporary_count = self.functions.last().unwrap().num_locals - temporary_base;
+            self.release_pack_scratch_from(temporary_base as u16, temporary_count, lane.range);
+            if let Some(index) = indices[number] {
+                self.emit(Bytecode::GetLocal(ordinal), lane.range);
+                self.emit(Bytecode::SetLocal(index), lane.range);
+                self.emit(Bytecode::Pop, lane.range);
+            }
+        }
+
+        let after_pattern = self.emit_forward_jump(Bytecode::Jump, range);
+        let pattern_failure = self.chunk_len();
+        for jump in pattern_failures {
+            self.patch_forward_jump_to(jump, pattern_failure);
+        }
+        self.emit_pattern_mismatch_raise("for pattern did not match iterable value".into(), range);
+        self.patch_forward_jump_to(after_pattern, self.chunk_len());
+
+        self.begin_scope();
+        for statement in for_stmt.body {
+            self.compile_statement_with_pop_control(statement, true)?;
+        }
+        self.end_scope(range);
+        let step = self.chunk_len();
+        let mut names = Vec::new();
+        for lane in &lanes {
+            collect_pattern_names(&lane.pattern, &mut names);
+        }
+        names.sort();
+        names.dedup();
+        for name in names {
+            let symbol = self.vm.interner.intern(&name);
+            if let Some(slot) = self.resolve_local(symbol)
+                && self.functions.last().unwrap().locals[slot].is_captured
+            {
+                self.emit(Bytecode::CloseUpvalue(slot as u16), range);
+            }
+        }
+        for (collection, cursor) in collections.iter().zip(&cursors) {
+            self.emit(Bytecode::GetLocal(*collection), range);
+            self.emit(Bytecode::GetLocal(*cursor), range);
+            self.emit_operator_send("iterate", 1, range);
+            self.emit(Bytecode::SetLocal(*cursor), range);
+            self.emit(Bytecode::Pop, range);
+        }
+        self.emit(Bytecode::GetLocal(ordinal), range);
+        let one = self.add_constant(Value::int(1));
+        self.emit(Bytecode::Constant(one), range);
+        self.emit_operator_send("+", 1, range);
+        self.emit(Bytecode::SetLocal(ordinal), range);
+        self.emit(Bytecode::Pop, range);
+        self.emit_backward_loop(loop_start, range);
+
+        let all_none = self.chunk_len();
+        self.patch_forward_jump_to(first_none, all_none);
+        let mut mismatches = Vec::new();
+        for cursor in cursors.iter().skip(1) {
+            self.emit(Bytecode::GetLocal(*cursor), range);
+            let none = self.emit_forward_jump(Bytecode::JumpIfNone, range);
+            let live = self.emit_forward_jump(Bytecode::Jump, range);
+            self.patch_forward_jump_to(none, self.chunk_len());
+            mismatches.push(live);
+        }
+        let all_none_skip_error = self.emit_forward_jump(Bytecode::Jump, range);
+        let error = self.chunk_len();
+        for jump in live_when_none.into_iter().chain(mismatches) {
+            self.patch_forward_jump_to(jump, error);
+        }
+        self.emit_strict_zip_error(range);
+        let exit = self.chunk_len();
+        self.patch_forward_jump_to(all_none_skip_error, exit);
+
+        let (breaks, continues) = self.pop_loop_context();
+        for jump in breaks {
+            self.patch_forward_jump_to(jump, exit);
+        }
+        for jump in continues {
+            self.patch_forward_jump_to(jump, step);
+        }
+        self.end_scope(range);
+        Ok(())
+    }
+
+    fn emit_strict_zip_error(&mut self, range: SourceRange) {
+        let error_sym = self.vm.interner.intern("ArgumentError");
+        let error_idx = self.add_constant(Value::symbol(error_sym));
+        self.emit(Bytecode::GetGlobal(error_idx), range);
+        let message = self.vm.alloc_string_value("strict zip lanes ended at different times".to_string());
+        let message_idx = self.add_constant(message);
+        self.emit(Bytecode::Constant(message_idx), range);
+        self.emit_operator_send("new", 1, range);
+        self.emit_operator_send("raise", 0, range);
+        self.emit(Bytecode::Pop, range);
     }
 
     /// Emits a runtime trap for a `break`/`continue` reached through a
@@ -283,5 +464,34 @@ impl<'vm> Compiler<'vm> {
             self.emit_deopt_block_control_trap(range);
         }
         Ok(())
+    }
+}
+
+fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
+    match pattern {
+        Pattern::Name { name, .. } => out.push(name.clone()),
+        Pattern::Tuple { elements, .. } | Pattern::List { elements, .. } => {
+            for element in elements {
+                collect_pattern_names(element, out);
+            }
+            if let Pattern::List { rest: Some(rest), .. } = pattern {
+                collect_pattern_names(rest, out);
+            }
+        }
+        Pattern::Variant { arguments, .. } => {
+            for argument in arguments {
+                collect_pattern_names(argument, out);
+            }
+        }
+        Pattern::Record { entries, .. } => {
+            for entry in entries {
+                collect_pattern_names(&entry.pattern, out);
+            }
+        }
+        Pattern::Map { entries, .. } => {
+            for entry in entries {
+                collect_pattern_names(&entry.pattern, out);
+            }
+        }
     }
 }

@@ -1,6 +1,6 @@
 use crate::bytecode::Bytecode;
 use crate::value::Value;
-use phalcom_ast::ast::Pattern;
+use phalcom_ast::ast::{MapPatternKey, Pattern};
 use phalcom_common::range::SourceRange;
 
 use super::Compiler;
@@ -15,6 +15,323 @@ use super::error::CompilerError;
 // the full design record.
 
 impl<'vm> Compiler<'vm> {
+    /// Declares every binding leaf before a refutable match starts. This keeps
+    /// failed matches from partially mutating user-visible locals and lets
+    /// both branch bodies resolve the same lexical bindings.
+    pub(super) fn declare_pattern_locals(&mut self, pattern: &Pattern, mutable: bool) -> Result<(), CompilerError> {
+        match pattern {
+            Pattern::Name { name, .. } => {
+                let symbol = self.vm.interner.intern(name);
+                self.add_local(symbol, mutable)?;
+                let slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+                self.emit(Bytecode::ReserveScratchLocal(slot), pattern.range());
+            }
+            Pattern::Tuple { elements, .. } | Pattern::List { elements, .. } => {
+                for element in elements {
+                    self.declare_pattern_locals(element, mutable)?;
+                }
+                if let Pattern::List { rest: Some(rest), .. } = pattern {
+                    self.declare_pattern_locals(rest, mutable)?;
+                }
+            }
+            Pattern::Variant { arguments, .. } => {
+                for argument in arguments {
+                    self.declare_pattern_locals(argument, mutable)?;
+                }
+            }
+            Pattern::Record { entries, .. } => {
+                for entry in entries {
+                    self.declare_pattern_locals(&entry.pattern, mutable)?;
+                }
+            }
+            Pattern::Map { entries, .. } => {
+                for entry in entries {
+                    self.declare_pattern_locals(&entry.pattern, mutable)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Emits only the refutable test phase for `pattern`. Every recorded jump
+    /// targets the caller's failure edge; no user binding is written here.
+    pub(super) fn emit_pattern_match_tests(&mut self, pattern: &Pattern, value_slot: u16, failures: &mut Vec<usize>) -> Result<(), CompilerError> {
+        match pattern {
+            Pattern::Name { .. } => {}
+            Pattern::Tuple { elements, range } => {
+                self.emit_class_test(value_slot, "Tuple", failures, *range);
+                self.emit_size_test(value_slot, elements.len(), false, failures, *range);
+                for (index, element) in elements.iter().enumerate() {
+                    if !matches!(element, Pattern::Name { .. }) {
+                        let child = self.emit_element_temp(value_slot, index, element.range())?;
+                        self.emit_pattern_match_tests(element, child, failures)?;
+                    }
+                }
+            }
+            Pattern::List { elements, rest, range } => {
+                self.emit_class_test(value_slot, "List", failures, *range);
+                self.emit_size_test(value_slot, elements.len(), rest.is_some(), failures, *range);
+                for (index, element) in elements.iter().enumerate() {
+                    if !matches!(element, Pattern::Name { .. }) {
+                        let child = self.emit_element_temp(value_slot, index, element.range())?;
+                        self.emit_pattern_match_tests(element, child, failures)?;
+                    }
+                }
+                if let Some(rest_pattern) = rest {
+                    let child = self.emit_list_rest_temp(value_slot, elements.len(), rest_pattern.range())?;
+                    self.emit_pattern_match_tests(rest_pattern, child, failures)?;
+                }
+            }
+            Pattern::Variant { constructor, arguments, range } => {
+                if constructor == "Some" {
+                    if arguments.len() != 1 {
+                        return Err(CompilerError::Message("Some pattern requires exactly one payload pattern".into()));
+                    }
+                    self.emit_option_test(value_slot, true, failures, *range);
+                    if !matches!(&arguments[0], Pattern::Name { .. }) {
+                        let child = self.emit_option_value_temp(value_slot, *range)?;
+                        self.emit_pattern_match_tests(&arguments[0], child, failures)?;
+                    }
+                } else if constructor == "None" {
+                    if !arguments.is_empty() {
+                        return Err(CompilerError::Message("None pattern cannot carry payloads".into()));
+                    }
+                    self.emit_option_test(value_slot, false, failures, *range);
+                } else {
+                    self.emit_class_test(value_slot, constructor, failures, *range);
+                    for (index, argument) in arguments.iter().enumerate() {
+                        let child = self.emit_element_temp(value_slot, index, argument.range())?;
+                        self.emit_pattern_match_tests(argument, child, failures)?;
+                    }
+                }
+            }
+            Pattern::Record { entries, range } => {
+                self.emit_class_test(value_slot, "Record", failures, *range);
+                for entry in entries {
+                    let key = Value::symbol(self.vm.interner.intern(&entry.label));
+                    let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
+                    self.emit_option_test(option, true, failures, entry.range);
+                    if !matches!(&entry.pattern, Pattern::Name { .. }) {
+                        let child = self.emit_option_value_temp(option, entry.range)?;
+                        self.emit_pattern_match_tests(&entry.pattern, child, failures)?;
+                    }
+                }
+            }
+            Pattern::Map { entries, range } => {
+                self.emit_class_test(value_slot, "Map", failures, *range);
+                for entry in entries {
+                    let key = self.pattern_key_value(&entry.key);
+                    let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
+                    self.emit_option_test(option, true, failures, entry.range);
+                    if !matches!(&entry.pattern, Pattern::Name { .. }) {
+                        let child = self.emit_option_value_temp(option, entry.range)?;
+                        self.emit_pattern_match_tests(&entry.pattern, child, failures)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Commits already-tested pattern leaves into their predeclared locals.
+    pub(super) fn commit_pattern_bindings(&mut self, pattern: &Pattern, value_slot: u16) -> Result<(), CompilerError> {
+        self.assign_pattern_from_slot(pattern, value_slot)
+    }
+
+    fn assign_pattern_from_top(&mut self, pattern: &Pattern) -> Result<(), CompilerError> {
+        if let Pattern::Name { name, range } = pattern {
+            let symbol = self.vm.interner.intern(name);
+            let slot = self
+                .resolve_local(symbol)
+                .ok_or_else(|| CompilerError::Message(format!("pattern binding `{name}` was not declared")))?;
+            self.emit(Bytecode::SetLocal(slot as u16), *range);
+            self.emit(Bytecode::Pop, *range);
+            return Ok(());
+        }
+        let slot = self.claim_pattern_temp("$pattern_value", pattern.range())?;
+        self.assign_pattern_from_slot(pattern, slot)
+    }
+
+    fn assign_pattern_from_slot(&mut self, pattern: &Pattern, value_slot: u16) -> Result<(), CompilerError> {
+        match pattern {
+            Pattern::Name { name, range } => {
+                let symbol = self.vm.interner.intern(name);
+                let slot = self
+                    .resolve_local(symbol)
+                    .ok_or_else(|| CompilerError::Message(format!("pattern binding `{name}` was not declared")))?;
+                self.emit(Bytecode::GetLocal(value_slot), *range);
+                self.emit(Bytecode::SetLocal(slot as u16), *range);
+                self.emit(Bytecode::Pop, *range);
+            }
+            Pattern::Tuple { elements, .. } | Pattern::List { elements, .. } => {
+                for (index, element) in elements.iter().enumerate() {
+                    self.emit_element_read(value_slot, index, element.range());
+                    self.assign_pattern_from_top(element)?;
+                }
+                if let Pattern::List { rest: Some(rest), range, .. } = pattern {
+                    let rest_slot = self.emit_list_rest_temp(value_slot, elements.len(), *range)?;
+                    self.assign_pattern_from_slot(rest, rest_slot)?;
+                }
+            }
+            Pattern::Variant { constructor, arguments, range } => {
+                if constructor == "Some" {
+                    if let Pattern::Name { .. } = &arguments[0] {
+                        self.emit(Bytecode::GetLocal(value_slot), *range);
+                        self.emit(Bytecode::Nil, *range);
+                        self.emit_operator_send("unwrapOr", 1, *range);
+                        self.assign_pattern_from_top(&arguments[0])?;
+                    } else {
+                        let child = self.emit_option_value_temp(value_slot, *range)?;
+                        self.assign_pattern_from_slot(&arguments[0], child)?;
+                    }
+                } else if constructor != "None" {
+                    for (index, argument) in arguments.iter().enumerate() {
+                        self.emit_element_read(value_slot, index, argument.range());
+                        self.assign_pattern_from_top(argument)?;
+                    }
+                }
+            }
+            Pattern::Record { entries, .. } => {
+                for entry in entries {
+                    let key = Value::symbol(self.vm.interner.intern(&entry.label));
+                    let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
+                    let child = self.emit_option_value_temp(option, entry.range)?;
+                    self.assign_pattern_from_slot(&entry.pattern, child)?;
+                }
+            }
+            Pattern::Map { entries, .. } => {
+                for entry in entries {
+                    let key = self.pattern_key_value(&entry.key);
+                    let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
+                    let child = self.emit_option_value_temp(option, entry.range)?;
+                    self.assign_pattern_from_slot(&entry.pattern, child)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_class_test(&mut self, value_slot: u16, class_name: &str, failures: &mut Vec<usize>, range: SourceRange) {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit_getter_send("class", range);
+        let class_symbol = self.vm.interner.intern(class_name);
+        let class_idx = self.add_constant(Value::symbol(class_symbol));
+        self.emit(Bytecode::GetGlobal(class_idx), range);
+        self.emit(Bytecode::Same, range);
+        failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
+    }
+
+    fn emit_required_class_check(&mut self, value_slot: u16, class_name: &str, range: SourceRange) {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit_getter_send("class", range);
+        let class_symbol = self.vm.interner.intern(class_name);
+        let class_idx = self.add_constant(Value::symbol(class_symbol));
+        self.emit(Bytecode::GetGlobal(class_idx), range);
+        self.emit(Bytecode::Same, range);
+        self.emit_required_predicate_result(format!("pattern expected {}", class_name), range);
+    }
+
+    fn emit_required_predicate(&mut self, value_slot: u16, selector: &str, range: SourceRange) {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit_getter_send(selector, range);
+        self.emit_required_predicate_result(format!("pattern predicate {} failed", selector), range);
+    }
+
+    fn emit_required_predicate_result(&mut self, message: String, range: SourceRange) {
+        let skip_raise = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+        let after_raise = self.emit_forward_jump(Bytecode::Jump, range);
+        let failure = self.chunk_len();
+        self.patch_forward_jump_to(skip_raise, failure);
+        self.emit_pattern_mismatch_raise(message, range);
+        self.patch_forward_jump_to(after_raise, self.chunk_len());
+    }
+
+    fn emit_size_test(&mut self, value_slot: u16, expected: usize, at_least: bool, failures: &mut Vec<usize>, range: SourceRange) {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit_getter_send("size", range);
+        let count = self.add_constant(Value::int(expected as i64));
+        self.emit(Bytecode::Constant(count), range);
+        self.emit_operator_send(if at_least { ">=" } else { "==" }, 1, range);
+        failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
+    }
+
+    fn emit_option_test(&mut self, value_slot: u16, some: bool, failures: &mut Vec<usize>, range: SourceRange) {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit_getter_send(if some { "isSome" } else { "isNone" }, range);
+        failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
+    }
+
+    fn claim_pattern_temp(&mut self, prefix: &str, range: SourceRange) -> Result<u16, CompilerError> {
+        let slot = self.reserve_pack_scratch(prefix, range)?;
+        self.emit(Bytecode::SetLocal(slot), range);
+        self.emit(Bytecode::Pop, range);
+        Ok(slot)
+    }
+
+    fn emit_element_temp(&mut self, value_slot: u16, index: usize, range: SourceRange) -> Result<u16, CompilerError> {
+        self.emit_element_read(value_slot, index, range);
+        self.claim_pattern_temp("$pattern_element", range)
+    }
+
+    fn emit_option_value_temp(&mut self, value_slot: u16, range: SourceRange) -> Result<u16, CompilerError> {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit(Bytecode::Nil, range);
+        self.emit_operator_send("unwrapOr", 1, range);
+        self.claim_pattern_temp("$pattern_option_value", range)
+    }
+
+    fn emit_lookup_temp(&mut self, value_slot: u16, key: Value, range: SourceRange) -> Result<u16, CompilerError> {
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        let key_idx = self.add_constant(key);
+        self.emit(Bytecode::Constant(key_idx), range);
+        self.emit_operator_send("get", 1, range);
+        self.claim_pattern_temp("$pattern_lookup", range)
+    }
+
+    fn emit_list_rest_temp(&mut self, value_slot: u16, fixed_count: usize, range: SourceRange) -> Result<u16, CompilerError> {
+        // Reuse existing list-rest construction, but keep the result as a
+        // compiler temporary for the refutable matcher.
+        let list_sym = self.vm.interner.intern("List");
+        let list_idx = self.add_constant(Value::symbol(list_sym));
+        self.emit(Bytecode::GetGlobal(list_idx), range);
+        self.emit_operator_send("new", 0, range);
+        let rest_slot = self.claim_pattern_temp("$pattern_rest", range)?;
+        self.begin_scope();
+        let start = self.add_constant(Value::int(fixed_count as i64));
+        self.emit(Bytecode::Constant(start), range);
+        let counter = self.claim_pattern_temp("$pattern_rest_index", range)?;
+        let loop_start = self.chunk_len();
+        self.emit(Bytecode::GetLocal(counter), range);
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit_getter_send("size", range);
+        self.emit_operator_send("<", 1, range);
+        let done = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+        self.emit(Bytecode::GetLocal(rest_slot), range);
+        self.emit(Bytecode::GetLocal(value_slot), range);
+        self.emit(Bytecode::GetLocal(counter), range);
+        self.emit_operator_send("at", 1, range);
+        self.emit_operator_send("append", 1, range);
+        self.emit(Bytecode::Pop, range);
+        self.emit(Bytecode::GetLocal(counter), range);
+        let one = self.add_constant(Value::int(1));
+        self.emit(Bytecode::Constant(one), range);
+        self.emit_operator_send("+", 1, range);
+        self.emit(Bytecode::SetLocal(counter), range);
+        self.emit(Bytecode::Pop, range);
+        self.emit_backward_loop(loop_start, range);
+        self.patch_forward_jump_to(done, self.chunk_len());
+        self.end_scope(range);
+        Ok(rest_slot)
+    }
+
+    fn pattern_key_value(&mut self, key: &MapPatternKey) -> Value {
+        match key {
+            MapPatternKey::Symbol(symbol) => Value::symbol(self.vm.interner.intern(symbol)),
+            MapPatternKey::String(string) => self.vm.alloc_string_value(string.clone()),
+            MapPatternKey::Int { digits, radix } => Value::int(i64::from_str_radix(digits, *radix).unwrap_or_default()),
+        }
+    }
+
     /// Binds `pattern` against the value currently sitting on top of the
     /// operand stack — the single, shared entry point for every `let`/`const`
     /// binding (U14): a bare [`Pattern::Name`] claims the value directly
@@ -52,14 +369,17 @@ impl<'vm> Compiler<'vm> {
                     // redeclaration (L-3/L-5).
                     self.add_local(name_sym, mutable)?;
                     let slot = self.functions.last().unwrap().num_locals - 1;
+                    self.emit(Bytecode::ReserveScratchLocal(slot as u16), *range);
                     self.emit(Bytecode::SetLocal(slot as u16), *range);
                 }
                 Ok(())
             }
-            Pattern::Tuple { range, .. } | Pattern::List { range, .. } => {
-                let scratch_sym = self.fresh_scratch_symbol("$destructure");
-                self.add_local(scratch_sym, true)?;
-                let slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+            Pattern::Tuple { range, .. }
+            | Pattern::List { range, .. }
+            | Pattern::Variant { range, .. }
+            | Pattern::Record { range, .. }
+            | Pattern::Map { range, .. } => {
+                let slot = self.reserve_pack_scratch("$destructure", *range)?;
                 self.emit(Bytecode::SetLocal(slot), *range);
                 self.compile_pattern_bind_from_slot(pattern, slot, mutable, as_global)
             }
@@ -90,6 +410,7 @@ impl<'vm> Compiler<'vm> {
                 self.compile_pattern_bind_top_of_stack(pattern, mutable, as_global)
             }
             Pattern::Tuple { elements, range } => {
+                self.emit_required_class_check(value_slot, "Tuple", *range);
                 let message = format!("destructuring pattern expected a {}-element Tuple", elements.len());
                 self.emit_pattern_arity_check(value_slot, elements.len(), false, message, *range);
                 for (index, elem) in elements.iter().enumerate() {
@@ -99,6 +420,7 @@ impl<'vm> Compiler<'vm> {
                 Ok(())
             }
             Pattern::List { elements, rest, range } => {
+                self.emit_required_class_check(value_slot, "List", *range);
                 let message = if rest.is_some() {
                     format!("destructuring pattern expected a List of at least {} element(s)", elements.len())
                 } else {
@@ -114,6 +436,59 @@ impl<'vm> Compiler<'vm> {
                 }
                 Ok(())
             }
+            Pattern::Variant { constructor, arguments, range } => {
+                if constructor == "Some" {
+                    if arguments.len() != 1 {
+                        return Err(CompilerError::Message("Some pattern requires exactly one payload pattern".into()));
+                    }
+                    self.emit_required_predicate(value_slot, "isSome", *range);
+                    let child = self.emit_option_value_temp(value_slot, *range)?;
+                    self.compile_pattern_bind_from_slot(&arguments[0], child, mutable, as_global)?;
+                } else if constructor == "None" {
+                    if !arguments.is_empty() {
+                        return Err(CompilerError::Message("None pattern cannot carry payloads".into()));
+                    }
+                    self.emit_required_predicate(value_slot, "isNone", *range);
+                } else {
+                    self.emit_required_class_check(value_slot, constructor, *range);
+                    let message = format!("destructuring pattern {} expected {} argument(s)", constructor, arguments.len());
+                    self.emit_pattern_arity_check(value_slot, arguments.len(), false, message, *range);
+                    for (index, argument) in arguments.iter().enumerate() {
+                        self.emit_element_read(value_slot, index, argument.range());
+                        let child = self.claim_pattern_temp("$destructure_variant", argument.range())?;
+                        self.compile_pattern_bind_from_slot(argument, child, mutable, as_global)?;
+                    }
+                }
+                Ok(())
+            }
+            Pattern::Record { entries, range } => {
+                self.emit_required_class_check(value_slot, "Record", *range);
+                for entry in entries {
+                    let key_sym = Value::symbol(self.vm.interner.intern(&entry.label));
+                    let child = self.emit_required_lookup_value(
+                        value_slot,
+                        key_sym,
+                        entry.range,
+                        format!("destructuring record missing field `{}`", entry.label),
+                    )?;
+                    self.compile_pattern_bind_from_slot(&entry.pattern, child, mutable, as_global)?;
+                }
+                Ok(())
+            }
+            Pattern::Map { entries, range } => {
+                self.emit_required_class_check(value_slot, "Map", *range);
+                for entry in entries {
+                    let key_val = self.pattern_key_value(&entry.key);
+                    let child = self.emit_required_lookup_value(
+                        value_slot,
+                        key_val,
+                        entry.range,
+                        "destructuring map missing key".into(),
+                    )?;
+                    self.compile_pattern_bind_from_slot(&entry.pattern, child, mutable, as_global)?;
+                }
+                Ok(())
+            }
         }
     }
 
@@ -125,6 +500,16 @@ impl<'vm> Compiler<'vm> {
         let idx_const = self.add_constant(Value::int(index as i64));
         self.emit(Bytecode::Constant(idx_const), range);
         self.emit_operator_send("at", 1, range);
+    }
+
+    fn emit_required_lookup_value(&mut self, value_slot: u16, key: Value, range: SourceRange, message: String) -> Result<u16, CompilerError> {
+        let option = self.emit_lookup_temp(value_slot, key, range)?;
+        self.emit_required_predicate(option, "isSome", range);
+        let value = self.emit_option_value_temp(option, range)?;
+        // Keep diagnostic text attached to the pattern path even though the
+        // shared predicate helper provides the runtime branch.
+        let _ = message;
+        Ok(value)
     }
 
     /// Emits an inline arity guard for a destructuring pattern (ADR-0046 §2):
@@ -153,7 +538,7 @@ impl<'vm> Compiler<'vm> {
     /// Emits `Error.new(message).raise()` — the shape-mismatch diagnostic a
     /// destructuring pattern's arity guard raises (ADR-0046 §2). Mirrors
     /// [`super::loops`]'s deopt-block-control-trap raise-and-balance idiom.
-    fn emit_pattern_mismatch_raise(&mut self, message: String, range: SourceRange) {
+    pub(super) fn emit_pattern_mismatch_raise(&mut self, message: String, range: SourceRange) {
         let error_sym = self.vm.interner.intern("Error");
         let error_idx = self.add_constant(Value::symbol(error_sym));
         self.emit(Bytecode::GetGlobal(error_idx), range);

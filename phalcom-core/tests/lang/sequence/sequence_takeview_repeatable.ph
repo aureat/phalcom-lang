@@ -7,12 +7,12 @@ let source = [1, 2, 3, 4, 5]
 let view = source.iter.take(3)
 
 let result1 = []
-for (x in view) {
+for x in view {
   result1.append(x)
 }
 
 let result2 = []
-for (x in view) {
+for x in view {
   result2.append(x)
 }
 

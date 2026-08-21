@@ -21,6 +21,7 @@ pub mod range;
 pub mod record;
 pub mod reflection;
 pub mod resource;
+pub mod selector_pattern;
 pub mod set;
 pub mod string;
 pub mod symbol;

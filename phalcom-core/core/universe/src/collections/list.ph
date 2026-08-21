@@ -144,7 +144,7 @@ class List {
   removeAll(where predicate) {
     let retained = List.new()
     let count = 0
-    for (x in self) {
+    for x in self {
       if (predicate.call(x)) {
         count = count + 1
       } else {
@@ -179,7 +179,7 @@ class List {
 
   // U-STD item 4 (U-ITER-FIX plan §"Not in this unit", DEC-ITER-A resolved):
   // drives the cursor protocol (`iterate(_)`/`iteratorValue(_)`, ADR-0035 §1)
-  // rather than a raw `size`/`at(_)` index walk. `for (x in self)` compiles
+  // rather than a raw `size`/`at(_)` index walk. `for x in self` compiles
   // to the same `Invoke`-only `iterate`/`iteratorValue`/`isSome` loop as any
   // user iterable (spec §3.1) — no `block_call`, no index math — so `each`
   // (and everything below built over it: `map`/`filter`/`reduce`/`includes`)

@@ -55,6 +55,7 @@ impl VM {
             // Module handles.
             module_registry,
             runtime_roots,
+            semantic_roots,
 
             // Named class handles.
             classes,
@@ -126,7 +127,13 @@ impl VM {
         out.extend(classes.values().copied());
         out.extend(sealed_classes.values().copied());
         out.extend(checking.iter().copied());
-        reflection_cache.trace(&mut |id| out.push(id));
+            reflection_cache.trace(&mut |id| out.push(id));
+        for value in [semantic_roots.unsupported, semantic_roots.ellipsis] {
+            if let Some(id) = value.gc_obj_ref() {
+                out.push(id);
+            }
+        }
+        out.push(semantic_roots.ordering_class);
         universe.each_handle(&mut |id| out.push(id));
     }
 

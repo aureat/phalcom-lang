@@ -54,7 +54,13 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn patch_forward_jump_to(&mut self, idx: usize, target: usize) {
         let offset = target as i32 - (idx as i32 + 1);
         match &mut self.functions.last_mut().unwrap().chunk.code[idx] {
-            Bytecode::Jump(o) | Bytecode::JumpIfFalse(o) | Bytecode::JumpIfNone(o) | Bytecode::GuardBool(o) | Bytecode::GuardBlock(o) => *o = offset,
+            Bytecode::Jump(o)
+            | Bytecode::JumpIfFalse(o)
+            | Bytecode::JumpIfNone(o)
+            | Bytecode::JumpIfUnsupported(o)
+            | Bytecode::GuardBool(o)
+            | Bytecode::GuardBlock(o) => *o = offset,
+            Bytecode::TryInvokeExact { missing_offset, .. } => *missing_offset = offset,
             other => unreachable!("patch_forward_jump_to on a non-jump opcode: {other:?}"),
         }
     }

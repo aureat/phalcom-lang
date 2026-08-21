@@ -274,13 +274,14 @@ fn map_key_overwrite_and_remove_idempotence() {
     let missing = send1(&mut vm, map, "get(_)", Value::int(999));
     assert!(missing.is_none());
 
-    // remove(absent) is a no-op returning self.
+    // remove(absent) is a no-op returning None.
     let returned = send1(&mut vm, map, "remove(_)", Value::int(999));
-    assert_eq!(returned, map, "remove(absent) returns self");
+    assert_eq!(returned, Value::none(), "remove(absent) returns None");
     assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "remove(absent) must not shrink size");
 
-    // remove(present) actually deletes.
-    send1(&mut vm, map, "remove(_)", Value::int(1));
+    // remove(present) actually deletes and returns Some(value).
+    let removed_present = send1(&mut vm, map, "remove(_)", Value::int(1));
+    assert_eq!(removed_present, Value::int(20).wrap_some().unwrap(), "remove(present) returns Some(value)");
     assert_eq!(as_number(send0(&mut vm, map, "size")), 0.0, "remove(present) must shrink size");
 }
 

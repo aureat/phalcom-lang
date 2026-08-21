@@ -7,7 +7,7 @@ class Iterable {
   }
 
   each(_ f) {
-    for (x in self) {
+    for x in self {
       f.call(x)
     }
     return ()
@@ -91,22 +91,24 @@ class Iterable {
 
   isEmpty { self.size == 0 }
 
+  indexed { IndexedIterable.new(self) }
+
   all(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifFalse || { return false }
     }
     return true
   }
 
   any(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return true }
     }
     return false
   }
 
   none(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return false }
     }
     return true
@@ -114,18 +116,18 @@ class Iterable {
 
   count {
     let n = 0
-    for (x in self) { n = n + 1 }
+    for x in self { n = n + 1 }
     return n
   }
 
   count(where f) {
     let n = 0
-    for (x in self) { f.call(x).ifTrue || { n = n + 1 } }
+    for x in self { f.call(x).ifTrue || { n = n + 1 } }
     return n
   }
 
   find(where f) {
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return Some(x) }
     }
     return None
@@ -133,7 +135,7 @@ class Iterable {
 
   index(where f) {
     let index = 0
-    for (x in self) {
+    for x in self {
       f.call(x).ifTrue || { return Some(index) }
       index = index + 1
     }
@@ -149,7 +151,7 @@ class Iterable {
     // joining large collections should be aware of this limitation.
     let first = true
     let result = ""
-    for (x in self) {
+    for x in self {
       first.ifFalse || { result = result + sep }
       first = false
       result = result + x.toString
@@ -162,7 +164,7 @@ class Iterable {
   // retained as an alias.
   fold(initial initial, using f) {
     let acc = initial
-    for (x in self) {
+    for x in self {
       acc = f.call(acc, x)
     }
     return acc
@@ -183,7 +185,7 @@ class Iterable {
 
   group(by block) {
     let result = Map.new()
-    for (x in self) {
+    for x in self {
       let key = block.call(x)
       let list = result.get(key).match(
         some: |list| { list },
@@ -201,7 +203,7 @@ class Iterable {
   partition(where predicate) {
     let accepted = List.new()
     let rejected = List.new()
-    for (x in self) {
+    for x in self {
       predicate.call(x).ifTrue(|| { accepted.append(x) }, ifFalse: || { rejected.append(x) })
     }
     return (accepted, rejected)
@@ -209,7 +211,7 @@ class Iterable {
 
   toSet {
     let result = Set.new()
-    for (x in self) {
+    for x in self {
       result.add(x)
     }
     return result
@@ -217,7 +219,7 @@ class Iterable {
 
   toMap {
     let result = Map.new()
-    for (entry in self) {
+    for entry in self {
       let key = entry.key
       if (result.includes(key)) {
         return Err.new(DuplicateKeyError.new(key))
@@ -229,7 +231,7 @@ class Iterable {
 
   toMap(merging block) {
     let result = Map.new()
-    for (entry in self) {
+    for entry in self {
       let key = entry.key
       let val = entry.value
       result.get(key).match(
@@ -247,11 +249,84 @@ class Iterable {
 
   toList {
     let result = List.new()
-    for (x in self) { result.append(x) }
+    for x in self { result.append(x) }
     return result
   }
 
   iter { SourceIterator.new(self) }
+}
+
+// First-class value-level view for ordinal iteration. The source cursor is
+// opaque; the view carries it beside its own zero-based ordinal.
+class IndexedIterable is Iterable {
+  @constructor
+  new(_ source) { _source = source }
+
+  size { _source.size }
+
+  iterate(_ cursor) {
+    let source_cursor = (cursor == None).ifTrue(|| { None }, ifFalse: || { cursor.at(0) })
+    let next = _source.iterate(source_cursor)
+    if (next == None) { return None }
+    let ordinal = (cursor == None).ifTrue(|| { 0 }, ifFalse: || { cursor.at(1) + 1 })
+    (next, ordinal)
+  }
+
+  iteratorValue(_ cursor) { (cursor.at(1), _source.iteratorValue(cursor.at(0))) }
+}
+
+// Strict lockstep view used by Tuple#zipped. Every source must expose the
+// same size; a mismatch raises before a truncated result can escape.
+class ZippedIterable is Iterable {
+  @constructor
+  new(_ sources) { _sources = sources }
+
+  size {
+    if (_sources.size == 0) { return 0 }
+    let expected = _sources.at(0).size
+    let i = 1
+    while (i < _sources.size) {
+      if (_sources.at(i).size != expected) {
+        throw ArgumentError.new("zipped iterables must have equal lengths")
+      }
+      i = i + 1
+    }
+    expected
+  }
+
+  iterate(_ cursor) {
+    let next = List.new()
+    let any_live = false
+    let any_none = false
+    let i = 0
+    while (i < _sources.size) {
+      let source = _sources.at(i)
+      let previous = (cursor == None).ifTrue(|| { None }, ifFalse: || { cursor.at(i) })
+      let candidate = source.iterate(previous)
+      next.append(candidate)
+      if (candidate == None) {
+        any_none = true
+      } else {
+        any_live = true
+      }
+      i = i + 1
+    }
+    if (any_none and any_live) {
+      throw ArgumentError.new("zipped iterables must end together")
+    }
+    if (any_none) { return None }
+    Tuple._$fromList(next)
+  }
+
+  iteratorValue(_ cursor) {
+    let values = List.new()
+    let i = 0
+    while (i < _sources.size) {
+      values.append(_sources.at(i).iteratorValue(cursor.at(i)))
+      i = i + 1
+    }
+    Tuple._$fromList(values)
+  }
 }
 
 // Stateless lazy pipeline root. Traversal state is carried only in cursors,

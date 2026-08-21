@@ -4,3 +4,5 @@ expose .object
 expose .behavior
 expose .class
 expose .metaclass
+expose .ellipsis
+expose .ordering

@@ -378,6 +378,24 @@ impl InterfaceBuilder {
                 }
                 Ok(())
             }
+            Pattern::Variant { arguments, .. } => {
+                for argument in arguments {
+                    Self::collect_pattern_declarations(argument, is_const, namespace, declarations)?;
+                }
+                Ok(())
+            }
+            Pattern::Record { entries, .. } => {
+                for entry in entries {
+                    Self::collect_pattern_declarations(&entry.pattern, is_const, namespace, declarations)?;
+                }
+                Ok(())
+            }
+            Pattern::Map { entries, .. } => {
+                for entry in entries {
+                    Self::collect_pattern_declarations(&entry.pattern, is_const, namespace, declarations)?;
+                }
+                Ok(())
+            }
         }
     }
 }

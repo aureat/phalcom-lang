@@ -6,7 +6,7 @@
 let source = [1, 2, 3, 4, 5]
 let view = source.iter.filter |x| { x > 2 }
 let result = []
-for (x in view) {
+for x in view {
   result.append(x)
 }
 System.print(result.at(0))

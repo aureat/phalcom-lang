@@ -113,6 +113,32 @@ pub struct SelectorPatternMismatchContext {
     pub receiver: Value,
 }
 
+/// Diagnostic payload for a bilateral operator whose direct and reflected
+/// protocol candidates both declined or were absent.
+#[derive(Debug, Clone)]
+pub struct UnsupportedOperationContext {
+    /// Written operator spelling.
+    pub operator: String,
+    /// Runtime class of the left operand.
+    pub lhs: String,
+    /// Runtime class of the right operand.
+    pub rhs: String,
+    /// Direct selector considered.
+    pub direct: String,
+    /// Reflected selector considered.
+    pub reflected: String,
+}
+
+impl std::fmt::Display for UnsupportedOperationContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "unsupported operands for `{}`: {} and {} (tried `{}` then `{}`)",
+            self.operator, self.lhs, self.rhs, self.direct, self.reflected
+        )
+    }
+}
+
 impl std::fmt::Display for SelectorPatternMismatchContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -172,6 +198,18 @@ pub enum RuntimeError {
     /// this is distinct from a later `doesNotUnderstand` dispatch miss.
     #[error("{0}")]
     SelectorPatternMismatch(Box<SelectorPatternMismatchContext>),
+
+    #[error("{0}")]
+    UnsupportedOperation(Box<UnsupportedOperationContext>),
+
+    #[error("compare(_) returned {}, expected Ordering", found)]
+    InvalidCompareReturn { found: String },
+
+    #[error("strict zip lanes ended at different lengths")]
+    StrictZipLengthMismatch,
+
+    #[error("pattern did not match")]
+    PatternMismatch,
 
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },

@@ -7,9 +7,9 @@
 // one open upvalue cell and printed [3, 3, 3]; each iteration now closes its
 // own cell before rebinding, so calling them afterward prints [0, 1, 2].
 let closures = []
-for (x in [0, 1, 2]) {
+for x in [0, 1, 2] {
   closures.append(|| { x })
 }
-for (c in closures) {
+for c in closures {
   System.print(c.call())
 }

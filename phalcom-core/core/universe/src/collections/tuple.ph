@@ -137,6 +137,8 @@ class Tuple {
 
   iteratorValue(_ cursor) { self._$at(cursor) }
 
+  zipped { ZippedIterable.new(self) }
+
   // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
   ==(_ other) {

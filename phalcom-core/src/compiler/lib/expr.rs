@@ -68,7 +68,7 @@ impl<'vm> Compiler<'vm> {
         })
     }
 
-    fn reserve_pack_scratch(&mut self, base: &str, range: SourceRange) -> Result<u16, CompilerError> {
+    pub(super) fn reserve_pack_scratch(&mut self, base: &str, range: SourceRange) -> Result<u16, CompilerError> {
         let name = self.fresh_scratch_symbol(base);
         self.add_local(name, true)?;
         let slot = (self.functions.last().unwrap().num_locals - 1) as u16;
@@ -76,7 +76,13 @@ impl<'vm> Compiler<'vm> {
         Ok(slot)
     }
 
-    fn release_pack_scratch_from(&mut self, first_slot: u16, count: usize, range: SourceRange) {
+    fn emit_release_scratch_range(&mut self, first_slot: u16, count: usize, range: SourceRange) {
+        for slot in (first_slot as usize..first_slot as usize + count).rev() {
+            self.emit(Bytecode::ReleaseScratchLocal(slot as u16), range);
+        }
+    }
+
+    pub(super) fn release_pack_scratch_from(&mut self, first_slot: u16, count: usize, range: SourceRange) {
         let function = self.functions.last().unwrap();
         debug_assert_eq!(function.locals.len(), function.num_locals);
         debug_assert_eq!(first_slot as usize + count, function.num_locals);
@@ -1203,7 +1209,7 @@ impl<'vm> Compiler<'vm> {
                 // handed to the same guarded-jump emitter `a.and { b }`
                 // uses (`inliner.rs`), not a plain send.
                 let range = binary_expr.range;
-                match binary_expr.op {
+                match binary_expr.op.clone() {
                     BinaryOp::And => {
                         // The left operand is a branch condition (control-flow
                         // .md §2); reject a literal `Option` there (BD-U6-1).
@@ -1231,6 +1237,26 @@ impl<'vm> Compiler<'vm> {
                             },
                             range,
                         );
+                    }
+                    BinaryOp::Same => {
+                        self.compile_expr(binary_expr.left)?;
+                        self.compile_expr(binary_expr.right)?;
+                        self.emit(Bytecode::Same, range);
+                    }
+                    BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::IntegerDivide
+                    | BinaryOp::Power
+                    | BinaryOp::Modulo
+                    | BinaryOp::ShiftLeft
+                    | BinaryOp::ShiftRight
+                    | BinaryOp::BitAnd
+                    | BinaryOp::BitXor
+                    | BinaryOp::BitOr
+                    | BinaryOp::Compare => {
+                        self.compile_bilateral_binary(binary_expr.left, binary_expr.right, &binary_expr.op, range)?;
                     }
                     op => {
                         self.compile_expr(binary_expr.left)?;
@@ -1355,12 +1381,317 @@ impl<'vm> Compiler<'vm> {
               //     // For now, push Nil as a placeholder for the return value
               //     self.emit(Bytecode::Nil);
               // }
+            Expr::ComparisonChain(chain) => {
+                if chain.operands.len() < 2 || chain.operators.len() + 1 != chain.operands.len() {
+                    return Err(CompilerError::Message("invalid comparison chain".into()));
+                }
+                // Locals are stack-backed in this VM. Keep each claimed value
+                // in its slot and evaluate each next operand only after the
+                // preceding relation succeeds.
+                let first_chain_slot = self.reserve_pack_scratch("$chain_operand", chain.range)?;
+                let mut operand_slots = Vec::with_capacity(chain.operands.len());
+                let mut false_jumps = Vec::with_capacity(chain.operators.len());
+                for (index, operand) in chain.operands.iter().enumerate() {
+                    let slot = if index == 0 {
+                        first_chain_slot
+                    } else {
+                        self.reserve_pack_scratch("$chain_operand", chain.range)?
+                    };
+                    self.compile_expr(operand.clone())?;
+                    self.emit(Bytecode::SetLocal(slot), chain.range);
+                    self.emit(Bytecode::Pop, chain.range);
+                    operand_slots.push(slot);
+
+                    if index == 0 {
+                        continue;
+                    }
+
+                    match &chain.operators[index - 1] {
+                        phalcom_ast::ast::RelationOp::Binary(op) => {
+                            self.emit(Bytecode::GetLocal(operand_slots[index - 1]), chain.range);
+                            self.emit(Bytecode::GetLocal(operand_slots[index]), chain.range);
+                            if matches!(op, BinaryOp::Same) {
+                                self.emit(Bytecode::Same, chain.range);
+                            } else {
+                                self.emit_operator_send(binary_op_selector_name(op), 1, chain.range);
+                            }
+                        }
+                        phalcom_ast::ast::RelationOp::Matches => {
+                            // `candidate matches pattern` owns matching on
+                            // RHS: lower to `pattern.matches(candidate)`.
+                            self.emit(Bytecode::GetLocal(operand_slots[index]), chain.range);
+                            self.emit(Bytecode::GetLocal(operand_slots[index - 1]), chain.range);
+                            self.emit_operator_send("matches", 1, chain.range);
+                        }
+                        phalcom_ast::ast::RelationOp::Understands => {
+                            self.emit(Bytecode::GetLocal(operand_slots[index - 1]), chain.range);
+                            self.emit(Bytecode::GetLocal(operand_slots[index]), chain.range);
+                            self.emit_operator_send("understands", 1, chain.range);
+                        }
+                    }
+                    let result_slot = self.reserve_pack_scratch("$chain_result", chain.range)?;
+                    self.emit(Bytecode::SetLocal(result_slot), chain.range);
+                    self.emit(Bytecode::Pop, chain.range);
+                    self.emit(Bytecode::GetLocal(result_slot), chain.range);
+                    false_jumps.push(self.emit_forward_jump(Bytecode::JumpIfFalse, chain.range));
+                }
+                self.emit(Bytecode::True, chain.range);
+                let success_jump = self.emit_forward_jump(Bytecode::Jump, chain.range);
+                let false_label = self.chunk_len();
+                for &jump in &false_jumps {
+                    self.patch_forward_jump_to(jump, false_label);
+                }
+                self.emit(Bytecode::False, chain.range);
+                let end = self.chunk_len();
+                self.patch_forward_jump_to(success_jump, end);
+                self.release_pack_scratch_from(first_chain_slot, operand_slots.len() + chain.operators.len(), chain.range);
+            }
+            Expr::IfLet(if_let) => self.compile_if_let(*if_let)?,
+            Expr::WhileLet(while_let) => self.compile_while_let(*while_let)?,
+            Expr::Ellipsis { range } => {
+                self.emit(Bytecode::GetEllipsis, range);
+            }
         }
         Ok(())
     }
 }
 
 impl<'vm> Compiler<'vm> {
+    fn compile_bilateral_binary(&mut self, left: Expr, right: Expr, op: &BinaryOp, range: SourceRange) -> Result<(), CompilerError> {
+        let (operator, direct_name, reflected_name, compare) = bilateral_operator_spec(op);
+        let left_slot = self.reserve_pack_scratch("$bilateral_left", range)?;
+        self.compile_expr(left)?;
+        self.emit(Bytecode::SetLocal(left_slot), range);
+        self.emit(Bytecode::Pop, range);
+        let right_slot = self.reserve_pack_scratch("$bilateral_right", range)?;
+        self.compile_expr(right)?;
+        self.emit(Bytecode::SetLocal(right_slot), range);
+        self.emit(Bytecode::Pop, range);
+
+        let direct_selector = encode_selector(direct_name, &[None], SignatureKind::Method(1));
+        let direct_symbol = self.vm.interner.intern(&direct_selector);
+        let direct = self.add_constant(Value::symbol(direct_symbol));
+        let reflected_selector = if compare {
+            encode_selector(reflected_name, &[None], SignatureKind::Method(1))
+        } else {
+            encode_selector(reflected_name, &[Some("from".to_string())], SignatureKind::Method(1))
+        };
+        let reflected_symbol = self.vm.interner.intern(&reflected_selector);
+        let reflected = self.add_constant(Value::symbol(reflected_symbol));
+        let operator_symbol = self.vm.interner.intern(operator);
+        let operator_idx = self.add_constant(Value::symbol(operator_symbol));
+
+        self.emit(Bytecode::GetLocal(left_slot), range);
+        self.emit(Bytecode::GetLocal(right_slot), range);
+        self.emit(Bytecode::BilateralPreferReflected(reflected), range);
+        let direct_first = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+
+        // Reflected-first path. Remove the preference probe's operand pair and
+        // rebuild it in reflected receiver/argument orientation.
+        self.emit(Bytecode::Pop, range);
+        self.emit(Bytecode::Pop, range);
+        self.emit(Bytecode::GetLocal(right_slot), range);
+        self.emit(Bytecode::GetLocal(left_slot), range);
+        let reflected_try = self.chunk_len();
+        self.emit(
+            Bytecode::TryInvokeExact {
+                arity: 1,
+                selector: reflected,
+                missing_offset: 0,
+            },
+            range,
+        );
+        let reflected_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
+        if compare {
+            self.emit(Bytecode::ValidateOrdering { reverse: true }, range);
+        }
+        let mut success_jumps = vec![self.emit_forward_jump(Bytecode::Jump, range)];
+
+        let direct_first_label = self.chunk_len();
+        self.patch_forward_jump_to(direct_first, direct_first_label);
+        let direct_try = self.chunk_len();
+        self.emit(
+            Bytecode::TryInvokeExact {
+                arity: 1,
+                selector: direct,
+                missing_offset: 0,
+            },
+            range,
+        );
+        let direct_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
+        if compare {
+            self.emit(Bytecode::ValidateOrdering { reverse: false }, range);
+        }
+        success_jumps.push(self.emit_forward_jump(Bytecode::Jump, range));
+
+        // Direct-first fallback to reflected candidate.
+        let reflected_after_direct = self.chunk_len();
+        self.patch_forward_jump_to(direct_decline, reflected_after_direct);
+        self.emit(Bytecode::GetLocal(right_slot), range);
+        self.emit(Bytecode::GetLocal(left_slot), range);
+        let reflected_second_try = self.chunk_len();
+        self.emit(
+            Bytecode::TryInvokeExact {
+                arity: 1,
+                selector: reflected,
+                missing_offset: 0,
+            },
+            range,
+        );
+        let reflected_second_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
+        if compare {
+            self.emit(Bytecode::ValidateOrdering { reverse: true }, range);
+        }
+        success_jumps.push(self.emit_forward_jump(Bytecode::Jump, range));
+
+        // Reflected-first fallback to direct candidate.
+        let direct_after_reflected = self.chunk_len();
+        self.patch_forward_jump_to(reflected_decline, direct_after_reflected);
+        self.emit(Bytecode::GetLocal(left_slot), range);
+        self.emit(Bytecode::GetLocal(right_slot), range);
+        let direct_second_try = self.chunk_len();
+        self.emit(
+            Bytecode::TryInvokeExact {
+                arity: 1,
+                selector: direct,
+                missing_offset: 0,
+            },
+            range,
+        );
+        let direct_second_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
+        if compare {
+            self.emit(Bytecode::ValidateOrdering { reverse: false }, range);
+        }
+        success_jumps.push(self.emit_forward_jump(Bytecode::Jump, range));
+
+        let unsupported_label = self.chunk_len();
+        for jump in [reflected_second_decline, direct_second_decline] {
+            self.patch_forward_jump_to(jump, unsupported_label);
+        }
+        self.patch_forward_jump_to(reflected_try, direct_after_reflected);
+        self.patch_forward_jump_to(direct_try, reflected_after_direct);
+        self.patch_forward_jump_to(reflected_second_try, unsupported_label);
+        self.patch_forward_jump_to(direct_second_try, unsupported_label);
+        self.emit(Bytecode::GetLocal(left_slot), range);
+        self.emit(Bytecode::GetLocal(right_slot), range);
+        self.emit(
+            Bytecode::RaiseUnsupported {
+                operator: operator_idx,
+                direct,
+                reflected,
+            },
+            range,
+        );
+        let cleanup = self.chunk_len();
+        for jump in success_jumps {
+            self.patch_forward_jump_to(jump, cleanup);
+        }
+        self.release_pack_scratch_from(left_slot, 2, range);
+        Ok(())
+    }
+
+    fn compile_if_let(&mut self, node: phalcom_ast::ast::IfLetExpr) -> Result<(), CompilerError> {
+        let range = node.range;
+        self.begin_scope();
+        self.compile_expr(node.value)?;
+        let value_slot = self.reserve_pack_scratch("$if_let_value", range)?;
+        self.emit(Bytecode::SetLocal(value_slot), range);
+        self.emit(Bytecode::Pop, range);
+
+        // Pattern names live only in then-body. Keep their declaration scope
+        // separate so an else-body cannot resolve them accidentally.
+        self.begin_scope();
+        let pattern_base = self.functions.last().unwrap().num_locals;
+        self.declare_pattern_locals(&node.pattern, false)?;
+        let mut failures = Vec::new();
+        self.emit_pattern_match_tests(&node.pattern, value_slot, &mut failures)?;
+        self.commit_pattern_bindings(&node.pattern, value_slot)?;
+        let match_local_count = self.functions.last().unwrap().num_locals - pattern_base;
+        self.compile_inline_block_body(node.then_body)?;
+        self.end_scope(range);
+        if node.else_body.is_none() {
+            self.emit(Bytecode::WrapSome, range);
+        }
+        self.emit_release_scratch_range(pattern_base as u16, match_local_count, range);
+        self.emit_release_scratch_range(value_slot, 1, range);
+        let success_end = self.emit_forward_jump(Bytecode::Jump, range);
+
+        let failure_label = self.chunk_len();
+        for jump in failures {
+            self.patch_forward_jump_to(jump, failure_label);
+        }
+        self.emit_release_scratch_range(pattern_base as u16, match_local_count, range);
+        self.emit_release_scratch_range(value_slot, 1, range);
+        if let Some(else_body) = node.else_body {
+            self.compile_inline_block_body(else_body)?;
+        } else {
+            self.emit(Bytecode::Nil, range);
+        }
+        let end = self.chunk_len();
+        self.patch_forward_jump_to(success_end, end);
+        self.end_scope(range);
+        Ok(())
+    }
+
+    fn compile_while_let(&mut self, node: phalcom_ast::ast::WhileLetExpr) -> Result<(), CompilerError> {
+        let range = node.range;
+        self.begin_scope();
+
+        // Reserve the value slot once; each loop attempt overwrites it after
+        // evaluating the RHS exactly once.
+        let value_slot = self.reserve_pack_scratch("$while_let_value", range)?;
+        self.emit(Bytecode::Nil, range);
+        self.emit(Bytecode::SetLocal(value_slot), range);
+        self.emit(Bytecode::Pop, range);
+
+        self.begin_scope();
+        self.declare_pattern_locals(&node.pattern, false)?;
+        self.push_loop_context();
+        let loop_start = self.chunk_len();
+        self.compile_expr(node.value)?;
+        self.emit(Bytecode::SetLocal(value_slot), range);
+        let mut failures = Vec::new();
+        self.emit_pattern_match_tests(&node.pattern, value_slot, &mut failures)?;
+        self.commit_pattern_bindings(&node.pattern, value_slot)?;
+
+        self.begin_scope();
+        for statement in node.body {
+            self.compile_statement_with_pop_control(statement, true)?;
+        }
+        self.end_scope(range);
+
+        let step = self.chunk_len();
+        let mut names = Vec::new();
+        collect_pattern_names_for_control(&node.pattern, &mut names);
+        names.sort();
+        names.dedup();
+        for name in names {
+            let symbol = self.vm.interner.intern(&name);
+            if let Some(slot) = self.resolve_local(symbol)
+                && self.functions.last().unwrap().locals[slot].is_captured
+            {
+                self.emit(Bytecode::CloseUpvalue(slot as u16), range);
+            }
+        }
+        self.emit_backward_loop(loop_start, range);
+
+        let exit = self.chunk_len();
+        for jump in failures {
+            self.patch_forward_jump_to(jump, exit);
+        }
+        let (breaks, continues) = self.pop_loop_context();
+        for jump in breaks {
+            self.patch_forward_jump_to(jump, exit);
+        }
+        for jump in continues {
+            self.patch_forward_jump_to(jump, step);
+        }
+        self.end_scope(range);
+        self.end_scope(range);
+        self.emit(Bytecode::Nil, range);
+        Ok(())
+    }
+
     fn compile_product_label(
         &mut self,
         label: ProductLabel,
@@ -1514,11 +1845,61 @@ fn binary_op_selector_name(op: &BinaryOp) -> &'static str {
         BinaryOp::BitXor => "^",
         BinaryOp::BitOr => "|",
         BinaryOp::Equal => "==",
+        BinaryOp::Same => "===",
         BinaryOp::NotEqual => "!=",
         BinaryOp::LessThan => "<",
         BinaryOp::LessThanOrEqual => "<=",
         BinaryOp::GreaterThan => ">",
         BinaryOp::GreaterThanOrEqual => ">=",
+        BinaryOp::Compare => "<=>",
         BinaryOp::And | BinaryOp::Or => unreachable!("and/or are lazy and compiled separately"),
+    }
+}
+
+fn bilateral_operator_spec(op: &BinaryOp) -> (&'static str, &'static str, &'static str, bool) {
+    match op {
+        BinaryOp::Add => ("+", "+", "+", false),
+        BinaryOp::Subtract => ("-", "-", "-", false),
+        BinaryOp::Multiply => ("*", "*", "*", false),
+        BinaryOp::Divide => ("/", "/", "/", false),
+        BinaryOp::IntegerDivide => ("~/", "~/", "~/", false),
+        BinaryOp::Power => ("**", "**", "**", false),
+        BinaryOp::Modulo => ("%", "%", "%", false),
+        BinaryOp::ShiftLeft => ("<<", "<<", "<<", false),
+        BinaryOp::ShiftRight => (">>", ">>", ">>", false),
+        BinaryOp::BitAnd => ("&", "&", "&", false),
+        BinaryOp::BitXor => ("^", "^", "^", false),
+        BinaryOp::BitOr => ("|", "|", "|", false),
+        BinaryOp::Compare => ("<=>", "compare", "compare", true),
+        _ => unreachable!("non-bilateral operator passed to bilateral_operator_spec"),
+    }
+}
+
+fn collect_pattern_names_for_control(pattern: &phalcom_ast::ast::Pattern, out: &mut Vec<String>) {
+    match pattern {
+        phalcom_ast::ast::Pattern::Name { name, .. } => out.push(name.clone()),
+        phalcom_ast::ast::Pattern::Tuple { elements, .. } | phalcom_ast::ast::Pattern::List { elements, .. } => {
+            for element in elements {
+                collect_pattern_names_for_control(element, out);
+            }
+            if let phalcom_ast::ast::Pattern::List { rest: Some(rest), .. } = pattern {
+                collect_pattern_names_for_control(rest, out);
+            }
+        }
+        phalcom_ast::ast::Pattern::Variant { arguments, .. } => {
+            for argument in arguments {
+                collect_pattern_names_for_control(argument, out);
+            }
+        }
+        phalcom_ast::ast::Pattern::Record { entries, .. } => {
+            for entry in entries {
+                collect_pattern_names_for_control(&entry.pattern, out);
+            }
+        }
+        phalcom_ast::ast::Pattern::Map { entries, .. } => {
+            for entry in entries {
+                collect_pattern_names_for_control(&entry.pattern, out);
+            }
+        }
     }
 }

@@ -15,7 +15,7 @@ use crate::error::RuntimeError;
 use crate::expect_value;
 use crate::heap::InstanceObject;
 use crate::heap::Object;
-use crate::method::{ArgumentView, CallOutcome};
+use crate::method::{ArgumentView, CallOutcome, SignatureKind, decode_selector};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -98,8 +98,8 @@ pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     Object,
     "class=(put)",
     params = [Object],
-    returns = Nothing,
-    types = "(Object) -> Nothing",
+    returns = Never,
+    types = "(Object) -> Never",
     flow = never
 )]
 pub fn object_set_class(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -117,6 +117,65 @@ pub fn object_set_class(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
 )]
 pub fn object_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
+}
+
+/// Signature: `Object::===(_)` — exact representation/identity sameness.
+#[phalcom_native_macros::primitive(
+    Object,
+    "===(_)",
+    params = [Object],
+    returns = Bool,
+    types = "(Object) -> Bool",
+    effects = pure
+)]
+pub fn object_same(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::bool(receiver.same_as(&args[0])))
+}
+
+/// Default value-pattern relation. The RHS is the receiver at the lowered
+/// call site, so ordinary objects behave as equality patterns.
+#[phalcom_native_macros::primitive(
+    Object,
+    "matches(_)",
+    params = [Object],
+    returns = Bool,
+    types = "(Object) -> Bool",
+    effects = pure
+)]
+pub fn object_matches(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
+}
+
+/// Reports whether exact selector lookup would succeed, including an
+/// accepting rest-family method. This intentionally bypasses DNU and never
+/// invokes the selected method.
+#[phalcom_native_macros::primitive(
+    Object,
+    "understands(_)",
+    params = [Symbol],
+    returns = Bool,
+    types = "(Symbol) -> Bool",
+    effects = pure
+)]
+pub fn object_understands(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let selector = args.first().and_then(|value| value.symbol_value()).ok_or_else(|| RuntimeError::Type {
+        expected: "Symbol",
+        found: args.first().map_or("missing", Value::type_name),
+    })?;
+    if receiver.lookup_method(vm, selector).is_some() {
+        return Ok(Value::bool(true));
+    }
+    let (name, slots, kind) = decode_selector(vm.resolve_symbol(selector));
+    let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+    let labels = slots
+        .iter()
+        .filter_map(|slot| slot.as_ref())
+        .map(|label| vm.interner.intern(label))
+        .collect::<Vec<_>>();
+    let base = vm.interner.intern(&name);
+    let receiver_class = receiver.class(vm);
+    let accepts_rest = matches!(kind, SignatureKind::Method(_)) && vm.lookup_rest_method(receiver_class, base, positional_count, &labels).is_some();
+    Ok(Value::bool(accepts_rest))
 }
 
 /// Signature: `Object::!=(_)` — the base inequality send; the logical

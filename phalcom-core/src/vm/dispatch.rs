@@ -6,7 +6,7 @@ use crate::frame::{CallContext, CallFrame};
 use crate::heap::BlockObject;
 use crate::heap::ClosureObject;
 use crate::heap::Upvalue;
-use crate::heap::{ObjRef, Object};
+use crate::heap::{ObjRef, Object, is_strict_subclass, lookup_method_with_definer};
 use crate::interner::Symbol;
 use crate::method::{SignatureKind, decode_selector, encode_selector};
 use crate::value::Value;
@@ -1180,6 +1180,7 @@ impl VM {
                     debug!("Pushing constant: {:?}", constant);
                     self.stack.push(constant);
                 }
+                Bytecode::GetEllipsis => self.stack.push(self.semantic_roots.ellipsis),
                 Bytecode::Closure(idx) => {
                     // The constant is the *template* closure the compiler emitted
                     // (empty upvalue list). Materialize a fresh instance whose
@@ -1724,6 +1725,94 @@ impl VM {
                 Bytecode::Invoke(arity, selector_idx) => {
                     self.invoke_at(callable, ip, arity, selector_idx)?;
                 }
+                Bytecode::BilateralPreferReflected(selector_idx) => {
+                    let rhs = *self.stack.last().ok_or(RuntimeError::Internal("missing bilateral rhs".into()))?;
+                    let lhs = *self
+                        .stack
+                        .get(self.stack.len().checked_sub(2).ok_or(RuntimeError::Internal("missing bilateral lhs".into()))?)
+                        .ok_or(RuntimeError::Internal("missing bilateral lhs".into()))?;
+                    let reflected = callable.chunk.constants[selector_idx as usize]
+                        .as_symbol()
+                        .map_err(RuntimeError::Internal)?;
+                    let lhs_class = lhs.class(self);
+                    let rhs_class = rhs.class(self);
+                    let prefer = is_strict_subclass(&self.heap, rhs_class, lhs_class)
+                        && lookup_method_with_definer(&self.heap, rhs_class, reflected)
+                            .is_some_and(|(_, defining)| is_strict_subclass(&self.heap, defining, lhs_class));
+                    self.stack.push(Value::bool(prefer));
+                }
+                Bytecode::TryInvokeExact {
+                    arity,
+                    selector,
+                    missing_offset,
+                } => {
+                    let arity = arity as usize;
+                    let receiver_idx = self.stack.len().checked_sub(arity + 1).ok_or(RuntimeError::Internal("bilateral stack underflow".into()))?;
+                    let receiver = self.stack[receiver_idx];
+                    let selector = callable.chunk.constants[selector as usize]
+                        .as_symbol()
+                        .map_err(RuntimeError::Internal)?;
+                    if let Some(method) = receiver.lookup_method(self, selector) {
+                        self.call_method(&receiver, method, arity, callable.chunk.span_at(ip))?;
+                    } else {
+                        self.stack.truncate(receiver_idx);
+                        self.apply_jump_offset(missing_offset);
+                    }
+                }
+                Bytecode::ValidateOrdering { reverse } => {
+                    let value = self.pop()?;
+                    let class = value.class(self);
+                    let ordering = self.semantic_roots.ordering_class;
+                    if class != ordering && !is_strict_subclass(&self.heap, class, ordering) {
+                        return Err(RuntimeError::InvalidCompareReturn {
+                            found: self.heap.class(class).name.clone(),
+                        }
+                        .into());
+                    }
+                    let value = if reverse {
+                        let reverse_selector = self.interner.intern("reverse");
+                        self.send_dynamic(value, reverse_selector, &[])?
+                    } else {
+                        value
+                    };
+                    let reversed_class = value.class(self);
+                    if reversed_class != ordering && !is_strict_subclass(&self.heap, reversed_class, ordering) {
+                        return Err(RuntimeError::InvalidCompareReturn {
+                            found: self.heap.class(reversed_class).name.clone(),
+                        }
+                        .into());
+                    }
+                    self.stack.push(value);
+                }
+                Bytecode::Same => {
+                    let rhs = self.pop()?;
+                    let lhs = self.pop()?;
+                    self.stack.push(Value::bool(lhs.same_as(&rhs)));
+                }
+                Bytecode::RaiseUnsupported {
+                    operator,
+                    direct,
+                    reflected,
+                } => {
+                    let rhs = self.pop()?;
+                    let lhs = self.pop()?;
+                    let symbol_text = |index: u16| -> Result<String, RuntimeError> {
+                        callable.chunk.constants[index as usize]
+                            .as_symbol()
+                            .map(|symbol| self.resolve_symbol(symbol).to_owned())
+                            .map_err(RuntimeError::Internal)
+                    };
+                    return Err(RuntimeError::UnsupportedOperation(Box::new(
+                        crate::error::UnsupportedOperationContext {
+                            operator: symbol_text(operator)?,
+                            lhs: self.heap.class(lhs.class(self)).name.clone(),
+                            rhs: self.heap.class(rhs.class(self)).name.clone(),
+                            direct: symbol_text(direct)?,
+                            reflected: symbol_text(reflected)?,
+                        },
+                    ))
+                    .into());
+                }
                 Bytecode::InvokeCompilerInternal(arity, selector_idx) => {
                     self.invoke_compiler_internal_at(callable, ip, arity, selector_idx)?;
                 }
@@ -1878,6 +1967,14 @@ impl VM {
                     let cursor = self.pop()?;
                     if cursor.is_none() {
                         self.apply_jump_offset(offset);
+                    }
+                }
+                Bytecode::JumpIfUnsupported(offset) => {
+                    let value = self.pop()?;
+                    if value.same_as(&self.semantic_roots.unsupported) {
+                        self.apply_jump_offset(offset);
+                    } else {
+                        self.stack.push(value);
                     }
                 }
                 Bytecode::Loop(offset) => self.apply_jump_offset(offset),

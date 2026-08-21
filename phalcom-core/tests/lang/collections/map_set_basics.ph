@@ -6,15 +6,16 @@
 
 const m = Map.new()
 System.print(m.size)
-m.at(1, put: 10)
-m.at(2, put: 20)
+m.at(1, put: 10) // returns receiver
+m.at(2, put: 20) // returns receiver
 System.print(m.size)
 System.print(m[1])
 m.at(1, put: 99)
 System.print(m[1])
 System.print(m.includes(2))
 System.print(m.includes(5))
-m.remove(2)
+const removedValue = m.remove(2) // 20
+System.print(removedValue)
 System.print(m.size)
 System.print(m.keys.toList)
 System.print(m.values.toList)

@@ -18,7 +18,7 @@ class BadKey {
   ==(_ other) {
     if (not _triggered) {
       _triggered = true
-      m.remove(other)
+      const removedValue = m.remove(other)
     }
     return true
   }

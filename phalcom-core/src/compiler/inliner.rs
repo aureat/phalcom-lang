@@ -281,7 +281,7 @@ impl<'vm> Compiler<'vm> {
     /// # Errors
     ///
     /// Propagates any error compiling the block's statements.
-    fn compile_inline_block_body(&mut self, block: BlockExpr) -> Result<(), CompilerError> {
+    pub(super) fn compile_inline_block_body(&mut self, block: BlockExpr) -> Result<(), CompilerError> {
         self.begin_scope();
         let range = block.range;
         let len = block.body.len();

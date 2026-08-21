@@ -52,7 +52,7 @@ mod upvalue;
 
 pub use block::BlockObject;
 pub use bytes::BytesObject;
-pub use class::{ClassObject, lookup_method_in_hierarchy};
+pub use class::{ClassObject, is_strict_subclass, lookup_method_in_hierarchy, lookup_method_with_definer};
 pub use closure::ClosureObject;
 pub use fiber::{FiberObject, FiberResumeMode, FiberStatus};
 pub use instance::InstanceObject;

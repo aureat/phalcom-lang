@@ -24,12 +24,13 @@ use crate::primitive::method_family::{method_family_bind, method_family_method_f
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_call, some_new};
 use crate::primitive::number::{
-    number_add, number_class_new, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negate,
+    number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negate,
     number_pow, number_sub, number_to_string, number_unary_plus,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
-    object_invariant_exit, object_method_for, object_name, object_neq, object_perform_shape, object_responds_to, object_set_class, object_to_string,
+    object_invariant_exit, object_matches, object_method_for, object_name, object_neq, object_perform_shape, object_responds_to, object_same, object_set_class,
+    object_to_string, object_understands,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_internal;
@@ -41,6 +42,7 @@ use crate::primitive::range::{range_raw_lower, range_raw_upper, range_raw_upper_
 use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
 use crate::primitive::reflection::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
+use crate::primitive::selector_pattern::selector_pattern_matches;
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_raw_write, system_schedule};
@@ -68,6 +70,9 @@ impl Universe {
         // U5 (control-flow.md §1): `==`/`!=` are ordinary sends, not opcodes.
         primitive!(vm, object_cls, "==", SignatureKind::Method(1), object_eq);
         primitive!(vm, object_cls, "!=", SignatureKind::Method(1), object_neq);
+        primitive!(vm, object_cls, "===", SignatureKind::Method(1), object_same);
+        primitive!(vm, object_cls, "matches", SignatureKind::Method(1), object_matches);
+        primitive!(vm, object_cls, "understands", SignatureKind::Method(1), object_understands);
         // Reflective-send + miss-handler surface (U8, messages-and-selectors.md
         // §5, method-lookup.md §2, ADR-0012). `doesNotUnderstand(_:)` is the
         // terminal miss fallback the `Bytecode::Invoke` handler forwards to;
@@ -142,6 +147,7 @@ impl Universe {
         primitive!(vm, number_cls, "<=", SignatureKind::Method(1), number_le);
         primitive!(vm, number_cls, ">", SignatureKind::Method(1), number_gt);
         primitive!(vm, number_cls, ">=", SignatureKind::Method(1), number_ge);
+        primitive!(vm, number_cls, "compare", SignatureKind::Method(1), number_compare);
         // Unary arithmetic getters: `+x` (identity) and `-x` (negation).
         // Registered as Getters so `-` and `+` bare-selectors dispatch without
         // parentheses (e.g. `x.-` == `-x`, `x.+` == `+x`).
@@ -156,6 +162,9 @@ impl Universe {
         primitive!(vm, number_cls, "toString", SignatureKind::Getter, number_to_string);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(0), number_class_new);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(1), number_class_new);
+
+        let selector_pattern_cls = vm.universe.classes.selector_pattern_class;
+        primitive!(vm, selector_pattern_cls, "matches", SignatureKind::Method(1), selector_pattern_matches);
 
         let int_cls = vm.universe.classes.int_class;
         primitive!(vm, int_cls, "&", SignatureKind::Method(1), int_and);
@@ -733,6 +742,7 @@ fn validate_native_surface(vm: &VM) {
         classes.method_family_class,
         classes.bound_method_family_class,
         classes.symbol_class,
+        classes.selector_pattern_class,
         classes.module_class,
         classes.system_class,
         classes.option_class,

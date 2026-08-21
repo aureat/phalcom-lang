@@ -775,6 +775,9 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "respondsTo(_)"),
         (c.object_class, false, "doesNotUnderstand(_)"),
         (c.object_class, false, "methodFor(_)"),         // NEW (ADR-0028)
+        (c.object_class, false, "===(_)"),
+        (c.object_class, false, "matches(_)"),
+        (c.object_class, false, "understands(_)"),
         (c.object_class, false, "_$invariantEnter()"),   // NEW_INVARIANT_GUARD (ADR-0052)
         (c.object_class, false, "_$invariantExit()"),    // NEW_INVARIANT_GUARD (ADR-0052)
         (c.object_class, false, "_$attach(_)"),          // NEW_ATTR_ROOT (M-ATTR-ROOT)
@@ -797,6 +800,7 @@ fn floor_census_matches_installed_bindings() {
         (c.number_class, false, "%(_)"),
         (c.number_class, false, "~/(_)"),
         (c.number_class, false, "**(_)"),
+        (c.number_class, false, "compare(_)"),
         (c.number_class, false, "<(_)"),
         (c.number_class, false, "<=(_)"),
         (c.number_class, false, ">(_)"),
@@ -1045,8 +1049,8 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(expected.len(), 182, "census must enumerate exactly 182 bindings after Number + getter addition");
-    assert_eq!(live.len(), 182, "the live floor must be exactly 182 bindings");
+    assert_eq!(expected.len(), 186, "census must enumerate exactly 186 bindings after Number + getter + bilateral semantics additions");
+    assert_eq!(live.len(), 186, "the live floor must be exactly 186 bindings");
 }
 
 #[test]

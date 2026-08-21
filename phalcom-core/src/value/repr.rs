@@ -213,6 +213,14 @@ impl Value {
             None
         }
     }
+
+    /// Compares both representation words exactly. Used by `===`, whose
+    /// contract deliberately does not apply `==`'s numeric coercions or heap
+    /// content equivalence.
+    #[inline]
+    pub(crate) fn same_bits(self, other: Self) -> bool {
+        self.payload == other.payload && self.meta == other.meta
+    }
 }
 
 impl PartialEq for Value {
