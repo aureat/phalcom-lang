@@ -187,6 +187,8 @@
   },
   "active": "e351412831514433",
   "lastOpenFiles": [
+    "work/pending/lsp",
+    "work/pending/untitled folder",
     "agents/detailed-impl-spec-prompt.md",
     "agents/concise-handoff-prompt.md",
     "agents",
@@ -219,9 +221,7 @@
     "work/pending/fsco/path-patch-spec.md",
     "work/pending/fsco/bytes-v2-implementation-spec.md",
     "work/pending/fsco/resource-v2-test-spec.md",
-    "work/pending/fsco/resource-v2-implementation-spec.md",
     "work/pending/fsco",
-    "work/pending/untitled folder",
     "work/completed/numbers"
   ]
 }
