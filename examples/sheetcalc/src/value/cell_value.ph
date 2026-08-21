@@ -420,3 +420,5 @@ class ErrorVal is CellValue {
     _sym == other.symbol
   }
 }
+
+export (CellValue, CellNum, CellText, CellBool, CellEmpty, ErrorVal)

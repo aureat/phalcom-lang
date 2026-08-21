@@ -1,0 +1,5 @@
+[project]
+name = "SheetCalc"
+namespace = "sheetcalc"
+version = "0.1.0"
+entry = "sheetcalc.main"

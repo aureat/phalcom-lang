@@ -1,6 +1,5 @@
-/// Cell types: literal values and formulas with cached results.
-
-import "../value/cell_value" as Value
+//! Cell types: literal values and formulas with cached results.
+from sheetcalc.value import (CellValue, CellNum, CellText, CellBool, CellEmpty, ErrorVal)
 
 /// Base Cell class. Two variants: LiteralCell (value is source of truth) or
 /// FormulaCell (value is cached, may go stale). Evaluation is driven externally
@@ -28,7 +27,7 @@ class FormulaCell is Cell {
   of(_ source, _ ast) {
     _source = source
     _ast = ast
-    _cached = Value.CellEmpty.of()
+    _cached = CellEmpty.of()
     _dirty = true
   }
 
