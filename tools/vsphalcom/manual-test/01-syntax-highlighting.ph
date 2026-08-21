@@ -6,6 +6,11 @@
 // source.phalcom). Dead keywords (const/is/in/and/or/not) should NOT be
 // colored as keywords anywhere in this file.
 
+import .provider as Provider
+from ..shared import (Thing as T)
+expose .child
+export T as Public
+
 /// Outer doc: documents the class below (this whole comment block is a
 /// distinct comment.block.documentation scope, not a plain `//` comment).
 class Account is Object {
@@ -42,13 +47,18 @@ class Account is Object {
     let sel = #deposit           // name symbol
     let full = #deposit(_)       // selector symbol, contiguous with (
     let op = #==                 // operator selector
+    let opPlus = #+              // binary operator selector
+    let opPower = #**             // multi-character operator selector
+    let opShift = #<<             // shift operator selector
+    let opQuestion = #?.          // punctuation operator selector
+    let opPattern = #+(_, ...)    // operator selector pattern
     return sel
   }
 
   // Method reference `::`
   boundDeposit {
     let ref = self::deposit
-    let pinned = self::#deposit(_)
+    let pinned = self::deposit(_)
     return ref
   }
 

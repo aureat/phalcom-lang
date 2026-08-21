@@ -38,8 +38,9 @@ each of these tokens; confirm a distinct, specific scope (not bare
       if you type them ad hoc, NOT colored as keywords (dead 2023 keywords)
 - [ ] `_balance`, `_owner` — field scope, distinct from a bare identifier
 - [ ] `@requires(...)`, `@ensures(...)` — attribute scope
-- [ ] `#deposit`, `#deposit(_)`, `#==` — symbol scope
-- [ ] `self::deposit`, `self::#deposit(_)` — method-reference scope
+- [ ] `#deposit`, `#deposit(_)`, `#+`, `#**`, `#<<`, `#?.` — symbol scope
+- [ ] `self::deposit`, `self::deposit(_)` — method-reference scope
+- [ ] `import .provider`, `from ..shared`, `expose .child`, `export T as Public` — module namespace scope
 - [ ] `opt?.name`, `opt ?? "unknown"` — Option-operator scope
 - [ ] `list[0]` (both read and `list[0] = ...` write) — index scope
 - [ ] `"\(self._owner)"` — the `\(...)` part scoped distinctly from the
