@@ -290,6 +290,13 @@ struct Parser<'source> {
     pos: usize,
     /// End byte offset of the most recently consumed token (LALRPOP `@R`).
     prev_end: usize,
+    /// Whether expressions are being parsed inside a class declaration body.
+    ///
+    /// `class` is an implicit `self.class` variable only in this context. At
+    /// module level it remains a bare name, which the compiler/runtime can
+    /// reject as an undefined variable instead of silently binding it to
+    /// `self.class`.
+    in_class_body: bool,
     /// Syntax errors recovered so far, in discovery order.
     errors: Vec<SyntaxError>,
 }
@@ -327,6 +334,7 @@ impl<'source> Parser<'source> {
             tokens,
             pos: 0,
             prev_end: offset,
+            in_class_body: false,
             errors,
         }
     }
@@ -1028,7 +1036,10 @@ impl<'source> Parser<'source> {
     ///
     /// Returns a [`SyntaxError`] if the item or its terminator is malformed.
     fn parse_top_item(&mut self, out: &mut Vec<Statement>) -> ParserResult<()> {
-        if matches!(self.peek(), Token::Class | Token::At) {
+        // `class IDENT` starts a declaration. A bare `class` at module level
+        // stays in expression parsing, where it is an ordinary unresolved
+        // name; `class.` likewise needs to reach postfix parsing.
+        if matches!(self.peek(), Token::At) || (matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_))) {
             let stmt = self.parse_class()?;
             out.push(stmt);
             // A compound statement requires a NEWLINE terminator, not EOF.
@@ -1663,7 +1674,11 @@ impl<'source> Parser<'source> {
         };
 
         self.expect(&Token::LBrace, &["\"{\""])?;
-        let (members, body_attrs, invariants) = self.parse_class_body()?;
+        let previous_class_context = self.in_class_body;
+        self.in_class_body = true;
+        let body = self.parse_class_body();
+        self.in_class_body = previous_class_context;
+        let (members, body_attrs, invariants) = body?;
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         // `body_attrs` is always empty today (`parse_class_body`'s own doc:
@@ -3803,12 +3818,19 @@ impl<'source> Parser<'source> {
             }
             Token::Class => {
                 self.advance();
-                Ok(Expr::GetProperty(Box::new(GetPropertyExpr {
-                    object: Expr::SelfVar { range },
-                    property: "class".to_string(),
-                    property_range: None,
-                    range,
-                })))
+                if self.in_class_body {
+                    Ok(Expr::GetProperty(Box::new(GetPropertyExpr {
+                        object: Expr::SelfVar { range },
+                        property: "class".to_string(),
+                        property_range: None,
+                        range,
+                    })))
+                } else {
+                    Ok(Expr::Var {
+                        value: "class".to_string(),
+                        range,
+                    })
+                }
             }
             Token::Super => {
                 self.advance();

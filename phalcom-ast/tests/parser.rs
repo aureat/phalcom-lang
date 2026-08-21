@@ -495,6 +495,24 @@ fn class_keyword_send_in_method_body_targets_self_class() {
     assert!(matches!(class_property.object, Expr::SelfVar { .. }));
 }
 
+#[test]
+fn class_keyword_at_module_level_is_a_bare_variable() {
+    let program = parse_source("class.class\n", 0).expect("module-level `class.class` should parse");
+    let Statement::Expr {
+        expr: Expr::GetProperty(property),
+        ..
+    } = &program.statements[0]
+    else {
+        panic!("expected `class.class` property expression");
+    };
+
+    assert_eq!(property.property, "class");
+    let Expr::Var { value, .. } = &property.object else {
+        panic!("expected module-level `class` to remain a bare variable");
+    };
+    assert_eq!(value, "class");
+}
+
 // --- F9: parse errors render via `Display` instead of panicking ---
 
 #[test]

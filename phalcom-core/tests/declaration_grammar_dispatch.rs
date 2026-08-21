@@ -21,6 +21,12 @@ fn run_source(src: &str) -> Result<(), String> {
     interp.vm.interpret_source(main, src).map_err(|e| e.to_string())
 }
 
+#[test]
+fn class_keyword_at_module_level_is_undefined_variable() {
+    let error = run_source("class\n").expect_err("module-level `class` must not bind to self.class");
+    assert!(error.contains("undefined variable 'class'"), "unexpected error: {error}");
+}
+
 fn eval_source(src: &str, var_name: &str) -> Result<Value, String> {
     let mut interp = Interpreter::new();
     let main = interp.vm.create_module("main", "<test>");
