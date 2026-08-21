@@ -282,6 +282,7 @@ struct RawToken {
 /// [`Lexer`] runs over just `expr`'s source, position 0) and still produce
 /// absolute offsets into the original document.
 fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
+    let mut attribute_marker = false;
     for item in Lexer::new(text) {
         let Ok((start, token, end)) = item else {
             // A lex error mid-recursion (e.g. an unterminated interpolation
@@ -299,7 +300,13 @@ fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
                 kind: SemanticTokenKind::String,
             }),
             other => {
-                if let Some(kind) = classify(&other) {
+                let kind = if attribute_marker && is_builtin_attribute_name(&other) {
+                    Some(SemanticTokenKind::Keyword)
+                } else {
+                    classify(&other)
+                };
+                attribute_marker = matches!(other, Token::At);
+                if let Some(kind) = kind {
                     out.push(RawToken {
                         start: offset + start,
                         end: offset + end,
@@ -308,6 +315,30 @@ fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
                 }
             }
         }
+    }
+}
+
+fn is_builtin_attribute_name(token: &Token) -> bool {
+    match token {
+        Token::Construct | Token::Class => true,
+        Token::Identifier(name) => matches!(
+            name.as_str(),
+            "constructor"
+                | "get"
+                | "set"
+                | "data"
+                | "sealed"
+                | "variant"
+                | "invariant"
+                | "requires"
+                | "ensures"
+                | "native"
+                | "ignore"
+                | "private"
+                | "protected"
+                | "On"
+        ),
+        _ => false,
     }
 }
 
@@ -452,6 +483,7 @@ pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
     collect_tokens(&request.document.text, 0, &mut raw);
     if let Some(file) = request.exact_file() {
         apply_occurrence_overrides(file, &mut raw);
+        apply_decl_name_overrides_program(&file.source.program, &mut raw);
     } else {
         // The parse is owned by DocumentSnapshot. Never reparse live text in
         // this fallback: declaration ranges must come from the same source
@@ -461,42 +493,16 @@ pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
     encode(&request.document.text, &request.document.line_index, &raw)
 }
 
-fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut [RawToken]) {
+fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut Vec<RawToken>) {
     if let Some(snapshot) = db.file_snapshot(uri) {
-        let mut occurrences_map = std::collections::BTreeMap::new();
-        for occurrence in snapshot.occurrences.all() {
-            occurrences_map.insert((occurrence.range.start, occurrence.range.end), occurrence.kind);
-        }
-        for token in raw.iter_mut() {
-            if let Some(kind) = occurrences_map.get(&(token.start, token.end)) {
-                match kind {
-                    SemanticOccurrenceKind::Parameter => {
-                        token.kind = SemanticTokenKind::Parameter;
-                    }
-                    SemanticOccurrenceKind::Binding => {
-                        token.kind = SemanticTokenKind::Variable;
-                    }
-                    SemanticOccurrenceKind::Field => {
-                        token.kind = SemanticTokenKind::Property;
-                    }
-                    SemanticOccurrenceKind::Member => {
-                        token.kind = SemanticTokenKind::Method;
-                    }
-                    SemanticOccurrenceKind::Class => {
-                        token.kind = SemanticTokenKind::Class;
-                    }
-                    SemanticOccurrenceKind::Operator => {
-                        token.kind = SemanticTokenKind::Operator;
-                    }
-                }
-            }
-        }
+        apply_occurrence_overrides(&snapshot, raw);
+        apply_decl_name_overrides_program(&snapshot.source.program, raw);
     } else {
         apply_decl_name_overrides(text, raw);
     }
 }
 
-fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw: &mut [RawToken]) {
+fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw: &mut Vec<RawToken>) {
     let mut occurrences_map = std::collections::BTreeMap::new();
     for occurrence in file.occurrences.all() {
         occurrences_map.insert((occurrence.range.start, occurrence.range.end), occurrence.kind);
@@ -524,14 +530,14 @@ fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw:
 /// syntax errors rather than aborting) purely to collect declaration-name
 /// spans; the flat lexer pass in `raw` is left as-is for every span this
 /// walk does not find. `raw` must already be in the ascending source order
-/// [`collect_tokens`] produces (this function only mutates in place, never
-/// reorders).
-fn apply_decl_name_overrides(text: &str, raw: &mut [RawToken]) {
+/// [`collect_tokens`] produces; synthetic index-bracket tokens are appended
+/// and the final sequence is resorted by source range.
+fn apply_decl_name_overrides(text: &str, raw: &mut Vec<RawToken>) {
     let parsed = phalcom_ast::parser::parse(text, 0);
     apply_decl_name_overrides_program(&parsed.program, raw);
 }
 
-fn apply_decl_name_overrides_program(program: &phalcom_ast::ast::Program, raw: &mut [RawToken]) {
+fn apply_decl_name_overrides_program(program: &phalcom_ast::ast::Program, raw: &mut Vec<RawToken>) {
     let mut decls = Vec::new();
     collect_decl_names(&program.statements, &mut decls);
     if decls.is_empty() {
@@ -541,10 +547,37 @@ fn apply_decl_name_overrides_program(program: &phalcom_ast::ast::Program, raw: &
     // so a linear scan per raw token is simplest and fast enough; no need
     // for a `HashMap` keyed on `(start, end)`.
     for token in raw.iter_mut() {
-        if let Some(&(_, kind)) = decls.iter().find(|(range, _)| range.start == token.start && range.end == token.end) {
-            token.kind = kind;
+        if let Some(decl) = decls.iter().find(|decl| decl.range.start == token.start && decl.range.end == token.end) {
+            token.kind = decl.kind;
         }
     }
+
+    // Index declarations use their brackets as their complete name range;
+    // the flat lexer intentionally leaves ordinary brackets uncolored. Emit
+    // only those declaration brackets so subscript methods still have a
+    // visible method token without recoloring ordinary indexing expressions.
+    for decl in decls.iter().filter(|decl| decl.is_index) {
+        if decl.range.end.saturating_sub(decl.range.start) >= 2 {
+            raw.push(RawToken {
+                start: decl.range.start,
+                end: decl.range.start + 1,
+                kind: decl.kind,
+            });
+            raw.push(RawToken {
+                start: decl.range.end - 1,
+                end: decl.range.end,
+                kind: decl.kind,
+            });
+        }
+    }
+    raw.sort_by_key(|token| (token.start, token.end));
+}
+
+#[derive(Clone, Copy)]
+struct DeclNameOverride {
+    range: SourceRange,
+    kind: SemanticTokenKind,
+    is_index: bool,
 }
 
 /// Recursively collects every `class`/method/getter/setter/constructor
@@ -555,11 +588,15 @@ fn apply_decl_name_overrides_program(program: &phalcom_ast::ast::Program, raw: &
 /// bodies — the only [`Statement`]/[`Expr`] shapes that can themselves carry
 /// a nested declaration. Every other statement/expression shape is a leaf for
 /// this walk's purposes and is skipped.
-fn collect_decl_names(statements: &[Statement], out: &mut Vec<(SourceRange, SemanticTokenKind)>) {
+fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>) {
     for statement in statements {
         match statement {
             Statement::Class(class_def) => {
-                out.push((class_def.name_range, SemanticTokenKind::Class));
+                out.push(DeclNameOverride {
+                    range: class_def.name_range,
+                    kind: SemanticTokenKind::Class,
+                    is_index: false,
+                });
                 for member in &class_def.members {
                     collect_member_decl_name(member, out);
                 }
@@ -579,23 +616,39 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<(SourceRange, Sema
 /// Pushes `member`'s own name-span override (if it has one — a
 /// [`ClassMember::Field`]/[`ClassMember::Variant`] does not) and recurses
 /// into its body, mirroring [`collect_decl_names`]'s class-body traversal.
-fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<(SourceRange, SemanticTokenKind)>) {
+fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride>) {
     match member {
         ClassMember::Method(method_def) => {
-            out.push((method_def.name_range, SemanticTokenKind::Method));
+            out.push(DeclNameOverride {
+                range: method_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: false,
+            });
             collect_decl_names(&method_def.body, out);
         }
         ClassMember::Getter(getter_def) => {
-            out.push((getter_def.name_range, SemanticTokenKind::Method));
+            out.push(DeclNameOverride {
+                range: getter_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: false,
+            });
             collect_decl_names(&getter_def.body, out);
         }
         ClassMember::Setter(setter_def) => {
-            out.push((setter_def.name_range, SemanticTokenKind::Method));
+            out.push(DeclNameOverride {
+                range: setter_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: false,
+            });
             collect_decl_names(&setter_def.body, out);
         }
         ClassMember::Field(_) | ClassMember::Variant(_) => {}
         ClassMember::Index(index_def) => {
-            out.push((index_def.name_range, SemanticTokenKind::Method));
+            out.push(DeclNameOverride {
+                range: index_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: true,
+            });
             collect_decl_names(&index_def.body, out);
         }
     }
@@ -605,7 +658,7 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<(SourceRange, Se
 /// can itself carry a nested statement list (and therefore a nested
 /// declaration) — for [`collect_decl_names`]'s `Statement::Expr` arm. Every
 /// other [`Expr`] variant carries no nested statement list and is skipped.
-fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<(SourceRange, SemanticTokenKind)>) {
+fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<DeclNameOverride>) {
     if let Expr::Block(block_expr) = expr {
         collect_decl_names(&block_expr.body, out);
     }
@@ -717,13 +770,31 @@ mod tests {
 
     #[test]
     fn getter_and_construct_names_are_method_kind() {
-        use SemanticTokenKind::{Class, Keyword, Method, Number, Variable};
+        use SemanticTokenKind::{Class, Keyword, Method, Number};
         // `@constructor\n new()` and a bare-body getter `greeting { return 1 }` —
         // both `new` and `greeting` are declaration names, upgraded to
         // Method.
         assert_eq!(
             kinds_with_decl_overrides("class Foo {\n  @constructor\n  new() {\n  }\n  greeting {\n    return 1\n  }\n}\n"),
-            vec![Keyword, Class, Variable, Method, Method, Keyword, Number]
+            vec![Keyword, Class, Keyword, Method, Method, Keyword, Number]
+        );
+    }
+
+    #[test]
+    fn builtin_decorator_names_are_keyword_kind() {
+        use SemanticTokenKind::{Class, Keyword, Method, Operator, Variable};
+        assert_eq!(
+            kinds_with_decl_overrides("@class\nclass Foo {\n  @get\n  value { }\n  @set\n  value=(put next) { }\n}\n"),
+            vec![Keyword, Keyword, Class, Keyword, Method, Keyword, Method, Operator, Variable, Variable]
+        );
+    }
+
+    #[test]
+    fn index_declaration_brackets_are_method_kind() {
+        use SemanticTokenKind::{Class, Keyword, Method, Variable};
+        assert_eq!(
+            kinds_with_decl_overrides("class Foo {\n  [_ index] { }\n}\n"),
+            vec![Keyword, Class, Method, Variable, Method]
         );
     }
 

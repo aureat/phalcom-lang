@@ -20,6 +20,9 @@ async fn current_syntax_uses_readable_semantic_token_expectations() {
     assert_pair(&decoded, "Widget", "class");
     assert_pair(&decoded, "new", "method");
     assert_pair(&decoded, "value", "method");
+    assert_pair(&decoded, "constructor", "keyword");
+    assert_pair(&decoded, "[", "method");
+    assert_pair(&decoded, "]", "method");
     assert_pair(&decoded, "#", "selector");
     assert_pair(&decoded, "move", "variable");
     assert_pair(&decoded, "42", "number");
@@ -42,6 +45,32 @@ async fn membership_operators_semantic_tokens() {
     assert_pair(&decoded, "in", "keyword");
     assert_pair(&decoded, "not", "keyword");
     assert_pair(&decoded, "is", "keyword");
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
+async fn modules_decorators_and_all_class_member_forms_are_highlighted() {
+    let src = "from .base import (Var, BinOp)\nfrom .base import Var\nexpose .base\nexport Var\nlet value = 1\nconst other = 2\nif value { other } else { value }\n\n@class\nclass Widget {\n  @constructor\n  new() {}\n\n  @get\n  value { other }\n\n  @set\n  value=(put next) { next }\n\n  +(_ rhs) { rhs }\n  ==(_ rhs) { rhs }\n  [_ index] { index }\n  [_ index]=(put stored) { stored }\n}\n";
+    let uri = "file:///test_modules_and_members.ph";
+
+    let mut lsp = TestLsp::start().await;
+    let init = lsp.initialize(None).await;
+    lsp.open(uri, src).await;
+
+    let response = lsp.semantic_tokens_full(uri).await;
+    let decoded = decode(src, &init, &response);
+
+    for keyword in ["from", "import", "expose", "export", "let", "const", "if", "else"] {
+        assert_pair(&decoded, keyword, "keyword");
+    }
+    for decorator in ["class", "constructor", "get", "set"] {
+        assert_pair(&decoded, decorator, "keyword");
+    }
+    assert_pair(&decoded, "Widget", "class");
+    for method in ["new", "value", "+", "==", "[", "]"] {
+        assert_pair(&decoded, method, "method");
+    }
 
     lsp.finish().await;
 }

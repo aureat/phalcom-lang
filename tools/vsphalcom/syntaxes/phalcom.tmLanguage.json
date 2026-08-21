@@ -10,6 +10,8 @@
 		{ "include": "#phalcom.option-operator" },
 		{ "include": "#phalcom.index-bracket" },
 		{ "include": "#phalcom.number" },
+		{ "include": "#phalcom.module" },
+		{ "include": "#phalcom.class" },
 		{ "include": "#phalcom.keyword" },
 		{ "include": "#phalcom.field" },
 		{ "include": "#variables" }
@@ -98,9 +100,109 @@
 			"name": "keyword.operator.methodref.phalcom",
 			"match": "::\\s*#?[a-zA-Z_][a-zA-Z0-9_]*(=(\\([^)]*\\))?|\\([^)]*\\))?"
 		},
+		"phalcom.module": {
+			"patterns": [
+				{
+					"begin": "\\b(from|import|export|expose)\\b",
+					"beginCaptures": {
+						"0": { "name": "keyword.control.phalcom" }
+					},
+					"end": "(?=\\r?$)",
+					"patterns": [
+						{
+							"name": "keyword.control.phalcom",
+							"match": "\\b(from|import|export|expose|as)\\b"
+						},
+						{
+							"name": "entity.name.namespace.phalcom",
+							"match": "(?<![a-zA-Z0-9_])\\.{1,2}(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*(?:[a-zA-Z_][a-zA-Z0-9_]*)?"
+						},
+						{ "include": "#variables" }
+					]
+				}
+			]
+		},
+		"phalcom.class": {
+			"patterns": [
+				{
+					"begin": "(\\bclass\\b)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(?:\\b(is)\\b\\s+[A-Z][a-zA-Z0-9_]*\\s*)?\\{",
+					"beginCaptures": {
+						"1": { "name": "keyword.control.phalcom" },
+						"2": { "name": "entity.name.type.class.phalcom" },
+						"3": { "name": "keyword.control.phalcom" }
+					},
+					"end": "\\}",
+					"patterns": [
+						{ "include": "#phalcom.comment" },
+						{ "include": "#phalcom.string" },
+						{ "include": "#phalcom.symbol" },
+						{ "include": "#phalcom.methodref" },
+						{ "include": "#phalcom.attribute" },
+						{ "include": "#phalcom.option-operator" },
+						{ "include": "#phalcom.index-bracket" },
+						{ "include": "#phalcom.number" },
+						{ "include": "#phalcom.keyword" },
+						{ "include": "#phalcom.class-member" },
+						{ "include": "#phalcom.block" },
+						{ "include": "#phalcom.field" },
+						{ "include": "#variables" }
+					]
+				}
+			]
+		},
+		"phalcom.class-member": {
+			"patterns": [
+				{
+					"name": "entity.name.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*=\\s*\\(\\s*put\\b)"
+				},
+				{
+					"name": "entity.name.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\([^)]*\\)\\s*\\{)"
+				},
+				{
+					"name": "entity.name.function.phalcom",
+					"match": "(?<![a-zA-Z0-9_])(?:\\+\\+|--|==|!=|<=|>=|<<|>>|\\*\\*\\*|\\*\\*|~/|\\?\\?|\\?\\.|\\+|-|\\*|/|%|<|>|&|\\||\\^|~)(?=\\s*\\([^)]*\\)\\s*\\{)"
+				},
+				{
+					"name": "entity.name.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\{)"
+				},
+				{
+					"name": "entity.name.function.phalcom",
+					"match": "\\[(?=[^\\]]*\\]\\s*(?:=\\s*\\(\\s*put\\b)?\\s*\\{)[^\\]]*\\]"
+				}
+			]
+		},
+		"phalcom.block": {
+			"begin": "\\{",
+			"end": "\\}",
+			"patterns": [
+				{ "include": "#phalcom.comment" },
+				{ "include": "#phalcom.string" },
+				{ "include": "#phalcom.symbol" },
+				{ "include": "#phalcom.methodref" },
+				{ "include": "#phalcom.attribute" },
+				{ "include": "#phalcom.option-operator" },
+				{ "include": "#phalcom.index-bracket" },
+				{ "include": "#phalcom.number" },
+				{ "include": "#phalcom.keyword" },
+				{ "include": "#phalcom.block" },
+				{ "include": "#phalcom.field" },
+				{ "include": "#variables" }
+			]
+		},
 		"phalcom.attribute": {
-			"name": "entity.name.tag.attribute.phalcom",
-			"match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+			"patterns": [
+				{
+					"name": "keyword.control.decorator.phalcom",
+					"match": "@(class|constructor|get|set|construct|data|sealed|variant|invariant|requires|ensures|native|ignore|private|protected|On)\\b"
+				},
+				{
+					"name": "entity.name.tag.attribute.phalcom",
+					"match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+				}
+			]
 		},
 		"phalcom.option-operator": {
 			"name": "keyword.operator.option.phalcom",
@@ -118,7 +220,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control.phalcom",
-					"match": "\\b(class|is|super|self|static|try|catch|on|ensure|throw|break|continue|match|return|while|for|var)\\b"
+					"match": "\\b(let|const|fn|class|is|super|self|static|try|catch|on|ensure|throw|break|continue|match|return|while|for|if|else|true|false|and|or|not|in|as|import|from|export|expose|var|construct)\\b"
 				},
 				{
 					"name": "keyword.operator.phalcom",
