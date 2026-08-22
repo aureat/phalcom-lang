@@ -24,10 +24,29 @@ pub enum RuntimeOverlayTypeNode {
     },
     Union(Box<[RuntimeTypeRef]>),
     Tuple(Box<[RuntimeTupleElement]>),
+    Record(Box<[RuntimeRecordField]>),
     Callable {
         parameters: Box<[RuntimeCallableParameter]>,
         return_type: RuntimeTypeRef,
     },
+    TypeLambda {
+        parameters: Box<[RuntimeOverlayTypeParameter]>,
+        body: RuntimeTypeRef,
+    },
+    Special(Box<str>),
+    SelfType(Option<ClassId>),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeRecordField {
+    pub name: Box<str>,
+    pub ty: RuntimeTypeRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeOverlayTypeParameter {
+    pub name: Box<str>,
+    pub kind: crate::typing::handle::RuntimeKindRef,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

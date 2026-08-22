@@ -28,7 +28,59 @@ pub enum RuntimeKindRef {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeTypeParameterRef {
+    pub pool: MetadataPoolId,
+    pub index: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeGenericSignatureRef {
+    pub pool: MetadataPoolId,
+    pub id: phalcom_type_meta::generic::GenericSignatureRecordId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeGenericConstraintRef {
+    pub pool: MetadataPoolId,
+    pub signature: phalcom_type_meta::generic::GenericSignatureRecordId,
+    pub index: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeCallableSignatureRef {
+    pub pool: MetadataPoolId,
+    pub record: phalcom_type_meta::declaration::CallableRecordId,
+    pub specialization_receiver: Option<RuntimeTypeRef>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeCallableParameterRef {
+    pub callable: RuntimeCallableSignatureRef,
+    pub index: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeFieldSignatureRef {
+    pub pool: MetadataPoolId,
+    pub record: phalcom_type_meta::declaration::FieldRecordId,
+    pub specialization_receiver: Option<RuntimeTypeRef>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeTypeUseRef {
+    pub pool: MetadataPoolId,
+    pub index: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeSemanticHandle {
     Type(RuntimeTypeRef),
     Kind(RuntimeKindRef),
+    TypeParameter(RuntimeTypeParameterRef),
+    GenericSignature(RuntimeGenericSignatureRef),
+    GenericConstraint(RuntimeGenericConstraintRef),
+    CallableSignature(RuntimeCallableSignatureRef),
+    CallableParameter(RuntimeCallableParameterRef),
+    FieldSignature(RuntimeFieldSignatureRef),
+    TypeUse(RuntimeTypeUseRef),
 }

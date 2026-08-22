@@ -29,8 +29,8 @@ use phalcom_type_meta::header::{
 use phalcom_type_meta::identity::SourceSpanRef;
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
 use phalcom_type_meta::scoped_type::{
-    ScopedCallableParamRef, ScopedCallableTypeRef, ScopedRecordFieldRef, ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId,
-    TypeLambdaRef,
+    ScopedCallableParamRef, ScopedCallableTypeRef, ScopedRecordFieldRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry,
+    ScopedTypeNodeId, TypeLambdaRef,
 };
 use phalcom_type_meta::type_node::{
     CallableParamRef, CallableTypeRef, RecordFieldRef, SelfRoleRef, SelfTypeRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
@@ -118,6 +118,7 @@ impl<'a> MetadataExporter<'a> {
         let mut fp_b = FingerprintBuilder::new();
         match &node {
             KindNode::Type => fp_b.write_u8(1),
+            KindNode::RecordRow => fp_b.write_u8(3),
             KindNode::Arrow { parameters, result } => {
                 fp_b.write_u8(2);
                 fp_b.write_u32(parameters.len() as u32);
@@ -300,6 +301,25 @@ impl<'a> MetadataExporter<'a> {
                 }
                 fp_b.write_fingerprint(self.scoped_types[body.0 as usize].structural_fingerprint);
             }
+            ScopedTypeNode::OpenRecord(open_rec) => {
+                fp_b.write_u8(9);
+                fp_b.write_u32(open_rec.fields.len() as u32);
+                for f in open_rec.fields.iter() {
+                    fp_b.write_str(&f.name);
+                    fp_b.write_fingerprint(self.scoped_types[f.ty.0 as usize].structural_fingerprint);
+                }
+                match &open_rec.tail {
+                    ScopedRecordTailRef::Bound { depth, index } => {
+                        fp_b.write_u8(1);
+                        fp_b.write_u32(*depth);
+                        fp_b.write_u32(*index);
+                    }
+                    ScopedRecordTailRef::FreeParameter(p) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_u32(p.index);
+                    }
+                }
+            }
         }
         let structural_fingerprint = fp_b.finish();
         let kind_id = self.export_kind(self.store.kind_of(self.store.unit()));
@@ -314,8 +334,7 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn export_type_form(&mut self, ty: TypeId) -> Result<TypeNodeId, MetadataExportError> {
-        let type_kind = self.store.kind_of(ty);
-        let kind_id = self.export_kind(type_kind);
+        let kind_id = self.export_kind(self.store.kind_of(ty));
         let data = self.store.get(ty).clone();
 
         let form = match data {
@@ -325,49 +344,52 @@ impl<'a> MetadataExporter<'a> {
                 declaration: to_stable_declaration(&declaration),
             },
             TypeData::Applied { origin, ref arguments } => {
-                let o = self.export_type_form(origin)?;
-                let mut args = Vec::new();
+                let origin_id = self.export_type_form(origin)?;
+                let mut arg_ids = Vec::new();
                 for &arg in arguments.iter() {
-                    args.push(self.export_type_form(arg)?);
+                    arg_ids.push(self.export_type_form(arg)?);
                 }
                 TypeNode::Applied {
-                    origin: o,
-                    arguments: args.into_boxed_slice(),
+                    origin: origin_id,
+                    arguments: arg_ids.into_boxed_slice(),
                 }
             }
             TypeData::Union(ref members) => {
-                let mut m_nodes = Vec::new();
+                let mut member_ids = Vec::new();
                 for &m in members.iter() {
-                    m_nodes.push(self.export_type_form(m)?);
+                    member_ids.push(self.export_type_form(m)?);
                 }
-                TypeNode::Union(m_nodes.into_boxed_slice())
+                TypeNode::Union(member_ids.into_boxed_slice())
             }
             TypeData::Tuple(ref elements) => {
-                let mut elems = Vec::new();
+                let mut elem_refs = Vec::new();
                 for el in elements.iter() {
-                    let t = self.export_type_form(el.ty)?;
-                    elems.push(TupleElementRef {
+                    let ty_id = self.export_type_form(el.ty)?;
+                    elem_refs.push(TupleElementRef {
                         label: el.label.clone(),
-                        ty: t,
+                        ty: ty_id,
                     });
                 }
-                TypeNode::Tuple(elems.into_boxed_slice())
+                TypeNode::Tuple(elem_refs.into_boxed_slice())
             }
             TypeData::Record(ref fields) => {
-                let mut f_nodes = Vec::new();
+                let mut field_refs = Vec::new();
                 for f in fields.iter() {
-                    let t = self.export_type_form(f.ty)?;
-                    f_nodes.push(RecordFieldRef { name: f.name.clone(), ty: t });
+                    let ty_id = self.export_type_form(f.ty)?;
+                    field_refs.push(RecordFieldRef {
+                        name: f.name.clone(),
+                        ty: ty_id,
+                    });
                 }
-                TypeNode::Record(f_nodes.into_boxed_slice())
+                TypeNode::Record(field_refs.into_boxed_slice())
             }
             TypeData::Callable(ref call) => {
                 let mut params = Vec::new();
                 for p in call.parameters.iter() {
-                    let t = self.export_type_form(p.ty)?;
+                    let ty_id = self.export_type_form(p.ty)?;
                     params.push(CallableParamRef {
                         label: p.label.clone(),
-                        ty: t,
+                        ty: ty_id,
                         rest: p.rest,
                     });
                 }
@@ -445,6 +467,15 @@ impl<'a> MetadataExporter<'a> {
                     fp_b.write_str(&f.name);
                     fp_b.write_fingerprint(self.types[f.ty.0 as usize].structural_fingerprint);
                 }
+            }
+            TypeNode::OpenRecord(open_rec) => {
+                fp_b.write_u8(12);
+                fp_b.write_u32(open_rec.fields.len() as u32);
+                for f in open_rec.fields.iter() {
+                    fp_b.write_str(&f.name);
+                    fp_b.write_fingerprint(self.types[f.ty.0 as usize].structural_fingerprint);
+                }
+                fp_b.write_u32(open_rec.tail.index);
             }
             TypeNode::Callable(call) => {
                 fp_b.write_u8(8);

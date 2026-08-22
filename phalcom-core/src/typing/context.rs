@@ -33,6 +33,16 @@ impl TypingContextData {
         }
     }
 
+    pub fn with_capabilities(base_pools: Box<[MetadataPoolId]>, profile: MetadataProfile, capabilities: TypingCapabilities) -> Self {
+        Self {
+            base_pools,
+            profile,
+            capabilities,
+            overlay: RuntimeTypingOverlay::new(),
+            descriptor_cache: HashMap::new(),
+        }
+    }
+
     pub fn can(&self, capability: TypingCapability) -> bool {
         self.capabilities.contains(capability)
     }

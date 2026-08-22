@@ -791,6 +791,17 @@ fn floor_census_matches_installed_bindings() {
         (c.behavior_class, false, "name"),    // NEW (ADR-0023)
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
         (c.behavior_class, false, ">>(_)"),   // selector-pattern reflection
+        (c.behavior_class, false, "kind"),
+        (c.behavior_class, false, "remainingParameterCount"),
+        (c.behavior_class, false, "remainingParameterAt(_)"),
+        (c.behavior_class, false, "remainingParameters"),
+        (c.behavior_class, false, "freeParameterCount"),
+        (c.behavior_class, false, "freeParameterAt(_)"),
+        (c.behavior_class, false, "freeParameters"),
+        (c.behavior_class, false, "genericSignature"),
+        (c.behavior_class, false, "display"),
+        (c.behavior_class, false, "equivalentTo(_)"),
+        (c.behavior_class, false, "subtypeOf(_)"),
         // §2.3 Class
         (c.class_class, false, "+(_)"),
         (c.class_class, false, "_$new()"),
@@ -1074,10 +1085,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        205,
-        "census must enumerate exactly 205 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern additions"
+        216,
+        "census must enumerate exactly 216 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern + Behavior typing reflection additions"
     );
-    assert_eq!(live.len(), 205, "the live floor must be exactly 205 bindings");
+    assert_eq!(live.len(), 216, "the live floor must be exactly 216 bindings");
 }
 
 #[test]

@@ -1,0 +1,85 @@
+{
+  "header": {
+    "schema_version": 1,
+    "semantic_model_version": 1,
+    "producer": "phalcom-semantic",
+    "producer_version": "0.1.0",
+    "native_surface_schema_version": 1,
+    "profile": "RuntimePublic",
+    "features": {
+      "type_lambdas": true,
+      "record_rows": false,
+      "runtime_type_constants": true,
+      "source_occurrences": false,
+      "advanced_sections": []
+    },
+    "identity_scheme": "V1Standard",
+    "source_fingerprint": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    "interface_fingerprint": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  },
+  "kinds": [
+    {
+      "node": "Type",
+      "structural_fingerprint": [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    }
+  ],
+  "types": [
+    {
+      "kind": 0,
+      "form": {
+        "Nominal": {
+          "declaration": {
+            "module": {
+              "project": {
+                "Builtin": {
+                  "namespace": "std",
+                  "version": "0.1.0"
+                }
+              },
+              "path": ["collections", "list"]
+            },
+            "path": ["Int"]
+          }
+        }
+      },
+      "structural_fingerprint": [3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    },
+    {
+      "kind": 0,
+      "form": {
+        "Record": [
+          {
+            "name": "age",
+            "ty": 0
+          }
+        ]
+      },
+      "structural_fingerprint": [7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    }
+  ],
+  "scoped_types": [],
+  "parameters": [],
+  "generic_signatures": [],
+  "declarations": [],
+  "aliases": [],
+  "callables": [],
+  "fields": [],
+  "module_roots": [],
+  "runtime_roots": [
+    {
+      "module": {
+        "project": {
+          "Builtin": {
+            "namespace": "std",
+            "version": "0.1.0"
+          }
+        },
+        "path": ["collections", "list"]
+      },
+      "local_key": "root",
+      "form": 1
+    }
+  ],
+  "occurrences": [],
+  "extensions": []
+}

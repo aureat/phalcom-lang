@@ -42,7 +42,7 @@ fn bcat_02_reflection_exposed_children_in_nodes() {
         }
     }
 
-    assert_eq!(exposed.len(), 20, "expected 20 expose declarations in reflection/package.ph");
+    assert_eq!(exposed.len(), 21, "expected 21 expose declarations in reflection/package.ph");
 
     for child in &exposed {
         let path = &["reflection", child.as_str()];
@@ -53,7 +53,8 @@ fn bcat_02_reflection_exposed_children_in_nodes() {
             path
         );
         let node = node.unwrap();
-        assert_eq!(node.kind, ModuleKind::Module, "expected ModuleKind::Module for exposed child {:?}", path);
+        let expected_kind = if child == "typing" { ModuleKind::Package } else { ModuleKind::Module };
+        assert_eq!(node.kind, expected_kind, "expected {:?} for exposed child {:?}", expected_kind, path);
     }
 }
 

@@ -30,6 +30,14 @@ impl RuntimeTypingRegistry {
         self.pools.get(id.0 as usize)
     }
 
+    pub fn pool_count(&self) -> usize {
+        self.pools.len()
+    }
+
+    pub fn pools(&self) -> &[Arc<LoadedSemanticMetadata>] {
+        &self.pools
+    }
+
     pub fn register_nominal_binding(&mut self, decl: StableDeclarationRef, class: ClassId) {
         self.nominal_bindings.insert(decl, class);
     }

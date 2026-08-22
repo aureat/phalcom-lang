@@ -77,6 +77,14 @@ impl TypingCapabilities {
         Self(self.0 | (1 << capability as u8))
     }
 
+    pub fn from_capabilities<I: IntoIterator<Item = TypingCapability>>(caps: I) -> Self {
+        let mut set = Self::empty();
+        for cap in caps {
+            set = set.with(cap);
+        }
+        set
+    }
+
     pub fn iter(self) -> impl Iterator<Item = TypingCapability> {
         TypingCapability::ALL.into_iter().filter(move |capability| self.contains(*capability))
     }

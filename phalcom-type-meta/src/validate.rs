@@ -1,11 +1,7 @@
-//! Bounded iterative validator for metadata bundles against malicious/corrupt shapes.
-
 use crate::bundle::SemanticMetadataBundle;
 use crate::declaration::PublishedTypeSlot;
-use crate::header::{
-    MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema,
-};
-use crate::kind::KindNode;
+use crate::header::{MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema};
+use crate::kind::{KindNode, KindNodeId};
 use crate::scoped_type::{ScopedRecordTailRef, ScopedTypeNode};
 use crate::type_node::TypeNode;
 use std::collections::HashSet;
@@ -86,22 +82,16 @@ pub enum MetadataValidationError {
 
 fn validate_schema_v1_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
     if bundle.header.features.record_rows {
-        return Err(MetadataValidationError::Malformed(
-            "schema v1 cannot enable record_rows feature".to_string(),
-        ));
+        return Err(MetadataValidationError::Malformed("schema v1 cannot enable record_rows feature".to_string()));
     }
     for entry in bundle.kinds.iter() {
         if matches!(entry.node, KindNode::RecordRow) {
-            return Err(MetadataValidationError::Malformed(
-                "schema v1 cannot contain KindNode::RecordRow".to_string(),
-            ));
+            return Err(MetadataValidationError::Malformed("schema v1 cannot contain KindNode::RecordRow".to_string()));
         }
     }
     for entry in bundle.types.iter() {
         if matches!(entry.form, TypeNode::OpenRecord(_)) {
-            return Err(MetadataValidationError::Malformed(
-                "schema v1 cannot contain TypeNode::OpenRecord".to_string(),
-            ));
+            return Err(MetadataValidationError::Malformed("schema v1 cannot contain TypeNode::OpenRecord".to_string()));
         }
     }
     for entry in bundle.scoped_types.iter() {
@@ -219,10 +209,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
         }
         let owner_key = format!("{:?}", param.id.owner);
         if !param_set.insert((owner_key.clone(), param.id.index)) {
-            return Err(MetadataValidationError::DuplicateParameterOwner(
-                owner_key.clone(),
-                param.id.index,
-            ));
+            return Err(MetadataValidationError::DuplicateParameterOwner(owner_key.clone(), param.id.index));
         }
         param_map.insert((owner_key, param.id.index), param);
     }
@@ -314,12 +301,13 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     prev_name = Some(&f.name);
                 }
                 let owner_key = format!("{:?}", open_rec.tail.owner);
-                let tail_param = param_map.get(&(owner_key.clone(), open_rec.tail.index)).ok_or_else(|| {
-                    MetadataValidationError::RecordTailParameterMissing {
-                        owner: owner_key,
-                        index: open_rec.tail.index,
-                    }
-                })?;
+                let tail_param =
+                    param_map
+                        .get(&(owner_key.clone(), open_rec.tail.index))
+                        .ok_or_else(|| MetadataValidationError::RecordTailParameterMissing {
+                            owner: owner_key,
+                            index: open_rec.tail.index,
+                        })?;
                 let tail_kind_entry = &bundle.kinds[tail_param.kind.0 as usize];
                 if !matches!(tail_kind_entry.node, KindNode::RecordRow) {
                     return Err(MetadataValidationError::RecordTailKindMismatch {
@@ -491,12 +479,13 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     }
                     ScopedRecordTailRef::FreeParameter(param_ref) => {
                         let owner_key = format!("{:?}", param_ref.owner);
-                        let tail_param = param_map.get(&(owner_key.clone(), param_ref.index)).ok_or_else(|| {
-                            MetadataValidationError::RecordTailParameterMissing {
-                                owner: owner_key,
-                                index: param_ref.index,
-                            }
-                        })?;
+                        let tail_param =
+                            param_map
+                                .get(&(owner_key.clone(), param_ref.index))
+                                .ok_or_else(|| MetadataValidationError::RecordTailParameterMissing {
+                                    owner: owner_key,
+                                    index: param_ref.index,
+                                })?;
                         let tail_kind_entry = &bundle.kinds[tail_param.kind.0 as usize];
                         if !matches!(tail_kind_entry.node, KindNode::RecordRow) {
                             return Err(MetadataValidationError::RecordTailKindMismatch {

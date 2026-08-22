@@ -101,14 +101,21 @@ pub fn reify_kind_form(
     if is_type {
         return Ok(Value::obj(type_class));
     }
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::Kind(handle), heap, function_kind_class)
+}
 
-    let semantic_handle = RuntimeSemanticHandle::Kind(handle);
-    if let Some(context_object) = heap.as_typing_object(context_ref) {
-        if let TypingPayload::Context(data) = &context_object.payload {
-            if let Some(&cached_ref) = data.descriptor_cache.get(&semantic_handle) {
-                if let Some(Object::Typing(cached)) = heap.try_get(cached_ref) {
-                    if let TypingPayload::Descriptor { context, handle } = cached.payload {
-                        if context == context_ref && handle == semantic_handle {
+/// Reifies any semantic handle into a weakly cached `Object::Typing` descriptor.
+pub fn reify_semantic_handle(context_ref: ObjRef, handle: RuntimeSemanticHandle, heap: &mut Heap, descriptor_class: ClassId) -> PhResult<Value> {
+    let context_obj = heap
+        .as_typing_object(context_ref)
+        .ok_or_else(|| RuntimeError::Internal(format!("ObjRef {context_ref:?} is not a TypingObject")))?;
+
+    if let TypingPayload::Context(ref ctx_data) = context_obj.payload {
+        if let Some(&cached_ref) = ctx_data.descriptor_cache.get(&handle) {
+            if let Some(cached_obj) = heap.try_get(cached_ref) {
+                if let Object::Typing(t) = cached_obj {
+                    if let TypingPayload::Descriptor { context, handle: h } = t.payload {
+                        if t.class == descriptor_class && context == context_ref && h == handle {
                             return Ok(Value::obj(cached_ref));
                         }
                     }
@@ -118,18 +125,75 @@ pub fn reify_kind_form(
     }
 
     let descriptor = TypingObject {
-        class: function_kind_class,
-        payload: TypingPayload::Descriptor {
-            context: context_ref,
-            handle: semantic_handle,
-        },
+        class: descriptor_class,
+        payload: TypingPayload::Descriptor { context: context_ref, handle },
     };
-    let descriptor_ref = heap.alloc(Object::Typing(Box::new(descriptor)));
-    let context_object = heap
+    let desc_ref = heap.alloc(Object::Typing(Box::new(descriptor)));
+
+    let context_obj_mut = heap
         .as_typing_object_mut(context_ref)
         .ok_or_else(|| RuntimeError::Internal(format!("ObjRef {context_ref:?} is not a TypingObject")))?;
-    if let TypingPayload::Context(data) = &mut context_object.payload {
-        data.descriptor_cache.insert(semantic_handle, descriptor_ref);
+    if let TypingPayload::Context(ref mut ctx_data) = context_obj_mut.payload {
+        ctx_data.descriptor_cache.insert(handle, desc_ref);
     }
-    Ok(Value::obj(descriptor_ref))
+
+    Ok(Value::obj(desc_ref))
+}
+
+pub fn reify_type_parameter(
+    context_ref: ObjRef,
+    handle: crate::typing::handle::RuntimeTypeParameterRef,
+    heap: &mut Heap,
+    class_id: ClassId,
+) -> PhResult<Value> {
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::TypeParameter(handle), heap, class_id)
+}
+
+pub fn reify_generic_signature(
+    context_ref: ObjRef,
+    handle: crate::typing::handle::RuntimeGenericSignatureRef,
+    heap: &mut Heap,
+    class_id: ClassId,
+) -> PhResult<Value> {
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::GenericSignature(handle), heap, class_id)
+}
+
+pub fn reify_generic_constraint(
+    context_ref: ObjRef,
+    handle: crate::typing::handle::RuntimeGenericConstraintRef,
+    heap: &mut Heap,
+    class_id: ClassId,
+) -> PhResult<Value> {
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::GenericConstraint(handle), heap, class_id)
+}
+
+pub fn reify_callable_signature(
+    context_ref: ObjRef,
+    handle: crate::typing::handle::RuntimeCallableSignatureRef,
+    heap: &mut Heap,
+    class_id: ClassId,
+) -> PhResult<Value> {
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::CallableSignature(handle), heap, class_id)
+}
+
+pub fn reify_callable_parameter(
+    context_ref: ObjRef,
+    handle: crate::typing::handle::RuntimeCallableParameterRef,
+    heap: &mut Heap,
+    class_id: ClassId,
+) -> PhResult<Value> {
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::CallableParameter(handle), heap, class_id)
+}
+
+pub fn reify_field_signature(
+    context_ref: ObjRef,
+    handle: crate::typing::handle::RuntimeFieldSignatureRef,
+    heap: &mut Heap,
+    class_id: ClassId,
+) -> PhResult<Value> {
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::FieldSignature(handle), heap, class_id)
+}
+
+pub fn reify_type_use(context_ref: ObjRef, handle: crate::typing::handle::RuntimeTypeUseRef, heap: &mut Heap, class_id: ClassId) -> PhResult<Value> {
+    reify_semantic_handle(context_ref, RuntimeSemanticHandle::TypeUse(handle), heap, class_id)
 }

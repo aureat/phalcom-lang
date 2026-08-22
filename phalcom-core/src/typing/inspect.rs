@@ -28,11 +28,14 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
             }
             RuntimeOverlayTypeNode::Union(members) => Some(members.to_vec()),
             RuntimeOverlayTypeNode::Tuple(elements) => Some(elements.iter().map(|element| element.ty).collect()),
+            RuntimeOverlayTypeNode::Record(fields) => Some(fields.iter().map(|f| f.ty).collect()),
             RuntimeOverlayTypeNode::Callable { parameters, return_type } => {
                 let mut children = parameters.iter().map(|parameter| parameter.ty).collect::<Vec<_>>();
                 children.push(*return_type);
                 Some(children)
             }
+            RuntimeOverlayTypeNode::TypeLambda { body, .. } => Some(vec![*body]),
+            RuntimeOverlayTypeNode::Special(_) | RuntimeOverlayTypeNode::SelfType(_) => Some(Vec::new()),
         },
         RuntimeTypeRef::Base { pool, node } => {
             let entry = &registry.get_pool(pool)?.bundle.types.get(node.0 as usize)?.form;
@@ -57,7 +60,9 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
             RuntimeOverlayTypeNode::Union(members) => Some(members.to_vec()),
             RuntimeOverlayTypeNode::Nominal { .. } => Some(Vec::new()),
             RuntimeOverlayTypeNode::Tuple(elements) => Some(elements.iter().map(|element| element.ty).collect()),
+            RuntimeOverlayTypeNode::Record(fields) => Some(fields.iter().map(|f| f.ty).collect()),
             RuntimeOverlayTypeNode::Callable { parameters, .. } => Some(parameters.iter().map(|parameter| parameter.ty).collect()),
+            RuntimeOverlayTypeNode::TypeLambda { .. } | RuntimeOverlayTypeNode::Special(_) | RuntimeOverlayTypeNode::SelfType(_) => Some(Vec::new()),
         },
         RuntimeTypeRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.types.get(node.0 as usize)?.form {
             TypeNode::Applied { arguments, .. } => Some(arguments.iter().map(|node| RuntimeTypeRef::Base { pool, node: *node }).collect()),
@@ -111,7 +116,14 @@ pub fn remaining_parameter_count(context: &TypingContextData, registry: &Runtime
                 };
                 arity.saturating_sub(arguments.len())
             }
-            Some(RuntimeOverlayTypeNode::Union(_)) | Some(RuntimeOverlayTypeNode::Tuple(_)) | Some(RuntimeOverlayTypeNode::Callable { .. }) | None => 0,
+            Some(RuntimeOverlayTypeNode::Union(_))
+            | Some(RuntimeOverlayTypeNode::Tuple(_))
+            | Some(RuntimeOverlayTypeNode::Record(_))
+            | Some(RuntimeOverlayTypeNode::Callable { .. })
+            | Some(RuntimeOverlayTypeNode::TypeLambda { .. })
+            | Some(RuntimeOverlayTypeNode::Special(_))
+            | Some(RuntimeOverlayTypeNode::SelfType(_))
+            | None => 0,
         },
         RuntimeTypeRef::Base { pool, node } => match registry.get_pool(pool).and_then(|loaded| loaded.bundle.types.get(node.0 as usize)) {
             Some(entry) => match &entry.form {
@@ -156,6 +168,14 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Some(RuntimeOverlayTypeNode::Record(fields)) => format!(
+                "{{{}}}",
+                fields
+                    .iter()
+                    .map(|f| format!("{}: {}", f.name, display_inner(context, registry, heap, f.ty, depth + 1)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Some(RuntimeOverlayTypeNode::Callable { parameters, return_type }) => format!(
                 "({}) -> {}",
                 parameters
@@ -165,6 +185,12 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                     .join(", "),
                 display_inner(context, registry, heap, *return_type, depth + 1)
             ),
+            Some(RuntimeOverlayTypeNode::TypeLambda { parameters, body }) => {
+                let params = parameters.iter().map(|p| p.name.as_ref()).collect::<Vec<_>>().join(", ");
+                format!("<{}> =>> {}", params, display_inner(context, registry, heap, *body, depth + 1))
+            }
+            Some(RuntimeOverlayTypeNode::Special(name)) => name.to_string(),
+            Some(RuntimeOverlayTypeNode::SelfType(_)) => "Self".to_string(),
             None => "<invalid-type>".to_string(),
         },
         RuntimeTypeRef::Base { pool, node } => match registry.get_pool(pool).and_then(|pool| pool.bundle.types.get(node.0 as usize)) {
@@ -205,6 +231,20 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         ))
                         .collect::<Vec<_>>()
                         .join(", ")
+                ),
+                TypeNode::OpenRecord(open_rec) => format!(
+                    "#{{{}, | R{}}}",
+                    open_rec
+                        .fields
+                        .iter()
+                        .map(|field| format!(
+                            "{}: {}",
+                            field.name,
+                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    open_rec.tail.index
                 ),
                 TypeNode::Callable(callable) => format!(
                     "({}) -> {}",
@@ -274,7 +314,7 @@ pub fn kind_children(context: &TypingContextData, registry: &RuntimeTypingRegist
             RuntimeOverlayKindNode::Arrow { parameters, .. } => Some(parameters.to_vec()),
         },
         RuntimeKindRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.kinds.get(node.0 as usize)?.node {
-            phalcom_type_meta::kind::KindNode::Type => Some(Vec::new()),
+            phalcom_type_meta::kind::KindNode::Type | phalcom_type_meta::kind::KindNode::RecordRow => Some(Vec::new()),
             phalcom_type_meta::kind::KindNode::Arrow { parameters, .. } => {
                 Some(parameters.iter().map(|node| RuntimeKindRef::Base { pool, node: *node }).collect())
             }
@@ -289,7 +329,7 @@ pub fn kind_result(context: &TypingContextData, registry: &RuntimeTypingRegistry
             RuntimeOverlayKindNode::Arrow { result, .. } => Some(**result),
         },
         RuntimeKindRef::Base { pool, node } => match &registry.get_pool(pool)?.bundle.kinds.get(node.0 as usize)?.node {
-            phalcom_type_meta::kind::KindNode::Type => None,
+            phalcom_type_meta::kind::KindNode::Type | phalcom_type_meta::kind::KindNode::RecordRow => None,
             phalcom_type_meta::kind::KindNode::Arrow { result, .. } => Some(RuntimeKindRef::Base { pool, node: *result }),
         },
     }
@@ -312,6 +352,7 @@ pub fn kind_display(context: &TypingContextData, registry: &RuntimeTypingRegistr
         RuntimeKindRef::Base { pool, node } => match registry.get_pool(pool).and_then(|pool| pool.bundle.kinds.get(node.0 as usize)) {
             Some(entry) => match &entry.node {
                 phalcom_type_meta::kind::KindNode::Type => "Type".to_string(),
+                phalcom_type_meta::kind::KindNode::RecordRow => "RecordRow".to_string(),
                 phalcom_type_meta::kind::KindNode::Arrow { parameters, result } => {
                     let parameters = parameters
                         .iter()
@@ -350,4 +391,469 @@ pub fn kind_equivalent(_context: &TypingContextData, registry: &RuntimeTypingReg
         }
         _ => false,
     }
+}
+
+// ---------------------------------------------------------------------------
+// TypeParameter inspection
+// ---------------------------------------------------------------------------
+
+pub fn type_param_record<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeTypeParameterRef,
+) -> Option<&'a phalcom_type_meta::generic::TypeParameterRecord> {
+    registry
+        .get_pool(handle.pool)
+        .and_then(|loaded| loaded.bundle.parameters.get(handle.index as usize))
+}
+
+pub fn type_param_name(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeTypeParameterRef) -> Option<String> {
+    type_param_record(registry, handle).map(|r| r.name.to_string())
+}
+
+pub fn type_param_kind(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeTypeParameterRef) -> Option<RuntimeKindRef> {
+    type_param_record(registry, handle).map(|r| RuntimeKindRef::Base {
+        pool: handle.pool,
+        node: r.kind,
+    })
+}
+
+pub fn type_param_variance(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeTypeParameterRef) -> Option<Option<&'static str>> {
+    let rec = type_param_record(registry, handle)?;
+    match rec.id.owner {
+        phalcom_type_meta::generic::StableTypeParameterOwnerRef::Declaration(_) => {
+            let v = match rec.variance {
+                phalcom_type_meta::generic::VarianceRef::Covariant => "covariant",
+                phalcom_type_meta::generic::VarianceRef::Contravariant => "contravariant",
+                phalcom_type_meta::generic::VarianceRef::Invariant => "invariant",
+            };
+            Some(Some(v))
+        }
+        phalcom_type_meta::generic::StableTypeParameterOwnerRef::Callable(_) => Some(None),
+    }
+}
+
+pub fn type_param_constraints(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeTypeParameterRef,
+) -> Vec<crate::typing::handle::RuntimeGenericConstraintRef> {
+    let Some(loaded) = registry.get_pool(handle.pool) else { return Vec::new() };
+    let Some(param_record) = loaded.bundle.parameters.get(handle.index as usize) else {
+        return Vec::new();
+    };
+    let mut results = Vec::new();
+    for (sig_idx, sig) in loaded.bundle.generic_signatures.iter().enumerate() {
+        if sig.owner == param_record.id.owner {
+            for (c_idx, _c) in sig.constraints.iter().enumerate() {
+                results.push(crate::typing::handle::RuntimeGenericConstraintRef {
+                    pool: handle.pool,
+                    signature: phalcom_type_meta::generic::GenericSignatureRecordId(sig_idx as u32),
+                    index: c_idx as u32,
+                });
+            }
+        }
+    }
+    results
+}
+
+// ---------------------------------------------------------------------------
+// GenericSignature inspection
+// ---------------------------------------------------------------------------
+
+pub fn generic_sig_record<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeGenericSignatureRef,
+) -> Option<&'a phalcom_type_meta::generic::GenericSignatureRecord> {
+    registry
+        .get_pool(handle.pool)
+        .and_then(|loaded| loaded.bundle.generic_signatures.get(handle.id.0 as usize))
+}
+
+pub fn generic_sig_parameters(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeGenericSignatureRef,
+) -> Vec<crate::typing::handle::RuntimeTypeParameterRef> {
+    let Some(loaded) = registry.get_pool(handle.pool) else { return Vec::new() };
+    let Some(sig) = loaded.bundle.generic_signatures.get(handle.id.0 as usize) else {
+        return Vec::new();
+    };
+    sig.parameters
+        .iter()
+        .filter_map(|p_ref| {
+            loaded
+                .bundle
+                .parameters
+                .iter()
+                .position(|rec| rec.id == *p_ref)
+                .map(|idx| crate::typing::handle::RuntimeTypeParameterRef {
+                    pool: handle.pool,
+                    index: idx as u32,
+                })
+        })
+        .collect()
+}
+
+pub fn generic_sig_constraints(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeGenericSignatureRef,
+) -> Vec<crate::typing::handle::RuntimeGenericConstraintRef> {
+    let Some(sig) = generic_sig_record(registry, handle) else { return Vec::new() };
+    (0..sig.constraints.len())
+        .map(|idx| crate::typing::handle::RuntimeGenericConstraintRef {
+            pool: handle.pool,
+            signature: handle.id,
+            index: idx as u32,
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// GenericConstraint inspection
+// ---------------------------------------------------------------------------
+
+pub fn generic_constraint_ref<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeGenericConstraintRef,
+) -> Option<&'a phalcom_type_meta::generic::GenericConstraintRef> {
+    let sig = generic_sig_record(
+        registry,
+        crate::typing::handle::RuntimeGenericSignatureRef {
+            pool: handle.pool,
+            id: handle.signature,
+        },
+    )?;
+    sig.constraints.get(handle.index as usize)
+}
+
+pub fn generic_constraint_relation(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeGenericConstraintRef) -> Option<&'static str> {
+    match generic_constraint_ref(registry, handle)? {
+        phalcom_type_meta::generic::GenericConstraintRef::Subtype { .. } => Some("subtype"),
+        phalcom_type_meta::generic::GenericConstraintRef::Equivalent { .. } => Some("equivalent"),
+    }
+}
+
+pub fn generic_constraint_left(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeGenericConstraintRef) -> Option<RuntimeTypeRef> {
+    match generic_constraint_ref(registry, handle)? {
+        phalcom_type_meta::generic::GenericConstraintRef::Subtype { lower, .. } => Some(RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *lower,
+        }),
+        phalcom_type_meta::generic::GenericConstraintRef::Equivalent { left, .. } => Some(RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *left,
+        }),
+    }
+}
+
+pub fn generic_constraint_right(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeGenericConstraintRef) -> Option<RuntimeTypeRef> {
+    match generic_constraint_ref(registry, handle)? {
+        phalcom_type_meta::generic::GenericConstraintRef::Subtype { upper, .. } => Some(RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *upper,
+        }),
+        phalcom_type_meta::generic::GenericConstraintRef::Equivalent { right, .. } => Some(RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *right,
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CallableSignature inspection
+// ---------------------------------------------------------------------------
+
+pub fn callable_record<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeCallableSignatureRef,
+) -> Option<&'a phalcom_type_meta::declaration::CallableSemanticRecord> {
+    registry
+        .get_pool(handle.pool)
+        .and_then(|loaded| loaded.bundle.callables.get(handle.record.0 as usize))
+}
+
+pub fn callable_generic_signature(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeCallableSignatureRef,
+) -> Option<crate::typing::handle::RuntimeGenericSignatureRef> {
+    let rec = callable_record(registry, handle)?;
+    rec.generic_signature
+        .map(|id| crate::typing::handle::RuntimeGenericSignatureRef { pool: handle.pool, id })
+}
+
+pub fn callable_parameters(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeCallableSignatureRef,
+) -> Vec<crate::typing::handle::RuntimeCallableParameterRef> {
+    let Some(rec) = callable_record(registry, handle) else { return Vec::new() };
+    (0..rec.parameters.len())
+        .map(|idx| crate::typing::handle::RuntimeCallableParameterRef {
+            callable: handle,
+            index: idx as u32,
+        })
+        .collect()
+}
+
+pub fn specialize_type(
+    context: &TypingContextData,
+    registry: &RuntimeTypingRegistry,
+    raw_type: RuntimeTypeRef,
+    receiver: Option<RuntimeTypeRef>,
+) -> RuntimeTypeRef {
+    let Some(receiver) = receiver else { return raw_type };
+    let receiver_args = arguments(context, registry, receiver).unwrap_or_default();
+    if receiver_args.is_empty() {
+        return raw_type;
+    }
+
+    match raw_type {
+        RuntimeTypeRef::Base { pool, node } => {
+            if let Some(loaded) = registry.get_pool(pool) {
+                if let Some(entry) = loaded.bundle.types.get(node.0 as usize) {
+                    if let TypeNode::Parameter(param) = &entry.form {
+                        if let Some(arg) = receiver_args.get(param.index as usize) {
+                            return *arg;
+                        }
+                    }
+                }
+            }
+            raw_type
+        }
+        RuntimeTypeRef::Overlay(_) => raw_type,
+    }
+}
+
+pub fn callable_parameter_type_at(
+    context: &TypingContextData,
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeCallableSignatureRef,
+    index: usize,
+) -> Option<RuntimeTypeRef> {
+    let rec = callable_record(registry, handle)?;
+    let param = rec.parameters.get(index)?;
+    let raw = match &param.ty {
+        phalcom_type_meta::declaration::PublishedTypeSlot::Known { form, .. } => RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *form,
+        },
+        _ => return None,
+    };
+    Some(specialize_type(context, registry, raw, handle.specialization_receiver))
+}
+
+pub fn callable_return_type(
+    context: &TypingContextData,
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeCallableSignatureRef,
+) -> Option<RuntimeTypeRef> {
+    let rec = callable_record(registry, handle)?;
+    let raw = match &rec.return_type {
+        phalcom_type_meta::declaration::PublishedTypeSlot::Known { form, .. } => RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *form,
+        },
+        _ => return None,
+    };
+    Some(specialize_type(context, registry, raw, handle.specialization_receiver))
+}
+
+// ---------------------------------------------------------------------------
+// CallableParameter inspection
+// ---------------------------------------------------------------------------
+
+pub fn callable_param_record<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeCallableParameterRef,
+) -> Option<&'a phalcom_type_meta::declaration::CallableParameterRecord> {
+    let callable = callable_record(registry, handle.callable)?;
+    callable.parameters.get(handle.index as usize)
+}
+
+pub fn callable_param_local_name(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeCallableParameterRef) -> Option<String> {
+    callable_param_record(registry, handle).map(|p| p.local_name.to_string())
+}
+
+pub fn callable_param_external_label(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeCallableParameterRef) -> Option<Option<String>> {
+    callable_param_record(registry, handle).map(|p| p.external_label.as_ref().map(|s| s.to_string()))
+}
+
+pub fn callable_param_rest_mode(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeCallableParameterRef) -> &'static str {
+    match callable_param_record(registry, handle).map(|p| p.rest) {
+        Some(phalcom_type_meta::declaration::RestModeRef::None) => "none",
+        Some(phalcom_type_meta::declaration::RestModeRef::Anonymous) => "anonymous",
+        Some(phalcom_type_meta::declaration::RestModeRef::Named) => "named",
+        None => "none",
+    }
+}
+
+pub fn callable_param_type(
+    context: &TypingContextData,
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeCallableParameterRef,
+) -> Option<RuntimeTypeRef> {
+    callable_parameter_type_at(context, registry, handle.callable, handle.index as usize)
+}
+
+// ---------------------------------------------------------------------------
+// FieldSignature inspection
+// ---------------------------------------------------------------------------
+
+pub fn field_record<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeFieldSignatureRef,
+) -> Option<&'a phalcom_type_meta::declaration::FieldSemanticRecord> {
+    registry
+        .get_pool(handle.pool)
+        .and_then(|loaded| loaded.bundle.fields.get(handle.record.0 as usize))
+}
+
+pub fn field_name(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeFieldSignatureRef) -> Option<String> {
+    field_record(registry, handle).map(|f| f.field.name.to_string())
+}
+
+pub fn field_mutable(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeFieldSignatureRef) -> bool {
+    field_record(registry, handle).map_or(false, |f| matches!(f.mutability, phalcom_type_meta::declaration::FieldMutabilityRef::Mutable))
+}
+
+pub fn field_type(
+    context: &TypingContextData,
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeFieldSignatureRef,
+) -> Option<RuntimeTypeRef> {
+    let rec = field_record(registry, handle)?;
+    let raw = match &rec.ty {
+        phalcom_type_meta::declaration::PublishedTypeSlot::Known { form, .. } => RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *form,
+        },
+        _ => return None,
+    };
+    Some(specialize_type(context, registry, raw, handle.specialization_receiver))
+}
+
+// ---------------------------------------------------------------------------
+// TypeUse inspection
+// ---------------------------------------------------------------------------
+
+pub fn type_use_record<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeTypeUseRef,
+) -> Option<&'a phalcom_type_meta::bundle::TypeUseRecord> {
+    registry
+        .get_pool(handle.pool)
+        .and_then(|loaded| loaded.bundle.occurrences.get(handle.index as usize))
+}
+
+pub fn type_use_denotation(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeTypeUseRef) -> Option<RuntimeTypeRef> {
+    let rec = type_use_record(registry, handle)?;
+    match rec.status {
+        phalcom_type_meta::bundle::TypeUseStatusRef::Known(node) => Some(RuntimeTypeRef::Base { pool: handle.pool, node }),
+        _ => None,
+    }
+}
+
+pub fn type_use_written(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeTypeUseRef) -> Option<String> {
+    type_use_record(registry, handle).and_then(|rec| rec.written.as_ref().map(|s| s.to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// Declaration queries
+// ---------------------------------------------------------------------------
+
+pub fn declaration_record_for_class<'a>(
+    registry: &'a RuntimeTypingRegistry,
+    class_id: ClassId,
+    heap: &Heap,
+) -> Option<(crate::typing::handle::MetadataPoolId, &'a phalcom_type_meta::declaration::DeclarationTypeRecord)> {
+    let class_name = &heap.class(class_id).name;
+    for (pool_idx, loaded) in registry.pools().iter().enumerate() {
+        for decl in loaded.bundle.declarations.iter() {
+            if decl.declaration.path.last().map(|s| s.as_ref()) == Some(class_name.as_str()) {
+                return Some((crate::typing::handle::MetadataPoolId(pool_idx as u32), decl));
+            }
+        }
+    }
+    None
+}
+
+pub fn generic_signature_of_declaration(
+    registry: &RuntimeTypingRegistry,
+    class_id: ClassId,
+    heap: &Heap,
+) -> Option<crate::typing::handle::RuntimeGenericSignatureRef> {
+    let (pool, decl) = declaration_record_for_class(registry, class_id, heap)?;
+    decl.generic_signature.map(|id| crate::typing::handle::RuntimeGenericSignatureRef { pool, id })
+}
+
+pub fn declared_supertype_of_declaration(registry: &RuntimeTypingRegistry, class_id: ClassId, heap: &Heap) -> Option<RuntimeTypeRef> {
+    let (pool, decl) = declaration_record_for_class(registry, class_id, heap)?;
+    decl.superclass_template.map(|node| RuntimeTypeRef::Base { pool, node })
+}
+
+// ---------------------------------------------------------------------------
+// Member lookup
+// ---------------------------------------------------------------------------
+
+pub fn lookup_member(
+    context: &TypingContextData,
+    registry: &RuntimeTypingRegistry,
+    heap: &Heap,
+    receiver: RuntimeTypeRef,
+    selector: &str,
+    is_class_side: bool,
+) -> Option<crate::typing::handle::RuntimeCallableSignatureRef> {
+    let (nominal_class, specialization_receiver) = match receiver {
+        RuntimeTypeRef::Overlay(id) => match context.overlay.type_node(id)? {
+            RuntimeOverlayTypeNode::Nominal { class } => (*class, None),
+            RuntimeOverlayTypeNode::Applied { origin, .. } => {
+                let origin_class = match origin {
+                    RuntimeTypeRef::Overlay(origin_id) => match context.overlay.type_node(*origin_id)? {
+                        RuntimeOverlayTypeNode::Nominal { class } => *class,
+                        _ => return None,
+                    },
+                    RuntimeTypeRef::Base { pool, node } => {
+                        let loaded = registry.get_pool(*pool)?;
+                        let entry = loaded.bundle.types.get(node.0 as usize)?;
+                        if let TypeNode::Nominal { declaration } = &entry.form {
+                            registry.resolve_nominal(declaration)?
+                        } else {
+                            return None;
+                        }
+                    }
+                };
+                (origin_class, Some(receiver))
+            }
+            _ => return None,
+        },
+        RuntimeTypeRef::Base { pool, node } => {
+            let loaded = registry.get_pool(pool)?;
+            let entry = loaded.bundle.types.get(node.0 as usize)?;
+            match &entry.form {
+                TypeNode::Nominal { declaration } => (registry.resolve_nominal(declaration)?, None),
+                TypeNode::Applied { origin, .. } => {
+                    let origin_entry = loaded.bundle.types.get(origin.0 as usize)?;
+                    if let TypeNode::Nominal { declaration } = &origin_entry.form {
+                        (registry.resolve_nominal(declaration)?, Some(receiver))
+                    } else {
+                        return None;
+                    }
+                }
+                _ => return None,
+            }
+        }
+    };
+
+    let (pool, decl) = declaration_record_for_class(registry, nominal_class, heap)?;
+    let callables = if is_class_side { &decl.class_callables } else { &decl.instance_callables };
+
+    let loaded = registry.get_pool(pool)?;
+    for (rec_idx, callable_rec) in loaded.bundle.callables.iter().enumerate() {
+        if callables.contains(&callable_rec.callable) && callable_rec.callable.selector.as_ref() == selector {
+            return Some(crate::typing::handle::RuntimeCallableSignatureRef {
+                pool,
+                record: phalcom_type_meta::declaration::CallableRecordId(rec_idx as u32),
+                specialization_receiver,
+            });
+        }
+    }
+
+    None
 }
