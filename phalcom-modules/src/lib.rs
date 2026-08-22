@@ -47,5 +47,5 @@ pub use package_info::{
 };
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
 pub use resolver::ModuleResolver;
-pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, SourceProvider, SourceUnit};
+pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};

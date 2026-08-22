@@ -46,6 +46,34 @@ pub struct SourceUnit {
     pub source: SourceLocation,
 }
 
+/// Retained parsed module source artifact preventing redundant reparsing.
+#[derive(Clone, Debug)]
+pub struct ParsedModuleUnit {
+    pub id: ModuleId,
+    pub kind: ModuleKind,
+    pub source: Option<SourceLocation>,
+    pub text: Arc<str>,
+    pub program: Arc<phalcom_ast::ast::Program>,
+}
+
+impl ParsedModuleUnit {
+    pub fn new(
+        id: ModuleId,
+        kind: ModuleKind,
+        source: Option<SourceLocation>,
+        text: Arc<str>,
+        program: Arc<phalcom_ast::ast::Program>,
+    ) -> Self {
+        Self {
+            id,
+            kind,
+            source,
+            text,
+            program,
+        }
+    }
+}
+
 /// Trait abstracting source location and reading.
 pub trait SourceProvider {
     fn locate(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError>;

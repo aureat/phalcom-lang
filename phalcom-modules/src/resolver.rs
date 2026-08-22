@@ -3,15 +3,17 @@ use crate::error::{ModuleLoadError, ModuleResolutionError};
 use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ResolvedProjectId, SourceLocation};
 use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
-use crate::source::{ModuleKind, SourceProvider, SourceUnit};
+use crate::source::{ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
 use phalcom_ast::ast::{ImportPath, ImportRoot};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Module resolver coordinating `ProjectUniverse` and `SourceProvider`.
 pub struct ModuleResolver<'u, P: SourceProvider> {
     pub universe: &'u ProjectUniverse,
     pub source: &'u P,
+    parsed_cache: HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>,
     interface_cache: HashMap<ModuleId, Result<UnlinkedModuleInterface, ModuleLoadError>>,
 }
 
@@ -20,6 +22,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         Self {
             universe,
             source,
+            parsed_cache: HashMap::new(),
             interface_cache: HashMap::new(),
         }
     }
@@ -201,15 +204,15 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         })
     }
 
-    /// Loads and parses the unlinked interface of a module.
-    pub fn load_interface(&mut self, module_id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
-        if let Some(res) = self.interface_cache.get(module_id) {
+    /// Loads and parses a module unit, caching the parsed AST and source artifact.
+    pub fn load_parsed(&mut self, module_id: &ModuleId) -> Result<Arc<ParsedModuleUnit>, ModuleLoadError> {
+        if let Some(res) = self.parsed_cache.get(module_id) {
             return res.clone();
         }
 
         if let crate::identity::ProjectIdentity::Builtin(builtin) = module_id.project {
-            let result = BuiltinProjectSourceProvider::new(builtin).load_interface(module_id);
-            self.interface_cache.insert(module_id.clone(), result.clone());
+            let result = BuiltinProjectSourceProvider::new(builtin).load_parsed(module_id);
+            self.parsed_cache.insert(module_id.clone(), result.clone());
             return result;
         }
 
@@ -233,11 +236,38 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 source: unit.source.display_path.clone(),
                 error: err.clone(),
             };
-            self.interface_cache.insert(module_id.clone(), Err(load_err.clone()));
+            self.parsed_cache.insert(module_id.clone(), Err(load_err.clone()));
             return Err(load_err);
         }
 
-        let unlinked = match InterfaceBuilder::build(module_id.clone(), unit.kind, &parse_result.program) {
+        let parsed = Arc::new(ParsedModuleUnit {
+            id: module_id.clone(),
+            kind: unit.kind,
+            source: Some(unit.source),
+            text: source_text,
+            program: Arc::new(parse_result.program),
+        });
+
+        self.parsed_cache.insert(module_id.clone(), Ok(parsed.clone()));
+        Ok(parsed)
+    }
+
+    /// Loads and parses the unlinked interface of a module.
+    pub fn load_interface(&mut self, module_id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
+        if let Some(res) = self.interface_cache.get(module_id) {
+            return res.clone();
+        }
+
+        let parsed = self.load_parsed(module_id)?;
+
+        if let crate::identity::ProjectIdentity::Builtin(builtin) = module_id.project {
+            let provider = BuiltinProjectSourceProvider::new(builtin);
+            let result = crate::builtin_interface::BuiltinInterfaceBuilder::build_from_parsed(&provider, &parsed);
+            self.interface_cache.insert(module_id.clone(), result.clone());
+            return result;
+        }
+
+        let unlinked = match InterfaceBuilder::build(module_id.clone(), parsed.kind, &parsed.program) {
             Ok(u) => u,
             Err(e) => {
                 let load_err = ModuleLoadError::Interface {

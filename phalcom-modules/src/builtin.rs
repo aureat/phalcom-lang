@@ -437,6 +437,12 @@ impl BuiltinProjectSourceProvider {
         crate::builtin_interface::BuiltinInterfaceBuilder::build(self, id)
     }
 
+    /// Loads the parsed module unit for a builtin node.
+    pub fn load_parsed(&self, id: &ModuleId) -> Result<std::sync::Arc<crate::source::ParsedModuleUnit>, ModuleLoadError> {
+        self.validate_id(id)?;
+        crate::builtin_interface::BuiltinInterfaceBuilder::load_parsed(self, id)
+    }
+
     /// Returns the embedded source text for a canonical builtin module.
     pub fn source_text(&self, id: &ModuleId) -> Result<std::sync::Arc<str>, ModuleLoadError> {
         use std::sync::Arc;
