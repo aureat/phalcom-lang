@@ -38,7 +38,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .as_ref()
                     .map(|ann| {
                         let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                        let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                         ctx.diagnostics.extend(diags);
                         k
                     })
@@ -54,7 +54,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                         .as_ref()
                         .map(|ann| {
                             let mut diags = Vec::new();
-                            let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                            let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                             ctx.diagnostics.extend(diags);
                             k
                         })
@@ -75,7 +75,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .as_ref()
                     .map(|ann| {
                         let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                        let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                         ctx.diagnostics.extend(diags);
                         k
                     })
@@ -91,7 +91,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .as_ref()
                     .map(|ann| {
                         let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                        let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                         ctx.diagnostics.extend(diags);
                         k
                     })
@@ -108,7 +108,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .as_ref()
                     .map(|ann| {
                         let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                        let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                         ctx.diagnostics.extend(diags);
                         k
                     })
@@ -129,7 +129,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                         .as_ref()
                         .map(|ann| {
                             let mut diags = Vec::new();
-                            let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                            let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                             ctx.diagnostics.extend(diags);
                             k
                         })
@@ -152,7 +152,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                             .as_ref()
                             .map(|ann| {
                                 let mut diags = Vec::new();
-                                let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                                let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                                 ctx.diagnostics.extend(diags);
                                 k
                             })
@@ -168,7 +168,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                             .as_ref()
                             .map(|ann| {
                                 let mut diags = Vec::new();
-                                let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                                let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                                 ctx.diagnostics.extend(diags);
                                 k
                             })
@@ -203,7 +203,7 @@ pub fn check_class(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
             ClassMember::Field(f) => {
                 let declared_k = f.annotation.as_ref().map(|ann| {
                     let mut diags = Vec::new();
-                    let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                    let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                     ctx.diagnostics.extend(diags);
                     k
                 });
@@ -256,7 +256,7 @@ fn check_callable_body(
     for param in params {
         let param_k = if let Some(ann) = &param.annotation {
             let mut diags = Vec::new();
-            let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+            let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
             ctx.diagnostics.extend(diags);
             k
         } else {
@@ -268,7 +268,7 @@ fn check_callable_body(
     // Resolve return annotation
     let expected_return = return_annotation.map(|ann| {
         let mut diags = Vec::new();
-        let k = resolve_type_annotation(ctx.store, ctx.resolver, &ctx.current_module, ann, &mut diags);
+        let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
         ctx.diagnostics.extend(diags);
         k
     });

@@ -19,6 +19,11 @@ pub enum DiagnosticCode {
     FieldMismatch,
     AnnotationUnresolved,
     AnnotationUnsupported,
+    AnnotationUnsaturatedConstructor,
+    KindExpectedType,
+    ApplicationNotConstructor,
+    ApplicationTooManyArguments,
+    ApplicationArgumentKindMismatch,
 }
 
 impl DiagnosticCode {
@@ -31,6 +36,11 @@ impl DiagnosticCode {
             Self::FieldMismatch => "type.field.mismatch",
             Self::AnnotationUnresolved => "type.annotation.unresolved",
             Self::AnnotationUnsupported => "type.annotation.unsupported",
+            Self::AnnotationUnsaturatedConstructor => "type.annotation.unsaturated_constructor",
+            Self::KindExpectedType => "type.kind.expected_type",
+            Self::ApplicationNotConstructor => "type.application.not_constructor",
+            Self::ApplicationTooManyArguments => "type.application.too_many_arguments",
+            Self::ApplicationArgumentKindMismatch => "type.application.argument_kind_mismatch",
         }
     }
 }

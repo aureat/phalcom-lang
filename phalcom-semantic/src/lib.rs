@@ -41,5 +41,5 @@ pub use types::{
     TypeKnowledge, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver,
     TypeStore, UnknownReason, ValueSemanticFact, check_assignability, is_subtype,
     normalize_native_type, register_standard_surfaces, resolve_native_type_form,
-    resolve_type_annotation,
+    resolve_type_annotation, resolve_type_form,
 };

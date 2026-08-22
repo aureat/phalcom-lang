@@ -18,6 +18,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                 let mut diags = Vec::new();
                 let k = resolve_type_annotation(
                     ctx.store,
+                    ctx.declarations,
                     ctx.resolver,
                     &ctx.current_module,
                     ann,

@@ -12,7 +12,10 @@ pub mod parameter;
 pub mod relation;
 pub mod store;
 
-pub use annotation::{SimpleTypeResolver, TypeResolver, resolve_type_annotation};
+pub use annotation::{
+    SimpleTypeResolver, TypeFormResolution, TypeResolver, resolve_type_annotation,
+    resolve_type_form,
+};
 pub use application::TypeApplicationError;
 pub use constraint::{ConstraintSet, LocalConstraintSolver, TypeConstraint};
 pub use denotation::{SemanticDenotation, ValueSemanticFact};
