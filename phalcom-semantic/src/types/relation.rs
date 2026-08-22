@@ -91,6 +91,9 @@ pub enum RefutationReason {
 
 /// Check whether `sub` is a canonical subtype of `sup` (`sub <: sup`).
 pub fn is_subtype(store: &TypeStore, hierarchy: &dyn TypeHierarchy, sub: TypeId, sup: TypeId) -> bool {
+    debug_assert!(store.is_proper_type(sub), "sub must be a proper type");
+    debug_assert!(store.is_proper_type(sup), "sup must be a proper type");
+
     // 1. Reflexivity
     if sub == sup {
         return true;
@@ -111,10 +114,18 @@ pub fn is_subtype(store: &TypeStore, hierarchy: &dyn TypeHierarchy, sub: TypeId,
         // Union on the right: T <: A | B if exists m in members where T <: m
         (_, TypeData::Union(members)) => members.iter().any(|&m| is_subtype(store, hierarchy, sub, m)),
 
-        // Nominal subtyping
-        (TypeData::Nominal { declaration: sub_decl }, TypeData::Nominal { declaration: sup_decl }) => hierarchy.is_subclass(sub_decl, sup_decl),
+        // Class object subtyping mirrors metaclass inheritance
+        (
+            TypeData::ClassObject { declaration: sub_decl },
+            TypeData::ClassObject { declaration: sup_decl },
+        ) => hierarchy.is_subclass(sub_decl, sup_decl),
 
-        // Generic applied subtyping
+        // Nominal subtyping
+        (TypeData::Nominal { declaration: sub_decl }, TypeData::Nominal { declaration: sup_decl }) => {
+            hierarchy.is_subclass(sub_decl, sup_decl)
+        }
+
+        // Generic applied subtyping (invariant)
         (
             TypeData::Applied {
                 origin: sub_orig,
@@ -124,13 +135,7 @@ pub fn is_subtype(store: &TypeStore, hierarchy: &dyn TypeHierarchy, sub: TypeId,
                 origin: sup_orig,
                 arguments: sup_args,
             },
-        ) => {
-            if is_subtype(store, hierarchy, *sub_orig, *sup_orig) && sub_args.len() == sup_args.len() {
-                sub_args.iter().zip(sup_args.iter()).all(|(&a, &b)| is_subtype(store, hierarchy, a, b))
-            } else {
-                false
-            }
-        }
+        ) => sub_orig == sup_orig && sub_args == sup_args,
 
         // Tuple subtyping (width and depth subtyping)
         (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
@@ -184,7 +189,9 @@ pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, act
 
     match (actual, expected) {
         (TypeKnowledge::Known(act_ev), TypeKnowledge::Known(exp_ev)) => {
-            if matches!(store.get(act_ev.ty), TypeData::Parameter(_)) || matches!(store.get(exp_ev.ty), TypeData::Parameter(_)) {
+            if matches!(store.get(act_ev.ty), TypeData::Parameter(_) | TypeData::Infer(_))
+                || matches!(store.get(exp_ev.ty), TypeData::Parameter(_) | TypeData::Infer(_))
+            {
                 return Assignability::Uncertain;
             }
             if is_subtype(store, hierarchy, act_ev.ty, exp_ev.ty) {

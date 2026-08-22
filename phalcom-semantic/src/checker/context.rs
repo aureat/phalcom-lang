@@ -119,7 +119,7 @@ impl<'a> CheckingContext<'a> {
         false
     }
 
-    pub fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
+    pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
         let (decl, side) = match lookup {
             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
                 if let Some(super_decl) = self.hierarchy.superclass(&defining_class) {
@@ -146,7 +146,22 @@ impl<'a> CheckingContext<'a> {
             },
         };
 
-        self.dispatch.resolve_dispatch_on_owner(self.hierarchy, &decl, side, selector)
+        let res = self.dispatch.resolve_dispatch_on_owner(self.hierarchy, &decl, side, selector);
+        if let DispatchResult::Found(mut sig) = res {
+            if let Some(subst) = crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver) {
+                for param in &mut sig.parameters {
+                    if let TypeKnowledge::Known(ref mut ev) = param.ty {
+                        ev.ty = subst.apply(self.store, ev.ty);
+                    }
+                }
+                if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
+                    ev.ty = subst.apply(self.store, ev.ty);
+                }
+            }
+            DispatchResult::Found(sig)
+        } else {
+            res
+        }
     }
 
     pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {

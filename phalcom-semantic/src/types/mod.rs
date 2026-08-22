@@ -11,6 +11,7 @@ pub mod native;
 pub mod parameter;
 pub mod relation;
 pub mod store;
+pub mod substitution;
 
 pub use annotation::{
     SimpleTypeResolver, TypeFormResolution, TypeResolver, resolve_type_annotation,
@@ -36,3 +37,4 @@ pub use relation::{
 pub use store::{
     CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore,
 };
+pub use substitution::{TypeSubstitution, substitution_for_applied};
