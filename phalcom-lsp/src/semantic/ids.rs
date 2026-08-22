@@ -66,21 +66,21 @@ impl DocumentModuleMap {
 
     /// Associates one document URI with one semantic module identity.
     pub fn insert(&mut self, uri: Url, module: SemanticModuleId) {
+        let lsp_module = self.lsp_by_uri.get(&uri).cloned().unwrap_or_else(|| ModuleId::new(module.to_string()));
+
         // Enforce bijection: remove previous associations if present
         if let Some(old_mod) = self.by_uri.remove(&uri) {
             self.by_module.remove(&old_mod);
         }
         if let Some(old_uri) = self.by_module.remove(&module) {
             self.by_uri.remove(&old_uri);
-            if let Some(old_lsp) = self.lsp_by_uri.remove(&old_uri) {
+            if old_uri != uri
+                && let Some(old_lsp) = self.lsp_by_uri.remove(&old_uri)
+            {
                 self.uri_by_lsp.remove(&old_lsp);
             }
         }
-        if let Some(old_lsp) = self.lsp_by_uri.remove(&uri) {
-            self.uri_by_lsp.remove(&old_lsp);
-        }
 
-        let lsp_module = ModuleId::new(module.to_string());
         self.by_uri.insert(uri.clone(), module.clone());
         self.by_module.insert(module, uri.clone());
         self.lsp_by_uri.insert(uri.clone(), lsp_module.clone());
@@ -185,4 +185,23 @@ pub enum DispatchSide {
     Instance,
     /// Class-side dispatch.
     Class,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attaching_semantic_identity_preserves_existing_advisory_key() {
+        let uri = Url::parse("file:///workspace/main.ph").unwrap();
+        let mut documents = DocumentModuleMap::new();
+        let advisory = documents.ensure_lsp_for_uri(&uri);
+        let mut synthetic_ids = phalcom_modules::SyntheticProjectIdAllocator;
+        let semantic = SemanticModuleId::synthetic(synthetic_ids.allocate(), ModulePath::root());
+
+        documents.insert(uri.clone(), semantic.clone());
+
+        assert_eq!(documents.lsp_for_uri(&uri), Some(&advisory));
+        assert_eq!(documents.semantic_for_lsp(&advisory), Some(&semantic));
+    }
 }

@@ -19,7 +19,7 @@ use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DocumentModuleMap, FieldI
 use super::invalidation::{SourceChangeKind, classify_source_delta};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
-use super::snapshot::{FileSourceSnapshot, SemanticSnapshot};
+use super::snapshot::{FileSourceSnapshot, SemanticSnapshot, StaticSemanticSnapshot};
 use super::surface::{ClassSurface, build_module_surface};
 use super::{DependencySet, FileSemanticSnapshot, infer};
 use crate::perf::{PerfCounters, PerfCountersHandle};
@@ -45,6 +45,7 @@ pub(crate) struct SemanticState {
     pub callable_dependents: Arc<BTreeMap<CallableId, BTreeSet<CallableId>>>,
     pub graph: Arc<ModuleGraph>,
     pub documents: DocumentModuleMap,
+    pub static_snapshot: Option<Arc<StaticSemanticSnapshot>>,
     #[cfg(test)]
     pub last_trace: Option<RebuildTrace>,
 }
@@ -100,6 +101,16 @@ impl SemanticEngine {
         self.state.generation
     }
 
+    /// Atomically publishes or clears static semantics and their URI identities.
+    pub fn set_static_analysis(&mut self, analysis: Option<(Arc<StaticSemanticSnapshot>, DocumentModuleMap)>) {
+        if let Some((snapshot, documents)) = analysis {
+            self.state.static_snapshot = Some(snapshot);
+            self.state.documents = documents;
+        } else {
+            self.state.static_snapshot = None;
+        }
+    }
+
     /// Produces an immutable published snapshot of current engine state.
     pub fn snapshot(&self) -> SemanticSnapshot {
         SemanticSnapshot {
@@ -111,6 +122,7 @@ impl SemanticEngine {
             parameter_facts: self.state.parameter_facts.clone(),
             graph: self.state.graph.clone(),
             documents: Arc::new(self.state.documents.clone()),
+            static_snapshot: self.state.static_snapshot.clone(),
         }
     }
 

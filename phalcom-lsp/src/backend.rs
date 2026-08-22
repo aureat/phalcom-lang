@@ -58,6 +58,53 @@ use crate::semantic_tokens;
 
 use crate::workspace_scan::AnalysisMode;
 
+struct DiagnosticPublication {
+    diagnostics: Vec<tower_lsp::lsp_types::Diagnostic>,
+    version: Option<i32>,
+}
+
+fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticDb, uri: &Url) -> Option<DiagnosticPublication> {
+    let document = documents.snapshot(uri)?;
+    let mut diagnostics = syntax_errors_to_diagnostics(&document.parse.errors, &document.line_index);
+    let syntax_only = |diagnostics| DiagnosticPublication {
+        diagnostics,
+        version: document.version,
+    };
+    let advisory = semantic.snapshot();
+    let Some(module) = advisory.module_for_uri(uri) else {
+        return Some(syntax_only(diagnostics));
+    };
+    let Some(file) = advisory.file(module) else {
+        return Some(syntax_only(diagnostics));
+    };
+    let Some(static_snapshot) = advisory.static_snapshot.as_ref() else {
+        return Some(syntax_only(diagnostics));
+    };
+    if file.revision != document.revision || static_snapshot.generation != advisory.generation.0 {
+        return Some(syntax_only(diagnostics));
+    }
+    let Some(static_module) = advisory.documents.get_by_uri(uri) else {
+        return Some(syntax_only(diagnostics));
+    };
+    let Some(static_source) = static_snapshot.sources.get(static_module) else {
+        return Some(syntax_only(diagnostics));
+    };
+    if static_source.text.as_ref() != document.text.as_ref() {
+        return Some(syntax_only(diagnostics));
+    }
+    if let Some(semantic_diagnostics) = static_snapshot.diagnostics.get(static_module) {
+        diagnostics.extend(crate::diagnostics::semantic_diagnostics_to_lsp_diagnostics(
+            semantic_diagnostics,
+            &document.line_index,
+            uri,
+        ));
+    }
+    Some(DiagnosticPublication {
+        diagnostics,
+        version: document.version,
+    })
+}
+
 /// Runtime configuration that affects semantic source discovery and hint UI.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
@@ -304,12 +351,11 @@ impl Backend {
     /// previously-errored document that becomes clean has its squiggles
     /// cleared.
     async fn publish_diagnostics_for(&self, uri: Url, version: Option<i32>) {
-        let diagnostics = self
-            .documents
-            .with_document(&uri, |doc| {
-                self.index.update_file(uri.clone(), &doc.parse.program);
-                syntax_errors_to_diagnostics(doc.errors(), &doc.line_index)
-            })
+        self.documents.with_document(&uri, |doc| {
+            self.index.update_file(uri.clone(), &doc.parse.program);
+        });
+        let diagnostics = combined_diagnostics_for(&self.documents, &self.semantic, &uri)
+            .map(|publication| publication.diagnostics)
             .unwrap_or_default();
         self.client.publish_diagnostics(uri, diagnostics, version).await;
     }
@@ -1185,6 +1231,8 @@ impl LanguageServer for Backend {
             let inlay_refresh = self.inlay_refresh.clone();
             let semantic_token_refresh = self.semantic_token_refresh.clone();
             let counters = self.perf_counters();
+            let documents = self.documents.clone();
+            let semantic = self.semantic.clone();
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
                     match event {
@@ -1231,6 +1279,12 @@ impl LanguageServer for Backend {
                             }
                         }
                         AnalysisEvent::Published { effects, .. } => {
+                            for uri in documents.open_uris() {
+                                let Some(publication) = combined_diagnostics_for(&documents, &semantic, &uri) else {
+                                    continue;
+                                };
+                                client.publish_diagnostics(uri, publication.diagnostics, publication.version).await;
+                            }
                             if effects.inlay_hints_changed && inlay_refresh.request() {
                                 let client = client.clone();
                                 let refresh = inlay_refresh.clone();
@@ -1374,7 +1428,7 @@ impl LanguageServer for Backend {
         let version = params.text_document.version;
         self.analysis.mark_open(uri.clone());
         self.closed_sources.write().expect("closed source cache lock poisoned").remove(&uri);
-        self.documents.open_or_update(uri.clone(), params.text_document.text);
+        self.documents.open_or_update_versioned(uri.clone(), params.text_document.text, Some(version));
         if let Some((revision, text, program)) = self.documents.with_document(&uri, |doc| {
             let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
             let program = recovered.map(|p| p.program).unwrap_or_else(|| doc.parse.program.clone());
@@ -1401,7 +1455,7 @@ impl LanguageServer for Backend {
         let Some(change) = params.content_changes.into_iter().next_back() else {
             return;
         };
-        self.documents.open_or_update(uri.clone(), change.text);
+        self.documents.open_or_update_versioned(uri.clone(), change.text, Some(version));
         self.analysis.mark_open(uri.clone());
         if let Some((revision, text, program)) = self.documents.with_document(&uri, |doc| {
             let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);

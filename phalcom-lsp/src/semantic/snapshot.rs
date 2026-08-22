@@ -46,6 +46,11 @@ impl FileSourceSnapshot {
     }
 }
 
+/// Advisory runtime-shape semantic snapshot used by existing editor queries.
+pub type AdvisorySemanticSnapshot = SemanticSnapshot;
+/// Static type/kind semantic snapshot produced by `phalcom-semantic`.
+pub type StaticSemanticSnapshot = phalcom_semantic::SemanticSnapshot;
+
 /// Immutable published generation of all workspace semantic facts.
 #[derive(Clone, Debug, Default)]
 pub struct SemanticSnapshot {
@@ -65,6 +70,8 @@ pub struct SemanticSnapshot {
     pub graph: Arc<ModuleGraph>,
     /// Published document-to-module mapping used at request boundaries.
     pub documents: Arc<DocumentModuleMap>,
+    /// Whole-workspace static semantic snapshot published by the semantic tower.
+    pub static_snapshot: Option<Arc<StaticSemanticSnapshot>>,
 }
 
 impl SemanticSnapshot {

@@ -33,7 +33,7 @@ pub fn syntax_errors_to_diagnostics(errors: &[SyntaxError], index: &LineIndex) -
 }
 
 /// Converts a [`phalcom_semantic::SemanticDiagnostic`] into an LSP [`Diagnostic`].
-pub fn semantic_diagnostic_to_lsp_diagnostic(diag: &phalcom_semantic::SemanticDiagnostic, index: &LineIndex) -> Diagnostic {
+pub fn semantic_diagnostic_to_lsp_diagnostic(diag: &phalcom_semantic::SemanticDiagnostic, index: &LineIndex, uri: &tower_lsp::lsp_types::Url) -> Diagnostic {
     use phalcom_semantic::DiagnosticSeverity as SemSeverity;
     let severity = match diag.severity {
         SemSeverity::Error => DiagnosticSeverity::ERROR,
@@ -47,7 +47,7 @@ pub fn semantic_diagnostic_to_lsp_diagnostic(diag: &phalcom_semantic::SemanticDi
                 .iter()
                 .map(|label| tower_lsp::lsp_types::DiagnosticRelatedInformation {
                     location: tower_lsp::lsp_types::Location {
-                        uri: tower_lsp::lsp_types::Url::parse("file:///").unwrap(),
+                        uri: uri.clone(),
                         range: index.range(label.range.start..label.range.end),
                     },
                     message: label.message.clone(),
@@ -70,8 +70,12 @@ pub fn semantic_diagnostic_to_lsp_diagnostic(diag: &phalcom_semantic::SemanticDi
 }
 
 /// Converts every [`SemanticDiagnostic`] into LSP [`Diagnostic`]s.
-pub fn semantic_diagnostics_to_lsp_diagnostics(diags: &[phalcom_semantic::SemanticDiagnostic], index: &LineIndex) -> Vec<Diagnostic> {
-    diags.iter().map(|d| semantic_diagnostic_to_lsp_diagnostic(d, index)).collect()
+pub fn semantic_diagnostics_to_lsp_diagnostics(
+    diags: &[phalcom_semantic::SemanticDiagnostic],
+    index: &LineIndex,
+    uri: &tower_lsp::lsp_types::Url,
+) -> Vec<Diagnostic> {
+    diags.iter().map(|d| semantic_diagnostic_to_lsp_diagnostic(d, index, uri)).collect()
 }
 
 #[cfg(test)]
@@ -109,5 +113,30 @@ mod tests {
             assert_eq!(diag.range, index.range(err.range.clone()));
             assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
         }
+    }
+
+    #[test]
+    fn semantic_diagnostic_preserves_code_source_and_real_related_uri() {
+        let source = "let value: Int = \"text\"\n";
+        let index = LineIndex::new(source);
+        let uri = tower_lsp::lsp_types::Url::parse("file:///workspace/main.ph").unwrap();
+        let semantic = phalcom_semantic::SemanticDiagnostic::error(
+            phalcom_semantic::DiagnosticCode::BindingInitializerMismatch,
+            "binding initializer is incompatible",
+            (4..9).into(),
+        )
+        .with_label((11..14).into(), "declared type");
+
+        let diagnostic = semantic_diagnostic_to_lsp_diagnostic(&semantic, &index, &uri);
+
+        assert_eq!(diagnostic.source.as_deref(), Some("phalcom-typecheck"));
+        assert_eq!(
+            diagnostic.code,
+            Some(tower_lsp::lsp_types::NumberOrString::String("type.binding.initializer_mismatch".to_string()))
+        );
+        let related = diagnostic.related_information.expect("related semantic label");
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].location.uri, uri);
+        assert_ne!(related[0].location.uri.as_str(), "file:///");
     }
 }

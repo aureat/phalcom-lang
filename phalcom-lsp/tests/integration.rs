@@ -5,6 +5,7 @@ mod stage3_completion;
 mod stage4_hover;
 mod stage5_semantic_tokens;
 mod stage6_inlay_hints;
+mod stage7_static_diagnostics;
 
 mod support;
 

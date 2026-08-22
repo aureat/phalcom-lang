@@ -39,17 +39,24 @@ pub struct Document {
     pub line_index: Arc<LineIndex>,
     /// Monotonic semantic revision for this document.
     pub revision: FileRevision,
+    /// Client-owned LSP document version, when opened through the protocol.
+    pub version: Option<i32>,
 }
 
 impl Document {
     /// Parses `text` and builds a fresh [`Document`] (parse tree + line
     /// index) from it.
     pub fn new(text: String) -> Self {
-        Self::new_with_revision(text, FileRevision(1))
+        Self::new_with_revision_and_version(text, FileRevision(1), None)
     }
 
     /// Parses `text` at an explicitly assigned semantic revision.
     pub fn new_with_revision(text: String, revision: FileRevision) -> Self {
+        Self::new_with_revision_and_version(text, revision, None)
+    }
+
+    /// Parses `text` with semantic and client-visible LSP revisions.
+    pub fn new_with_revision_and_version(text: String, revision: FileRevision, version: Option<i32>) -> Self {
         let parse = Arc::new(parser::parse(&text, 0));
         let line_index = Arc::new(LineIndex::new(&text));
         Self {
@@ -57,6 +64,7 @@ impl Document {
             parse,
             line_index,
             revision,
+            version,
         }
     }
 
@@ -72,10 +80,10 @@ impl Document {
 /// Wraps a [`DashMap`] so the backend's `did_open`/`did_change`/`did_close`
 /// handlers (each `&self`, per `tower_lsp::LanguageServer`) can mutate
 /// distinct documents concurrently.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct DocumentStore {
-    documents: DashMap<Url, Document>,
-    revisions: DashMap<Url, u64>,
+    documents: Arc<DashMap<Url, Document>>,
+    revisions: Arc<DashMap<Url, u64>>,
 }
 
 impl DocumentStore {
@@ -90,12 +98,17 @@ impl DocumentStore {
     /// replace, since sync mode is `Full`) — the operation is identical:
     /// reparse and overwrite.
     pub fn open_or_update(&self, uri: Url, text: String) -> FileRevision {
+        self.open_or_update_versioned(uri, text, None)
+    }
+
+    /// Parses and stores one protocol document with its client version.
+    pub fn open_or_update_versioned(&self, uri: Url, text: String, version: Option<i32>) -> FileRevision {
         let revision = {
             let mut entry = self.revisions.entry(uri.clone()).or_insert(0);
             *entry += 1;
             FileRevision(*entry)
         };
-        self.documents.insert(uri, Document::new_with_revision(text, revision));
+        self.documents.insert(uri, Document::new_with_revision_and_version(text, revision, version));
         revision
     }
 
@@ -129,7 +142,15 @@ impl DocumentStore {
             parse: Arc::clone(&entry.parse),
             line_index: Arc::clone(&entry.line_index),
             revision: entry.revision,
+            version: entry.version,
         })
+    }
+
+    /// Returns a list of all currently open document URIs.
+    pub fn open_uris(&self) -> Vec<Url> {
+        let mut uris = self.documents.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>();
+        uris.sort();
+        uris
     }
 }
 
@@ -145,6 +166,8 @@ pub struct DocumentSnapshot {
     pub line_index: Arc<LineIndex>,
     /// Semantic revision of this snapshot.
     pub revision: FileRevision,
+    /// Client-owned LSP version of this snapshot.
+    pub version: Option<i32>,
 }
 
 #[cfg(test)]
