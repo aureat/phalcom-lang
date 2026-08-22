@@ -1057,7 +1057,15 @@ mod tests {
         let rendered = render_selector_hover("ifTrue(_)", &sites, None).unwrap();
         assert!(rendered.contains("ifTrue(_)"));
         assert!(rendered.contains("method on Bool"));
-        assert_eq!(rendered.matches("---").count(), 0);
+        // Native docs are now surfaced; a native with docs produces exactly one separator.
+        // Verify no user phaldoc section was injected (that would add more separators).
+        let sep_count = rendered.matches("---").count();
+        assert!(
+            sep_count <= 1,
+            "expected at most one section separator for a native hover without phaldoc, got {sep_count}"
+        );
+        // The native badge must appear for a core built-in
+        assert!(rendered.contains("native primitive"), "expected native primitive badge in hover");
     }
 
     #[test]

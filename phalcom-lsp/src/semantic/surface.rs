@@ -166,11 +166,20 @@ impl ClassSurface {
 
 impl ModuleSurface {
     /// Builds direct source lookup from canonical callable identity to its AST
-    /// reference. The index is immutable after source ingestion.
+    /// reference. Only `MemberOrigin::Source` members carry valid AST refs;
+    /// native and generated members are excluded to avoid sentinel propagation.
     pub fn callable_index(&self) -> BTreeMap<CallableId, MemberAstRef> {
         self.classes
             .values()
-            .flat_map(|class| class.all_members().map(|member| (member.callable.clone(), member.ast)))
+            .flat_map(|class| {
+                class.all_members().filter_map(|member| {
+                    if let MemberOrigin::Source(ast_ref) = member.origin {
+                        Some((member.callable.clone(), ast_ref))
+                    } else {
+                        None
+                    }
+                })
+            })
             .collect()
     }
 
