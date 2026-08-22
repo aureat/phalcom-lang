@@ -314,17 +314,63 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &["reflection", "typing"],
         kind: ModuleKind::Package,
-        children: &["kind", "type_descriptor", "type_parameter", "generic_signature", "signature", "type_use", "result", "evidence", "context"],
+        children: &[
+            "kind",
+            "type_descriptor",
+            "type_parameter",
+            "generic_signature",
+            "signature",
+            "type_use",
+            "result",
+            "evidence",
+            "context",
+        ],
     },
-    BuiltinNodeSpec { path: &["reflection", "typing", "kind"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "type_descriptor"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "type_parameter"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "generic_signature"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "signature"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "type_use"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "result"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "evidence"], kind: ModuleKind::Module, children: &[] },
-    BuiltinNodeSpec { path: &["reflection", "typing", "context"], kind: ModuleKind::Module, children: &[] },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "kind"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "type_descriptor"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "type_parameter"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "generic_signature"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "signature"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "type_use"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "result"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "evidence"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "typing", "context"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
     BuiltinNodeSpec {
         path: &["concurrency"],
         kind: ModuleKind::Package,
@@ -620,20 +666,18 @@ impl BuiltinProjectSourceProvider {
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "typing" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/typing/package.ph")
             }
-            (BuiltinProject::Universe, [c, m, child]) if c.as_str() == "reflection" && m.as_str() == "typing" => {
-                match child.as_str() {
-                    "kind" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/kind.ph"),
-                    "type_descriptor" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-descriptor.ph"),
-                    "type_parameter" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-parameter.ph"),
-                    "generic_signature" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/generic-signature.ph"),
-                    "signature" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/signature.ph"),
-                    "type_use" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-use.ph"),
-                    "result" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/result.ph"),
-                    "evidence" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/evidence.ph"),
-                    "context" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/context.ph"),
-                    _ => return Err(ModuleResolutionError::ModuleNotFound(format!("builtin source for {id} not found")).into()),
-                }
-            }
+            (BuiltinProject::Universe, [c, m, child]) if c.as_str() == "reflection" && m.as_str() == "typing" => match child.as_str() {
+                "kind" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/kind.ph"),
+                "type_descriptor" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-descriptor.ph"),
+                "type_parameter" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-parameter.ph"),
+                "generic_signature" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/generic-signature.ph"),
+                "signature" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/signature.ph"),
+                "type_use" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-use.ph"),
+                "result" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/result.ph"),
+                "evidence" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/evidence.ph"),
+                "context" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/context.ph"),
+                _ => return Err(ModuleResolutionError::ModuleNotFound(format!("builtin source for {id} not found")).into()),
+            },
             (BuiltinProject::Universe, [c]) if c.as_str() == "concurrency" => include_str!("../../phalcom-core/core/universe/src/concurrency/package.ph"),
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "concurrency" && m.as_str() == "fiber" => {
                 include_str!("../../phalcom-core/core/universe/src/concurrency/fiber.ph")

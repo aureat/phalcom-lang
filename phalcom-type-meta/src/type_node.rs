@@ -50,6 +50,12 @@ pub struct CallableTypeRef {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct OpenRecordTypeRef {
+    pub fields: Box<[RecordFieldRef]>,
+    pub tail: StableTypeParameterRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum TypeNode {
     Never,
     Unit,
@@ -62,6 +68,7 @@ pub enum TypeNode {
     Parameter(StableTypeParameterRef),
     SelfType(SelfTypeRef),
     TypeLambda(TypeLambdaRef),
+    OpenRecord(OpenRecordTypeRef),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

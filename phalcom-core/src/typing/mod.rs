@@ -10,6 +10,7 @@ pub mod registry;
 pub mod reify;
 pub mod side_table;
 
+pub use capability::*;
 pub use context::*;
 pub use handle::*;
 pub use loader::*;
@@ -17,4 +18,3 @@ pub use overlay::*;
 pub use registry::*;
 pub use reify::*;
 pub use side_table::*;
-pub use capability::*;

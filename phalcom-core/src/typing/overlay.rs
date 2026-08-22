@@ -15,9 +15,32 @@ pub enum RuntimeOverlayKindNode {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeOverlayTypeNode {
-    Nominal { class: ClassId },
-    Applied { origin: RuntimeTypeRef, arguments: Box<[RuntimeTypeRef]> },
+    Nominal {
+        class: ClassId,
+    },
+    Applied {
+        origin: RuntimeTypeRef,
+        arguments: Box<[RuntimeTypeRef]>,
+    },
     Union(Box<[RuntimeTypeRef]>),
+    Tuple(Box<[RuntimeTupleElement]>),
+    Callable {
+        parameters: Box<[RuntimeCallableParameter]>,
+        return_type: RuntimeTypeRef,
+    },
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeTupleElement {
+    pub label: Option<Box<str>>,
+    pub ty: RuntimeTypeRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeCallableParameter {
+    pub label: Option<Box<str>>,
+    pub ty: RuntimeTypeRef,
+    pub rest: bool,
 }
 
 /// Bounded overlay for explicitly constructed type forms.
@@ -51,5 +74,23 @@ impl RuntimeTypingOverlay {
 
     pub fn type_node(&self, id: RuntimeOverlayTypeId) -> Option<&RuntimeOverlayTypeNode> {
         self.types.get(id.0 as usize)
+    }
+
+    pub fn intern_kind(&mut self, node: RuntimeOverlayKindNode) -> RuntimeOverlayKindId {
+        if let Some(&id) = self.kind_interner.get(&node) {
+            return id;
+        }
+        let id = RuntimeOverlayKindId(self.kinds.len() as u32);
+        self.kinds.push(node.clone());
+        self.kind_interner.insert(node, id);
+        id
+    }
+
+    pub fn kind_ref(&mut self, node: RuntimeOverlayKindNode) -> crate::typing::handle::RuntimeKindRef {
+        crate::typing::handle::RuntimeKindRef::Overlay(self.intern_kind(node))
+    }
+
+    pub fn kind_node(&self, id: RuntimeOverlayKindId) -> Option<&RuntimeOverlayKindNode> {
+        self.kinds.get(id.0 as usize)
     }
 }

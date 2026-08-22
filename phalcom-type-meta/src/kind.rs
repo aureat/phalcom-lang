@@ -10,6 +10,7 @@ pub struct KindNodeId(pub u32);
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum KindNode {
     Type,
+    RecordRow,
     Arrow { parameters: Box<[KindNodeId]>, result: KindNodeId },
 }
 

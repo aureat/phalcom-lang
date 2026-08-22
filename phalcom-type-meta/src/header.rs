@@ -3,9 +3,15 @@
 use crate::fingerprint::Fingerprint128;
 use serde::{Deserialize, Serialize};
 
-pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
+pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
+pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 2;
 pub const SEMANTIC_MODEL_VERSION: u32 = 1;
 pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 1;
+
+#[inline]
+pub const fn supports_type_metadata_schema(version: u32) -> bool {
+    version >= MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION && version <= TYPE_METADATA_SCHEMA_VERSION
+}
 
 /// Metadata retention profile.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]

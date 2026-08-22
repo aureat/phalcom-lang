@@ -5,6 +5,8 @@ use crate::kind::KindNodeId;
 use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
 
+use crate::generic::StableTypeParameterRef;
+
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct ScopedTypeNodeId(pub u32);
@@ -19,6 +21,18 @@ pub struct ScopedTupleElementRef {
 pub struct ScopedRecordFieldRef {
     pub name: Box<str>,
     pub ty: ScopedTypeNodeId,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub enum ScopedRecordTailRef {
+    Bound { depth: u32, index: u32 },
+    FreeParameter(StableTypeParameterRef),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ScopedOpenRecordTypeRef {
+    pub fields: Box<[ScopedRecordFieldRef]>,
+    pub tail: ScopedRecordTailRef,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -56,6 +70,7 @@ pub enum ScopedTypeNode {
         parameter_kinds: Box<[KindNodeId]>,
         body: ScopedTypeNodeId,
     },
+    OpenRecord(ScopedOpenRecordTypeRef),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

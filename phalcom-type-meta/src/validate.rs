@@ -2,9 +2,11 @@
 
 use crate::bundle::SemanticMetadataBundle;
 use crate::declaration::PublishedTypeSlot;
-use crate::header::{SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION};
+use crate::header::{
+    MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_VERSION, TYPE_METADATA_SCHEMA_VERSION, supports_type_metadata_schema,
+};
 use crate::kind::KindNode;
-use crate::scoped_type::ScopedTypeNode;
+use crate::scoped_type::{ScopedRecordTailRef, ScopedTypeNode};
 use crate::type_node::TypeNode;
 use std::collections::HashSet;
 use thiserror::Error;
@@ -44,10 +46,24 @@ impl Default for ValidationLimits {
 
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub enum MetadataValidationError {
-    #[error("unsupported schema version: {0} (expected {TYPE_METADATA_SCHEMA_VERSION})")]
-    UnsupportedSchemaVersion(u32),
+    #[error("unsupported schema version: found {found}, supported range [{minimum}..={maximum}]")]
+    UnsupportedSchemaVersion { found: u32, minimum: u32, maximum: u32 },
     #[error("unsupported semantic model version: {0} (expected {SEMANTIC_MODEL_VERSION})")]
     UnsupportedSemanticModelVersion(u32),
+    #[error("record rows feature required for record row kinds and open records")]
+    RecordRowFeatureRequired,
+    #[error("record tail parameter missing: owner {owner:?}, index {index}")]
+    RecordTailParameterMissing { owner: String, index: u32 },
+    #[error("record tail kind mismatch: expected RecordRow, found kind index {actual_kind}")]
+    RecordTailKindMismatch { actual_kind: u32 },
+    #[error("record field order invalid at node {node}: fields must be sorted")]
+    RecordFieldOrderInvalid { node: u32 },
+    #[error("duplicate record field '{field}' at node {node}")]
+    RecordDuplicateField { node: u32, field: Box<str> },
+    #[error("scoped record tail out of scope at node {node}: depth {depth} index {index}")]
+    ScopedRecordTailOutOfScope { node: u32, depth: u32, index: u32 },
+    #[error("scoped record tail kind mismatch at node {node}: depth {depth} index {index} is not RecordRow")]
+    ScopedRecordTailKindMismatch { node: u32, depth: u32, index: u32 },
     #[error("budget exceeded: {resource} count {count} exceeds limit {limit}")]
     BudgetExceeded { resource: &'static str, count: usize, limit: usize },
     #[error("invalid kind index: {index} (max {total})")]
@@ -68,13 +84,85 @@ pub enum MetadataValidationError {
     Malformed(String),
 }
 
+fn validate_schema_v1_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    if bundle.header.features.record_rows {
+        return Err(MetadataValidationError::Malformed(
+            "schema v1 cannot enable record_rows feature".to_string(),
+        ));
+    }
+    for entry in bundle.kinds.iter() {
+        if matches!(entry.node, KindNode::RecordRow) {
+            return Err(MetadataValidationError::Malformed(
+                "schema v1 cannot contain KindNode::RecordRow".to_string(),
+            ));
+        }
+    }
+    for entry in bundle.types.iter() {
+        if matches!(entry.form, TypeNode::OpenRecord(_)) {
+            return Err(MetadataValidationError::Malformed(
+                "schema v1 cannot contain TypeNode::OpenRecord".to_string(),
+            ));
+        }
+    }
+    for entry in bundle.scoped_types.iter() {
+        if matches!(entry.form, ScopedTypeNode::OpenRecord(_)) {
+            return Err(MetadataValidationError::Malformed(
+                "schema v1 cannot contain ScopedTypeNode::OpenRecord".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_schema_v2_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
+    let mut has_row_construct = false;
+    for entry in bundle.kinds.iter() {
+        if matches!(entry.node, KindNode::RecordRow) {
+            has_row_construct = true;
+            break;
+        }
+    }
+    if !has_row_construct {
+        for entry in bundle.types.iter() {
+            if matches!(entry.form, TypeNode::OpenRecord(_)) {
+                has_row_construct = true;
+                break;
+            }
+        }
+    }
+    if !has_row_construct {
+        for entry in bundle.scoped_types.iter() {
+            if matches!(entry.form, ScopedTypeNode::OpenRecord(_)) {
+                has_row_construct = true;
+                break;
+            }
+        }
+    }
+
+    if has_row_construct && !bundle.header.features.record_rows {
+        return Err(MetadataValidationError::RecordRowFeatureRequired);
+    }
+
+    Ok(())
+}
+
 /// Iteratively validates a [`SemanticMetadataBundle`].
 pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &ValidationLimits) -> Result<(), MetadataValidationError> {
-    if bundle.header.schema_version != TYPE_METADATA_SCHEMA_VERSION {
-        return Err(MetadataValidationError::UnsupportedSchemaVersion(bundle.header.schema_version));
+    if !supports_type_metadata_schema(bundle.header.schema_version) {
+        return Err(MetadataValidationError::UnsupportedSchemaVersion {
+            found: bundle.header.schema_version,
+            minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
+            maximum: TYPE_METADATA_SCHEMA_VERSION,
+        });
     }
     if bundle.header.semantic_model_version != SEMANTIC_MODEL_VERSION {
         return Err(MetadataValidationError::UnsupportedSemanticModelVersion(bundle.header.semantic_model_version));
+    }
+
+    match bundle.header.schema_version {
+        1 => validate_schema_v1_feature_floor(bundle)?,
+        2 => validate_schema_v2_feature_floor(bundle)?,
+        _ => unreachable!("version range checked above"),
     }
 
     if bundle.kinds.len() > limits.max_kind_nodes {
@@ -102,7 +190,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     // Validate kinds graph (strictly topologically sorted)
     for (i, entry) in bundle.kinds.iter().enumerate() {
         match &entry.node {
-            KindNode::Type => {}
+            KindNode::Type | KindNode::RecordRow => {}
             KindNode::Arrow { parameters, result } => {
                 for &p in parameters.iter() {
                     if p.0 as usize >= i {
@@ -117,6 +205,26 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
             }
         }
+    }
+
+    // Index parameters by (owner_key, index) -> param_entry for fast tail lookup
+    let mut param_map = std::collections::HashMap::new();
+    let mut param_set = HashSet::new();
+    for param in bundle.parameters.iter() {
+        if param.kind.0 as usize >= bundle.kinds.len() {
+            return Err(MetadataValidationError::InvalidKindIndex {
+                index: param.kind.0,
+                total: bundle.kinds.len(),
+            });
+        }
+        let owner_key = format!("{:?}", param.id.owner);
+        if !param_set.insert((owner_key.clone(), param.id.index)) {
+            return Err(MetadataValidationError::DuplicateParameterOwner(
+                owner_key.clone(),
+                param.id.index,
+            ));
+        }
+        param_map.insert((owner_key, param.id.index), param);
     }
 
     // Validate global types graph (strictly topologically sorted)
@@ -163,6 +271,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
             }
             TypeNode::Record(fields) => {
+                let mut prev_name: Option<&str> = None;
                 for f in fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -170,6 +279,52 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             target: f.ty.0,
                         });
                     }
+                    if let Some(prev) = prev_name {
+                        if &*f.name < prev {
+                            return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
+                        } else if &*f.name == prev {
+                            return Err(MetadataValidationError::RecordDuplicateField {
+                                node: i as u32,
+                                field: f.name.clone(),
+                            });
+                        }
+                    }
+                    prev_name = Some(&f.name);
+                }
+            }
+            TypeNode::OpenRecord(open_rec) => {
+                let mut prev_name: Option<&str> = None;
+                for f in open_rec.fields.iter() {
+                    if f.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: f.ty.0,
+                        });
+                    }
+                    if let Some(prev) = prev_name {
+                        if &*f.name < prev {
+                            return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
+                        } else if &*f.name == prev {
+                            return Err(MetadataValidationError::RecordDuplicateField {
+                                node: i as u32,
+                                field: f.name.clone(),
+                            });
+                        }
+                    }
+                    prev_name = Some(&f.name);
+                }
+                let owner_key = format!("{:?}", open_rec.tail.owner);
+                let tail_param = param_map.get(&(owner_key.clone(), open_rec.tail.index)).ok_or_else(|| {
+                    MetadataValidationError::RecordTailParameterMissing {
+                        owner: owner_key,
+                        index: open_rec.tail.index,
+                    }
+                })?;
+                let tail_kind_entry = &bundle.kinds[tail_param.kind.0 as usize];
+                if !matches!(tail_kind_entry.node, KindNode::RecordRow) {
+                    return Err(MetadataValidationError::RecordTailKindMismatch {
+                        actual_kind: tail_param.kind.0,
+                    });
                 }
             }
             TypeNode::Callable(call) => {
@@ -208,6 +363,8 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     }
 
     // Validate scoped lambda graph (strictly topologically sorted)
+    // We maintain a stack/mapping of lambda scope parameter kinds
+    let mut lambda_param_kinds: Vec<Box<[KindNodeId]>> = Vec::new();
     for (i, entry) in bundle.scoped_types.iter().enumerate() {
         if entry.kind.0 as usize >= bundle.kinds.len() {
             return Err(MetadataValidationError::InvalidKindIndex {
@@ -263,12 +420,89 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
             }
             ScopedTypeNode::Record(fields) => {
+                let mut prev_name: Option<&str> = None;
                 for f in fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
                             index: i as u32,
                             target: f.ty.0,
                         });
+                    }
+                    if let Some(prev) = prev_name {
+                        if &*f.name < prev {
+                            return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
+                        } else if &*f.name == prev {
+                            return Err(MetadataValidationError::RecordDuplicateField {
+                                node: i as u32,
+                                field: f.name.clone(),
+                            });
+                        }
+                    }
+                    prev_name = Some(&f.name);
+                }
+            }
+            ScopedTypeNode::OpenRecord(open_rec) => {
+                let mut prev_name: Option<&str> = None;
+                for f in open_rec.fields.iter() {
+                    if f.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: f.ty.0,
+                        });
+                    }
+                    if let Some(prev) = prev_name {
+                        if &*f.name < prev {
+                            return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
+                        } else if &*f.name == prev {
+                            return Err(MetadataValidationError::RecordDuplicateField {
+                                node: i as u32,
+                                field: f.name.clone(),
+                            });
+                        }
+                    }
+                    prev_name = Some(&f.name);
+                }
+                match &open_rec.tail {
+                    ScopedRecordTailRef::Bound { depth, index } => {
+                        if *depth as usize >= lambda_param_kinds.len() {
+                            // Depth exceeds known lambda scopes at this node
+                            // (Conservative fallback: still check depth limit)
+                            if *depth > limits.max_lambda_depth {
+                                return Err(MetadataValidationError::LambdaScopeViolation { depth: *depth, index: *index });
+                            }
+                        } else {
+                            let kinds = &lambda_param_kinds[lambda_param_kinds.len() - 1 - *depth as usize];
+                            if *index as usize >= kinds.len() {
+                                return Err(MetadataValidationError::ScopedRecordTailOutOfScope {
+                                    node: i as u32,
+                                    depth: *depth,
+                                    index: *index,
+                                });
+                            }
+                            let k_id = kinds[*index as usize];
+                            if k_id.0 as usize >= bundle.kinds.len() || !matches!(bundle.kinds[k_id.0 as usize].node, KindNode::RecordRow) {
+                                return Err(MetadataValidationError::ScopedRecordTailKindMismatch {
+                                    node: i as u32,
+                                    depth: *depth,
+                                    index: *index,
+                                });
+                            }
+                        }
+                    }
+                    ScopedRecordTailRef::FreeParameter(param_ref) => {
+                        let owner_key = format!("{:?}", param_ref.owner);
+                        let tail_param = param_map.get(&(owner_key.clone(), param_ref.index)).ok_or_else(|| {
+                            MetadataValidationError::RecordTailParameterMissing {
+                                owner: owner_key,
+                                index: param_ref.index,
+                            }
+                        })?;
+                        let tail_kind_entry = &bundle.kinds[tail_param.kind.0 as usize];
+                        if !matches!(tail_kind_entry.node, KindNode::RecordRow) {
+                            return Err(MetadataValidationError::RecordTailKindMismatch {
+                                actual_kind: tail_param.kind.0,
+                            });
+                        }
                     }
                 }
             }
@@ -303,6 +537,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         target: body.0,
                     });
                 }
+                lambda_param_kinds.push(parameter_kinds.clone());
             }
         }
     }
