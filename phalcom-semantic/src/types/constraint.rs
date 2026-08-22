@@ -92,7 +92,7 @@ impl LocalConstraintSolver {
             TypeData::Applied { origin, arguments } => {
                 let subst_origin = self.substitute_type(origin, store);
                 let subst_args: Vec<TypeId> = arguments.iter().map(|&arg| self.substitute_type(arg, store)).collect();
-                store.applied(subst_origin, subst_args.into_boxed_slice())
+                store.apply_type_form(subst_origin, &subst_args).unwrap_or(resolved)
             }
             TypeData::Union(members) => {
                 let subst_members: Vec<TypeId> = members.iter().map(|&m| self.substitute_type(m, store)).collect();
@@ -217,6 +217,7 @@ impl LocalConstraintSolver {
 mod tests {
     use super::*;
     use crate::identity::DeclarationId;
+    use crate::types::id::KindId;
     use crate::types::relation::MapTypeHierarchy;
     use phalcom_modules::identity::ModuleId;
 
@@ -235,9 +236,12 @@ mod tests {
         let list_decl = test_decl("List");
         let t_int = store.nominal(int_decl);
 
+        let list_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        let list_form = store.nominal_form(list_decl, list_kind);
+
         let (_var, t_infer) = solver.fresh_var(&mut store);
-        let list_infer = store.list_of(list_decl.clone(), t_infer);
-        let list_int = store.list_of(list_decl, t_int);
+        let list_infer = store.list_of(list_form, t_infer).unwrap();
+        let list_int = store.list_of(list_form, t_int).unwrap();
 
         let mut constraints = ConstraintSet::new();
         constraints.add(TypeConstraint::Equal(list_infer, list_int));

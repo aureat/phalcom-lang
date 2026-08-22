@@ -1,7 +1,8 @@
 //! Canonical Type Store with interning and normalization.
 
+use super::application::TypeApplicationError;
 use super::id::{InferVarId, KindId, TypeId, TypeParameterId};
-use super::kind::KindData;
+use super::kind::{KindApplicationError, KindData};
 use crate::identity::DeclarationId;
 use std::collections::HashMap;
 
@@ -37,7 +38,9 @@ pub enum TypeData {
     Never,
     /// Canonical unit type (inhabited by single unit value).
     Unit,
-    /// Canonical nominal class declaration type.
+    /// Proper static value type of a runtime class object (internal semantic representation).
+    ClassObject { declaration: DeclarationId },
+    /// Canonical nominal class declaration type or constructor form.
     Nominal { declaration: DeclarationId },
     /// Generic type application (e.g. `List<Int>`).
     Applied { origin: TypeId, arguments: Box<[TypeId]> },
@@ -62,7 +65,7 @@ pub struct TypeStore {
     type_to_id: HashMap<TypeData, TypeId>,
     kinds: Vec<KindData>,
     kind_to_id: HashMap<KindData, KindId>,
-    type_kinds: HashMap<TypeId, KindId>,
+    type_kinds: Vec<KindId>,
 
     never_id: TypeId,
     unit_id: TypeId,
@@ -81,7 +84,7 @@ impl TypeStore {
             type_to_id: HashMap::new(),
             kinds: Vec::new(),
             kind_to_id: HashMap::new(),
-            type_kinds: HashMap::new(),
+            type_kinds: Vec::new(),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
         };
@@ -90,11 +93,8 @@ impl TypeStore {
         let type_kind = store.intern_kind(KindData::Type);
         assert_eq!(type_kind, KindId::TYPE);
 
-        store.never_id = store.intern(TypeData::Never);
-        store.unit_id = store.intern(TypeData::Unit);
-
-        store.set_kind(store.never_id, KindId::TYPE);
-        store.set_kind(store.unit_id, KindId::TYPE);
+        store.never_id = store.intern_with_kind(TypeData::Never, KindId::TYPE);
+        store.unit_id = store.intern_with_kind(TypeData::Unit, KindId::TYPE);
 
         store
     }
@@ -123,22 +123,87 @@ impl TypeStore {
         &self.kinds[id.index()]
     }
 
-    pub fn set_kind(&mut self, ty: TypeId, kind: KindId) {
-        self.type_kinds.insert(ty, kind);
+    pub fn arrow_kind(&mut self, parameters: Box<[KindId]>, result: KindId) -> KindId {
+        if parameters.is_empty() {
+            return result;
+        }
+        let (params, final_result) = match self.get_kind(result).clone() {
+            KindData::Arrow {
+                parameters: sub_params,
+                result: sub_res,
+            } => {
+                let mut combined = parameters.to_vec();
+                combined.extend_from_slice(&sub_params);
+                (combined.into_boxed_slice(), sub_res)
+            }
+            _ => (parameters, result),
+        };
+        self.intern_kind(KindData::Arrow {
+            parameters: params,
+            result: final_result,
+        })
     }
 
-    pub fn kind_of(&self, ty: TypeId) -> KindId {
-        self.type_kinds.get(&ty).copied().unwrap_or(KindId::TYPE)
+    pub fn apply_kind(
+        &mut self,
+        callee: KindId,
+        arguments: &[KindId],
+    ) -> Result<KindId, KindApplicationError> {
+        if arguments.is_empty() {
+            return Ok(callee);
+        }
+
+        let callee_data = self.get_kind(callee).clone();
+        match callee_data {
+            KindData::Type => Err(KindApplicationError::NotApplicable { kind: callee }),
+            KindData::Arrow { parameters, result } => {
+                if arguments.len() > parameters.len() {
+                    return Err(KindApplicationError::TooManyArguments {
+                        supplied: arguments.len(),
+                        accepted: parameters.len(),
+                    });
+                }
+                for (i, (&arg, &param)) in arguments.iter().zip(parameters.iter()).enumerate() {
+                    if arg != param {
+                        return Err(KindApplicationError::ArgumentKindMismatch {
+                            index: i,
+                            expected: param,
+                            actual: arg,
+                        });
+                    }
+                }
+                if arguments.len() == parameters.len() {
+                    Ok(result)
+                } else {
+                    let remaining = parameters[arguments.len()..].to_vec().into_boxed_slice();
+                    Ok(self.arrow_kind(remaining, result))
+                }
+            }
+        }
     }
 
-    pub fn intern(&mut self, data: TypeData) -> TypeId {
+    pub fn intern_with_kind(&mut self, data: TypeData, kind: KindId) -> TypeId {
         if let Some(&id) = self.type_to_id.get(&data) {
+            debug_assert_eq!(self.type_kinds[id.index()], kind);
             return id;
         }
+
         let id = TypeId(self.types.len() as u32);
         self.types.push(data.clone());
+        self.type_kinds.push(kind);
         self.type_to_id.insert(data, id);
+        debug_assert_eq!(self.types.len(), self.type_kinds.len());
         id
+    }
+
+    #[inline]
+    pub fn kind_of(&self, ty: TypeId) -> KindId {
+        self.type_kinds[ty.index()]
+    }
+
+    #[inline]
+    pub fn is_proper_type(&self, form: TypeId) -> bool {
+        self.kind_of(form) == KindId::TYPE
     }
 
     #[inline]
@@ -146,64 +211,146 @@ impl TypeStore {
         &self.types[id.index()]
     }
 
-    /// Interns a nominal class declaration reference.
-    pub fn nominal(&mut self, declaration: DeclarationId) -> TypeId {
-        let ty = self.intern(TypeData::Nominal { declaration });
-        self.set_kind(ty, KindId::TYPE);
-        ty
+    pub fn nominal_form(&mut self, declaration: DeclarationId, kind: KindId) -> TypeId {
+        self.intern_with_kind(TypeData::Nominal { declaration }, kind)
     }
 
-    /// Interns a generic applied type.
-    pub fn applied(&mut self, origin: TypeId, arguments: Box<[TypeId]>) -> TypeId {
-        let ty = self.intern(TypeData::Applied { origin, arguments });
-        self.set_kind(ty, KindId::TYPE);
-        ty
+    pub fn nominal_type(&mut self, declaration: DeclarationId) -> TypeId {
+        self.nominal_form(declaration, KindId::TYPE)
+    }
+
+    pub fn class_object_type(&mut self, declaration: DeclarationId) -> TypeId {
+        self.intern_with_kind(TypeData::ClassObject { declaration }, KindId::TYPE)
+    }
+
+    /// Legacy compatibility helper for tests / callers expecting nominal type.
+    pub fn nominal(&mut self, declaration: DeclarationId) -> TypeId {
+        self.nominal_type(declaration)
+    }
+
+    /// Interns a generic applied type with checked kinding.
+    pub fn apply_type_form(
+        &mut self,
+        origin: TypeId,
+        arguments: &[TypeId],
+    ) -> Result<TypeId, TypeApplicationError> {
+        if arguments.is_empty() {
+            return Ok(origin);
+        }
+
+        let origin_kind = self.kind_of(origin);
+        let arg_kinds: Vec<KindId> = arguments.iter().map(|&a| self.kind_of(a)).collect();
+
+        let residual_kind = match self.apply_kind(origin_kind, &arg_kinds) {
+            Ok(k) => k,
+            Err(KindApplicationError::NotApplicable { kind }) => {
+                return Err(TypeApplicationError::NotAConstructor { origin, kind });
+            }
+            Err(KindApplicationError::TooManyArguments { supplied, accepted }) => {
+                return Err(TypeApplicationError::TooManyArguments { supplied, accepted });
+            }
+            Err(KindApplicationError::ArgumentKindMismatch {
+                index,
+                expected,
+                actual,
+            }) => {
+                return Err(TypeApplicationError::ArgumentKindMismatch {
+                    index,
+                    expected,
+                    actual,
+                });
+            }
+        };
+
+        let (final_origin, final_args) = match self.get(origin).clone() {
+            TypeData::Applied {
+                origin: base,
+                arguments: old_args,
+            } => {
+                let mut combined = old_args.to_vec();
+                combined.extend_from_slice(arguments);
+                (base, combined.into_boxed_slice())
+            }
+            _ => (origin, arguments.to_vec().into_boxed_slice()),
+        };
+
+        Ok(self.intern_with_kind(
+            TypeData::Applied {
+                origin: final_origin,
+                arguments: final_args,
+            },
+            residual_kind,
+        ))
     }
 
     /// Interns a tuple type.
     pub fn tuple(&mut self, elements: Box<[TupleTypeElement]>) -> TypeId {
-        let ty = self.intern(TypeData::Tuple(elements));
-        self.set_kind(ty, KindId::TYPE);
-        ty
+        for elem in elements.iter() {
+            debug_assert!(
+                self.is_proper_type(elem.ty),
+                "tuple element must be a proper type"
+            );
+        }
+        self.intern_with_kind(TypeData::Tuple(elements), KindId::TYPE)
     }
 
     /// Interns a record type.
     pub fn record(&mut self, fields: Box<[RecordTypeField]>) -> TypeId {
-        let ty = self.intern(TypeData::Record(fields));
-        self.set_kind(ty, KindId::TYPE);
-        ty
+        for field in fields.iter() {
+            debug_assert!(
+                self.is_proper_type(field.ty),
+                "record field must be a proper type"
+            );
+        }
+        self.intern_with_kind(TypeData::Record(fields), KindId::TYPE)
     }
 
     /// Interns a callable type.
     pub fn callable(&mut self, callable: CallableType) -> TypeId {
-        let ty = self.intern(TypeData::Callable(callable));
-        self.set_kind(ty, KindId::TYPE);
-        ty
+        for param in callable.parameters.iter() {
+            debug_assert!(
+                self.is_proper_type(param.ty),
+                "callable parameter must be a proper type"
+            );
+        }
+        debug_assert!(
+            self.is_proper_type(callable.return_type),
+            "callable return type must be a proper type"
+        );
+        self.intern_with_kind(TypeData::Callable(callable), KindId::TYPE)
     }
 
     /// Interns an inference type variable.
     pub fn infer(&mut self, var: InferVarId) -> TypeId {
-        let ty = self.intern(TypeData::Infer(var));
-        self.set_kind(ty, KindId::TYPE);
-        ty
+        self.intern_with_kind(TypeData::Infer(var), KindId::TYPE)
     }
 
     /// Interns a `List<T>` applied type.
-    pub fn list_of(&mut self, list_decl: DeclarationId, element: TypeId) -> TypeId {
-        let origin = self.nominal(list_decl);
-        self.applied(origin, vec![element].into_boxed_slice())
+    pub fn list_of(
+        &mut self,
+        list_form: TypeId,
+        element: TypeId,
+    ) -> Result<TypeId, TypeApplicationError> {
+        self.apply_type_form(list_form, &[element])
     }
 
     /// Interns a `Map<K, V>` applied type.
-    pub fn map_of(&mut self, map_decl: DeclarationId, key: TypeId, value: TypeId) -> TypeId {
-        let origin = self.nominal(map_decl);
-        self.applied(origin, vec![key, value].into_boxed_slice())
+    pub fn map_of(
+        &mut self,
+        map_form: TypeId,
+        key: TypeId,
+        value: TypeId,
+    ) -> Result<TypeId, TypeApplicationError> {
+        self.apply_type_form(map_form, &[key, value])
     }
 
     /// Interns a `Set<T>` applied type.
-    pub fn set_of(&mut self, set_decl: DeclarationId, element: TypeId) -> TypeId {
-        let origin = self.nominal(set_decl);
-        self.applied(origin, vec![element].into_boxed_slice())
+    pub fn set_of(
+        &mut self,
+        set_form: TypeId,
+        element: TypeId,
+    ) -> Result<TypeId, TypeApplicationError> {
+        self.apply_type_form(set_form, &[element])
     }
 
     /// Normalizes and interns a union type.
@@ -216,6 +363,12 @@ impl TypeStore {
     /// 5. Zero members -> `Never`.
     /// 6. One member -> member TypeId.
     pub fn union(&mut self, members: &[TypeId]) -> TypeId {
+        for &m in members {
+            debug_assert!(
+                self.is_proper_type(m),
+                "union member must be a proper type"
+            );
+        }
         let mut flattened = Vec::new();
         self.collect_union_members(members, &mut flattened);
 
@@ -231,11 +384,10 @@ impl TypeStore {
         match flattened.len() {
             0 => self.never_id,
             1 => flattened[0],
-            _ => {
-                let ty = self.intern(TypeData::Union(flattened.into_boxed_slice()));
-                self.set_kind(ty, KindId::TYPE);
-                ty
-            }
+            _ => self.intern_with_kind(
+                TypeData::Union(flattened.into_boxed_slice()),
+                KindId::TYPE,
+            ),
         }
     }
 

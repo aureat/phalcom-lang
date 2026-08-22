@@ -6,6 +6,7 @@ use super::statement::check_statement;
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::DispatchResult;
+use crate::types::id::KindId;
 use crate::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge, UnknownReason};
 use crate::types::relation::{Assignability, check_assignability};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
@@ -293,8 +294,13 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
     };
 
     if let Some(decl) = list_decl {
-        let ty = ctx.store.list_of(decl, elem_ty);
-        TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, list.range)
+        let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        let form = ctx.store.nominal_form(decl, k);
+        if let Ok(ty) = ctx.store.list_of(form, elem_ty) {
+            TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, list.range)
+        } else {
+            TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+        }
     } else {
         TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
     }
@@ -326,8 +332,13 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
     };
 
     if let Some(decl) = set_decl {
-        let ty = ctx.store.set_of(decl, elem_ty);
-        TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, set.range)
+        let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        let form = ctx.store.nominal_form(decl, k);
+        if let Ok(ty) = ctx.store.set_of(form, elem_ty) {
+            TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, set.range)
+        } else {
+            TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+        }
     } else {
         TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
     }
@@ -375,8 +386,13 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     };
 
     if let Some(decl) = map_decl {
-        let ty = ctx.store.map_of(decl, key_ty, val_ty);
-        TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, map.range)
+        let k = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        let form = ctx.store.nominal_form(decl, k);
+        if let Ok(ty) = ctx.store.map_of(form, key_ty, val_ty) {
+            TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, map.range)
+        } else {
+            TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+        }
     } else {
         TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
     }
