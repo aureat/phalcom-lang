@@ -161,7 +161,20 @@ fn test_core_01_legacy_core_import_rejected() {
 fn test_pre_01_to_04_curated_prelude_and_shadowing() {
     let mut vm = VM::new();
     // PRE-01: Object, Class, Number, String, List, Map, Set, Option, Some, Function, Selector, SelectorPattern are in prelude
-    for name in ["Object", "Class", "Number", "String", "List", "Map", "Set", "Option", "Some", "Function", "Selector", "SelectorPattern"] {
+    for name in [
+        "Object",
+        "Class",
+        "Number",
+        "String",
+        "List",
+        "Map",
+        "Set",
+        "Option",
+        "Some",
+        "Function",
+        "Selector",
+        "SelectorPattern",
+    ] {
         let sym = vm.interner.intern(name);
         assert!(vm.prelude_names.contains(&sym), "prelude must contain {name}");
     }

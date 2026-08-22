@@ -124,15 +124,13 @@ fn behavior_extract_as(vm: &mut VM, behavior: crate::heap::ClassId, rhs: &Value,
         Ok(vm.none_value())
     } else if let Some(id) = rhs.as_obj() {
         match vm.heap.get(id) {
-            Object::Selector(sel) => {
-                match lookup_method_in_hierarchy(&vm.heap, behavior, sel.symbol) {
-                    Some(method) => {
-                        vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
-                        Ok(Value::obj(method))
-                    }
-                    None => Ok(vm.none_value()),
+            Object::Selector(sel) => match lookup_method_in_hierarchy(&vm.heap, behavior, sel.symbol) {
+                Some(method) => {
+                    vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
+                    Ok(Value::obj(method))
                 }
-            }
+                None => Ok(vm.none_value()),
+            },
             Object::SelectorPattern(_) => {
                 let family = vm.capture_method_family(behavior, id, caller_authority)?;
                 Ok(Value::obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))))

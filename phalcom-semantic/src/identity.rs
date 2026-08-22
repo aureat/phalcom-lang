@@ -1,7 +1,7 @@
 //! Canonical semantic identities for Phalcom programs and declarations.
 
-pub use phalcom_modules::{DeclarationId, ModuleId};
 use phalcom_common::selector::Selector;
+pub use phalcom_modules::{DeclarationId, ModuleId};
 
 /// The dispatch side of a member declaration or lookup (instance vs class).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

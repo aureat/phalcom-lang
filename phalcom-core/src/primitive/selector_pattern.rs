@@ -5,9 +5,7 @@ use crate::heap::Object;
 use crate::heap::selector_pattern::SelectorPatternObject;
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_common::selector::{
-    Selector, SelectorBase, SelectorPattern, is_exact_selector_syntax,
-};
+use phalcom_common::selector::{Selector, SelectorBase, SelectorPattern, is_exact_selector_syntax};
 
 fn extract_symbol_or_string(vm: &VM, arg: &Value) -> PhResult<String> {
     if let Some(sym) = arg.symbol_value() {
@@ -49,14 +47,10 @@ fn construct_selector_pattern(vm: &mut VM, args: &[Value]) -> PhResult<Value> {
 
     let text = extract_symbol_or_string(vm, arg)?;
     if is_exact_selector_syntax(&text) && !text.contains("...") {
-        return Err(RuntimeError::Message(
-            "SelectorPattern requires a selector pattern. Received exact selector.".into(),
-        )
-        .into());
+        return Err(RuntimeError::Message("SelectorPattern requires a selector pattern. Received exact selector.".into()).into());
     }
 
-    let pattern = SelectorPattern::try_decode_pattern(&text)
-        .map_err(|_| RuntimeError::Message("Invalid selector pattern syntax".into()))?;
+    let pattern = SelectorPattern::try_decode_pattern(&text).map_err(|_| RuntimeError::Message("Invalid selector pattern syntax".into()))?;
 
     let pattern_obj = SelectorPatternObject::compile(pattern, &mut vm.interner);
     let obj = vm.heap.alloc(Object::SelectorPattern(Box::new(pattern_obj)));
@@ -194,9 +188,7 @@ pub fn selector_pattern_equals(vm: &mut VM, receiver: &Value, args: &[Value]) ->
 pub fn selector_pattern_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let pattern = expect_selector_pattern(vm, receiver)?;
     let encoded = pattern.pattern.encode();
-    let hash = encoded
-        .bytes()
-        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(u64::from(b)));
+    let hash = encoded.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(u64::from(b)));
     Ok(crate::primitive::hash_code(hash))
 }
 

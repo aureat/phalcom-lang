@@ -510,10 +510,7 @@ fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLoca
     }
 }
 
-pub fn run_semantic_typecheck(
-    module_id: &ModuleId,
-    program: &phalcom_ast::ast::Program,
-) -> Result<(), ProgramCompileError> {
+pub fn run_semantic_typecheck(module_id: &ModuleId, program: &phalcom_ast::ast::Program) -> Result<(), ProgramCompileError> {
     use phalcom_semantic::{DeclarationId, MapTypeHierarchy, SimpleTypeResolver, TypeResolver, TypeStore};
 
     let mut store = TypeStore::new();

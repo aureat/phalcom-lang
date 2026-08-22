@@ -664,7 +664,11 @@ fn worker_loop(
                 };
                 process_scan_batch(&scan_env, &mut engine, scan.mode, batch, &mut source_catalog, selected_core_uri.as_ref());
                 let snap = shared.counters.snapshot();
-                let status = status_tracker.update_counts(snap.workspace_files_discovered, source_catalog.len() as u64, engine.snapshot().files.len() as u64);
+                let status = status_tracker.update_counts(
+                    snap.workspace_files_discovered,
+                    source_catalog.len() as u64,
+                    engine.snapshot().files.len() as u64,
+                );
                 let _ = event_tx.send(AnalysisEvent::Status(status));
                 if !scan.has_work() {
                     scanner = None;
@@ -831,7 +835,11 @@ fn worker_loop(
                     effects,
                 });
                 let snap = shared.counters.snapshot();
-                let status = status_tracker.update_counts(snap.workspace_files_discovered, source_catalog.len() as u64, engine.snapshot().files.len() as u64);
+                let status = status_tracker.update_counts(
+                    snap.workspace_files_discovered,
+                    source_catalog.len() as u64,
+                    engine.snapshot().files.len() as u64,
+                );
                 let _ = event_tx.send(AnalysisEvent::Status(status));
             }
 

@@ -29,12 +29,7 @@ impl SimpleTypeResolver {
 }
 
 impl TypeResolver for SimpleTypeResolver {
-    fn resolve_type_name(
-        &self,
-        _current_module: &ModuleId,
-        root: &str,
-        members: &[String],
-    ) -> Option<DeclarationId> {
+    fn resolve_type_name(&self, _current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         if members.is_empty() {
             self.declarations.get(root).cloned()
         } else {
@@ -62,14 +57,16 @@ pub fn resolve_type_annotation(
                         ty: store.never(),
                         authority: EvidenceAuthority::Declared,
                         provenance: Default::default(),
-                    }).with_range(annotation.range);
+                    })
+                    .with_range(annotation.range);
                 }
                 "Unit" => {
                     return TypeKnowledge::Known(TypeEvidence {
                         ty: store.unit(),
                         authority: EvidenceAuthority::Declared,
                         provenance: Default::default(),
-                    }).with_range(annotation.range);
+                    })
+                    .with_range(annotation.range);
                 }
                 "Dynamic" => {
                     return TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape);
@@ -84,7 +81,8 @@ pub fn resolve_type_annotation(
                     ty,
                     authority: EvidenceAuthority::Declared,
                     provenance: Default::default(),
-                }).with_range(annotation.range)
+                })
+                .with_range(annotation.range)
             } else {
                 diagnostics.push(SemanticDiagnostic::error(
                     DiagnosticCode::AnnotationUnresolved,
@@ -111,7 +109,8 @@ pub fn resolve_type_annotation(
                 ty: union_ty,
                 authority: EvidenceAuthority::Declared,
                 provenance: Default::default(),
-            }).with_range(annotation.range)
+            })
+            .with_range(annotation.range)
         }
         _ => {
             diagnostics.push(SemanticDiagnostic::error(

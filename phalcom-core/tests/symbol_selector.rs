@@ -76,16 +76,13 @@ let result = is_pat and base and str and match_pos and match_neg;
 fn selector_materialization_type_error_guards() {
     let err1 = eval_source("let s = Selector(#foo(...))\n", "s").unwrap_err();
     assert!(
-        err1.contains("Cannot construct Selector from selector pattern symbol")
-            || err1.contains("Use SelectorPattern instead"),
+        err1.contains("Cannot construct Selector from selector pattern symbol") || err1.contains("Use SelectorPattern instead"),
         "unexpected error: {err1}"
     );
 
     let err2 = eval_source("let p = SelectorPattern(#foo(_))\n", "p").unwrap_err();
     assert!(
-        err2.contains("SelectorPattern requires a selector pattern")
-            || err2.contains("Received exact selector"),
+        err2.contains("SelectorPattern requires a selector pattern") || err2.contains("Received exact selector"),
         "unexpected error: {err2}"
     );
 }
-

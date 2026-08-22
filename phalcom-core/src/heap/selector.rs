@@ -1,5 +1,5 @@
-use phalcom_common::selector::Selector;
 use crate::interner::Symbol;
+use phalcom_common::selector::Selector;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectorObject {

@@ -5,9 +5,7 @@ use crate::heap::Object;
 use crate::heap::selector::SelectorObject;
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_common::selector::{
-    Selector, SelectorBase, SelectorKind, SelectorSlot, is_selector_pattern_syntax,
-};
+use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot, is_selector_pattern_syntax};
 
 fn extract_symbol_or_string(vm: &VM, arg: &Value) -> PhResult<String> {
     if let Some(sym) = arg.symbol_value() {
@@ -49,14 +47,10 @@ fn construct_selector(vm: &mut VM, args: &[Value]) -> PhResult<Value> {
 
     let text = extract_symbol_or_string(vm, arg)?;
     if is_selector_pattern_syntax(&text) || text.contains("...") {
-        return Err(RuntimeError::Message(
-            "Cannot construct Selector from selector pattern symbol. Use SelectorPattern instead.".into(),
-        )
-        .into());
+        return Err(RuntimeError::Message("Cannot construct Selector from selector pattern symbol. Use SelectorPattern instead.".into()).into());
     }
 
-    let selector = Selector::try_decode_exact(&text)
-        .map_err(|_| RuntimeError::Message("Invalid selector syntax".into()))?;
+    let selector = Selector::try_decode_exact(&text).map_err(|_| RuntimeError::Message("Invalid selector syntax".into()))?;
 
     let canonical = selector.encode();
     let sym = vm.get_or_intern(&canonical);

@@ -483,14 +483,10 @@ fn parse_slots_strict(inner: &str) -> Result<Vec<SelectorSlot>, SelectorError> {
     if inner.trim().is_empty() {
         return Ok(Vec::new());
     }
-    inner
-        .split(',')
-        .map(parse_slot_strict)
-        .collect::<Result<Vec<_>, _>>()
-        .and_then(|slots| {
-            validate_slots(&slots)?;
-            Ok(slots)
-        })
+    inner.split(',').map(parse_slot_strict).collect::<Result<Vec<_>, _>>().and_then(|slots| {
+        validate_slots(&slots)?;
+        Ok(slots)
+    })
 }
 
 fn parse_pattern_slots_strict(inner: &str) -> Result<(Vec<SelectorSlot>, Vec<SelectorSlot>), SelectorError> {

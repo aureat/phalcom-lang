@@ -1,6 +1,6 @@
 //! Canonical Type Store with interning and normalization.
 
-use super::id::{KindId, TypeId, TypeParameterId};
+use super::id::{InferVarId, KindId, TypeId, TypeParameterId};
 use super::kind::KindData;
 use crate::identity::DeclarationId;
 use std::collections::HashMap;
@@ -38,14 +38,9 @@ pub enum TypeData {
     /// Canonical unit type (inhabited by single unit value).
     Unit,
     /// Canonical nominal class declaration type.
-    Nominal {
-        declaration: DeclarationId,
-    },
+    Nominal { declaration: DeclarationId },
     /// Generic type application (e.g. `List<Int>`).
-    Applied {
-        origin: TypeId,
-        arguments: Box<[TypeId]>,
-    },
+    Applied { origin: TypeId, arguments: Box<[TypeId]> },
     /// Flat, deduplicated, sorted union of two or more distinct types.
     Union(Box<[TypeId]>),
     /// Tuple type.
@@ -56,6 +51,8 @@ pub enum TypeData {
     Callable(CallableType),
     /// Type variable parameter in generic declaration.
     Parameter(TypeParameterId),
+    /// Type inference variable.
+    Infer(InferVarId),
 }
 
 /// Central store for canonical type interning, hash-consing, and kind assignments.
@@ -161,6 +158,52 @@ impl TypeStore {
         let ty = self.intern(TypeData::Applied { origin, arguments });
         self.set_kind(ty, KindId::TYPE);
         ty
+    }
+
+    /// Interns a tuple type.
+    pub fn tuple(&mut self, elements: Box<[TupleTypeElement]>) -> TypeId {
+        let ty = self.intern(TypeData::Tuple(elements));
+        self.set_kind(ty, KindId::TYPE);
+        ty
+    }
+
+    /// Interns a record type.
+    pub fn record(&mut self, fields: Box<[RecordTypeField]>) -> TypeId {
+        let ty = self.intern(TypeData::Record(fields));
+        self.set_kind(ty, KindId::TYPE);
+        ty
+    }
+
+    /// Interns a callable type.
+    pub fn callable(&mut self, callable: CallableType) -> TypeId {
+        let ty = self.intern(TypeData::Callable(callable));
+        self.set_kind(ty, KindId::TYPE);
+        ty
+    }
+
+    /// Interns an inference type variable.
+    pub fn infer(&mut self, var: InferVarId) -> TypeId {
+        let ty = self.intern(TypeData::Infer(var));
+        self.set_kind(ty, KindId::TYPE);
+        ty
+    }
+
+    /// Interns a `List<T>` applied type.
+    pub fn list_of(&mut self, list_decl: DeclarationId, element: TypeId) -> TypeId {
+        let origin = self.nominal(list_decl);
+        self.applied(origin, vec![element].into_boxed_slice())
+    }
+
+    /// Interns a `Map<K, V>` applied type.
+    pub fn map_of(&mut self, map_decl: DeclarationId, key: TypeId, value: TypeId) -> TypeId {
+        let origin = self.nominal(map_decl);
+        self.applied(origin, vec![key, value].into_boxed_slice())
+    }
+
+    /// Interns a `Set<T>` applied type.
+    pub fn set_of(&mut self, set_decl: DeclarationId, element: TypeId) -> TypeId {
+        let origin = self.nominal(set_decl);
+        self.applied(origin, vec![element].into_boxed_slice())
     }
 
     /// Normalizes and interns a union type.

@@ -517,9 +517,7 @@ fn symbol_from_expr(expr: &Expr) -> Option<String> {
                     Selector::subscript_get(slots).ok().map(|s| s.encode())
                 }
             }
-            SymbolLiteralKind::Pattern(syntax) => {
-                syntax.normalize().ok().map(|p| p.encode())
-            }
+            SymbolLiteralKind::Pattern(syntax) => syntax.normalize().ok().map(|p| p.encode()),
         },
         Expr::String { value, .. } => Some(value.clone()),
         _ => None,

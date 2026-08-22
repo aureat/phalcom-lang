@@ -57,11 +57,7 @@ pub struct SemanticDiagnostic {
 }
 
 impl SemanticDiagnostic {
-    pub fn error(
-        code: DiagnosticCode,
-        message: impl Into<String>,
-        primary_range: SourceRange,
-    ) -> Self {
+    pub fn error(code: DiagnosticCode, message: impl Into<String>, primary_range: SourceRange) -> Self {
         Self {
             code,
             severity: DiagnosticSeverity::Error,

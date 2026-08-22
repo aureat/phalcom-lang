@@ -83,12 +83,7 @@ pub enum RefutationReason {
 }
 
 /// Check whether `sub` is a canonical subtype of `sup` (`sub <: sup`).
-pub fn is_subtype(
-    store: &TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    sub: TypeId,
-    sup: TypeId,
-) -> bool {
+pub fn is_subtype(store: &TypeStore, hierarchy: &dyn TypeHierarchy, sub: TypeId, sup: TypeId) -> bool {
     // 1. Reflexivity
     if sub == sup {
         return true;
@@ -104,35 +99,77 @@ pub fn is_subtype(
 
     match (sub_data, sup_data) {
         // Union on the left: A | B <: T iff A <: T and B <: T
-        (TypeData::Union(members), _) => {
-            members.iter().all(|&m| is_subtype(store, hierarchy, m, sup))
-        }
+        (TypeData::Union(members), _) => members.iter().all(|&m| is_subtype(store, hierarchy, m, sup)),
 
         // Union on the right: T <: A | B if exists m in members where T <: m
-        (_, TypeData::Union(members)) => {
-            members.iter().any(|&m| is_subtype(store, hierarchy, sub, m))
-        }
+        (_, TypeData::Union(members)) => members.iter().any(|&m| is_subtype(store, hierarchy, sub, m)),
 
         // Nominal subtyping
+        (TypeData::Nominal { declaration: sub_decl }, TypeData::Nominal { declaration: sup_decl }) => hierarchy.is_subclass(sub_decl, sup_decl),
+
+        // Generic applied subtyping
         (
-            TypeData::Nominal { declaration: sub_decl },
-            TypeData::Nominal { declaration: sup_decl },
-        ) => hierarchy.is_subclass(sub_decl, sup_decl),
+            TypeData::Applied {
+                origin: sub_orig,
+                arguments: sub_args,
+            },
+            TypeData::Applied {
+                origin: sup_orig,
+                arguments: sup_args,
+            },
+        ) => {
+            if is_subtype(store, hierarchy, *sub_orig, *sup_orig) && sub_args.len() == sup_args.len() {
+                sub_args.iter().zip(sup_args.iter()).all(|(&a, &b)| is_subtype(store, hierarchy, a, b))
+            } else {
+                false
+            }
+        }
+
+        // Tuple subtyping (width and depth subtyping)
+        (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
+            if sub_elems.len() == sup_elems.len() {
+                sub_elems
+                    .iter()
+                    .zip(sup_elems.iter())
+                    .all(|(a, b)| a.label == b.label && is_subtype(store, hierarchy, a.ty, b.ty))
+            } else {
+                false
+            }
+        }
+
+        // Record subtyping (width and depth subtyping: sub has all fields of sup)
+        (TypeData::Record(sub_fields), TypeData::Record(sup_fields)) => sup_fields.iter().all(|sup_f| {
+            sub_fields
+                .iter()
+                .any(|sub_f| sub_f.name == sup_f.name && is_subtype(store, hierarchy, sub_f.ty, sup_f.ty))
+        }),
+
+        // Callable subtyping: contravariant parameter types, covariant return type
+        (TypeData::Callable(sub_call), TypeData::Callable(sup_call)) => {
+            if sub_call.parameters.len() == sup_call.parameters.len() {
+                let params_ok = sub_call
+                    .parameters
+                    .iter()
+                    .zip(sup_call.parameters.iter())
+                    .all(|(sub_p, sup_p)| sub_p.label == sup_p.label && sub_p.rest == sup_p.rest && is_subtype(store, hierarchy, sup_p.ty, sub_p.ty));
+                params_ok && is_subtype(store, hierarchy, sub_call.return_type, sup_call.return_type)
+            } else {
+                false
+            }
+        }
 
         // Unit is a distinct nominal-like unit type
         (TypeData::Unit, TypeData::Unit) => true,
+
+        // Infer variables match reflexively (handled at start of function)
+        (TypeData::Infer(a), TypeData::Infer(b)) => a == b,
 
         _ => false,
     }
 }
 
 /// Checks assignability from an expression's type knowledge to an expected type knowledge.
-pub fn check_assignability(
-    store: &TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    actual: &TypeKnowledge,
-    expected: &TypeKnowledge,
-) -> Assignability {
+pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, actual: &TypeKnowledge, expected: &TypeKnowledge) -> Assignability {
     // Dynamic allows any assignment without static contradiction
     if actual.is_dynamic() || expected.is_dynamic() {
         return Assignability::Assignable;
@@ -152,9 +189,7 @@ pub fn check_assignability(
                 Assignability::Uncertain
             }
         }
-        (TypeKnowledge::Unknown(_), _) | (_, TypeKnowledge::Unknown(_)) => {
-            Assignability::Uncertain
-        }
+        (TypeKnowledge::Unknown(_), _) | (_, TypeKnowledge::Unknown(_)) => Assignability::Uncertain,
         _ => Assignability::Assignable,
     }
 }

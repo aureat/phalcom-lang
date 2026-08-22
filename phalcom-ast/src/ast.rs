@@ -419,15 +419,9 @@ pub enum TypeAnnotationExpr {
         range: SourceRange,
     },
     /// Union type (e.g. `Int | String`).
-    Union {
-        members: Vec<TypeAnnotation>,
-        range: SourceRange,
-    },
+    Union { members: Vec<TypeAnnotation>, range: SourceRange },
     /// Tuple type (e.g. `(Int, String)`).
-    Tuple {
-        elements: Vec<TypeTupleElement>,
-        range: SourceRange,
-    },
+    Tuple { elements: Vec<TypeTupleElement>, range: SourceRange },
     /// Callable / block signature (e.g. `(Int) -> String`).
     Callable {
         parameters: Vec<TypeCallableParameter>,

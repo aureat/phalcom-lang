@@ -5,7 +5,7 @@ use super::expression::synthesize_expr;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::annotation::resolve_type_annotation;
 use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
-use crate::types::relation::{check_assignability, Assignability};
+use crate::types::relation::{Assignability, check_assignability};
 use phalcom_ast::ast::{Pattern, Statement};
 
 /// Checks a single statement, updating context bindings and recording diagnostics.

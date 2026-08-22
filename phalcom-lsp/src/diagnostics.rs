@@ -33,10 +33,7 @@ pub fn syntax_errors_to_diagnostics(errors: &[SyntaxError], index: &LineIndex) -
 }
 
 /// Converts a [`phalcom_semantic::SemanticDiagnostic`] into an LSP [`Diagnostic`].
-pub fn semantic_diagnostic_to_lsp_diagnostic(
-    diag: &phalcom_semantic::SemanticDiagnostic,
-    index: &LineIndex,
-) -> Diagnostic {
+pub fn semantic_diagnostic_to_lsp_diagnostic(diag: &phalcom_semantic::SemanticDiagnostic, index: &LineIndex) -> Diagnostic {
     use phalcom_semantic::DiagnosticSeverity as SemSeverity;
     let severity = match diag.severity {
         SemSeverity::Error => DiagnosticSeverity::ERROR,
@@ -73,10 +70,7 @@ pub fn semantic_diagnostic_to_lsp_diagnostic(
 }
 
 /// Converts every [`SemanticDiagnostic`] into LSP [`Diagnostic`]s.
-pub fn semantic_diagnostics_to_lsp_diagnostics(
-    diags: &[phalcom_semantic::SemanticDiagnostic],
-    index: &LineIndex,
-) -> Vec<Diagnostic> {
+pub fn semantic_diagnostics_to_lsp_diagnostics(diags: &[phalcom_semantic::SemanticDiagnostic], index: &LineIndex) -> Vec<Diagnostic> {
     diags.iter().map(|d| semantic_diagnostic_to_lsp_diagnostic(d, index)).collect()
 }
 

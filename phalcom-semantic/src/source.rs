@@ -16,13 +16,7 @@ pub struct ParsedSourceUnit {
 }
 
 impl ParsedSourceUnit {
-    pub fn new(
-        module: ModuleId,
-        kind: ModuleKind,
-        source: Option<SourceLocation>,
-        text: Arc<str>,
-        program: Arc<Program>,
-    ) -> Self {
+    pub fn new(module: ModuleId, kind: ModuleKind, source: Option<SourceLocation>, text: Arc<str>, program: Arc<Program>) -> Self {
         Self {
             module,
             kind,

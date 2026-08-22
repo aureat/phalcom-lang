@@ -37,3 +37,15 @@ pub struct TypeParameterId(pub u32);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InferVarId(pub u32);
+
+impl InferVarId {
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
+    }
+}

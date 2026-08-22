@@ -1435,14 +1435,16 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         self.advance(); // 'let' or 'var'
         let pattern = self.parse_pattern()?;
-        let annotation = if self.eat(&Token::Colon) {
-            Some(self.parse_type_annotation()?)
-        } else {
-            None
-        };
+        let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
         let value = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
-        Ok(Statement::Let(LetBinding { kind, pattern, annotation, value, range }))
+        Ok(Statement::Let(LetBinding {
+            kind,
+            pattern,
+            annotation,
+            value,
+            range,
+        }))
     }
 
     /// Parses a `let`/`var` binding's left-hand side [`Pattern`] (U14,
@@ -2104,11 +2106,7 @@ impl<'source> Parser<'source> {
             _ => return Err(self.error_here(strs(&["field name"]))),
         };
         let name_range = (name_start..self.prev_end).into();
-        let annotation = if self.eat(&Token::Colon) {
-            Some(self.parse_type_annotation()?)
-        } else {
-            None
-        };
+        let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
         let default = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
         match self.peek() {
@@ -2271,11 +2269,7 @@ impl<'source> Parser<'source> {
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
-            let annotation = if self.eat(&Token::Colon) {
-                Some(self.parse_type_annotation()?)
-            } else {
-                None
-            };
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
             self.expect(&Token::RParen, &["\")\""])?;
             let param = ParameterDef {
                 name: local_name,
@@ -2286,11 +2280,7 @@ impl<'source> Parser<'source> {
                 annotation,
                 range: (start_put..self.prev_end).into(),
             };
-            let return_annotation = if self.eat(&Token::Arrow) {
-                Some(self.parse_type_annotation()?)
-            } else {
-                None
-            };
+            let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
             let body = self.parse_method_block()?;
             let range = (start..self.prev_end).into();
             return Ok(ClassMember::Setter(SetterDef {
@@ -2311,11 +2301,7 @@ impl<'source> Parser<'source> {
         } else {
             None
         };
-        let return_annotation = if self.eat(&Token::Arrow) {
-            Some(self.parse_type_annotation()?)
-        } else {
-            None
-        };
+        let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
@@ -2370,11 +2356,7 @@ impl<'source> Parser<'source> {
             }
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
-            let annotation = if self.eat(&Token::Colon) {
-                Some(self.parse_type_annotation()?)
-            } else {
-                None
-            };
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
             self.expect(&Token::RParen, &["\")\""])?;
             let put = ParameterDef {
                 name: local_name,
@@ -2389,11 +2371,7 @@ impl<'source> Parser<'source> {
         } else {
             IndexAccessor::Get
         };
-        let return_annotation = if self.eat(&Token::Arrow) {
-            Some(self.parse_type_annotation()?)
-        } else {
-            None
-        };
+        let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         Ok(ClassMember::Index(IndexMethodDef {
@@ -2518,11 +2496,7 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
-                let annotation = if self.eat(&Token::Colon) {
-                    Some(self.parse_type_annotation()?)
-                } else {
-                    None
-                };
+                let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
                 let range: SourceRange = (start..self.prev_end).into();
                 match rest_mode {
                     RestMode::Positional if positional_rest || complete_rest => {
@@ -2567,11 +2541,7 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
-                let annotation = if self.eat(&Token::Colon) {
-                    Some(self.parse_type_annotation()?)
-                } else {
-                    None
-                };
+                let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
                 let range = (start..self.prev_end).into();
                 params.push(ParameterDef {
                     name,
@@ -2609,11 +2579,7 @@ impl<'source> Parser<'source> {
                             range: label_range.start..label_range.end,
                         });
                     }
-                    let annotation = if self.eat(&Token::Colon) {
-                        Some(self.parse_type_annotation()?)
-                    } else {
-                        None
-                    };
+                    let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
                     params.push(ParameterDef {
                         name: local_ident,
                         name_range,
@@ -2632,11 +2598,7 @@ impl<'source> Parser<'source> {
                 if !first_is_identifier {
                     return Err(self.error_here(strs(&["local parameter name after reserved label"])));
                 }
-                let annotation = if self.eat(&Token::Colon) {
-                    Some(self.parse_type_annotation()?)
-                } else {
-                    None
-                };
+                let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
                 any_labeled = true;
                 let label = Some(first_ident.clone());
                 if labels.insert(first_ident.clone(), label_range).is_some() {

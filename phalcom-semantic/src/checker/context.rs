@@ -1,11 +1,16 @@
 //! Checking context and scope environments.
 
 use crate::diagnostic::SemanticDiagnostic;
+use crate::dispatch::{DispatchResolver, DispatchResult, SurfaceDispatchResolver};
 use crate::identity::{DeclarationId, ModuleId};
-use crate::types::evidence::TypeKnowledge;
-use crate::types::relation::TypeHierarchy;
-use crate::types::store::TypeStore;
 use crate::types::annotation::TypeResolver;
+use crate::types::constraint::LocalConstraintSolver;
+use crate::types::evidence::TypeKnowledge;
+use crate::types::id::TypeId;
+use crate::types::native::register_standard_surfaces;
+use crate::types::relation::TypeHierarchy;
+use crate::types::store::{TypeData, TypeStore};
+use phalcom_common::selector::Selector;
 use std::collections::HashMap;
 
 /// Environment of local bindings in current lexical block/scope.
@@ -37,16 +42,16 @@ pub struct CheckingContext<'a> {
     pub current_class: Option<DeclarationId>,
     pub expected_return: Option<TypeKnowledge>,
     pub local_envs: Vec<LocalEnv>,
+    pub dispatch: SurfaceDispatchResolver,
+    pub solver: LocalConstraintSolver,
     pub diagnostics: Vec<SemanticDiagnostic>,
 }
 
 impl<'a> CheckingContext<'a> {
-    pub fn new(
-        store: &'a mut TypeStore,
-        hierarchy: &'a dyn TypeHierarchy,
-        resolver: &'a dyn TypeResolver,
-        current_module: ModuleId,
-    ) -> Self {
+    pub fn new(store: &'a mut TypeStore, hierarchy: &'a dyn TypeHierarchy, resolver: &'a dyn TypeResolver, current_module: ModuleId) -> Self {
+        let mut dispatch = SurfaceDispatchResolver::new();
+        register_standard_surfaces(store, resolver, &current_module, &mut dispatch);
+
         Self {
             store,
             hierarchy,
@@ -55,6 +60,8 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             expected_return: None,
             local_envs: vec![LocalEnv::new()],
+            dispatch,
+            solver: LocalConstraintSolver::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -80,5 +87,22 @@ impl<'a> CheckingContext<'a> {
             }
         }
         None
+    }
+
+    pub fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector) -> DispatchResult {
+        let res = self.dispatch.resolve_dispatch(receiver, selector);
+        if res.is_found() {
+            return res;
+        }
+
+        if let TypeData::Applied { origin, .. } = self.store.get(receiver) {
+            return self.resolve_dispatch(*origin, selector);
+        }
+
+        DispatchResult::Missing
+    }
+
+    pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
+        self.dispatch.register_surface(decl, surface);
     }
 }
