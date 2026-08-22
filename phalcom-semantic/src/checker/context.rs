@@ -2,8 +2,8 @@
 
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{DispatchResolver, DispatchResult, SurfaceDispatchResolver};
-use crate::identity::{DeclarationId, ModuleId};
+use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
+use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::constraint::LocalConstraintSolver;
 use crate::types::denotation::ValueSemanticFact;
@@ -47,6 +47,7 @@ pub struct CheckingContext<'a> {
     pub declarations: &'a DeclarationTypeTable,
     pub current_module: ModuleId,
     pub current_class: Option<DeclarationId>,
+    pub current_side: DispatchSide,
     pub expected_return: Option<TypeKnowledge>,
     pub local_envs: Vec<LocalEnv>,
     pub dispatch: SurfaceDispatchResolver,
@@ -72,6 +73,7 @@ impl<'a> CheckingContext<'a> {
             declarations,
             current_module,
             current_class: None,
+            current_side: DispatchSide::Instance,
             expected_return: None,
             local_envs: vec![LocalEnv::new()],
             dispatch,
@@ -117,24 +119,37 @@ impl<'a> CheckingContext<'a> {
         false
     }
 
-    pub fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector) -> DispatchResult {
-        let res = self.dispatch.resolve_dispatch(receiver, selector);
-        if res.is_found() {
-            return res;
-        }
+    pub fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
+        let (decl, side) = match lookup {
+            crate::dispatch::DispatchLookup::Super { defining_class, side } => {
+                if let Some(super_decl) = self.hierarchy.superclass(&defining_class) {
+                    (super_decl.clone(), side)
+                } else {
+                    return DispatchResult::Missing;
+                }
+            }
+            crate::dispatch::DispatchLookup::Normal => match self.store.get(receiver) {
+                TypeData::ClassObject { declaration } => (declaration.clone(), DispatchSide::Class),
+                TypeData::Nominal { declaration } => (declaration.clone(), DispatchSide::Instance),
+                TypeData::Applied { origin, .. } => {
+                    let mut curr_origin = *origin;
+                    while let TypeData::Applied { origin: inner_origin, .. } = self.store.get(curr_origin) {
+                        curr_origin = *inner_origin;
+                    }
+                    if let TypeData::Nominal { declaration } = self.store.get(curr_origin) {
+                        (declaration.clone(), DispatchSide::Instance)
+                    } else {
+                        return DispatchResult::Missing;
+                    }
+                }
+                _ => return DispatchResult::Missing,
+            },
+        };
 
-        if let TypeData::Applied { origin, .. } = self.store.get(receiver) {
-            return self.resolve_dispatch(*origin, selector);
-        }
-
-        DispatchResult::Missing
+        self.dispatch.resolve_dispatch_on_owner(self.hierarchy, &decl, side, selector)
     }
 
-    pub fn register_surface(
-        &mut self,
-        decl: DeclarationId,
-        surface: crate::surface::DeclarationSurface,
-    ) {
+    pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
         self.dispatch.register_surface(decl, surface);
     }
 }

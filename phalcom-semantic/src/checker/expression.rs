@@ -6,9 +6,9 @@ use super::statement::check_statement;
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::DispatchResult;
-use crate::types::id::KindId;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge, UnknownReason};
+use crate::types::id::KindId;
 use crate::types::relation::{Assignability, check_assignability};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
@@ -69,8 +69,7 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
                 typed
             } else if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, value, &[]) {
                 if let Some(info) = ctx.declarations.get(&decl) {
-                    TypedExpression::known(info.class_object_type, EvidenceAuthority::Declared, *range)
-                        .with_denotation(SemanticDenotation::TypeForm(info.form))
+                    TypedExpression::known(info.class_object_type, EvidenceAuthority::Declared, *range).with_denotation(SemanticDenotation::TypeForm(info.form))
                 } else {
                     let ty = ctx.store.nominal(decl);
                     TypedExpression::known(ty, EvidenceAuthority::Declared, *range)
@@ -81,17 +80,14 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         }
         Expr::SelfVar { range } => {
             if let Some(ref class_decl) = ctx.current_class {
-                let ty = ctx.store.nominal(class_decl.clone());
-                TypedExpression::known(ty, EvidenceAuthority::Proven, *range)
-            } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-            }
-        }
-        Expr::SuperVar { range } => {
-            if let Some(ref class_decl) = ctx.current_class {
-                if let Some(super_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Object", &[]) {
-                    let ty = ctx.store.nominal(super_decl);
-                    TypedExpression::known(ty, EvidenceAuthority::Proven, *range)
+                if ctx.current_side == crate::identity::DispatchSide::Class {
+                    if let Some(info) = ctx.declarations.get(class_decl) {
+                        TypedExpression::known(info.class_object_type, EvidenceAuthority::Proven, *range)
+                            .with_denotation(SemanticDenotation::TypeForm(info.form))
+                    } else {
+                        let ty = ctx.store.nominal(class_decl.clone());
+                        TypedExpression::known(ty, EvidenceAuthority::Proven, *range)
+                    }
                 } else {
                     let ty = ctx.store.nominal(class_decl.clone());
                     TypedExpression::known(ty, EvidenceAuthority::Proven, *range)
@@ -100,10 +96,34 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
             }
         }
+        Expr::SuperVar { range } => {
+            if let Some(ref class_decl) = ctx.current_class {
+                let side = ctx.current_side;
+                let lookup = crate::dispatch::DispatchLookup::Super {
+                    defining_class: class_decl.clone(),
+                    side,
+                };
+                if side == crate::identity::DispatchSide::Class {
+                    if let Some(info) = ctx.declarations.get(class_decl) {
+                        TypedExpression::known(info.class_object_type, EvidenceAuthority::Proven, *range)
+                            .with_denotation(SemanticDenotation::TypeForm(info.form))
+                            .with_dispatch_lookup(lookup)
+                    } else {
+                        let ty = ctx.store.nominal(class_decl.clone());
+                        TypedExpression::known(ty, EvidenceAuthority::Proven, *range).with_dispatch_lookup(lookup)
+                    }
+                } else {
+                    let ty = ctx.store.nominal(class_decl.clone());
+                    TypedExpression::known(ty, EvidenceAuthority::Proven, *range).with_dispatch_lookup(lookup)
+                }
+            } else {
+                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+            }
+        }
         Expr::Field { value, range, .. } => {
             if let Some(ref class_decl) = ctx.current_class {
                 if let Some(surface) = ctx.dispatch.get_surface(class_decl) {
-                    if let Some(field_k) = surface.get_field(value) {
+                    if let Some(field_k) = surface.get_field(ctx.current_side, value) {
                         return TypedExpression::new(field_k.clone().with_range(*range));
                     }
                 }
@@ -484,7 +504,8 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
 // ---------------------------------------------------------------------------
 
 fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) -> TypedExpression {
-    let recv_k = synthesize_expr(ctx, &call.object);
+    let recv_typed = synthesize_typed_expr(ctx, &call.object);
+    let recv_k = &recv_typed.knowledge;
 
     // Build selector from method name + pack items
     let mut slots = Vec::new();
@@ -507,7 +528,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) 
     };
 
     if let Some(recv_ty) = recv_k.ty() {
-        let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel);
+        let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
         match dispatch_res {
             DispatchResult::Found(sig) => {
                 let ret_k = match_callable_arguments(ctx, &call.args, &sig, call.range);
@@ -516,7 +537,8 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) 
                 if call.method == "add" && call.args.len() == 1 {
                     if let TypeData::Applied { origin, arguments } = ctx.store.get(recv_ty).clone() {
                         if let Some(list_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]) {
-                            if origin == ctx.store.nominal(list_decl) && arguments.len() == 1 {
+                            let list_form = ctx.declarations.form(&list_decl).unwrap_or_else(|| ctx.store.nominal_type(list_decl));
+                            if origin == list_form && arguments.len() == 1 {
                                 let elem_var = arguments[0];
                                 let maybe_var = if let TypeData::Infer(var) = ctx.store.get(elem_var) {
                                     Some(*var)
@@ -567,7 +589,15 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
 
     // 2. Dispatch send on `self` if inside a class
     if let Some(ref class_decl) = ctx.current_class.clone() {
-        let class_ty = ctx.store.nominal(class_decl.clone());
+        let (class_ty, _side) = if ctx.current_side == crate::identity::DispatchSide::Class {
+            if let Some(info) = ctx.declarations.get(class_decl) {
+                (info.class_object_type, crate::identity::DispatchSide::Class)
+            } else {
+                (ctx.store.nominal(class_decl.clone()), crate::identity::DispatchSide::Class)
+            }
+        } else {
+            (ctx.store.nominal(class_decl.clone()), crate::identity::DispatchSide::Instance)
+        };
         let mut slots = Vec::new();
         for arg in &call.args {
             match arg {
@@ -583,7 +613,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
             }
         }
         if let Ok(sel) = Selector::method(&call.name, slots) {
-            let dispatch_res = ctx.resolve_dispatch(class_ty, &sel);
+            let dispatch_res = ctx.resolve_dispatch(class_ty, &sel, crate::dispatch::DispatchLookup::Normal);
             if let DispatchResult::Found(sig) = dispatch_res {
                 let ret_k = match_callable_arguments(ctx, &call.args, &sig, call.range);
                 return TypedExpression::new(ret_k);
@@ -601,7 +631,8 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
 }
 
 fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) -> TypedExpression {
-    let left_k = synthesize_expr(ctx, &binary.left);
+    let left_typed = synthesize_typed_expr(ctx, &binary.left);
+    let left_k = &left_typed.knowledge;
     let right_k = synthesize_expr(ctx, &binary.right);
 
     let op_name = match binary.op {
@@ -631,7 +662,7 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
 
     if let Ok(sel) = Selector::method(op_name, vec![SelectorSlot::Positional]) {
         if let Some(left_ty) = left_k.ty() {
-            let dispatch_res = ctx.resolve_dispatch(left_ty, &sel);
+            let dispatch_res = ctx.resolve_dispatch(left_ty, &sel, left_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
                 return TypedExpression::new(sig.return_type.with_range(binary.range));
             }
@@ -646,7 +677,8 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
 }
 
 fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> TypedExpression {
-    let operand_k = synthesize_expr(ctx, &unary.expr);
+    let operand_typed = synthesize_typed_expr(ctx, &unary.expr);
+    let operand_k = &operand_typed.knowledge;
 
     let op_name = match unary.op {
         UnaryOp::Plus => "+",
@@ -657,7 +689,7 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> Ty
 
     if let Ok(sel) = Selector::getter(op_name) {
         if let Some(operand_ty) = operand_k.ty() {
-            let dispatch_res = ctx.resolve_dispatch(operand_ty, &sel);
+            let dispatch_res = ctx.resolve_dispatch(operand_ty, &sel, operand_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
                 return TypedExpression::new(sig.return_type.with_range(unary.range));
             }
@@ -672,21 +704,29 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> Ty
 }
 
 fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr) -> TypedExpression {
-    let recv_k = synthesize_expr(ctx, &get.object);
+    let recv_typed = synthesize_typed_expr(ctx, &get.object);
+    let recv_k = &recv_typed.knowledge;
 
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check Field on class surface
-        if let TypeData::Nominal { ref declaration } = ctx.store.get(recv_ty).clone() {
-            if let Some(surface) = ctx.dispatch.get_surface(declaration) {
-                if let Some(field_k) = surface.get_field(&get.property) {
-                    return TypedExpression::new(field_k.clone().with_range(get.range));
-                }
-            }
+        let field_opt = match ctx.store.get(recv_ty).clone() {
+            TypeData::ClassObject { declaration } => ctx
+                .dispatch
+                .get_surface(&declaration)
+                .and_then(|s| s.get_field(crate::identity::DispatchSide::Class, &get.property)),
+            TypeData::Nominal { declaration } => ctx
+                .dispatch
+                .get_surface(&declaration)
+                .and_then(|s| s.get_field(crate::identity::DispatchSide::Instance, &get.property)),
+            _ => None,
+        };
+        if let Some(field_k) = field_opt {
+            return TypedExpression::new(field_k.clone().with_range(get.range));
         }
 
         // 2. Check Getter selector
         if let Ok(sel) = Selector::getter(&get.property) {
-            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel);
+            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
                 return TypedExpression::new(sig.return_type.with_range(get.range));
             }
@@ -701,30 +741,38 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
 }
 
 fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr) -> TypedExpression {
-    let recv_k = synthesize_expr(ctx, &set.object);
+    let recv_typed = synthesize_typed_expr(ctx, &set.object);
+    let recv_k = &recv_typed.knowledge;
     let val_k = synthesize_expr(ctx, &set.value);
 
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check field
-        if let TypeData::Nominal { ref declaration } = ctx.store.get(recv_ty).clone() {
-            if let Some(surface) = ctx.dispatch.get_surface(declaration) {
-                if let Some(field_k) = surface.get_field(&set.property) {
-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, field_k);
-                    if let Assignability::Refuted { .. } = assignability {
-                        ctx.diagnostics.push(SemanticDiagnostic::error(
-                            DiagnosticCode::FieldMismatch,
-                            format!("assigned value does not match field `{}` type", set.property),
-                            set.range,
-                        ));
-                    }
-                    return TypedExpression::new(val_k);
-                }
+        let field_opt = match ctx.store.get(recv_ty).clone() {
+            TypeData::ClassObject { declaration } => ctx
+                .dispatch
+                .get_surface(&declaration)
+                .and_then(|s| s.get_field(crate::identity::DispatchSide::Class, &set.property)),
+            TypeData::Nominal { declaration } => ctx
+                .dispatch
+                .get_surface(&declaration)
+                .and_then(|s| s.get_field(crate::identity::DispatchSide::Instance, &set.property)),
+            _ => None,
+        };
+        if let Some(field_k) = field_opt {
+            let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, field_k);
+            if let Assignability::Refuted { .. } = assignability {
+                ctx.diagnostics.push(SemanticDiagnostic::error(
+                    DiagnosticCode::FieldMismatch,
+                    format!("assigned value does not match field `{}` type", set.property),
+                    set.range,
+                ));
             }
+            return TypedExpression::new(val_k);
         }
 
         // 2. Check setter selector
         if let Ok(sel) = Selector::setter(&set.property) {
-            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel);
+            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
                 if let Some(param) = sig.parameters.first() {
                     let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, &param.ty);
@@ -745,7 +793,8 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
 }
 
 fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> TypedExpression {
-    let recv_k = synthesize_expr(ctx, &idx.object);
+    let recv_typed = synthesize_typed_expr(ctx, &idx.object);
+    let recv_k = &recv_typed.knowledge;
 
     for arg in &idx.args {
         match arg {
@@ -794,7 +843,7 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
             }
         }
         if let Ok(sel) = Selector::subscript_get(slots) {
-            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel);
+            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
                 return TypedExpression::new(sig.return_type.with_range(idx.range));
             }
@@ -809,7 +858,8 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
 }
 
 fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexExpr) -> TypedExpression {
-    let recv_k = synthesize_expr(ctx, &set_idx.object);
+    let recv_typed = synthesize_typed_expr(ctx, &set_idx.object);
+    let recv_k = &recv_typed.knowledge;
     let val_k = synthesize_expr(ctx, &set_idx.value);
 
     for arg in &set_idx.args {

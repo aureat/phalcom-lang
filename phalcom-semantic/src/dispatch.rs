@@ -5,12 +5,25 @@ pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
+use crate::types::relation::TypeHierarchy;
 use phalcom_common::selector::Selector;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DispatchTarget {
     pub selector: Selector,
+    pub side: DispatchSide,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DispatchLookup {
+    Normal,
+    Super { defining_class: DeclarationId, side: DispatchSide },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DispatchOwner {
+    pub declaration: DeclarationId,
     pub side: DispatchSide,
 }
 
@@ -86,7 +99,7 @@ impl DispatchResult {
 
 /// Trait for querying semantic dispatch targets.
 pub trait DispatchResolver {
-    fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector) -> DispatchResult;
+    fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector, lookup: DispatchLookup) -> DispatchResult;
 }
 
 /// A concrete dispatch resolver backed by nominal class surfaces and type interning.
@@ -120,16 +133,22 @@ impl SurfaceDispatchResolver {
     pub fn surfaces(&self) -> &HashMap<DeclarationId, DeclarationSurface> {
         &self.surfaces
     }
-}
 
-impl DispatchResolver for SurfaceDispatchResolver {
-    fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector) -> DispatchResult {
-        if let Some(decl) = self.type_declarations.get(&receiver) {
+    pub fn resolve_dispatch_on_owner(
+        &self,
+        hierarchy: &dyn TypeHierarchy,
+        start_decl: &DeclarationId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> DispatchResult {
+        let mut curr = Some(start_decl);
+        while let Some(decl) = curr {
             if let Some(surface) = self.surfaces.get(decl) {
-                if let Some(sig) = surface.get_callable(selector) {
+                if let Some(sig) = surface.get_callable(side, selector) {
                     return DispatchResult::Found(sig.clone());
                 }
             }
+            curr = hierarchy.superclass(decl);
         }
         DispatchResult::Missing
     }

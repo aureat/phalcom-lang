@@ -14,6 +14,14 @@ use crate::types::relation::{Assignability, check_assignability};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
 use phalcom_common::selector::{Selector, SelectorSlot};
 
+fn member_side(member: &ClassMember) -> crate::identity::DispatchSide {
+    if member.is_static() || member.attributes().iter().any(|attribute| attribute.name == "class") {
+        crate::identity::DispatchSide::Class
+    } else {
+        crate::identity::DispatchSide::Instance
+    }
+}
+
 /// Pre-registers a class surface and its callable signatures in the context's dispatch table.
 pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
@@ -22,6 +30,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     ctx.dispatch.register_type(class_ty, decl_id.clone());
 
     for member in &class_def.members {
+        let side = member_side(member);
         match member {
             ClassMember::Field(f) => {
                 let declared_k = f
@@ -34,7 +43,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                         k
                     })
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-                surface.add_field(&f.name, declared_k);
+                surface.add_field(side, &f.name, declared_k);
             }
             ClassMember::Method(m) => {
                 let mut slots = Vec::new();
@@ -73,7 +82,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
 
                 if let Ok(sel) = Selector::method(&m.name, slots) {
-                    surface.add_callable(CallableSignature::new(sel, params, ret_k));
+                    surface.add_callable(side, CallableSignature::new(sel, params, ret_k));
                 }
             }
             ClassMember::Getter(g) => {
@@ -89,7 +98,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
 
                 if let Ok(sel) = Selector::getter(&g.name) {
-                    surface.add_callable(CallableSignature::new(sel, Vec::new(), ret_k));
+                    surface.add_callable(side, CallableSignature::new(sel, Vec::new(), ret_k));
                 }
             }
             ClassMember::Setter(s) => {
@@ -108,7 +117,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 if let Ok(sel) = Selector::setter(&s.name) {
                     let param = CallableParameter::new(s.param.name.clone(), param_k);
                     let ret_k = TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Declared);
-                    surface.add_callable(CallableSignature::new(sel, vec![param], ret_k));
+                    surface.add_callable(side, CallableSignature::new(sel, vec![param], ret_k));
                 }
             }
             ClassMember::Index(i) => {
@@ -150,7 +159,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                             .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
 
                         if let Ok(sel) = Selector::subscript_get(slots) {
-                            surface.add_callable(CallableSignature::new(sel, params, ret_k));
+                            surface.add_callable(side, CallableSignature::new(sel, params, ret_k));
                         }
                     }
                     phalcom_ast::ast::IndexAccessor::Set { put } => {
@@ -167,7 +176,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
 
                         params.push(CallableParameter::new(put.name.clone(), put_k.clone()));
                         if let Ok(sel) = Selector::subscript_set(slots) {
-                            surface.add_callable(CallableSignature::new(sel, params, put_k));
+                            surface.add_callable(side, CallableSignature::new(sel, params, put_k));
                         }
                     }
                 }
@@ -187,6 +196,9 @@ pub fn check_class(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     let old_class = ctx.current_class.replace(decl_id);
 
     for member in &class_def.members {
+        let side = member_side(member);
+        let old_side = ctx.current_side;
+        ctx.current_side = side;
         match member {
             ClassMember::Field(f) => {
                 let declared_k = f.annotation.as_ref().map(|ann| {
@@ -226,6 +238,7 @@ pub fn check_class(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
             }
             _ => {}
         }
+        ctx.current_side = old_side;
     }
 
     ctx.current_class = old_class;

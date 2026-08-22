@@ -1,5 +1,6 @@
 //! Semantic typing result representation for expressions.
 
+use crate::dispatch::DispatchLookup;
 use crate::types::constraint::TypeConstraint;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{EvidenceAuthority, EvidenceSet, TypeKnowledge, UnknownReason};
@@ -11,6 +12,7 @@ use phalcom_common::range::SourceRange;
 pub struct TypedExpression {
     pub knowledge: TypeKnowledge,
     pub denotation: Option<SemanticDenotation>,
+    pub dispatch_lookup: DispatchLookup,
     pub constraints: Vec<TypeConstraint>,
     pub provenance: EvidenceSet,
 }
@@ -24,6 +26,7 @@ impl TypedExpression {
         Self {
             knowledge,
             denotation: None,
+            dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance,
         }
@@ -36,6 +39,7 @@ impl TypedExpression {
         Self {
             knowledge,
             denotation: None,
+            dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance,
         }
@@ -45,6 +49,7 @@ impl TypedExpression {
         Self {
             knowledge: TypeKnowledge::Unknown(reason),
             denotation: None,
+            dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
         }
@@ -54,6 +59,7 @@ impl TypedExpression {
         Self {
             knowledge: TypeKnowledge::Dynamic(reason),
             denotation: None,
+            dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
         }
@@ -61,6 +67,11 @@ impl TypedExpression {
 
     pub fn with_denotation(mut self, denotation: SemanticDenotation) -> Self {
         self.denotation = Some(denotation);
+        self
+    }
+
+    pub fn with_dispatch_lookup(mut self, lookup: DispatchLookup) -> Self {
+        self.dispatch_lookup = lookup;
         self
     }
 
@@ -76,10 +87,7 @@ impl TypedExpression {
         self
     }
 
-    pub fn with_constraints(
-        mut self,
-        constraints: impl IntoIterator<Item = TypeConstraint>,
-    ) -> Self {
+    pub fn with_constraints(mut self, constraints: impl IntoIterator<Item = TypeConstraint>) -> Self {
         self.constraints.extend(constraints);
         self
     }

@@ -7,6 +7,9 @@ use crate::identity::DeclarationId;
 
 /// Environment for querying class hierarchies and module declaration relations.
 pub trait TypeHierarchy {
+    /// Returns the immediate superclass of a class declaration, if any.
+    fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId>;
+
     /// Returns whether `sub` is identical to or inherits from `sup`.
     fn is_subclass(&self, sub: &DeclarationId, sup: &DeclarationId) -> bool;
 }
@@ -28,6 +31,10 @@ impl MapTypeHierarchy {
 }
 
 impl TypeHierarchy for MapTypeHierarchy {
+    fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {
+        self.superclasses.get(declaration)
+    }
+
     fn is_subclass(&self, sub: &DeclarationId, sup: &DeclarationId) -> bool {
         if sub == sup {
             return true;
@@ -177,6 +184,9 @@ pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, act
 
     match (actual, expected) {
         (TypeKnowledge::Known(act_ev), TypeKnowledge::Known(exp_ev)) => {
+            if matches!(store.get(act_ev.ty), TypeData::Parameter(_)) || matches!(store.get(exp_ev.ty), TypeData::Parameter(_)) {
+                return Assignability::Uncertain;
+            }
             if is_subtype(store, hierarchy, act_ev.ty, exp_ev.ty) {
                 Assignability::Assignable
             } else if act_ev.authority.is_sound_for_rejection() && exp_ev.authority.is_sound_for_rejection() {
