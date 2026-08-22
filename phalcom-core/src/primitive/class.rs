@@ -32,8 +32,8 @@ pub fn class_superclass(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     Behavior,
     "superclass=(put)",
     params = [Object],
-    returns = Nothing,
-    types = "(Object) -> Nothing",
+    returns = Never,
+    types = "(Object) -> Never",
     flow = never
 )]
 pub fn class_set_superclass(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {

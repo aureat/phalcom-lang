@@ -120,8 +120,8 @@ fn pow_bigint(base: &BigInt, exp: &BigInt, limit: usize, vm: &mut VM) -> PhResul
     Number,
     "new(_)",
     params = [Object],
-    returns = Nothing,
-    types = "(Object) -> Nothing",
+    returns = Never,
+    types = "(Object) -> Never",
     side = class,
     flow = never
 )]

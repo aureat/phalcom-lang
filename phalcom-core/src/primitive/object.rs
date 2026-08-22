@@ -262,8 +262,8 @@ pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
     Object,
     "doesNotUnderstand(_)",
     params = [Message],
-    returns = Nothing,
-    types = "(Message) -> Nothing",
+    returns = Never,
+    types = "(Message) -> Never",
     raises = [MessageNotUnderstood],
     flow = never
 )]

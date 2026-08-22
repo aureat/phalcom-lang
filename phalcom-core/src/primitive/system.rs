@@ -27,8 +27,8 @@ pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhR
     System,
     "new()",
     params = [],
-    returns = Nothing,
-    types = "() -> Nothing",
+    returns = Never,
+    types = "() -> Never",
     side = class,
     flow = never
 )]

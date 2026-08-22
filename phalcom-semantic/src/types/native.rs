@@ -49,37 +49,17 @@ pub fn resolve_native_type_form(
             }
         }
         TypeExprSpec::Applied { origin, arguments } => {
-            let origin_form = resolve_native_type_form(
-                store,
-                declarations,
-                parameters,
-                universe_resolver,
-                origin,
-            )?;
+            let origin_form = resolve_native_type_form(store, declarations, parameters, universe_resolver, origin)?;
             let mut arg_forms = Vec::new();
             for arg in *arguments {
-                arg_forms.push(resolve_native_type_form(
-                    store,
-                    declarations,
-                    parameters,
-                    universe_resolver,
-                    arg,
-                )?);
+                arg_forms.push(resolve_native_type_form(store, declarations, parameters, universe_resolver, arg)?);
             }
-            store
-                .apply_type_form(origin_form, &arg_forms)
-                .map_err(NativeTypeResolutionError::Application)
+            store.apply_type_form(origin_form, &arg_forms).map_err(NativeTypeResolutionError::Application)
         }
         TypeExprSpec::Union(members) => {
             let mut member_forms = Vec::new();
             for m in *members {
-                let f = resolve_native_type_form(
-                    store,
-                    declarations,
-                    parameters,
-                    universe_resolver,
-                    m,
-                )?;
+                let f = resolve_native_type_form(store, declarations, parameters, universe_resolver, m)?;
                 if store.is_proper_type(f) {
                     member_forms.push(f);
                 } else {
@@ -91,29 +71,14 @@ pub fn resolve_native_type_form(
         TypeExprSpec::Tuple(tuple_spec) => {
             let mut elements = Vec::new();
             for pos in tuple_spec.positional {
-                let f = resolve_native_type_form(
-                    store,
-                    declarations,
-                    parameters,
-                    universe_resolver,
-                    pos,
-                )?;
+                let f = resolve_native_type_form(store, declarations, parameters, universe_resolver, pos)?;
                 if !store.is_proper_type(f) {
                     return Err(NativeTypeResolutionError::Unsupported);
                 }
-                elements.push(TupleTypeElement {
-                    label: None,
-                    ty: f,
-                });
+                elements.push(TupleTypeElement { label: None, ty: f });
             }
             for labeled in tuple_spec.labeled {
-                let f = resolve_native_type_form(
-                    store,
-                    declarations,
-                    parameters,
-                    universe_resolver,
-                    labeled.ty,
-                )?;
+                let f = resolve_native_type_form(store, declarations, parameters, universe_resolver, labeled.ty)?;
                 if !store.is_proper_type(f) {
                     return Err(NativeTypeResolutionError::Unsupported);
                 }
@@ -124,9 +89,7 @@ pub fn resolve_native_type_form(
             }
             Ok(store.tuple(elements.into_boxed_slice()))
         }
-        TypeExprSpec::Unknown | TypeExprSpec::SelfType => {
-            Err(NativeTypeResolutionError::Unsupported)
-        }
+        TypeExprSpec::Unknown | TypeExprSpec::SelfType => Err(NativeTypeResolutionError::Unsupported),
     }
 }
 
@@ -181,12 +144,11 @@ pub fn register_standard_surfaces(
     let k_bool = t_bool.map(|t| TypeKnowledge::known(t, EvidenceAuthority::TrustedNative));
     let k_unit = TypeKnowledge::known(t_unit, EvidenceAuthority::TrustedNative);
 
-    let make_binary_sig =
-        |op: &str, param_k: TypeKnowledge, ret_k: TypeKnowledge| -> CallableSignature {
-            let sel = Selector::method(op, vec![SelectorSlot::Positional]).unwrap();
-            let param = CallableParameter::new("other", param_k);
-            CallableSignature::new(sel, vec![param], ret_k)
-        };
+    let make_binary_sig = |op: &str, param_k: TypeKnowledge, ret_k: TypeKnowledge| -> CallableSignature {
+        let sel = Selector::method(op, vec![SelectorSlot::Positional]).unwrap();
+        let param = CallableParameter::new("other", param_k);
+        CallableSignature::new(sel, vec![param], ret_k)
+    };
 
     let make_getter_sig = |name: &str, ret_k: TypeKnowledge| -> CallableSignature {
         let sel = Selector::getter(name).unwrap();
@@ -199,21 +161,21 @@ pub fn register_standard_surfaces(
         dispatch.register_type(t_self, decl.clone());
 
         for op in ["+", "-", "*", "//", "%", "**", "<<", ">>", "&", "|", "^"] {
-            surface.add_callable(make_binary_sig(op, k_self.clone(), k_self.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), k_self.clone()));
         }
         if let Some(ref kf) = k_float {
-            surface.add_callable(make_binary_sig("/", k_self.clone(), kf.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig("/", k_self.clone(), kf.clone()));
         }
         if let Some(ref kb) = k_bool {
             for op in ["==", "!=", "<", "<=", ">", ">="] {
-                surface.add_callable(make_binary_sig(op, k_self.clone(), kb.clone()));
+                surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), kb.clone()));
             }
         }
         for op in ["+", "-", "~"] {
-            surface.add_callable(make_getter_sig(op, k_self.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig(op, k_self.clone()));
         }
         if let Some(ref ks) = k_string {
-            surface.add_callable(make_getter_sig("toString", ks.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("toString", ks.clone()));
         }
 
         dispatch.register_surface(decl, surface);
@@ -225,18 +187,18 @@ pub fn register_standard_surfaces(
         dispatch.register_type(t_self, decl.clone());
 
         for op in ["+", "-", "*", "/", "**"] {
-            surface.add_callable(make_binary_sig(op, k_self.clone(), k_self.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), k_self.clone()));
         }
         if let Some(ref kb) = k_bool {
             for op in ["==", "!=", "<", "<=", ">", ">="] {
-                surface.add_callable(make_binary_sig(op, k_self.clone(), kb.clone()));
+                surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), kb.clone()));
             }
         }
         for op in ["+", "-"] {
-            surface.add_callable(make_getter_sig(op, k_self.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig(op, k_self.clone()));
         }
         if let Some(ref ks) = k_string {
-            surface.add_callable(make_getter_sig("toString", ks.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("toString", ks.clone()));
         }
 
         dispatch.register_surface(decl, surface);
@@ -247,18 +209,21 @@ pub fn register_standard_surfaces(
         let mut surface = DeclarationSurface::new(Some(decl.clone()));
         dispatch.register_type(t_self, decl.clone());
 
-        surface.add_callable(make_binary_sig("+", k_self.clone(), k_self.clone()));
+        surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig("+", k_self.clone(), k_self.clone()));
         if let Some(ref kb) = k_bool {
             for op in ["==", "!=", "<", "<=", ">", ">="] {
-                surface.add_callable(make_binary_sig(op, k_self.clone(), kb.clone()));
+                surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), kb.clone()));
             }
         }
         if let Some(ref ki) = k_int {
-            surface.add_callable(make_getter_sig("length", ki.clone()));
-            surface.add_callable(make_getter_sig("size", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
             let sel = Selector::subscript_get(vec![SelectorSlot::Positional]).unwrap();
             let param = CallableParameter::new("index", ki.clone());
-            surface.add_callable(CallableSignature::new(sel, vec![param], k_self.clone()));
+            surface.add_callable(
+                crate::identity::DispatchSide::Instance,
+                CallableSignature::new(sel, vec![param], k_self.clone()),
+            );
         }
 
         dispatch.register_surface(decl, surface);
@@ -269,9 +234,9 @@ pub fn register_standard_surfaces(
         let mut surface = DeclarationSurface::new(Some(decl.clone()));
         dispatch.register_type(t_self, decl.clone());
 
-        surface.add_callable(make_getter_sig("not", k_self.clone()));
+        surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("not", k_self.clone()));
         for op in ["==", "!=", "and", "or", "&", "|", "^"] {
-            surface.add_callable(make_binary_sig(op, k_self.clone(), k_self.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), k_self.clone()));
         }
 
         dispatch.register_surface(decl, surface);
@@ -282,8 +247,8 @@ pub fn register_standard_surfaces(
         let mut surface = DeclarationSurface::new(Some(decl.clone()));
 
         if let Some(ref ki) = k_int {
-            surface.add_callable(make_getter_sig("length", ki.clone()));
-            surface.add_callable(make_getter_sig("size", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
         }
 
         let elem_param_k = if let Some(sig) = declarations.generic_signature(&decl) {
@@ -299,7 +264,10 @@ pub fn register_standard_surfaces(
 
         let add_sel = Selector::method("add", vec![SelectorSlot::Positional]).unwrap();
         let add_param = CallableParameter::new("elem", elem_param_k);
-        surface.add_callable(CallableSignature::new(add_sel, vec![add_param], k_unit.clone()));
+        surface.add_callable(
+            crate::identity::DispatchSide::Instance,
+            CallableSignature::new(add_sel, vec![add_param], k_unit.clone()),
+        );
 
         dispatch.register_surface(decl, surface);
     }
@@ -309,8 +277,8 @@ pub fn register_standard_surfaces(
         let mut surface = DeclarationSurface::new(Some(decl.clone()));
 
         if let Some(ref ki) = k_int {
-            surface.add_callable(make_getter_sig("length", ki.clone()));
-            surface.add_callable(make_getter_sig("size", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
         }
 
         dispatch.register_surface(decl, surface);
@@ -321,8 +289,8 @@ pub fn register_standard_surfaces(
         let mut surface = DeclarationSurface::new(Some(decl.clone()));
 
         if let Some(ref ki) = k_int {
-            surface.add_callable(make_getter_sig("length", ki.clone()));
-            surface.add_callable(make_getter_sig("size", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
         }
 
         dispatch.register_surface(decl, surface);
@@ -336,19 +304,17 @@ pub fn register_standard_surfaces(
         }
 
         if let Some(ref kb) = k_bool {
-            surface.add_callable(make_binary_sig(
-                "==",
-                TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape),
-                kb.clone(),
-            ));
-            surface.add_callable(make_binary_sig(
-                "!=",
-                TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape),
-                kb.clone(),
-            ));
+            surface.add_callable(
+                crate::identity::DispatchSide::Instance,
+                make_binary_sig("==", TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape), kb.clone()),
+            );
+            surface.add_callable(
+                crate::identity::DispatchSide::Instance,
+                make_binary_sig("!=", TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape), kb.clone()),
+            );
         }
         if let Some(ref ks) = k_string {
-            surface.add_callable(make_getter_sig("toString", ks.clone()));
+            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("toString", ks.clone()));
         }
 
         dispatch.register_surface(decl, surface);

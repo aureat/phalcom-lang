@@ -7,11 +7,15 @@
 // arity-family variants are already exercised in metaclass/ and dispatch/,
 // not duplicated here.
 
-class Widget { render { "drawn" }
+class Widget {
+    render { "drawn" }
 }
+
 const w = Widget.new()
+
 System.print(w.is(Widget))
 System.print(w.is(Object))
 System.print(w.is(String))
-System.print(w.respondsTo(Symbol.new("render")))
-System.print(w.respondsTo(Symbol.new("nonexistent")))
+
+System.print(w.respondsTo(#render))
+System.print(w.respondsTo(#nonexistent))
