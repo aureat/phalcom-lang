@@ -1,9 +1,9 @@
 # Phalcom Typing Platform: Ratified Architecture and Specification Map
 
 **Date:** 2026-08-22
-**Status:** Ratified implementation specification series; documents 01–03 are implementation-ready
+**Status:** Ratified implementation specification series; documents 01–07 complete
 **Authority:** Forward-looking typing authority after the completed two-axis semantic-tower milestone
-**Scope of this delivery:** program map plus implementation architecture, runtime metadata/reification, and reflection API
+**Scope of this delivery:** complete architecture, syntax/lowering, advanced semantics/proofs, comparative rationale, and dependency-ordered implementation plan
 
 ## 1. Reading contract and evidence labels
 
@@ -68,7 +68,7 @@ Conclusion: semantic kernel is good and should be retained. Next work is staged-
 
 ### DEC-RECORD-ROWS — record-specific open rows
 
-**Ratified/normative design.** Structural record types gain `RecordRow` and an explicit `RecordTail::{Closed, Parameter}`. Known fields remain sorted separately from the tail. Record, variant, and effect rows may share implementation mechanisms later but are different semantic domains. Record rows never describe nominal class layouts. Public row syntax remains a **Proposed design needing ratification** and is assigned to the syntax specification.
+**Ratified/normative design.** Structural record types gain `RecordRow` and an explicit `RecordTail::{Closed, Parameter}`. Known fields remain sorted separately from the tail. Record, variant, and effect rows may share implementation mechanisms later but are different semantic domains. Record rows never describe nominal class layouts. [Document 04](04-user-facing-type-syntax-and-lowering.md#44-record-row-syntax) ratifies `#{ fields, | R }`, with a mandatory comma before the row tail.
 
 ### DEC-NUMERIC-LITERALS — syntax fixes runtime numeric class
 
@@ -135,16 +135,19 @@ completed two-axis tower
           |
           v
 01 implementation architecture
-    |                 |
-    v                 v
-02 metadata       later checking/flow/effects specs
-    |
-    v
-03 reflection API
-    |
-    +--> later syntax specification
-    +--> later contracts/proof specification
-    `--> compiler/CLI/REPL/LSP rollout specification
+    |-------------------+
+    v                   v
+02 metadata       04 syntax/lowering
+    |                   |
+    v                   v
+03 reflection      05 advanced semantics/proofs
+    |                   |
+    +---------+---------+
+              v
+       06 comparative rationale
+              |
+              v
+       07 consolidated plan/register
 ```
 
 | Document | Owns | Depends on | Must land before |
@@ -152,10 +155,10 @@ completed two-axis tower
 | [01 — Implementation Architecture](01-implementation-architecture.md) | IDs, query DB, SCCs, invalidation, relation outcomes, diagnostics pipeline, snapshots | Completed tower | Durable metadata, incremental compiler/LSP, effects/proofs |
 | [02 — Runtime Reification and Metadata](02-runtime-reification-and-metadata.md) | Indexed metadata DAG, profiles, loader registry, GC policy, native schema, proof artifact carriage | 01 | Runtime reflection and cross-run caches |
 | [03 — Reflection API and Capabilities](03-reflection-api-and-capabilities.md) | User-visible type/kind/query objects, identity/equality, capabilities, dynamic boundaries | 01–02 | Public typing module and reflection implementation |
-| 04 — User-facing syntax (future delivery) | Full annotations, `+`/`-`, kinds, aliases, constraints, rows | 01; semantic decisions here | Parser/AST changes |
-| 05 — Advanced kinds, effects, totality, proof artifacts (future) | Kind schemes, rows, effects, VC/prover state | 01–02 | Public prover APIs |
-| 06 — Comparative rationale (future) | Lessons and rejected alternatives | All decisions | Non-blocking |
-| 07 — Consolidated implementation plan and decision register (future) | Cross-crate work units and rollout | 01–05 | Program execution |
+| [04 — User-Facing Type Syntax and Lowering](04-user-facing-type-syntax-and-lowering.md) | Full annotations, `+`/`-`, kinds, aliases, constraints, record-row spelling, parser recovery, lowering | 01–03 | Parser/AST and generic-source work |
+| [05 — Advanced Kinds, Constraints, Effects, and Proofs](05-advanced-kinds-constraints-effects-and-proofs.md) | Kind schemes, bounds, rows, effects, exits, totality, contracts, VC/prover state, artifacts | 01–04 | Advanced checking and public prover APIs |
+| [06 — Language Comparisons and Design Rationale](06-language-comparisons-and-design-rationale.md) | Engineering decision audit, transferred precedents, rejected alternatives | 01–05 | Review of cross-cutting decisions |
+| [07 — Consolidated Implementation Plan and Decision Register](07-consolidated-implementation-plan-and-decision-register.md) | Dependency phases A–J, task cards, migration/deletion ledger, decisions and gates | 01–06 | Program execution |
 
 ## 7. Feature traceability matrix
 
@@ -163,18 +166,18 @@ completed two-axis tower
 |---|---|---|
 | Values/types/kinds/class objects/metaclasses stratified | 01, 03 | Existing tower retained; runtime model unchanged |
 | Canonical types and checked kind application | 01 | Existing kernel retained; all public relations become bounded typed outcomes |
-| `Any`/`Dynamic`/`Unknown`/missing/`Never`/invalid/infer/proof-unknown separation | 01, later 05 | State algebra frozen; `Any` proper type only when added, never epistemic fallback |
-| Owner-qualified parameters, variance, bounds, F-bounds, `Self`, HKT | 01, later 04–05 | IDs already owner-qualified; `+`/`-` and advanced constraints staged |
-| Open record rows | 01, later 04–05 | Semantics ratified; syntax deferred |
+| `Any`/`Dynamic`/`Unknown`/missing/`Never`/invalid/infer/proof-unknown separation | 01, 04–05 | State algebra frozen; `Any` proper type only when added, never epistemic fallback |
+| Owner-qualified parameters, variance, bounds, F-bounds, `Self`, HKT | 01, 04–05 | IDs already owner-qualified; syntax and advanced semantics specified, implementation staged |
+| Open record rows | 01, 04–05 | Semantics and `#{ fields, | R }` spelling ratified; implementation staged |
 | Typed interfaces before bodies, semantic SCCs | 01 | Current shells retained; formal staged queries added |
 | Immutable snapshots, invalidation, cancellation, budgets | 01 | Compiler-owned query DB; atomic publication |
-| Bidirectional checking, inference, flow, dispatch | 01 and later checking spec | Existing baseline retained; query/result protocol generalized |
+| Bidirectional checking, inference, flow, dispatch | 01, 05, 07 | Existing baseline retained; query/result protocol and implementation order specified |
 | Class/instance side, `super`, constructors | 01, 03 | No runtime changes; explicit reflective construction only |
 | Native surfaces | 02 | Versioned authoritative metadata; load-time compatibility |
 | Reflection, `perform`, DNU, FFI boundaries | 02–03 | Explicit result states, capability checks, proof boundaries |
 | Compiler/CLI/REPL/LSP one formal snapshot | 01 | Compiler semantic DB becomes sole formal owner |
 | Runtime type objects | 02–03 | Nominals reuse classes; synthetic descriptors ordinary immutable objects |
-| Contracts, totality, proofs | 02 and later 05 | Persistent trust-aware artifacts; no false `Proven` |
+| Contracts, totality, proofs | 02, 05, 07 | Persistent trust-aware artifacts; no false `Proven` |
 | Determinism and performance | 01–02 | Structural fingerprints, bounded queries, benchmark gates |
 
 ## 8. Migration timeline and ratification gates
@@ -205,7 +208,7 @@ Gate D: nominal identity, synthetic equivalence, GC reclamation, access control,
 
 ### Stage E — syntax and advanced proof platform
 
-Land syntax only after its own grammar ratification. Kind schemes, record rows, effects, totality, and proving land behind the separate gates recorded in §4.
+Implement syntax and advanced semantics in the dependency order in [Document 07](07-consolidated-implementation-plan-and-decision-register.md). Kind schemes, effects, totality, and proving remain behind their named public-surface/backend gates; record-row spelling is ratified but still unimplemented.
 
 Gate E: no syntax shortcut forces an open semantic decision; proof results are `Proven`, `Disproven`, or reasoned `Unknown` with explicit trust.
 
@@ -224,6 +227,8 @@ Gate E: no syntax shortcut forces an open semantic decision; proof results are `
 **Ratified/normative design.** Reject Python `Any`/unknown behavior, attribute lookup, descriptors, overload selection, protocols, import fallbacks, and editor-only semantics. Reject unsafe cache publication, global mutable solver state, unbounded fixed points, type-directed selector identity, and borrowed Pyrefly performance claims.
 
 ## 10. Lessons applied from other languages
+
+[Document 06](06-language-comparisons-and-design-rationale.md) contains the full engineering audit. Summary:
 
 | Source | Lesson taken | Boundary Phalcom keeps |
 |---|---|---|
