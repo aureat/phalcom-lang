@@ -1,12 +1,12 @@
 # Phalcom First Functional Typing System
 ## Repository-Grounded Detailed Implementation Specification
 
-**Status:** Implementation specification / engineering handoff  
-**Repository:** `aureat/phalcom-lang`  
-**Repository investigation date:** 2026-08-22  
-**Repository snapshot investigated:** current `main` exposed by the connected GitHub repository during this investigation; blob results were rooted around commit `13e5cb20842d8f71a0c45947f0ad037f1c823a00`  
-**Primary milestone:** first functional source-level static typing layer integrated with compiler semantics and the LSP, while preserving Phalcom's dynamic runtime semantics  
-**Runtime type-contract enforcement:** explicitly deferred from this milestone  
+**Status:** Implementation specification / engineering handoff
+**Repository:** `aureat/phalcom-lang`
+**Repository investigation date:** 2026-08-22
+**Repository snapshot investigated:** current `main` exposed by the connected GitHub repository during this investigation; blob results were rooted around commit `13e5cb20842d8f71a0c45947f0ad037f1c823a00`
+**Primary milestone:** first functional source-level static typing layer integrated with compiler semantics and the LSP, while preserving Phalcom's dynamic runtime semantics
+**Runtime type-contract enforcement:** explicitly deferred from this milestone
 **Generic declarations / higher-kinded typing / full reflective type-object runtime:** architecturally prepared, not required for the first completion gate unless a later section explicitly says otherwise
 
 ---

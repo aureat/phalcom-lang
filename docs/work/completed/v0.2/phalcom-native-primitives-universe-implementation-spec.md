@@ -355,7 +355,7 @@ Recommended minimal shape:
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum TypeExprSpec {
     Unknown,
-    Nothing,
+    Never,
     SelfType,
     Universe(UniverseKey),
     Parameter(&'static str),
@@ -405,7 +405,7 @@ The metadata parser MUST support at least:
 Name
 universe.Name
 Self
-Nothing
+Never
 Unknown
 Name<A>
 Name<A, B>
@@ -653,7 +653,7 @@ flow = receiver,
 and:
 
 ```rust
-returns = Nothing,
+returns = Never,
 flow = never,
 ```
 
@@ -661,7 +661,7 @@ Validation rules:
 
 - `argument(n)` index MUST be in range;
 - when structurally decidable, `argument(n)` return type SHOULD equal the referenced parameter type;
-- `never` MUST require `returns = Nothing`;
+- `never` MUST require `returns = Never`;
 - `receiver` SHOULD require `returns = Self` or a structurally compatible owner type.
 
 The MVP MAY downgrade the last rule to a diagnostic/test assertion if `Self` equivalence is not yet fully implemented.
@@ -1721,7 +1721,7 @@ The proc macro and registry validator MUST emit actionable diagnostics.
 | ABI mismatch | Declared ABI and expected Rust function type |
 | Rest/ABI mismatch | Rest selector requires supported rest ABI |
 | Invalid flow argument | Index and parameter count |
-| `never` mismatch | Require `returns = Nothing` |
+| `never` mismatch | Require `returns = Never` |
 | Invalid effect combination | `pure` cannot coexist with effect list |
 | Invalid lifecycle | Bad semver/order/replacement rule |
 | Duplicate primitive key | Both Rust source locations |
