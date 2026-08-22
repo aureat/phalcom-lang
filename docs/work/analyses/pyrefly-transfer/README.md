@@ -7,7 +7,7 @@ This package turns Pyrefly's implementation ideas into an implementation-ready d
 - [Executive report](executive-report.md) — decision summary, efficiency model, architectural lessons, risks, and recommended Phalcom target state.
 - [Implementation breakdown](implementation-breakdown.md) — phased design, data structures, crate seams, tests, benchmarks, and acceptance gates.
 
-+## Deep implementation dossiers
+## Deep implementation dossiers
 
 These files are the implementation-level companion set. They record concrete execution paths, state machines, data structures, cache keys, ownership, performance mechanisms, and Phalcom transfer rules.
 
@@ -17,7 +17,12 @@ These files are the implementation-level companion set. They record concrete exe
 - [Type representation, equality, and canonicalization](04-type-representation-equality-and-canonicalization.md)
 - [Answer tables, query cells, and cycle-safe publication](05-answer-tables-query-cells-and-cycle-publication.md)
 - [Dependency graph and incremental invalidation](06-dependency-graph-and-incremental-invalidation.md)
-
+- [Parallelism, memory, and lifecycle engineering](07-parallelism-memory-and-lifecycle-engineering.md)
+- [Diagnostics, traces, and observability](08-diagnostics-traces-and-observability.md)
+- [Import resolution, environments, and module modeling](09-import-resolution-environments-and-module-modeling.md)
+- [Testing, benchmarking, and evidence architecture](10-testing-benchmarking-and-evidence-architecture.md)
+- [Phalcom transfer architecture and type philosophy](11-phalcom-transfer-architecture-and-type-philosophy.md)
+- [Phased implementation specification](12-phased-implementation-specification.md)
 
 ## Source snapshot
 
