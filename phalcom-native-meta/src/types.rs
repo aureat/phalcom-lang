@@ -3,6 +3,27 @@
 use crate::universe::UniverseKey;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum KindSpec {
+    Type,
+    Arrow {
+        parameters: &'static [KindSpec],
+        result: &'static KindSpec,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct TypeParameterDeclSpec {
+    pub name: &'static str,
+    pub kind: KindSpec,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct UniverseTypeFormSpec {
+    pub owner: UniverseKey,
+    pub parameters: &'static [TypeParameterDeclSpec],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum TypeExprSpec {
     Unknown,
     Never,
@@ -38,6 +59,7 @@ pub struct ParameterTupleSpec {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct TypeParameterSpec {
     pub name: &'static str,
+    pub kind: KindSpec,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

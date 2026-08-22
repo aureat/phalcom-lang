@@ -16,6 +16,7 @@ pub use result::TypeCheckReport;
 pub use statement::check_statement;
 pub use typed_expr::TypedExpression;
 
+use crate::declarations::DeclarationTypeTable;
 use crate::identity::ModuleId;
 use crate::types::annotation::TypeResolver;
 use crate::types::relation::TypeHierarchy;
@@ -27,10 +28,11 @@ pub fn check_program(
     store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
     resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
     module: ModuleId,
     program: &Program,
 ) -> TypeCheckReport {
-    let mut ctx = CheckingContext::new(store, hierarchy, resolver, module);
+    let mut ctx = CheckingContext::new(store, hierarchy, resolver, declarations, module);
 
     // Pre-pass: register top-level class surfaces
     for stmt in &program.statements {

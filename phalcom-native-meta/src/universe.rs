@@ -646,3 +646,49 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         prelude: false,
     },
 ];
+
+use crate::types::{KindSpec, TypeParameterDeclSpec, UniverseTypeFormSpec};
+
+pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
+    UniverseTypeFormSpec {
+        owner: UniverseKey::List,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Set,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Map,
+        parameters: &[
+            TypeParameterDeclSpec {
+                name: "K",
+                kind: KindSpec::Type,
+            },
+            TypeParameterDeclSpec {
+                name: "V",
+                kind: KindSpec::Type,
+            },
+        ],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Option,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Some,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+];

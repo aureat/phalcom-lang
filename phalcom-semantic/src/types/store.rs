@@ -3,6 +3,7 @@
 use super::application::TypeApplicationError;
 use super::id::{InferVarId, KindId, TypeId, TypeParameterId};
 use super::kind::{KindApplicationError, KindData};
+use super::parameter::{TypeParameterData, TypeParameterOwner};
 use crate::identity::DeclarationId;
 use std::collections::HashMap;
 
@@ -66,6 +67,8 @@ pub struct TypeStore {
     kinds: Vec<KindData>,
     kind_to_id: HashMap<KindData, KindId>,
     type_kinds: Vec<KindId>,
+    type_parameters: Vec<TypeParameterData>,
+    parameter_to_id: HashMap<(TypeParameterOwner, u16), TypeParameterId>,
 
     never_id: TypeId,
     unit_id: TypeId,
@@ -85,6 +88,8 @@ impl TypeStore {
             kinds: Vec::new(),
             kind_to_id: HashMap::new(),
             type_kinds: Vec::new(),
+            type_parameters: Vec::new(),
+            parameter_to_id: HashMap::new(),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
         };
@@ -97,6 +102,27 @@ impl TypeStore {
         store.unit_id = store.intern_with_kind(TypeData::Unit, KindId::TYPE);
 
         store
+    }
+
+    pub fn intern_type_parameter(&mut self, data: TypeParameterData) -> TypeParameterId {
+        let key = (data.owner.clone(), data.index);
+        if let Some(&id) = self.parameter_to_id.get(&key) {
+            return id;
+        }
+        let id = TypeParameterId(self.type_parameters.len() as u32);
+        self.type_parameters.push(data);
+        self.parameter_to_id.insert(key, id);
+        id
+    }
+
+    #[inline]
+    pub fn type_parameter(&self, id: TypeParameterId) -> &TypeParameterData {
+        &self.type_parameters[id.index()]
+    }
+
+    pub fn parameter_form(&mut self, id: TypeParameterId) -> TypeId {
+        let kind = self.type_parameter(id).kind;
+        self.intern_with_kind(TypeData::Parameter(id), kind)
     }
 
     #[inline]

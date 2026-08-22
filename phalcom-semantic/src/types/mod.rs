@@ -7,6 +7,7 @@ pub mod evidence;
 pub mod id;
 pub mod kind;
 pub mod native;
+pub mod parameter;
 pub mod relation;
 pub mod store;
 
@@ -18,7 +19,11 @@ pub use evidence::{
 };
 pub use id::{InferVarId, KindId, TypeId, TypeParameterId};
 pub use kind::{KindApplicationError, KindData};
-pub use native::{normalize_native_type, register_standard_surfaces};
+pub use native::{
+    NativeTypeResolutionError, normalize_native_type, register_standard_surfaces,
+    resolve_native_type_form,
+};
+pub use parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 pub use relation::{
     Assignability, MapTypeHierarchy, RefutationReason, TypeHierarchy, check_assignability,
     is_subtype,

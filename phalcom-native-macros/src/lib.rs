@@ -701,6 +701,7 @@ fn emit_callable_spec(callable: &CallableType) -> Result<TokenStream2> {
         let name_str = &p.name;
         type_param_tokens.push(quote!(::phalcom_native_meta::TypeParameterSpec {
             name: #name_str,
+            kind: ::phalcom_native_meta::KindSpec::Type,
         }));
     }
 

@@ -33,11 +33,14 @@ impl LocalEnv {
     }
 }
 
+use crate::declarations::DeclarationTypeTable;
+
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
     pub store: &'a mut TypeStore,
     pub hierarchy: &'a dyn TypeHierarchy,
     pub resolver: &'a dyn TypeResolver,
+    pub declarations: &'a DeclarationTypeTable,
     pub current_module: ModuleId,
     pub current_class: Option<DeclarationId>,
     pub expected_return: Option<TypeKnowledge>,
@@ -48,14 +51,21 @@ pub struct CheckingContext<'a> {
 }
 
 impl<'a> CheckingContext<'a> {
-    pub fn new(store: &'a mut TypeStore, hierarchy: &'a dyn TypeHierarchy, resolver: &'a dyn TypeResolver, current_module: ModuleId) -> Self {
+    pub fn new(
+        store: &'a mut TypeStore,
+        hierarchy: &'a dyn TypeHierarchy,
+        resolver: &'a dyn TypeResolver,
+        declarations: &'a DeclarationTypeTable,
+        current_module: ModuleId,
+    ) -> Self {
         let mut dispatch = SurfaceDispatchResolver::new();
-        register_standard_surfaces(store, resolver, &current_module, &mut dispatch);
+        register_standard_surfaces(store, declarations, resolver, &current_module, &mut dispatch);
 
         Self {
             store,
             hierarchy,
             resolver,
+            declarations,
             current_module,
             current_class: None,
             expected_return: None,
