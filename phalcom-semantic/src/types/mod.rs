@@ -3,6 +3,7 @@
 pub mod annotation;
 pub mod application;
 pub mod constraint;
+pub mod denotation;
 pub mod evidence;
 pub mod id;
 pub mod kind;
@@ -14,6 +15,7 @@ pub mod store;
 pub use annotation::{SimpleTypeResolver, TypeResolver, resolve_type_annotation};
 pub use application::TypeApplicationError;
 pub use constraint::{ConstraintSet, LocalConstraintSolver, TypeConstraint};
+pub use denotation::{SemanticDenotation, ValueSemanticFact};
 pub use evidence::{
     DynamicReason, EvidenceAuthority, EvidenceSet, TypeEvidence, TypeKnowledge, UnknownReason,
 };

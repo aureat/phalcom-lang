@@ -7,6 +7,7 @@ use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::DispatchResult;
 use crate::types::id::KindId;
+use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge, UnknownReason};
 use crate::types::relation::{Assignability, check_assignability};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
@@ -28,7 +29,7 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         // --- 1. Primitive Literals ---
         Expr::Int { range, .. } => {
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Int", &[]) {
-                let ty = ctx.store.nominal(decl);
+                let ty = ctx.declarations.form(&decl).unwrap_or_else(|| ctx.store.nominal(decl));
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
@@ -36,7 +37,7 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         }
         Expr::Float { range, .. } => {
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Float", &[]) {
-                let ty = ctx.store.nominal(decl);
+                let ty = ctx.declarations.form(&decl).unwrap_or_else(|| ctx.store.nominal(decl));
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
@@ -44,7 +45,7 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         }
         Expr::String { range, .. } => {
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]) {
-                let ty = ctx.store.nominal(decl);
+                let ty = ctx.declarations.form(&decl).unwrap_or_else(|| ctx.store.nominal(decl));
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
@@ -52,7 +53,7 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         }
         Expr::Boolean { range, .. } => {
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
-                let ty = ctx.store.nominal(decl);
+                let ty = ctx.declarations.form(&decl).unwrap_or_else(|| ctx.store.nominal(decl));
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
@@ -62,11 +63,18 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
 
         // --- 2. Variables and Identifiers ---
         Expr::Var { value, range } => {
-            if let Some(k) = ctx.lookup_local(value) {
-                TypedExpression::new(k.clone().with_range(*range))
+            if let Some(fact) = ctx.lookup_local(value).cloned() {
+                let mut typed = TypedExpression::new(fact.knowledge.with_range(*range));
+                typed.denotation = fact.denotation;
+                typed
             } else if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, value, &[]) {
-                let ty = ctx.store.nominal(decl);
-                TypedExpression::known(ty, EvidenceAuthority::Declared, *range)
+                if let Some(info) = ctx.declarations.get(&decl) {
+                    TypedExpression::known(info.class_object_type, EvidenceAuthority::Declared, *range)
+                        .with_denotation(SemanticDenotation::TypeForm(info.form))
+                } else {
+                    let ty = ctx.store.nominal(decl);
+                    TypedExpression::known(ty, EvidenceAuthority::Declared, *range)
+                }
             } else {
                 TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
             }
@@ -105,10 +113,11 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
 
         // --- 3. Assignments ---
         Expr::Assignment(assign) => {
-            let val_k = synthesize_expr(ctx, &assign.value);
+            let val_typed = synthesize_typed_expr(ctx, &assign.value);
+            let val_k = &val_typed.knowledge;
             if let Expr::Var { value: var_name, .. } = &*assign.name {
-                if let Some(target_k) = ctx.lookup_local(var_name).cloned() {
-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, &target_k);
+                if let Some(target_fact) = ctx.lookup_local(var_name).cloned() {
+                    let assignability = check_assignability(ctx.store, ctx.hierarchy, val_k, &target_fact.knowledge);
                     if let Assignability::Refuted { .. } = assignability {
                         ctx.diagnostics.push(SemanticDiagnostic::error(
                             DiagnosticCode::AssignmentMismatch,
@@ -117,8 +126,9 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
                         ));
                     }
                 }
+                ctx.assign_existing(var_name, val_typed.fact());
             }
-            TypedExpression::new(val_k)
+            TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, assign.range)
         }
 
         // --- 4. Collections and Product Types ---
@@ -131,20 +141,21 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         // --- 5. Blocks and Control Flow ---
         Expr::Block(block) => {
             ctx.push_scope();
-            let mut tail_k = TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax);
+            let mut tail_typed = TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, block.range);
             let len = block.body.len();
             for (i, stmt) in block.body.iter().enumerate() {
                 if i == len - 1 {
                     match stmt {
                         Statement::Expr { expr, .. } => {
-                            tail_k = synthesize_expr(ctx, expr);
+                            tail_typed = synthesize_typed_expr(ctx, expr);
                         }
                         Statement::Throw { expr, .. } => {
                             synthesize_expr(ctx, expr);
-                            tail_k = TypeKnowledge::known(ctx.store.never(), EvidenceAuthority::ExactSyntax);
+                            tail_typed = TypedExpression::known(ctx.store.never(), EvidenceAuthority::ExactSyntax, block.range);
                         }
                         _ => {
                             check_statement(ctx, stmt);
+                            tail_typed = TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, block.range);
                         }
                     }
                 } else {
@@ -152,36 +163,42 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
                 }
             }
             ctx.pop_scope();
-            TypedExpression::new(tail_k.with_range(block.range))
+            tail_typed
         }
         Expr::IfLet(if_let) => {
-            let val_k = synthesize_expr(ctx, &if_let.value);
+            let val_typed = synthesize_typed_expr(ctx, &if_let.value);
             ctx.push_scope();
-            bind_pattern(ctx, &if_let.pattern, val_k.clone());
-            let then_k = synthesize_expr(ctx, &Expr::Block(Box::new(if_let.then_body.clone())));
+            bind_pattern(ctx, &if_let.pattern, val_typed.fact());
+            let then_typed = synthesize_typed_expr(ctx, &Expr::Block(Box::new(if_let.then_body.clone())));
             ctx.pop_scope();
 
-            let else_k = if let Some(ref else_body) = if_let.else_body {
+            let else_typed = if let Some(ref else_body) = if_let.else_body {
                 ctx.push_scope();
-                let k = synthesize_expr(ctx, &Expr::Block(Box::new(else_body.clone())));
+                let typed = synthesize_typed_expr(ctx, &Expr::Block(Box::new(else_body.clone())));
                 ctx.pop_scope();
-                k
+                typed
             } else {
-                TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax)
+                TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, if_let.range)
             };
 
-            let combined_ty = match (then_k.ty(), else_k.ty()) {
+            let combined_ty = match (then_typed.knowledge.ty(), else_typed.knowledge.ty()) {
                 (Some(t1), Some(t2)) => ctx.store.union(&[t1, t2]),
                 (Some(t1), None) => t1,
                 (None, Some(t2)) => t2,
                 _ => ctx.store.unit(),
             };
-            TypedExpression::known(combined_ty, EvidenceAuthority::Proven, if_let.range)
+            let merged_denotation = match (then_typed.denotation, else_typed.denotation) {
+                (Some(d1), Some(d2)) if d1 == d2 => Some(d1),
+                _ => None,
+            };
+            let mut res = TypedExpression::known(combined_ty, EvidenceAuthority::Proven, if_let.range);
+            res.denotation = merged_denotation;
+            res
         }
         Expr::WhileLet(while_let) => {
-            let val_k = synthesize_expr(ctx, &while_let.value);
+            let val_typed = synthesize_typed_expr(ctx, &while_let.value);
             ctx.push_scope();
-            bind_pattern(ctx, &while_let.pattern, val_k);
+            bind_pattern(ctx, &while_let.pattern, val_typed.fact());
             for stmt in &while_let.body {
                 check_statement(ctx, stmt);
             }
@@ -537,13 +554,15 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) 
 
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr) -> TypedExpression {
     // 1. Local callable variable lookup
-    if let Some(local_k) = ctx.lookup_local(&call.name).cloned() {
-        if let Some(ty) = local_k.ty() {
+    if let Some(fact) = ctx.lookup_local(&call.name).cloned() {
+        if let Some(ty) = fact.knowledge.ty() {
             if let TypeData::Callable(c) = ctx.store.get(ty).clone() {
                 return TypedExpression::known(c.return_type, EvidenceAuthority::Proven, call.range);
             }
         }
-        return TypedExpression::new(local_k);
+        let mut typed = TypedExpression::new(fact.knowledge);
+        typed.denotation = fact.denotation;
+        return typed;
     }
 
     // 2. Dispatch send on `self` if inside a class
@@ -829,10 +848,10 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
     TypedExpression::new(val_k)
 }
 
-fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, knowledge: TypeKnowledge) {
+fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact) {
     match pattern {
         Pattern::Name { name, .. } => {
-            ctx.bind_local(name.clone(), knowledge);
+            ctx.bind_local(name.clone(), fact);
         }
         _ => {}
     }

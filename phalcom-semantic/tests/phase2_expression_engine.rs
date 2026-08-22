@@ -2,16 +2,27 @@ use phalcom_ast::parse_source;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::DeclarationId;
 use phalcom_semantic::checker::check_program;
+use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
-fn setup_phase2_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, ModuleId) {
-    let store = TypeStore::new();
+fn setup_phase2_env() -> (
+    TypeStore,
+    MapTypeHierarchy,
+    SimpleTypeResolver,
+    DeclarationTypeTable,
+    ModuleId,
+) {
+    let mut store = TypeStore::new();
     let mut hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let module = ModuleId::core();
+
+    let declarations = bootstrap_universe_declarations(&mut store, &|k| {
+        DeclarationId::new(module.clone(), k.name().into())
+    });
 
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let float_decl = DeclarationId::new(module.clone(), "Float".into());
@@ -45,12 +56,12 @@ fn setup_phase2_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, Modul
     resolver.insert("Object", obj_decl);
     resolver.insert("Number", num_decl);
 
-    (store, hierarchy, resolver, module)
+    (store, hierarchy, resolver, declarations, module)
 }
 
 #[test]
 fn test_literal_and_collection_typing() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 const a = 42
 const b = 3.14
@@ -63,13 +74,17 @@ const i = (1, "two")
 const j = #{ name: "Alice", age: 30 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "expected no errors, got: {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
 fn test_block_and_control_flow_typing() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 class Calculator {
   compute -> Int {
@@ -80,13 +95,17 @@ class Calculator {
 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "expected no errors, got: {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
 fn test_binary_and_unary_as_message_sends() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 class Arith {
   calc -> Int {
@@ -101,13 +120,17 @@ class Arith {
 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "expected no errors, got: {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
 fn test_keyword_and_positional_callable_matching() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 class Navigator {
   move(from a: Int, to b: Int) -> Int {
@@ -119,13 +142,17 @@ class Navigator {
 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "expected no errors, got: {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
 fn test_keyword_argument_mismatch_detected() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 class Navigator {
   move(from a: Int, to b: Int) -> Int {
@@ -137,14 +164,20 @@ class Navigator {
 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(report.has_errors(), "expected error on keyword argument mismatch");
-    assert_eq!(report.diagnostics[0].code, DiagnosticCode::ArgumentMismatch);
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        report.has_errors(),
+        "expected error on keyword argument mismatch"
+    );
+    assert_eq!(
+        report.diagnostics[0].code,
+        DiagnosticCode::ArgumentMismatch
+    );
 }
 
 #[test]
 fn test_member_and_subscript_typing() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 class Buffer {
   _capacity: Int = 1024
@@ -159,13 +192,17 @@ class Buffer {
 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "expected no errors, got: {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
 fn test_local_constraint_inference() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 class CollectionUser {
   process {
@@ -175,13 +212,17 @@ class CollectionUser {
 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "expected no errors, got: {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
 fn test_dynamic_resilience() {
-    let (mut store, hier, resolver, module) = setup_phase2_env();
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"
 class DynamicHandler {
   handle(rawEvent) {
@@ -191,6 +232,9 @@ class DynamicHandler {
 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
-    let report = check_program(&mut store, &hier, &resolver, module, &program);
-    assert!(!report.has_errors(), "dynamic message sends must not produce false errors");
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "dynamic message sends must not produce false errors"
+    );
 }

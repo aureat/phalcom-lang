@@ -8,6 +8,7 @@ use crate::dispatch::{CallableParameter, CallableSignature};
 use crate::identity::DeclarationId;
 use crate::surface::DeclarationSurface;
 use crate::types::annotation::resolve_type_annotation;
+use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
 use crate::types::relation::{Assignability, check_assignability};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
@@ -248,7 +249,7 @@ fn check_callable_body(
         } else {
             TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
         };
-        ctx.bind_local(param.name.clone(), param_k);
+        ctx.bind_local(param.name.clone(), ValueSemanticFact::new(param_k));
     }
 
     // Resolve return annotation

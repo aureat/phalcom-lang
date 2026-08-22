@@ -1,10 +1,12 @@
 //! Checking context and scope environments.
 
+use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{DispatchResolver, DispatchResult, SurfaceDispatchResolver};
 use crate::identity::{DeclarationId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::constraint::LocalConstraintSolver;
+use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::native::register_standard_surfaces;
@@ -16,7 +18,7 @@ use std::collections::HashMap;
 /// Environment of local bindings in current lexical block/scope.
 #[derive(Clone, Debug, Default)]
 pub struct LocalEnv {
-    bindings: HashMap<String, TypeKnowledge>,
+    bindings: HashMap<String, ValueSemanticFact>,
 }
 
 impl LocalEnv {
@@ -24,16 +26,18 @@ impl LocalEnv {
         Self::default()
     }
 
-    pub fn insert(&mut self, name: impl Into<String>, knowledge: TypeKnowledge) {
-        self.bindings.insert(name.into(), knowledge);
+    pub fn insert(&mut self, name: impl Into<String>, fact: ValueSemanticFact) {
+        self.bindings.insert(name.into(), fact);
     }
 
-    pub fn get(&self, name: &str) -> Option<&TypeKnowledge> {
+    pub fn get(&self, name: &str) -> Option<&ValueSemanticFact> {
         self.bindings.get(name)
     }
-}
 
-use crate::declarations::DeclarationTypeTable;
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut ValueSemanticFact> {
+        self.bindings.get_mut(name)
+    }
+}
 
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
@@ -84,19 +88,33 @@ impl<'a> CheckingContext<'a> {
         self.local_envs.pop();
     }
 
-    pub fn bind_local(&mut self, name: impl Into<String>, knowledge: TypeKnowledge) {
+    pub fn bind_local(&mut self, name: impl Into<String>, fact: ValueSemanticFact) {
         if let Some(env) = self.local_envs.last_mut() {
-            env.insert(name, knowledge);
+            env.insert(name, fact);
         }
     }
 
-    pub fn lookup_local(&self, name: &str) -> Option<&TypeKnowledge> {
+    pub fn lookup_local(&self, name: &str) -> Option<&ValueSemanticFact> {
         for env in self.local_envs.iter().rev() {
             if let Some(k) = env.get(name) {
                 return Some(k);
             }
         }
         None
+    }
+
+    pub fn lookup_local_knowledge(&self, name: &str) -> Option<TypeKnowledge> {
+        self.lookup_local(name).map(|f| f.knowledge.clone())
+    }
+
+    pub fn assign_existing(&mut self, name: &str, fact: ValueSemanticFact) -> bool {
+        for env in self.local_envs.iter_mut().rev() {
+            if let Some(slot) = env.get_mut(name) {
+                *slot = fact;
+                return true;
+            }
+        }
+        false
     }
 
     pub fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector) -> DispatchResult {
@@ -112,7 +130,11 @@ impl<'a> CheckingContext<'a> {
         DispatchResult::Missing
     }
 
-    pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
+    pub fn register_surface(
+        &mut self,
+        decl: DeclarationId,
+        surface: crate::surface::DeclarationSurface,
+    ) {
         self.dispatch.register_surface(decl, surface);
     }
 }
