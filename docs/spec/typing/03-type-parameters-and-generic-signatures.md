@@ -300,7 +300,7 @@ class Repository<K, out V> {
 
 ```phalcom
 class Sequence<T> {
-  map<U>(transform: [T] -> U) -> Sequence<U> {
+  map<U>(transform: (T) -> U) -> Sequence<U> {
     ...
   }
 }
@@ -527,7 +527,7 @@ A `TypeParameter` is a synthetic `Type` expression:
 - `equivalentTo(_:)` compares owner identity and index;
 - `hash` is compatible with that equivalence.
 
-Restriction metadata does not change the free-parameter result. `T.freeParameters` is `[T]`, not the union of `T` and parameters occurring in `T.bound`.
+Restriction metadata does not change the free-parameter result. `T.freeParameters` is `(T)`, not the union of `T` and parameters occurring in `T.bound`.
 
 ### 4.4 Variance semantics in this document
 
@@ -2497,7 +2497,7 @@ class Producer<out T>
 class Consumer<in T>
 class Garage<T: Vehicle>
 class DatabaseId<T in (Int, String)>
-map<U>(transform: [T] -> U) -> Sequence<U>
+map<U>(transform: (T) -> U) -> Sequence<U>
 ```
 
 When shadowing is ambiguous in cross-links, documentation should display owner qualification while retaining source spelling in code excerpts.
@@ -2739,7 +2739,7 @@ System.assert(reflected === t)
 
 ```phalcom
 class Sequence<T> {
-  map<U>(transform: [T] -> U) -> Sequence<U> {
+  map<U>(transform: (T) -> U) -> Sequence<U> {
     ...
   }
 }

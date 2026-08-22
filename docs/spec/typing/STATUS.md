@@ -22,7 +22,7 @@
 
 ## Decisions locked by Document 02
 
-- `Type` is a signature-only `Protocol` descriptor.
+- Historical: `Type` was proposed as a signature-only `Protocol` descriptor (superseded by `ontology.md`, where `Type` is the atomic kind and `TypeForm` names the common type-denoting role).
 - Existing `Class` and `Protocol` objects are type expressions directly; no `ClassType` or `ProtocolType` wrappers are observable.
 - Bare class/protocol normalization preserves exact object identity.
 - Bare generic origins expose declared `typeParameters` but have no free-parameter occurrences and are not implicit open applications.

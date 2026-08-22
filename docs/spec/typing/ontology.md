@@ -4,6 +4,29 @@
 
 > Phalcom has one universe of values and objects, but multiple orthogonal semantic relations: runtime classification through `class`, value classification through types, and type-level classification through kinds. Types and kinds can be reified back into the value universe without collapsing those relations.
 
+## Normative terminology and precedence
+
+- `Type` is the atomic kind of proper types.
+- `TypeForm` names the common semantic/behavioral role of values that denote
+  type-level forms.
+- `TypeForm` is not a superclass inserted into the runtime object hierarchy.
+- A `TypeId` identifies a canonical type-level form within one `TypeStore`;
+  the associated `KindId` determines whether that form is a proper type or a
+  type constructor.
+- The ordinary type of a class-object value is distinct from the type form
+  denoted by that value.
+- Runtime reflection reifies this semantic model; it does not define it.
+- Older typing documents that define `Type` as a protocol are historical where
+  they conflict with this ontology.
+
+## Non-negotiable implementation invariants
+
+- No `ClassType` runtime wrapper is introduced.
+- No runtime type or kind heap objects are added in this milestone.
+- `.class`, `:`, and `::` remain distinct relations.
+- Raw semantic IDs (`TypeId`, `KindId`, `TypeParameterId`) must never be persisted in compiled artifacts.
+- No new source syntax is introduced for generic classes, type lambdas, or kind annotations in this milestone.
+
 ```text
 expression
     ↓ evaluates to
