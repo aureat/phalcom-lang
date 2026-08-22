@@ -1,19 +1,12 @@
-use phalcom_modules::identity::{
-    ModuleComponent, ModuleId, ModulePath, ResolvedProjectId,
-};
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
-use phalcom_modules::linker::{
-    GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec,
-    ModuleBindingLayout, SymbolId,
-};
+use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::id::KindId;
-use phalcom_semantic::{
-    analyze_single_module, analyze_workspace, SemanticWorkspaceInput, TypeHierarchy,
-};
+use phalcom_semantic::{SemanticWorkspaceInput, TypeHierarchy, analyze_single_module, analyze_workspace};
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
@@ -29,10 +22,7 @@ fn single_module_analysis_succeeds() {
     let analysis = analyze_single_module(module.clone(), source, program);
     assert!(!analysis.snapshot.has_errors());
     assert!(analysis.snapshot.sources.contains_key(&module));
-    assert!(analysis
-        .snapshot
-        .surfaces
-        .contains_key(&DeclarationId::new(module.clone(), "Point".into())));
+    assert!(analysis.snapshot.surfaces.contains_key(&DeclarationId::new(module.clone(), "Point".into())));
 }
 
 #[test]
@@ -48,11 +38,7 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
     )
     .unwrap();
     fs::write(proj_dir.join("src/package.ph"), "expose .shapes\n").unwrap();
-    fs::write(
-        proj_dir.join("src/point.ph"),
-        "class Point { get() -> Int { 1 } }\nexport Point\n",
-    )
-    .unwrap();
+    fs::write(proj_dir.join("src/point.ph"), "class Point { get() -> Int { 1 } }\nexport Point\n").unwrap();
     fs::write(
         proj_dir.join("src/shapes/circle.ph"),
         "import app.point.Point\nclass Circle is Point { radius() -> Int { 5 } }\nexport Circle\n",
@@ -60,16 +46,9 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
     .unwrap();
 
     let mut universe = ProjectUniverse::new();
-    let root_id = universe
-        .load_root(proj_dir.join("project.toml"))
-        .expect("universe load succeeds");
+    let root_id = universe.load_root(proj_dir.join("project.toml")).expect("universe load succeeds");
 
-    let point_mod = ModuleId::resolved(
-        root_id,
-        ModulePath::from_components(vec![
-            ModuleComponent::from_identifier("point").unwrap()
-        ]),
-    );
+    let point_mod = ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("point").unwrap()]));
     let circle_mod = ModuleId::resolved(
         root_id,
         ModulePath::from_components(vec![
@@ -78,10 +57,8 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
         ]),
     );
 
-    let point_src: Arc<str> =
-        Arc::from(fs::read_to_string(proj_dir.join("src/point.ph")).unwrap());
-    let circle_src: Arc<str> =
-        Arc::from(fs::read_to_string(proj_dir.join("src/shapes/circle.ph")).unwrap());
+    let point_src: Arc<str> = Arc::from(fs::read_to_string(proj_dir.join("src/point.ph")).unwrap());
+    let circle_src: Arc<str> = Arc::from(fs::read_to_string(proj_dir.join("src/shapes/circle.ph")).unwrap());
 
     let point_prog = Arc::new(phalcom_ast::parse(&point_src, 0).program);
     let circle_prog = Arc::new(phalcom_ast::parse(&circle_src, 0).program);
@@ -89,23 +66,11 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
     let mut sources = BTreeMap::new();
     sources.insert(
         point_mod.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            point_mod.clone(),
-            ModuleKind::Module,
-            None,
-            point_src,
-            point_prog,
-        )),
+        Arc::new(ParsedModuleUnit::new(point_mod.clone(), ModuleKind::Module, None, point_src, point_prog)),
     );
     sources.insert(
         circle_mod.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            circle_mod.clone(),
-            ModuleKind::Module,
-            None,
-            circle_src,
-            circle_prog,
-        )),
+        Arc::new(ParsedModuleUnit::new(circle_mod.clone(), ModuleKind::Module, None, circle_src, circle_prog)),
     );
 
     let mut modules = BTreeMap::new();
@@ -193,10 +158,7 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
     // 1. Cross-module superclass resolved
     let circle_decl = DeclarationId::new(circle_mod.clone(), "Circle".into());
     let point_decl = DeclarationId::new(point_mod.clone(), "Point".into());
-    assert_eq!(
-        analysis.snapshot.hierarchy.superclass(&circle_decl),
-        Some(&point_decl)
-    );
+    assert_eq!(analysis.snapshot.hierarchy.superclass(&circle_decl), Some(&point_decl));
 
     // 2. Point in both modules resolves canonically and has same TypeId
     let point_ty1 = analysis.snapshot.declarations.form(&point_decl).unwrap();
@@ -224,23 +186,11 @@ fn inheritance_cycle_is_rejected_in_workspace() {
     let mut sources = BTreeMap::new();
     sources.insert(
         mod_a.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            mod_a.clone(),
-            ModuleKind::Module,
-            None,
-            a_src,
-            a_prog,
-        )),
+        Arc::new(ParsedModuleUnit::new(mod_a.clone(), ModuleKind::Module, None, a_src, a_prog)),
     );
     sources.insert(
         mod_b.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            mod_b.clone(),
-            ModuleKind::Module,
-            None,
-            b_src,
-            b_prog,
-        )),
+        Arc::new(ParsedModuleUnit::new(mod_b.clone(), ModuleKind::Module, None, b_src, b_prog)),
     );
 
     let mut modules = BTreeMap::new();
@@ -320,10 +270,7 @@ fn inheritance_cycle_is_rejected_in_workspace() {
         generation: 1,
     });
 
-    assert!(
-        analysis.snapshot.has_errors(),
-        "inheritance cycle must be detected and rejected"
-    );
+    assert!(analysis.snapshot.has_errors(), "inheritance cycle must be detected and rejected");
 }
 
 #[test]
@@ -418,7 +365,12 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         Arc::new(phalcom_ast::parse("class OldName { val() -> Int { 1 } }", 0).program),
     );
 
-    assert!(analysis_v1.snapshot.surfaces.contains_key(&DeclarationId::new(module.clone(), "OldName".into())));
+    assert!(
+        analysis_v1
+            .snapshot
+            .surfaces
+            .contains_key(&DeclarationId::new(module.clone(), "OldName".into()))
+    );
 
     let source_v2: Arc<str> = Arc::from("class NewName { val() -> Int { 2 } }");
     let analysis_v2 = analyze_single_module(
@@ -427,6 +379,149 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         Arc::new(phalcom_ast::parse("class NewName { val() -> Int { 2 } }", 0).program),
     );
 
-    assert!(analysis_v2.snapshot.surfaces.contains_key(&DeclarationId::new(module.clone(), "NewName".into())));
-    assert!(!analysis_v2.snapshot.surfaces.contains_key(&DeclarationId::new(module.clone(), "OldName".into())));
+    assert!(
+        analysis_v2
+            .snapshot
+            .surfaces
+            .contains_key(&DeclarationId::new(module.clone(), "NewName".into()))
+    );
+    assert!(
+        !analysis_v2
+            .snapshot
+            .surfaces
+            .contains_key(&DeclarationId::new(module.clone(), "OldName".into()))
+    );
+}
+
+#[test]
+fn deterministic_fresh_store_analysis_matches_structurally() {
+    use phalcom_semantic::export::{export_kind, export_type_form};
+
+    let make_input = |generation| {
+        let mod_a = ModuleId::resolved(
+            ResolvedProjectId::from_raw(1),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("a").unwrap()]),
+        );
+        let mod_b = ModuleId::resolved(
+            ResolvedProjectId::from_raw(1),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("b").unwrap()]),
+        );
+
+        let a_src: Arc<str> = Arc::from("class Base { val() -> Int { 10 } }\nexport Base\n");
+        let b_src: Arc<str> = Arc::from("import a.Base\nclass Sub is Base { val() -> String { \"mismatch\" } }\nexport Sub\n");
+
+        let a_prog = Arc::new(phalcom_ast::parse(&a_src, 0).program);
+        let b_prog = Arc::new(phalcom_ast::parse(&b_src, 0).program);
+
+        let mut sources = BTreeMap::new();
+        sources.insert(
+            mod_a.clone(),
+            Arc::new(ParsedModuleUnit::new(mod_a.clone(), ModuleKind::Module, None, a_src, a_prog)),
+        );
+        sources.insert(
+            mod_b.clone(),
+            Arc::new(ParsedModuleUnit::new(mod_b.clone(), ModuleKind::Module, None, b_src, b_prog)),
+        );
+
+        let mut modules = BTreeMap::new();
+        modules.insert(
+            mod_a.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: mod_a.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([(
+                        "Base".into(),
+                        LinkedExport {
+                            public_name: "Base".into(),
+                            target: LinkedExportTarget::Binding(SymbolId {
+                                module: mod_a.clone(),
+                                name: "Base".into(),
+                            }),
+                            range: phalcom_common::range::SourceRange::default(),
+                        },
+                    )]),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::from([("Base".into(), GlobalBindingId(0))]),
+                    imports: BTreeMap::new(),
+                },
+                linked_reads: Vec::new(),
+                runtime_dependencies: Vec::new(),
+            },
+        );
+
+        modules.insert(
+            mod_b.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: mod_b.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([(
+                        "Sub".into(),
+                        LinkedExport {
+                            public_name: "Sub".into(),
+                            target: LinkedExportTarget::Binding(SymbolId {
+                                module: mod_b.clone(),
+                                name: "Sub".into(),
+                            }),
+                            range: phalcom_common::range::SourceRange::default(),
+                        },
+                    )]),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::from([("Sub".into(), GlobalBindingId(0))]),
+                    imports: BTreeMap::from([("Base".into(), ImportBindingId(0))]),
+                },
+                linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
+                    module: mod_a.clone(),
+                    name: "Base".into(),
+                })],
+                runtime_dependencies: vec![mod_a.clone()],
+            },
+        );
+
+        let linked = Arc::new(LinkedProgram {
+            universe: Arc::new(ProjectUniverse::new()),
+            modules,
+            graphs: phalcom_modules::graph::ModuleGraphs::default(),
+            entry: mod_b.clone(),
+            initialization_order: vec![mod_a.clone(), mod_b.clone()],
+        });
+
+        SemanticWorkspaceInput { linked, sources, generation }
+    };
+
+    let run1 = analyze_workspace(make_input(1));
+    let run2 = analyze_workspace(make_input(2));
+
+    // Compare diagnostics: module ordering, codes, ranges, severities
+    let diag_keys1: Vec<_> = run1.snapshot.diagnostics.keys().collect();
+    let diag_keys2: Vec<_> = run2.snapshot.diagnostics.keys().collect();
+    assert_eq!(diag_keys1, diag_keys2);
+
+    for (k1, diags1) in run1.snapshot.diagnostics.iter() {
+        let diags2 = run2.snapshot.diagnostics.get(k1).expect("matching module key");
+        assert_eq!(diags1.len(), diags2.len());
+        for (d1, d2) in diags1.iter().zip(diags2.iter()) {
+            assert_eq!(d1.code, d2.code);
+            assert_eq!(d1.severity, d2.severity);
+            assert_eq!(d1.primary_range, d2.primary_range);
+            assert_eq!(d1.message, d2.message);
+        }
+    }
+
+    // Compare structural export descriptors of all declared forms
+    for (decl_id, info1) in run1.snapshot.declarations.iter() {
+        let ty2 = run2.snapshot.declarations.form(decl_id).expect("matching decl");
+        let exp1 = export_type_form(&run1.snapshot.store, info1.form).expect("valid export 1");
+        let exp2 = export_type_form(&run2.snapshot.store, ty2).expect("valid export 2");
+        assert_eq!(exp1, exp2);
+
+        let kind1 = export_kind(&run1.snapshot.store, run1.snapshot.store.kind_of(info1.form));
+        let kind2 = export_kind(&run2.snapshot.store, run2.snapshot.store.kind_of(ty2));
+        assert_eq!(kind1, kind2);
+    }
 }
