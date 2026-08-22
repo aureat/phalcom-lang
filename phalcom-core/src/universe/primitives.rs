@@ -722,6 +722,10 @@ impl Universe {
         );
 
         validate_native_surface(vm);
+        // Typing reflection is an additive, profile-gated surface. Install it
+        // after the legacy native-surface census so the existing VM-free
+        // manifest remains a truthful catalog for the pre-typing kernel.
+        crate::primitive::typing::install(vm);
     }
 }
 

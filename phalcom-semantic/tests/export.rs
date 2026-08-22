@@ -1,12 +1,9 @@
 use phalcom_semantic::identity::{DeclarationId, ModuleId};
 use phalcom_semantic::types::id::{InferVarId, KindId};
-use phalcom_semantic::types::store::{
-    CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore,
-};
+use phalcom_semantic::types::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
 use phalcom_semantic::{
-    export_kind, export_type_form, CompiledCallableParam, CompiledCallableType, CompiledKindRef,
-    CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,
-    SemanticExportError, TypeParameterData, TypeParameterOwner,
+    CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,
+    SemanticExportError, TypeParameterData, TypeParameterOwner, export_kind, export_type_form,
 };
 
 #[test]
@@ -29,22 +26,13 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
     let mut store = TypeStore::new();
 
     // 1. Primitive types
-    assert_eq!(
-        export_type_form(&store, store.never()).unwrap(),
-        CompiledTypeRef::Never
-    );
-    assert_eq!(
-        export_type_form(&store, store.unit()).unwrap(),
-        CompiledTypeRef::Unit
-    );
+    assert_eq!(export_type_form(&store, store.never()).unwrap(), CompiledTypeRef::Never);
+    assert_eq!(export_type_form(&store, store.unit()).unwrap(), CompiledTypeRef::Unit);
 
     // 2. Nominal
     let decl = DeclarationId::new(ModuleId::core(), "Int".into());
     let int_ty = store.nominal_type(decl.clone());
-    assert_eq!(
-        export_type_form(&store, int_ty).unwrap(),
-        CompiledTypeRef::Nominal(decl.clone())
-    );
+    assert_eq!(export_type_form(&store, int_ty).unwrap(), CompiledTypeRef::Nominal(decl.clone()));
 
     // 3. Applied generic
     let list_decl = DeclarationId::new(ModuleId::core(), "List".into());
@@ -65,18 +53,12 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
     let union_ty = store.union(&[int_ty, str_ty]);
     assert_eq!(
         export_type_form(&store, union_ty).unwrap(),
-        CompiledTypeRef::Union(Box::new([
-            CompiledTypeRef::Nominal(decl.clone()),
-            CompiledTypeRef::Nominal(str_decl.clone()),
-        ]))
+        CompiledTypeRef::Union(Box::new([CompiledTypeRef::Nominal(decl.clone()), CompiledTypeRef::Nominal(str_decl.clone()),]))
     );
 
     // 5. Tuple
     let tuple_ty = store.tuple(Box::new([
-        TupleTypeElement {
-            label: None,
-            ty: int_ty,
-        },
+        TupleTypeElement { label: None, ty: int_ty },
         TupleTypeElement {
             label: Some("name".into()),
             ty: str_ty,
@@ -98,14 +80,8 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
 
     // 6. Record
     let record_ty = store.record(Box::new([
-        RecordTypeField {
-            name: "x".into(),
-            ty: int_ty,
-        },
-        RecordTypeField {
-            name: "y".into(),
-            ty: int_ty,
-        },
+        RecordTypeField { name: "x".into(), ty: int_ty },
+        RecordTypeField { name: "y".into(), ty: int_ty },
     ]));
     assert_eq!(
         export_type_form(&store, record_ty).unwrap(),
@@ -142,13 +118,9 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
     );
 
     // 8. Parameter
-    let param_id = store.intern_type_parameter(TypeParameterData {
-        owner: TypeParameterOwner::Declaration(decl.clone()),
-        index: 0,
-        name: "T".into(),
-        kind: KindId::TYPE,
-    });
+    let param_id = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl.clone()), 0, "T", KindId::TYPE));
     let param_ty = store.parameter_form(param_id);
+
     assert_eq!(
         export_type_form(&store, param_ty).unwrap(),
         CompiledTypeRef::Parameter {
@@ -164,10 +136,7 @@ fn export_rejects_infer_var_and_class_object() {
 
     // Inference variable rejected
     let infer_ty = store.infer(InferVarId(0));
-    assert_eq!(
-        export_type_form(&store, infer_ty),
-        Err(SemanticExportError::InferenceVariable(InferVarId(0)))
-    );
+    assert_eq!(export_type_form(&store, infer_ty), Err(SemanticExportError::InferenceVariable(InferVarId(0))));
 
     // ClassObject rejected as non-exportable
     let decl = DeclarationId::new(ModuleId::core(), "Point".into());

@@ -38,12 +38,20 @@ impl TypeKnowledge {
         }
     }
 
-    pub fn known(ty: TypeId, authority: EvidenceAuthority) -> Self {
+    pub fn known(ty: impl Into<TypeId>, authority: EvidenceAuthority) -> Self {
         Self::Known(TypeEvidence {
-            ty,
+            ty: ty.into(),
             authority,
             provenance: EvidenceSet::default(),
         })
+    }
+
+    pub fn known_proper(ty: super::id::ProperTypeId, authority: EvidenceAuthority) -> Self {
+        Self::known(ty.raw(), authority)
+    }
+
+    pub fn proper_ty(&self, store: &super::store::TypeStore) -> Option<super::id::ProperTypeId> {
+        self.ty().and_then(|id| store.proper_type(id).ok())
     }
 
     pub fn with_range(mut self, range: SourceRange) -> Self {

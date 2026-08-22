@@ -20,3 +20,4 @@ expose .uri
 expose .selector
 expose .message
 expose .attribute
+expose .typing

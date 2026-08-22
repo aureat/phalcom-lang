@@ -8,21 +8,13 @@ use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
-fn setup_phase2_env() -> (
-    TypeStore,
-    MapTypeHierarchy,
-    SimpleTypeResolver,
-    DeclarationTypeTable,
-    ModuleId,
-) {
+fn setup_phase2_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, DeclarationTypeTable, ModuleId) {
     let mut store = TypeStore::new();
     let mut hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let module = ModuleId::core();
 
-    let declarations = bootstrap_universe_declarations(&mut store, &|k| {
-        DeclarationId::new(module.clone(), k.name().into())
-    });
+    let declarations = bootstrap_universe_declarations(&mut store, &|k| DeclarationId::new(module.clone(), k.name().into()));
 
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let float_decl = DeclarationId::new(module.clone(), "Float".into());
@@ -75,11 +67,7 @@ const j = #{ name: "Alice", age: 30 }
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        !report.has_errors(),
-        "expected no errors, got: {:?}",
-        report.diagnostics
-    );
+    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
 }
 
 #[test]
@@ -96,11 +84,7 @@ class Calculator {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        !report.has_errors(),
-        "expected no errors, got: {:?}",
-        report.diagnostics
-    );
+    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
 }
 
 #[test]
@@ -121,11 +105,7 @@ class Arith {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        !report.has_errors(),
-        "expected no errors, got: {:?}",
-        report.diagnostics
-    );
+    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
 }
 
 #[test]
@@ -143,11 +123,7 @@ class Navigator {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        !report.has_errors(),
-        "expected no errors, got: {:?}",
-        report.diagnostics
-    );
+    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
 }
 
 #[test]
@@ -165,14 +141,8 @@ class Navigator {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        report.has_errors(),
-        "expected error on keyword argument mismatch"
-    );
-    assert_eq!(
-        report.diagnostics[0].code,
-        DiagnosticCode::ArgumentMismatch
-    );
+    assert!(report.has_errors(), "expected error on keyword argument mismatch");
+    assert_eq!(report.diagnostics[0].code, DiagnosticCode::ArgumentMismatch);
 }
 
 #[test]
@@ -193,11 +163,7 @@ class Buffer {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        !report.has_errors(),
-        "expected no errors, got: {:?}",
-        report.diagnostics
-    );
+    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
 }
 
 #[test]
@@ -213,11 +179,7 @@ class CollectionUser {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        !report.has_errors(),
-        "expected no errors, got: {:?}",
-        report.diagnostics
-    );
+    assert!(!report.has_errors(), "expected no errors, got: {:?}", report.diagnostics);
 }
 
 #[test]
@@ -233,8 +195,5 @@ class DynamicHandler {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(
-        !report.has_errors(),
-        "dynamic message sends must not produce false errors"
-    );
+    assert!(!report.has_errors(), "dynamic message sends must not produce false errors");
 }

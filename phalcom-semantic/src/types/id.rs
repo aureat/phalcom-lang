@@ -18,6 +18,49 @@ impl TypeId {
     }
 }
 
+/// Store-relative unique identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TypeStoreId(pub u64);
+
+impl TypeStoreId {
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+/// A `TypeId` guaranteed to have kind `KindId::TYPE` in the store that validated it.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ProperTypeId(pub TypeId);
+
+impl ProperTypeId {
+    #[inline]
+    pub const fn raw(self) -> TypeId {
+        self.0
+    }
+
+    #[inline]
+    pub const fn type_id(self) -> TypeId {
+        self.0
+    }
+
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0.index()
+    }
+}
+
+impl From<ProperTypeId> for TypeId {
+    #[inline]
+    fn from(proper: ProperTypeId) -> Self {
+        proper.0
+    }
+}
+
 /// Store/snapshot-local interned kind identifier.
 ///
 /// The integer is meaningful only with the `TypeStore` that allocated it.
@@ -45,6 +88,45 @@ impl TypeParameterId {
     #[inline]
     pub fn index(self) -> usize {
         self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
+    }
+}
+
+/// Store/snapshot-local identifier for an alpha-normalized type lambda.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TypeLambdaId(pub u32);
+
+impl TypeLambdaId {
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
+    }
+}
+
+/// Scoped type identifier within a type lambda body arena.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ScopedTypeId(pub u32);
+
+impl ScopedTypeId {
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
     }
 }
 

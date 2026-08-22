@@ -34,6 +34,7 @@ impl VM {
             reflection_cache: crate::modules::ReflectionCache::new(),
             start_time: Instant::now(),
             module_registry: crate::modules::ModuleRegistry::new(),
+            typing_registry: crate::typing::RuntimeTypingRegistry::new(),
             runtime_roots: None,
             semantic_roots: crate::vm::SemanticRoots {
                 unsupported: Value::nil(),

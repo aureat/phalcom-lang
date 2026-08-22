@@ -549,7 +549,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) 
                                     if let PackItem::Positional { expr: arg_expr, .. } = &call.args[0] {
                                         let arg_k = synthesize_expr(ctx, arg_expr);
                                         if let Some(arg_ty) = arg_k.ty() {
-                                            ctx.solver.bind(var, arg_ty);
+                                            ctx.solver.bind(var, arg_ty, ctx.store);
                                         }
                                     }
                                 }
@@ -631,20 +631,12 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                     match arg {
                         PackItem::Positional { expr, .. } => {
                             let k = synthesize_expr(ctx, expr);
-                            let t = if let Some(t) = k.ty() {
-                                t
-                            } else {
-                                ctx.solver.fresh_var(ctx.store).1
-                            };
+                            let t = if let Some(t) = k.ty() { t } else { ctx.solver.fresh_var(ctx.store).1 };
                             arg_tys.push(t);
                         }
                         PackItem::Labeled { value, .. } => {
                             let k = synthesize_expr(ctx, value);
-                            let t = if let Some(t) = k.ty() {
-                                t
-                            } else {
-                                ctx.solver.fresh_var(ctx.store).1
-                            };
+                            let t = if let Some(t) = k.ty() { t } else { ctx.solver.fresh_var(ctx.store).1 };
                             arg_tys.push(t);
                         }
                         PackItem::Expand { expr, .. } => {

@@ -322,7 +322,7 @@ impl Universe {
 /// [ADR-0002](../../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md)); the
 /// class itself is an instance of that metaclass with the given
 /// `superclass`. `superclass` must already have its `class` link wired.
-fn make_core_class(heap: &mut Heap, name: &str, superclass: ClassId, metaclass_class: ClassId) -> ClassId {
+pub(crate) fn make_core_class(heap: &mut Heap, name: &str, superclass: ClassId, metaclass_class: ClassId) -> ClassId {
     let metaclass_superclass = heap.class(superclass).class;
 
     let metaclass = heap.alloc_class(crate::heap::ClassObject::bare(&format!("{name} class")));

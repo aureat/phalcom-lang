@@ -1,11 +1,16 @@
 //! Canonical Type Store with interning and normalization.
 
 use super::application::TypeApplicationError;
-use super::id::{InferVarId, KindId, TypeId, TypeParameterId};
+use super::id::{InferVarId, KindId, ProperTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
 use super::kind::{KindApplicationError, KindData};
-use super::parameter::{TypeParameterData, TypeParameterOwner};
+use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
+use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena, TypeLambdaData, TypeLambdaProvenance};
+use super::variance::Variance;
 use crate::identity::DeclarationId;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_TYPE_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TupleTypeElement {
@@ -55,6 +60,10 @@ pub enum TypeData {
     Callable(CallableType),
     /// Type variable parameter in generic declaration.
     Parameter(TypeParameterId),
+    /// First-class type lambda form.
+    Lambda(TypeLambdaId),
+    /// Owner-relative `Self` type term.
+    SelfType(SelfTypeTerm),
     /// Type inference variable.
     Infer(InferVarId),
 }
@@ -62,13 +71,16 @@ pub enum TypeData {
 /// Central store for canonical type interning, hash-consing, and kind assignments.
 #[derive(Clone, Debug)]
 pub struct TypeStore {
+    id: TypeStoreId,
     types: Vec<TypeData>,
     type_to_id: HashMap<TypeData, TypeId>,
     kinds: Vec<KindData>,
     kind_to_id: HashMap<KindData, KindId>,
     type_kinds: Vec<KindId>,
     type_parameters: Vec<TypeParameterData>,
-    parameter_to_id: HashMap<(TypeParameterOwner, u16), TypeParameterId>,
+    parameter_to_id: HashMap<(TypeParameterOwner, u32), TypeParameterId>,
+    parameter_variances: HashMap<(DeclarationId, u32), Variance>,
+    lambda_arena: TypeLambdaArena,
 
     never_id: TypeId,
     unit_id: TypeId,
@@ -83,6 +95,7 @@ impl Default for TypeStore {
 impl TypeStore {
     pub fn new() -> Self {
         let mut store = Self {
+            id: TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed)),
             types: Vec::new(),
             type_to_id: HashMap::new(),
             kinds: Vec::new(),
@@ -90,6 +103,8 @@ impl TypeStore {
             type_kinds: Vec::new(),
             type_parameters: Vec::new(),
             parameter_to_id: HashMap::new(),
+            parameter_variances: HashMap::new(),
+            lambda_arena: TypeLambdaArena::new(),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
         };
@@ -104,8 +119,27 @@ impl TypeStore {
         store
     }
 
+    pub fn with_id(id: TypeStoreId) -> Self {
+        let mut store = Self::new();
+        store.id = id;
+        store
+    }
+
+    pub fn id(&self) -> TypeStoreId {
+        self.id
+    }
+
+    pub fn proper_type(&self, id: TypeId) -> Result<ProperTypeId, KindId> {
+        let kind = self.kind_of(id);
+        if kind == KindId::TYPE { Ok(ProperTypeId(id)) } else { Err(kind) }
+    }
+
     pub fn intern_type_parameter(&mut self, data: TypeParameterData) -> TypeParameterId {
         let key = (data.owner.clone(), data.index);
+        let variance = data.variance;
+        if let TypeParameterOwner::Declaration(ref decl) = data.owner {
+            self.parameter_variances.insert((decl.clone(), data.index), variance);
+        }
         if let Some(&id) = self.parameter_to_id.get(&key) {
             return id;
         }
@@ -113,6 +147,50 @@ impl TypeStore {
         self.type_parameters.push(data);
         self.parameter_to_id.insert(key, id);
         id
+    }
+
+    pub fn set_parameter_variance(&mut self, decl: DeclarationId, index: u32, variance: Variance) {
+        self.parameter_variances.insert((decl, index), variance);
+    }
+
+    pub fn get_parameter_variance(&self, decl: &DeclarationId, index: u32) -> Option<Variance> {
+        self.parameter_variances.get(&(decl.clone(), index)).copied()
+    }
+
+    pub fn find_type_parameter_id(&self, owner: &TypeParameterOwner, index: u32) -> Option<TypeParameterId> {
+        self.parameter_to_id.get(&(owner.clone(), index)).copied()
+    }
+
+    #[inline]
+    pub fn arena(&self) -> &TypeLambdaArena {
+        &self.lambda_arena
+    }
+
+    #[inline]
+    pub fn arena_mut(&mut self) -> &mut TypeLambdaArena {
+        &mut self.lambda_arena
+    }
+
+    /// Interns a type lambda form into the store.
+    pub fn lambda(&mut self, parameter_kinds: Box<[KindId]>, body: super::id::ScopedTypeId, result_kind: KindId) -> TypeId {
+        let lambda_id = self.lambda_arena.intern_lambda(parameter_kinds, body, result_kind, None);
+        self.type_lambda(lambda_id)
+    }
+
+    /// Interns an existing `TypeLambdaId` into the `TypeStore` with its computed arrow kind.
+    pub fn type_lambda(&mut self, lambda_id: TypeLambdaId) -> TypeId {
+        let lambda = self.lambda_arena.get_lambda(lambda_id).clone();
+        let kind = if lambda.parameter_kinds.is_empty() {
+            lambda.result_kind
+        } else {
+            self.arrow_kind(lambda.parameter_kinds, lambda.result_kind)
+        };
+        self.intern_with_kind(TypeData::Lambda(lambda_id), kind)
+    }
+
+    /// Interns an owner-relative `Self` type term.
+    pub fn self_type(&mut self, term: SelfTypeTerm) -> TypeId {
+        self.intern_with_kind(TypeData::SelfType(term), KindId::TYPE)
     }
 
     #[inline]
@@ -170,11 +248,7 @@ impl TypeStore {
         })
     }
 
-    pub fn apply_kind(
-        &mut self,
-        callee: KindId,
-        arguments: &[KindId],
-    ) -> Result<KindId, KindApplicationError> {
+    pub fn apply_kind(&mut self, callee: KindId, arguments: &[KindId]) -> Result<KindId, KindApplicationError> {
         if arguments.is_empty() {
             return Ok(callee);
         }
@@ -254,14 +328,40 @@ impl TypeStore {
         self.nominal_type(declaration)
     }
 
-    /// Interns a generic applied type with checked kinding.
-    pub fn apply_type_form(
-        &mut self,
-        origin: TypeId,
-        arguments: &[TypeId],
-    ) -> Result<TypeId, TypeApplicationError> {
+    /// Interns a generic applied type with checked kinding and beta-reduction for type lambdas.
+    pub fn apply_type_form(&mut self, origin: TypeId, arguments: &[TypeId]) -> Result<TypeId, TypeApplicationError> {
         if arguments.is_empty() {
             return Ok(origin);
+        }
+
+        // If origin is a TypeLambda, perform beta-reduction directly
+        if let TypeData::Lambda(lambda_id) = self.get(origin).clone() {
+            let mut arena = self.lambda_arena.clone();
+            let res = arena.beta_reduce(lambda_id, arguments, self);
+            self.lambda_arena = arena;
+            match res {
+                Ok(BetaResult::Canonical(can)) => return Ok(can),
+                Ok(BetaResult::ResidualLambda(res_id)) => {
+                    return Ok(self.type_lambda(res_id));
+                }
+                Err(BetaReductionError::TooManyArguments { expected, actual }) => {
+                    return Err(TypeApplicationError::TooManyArguments {
+                        supplied: actual,
+                        accepted: expected,
+                    });
+                }
+                Err(BetaReductionError::KindMismatch {
+                    parameter_index,
+                    expected,
+                    actual,
+                }) => {
+                    return Err(TypeApplicationError::ArgumentKindMismatch {
+                        index: parameter_index as usize,
+                        expected,
+                        actual,
+                    });
+                }
+            }
         }
 
         let origin_kind = self.kind_of(origin);
@@ -275,16 +375,8 @@ impl TypeStore {
             Err(KindApplicationError::TooManyArguments { supplied, accepted }) => {
                 return Err(TypeApplicationError::TooManyArguments { supplied, accepted });
             }
-            Err(KindApplicationError::ArgumentKindMismatch {
-                index,
-                expected,
-                actual,
-            }) => {
-                return Err(TypeApplicationError::ArgumentKindMismatch {
-                    index,
-                    expected,
-                    actual,
-                });
+            Err(KindApplicationError::ArgumentKindMismatch { index, expected, actual }) => {
+                return Err(TypeApplicationError::ArgumentKindMismatch { index, expected, actual });
             }
         };
 
@@ -312,10 +404,7 @@ impl TypeStore {
     /// Interns a tuple type.
     pub fn tuple(&mut self, elements: Box<[TupleTypeElement]>) -> TypeId {
         for elem in elements.iter() {
-            debug_assert!(
-                self.is_proper_type(elem.ty),
-                "tuple element must be a proper type"
-            );
+            debug_assert!(self.is_proper_type(elem.ty), "tuple element must be a proper type");
         }
         self.intern_with_kind(TypeData::Tuple(elements), KindId::TYPE)
     }
@@ -323,10 +412,7 @@ impl TypeStore {
     /// Interns a record type.
     pub fn record(&mut self, fields: Box<[RecordTypeField]>) -> TypeId {
         for field in fields.iter() {
-            debug_assert!(
-                self.is_proper_type(field.ty),
-                "record field must be a proper type"
-            );
+            debug_assert!(self.is_proper_type(field.ty), "record field must be a proper type");
         }
         self.intern_with_kind(TypeData::Record(fields), KindId::TYPE)
     }
@@ -334,15 +420,9 @@ impl TypeStore {
     /// Interns a callable type.
     pub fn callable(&mut self, callable: CallableType) -> TypeId {
         for param in callable.parameters.iter() {
-            debug_assert!(
-                self.is_proper_type(param.ty),
-                "callable parameter must be a proper type"
-            );
+            debug_assert!(self.is_proper_type(param.ty), "callable parameter must be a proper type");
         }
-        debug_assert!(
-            self.is_proper_type(callable.return_type),
-            "callable return type must be a proper type"
-        );
+        debug_assert!(self.is_proper_type(callable.return_type), "callable return type must be a proper type");
         self.intern_with_kind(TypeData::Callable(callable), KindId::TYPE)
     }
 
@@ -352,30 +432,17 @@ impl TypeStore {
     }
 
     /// Interns a `List<T>` applied type.
-    pub fn list_of(
-        &mut self,
-        list_form: TypeId,
-        element: TypeId,
-    ) -> Result<TypeId, TypeApplicationError> {
+    pub fn list_of(&mut self, list_form: TypeId, element: TypeId) -> Result<TypeId, TypeApplicationError> {
         self.apply_type_form(list_form, &[element])
     }
 
     /// Interns a `Map<K, V>` applied type.
-    pub fn map_of(
-        &mut self,
-        map_form: TypeId,
-        key: TypeId,
-        value: TypeId,
-    ) -> Result<TypeId, TypeApplicationError> {
+    pub fn map_of(&mut self, map_form: TypeId, key: TypeId, value: TypeId) -> Result<TypeId, TypeApplicationError> {
         self.apply_type_form(map_form, &[key, value])
     }
 
     /// Interns a `Set<T>` applied type.
-    pub fn set_of(
-        &mut self,
-        set_form: TypeId,
-        element: TypeId,
-    ) -> Result<TypeId, TypeApplicationError> {
+    pub fn set_of(&mut self, set_form: TypeId, element: TypeId) -> Result<TypeId, TypeApplicationError> {
         self.apply_type_form(set_form, &[element])
     }
 
@@ -390,10 +457,7 @@ impl TypeStore {
     /// 6. One member -> member TypeId.
     pub fn union(&mut self, members: &[TypeId]) -> TypeId {
         for &m in members {
-            debug_assert!(
-                self.is_proper_type(m),
-                "union member must be a proper type"
-            );
+            debug_assert!(self.is_proper_type(m), "union member must be a proper type");
         }
         let mut flattened = Vec::new();
         self.collect_union_members(members, &mut flattened);
@@ -410,10 +474,7 @@ impl TypeStore {
         match flattened.len() {
             0 => self.never_id,
             1 => flattened[0],
-            _ => self.intern_with_kind(
-                TypeData::Union(flattened.into_boxed_slice()),
-                KindId::TYPE,
-            ),
+            _ => self.intern_with_kind(TypeData::Union(flattened.into_boxed_slice()), KindId::TYPE),
         }
     }
 

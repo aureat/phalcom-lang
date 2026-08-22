@@ -16,11 +16,7 @@ pub struct LinkedTypeResolver {
 }
 
 impl LinkedTypeResolver {
-    pub fn new(
-        linked: Arc<LinkedProgram>,
-        known_declarations: HashSet<DeclarationId>,
-        prelude_module: ModuleId,
-    ) -> Self {
+    pub fn new(linked: Arc<LinkedProgram>, known_declarations: HashSet<DeclarationId>, prelude_module: ModuleId) -> Self {
         Self {
             linked,
             known_declarations,
@@ -30,12 +26,7 @@ impl LinkedTypeResolver {
 }
 
 impl TypeResolver for LinkedTypeResolver {
-    fn resolve_type_name(
-        &self,
-        current_module: &ModuleId,
-        root: &str,
-        members: &[String],
-    ) -> Option<DeclarationId> {
+    fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         if members.is_empty() {
             // 1. Local declaration in current_module
             let local_decl = DeclarationId::new(current_module.clone(), root.into());
@@ -88,9 +79,7 @@ impl TypeResolver for LinkedTypeResolver {
             // Qualified path: e.g. root is a module alias in current_module
             if let Some(linked_mod) = self.linked.modules.get(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {
-                    if let Some(LinkedReadSpec::Module(target_mod)) =
-                        linked_mod.linked_reads.get(import_id.0 as usize)
-                    {
+                    if let Some(LinkedReadSpec::Module(target_mod)) = linked_mod.linked_reads.get(import_id.0 as usize) {
                         let leaf_name = members.last().unwrap();
                         let decl = DeclarationId::new(target_mod.clone(), leaf_name.clone().into());
                         if self.known_declarations.contains(&decl) {

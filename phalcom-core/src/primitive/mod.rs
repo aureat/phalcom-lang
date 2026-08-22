@@ -28,6 +28,7 @@ pub mod string;
 pub mod symbol;
 pub mod system;
 pub mod tuple;
+pub mod typing;
 
 #[non_exhaustive]
 pub struct Sig;

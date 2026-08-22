@@ -73,9 +73,7 @@ pub fn resolve_type_form(
 
             let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
             if let Some(decl) = resolver.resolve_type_name(current_module, &sym_ref.root, &members) {
-                let form = declarations
-                    .form(&decl)
-                    .unwrap_or_else(|| store.nominal_type(decl));
+                let form = declarations.form(&decl).unwrap_or_else(|| store.nominal_type(decl));
                 TypeFormResolution::Known(form)
             } else {
                 diagnostics.push(SemanticDiagnostic::error(
@@ -86,19 +84,8 @@ pub fn resolve_type_form(
                 TypeFormResolution::Unknown(UnknownReason::UnresolvedName(name.into()))
             }
         }
-        TypeAnnotationExpr::Application {
-            origin,
-            arguments,
-            range: _,
-        } => {
-            let origin_res = resolve_type_form(
-                store,
-                declarations,
-                resolver,
-                current_module,
-                origin,
-                diagnostics,
-            );
+        TypeAnnotationExpr::Application { origin, arguments, range: _ } => {
+            let origin_res = resolve_type_form(store, declarations, resolver, current_module, origin, diagnostics);
             let origin_ty = match origin_res {
                 TypeFormResolution::Known(ty) => ty,
                 TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
@@ -107,14 +94,7 @@ pub fn resolve_type_form(
 
             let mut arg_tys = Vec::with_capacity(arguments.len());
             for arg in arguments {
-                let arg_res = resolve_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    current_module,
-                    arg,
-                    diagnostics,
-                );
+                let arg_res = resolve_type_form(store, declarations, resolver, current_module, arg, diagnostics);
                 match arg_res {
                     TypeFormResolution::Known(ty) => arg_tys.push(ty),
                     TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
@@ -126,39 +106,19 @@ pub fn resolve_type_form(
                 Ok(applied) => TypeFormResolution::Known(applied),
                 Err(err) => {
                     let code = match &err {
-                        TypeApplicationError::NotAConstructor { .. } => {
-                            DiagnosticCode::ApplicationNotConstructor
-                        }
-                        TypeApplicationError::TooManyArguments { .. } => {
-                            DiagnosticCode::ApplicationTooManyArguments
-                        }
-                        TypeApplicationError::ArgumentKindMismatch { .. } => {
-                            DiagnosticCode::ApplicationArgumentKindMismatch
-                        }
+                        TypeApplicationError::NotAConstructor { .. } => DiagnosticCode::ApplicationNotConstructor,
+                        TypeApplicationError::TooManyArguments { .. } => DiagnosticCode::ApplicationTooManyArguments,
+                        TypeApplicationError::ArgumentKindMismatch { .. } => DiagnosticCode::ApplicationArgumentKindMismatch,
                     };
-                    diagnostics.push(SemanticDiagnostic::error(
-                        code,
-                        format!("{err}"),
-                        annotation.range,
-                    ));
+                    diagnostics.push(SemanticDiagnostic::error(code, format!("{err}"), annotation.range));
                     TypeFormResolution::Unknown(UnknownReason::UnannotatedDeclaration)
                 }
             }
         }
-        TypeAnnotationExpr::Tuple {
-            elements,
-            range: _,
-        } => {
+        TypeAnnotationExpr::Tuple { elements, range: _ } => {
             let mut tuple_elements = Vec::with_capacity(elements.len());
             for elem in elements {
-                let elem_res = resolve_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    current_module,
-                    &elem.ty,
-                    diagnostics,
-                );
+                let elem_res = resolve_type_form(store, declarations, resolver, current_module, &elem.ty, diagnostics);
                 let ty = match elem_res {
                     TypeFormResolution::Known(ty) => {
                         if store.kind_of(ty) != KindId::TYPE {
@@ -182,21 +142,10 @@ pub fn resolve_type_form(
             let tuple_ty = store.tuple(tuple_elements.into_boxed_slice());
             TypeFormResolution::Known(tuple_ty)
         }
-        TypeAnnotationExpr::Callable {
-            parameters,
-            result,
-            range: _,
-        } => {
+        TypeAnnotationExpr::Callable { parameters, result, range: _ } => {
             let mut param_types = Vec::with_capacity(parameters.len());
             for param in parameters {
-                let param_res = resolve_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    current_module,
-                    &param.ty,
-                    diagnostics,
-                );
+                let param_res = resolve_type_form(store, declarations, resolver, current_module, &param.ty, diagnostics);
                 let ty = match param_res {
                     TypeFormResolution::Known(ty) => {
                         if store.kind_of(ty) != KindId::TYPE {
@@ -219,14 +168,7 @@ pub fn resolve_type_form(
                 });
             }
 
-            let result_res = resolve_type_form(
-                store,
-                declarations,
-                resolver,
-                current_module,
-                result,
-                diagnostics,
-            );
+            let result_res = resolve_type_form(store, declarations, resolver, current_module, result, diagnostics);
             let return_type = match result_res {
                 TypeFormResolution::Known(ty) => {
                     if store.kind_of(ty) != KindId::TYPE {
@@ -252,14 +194,7 @@ pub fn resolve_type_form(
         TypeAnnotationExpr::Union { members, .. } => {
             let mut resolved_tys = Vec::new();
             for m in members {
-                let k = resolve_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    current_module,
-                    m,
-                    diagnostics,
-                );
+                let k = resolve_type_form(store, declarations, resolver, current_module, m, diagnostics);
                 match k {
                     TypeFormResolution::Known(ty) => {
                         if store.kind_of(ty) != KindId::TYPE {
@@ -295,14 +230,7 @@ pub fn resolve_type_annotation(
     annotation: &TypeAnnotation,
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeKnowledge {
-    let form_res = resolve_type_form(
-        store,
-        declarations,
-        resolver,
-        current_module,
-        annotation,
-        diagnostics,
-    );
+    let form_res = resolve_type_form(store, declarations, resolver, current_module, annotation, diagnostics);
     match form_res {
         TypeFormResolution::Known(ty) => {
             if store.kind_of(ty) != KindId::TYPE {

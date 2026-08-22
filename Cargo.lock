@@ -1060,6 +1060,7 @@ dependencies = [
  "phalcom-native-meta",
  "phalcom-native-surface",
  "phalcom-semantic",
+ "phalcom-type-meta",
  "phalcom-type-syntax",
  "rand",
  "ryu",
@@ -1146,8 +1147,19 @@ dependencies = [
  "phalcom-common",
  "phalcom-modules",
  "phalcom-native-meta",
+ "phalcom-type-meta",
  "serde",
  "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "phalcom-type-meta"
+version = "0.1.0"
+dependencies = [
+ "phalcom-common",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

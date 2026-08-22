@@ -181,6 +181,8 @@ pub enum Object {
     ProjectIdentity(Box<ProjectIdentityObject>),
     /// Logical URI ([`UriObject`]).
     Uri(Box<UriObject>),
+    /// Boxed typing context or descriptor object ([`super::typing::TypingObject`]).
+    Typing(Box<super::typing::TypingObject>),
 }
 
 /// A bound `::` method reference (selectors.md §3, U16-Open, U16-Pinned).

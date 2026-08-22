@@ -11,6 +11,7 @@ members = [
     "phalcom-lsp",
     "phalcom-modules",
     "phalcom-semantic",
+    "phalcom-type-meta",
 ]
 resolver = "2"
 default-members = [
@@ -25,6 +26,7 @@ default-members = [
     "phalcom-lsp",
     "phalcom-modules",
     "phalcom-semantic",
+    "phalcom-type-meta",
 ]
 
 [profile.test]

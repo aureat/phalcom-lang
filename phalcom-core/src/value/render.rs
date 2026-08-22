@@ -177,6 +177,7 @@ impl Value {
                 Object::PackageIdentity(id) => format!("<PackageIdentity {}>", id.identity_str),
                 Object::ProjectIdentity(id) => format!("<ProjectIdentity {}>", id.identity_str),
                 Object::Uri(u) => format!("<Uri {}>", u.uri_str),
+                Object::Typing(_) => "<typing>".to_string(),
             };
         }
         "<invalid value>".to_string()

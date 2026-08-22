@@ -16,8 +16,7 @@ pub mod registry;
 
 pub use artifact::{ClassBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint};
 pub use compile::{
-    AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer,
-    ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics,
+    AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics,
 };
 pub use context::ModuleExecutionContext;
 pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};

@@ -1,6 +1,4 @@
-use phalcom_ast::ast::{
-    PathSegment, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr, TypeCallableParameter, TypeTupleElement,
-};
+use phalcom_ast::ast::{PathSegment, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr, TypeCallableParameter, TypeTupleElement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
@@ -46,9 +44,7 @@ fn application(origin: TypeAnnotation, arguments: Vec<TypeAnnotation>) -> TypeAn
 fn setup() -> TestEnv {
     let mut store = TypeStore::new();
     let module = ModuleId::core();
-    let declarations = bootstrap_universe_declarations(&mut store, &|key| {
-        DeclarationId::new(module.clone(), key.name().into())
-    });
+    let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
     let mut resolver = SimpleTypeResolver::new();
     for name in ["Int", "String", "Bool", "List", "Map", "Object"] {
         resolver.insert(name, DeclarationId::new(module.clone(), name.into()));
@@ -63,14 +59,7 @@ fn setup() -> TestEnv {
 
 fn resolve(env: &mut TestEnv, annotation: &TypeAnnotation) -> (TypeKnowledge, Vec<phalcom_semantic::SemanticDiagnostic>) {
     let mut diagnostics = Vec::new();
-    let knowledge = resolve_type_annotation(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.module,
-        annotation,
-        &mut diagnostics,
-    );
+    let knowledge = resolve_type_annotation(&mut env.store, &env.declarations, &env.resolver, &env.module, annotation, &mut diagnostics);
     (knowledge, diagnostics)
 }
 
@@ -79,17 +68,22 @@ fn lowers_list_and_map_applications() {
     let mut env = setup();
 
     let list_int = resolve(&mut env, &application(reference("List"), vec![reference("Int")])).0;
-    let TypeKnowledge::Known(list_int) = list_int else { panic!("expected List<Int>") };
-    let TypeData::Applied { origin, arguments } = env.store.get(list_int.ty) else { panic!("expected applied List<Int>") };
+    let TypeKnowledge::Known(list_int) = list_int else {
+        panic!("expected List<Int>")
+    };
+    let TypeData::Applied { origin, arguments } = env.store.get(list_int.ty) else {
+        panic!("expected applied List<Int>")
+    };
     assert_eq!(*origin, env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap());
-    assert_eq!(arguments.as_ref(), &[env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap()]);
+    assert_eq!(
+        arguments.as_ref(),
+        &[env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap()]
+    );
 
-    let map_string_int = resolve(
-        &mut env,
-        &application(reference("Map"), vec![reference("String"), reference("Int")]),
-    )
-    .0;
-    let TypeKnowledge::Known(map_string_int) = map_string_int else { panic!("expected Map<String, Int>") };
+    let map_string_int = resolve(&mut env, &application(reference("Map"), vec![reference("String"), reference("Int")])).0;
+    let TypeKnowledge::Known(map_string_int) = map_string_int else {
+        panic!("expected Map<String, Int>")
+    };
     assert!(matches!(env.store.get(map_string_int.ty), TypeData::Applied { arguments, .. } if arguments.len() == 2));
 }
 
@@ -99,8 +93,16 @@ fn lowers_labeled_tuple_and_callable_forms() {
     let tuple = TypeAnnotation {
         expr: TypeAnnotationExpr::Tuple {
             elements: vec![
-                TypeTupleElement { label: None, ty: reference("Int"), range: RANGE },
-                TypeTupleElement { label: Some("name".into()), ty: reference("String"), range: RANGE },
+                TypeTupleElement {
+                    label: None,
+                    ty: reference("Int"),
+                    range: RANGE,
+                },
+                TypeTupleElement {
+                    label: Some("name".into()),
+                    ty: reference("String"),
+                    range: RANGE,
+                },
             ],
             range: RANGE,
         },
@@ -113,8 +115,18 @@ fn lowers_labeled_tuple_and_callable_forms() {
     let callable = TypeAnnotation {
         expr: TypeAnnotationExpr::Callable {
             parameters: vec![
-                TypeCallableParameter { label: None, ty: reference("Int"), rest: false, range: RANGE },
-                TypeCallableParameter { label: Some("names".into()), ty: reference("String"), rest: true, range: RANGE },
+                TypeCallableParameter {
+                    label: None,
+                    ty: reference("Int"),
+                    rest: false,
+                    range: RANGE,
+                },
+                TypeCallableParameter {
+                    label: Some("names".into()),
+                    ty: reference("String"),
+                    rest: true,
+                    range: RANGE,
+                },
             ],
             result: Box::new(reference("Bool")),
             range: RANGE,
@@ -122,18 +134,25 @@ fn lowers_labeled_tuple_and_callable_forms() {
         range: RANGE,
     };
     let callable = resolve(&mut env, &callable).0;
-    let TypeKnowledge::Known(callable) = callable else { panic!("expected callable type") };
-    assert!(matches!(env.store.get(callable.ty), TypeData::Callable(CallableType { parameters, return_type })
+    let TypeKnowledge::Known(callable) = callable else {
+        panic!("expected callable type")
+    };
+    assert!(
+        matches!(env.store.get(callable.ty), TypeData::Callable(CallableType { parameters, return_type })
         if parameters[1].label.as_deref() == Some("names")
             && parameters[1].rest
-            && *return_type == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap()));
+            && *return_type == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap())
+    );
 }
 
 #[test]
 fn lowers_union_and_rejects_unsaturated_or_invalid_applications() {
     let mut env = setup();
     let union = TypeAnnotation {
-        expr: TypeAnnotationExpr::Union { members: vec![reference("Int"), reference("String")], range: RANGE },
+        expr: TypeAnnotationExpr::Union {
+            members: vec![reference("Int"), reference("String")],
+            range: RANGE,
+        },
         range: RANGE,
     };
     let (union, diagnostics) = resolve(&mut env, &union);
@@ -176,15 +195,11 @@ fn type_form_resolution_keeps_dynamic_separate_from_type_ids() {
     };
     assert_eq!(
         TypeFormResolution::Dynamic,
-        phalcom_semantic::types::annotation::resolve_type_form(
-            &mut env.store,
-            &env.declarations,
-            &env.resolver,
-            &env.module,
-            &dynamic,
-            &mut diagnostics,
-        )
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.module, &dynamic, &mut diagnostics,)
     );
     assert!(diagnostics.is_empty());
-    assert_eq!(KindId::TYPE, env.store.kind_of(env.declarations.form(&DeclarationId::new(env.module, "Int".into())).unwrap()));
+    assert_eq!(
+        KindId::TYPE,
+        env.store.kind_of(env.declarations.form(&DeclarationId::new(env.module, "Int".into())).unwrap())
+    );
 }

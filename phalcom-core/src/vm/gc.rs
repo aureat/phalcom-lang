@@ -103,6 +103,7 @@ impl VM {
             resources: _,
             strict_resources: _,
             numeric_policy: _,
+            typing_registry: _,
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;

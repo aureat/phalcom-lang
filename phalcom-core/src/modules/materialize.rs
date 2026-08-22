@@ -261,8 +261,7 @@ impl VM {
                             None => self.heap.module_mut(target_obj).declare(sym)?,
                         };
                         if symbol_id.module.project.as_builtin().is_some() {
-                            if let Some(key) = phalcom_native_meta::UniverseKey::from_name(&symbol_id.name) {
-                                let class_id = self.universe.classes.resolve(key);
+                            if let Some(class_id) = self.resolve_builtin_class_name(&symbol_id.name) {
                                 self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }
                         }
@@ -298,8 +297,7 @@ impl VM {
                             None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
                         };
                         if symbol.module.project.as_builtin().is_some() {
-                            if let Some(key) = phalcom_native_meta::UniverseKey::from_name(&symbol.name) {
-                                let class_id = self.universe.classes.resolve(key);
+                            if let Some(class_id) = self.resolve_builtin_class_name(&symbol.name) {
                                 self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }
                         }
@@ -337,6 +335,32 @@ impl VM {
             core: core_obj,
             entry: Some(entry_obj),
         });
+
+        // Phase 8: Load immutable semantic metadata pool into typing registry if present.
+        if let Some(ref metadata_bundle) = program.semantic_metadata {
+            let pool = crate::typing::loader::load_metadata_bundle(
+                crate::typing::handle::MetadataPoolId(0),
+                metadata_bundle.clone(),
+                &phalcom_type_meta::validate::ValidationLimits::default(),
+            )?;
+            self.typing_registry.register_pool(pool);
+
+            // Register nominal class bindings for all universe/core classes
+            for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter() {
+                let class_id = self.universe.classes.resolve(binding.key);
+                let decl_ref = phalcom_type_meta::identity::StableDeclarationRef {
+                    module: phalcom_type_meta::identity::StableModuleRef {
+                        project: phalcom_type_meta::identity::StableProjectRef::Builtin {
+                            namespace: "std".into(),
+                            version: "0.1.0".into(),
+                        },
+                        path: Box::new([binding.name.into()]),
+                    },
+                    path: Box::new([binding.name.into()]),
+                };
+                self.typing_registry.register_nominal_binding(decl_ref, class_id);
+            }
+        }
 
         Ok(())
     }

@@ -56,6 +56,14 @@ path = "tests/project_reflection_contract.rs"
 name = "modules_linker"
 path = "tests/modules_linker.rs"
 
+[[test]]
+name = "spec02_invariants"
+path = "tests/spec02_invariants.rs"
+
+[[test]]
+name = "spec03_reflection"
+path = "tests/spec03_reflection.rs"
+
 
 [features]
 default = []
@@ -103,6 +111,7 @@ phalcom-native-macros = { path = "../phalcom-native-macros" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-modules = { path = "../phalcom-modules" }
 phalcom-semantic = { path = "../phalcom-semantic" }
+phalcom-type-meta = { path = "../phalcom-type-meta" }
 linkme = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }

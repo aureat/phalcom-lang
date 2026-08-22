@@ -57,13 +57,7 @@ pub struct ParsedModuleUnit {
 }
 
 impl ParsedModuleUnit {
-    pub fn new(
-        id: ModuleId,
-        kind: ModuleKind,
-        source: Option<SourceLocation>,
-        text: Arc<str>,
-        program: Arc<phalcom_ast::ast::Program>,
-    ) -> Self {
+    pub fn new(id: ModuleId, kind: ModuleKind, source: Option<SourceLocation>, text: Arc<str>, program: Arc<phalcom_ast::ast::Program>) -> Self {
         Self {
             id,
             kind,

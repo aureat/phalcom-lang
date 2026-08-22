@@ -49,6 +49,7 @@ pub(crate) mod selector_pattern;
 mod string;
 mod trace;
 mod tuple;
+pub mod typing;
 mod upvalue;
 
 pub use block::BlockObject;
@@ -74,6 +75,7 @@ pub use selector_pattern::SelectorPatternObject;
 pub use string::StringObject;
 pub use trace::{trace_frame, trace_object};
 pub use tuple::TupleObject;
+pub use typing::{TypingObject, TypingPayload};
 pub use upvalue::Upvalue;
 
 use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
@@ -360,6 +362,7 @@ impl Heap {
             Some(Object::PackageIdentity(_)) => "PackageIdentity",
             Some(Object::ProjectIdentity(_)) => "ProjectIdentity",
             Some(Object::Uri(_)) => "Uri",
+            Some(Object::Typing(_)) => "Typing",
             None => "<stale>",
         }
     }

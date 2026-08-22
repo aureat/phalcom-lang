@@ -2,9 +2,9 @@ use phalcom_ast::parse_source;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::DeclarationId;
 use phalcom_semantic::checker::check_program;
+use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
-use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
@@ -14,9 +14,7 @@ fn setup_test_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, Declara
     let mut resolver = SimpleTypeResolver::new();
     let module = ModuleId::core();
 
-    let declarations = bootstrap_universe_declarations(&mut store, &|k| {
-        DeclarationId::new(module.clone(), k.name().into())
-    });
+    let declarations = bootstrap_universe_declarations(&mut store, &|k| DeclarationId::new(module.clone(), k.name().into()));
 
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let string_decl = DeclarationId::new(module.clone(), "String".into());

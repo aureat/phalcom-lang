@@ -370,6 +370,55 @@ impl ProjectSourceIdentity {
     }
 }
 
+/// Stable key for a project across compiler/toolchain boundaries.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StableProjectKey {
+    pub source: ProjectSourceIdentity,
+}
+
+impl StableProjectKey {
+    pub fn new(source: ProjectSourceIdentity) -> Self {
+        Self { source }
+    }
+
+    pub fn from_source(source: ProjectSourceIdentity) -> Self {
+        Self { source }
+    }
+
+    pub fn from_path(path: impl AsRef<Path>) -> Self {
+        Self {
+            source: ProjectSourceIdentity::from_path(path),
+        }
+    }
+}
+
+/// Stable key for a module across compiler/toolchain boundaries.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StableModuleKey {
+    pub project: StableProjectKey,
+    pub path: ModulePath,
+}
+
+impl StableModuleKey {
+    pub fn new(project: StableProjectKey, path: ModulePath) -> Self {
+        Self { project, path }
+    }
+}
+
+/// Fingerprint of a project's revision.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ProjectRevisionFingerprint(pub [u8; 16]);
+
+impl ProjectRevisionFingerprint {
+    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
 /// Derives the canonical virtual document URI for a builtin module.
 pub fn builtin_module_uri(id: &ModuleId) -> Option<String> {
     match id.project {

@@ -60,6 +60,8 @@ pub struct CompiledProgram {
     pub entry: ModuleId,
     /// Precomputed initialization order.
     pub initialization_order: Vec<ModuleId>,
+    /// Immutable semantic metadata bundle, if retained by build profile.
+    pub semantic_metadata: Option<Arc<phalcom_type_meta::SemanticMetadataBundle>>,
 }
 
 /// Semantic diagnostics grouped by module.
@@ -74,9 +76,9 @@ impl ProgramSemanticDiagnostics {
     }
 
     pub fn has_errors(&self) -> bool {
-        self.by_module.values().any(|v| {
-            v.iter().any(|d| d.severity == phalcom_semantic::DiagnosticSeverity::Error)
-        })
+        self.by_module
+            .values()
+            .any(|v| v.iter().any(|d| d.severity == phalcom_semantic::DiagnosticSeverity::Error))
     }
 
     pub fn for_module(&self, module: &ModuleId) -> &[SemanticDiagnostic] {
@@ -471,11 +473,17 @@ impl ProgramCompiler {
             } else {
                 (None, None)
             };
-            modules.insert(
-                id.clone(),
-                compile_module(id.clone(), linked_module, source, source_text),
-            );
+            modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text));
         }
+
+        let exporter = phalcom_semantic::metadata::MetadataExporter::new(
+            analyzed.semantic.store(),
+            Some(analyzed.semantic.declarations()),
+            None,
+            None,
+            phalcom_type_meta::header::MetadataProfile::RuntimePublic,
+        );
+        let metadata_bundle = exporter.build_bundle(&[]).ok().map(Arc::new);
 
         Ok(CompiledProgram {
             project_universe: analyzed.project_universe.clone(),
@@ -483,6 +491,7 @@ impl ProgramCompiler {
             modules,
             entry: analyzed.entry.clone(),
             initialization_order: analyzed.linked.initialization_order.clone(),
+            semantic_metadata: metadata_bundle,
         })
     }
 

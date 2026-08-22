@@ -341,11 +341,7 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
         Ok(analyzed) => {
             if analyzed.semantic.has_errors() {
                 for (module, diags) in analyzed.semantic.diagnostics.iter() {
-                    let source_text = analyzed
-                        .sources
-                        .get(module)
-                        .map(|u| u.text.clone())
-                        .unwrap_or_else(|| Arc::from(""));
+                    let source_text = analyzed.sources.get(module).map(|u| u.text.clone()).unwrap_or_else(|| Arc::from(""));
                     let path_str = analyzed
                         .sources
                         .get(module)
@@ -354,10 +350,8 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
 
                     if args.format == "json" {
                         for diag in diags.iter() {
-                            let (start_line, start_col) =
-                                byte_offset_to_line_col(&source_text, diag.primary_range.start);
-                            let (end_line, end_col) =
-                                byte_offset_to_line_col(&source_text, diag.primary_range.end);
+                            let (start_line, start_col) = byte_offset_to_line_col(&source_text, diag.primary_range.start);
+                            let (end_line, end_col) = byte_offset_to_line_col(&source_text, diag.primary_range.end);
                             println!(
                                 "{{\"severity\":\"error\",\"code\":{},\"message\":{},\"module\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
                                 json_escape(diag.code.as_str()),
@@ -372,12 +366,7 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
                     } else {
                         for diag in diags.iter() {
                             let range = diag.primary_range.start..diag.primary_range.end;
-                            phalcom_core::diagnostics::print_parse(
-                                &source_text,
-                                path_str.as_deref(),
-                                &format!("{}: {}", diag.code, diag.message),
-                                range,
-                            );
+                            phalcom_core::diagnostics::print_parse(&source_text, path_str.as_deref(), &format!("{}: {}", diag.code, diag.message), range);
                         }
                     }
                 }
@@ -385,84 +374,82 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
             }
             Ok(())
         }
-        Err(err) => {
-            match err {
-                phalcom_core::modules::compile::ProgramCompileError::Semantic(diags) => {
-                    if args.format == "json" {
-                        for (module, module_diags) in diags.iter() {
-                            for diag in module_diags {
-                                println!(
-                                    "{{\"severity\":\"error\",\"code\":{},\"message\":{},\"module\":{}}}",
-                                    json_escape(diag.code.as_str()),
-                                    json_escape(&diag.message),
-                                    json_escape(&module.to_string()),
-                                );
-                            }
-                        }
-                    } else {
-                        for (module, module_diags) in diags.iter() {
-                            for diag in module_diags {
-                                eprintln!("Semantic error in {module} [{}]: {}", diag.code, diag.message);
-                            }
+        Err(err) => match err {
+            phalcom_core::modules::compile::ProgramCompileError::Semantic(diags) => {
+                if args.format == "json" {
+                    for (module, module_diags) in diags.iter() {
+                        for diag in module_diags {
+                            println!(
+                                "{{\"severity\":\"error\",\"code\":{},\"message\":{},\"module\":{}}}",
+                                json_escape(diag.code.as_str()),
+                                json_escape(&diag.message),
+                                json_escape(&module.to_string()),
+                            );
                         }
                     }
-                    std::process::exit(65);
-                }
-                phalcom_core::modules::compile::ProgramCompileError::ModuleLoad(phalcom_modules::ModuleLoadError::Parse { source, error, .. }) => {
-                    let message = error.kind.to_string();
-                    let source_text = fs::read_to_string(&source).unwrap_or_default();
-                    let path_display = source.display().to_string();
-                    if args.format == "json" {
-                        let (start_line, start_col) = byte_offset_to_line_col(&source_text, error.range.start);
-                        let (end_line, end_col) = byte_offset_to_line_col(&source_text, error.range.end);
-                        println!(
-                            "{{\"severity\":\"error\",\"code\":\"SyntaxError\",\"message\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
-                            json_escape(&message),
-                            start_line,
-                            start_col,
-                            end_line,
-                            end_col
-                        );
-                    } else {
-                        phalcom_core::diagnostics::print_parse(&source_text, Some(&path_display), &message, error.range.clone());
+                } else {
+                    for (module, module_diags) in diags.iter() {
+                        for diag in module_diags {
+                            eprintln!("Semantic error in {module} [{}]: {}", diag.code, diag.message);
+                        }
                     }
-                    std::process::exit(65);
                 }
-                phalcom_core::modules::compile::ProgramCompileError::Parse(parse_err) => {
-                    let message = parse_err.kind.to_string();
-                    let source_text = if let Some(ref p) = args.path {
-                        fs::read_to_string(p).unwrap_or_default()
-                    } else {
-                        args.source.clone().unwrap_or_default()
-                    };
-                    let path_display = args
-                        .path
-                        .as_ref()
-                        .and_then(|p| fs::canonicalize(p).ok())
-                        .map(|p| p.display().to_string())
-                        .or_else(|| args.path.as_ref().map(|p| p.display().to_string()));
-                    if args.format == "json" {
-                        let (start_line, start_col) = byte_offset_to_line_col(&source_text, parse_err.range.start);
-                        let (end_line, end_col) = byte_offset_to_line_col(&source_text, parse_err.range.end);
-                        println!(
-                            "{{\"severity\":\"error\",\"code\":\"SyntaxError\",\"message\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
-                            json_escape(&message),
-                            start_line,
-                            start_col,
-                            end_line,
-                            end_col
-                        );
-                    } else {
-                        phalcom_core::diagnostics::print_parse(&source_text, path_display.as_deref(), &message, parse_err.range.clone());
-                    }
-                    std::process::exit(65);
-                }
-                _ => {
-                    eprintln!("Check error: {err}");
-                    std::process::exit(65);
-                }
+                std::process::exit(65);
             }
-        }
+            phalcom_core::modules::compile::ProgramCompileError::ModuleLoad(phalcom_modules::ModuleLoadError::Parse { source, error, .. }) => {
+                let message = error.kind.to_string();
+                let source_text = fs::read_to_string(&source).unwrap_or_default();
+                let path_display = source.display().to_string();
+                if args.format == "json" {
+                    let (start_line, start_col) = byte_offset_to_line_col(&source_text, error.range.start);
+                    let (end_line, end_col) = byte_offset_to_line_col(&source_text, error.range.end);
+                    println!(
+                        "{{\"severity\":\"error\",\"code\":\"SyntaxError\",\"message\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
+                        json_escape(&message),
+                        start_line,
+                        start_col,
+                        end_line,
+                        end_col
+                    );
+                } else {
+                    phalcom_core::diagnostics::print_parse(&source_text, Some(&path_display), &message, error.range.clone());
+                }
+                std::process::exit(65);
+            }
+            phalcom_core::modules::compile::ProgramCompileError::Parse(parse_err) => {
+                let message = parse_err.kind.to_string();
+                let source_text = if let Some(ref p) = args.path {
+                    fs::read_to_string(p).unwrap_or_default()
+                } else {
+                    args.source.clone().unwrap_or_default()
+                };
+                let path_display = args
+                    .path
+                    .as_ref()
+                    .and_then(|p| fs::canonicalize(p).ok())
+                    .map(|p| p.display().to_string())
+                    .or_else(|| args.path.as_ref().map(|p| p.display().to_string()));
+                if args.format == "json" {
+                    let (start_line, start_col) = byte_offset_to_line_col(&source_text, parse_err.range.start);
+                    let (end_line, end_col) = byte_offset_to_line_col(&source_text, parse_err.range.end);
+                    println!(
+                        "{{\"severity\":\"error\",\"code\":\"SyntaxError\",\"message\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
+                        json_escape(&message),
+                        start_line,
+                        start_col,
+                        end_line,
+                        end_col
+                    );
+                } else {
+                    phalcom_core::diagnostics::print_parse(&source_text, path_display.as_deref(), &message, parse_err.range.clone());
+                }
+                std::process::exit(65);
+            }
+            _ => {
+                eprintln!("Check error: {err}");
+                std::process::exit(65);
+            }
+        },
     }
 }
 

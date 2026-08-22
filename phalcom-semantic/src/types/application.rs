@@ -11,9 +11,5 @@ pub enum TypeApplicationError {
     TooManyArguments { supplied: usize, accepted: usize },
 
     #[error("type argument kind mismatch at index {index}")]
-    ArgumentKindMismatch {
-        index: usize,
-        expected: KindId,
-        actual: KindId,
-    },
+    ArgumentKindMismatch { index: usize, expected: KindId, actual: KindId },
 }

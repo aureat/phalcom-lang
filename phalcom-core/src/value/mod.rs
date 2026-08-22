@@ -156,6 +156,7 @@ impl Value {
                 Object::PackageIdentity(_) => vm.universe.classes.package_identity_class,
                 Object::ProjectIdentity(_) => vm.universe.classes.project_identity_class,
                 Object::Uri(_) => vm.universe.classes.uri_class,
+                Object::Typing(t) => t.class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
                 Object::PackBuilder(_) => panic!("pack builders are not surface values"),
                 Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface values"),
@@ -224,6 +225,7 @@ impl Value {
                 | Object::ModuleIdentity(_)
                 | Object::PackageIdentity(_)
                 | Object::ProjectIdentity(_)
+                | Object::Typing(_)
                 | Object::Uri(_) => CallContext::Instance { instance: id },
                 Object::PackBuilder(_) => panic!("pack builders are not surface receivers"),
                 Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface receivers"),

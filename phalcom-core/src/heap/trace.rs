@@ -332,5 +332,16 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
         Object::PackageIdentity(_) => {}
         Object::ProjectIdentity(_) => {}
         Object::Uri(_) => {}
+        Object::Typing(t) => {
+            push(t.class);
+            match &t.payload {
+                super::TypingPayload::Context(_) => {
+                    // Weak cache entries are intentionally NOT traced!
+                }
+                super::TypingPayload::Descriptor { context, .. } => {
+                    push(*context);
+                }
+            }
+        }
     }
 }

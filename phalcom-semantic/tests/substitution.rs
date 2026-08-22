@@ -1,20 +1,14 @@
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
-use phalcom_semantic::dispatch::{
-    CallableParameter, CallableSignature, DispatchLookup, DispatchResult, DispatchSide,
-};
+use phalcom_semantic::dispatch::{CallableParameter, CallableSignature, DispatchLookup, DispatchResult, DispatchSide};
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
 use phalcom_semantic::types::id::KindId;
-use phalcom_semantic::types::parameter::{
-    GenericSignature, TypeParameterData, TypeParameterOwner,
-};
+use phalcom_semantic::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
-use phalcom_semantic::types::store::{
-    CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore,
-};
+use phalcom_semantic::types::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
 use phalcom_semantic::types::substitution::TypeSubstitution;
 use phalcom_semantic::{CheckingContext, SimpleTypeResolver};
 
@@ -31,26 +25,13 @@ fn direct_and_nested_and_composite_substitution() {
     let str_ty = store.nominal_type(decl_str);
 
     let arrow_1 = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-    let arrow_2 = store.arrow_kind(
-        vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(),
-        KindId::TYPE,
-    );
+    let arrow_2 = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
 
     let list_form = store.nominal_form(decl_list, arrow_1);
     let _box_form = store.nominal_form(decl_box.clone(), arrow_2);
 
-    let param_t_id = store.intern_type_parameter(TypeParameterData {
-        owner: TypeParameterOwner::Declaration(decl_box.clone()),
-        index: 0,
-        name: "T".into(),
-        kind: KindId::TYPE,
-    });
-    let param_u_id = store.intern_type_parameter(TypeParameterData {
-        owner: TypeParameterOwner::Declaration(decl_box),
-        index: 1,
-        name: "U".into(),
-        kind: KindId::TYPE,
-    });
+    let param_t_id = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl_box.clone()), 0, "T", KindId::TYPE));
+    let param_u_id = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl_box), 1, "U", KindId::TYPE));
 
     let t_ty = store.parameter_form(param_t_id);
     let u_ty = store.parameter_form(param_u_id);
@@ -73,10 +54,7 @@ fn direct_and_nested_and_composite_substitution() {
     // 4. Tuple (T, String) -> (Int, String)
     let tuple = store.tuple(
         vec![
-            TupleTypeElement {
-                label: None,
-                ty: t_ty,
-            },
+            TupleTypeElement { label: None, ty: t_ty },
             TupleTypeElement {
                 label: Some("name".into()),
                 ty: str_ty,
@@ -87,10 +65,7 @@ fn direct_and_nested_and_composite_substitution() {
     let subst_tuple = subst.apply(&mut store, tuple);
     let expected_tuple = store.tuple(
         vec![
-            TupleTypeElement {
-                label: None,
-                ty: int_ty,
-            },
+            TupleTypeElement { label: None, ty: int_ty },
             TupleTypeElement {
                 label: Some("name".into()),
                 ty: str_ty,
@@ -101,30 +76,12 @@ fn direct_and_nested_and_composite_substitution() {
     assert_eq!(subst_tuple, expected_tuple);
 
     // 5. Record { a: T, b: String } -> { a: Int, b: String }
-    let record = store.record(
-        vec![
-            RecordTypeField {
-                name: "a".into(),
-                ty: t_ty,
-            },
-            RecordTypeField {
-                name: "b".into(),
-                ty: str_ty,
-            },
-        ]
-        .into_boxed_slice(),
-    );
+    let record = store.record(vec![RecordTypeField { name: "a".into(), ty: t_ty }, RecordTypeField { name: "b".into(), ty: str_ty }].into_boxed_slice());
     let subst_record = subst.apply(&mut store, record);
     let expected_record = store.record(
         vec![
-            RecordTypeField {
-                name: "a".into(),
-                ty: int_ty,
-            },
-            RecordTypeField {
-                name: "b".into(),
-                ty: str_ty,
-            },
+            RecordTypeField { name: "a".into(), ty: int_ty },
+            RecordTypeField { name: "b".into(), ty: str_ty },
         ]
         .into_boxed_slice(),
     );
@@ -172,12 +129,7 @@ fn applied_member_views_on_box_int() {
     let box_form = store.nominal_form(decl_box.clone(), arrow_1);
     let box_class_obj = store.class_object_type(decl_box.clone());
 
-    let param_t_id = store.intern_type_parameter(TypeParameterData {
-        owner: TypeParameterOwner::Declaration(decl_box.clone()),
-        index: 0,
-        name: "T".into(),
-        kind: KindId::TYPE,
-    });
+    let param_t_id = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl_box.clone()), 0, "T", KindId::TYPE));
     let t_ty = store.parameter_form(param_t_id);
 
     let mut decls = DeclarationTypeTable::new();
@@ -186,10 +138,11 @@ fn applied_member_views_on_box_int() {
         form: box_form,
         class_object_type: box_class_obj,
         kind: arrow_1,
-        generic_signature: Some(GenericSignature {
-            owner: TypeParameterOwner::Declaration(decl_box.clone()),
-            parameters: vec![param_t_id].into_boxed_slice(),
-        }),
+        generic_signature: Some(GenericSignature::new(
+            TypeParameterOwner::Declaration(decl_box.clone()),
+            vec![param_t_id].into_boxed_slice(),
+        )),
+        supertype_template: None,
     });
     decls.insert(DeclarationTypeInfo {
         declaration: decl_int.clone(),
@@ -197,6 +150,7 @@ fn applied_member_views_on_box_int() {
         class_object_type: store.class_object_type(decl_int),
         kind: KindId::TYPE,
         generic_signature: None,
+        supertype_template: None,
     });
 
     let hierarchy = MapTypeHierarchy::new();
@@ -209,11 +163,7 @@ fn applied_member_views_on_box_int() {
     let get_sel = Selector::getter("get").unwrap();
     surface.add_callable(
         DispatchSide::Instance,
-        CallableSignature::new(
-            get_sel.clone(),
-            Vec::new(),
-            TypeKnowledge::known(t_ty, EvidenceAuthority::Declared),
-        ),
+        CallableSignature::new(get_sel.clone(), Vec::new(), TypeKnowledge::known(t_ty, EvidenceAuthority::Declared)),
     );
     // def put(value: T) -> Unit
     let put_sel = Selector::method("put", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
@@ -221,10 +171,7 @@ fn applied_member_views_on_box_int() {
         DispatchSide::Instance,
         CallableSignature::new(
             put_sel.clone(),
-            vec![CallableParameter::new(
-                "value",
-                TypeKnowledge::known(t_ty, EvidenceAuthority::Declared),
-            )],
+            vec![CallableParameter::new("value", TypeKnowledge::known(t_ty, EvidenceAuthority::Declared))],
             TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Declared),
         ),
     );
@@ -234,21 +181,17 @@ fn applied_member_views_on_box_int() {
 
     // Query get on Box<Int>
     let get_res = ctx.resolve_dispatch(box_int_ty, &get_sel, DispatchLookup::Normal);
-    let DispatchResult::Found(get_sig) = get_res else { panic!("expected found get") };
-    assert_eq!(
-        get_sig.return_type.ty().unwrap(),
-        int_ty,
-        "Box<Int>.get() must return Int"
-    );
+    let DispatchResult::Found(get_sig) = get_res else {
+        panic!("expected found get")
+    };
+    assert_eq!(get_sig.return_type.ty().unwrap(), int_ty, "Box<Int>.get() must return Int");
 
     // Query put on Box<Int>
     let put_res = ctx.resolve_dispatch(box_int_ty, &put_sel, DispatchLookup::Normal);
-    let DispatchResult::Found(put_sig) = put_res else { panic!("expected found put") };
-    assert_eq!(
-        put_sig.parameters[0].ty.ty().unwrap(),
-        int_ty,
-        "Box<Int>.put() must accept Int"
-    );
+    let DispatchResult::Found(put_sig) = put_res else {
+        panic!("expected found put")
+    };
+    assert_eq!(put_sig.parameters[0].ty.ty().unwrap(), int_ty, "Box<Int>.put() must accept Int");
 }
 
 #[test]

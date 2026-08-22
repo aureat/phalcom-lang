@@ -45,10 +45,19 @@ impl ConstraintSet {
     }
 }
 
+/// Detailed evidence tracked for an inference variable.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct InferVarState {
+    pub equal: Option<TypeId>,
+    pub lowers: Vec<TypeId>,
+    pub uppers: Vec<TypeId>,
+}
+
 /// Local constraint solver and substitution map for type inference.
 #[derive(Clone, Debug, Default)]
 pub struct LocalConstraintSolver {
     pub substitutions: HashMap<InferVarId, TypeId>,
+    pub var_states: HashMap<InferVarId, InferVarState>,
     next_var_index: u32,
 }
 
@@ -61,13 +70,37 @@ impl LocalConstraintSolver {
     pub fn fresh_var(&mut self, store: &mut TypeStore) -> (InferVarId, TypeId) {
         let var = InferVarId::from_index(self.next_var_index as usize);
         self.next_var_index += 1;
+        self.var_states.insert(var, InferVarState::default());
         let ty = store.infer(var);
         (var, ty)
     }
 
-    /// Records a substitution binding `var := ty`.
-    pub fn bind(&mut self, var: InferVarId, ty: TypeId) {
+    /// Records a substitution binding `var := ty` with occurs check.
+    pub fn bind(&mut self, var: InferVarId, ty: TypeId, store: &TypeStore) -> bool {
+        if self.occurs_check(var, ty, store) {
+            return false; // Occurs check failure
+        }
         self.substitutions.insert(var, ty);
+        if let Some(state) = self.var_states.get_mut(&var) {
+            state.equal = Some(ty);
+        }
+        true
+    }
+
+    /// Checks if `var` occurs inside composite `ty`.
+    pub fn occurs_check(&self, var: InferVarId, ty: TypeId, store: &TypeStore) -> bool {
+        let resolved = self.resolve(ty, store);
+        match store.get(resolved) {
+            TypeData::Infer(v) => *v == var,
+            TypeData::Applied { origin, arguments } => self.occurs_check(var, *origin, store) || arguments.iter().any(|&a| self.occurs_check(var, a, store)),
+            TypeData::Union(members) => members.iter().any(|&m| self.occurs_check(var, m, store)),
+            TypeData::Tuple(elements) => elements.iter().any(|e| self.occurs_check(var, e.ty, store)),
+            TypeData::Record(fields) => fields.iter().any(|f| self.occurs_check(var, f.ty, store)),
+            TypeData::Callable(callable) => {
+                callable.parameters.iter().any(|p| self.occurs_check(var, p.ty, store)) || self.occurs_check(var, callable.return_type, store)
+            }
+            _ => false,
+        }
     }
 
     /// Resolves an inference variable through the substitution map.
@@ -152,10 +185,14 @@ impl LocalConstraintSolver {
                 TypeConstraint::Subtype(sub, sup) => {
                     let sub_res = self.resolve(*sub, store);
                     let sup_res = self.resolve(*sup, store);
-                    if let TypeData::Infer(var) = store.get(sub_res) {
-                        self.bind(*var, sup_res);
-                    } else if let TypeData::Infer(var) = store.get(sup_res) {
-                        self.bind(*var, sub_res);
+                    if let TypeData::Infer(var) = store.get(sub_res).clone() {
+                        if !self.bind(var, sup_res, store) {
+                            return false;
+                        }
+                    } else if let TypeData::Infer(var) = store.get(sup_res).clone() {
+                        if !self.bind(var, sub_res, store) {
+                            return false;
+                        }
                     } else if !is_subtype(store, hierarchy, sub_res, sup_res) {
                         return false;
                     }
@@ -178,14 +215,8 @@ impl LocalConstraintSolver {
         }
 
         match (store.get(a_res).clone(), store.get(b_res).clone()) {
-            (TypeData::Infer(var), _) => {
-                self.bind(var, b_res);
-                true
-            }
-            (_, TypeData::Infer(var)) => {
-                self.bind(var, a_res);
-                true
-            }
+            (TypeData::Infer(var), _) => self.bind(var, b_res, store),
+            (_, TypeData::Infer(var)) => self.bind(var, a_res, store),
             (TypeData::Applied { origin: o1, arguments: args1 }, TypeData::Applied { origin: o2, arguments: args2 }) => {
                 if o1 != o2 || args1.len() != args2.len() {
                     return false;

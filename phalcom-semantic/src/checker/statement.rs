@@ -16,14 +16,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
         Statement::Let(binding) => {
             let declared_k = binding.annotation.as_ref().map(|ann| {
                 let mut diags = Vec::new();
-                let k = resolve_type_annotation(
-                    ctx.store,
-                    ctx.declarations,
-                    ctx.resolver,
-                    &ctx.current_module,
-                    ann,
-                    &mut diags,
-                );
+                let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
                 ctx.diagnostics.extend(diags);
                 k
             });
@@ -37,12 +30,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             let mut is_assignable = true;
             if let Some(ref decl_k) = declared_k {
                 if binding.value.is_some() {
-                    let assignability = check_assignability(
-                        ctx.store,
-                        ctx.hierarchy,
-                        &val_typed.knowledge,
-                        decl_k,
-                    );
+                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_typed.knowledge, decl_k);
                     if let Assignability::Refuted { .. } = assignability {
                         is_assignable = false;
                         let mut diag = SemanticDiagnostic::error(
@@ -62,15 +50,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             }
 
             let effective_fact = if let Some(decl_k) = declared_k {
-                let denotation = if is_assignable {
-                    val_typed.denotation
-                } else {
-                    None
-                };
-                ValueSemanticFact {
-                    knowledge: decl_k,
-                    denotation,
-                }
+                let denotation = if is_assignable { val_typed.denotation } else { None };
+                ValueSemanticFact { knowledge: decl_k, denotation }
             } else {
                 val_typed.fact()
             };
@@ -90,8 +71,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             };
 
             if let Some(expected) = ctx.expected_return.clone() {
-                let assignability =
-                    check_assignability(ctx.store, ctx.hierarchy, &val_k, &expected);
+                let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, &expected);
                 if let Assignability::Refuted { .. } = assignability {
                     ctx.diagnostics.push(SemanticDiagnostic::error(
                         DiagnosticCode::ReturnMismatch,
@@ -114,9 +94,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             let mut lane_facts = Vec::new();
             for lane in &for_stmt.lanes {
                 synthesize_expr(ctx, &lane.iter);
-                let elem_fact = ValueSemanticFact::new(TypeKnowledge::Dynamic(
-                    crate::types::evidence::DynamicReason::ExplicitEscape,
-                ));
+                let elem_fact = ValueSemanticFact::new(TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape));
                 lane_facts.push((&lane.pattern, elem_fact));
             }
             ctx.push_scope();

@@ -1,9 +1,7 @@
 //! Type parameter substitution for generic declarations and applied member views.
 
 use super::id::{TypeId, TypeParameterId};
-use super::store::{
-    CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore,
-};
+use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use std::collections::HashMap;
 
@@ -50,15 +48,11 @@ impl TypeSubstitution {
             }
             TypeData::Applied { origin, arguments } => {
                 let subst_origin = self.apply(store, origin);
-                let subst_args: Vec<TypeId> =
-                    arguments.iter().map(|&arg| self.apply(store, arg)).collect();
-                store
-                    .apply_type_form(subst_origin, &subst_args)
-                    .unwrap_or(ty)
+                let subst_args: Vec<TypeId> = arguments.iter().map(|&arg| self.apply(store, arg)).collect();
+                store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
             }
             TypeData::Union(members) => {
-                let subst_members: Vec<TypeId> =
-                    members.iter().map(|&m| self.apply(store, m)).collect();
+                let subst_members: Vec<TypeId> = members.iter().map(|&m| self.apply(store, m)).collect();
                 store.union(&subst_members)
             }
             TypeData::Tuple(elements) => {
@@ -97,21 +91,15 @@ impl TypeSubstitution {
                     return_type,
                 })
             }
-            TypeData::Never
-            | TypeData::Unit
-            | TypeData::Nominal { .. }
-            | TypeData::ClassObject { .. }
-            | TypeData::Infer(_) => ty,
+            TypeData::SelfType(_) => ty,
+            TypeData::Lambda(_) => ty,
+            TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } | TypeData::Infer(_) => ty,
         }
     }
 }
 
 /// Builds a substitution from declaration generic signature and applied type arguments.
-pub fn substitution_for_applied(
-    declarations: &DeclarationTypeTable,
-    store: &TypeStore,
-    applied: TypeId,
-) -> Option<TypeSubstitution> {
+pub fn substitution_for_applied(declarations: &DeclarationTypeTable, store: &TypeStore, applied: TypeId) -> Option<TypeSubstitution> {
     let (origin, arguments) = match store.get(applied) {
         TypeData::Applied { origin, arguments } => (*origin, arguments),
         _ => return None,

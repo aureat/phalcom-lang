@@ -1,6 +1,7 @@
 //! Dispatch models, callable signatures, and selector resolution.
 
-use crate::identity::DeclarationId;
+use crate::identity::{CallableId, DeclarationId};
+
 pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
 use crate::types::evidence::TypeKnowledge;
@@ -151,5 +152,24 @@ impl SurfaceDispatchResolver {
             curr = hierarchy.superclass(decl);
         }
         DispatchResult::Missing
+    }
+
+    pub fn resolve_callable_id(
+        &self,
+        hierarchy: &dyn TypeHierarchy,
+        start_decl: &DeclarationId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> Option<CallableId> {
+        let mut curr = Some(start_decl);
+        while let Some(decl) = curr {
+            if let Some(surface) = self.surfaces.get(decl) {
+                if let Some(id) = surface.get_callable_id(side, selector) {
+                    return Some(id.clone());
+                }
+            }
+            curr = hierarchy.superclass(decl);
+        }
+        None
     }
 }

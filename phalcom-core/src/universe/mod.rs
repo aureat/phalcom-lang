@@ -20,6 +20,8 @@ mod core_classes;
 mod invariants;
 mod primitives;
 
+use std::collections::HashMap;
+
 pub use core_classes::CoreClasses;
 
 use crate::heap::{ClassId, Heap, ObjRef};
@@ -30,6 +32,10 @@ use crate::interner::Symbol;
 pub struct Universe {
     /// Handles to every bootstrapped core class and metaclass.
     pub classes: CoreClasses,
+    /// Reflection typing classes kept outside `CoreClasses` so the fixed kernel
+    /// struct stays focused on execution primitives. These rows are still
+    /// pinned universe handles and are resolved by builtin reflection imports.
+    pub typing_classes: TypingClasses,
     /// Override-epoch flag for the `Bool`-receiver sacred selectors
     /// (`and(_)`, `or(_)`, `not`, `ifTrue(_)`, `ifFalse(_)`,
     /// `ifTrue(_)ifFalse(_)`). `true` from bootstrap until any of them is
@@ -104,6 +110,7 @@ impl Universe {
     pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
         let Universe {
             classes,
+            typing_classes,
             bool_sacred_pristine: _,
             block_sacred_pristine: _,
             number_tostring_pristine: _,
@@ -113,12 +120,15 @@ impl Universe {
             str_tostring_pristine: _,
         } = self;
         classes.each_handle(push);
+        typing_classes.each_handle(push);
     }
 
     /// Bootstraps the core class tower into `heap` and returns the [`Universe`].
     pub fn new(heap: &mut Heap) -> Self {
+        let classes = Self::create_core_classes(heap);
         Universe {
-            classes: Self::create_core_classes(heap),
+            typing_classes: TypingClasses::new(heap, &classes),
+            classes,
             bool_sacred_pristine: true,
             block_sacred_pristine: true,
             // Seeded `false`, not `true` — see
@@ -218,6 +228,119 @@ impl Universe {
         self.float_tostring_pristine = true;
         self.symbol_tostring_pristine = true;
         self.str_tostring_pristine = true;
+    }
+}
+
+/// Runtime rows used by `universe.reflection.typing`.
+///
+/// These are ordinary class/metaclass rows, but live in their own catalog so
+/// adding reflective vocabulary does not inflate every `CoreClasses` pattern
+/// match or alter the object-model kernel census.
+#[derive(Debug, Clone, Default)]
+pub struct TypingClasses {
+    rows: HashMap<&'static str, ClassId>,
+}
+
+impl TypingClasses {
+    fn new(heap: &mut Heap, core: &CoreClasses) -> Self {
+        let mut rows = HashMap::new();
+        let mut add = |name: &'static str, superclass: ClassId, native_repr: bool, field_count: u16| {
+            let class = crate::universe::core_classes::make_core_class(heap, name, superclass, core.metaclass_class);
+            let class_row = heap.class_mut(class);
+            class_row.native_repr = native_repr;
+            class_row.field_count = field_count;
+            rows.insert(name, class);
+            class
+        };
+
+        let object = core.object_class;
+        let kind = add("KindDescriptor", object, true, 0);
+        let atomic = add("AtomicKind", kind, true, 0);
+        let _function_kind = add("FunctionKind", kind, true, 0);
+        let _type = add("Type", atomic, true, 0);
+
+        let descriptor = add("TypeDescriptor", object, true, 0);
+        for name in [
+            "AppliedType",
+            "UnionType",
+            "TupleType",
+            "RecordType",
+            "CallableType",
+            "TypeLambda",
+            "SpecialType",
+            "SelfType",
+        ] {
+            add(name, descriptor, true, 0);
+        }
+
+        for name in [
+            "TypeParameter",
+            "GenericSignature",
+            "GenericConstraint",
+            "CallableSignature",
+            "CallableParameter",
+            "FieldSignature",
+            "TypeUse",
+            "TypingContext",
+            "Typing",
+        ] {
+            add(name, object, name == "TypingContext" || name == "Typing", 0);
+        }
+
+        let typing_result = add("TypingResult", object, true, 0);
+        for (name, fields) in [
+            ("TypingKnown", 1),
+            ("TypingUnknown", 1),
+            ("TypingInvalid", 1),
+            ("TypingUnavailable", 1),
+            ("TypingCancelled", 0),
+            ("TypingBudgetExceeded", 1),
+            ("TypingInternalFailure", 1),
+        ] {
+            add(name, typing_result, true, fields);
+        }
+
+        let relation = add("TypeRelationResult", object, true, 0);
+        for (name, fields) in [
+            ("RelationSatisfied", 1),
+            ("RelationRejected", 1),
+            ("RelationDynamicBoundary", 1),
+            ("RelationBlocked", 1),
+            ("RelationCancelled", 0),
+            ("RelationBudgetExceeded", 1),
+            ("RelationInternalFailure", 1),
+        ] {
+            add(name, relation, true, fields);
+        }
+
+        let member = add("MemberLookupResult", object, true, 0);
+        for (name, fields) in [
+            ("MemberFound", 1),
+            ("MemberMissing", 1),
+            ("MemberDynamicBoundary", 1),
+            ("MemberBlocked", 1),
+            ("MemberCancelled", 0),
+            ("MemberBudgetExceeded", 1),
+            ("MemberInternalFailure", 1),
+        ] {
+            add(name, member, true, fields);
+        }
+
+        for name in ["RelationEvidence", "RelationFailure", "DynamicBoundary", "ReflectionCapability"] {
+            add(name, object, false, 0);
+        }
+
+        Self { rows }
+    }
+
+    pub fn get(&self, name: &str) -> Option<ClassId> {
+        self.rows.get(name).copied()
+    }
+
+    pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
+        for &class in self.rows.values() {
+            push(class);
+        }
     }
 }
 

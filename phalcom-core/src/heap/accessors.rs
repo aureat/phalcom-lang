@@ -718,4 +718,32 @@ impl Heap {
             _ => panic!("ObjRef {id:?} is not a UriObject"),
         }
     }
+
+    pub fn as_typing_object(&self, id: ObjRef) -> Option<&crate::heap::TypingObject> {
+        match self.objects.get(id) {
+            Some(Object::Typing(t)) => Some(t),
+            _ => None,
+        }
+    }
+
+    pub fn as_typing_object_mut(&mut self, id: ObjRef) -> Option<&mut crate::heap::TypingObject> {
+        match self.objects.get_mut(id) {
+            Some(Object::Typing(t)) => Some(t),
+            _ => None,
+        }
+    }
+
+    pub fn typing_object(&self, id: ObjRef) -> &crate::heap::TypingObject {
+        match self.get(id) {
+            Object::Typing(t) => t,
+            _ => panic!("ObjRef {id:?} is not a TypingObject"),
+        }
+    }
+
+    pub fn typing_object_mut(&mut self, id: ObjRef) -> &mut crate::heap::TypingObject {
+        match self.get_mut(id) {
+            Object::Typing(t) => t,
+            _ => panic!("ObjRef {id:?} is not a TypingObject"),
+        }
+    }
 }

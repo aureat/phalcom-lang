@@ -9,6 +9,14 @@ use crate::value::Value;
 use super::VM;
 
 impl VM {
+    /// Resolves a canonical builtin class name, including reflection typing
+    /// rows kept outside the fixed `CoreClasses` kernel catalog.
+    pub fn resolve_builtin_class_name(&self, name: &str) -> Option<ClassId> {
+        phalcom_native_meta::UniverseKey::from_name(name)
+            .map(|key| self.universe.classes.resolve(key))
+            .or_else(|| self.universe.typing_classes.get(name))
+    }
+
     /// Interns `name`, returning its [`Symbol`].
     pub fn get_or_intern(&mut self, name: &str) -> Symbol {
         self.interner.intern(name)

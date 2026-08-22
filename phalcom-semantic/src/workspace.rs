@@ -3,9 +3,7 @@
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::{check_class_bodies, register_class_surface};
 use crate::checker::statement::check_statement;
-use crate::declarations::{
-    DeclarationTypeInfo, bootstrap_universe_declarations,
-};
+use crate::declarations::{DeclarationTypeInfo, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId};
@@ -18,9 +16,7 @@ use crate::types::native::register_standard_surfaces;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::{Program, Statement};
-use phalcom_modules::declaration::{
-    DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable,
-};
+use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
 use phalcom_modules::graph::{SemanticEdge, SemanticEdgeKind, SemanticNodeId};
 use phalcom_modules::interface::InterfaceBuilder;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram};
@@ -49,9 +45,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     // Phase A: Universe Bootstrap
     // -------------------------------------------------------------------------
     let mut store = TypeStore::new();
-    let mut declarations = bootstrap_universe_declarations(&mut store, &|key| {
-        DeclarationId::new(ModuleId::core(), key.name().into())
-    });
+    let mut declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::core(), key.name().into()));
 
     let mut hierarchy = MapTypeHierarchy::new();
     for (sub_name, super_name) in [
@@ -107,6 +101,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                         class_object_type: class_obj_type,
                         kind: KindId::TYPE,
                         generic_signature: None,
+                        supertype_template: None,
                     });
                 }
             }
@@ -117,16 +112,9 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     // -------------------------------------------------------------------------
     // Phase C: Construct LinkedTypeResolver
     // -------------------------------------------------------------------------
-    let known_declarations: HashSet<DeclarationId> = declarations
-        .iter()
-        .map(|(decl_id, _)| decl_id.clone())
-        .collect();
+    let known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
 
-    let resolver = LinkedTypeResolver::new(
-        input.linked.clone(),
-        known_declarations,
-        ModuleId::core(),
-    );
+    let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations, ModuleId::core());
 
     // -------------------------------------------------------------------------
     // Phase D: Enrich Semantic Graph
@@ -142,11 +130,8 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                 };
 
                 if let Some(ref super_ref) = class_def.superclass {
-                    let members: Vec<String> =
-                        super_ref.members.iter().map(|m| m.name.clone()).collect();
-                    if let Some(target_decl) =
-                        resolver.resolve_type_name(module_id, &super_ref.root, &members)
-                    {
+                    let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
+                    if let Some(target_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
                         let to_node = SemanticNodeId::Declaration {
                             module: target_decl.module,
                             name: target_decl.name,
@@ -176,14 +161,11 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                         SemanticNodeId::Module(m) => m.clone(),
                         SemanticNodeId::Declaration { module, .. } => module.clone(),
                     };
-                    diags_by_module
-                        .entry(mod_id)
-                        .or_default()
-                        .push(SemanticDiagnostic::error(
-                            DiagnosticCode::AnnotationUnresolved,
-                            format!("A class cannot extend itself: inheritance cycle detected: {cycle:?}"),
-                            phalcom_common::range::SourceRange::default(),
-                        ));
+                    diags_by_module.entry(mod_id).or_default().push(SemanticDiagnostic::error(
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!("A class cannot extend itself: inheritance cycle detected: {cycle:?}"),
+                        phalcom_common::range::SourceRange::default(),
+                    ));
                 }
             }
             DeclarationRealizationError::MissingShell(node) => {
@@ -191,14 +173,11 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                     SemanticNodeId::Module(m) => m.clone(),
                     SemanticNodeId::Declaration { module, .. } => module.clone(),
                 };
-                diags_by_module
-                    .entry(mod_id)
-                    .or_default()
-                    .push(SemanticDiagnostic::error(
-                        DiagnosticCode::AnnotationUnresolved,
-                        format!("missing declaration shell for {node:?}"),
-                        phalcom_common::range::SourceRange::default(),
-                    ));
+                diags_by_module.entry(mod_id).or_default().push(SemanticDiagnostic::error(
+                    DiagnosticCode::AnnotationUnresolved,
+                    format!("missing declaration shell for {node:?}"),
+                    phalcom_common::range::SourceRange::default(),
+                ));
             }
         }
     }
@@ -209,24 +188,17 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     for (module_id, parsed_unit) in &input.sources {
         for stmt in &parsed_unit.program.statements {
             if let Statement::Class(class_def) = stmt {
-                let class_decl =
-                    DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let class_decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
                 if let Some(ref super_ref) = class_def.superclass {
-                    let members: Vec<String> =
-                        super_ref.members.iter().map(|m| m.name.clone()).collect();
-                    if let Some(super_decl) =
-                        resolver.resolve_type_name(module_id, &super_ref.root, &members)
-                    {
+                    let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
+                    if let Some(super_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
                         hierarchy.insert(class_decl, super_decl);
                     } else {
-                        diags_by_module
-                            .entry(module_id.clone())
-                            .or_default()
-                            .push(SemanticDiagnostic::error(
-                                DiagnosticCode::AnnotationUnresolved,
-                                format!("unresolved superclass `{}`", super_ref.root),
-                                super_ref.range,
-                            ));
+                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error(
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("unresolved superclass `{}`", super_ref.root),
+                            super_ref.range,
+                        ));
                     }
                 } else {
                     let obj_decl = DeclarationId::new(ModuleId::core(), "Object".into());
@@ -242,22 +214,10 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     // Phase G: Collect Declaration Surfaces Before Bodies
     // -------------------------------------------------------------------------
     let mut dispatch = SurfaceDispatchResolver::new();
-    register_standard_surfaces(
-        &mut store,
-        &declarations,
-        &resolver,
-        &ModuleId::core(),
-        &mut dispatch,
-    );
+    register_standard_surfaces(&mut store, &declarations, &resolver, &ModuleId::core(), &mut dispatch);
 
     for (module_id, parsed_unit) in &input.sources {
-        let mut dummy_ctx = CheckingContext::new(
-            &mut store,
-            &hierarchy,
-            &resolver,
-            &declarations,
-            module_id.clone(),
-        );
+        let mut dummy_ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module_id.clone());
 
         for stmt in &parsed_unit.program.statements {
             if let Statement::Class(class_def) = stmt {
@@ -277,13 +237,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     // Phase H: Check Bodies
     // -------------------------------------------------------------------------
     for (module_id, parsed_unit) in &input.sources {
-        let mut ctx = CheckingContext::new(
-            &mut store,
-            &hierarchy,
-            &resolver,
-            &declarations,
-            module_id.clone(),
-        );
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module_id.clone());
         ctx.dispatch = dispatch.clone();
 
         for stmt in &parsed_unit.program.statements {
@@ -298,10 +252,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
         }
 
         if !ctx.diagnostics.is_empty() {
-            diags_by_module
-                .entry(module_id.clone())
-                .or_default()
-                .extend(ctx.diagnostics);
+            diags_by_module.entry(module_id.clone()).or_default().extend(ctx.diagnostics);
         }
     }
 
@@ -313,27 +264,23 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
         diagnostics_map.insert(module_id, Arc::from(diags.into_boxed_slice()));
     }
 
-    let snapshot = Arc::new(SemanticSnapshot {
-        generation: input.generation,
-        store: Arc::new(store),
-        sources: Arc::new(input.sources),
-        surfaces: Arc::new(dispatch.surfaces().clone()),
-        dispatch: Arc::new(dispatch),
-        declarations: Arc::new(declarations),
-        hierarchy: Arc::new(hierarchy),
-        diagnostics: Arc::new(diagnostics_map),
-        semantic_graph: Arc::new(semantic_graph),
-    });
+    let snapshot = Arc::new(SemanticSnapshot::new(
+        input.generation,
+        Arc::new(store),
+        Arc::new(input.sources),
+        Arc::new(dispatch.surfaces().clone()),
+        Arc::new(dispatch),
+        Arc::new(declarations),
+        Arc::new(hierarchy),
+        Arc::new(diagnostics_map),
+        Arc::new(semantic_graph),
+    ));
 
     SemanticAnalysis { snapshot }
 }
 
 /// Convenience helper to analyze a single module as a standalone workspace.
-pub fn analyze_single_module(
-    module: ModuleId,
-    source: Arc<str>,
-    program: Arc<Program>,
-) -> SemanticAnalysis {
+pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Program>) -> SemanticAnalysis {
     let _ = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program);
     let linked_mod = LinkedModule {
         interface: phalcom_modules::interface::LinkedModuleInterface {
@@ -361,13 +308,7 @@ pub fn analyze_single_module(
     let mut sources = BTreeMap::new();
     sources.insert(
         module.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            module,
-            ModuleKind::Module,
-            None,
-            source,
-            program,
-        )),
+        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, source, program)),
     );
 
     analyze_workspace(SemanticWorkspaceInput {

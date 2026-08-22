@@ -17,6 +17,7 @@ fn register_nominal_declaration(store: &mut TypeStore, declarations: &mut Declar
         class_object_type,
         kind: KindId::TYPE,
         generic_signature: None,
+        supertype_template: None,
     });
 }
 

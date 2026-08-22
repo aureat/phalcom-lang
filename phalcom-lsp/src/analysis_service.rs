@@ -1118,7 +1118,9 @@ fn run_static_workspace_analysis(
 
     sources.retain(|module, _| modules.contains_key(module));
     let entry = modules.keys().next()?.clone();
-    let initialization_order = graphs.runtime.initialization_order().unwrap_or_else(|_| modules.keys().cloned().collect());
+    let Ok(initialization_order) = graphs.runtime.initialization_order() else {
+        return None;
+    };
     let linked = phalcom_modules::LinkedProgram {
         universe,
         modules,

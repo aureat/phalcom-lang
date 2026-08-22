@@ -12,10 +12,7 @@ fn test_decl(name: &str) -> DeclarationId {
 #[test]
 fn kind_application_returns_residual_arrow_kind() {
     let mut store = TypeStore::new();
-    let map_kind = store.arrow_kind(
-        vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(),
-        KindId::TYPE,
-    );
+    let map_kind = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
 
     let residual = store.apply_kind(map_kind, &[KindId::TYPE]).unwrap();
 
@@ -35,10 +32,7 @@ fn nested_type_application_canonicalizes() {
     let string_decl = test_decl("String");
     let int_decl = test_decl("Int");
 
-    let map_kind = store.arrow_kind(
-        vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(),
-        KindId::TYPE,
-    );
+    let map_kind = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
     let map = store.nominal_form(map_decl, map_kind);
     let string = store.nominal_type(string_decl);
     let int = store.nominal_type(int_decl);
@@ -58,10 +52,7 @@ fn wrong_kind_parameter_fails() {
     let map_decl = test_decl("Map");
 
     let list_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-    let map_kind = store.arrow_kind(
-        vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(),
-        KindId::TYPE,
-    );
+    let map_kind = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
 
     let list = store.nominal_form(list_decl, list_kind);
     let map = store.nominal_form(map_decl, map_kind);
@@ -88,13 +79,7 @@ fn too_many_arguments_fails() {
     let int = store.nominal_type(int_decl);
 
     let err = store.apply_type_form(list, &[int, int]).unwrap_err();
-    assert_eq!(
-        err,
-        TypeApplicationError::TooManyArguments {
-            supplied: 2,
-            accepted: 1,
-        }
-    );
+    assert_eq!(err, TypeApplicationError::TooManyArguments { supplied: 2, accepted: 1 });
 }
 
 #[test]

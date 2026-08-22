@@ -207,6 +207,8 @@ pub struct VM {
     // `MAX_NATIVE_REENTRY` below.
     /// Registered runtime modules keyed by semantic identity.
     pub module_registry: crate::modules::ModuleRegistry,
+    /// Runtime typing registry for loaded metadata pools and descriptors.
+    pub typing_registry: crate::typing::RuntimeTypingRegistry,
     /// Direct runtime roots for core and entry modules.
     pub runtime_roots: Option<RuntimeRoots>,
     /// Canonical semantic values, initialized after universe bootstrap.

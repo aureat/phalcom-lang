@@ -139,10 +139,7 @@ fn reassignment_replaces_or_clears_denotation() {
     check_statement(&mut ctx, &p1.statements[0]);
 
     let int_form = declarations.form(&int_decl).unwrap();
-    assert_eq!(
-        ctx.lookup_local("t").unwrap().denotation,
-        Some(SemanticDenotation::TypeForm(int_form))
-    );
+    assert_eq!(ctx.lookup_local("t").unwrap().denotation, Some(SemanticDenotation::TypeForm(int_form)));
 
     // t = String
     let p2 = parse_source("t = String", 0).unwrap();
@@ -153,10 +150,7 @@ fn reassignment_replaces_or_clears_denotation() {
     synthesize_typed_expr(&mut ctx, expr2);
 
     let string_form = declarations.form(&string_decl).unwrap();
-    assert_eq!(
-        ctx.lookup_local("t").unwrap().denotation,
-        Some(SemanticDenotation::TypeForm(string_form))
-    );
+    assert_eq!(ctx.lookup_local("t").unwrap().denotation, Some(SemanticDenotation::TypeForm(string_form)));
 
     // t = 42 (clears denotation)
     let p3 = parse_source("t = 42", 0).unwrap();
@@ -198,19 +192,13 @@ fn flow_join_preserves_only_identical_denotation() {
         declarations.class_object_type(&string_decl).unwrap(),
         phalcom_semantic::types::evidence::EvidenceAuthority::Declared,
     ))
-    .with_denotation(SemanticDenotation::TypeForm(
-        declarations.form(&string_decl).unwrap(),
-    ));
+    .with_denotation(SemanticDenotation::TypeForm(declarations.form(&string_decl).unwrap()));
 
     // Joining identical denotation preserves it
     let merged_same = ValueSemanticFact::merge(&fact_int1, &fact_int2, fact_int1.knowledge.clone());
-    assert_eq!(
-        merged_same.denotation,
-        Some(SemanticDenotation::TypeForm(int_form))
-    );
+    assert_eq!(merged_same.denotation, Some(SemanticDenotation::TypeForm(int_form)));
 
     // Joining different denotations clears it
-    let merged_diff =
-        ValueSemanticFact::merge(&fact_int1, &fact_string, fact_int1.knowledge.clone());
+    let merged_diff = ValueSemanticFact::merge(&fact_int1, &fact_string, fact_int1.knowledge.clone());
     assert_eq!(merged_diff.denotation, None);
 }

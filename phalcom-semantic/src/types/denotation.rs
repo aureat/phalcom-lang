@@ -17,10 +17,7 @@ pub struct ValueSemanticFact {
 
 impl ValueSemanticFact {
     pub fn new(knowledge: TypeKnowledge) -> Self {
-        Self {
-            knowledge,
-            denotation: None,
-        }
+        Self { knowledge, denotation: None }
     }
 
     pub fn with_denotation(mut self, denotation: SemanticDenotation) -> Self {

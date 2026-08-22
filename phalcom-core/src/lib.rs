@@ -21,6 +21,7 @@ pub mod parameters;
 pub mod primitive;
 pub(crate) mod product;
 pub mod resource;
+pub mod typing;
 pub mod universe;
 pub mod value;
 pub mod vm;
