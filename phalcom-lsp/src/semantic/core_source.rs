@@ -7,7 +7,7 @@
 
 use phalcom_ast::ast::Program;
 use phalcom_ast::parser::Parse;
-use phalcom_native_surface::{NATIVE_CLASSES, NATIVE_MEMBERS, NativeDispatch, NativeMemberKind, NativeVisibility};
+use phalcom_native_surface::NATIVE_CLASSES;
 
 use super::ids::{CORE_MODULE_URI, ClassId, DispatchSide, ModuleId};
 use super::surface::{ClassSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, build_module_surface};
@@ -109,8 +109,11 @@ pub fn bundled_parse() -> Parse {
 
 /// Builds the core surface from source and the canonical native declarations.
 pub fn build_core_surface(program: &Program) -> ModuleSurface {
+    use phalcom_native_surface::{NATIVE_MEMBERS, NATIVE_SURFACES, NativeDispatch, NativeMemberKind, NativeVisibility};
     let module = ModuleId::new(CORE_MODULE_URI);
     let mut source = build_module_surface(module.clone(), program);
+
+    // 1. Ensure bootstrapped class entries exist from NATIVE_CLASSES
     for native_class in NATIVE_CLASSES {
         let class_id = ClassId::new(module.clone(), native_class.name);
         source.classes.entry(class_id.clone()).or_insert_with(|| ClassSurface {
@@ -123,6 +126,64 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             name_range: Default::default(),
         });
     }
+
+    // 2. Ingest rich native members from the generated canonical surface catalog (NATIVE_SURFACES).
+    //    These records carry complete type/effect/doc metadata and are the preferred source.
+    //    As #[primitive] annotations migrate to use rich specs, this set grows and NATIVE_MEMBERS shrinks.
+    for native in NATIVE_SURFACES {
+        let owner_name = native.owner().name();
+        let class_id = ClassId::new(module.clone(), owner_name);
+        let Some(class) = source.classes.get_mut(&class_id) else {
+            continue;
+        };
+        let side = match native.side() {
+            NativeDispatch::Instance => DispatchSide::Instance,
+            NativeDispatch::Class => DispatchSide::Class,
+        };
+        if class.member(native.selector(), side).is_some() {
+            // Source declaration wins; native surface is skipped.
+            continue;
+        }
+        let callable = super::ids::CallableId {
+            owner: class_id.clone(),
+            selector: native.selector().to_string(),
+            side,
+        };
+        let selector_struct = phalcom_common::selector::Selector::decode(native.selector());
+        let rest = super::surface::rest_surface_from_selector_str(native.selector());
+        let member = MemberSurface {
+            callable,
+            selector: selector_struct,
+            rest,
+            kind: match native.kind {
+                NativeMemberKind::Method => MemberKind::Method,
+                NativeMemberKind::Getter => MemberKind::Getter,
+                NativeMemberKind::Setter => MemberKind::Setter,
+            },
+            visibility: match native.visibility() {
+                NativeVisibility::Public => MemberVisibility::Public,
+                NativeVisibility::Internal => MemberVisibility::Internal,
+            },
+            side,
+            is_constructor: native.selector().starts_with("new(") && native.side() == NativeDispatch::Class,
+            native_return: Some(native.return_shape),
+            source_range: Default::default(),
+            name_range: Default::default(),
+            params: Vec::new(),
+            // No AST sentinel: origin explicitly tracks that this is native.
+            ast: super::surface::MemberAstRef::INVALID,
+            origin: super::surface::MemberOrigin::Native,
+        };
+        let members = class.members.entry(native.selector().to_string()).or_default();
+        match member.side {
+            DispatchSide::Instance => members.instance = Some(member),
+            DispatchSide::Class => members.class = Some(member),
+        }
+    }
+
+    // 3. Augment with legacy NATIVE_MEMBERS for any member not yet migrated to NATIVE_SURFACES.
+    //    This preserves full coverage during the migration period. Once all primitives carry
+    //    rich #[primitive] metadata, this block can be removed.
     for native in NATIVE_MEMBERS {
         let class_id = ClassId::new(module.clone(), native.class);
         let Some(class) = source.classes.get_mut(&class_id) else {
@@ -133,6 +194,7 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             NativeDispatch::Class => DispatchSide::Class,
         };
         if class.member(native.selector, side).is_some() {
+            // Already registered from NATIVE_SURFACES or source; skip.
             continue;
         }
         let callable = super::ids::CallableId {
@@ -161,10 +223,7 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             source_range: Default::default(),
             name_range: Default::default(),
             params: Vec::new(),
-            ast: super::surface::MemberAstRef {
-                class_stmt_idx: usize::MAX,
-                member_idx: usize::MAX,
-            },
+            ast: super::surface::MemberAstRef::INVALID,
             origin: super::surface::MemberOrigin::Native,
         };
         let members = class.members.entry(native.selector.to_string()).or_default();

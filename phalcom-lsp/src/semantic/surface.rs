@@ -310,6 +310,20 @@ pub struct MemberAstRef {
     pub member_idx: usize,
 }
 
+impl MemberAstRef {
+    /// Sentinel for native/generated members that have no source AST location.
+    /// Callers must check `MemberOrigin` before dereferencing this value.
+    pub const INVALID: Self = Self {
+        class_stmt_idx: usize::MAX,
+        member_idx: usize::MAX,
+    };
+
+    /// Returns true if this ref is the INVALID sentinel (no source AST).
+    pub const fn is_invalid(self) -> bool {
+        self.class_stmt_idx == usize::MAX && self.member_idx == usize::MAX
+    }
+}
+
 /// Source-level member category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MemberKind {

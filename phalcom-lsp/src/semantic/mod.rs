@@ -517,15 +517,19 @@ mod tests {
         let parse = parse("class String { liveEditorMember() { } }", 0);
         db.update_core(FileRevision(2), &parse.program);
         let string = ClassId::new(ModuleId::new(CORE_MODULE_URI), "String");
+        // The source-declared member must be visible after replacement.
         assert!(
             db.completion_members(&string, DispatchSide::Instance)
                 .iter()
                 .any(|member| member.selector == "liveEditorMember()")
         );
+        // A selector that no native surface record or source ever declares must remain absent.
+        // (Previously checked `size` was absent, but String#size is now a canonical native
+        // primitive in NATIVE_SURFACES and will always be present.)
         assert!(
             !db.completion_members(&string, DispatchSide::Instance)
                 .iter()
-                .any(|member| member.selector == "size")
+                .any(|member| member.selector == "__neverDeclaredMethod__()")
         );
     }
 
