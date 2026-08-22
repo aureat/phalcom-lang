@@ -22,6 +22,7 @@ Program {
                         end: 5,
                     },
                 },
+                annotation: None,
                 value: Some(
                     Symbol(
                         SymbolExpr {

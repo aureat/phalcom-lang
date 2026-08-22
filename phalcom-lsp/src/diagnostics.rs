@@ -27,14 +27,57 @@ pub fn syntax_error_to_diagnostic(error: &SyntaxError, index: &LineIndex) -> Dia
     }
 }
 
-/// Converts every [`SyntaxError`] in `errors` into LSP [`Diagnostic`]s, in
-/// discovery order, via [`syntax_error_to_diagnostic`].
-///
-/// An empty input yields an empty output — the caller is expected to
-/// `publish_diagnostics` with this list unconditionally (an empty list
-/// clears previously published diagnostics for a now-clean document).
+/// Converts every [`SyntaxError`] in `errors` into LSP [`Diagnostic`]s.
 pub fn syntax_errors_to_diagnostics(errors: &[SyntaxError], index: &LineIndex) -> Vec<Diagnostic> {
     errors.iter().map(|e| syntax_error_to_diagnostic(e, index)).collect()
+}
+
+/// Converts a [`phalcom_semantic::SemanticDiagnostic`] into an LSP [`Diagnostic`].
+pub fn semantic_diagnostic_to_lsp_diagnostic(
+    diag: &phalcom_semantic::SemanticDiagnostic,
+    index: &LineIndex,
+) -> Diagnostic {
+    use phalcom_semantic::DiagnosticSeverity as SemSeverity;
+    let severity = match diag.severity {
+        SemSeverity::Error => DiagnosticSeverity::ERROR,
+        SemSeverity::Warning => DiagnosticSeverity::WARNING,
+        SemSeverity::Information => DiagnosticSeverity::INFORMATION,
+        SemSeverity::Hint => DiagnosticSeverity::HINT,
+    };
+    let related_information = if !diag.labels.is_empty() {
+        Some(
+            diag.labels
+                .iter()
+                .map(|label| tower_lsp::lsp_types::DiagnosticRelatedInformation {
+                    location: tower_lsp::lsp_types::Location {
+                        uri: tower_lsp::lsp_types::Url::parse("file:///").unwrap(),
+                        range: index.range(label.range.start..label.range.end),
+                    },
+                    message: label.message.clone(),
+                })
+                .collect(),
+        )
+    } else {
+        None
+    };
+
+    Diagnostic {
+        range: index.range(diag.primary_range.start..diag.primary_range.end),
+        severity: Some(severity),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(diag.code.as_str().to_string())),
+        source: Some("phalcom-typecheck".to_string()),
+        message: diag.message.clone(),
+        related_information,
+        ..Diagnostic::default()
+    }
+}
+
+/// Converts every [`SemanticDiagnostic`] into LSP [`Diagnostic`]s.
+pub fn semantic_diagnostics_to_lsp_diagnostics(
+    diags: &[phalcom_semantic::SemanticDiagnostic],
+    index: &LineIndex,
+) -> Vec<Diagnostic> {
+    diags.iter().map(|d| semantic_diagnostic_to_lsp_diagnostic(d, index)).collect()
 }
 
 #[cfg(test)]

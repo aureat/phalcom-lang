@@ -107,7 +107,7 @@ pub enum ImportRoot {
     Relative { dots: u16, range: SourceRange },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PathSegment {
     pub name: String,
     pub range: SourceRange,
@@ -373,7 +373,7 @@ pub struct Attribute {
 /// (`base.Shape`). Linkers decide whether the root is a valid module alias and
 /// whether the final exported declaration exists; this node never denotes an
 /// arbitrary runtime member send.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticSymbolRef {
     /// Root identifier as written in source.
     pub root: String,
@@ -401,6 +401,56 @@ impl StaticSymbolRef {
     }
 }
 
+/// Explicit source-level type annotation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeAnnotation {
+    pub expr: TypeAnnotationExpr,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeAnnotationExpr {
+    /// Nominal / static symbol reference (e.g. `Int` or `geometry.Point`).
+    Reference(StaticSymbolRef),
+    /// Generic type application (e.g. `List<Int>`).
+    Application {
+        origin: Box<TypeAnnotation>,
+        arguments: Vec<TypeAnnotation>,
+        range: SourceRange,
+    },
+    /// Union type (e.g. `Int | String`).
+    Union {
+        members: Vec<TypeAnnotation>,
+        range: SourceRange,
+    },
+    /// Tuple type (e.g. `(Int, String)`).
+    Tuple {
+        elements: Vec<TypeTupleElement>,
+        range: SourceRange,
+    },
+    /// Callable / block signature (e.g. `(Int) -> String`).
+    Callable {
+        parameters: Vec<TypeCallableParameter>,
+        result: Box<TypeAnnotation>,
+        range: SourceRange,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeTupleElement {
+    pub label: Option<String>,
+    pub ty: TypeAnnotation,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeCallableParameter {
+    pub label: Option<String>,
+    pub ty: TypeAnnotation,
+    pub rest: bool,
+    pub range: SourceRange,
+}
+
 #[derive(Debug, Clone)]
 pub enum ClassMember {
     Method(MethodDef),
@@ -420,6 +470,70 @@ pub enum ClassMember {
     /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md).
     /// See [`IndexMethodDef`].
     Index(IndexMethodDef),
+}
+
+impl ClassMember {
+    pub fn is_static(&self) -> bool {
+        match self {
+            ClassMember::Method(m) => m.is_static,
+            ClassMember::Getter(g) => g.is_static,
+            ClassMember::Setter(s) => s.is_static,
+            ClassMember::Index(_) => false,
+            ClassMember::Variant(_) => false,
+            ClassMember::Field(f) => f.is_static,
+        }
+    }
+
+    pub fn is_constructor(&self) -> bool {
+        match self {
+            ClassMember::Method(m) => m.is_constructor,
+            _ => false,
+        }
+    }
+
+    pub fn attributes(&self) -> &[Attribute] {
+        match self {
+            ClassMember::Method(m) => &m.attributes,
+            ClassMember::Getter(g) => &g.attributes,
+            ClassMember::Setter(s) => &s.attributes,
+            ClassMember::Index(i) => &i.attributes,
+            ClassMember::Variant(v) => &v.attributes,
+            ClassMember::Field(f) => &f.attributes,
+        }
+    }
+
+    pub fn attributes_mut(&mut self) -> &mut Vec<Attribute> {
+        match self {
+            ClassMember::Method(m) => &mut m.attributes,
+            ClassMember::Getter(g) => &mut g.attributes,
+            ClassMember::Setter(s) => &mut s.attributes,
+            ClassMember::Index(i) => &mut i.attributes,
+            ClassMember::Variant(v) => &mut v.attributes,
+            ClassMember::Field(f) => &mut f.attributes,
+        }
+    }
+
+    pub fn range(&self) -> SourceRange {
+        match self {
+            ClassMember::Method(m) => m.range,
+            ClassMember::Getter(g) => g.range,
+            ClassMember::Setter(s) => s.range,
+            ClassMember::Index(i) => i.range,
+            ClassMember::Variant(v) => v.range,
+            ClassMember::Field(f) => f.range,
+        }
+    }
+
+    pub fn name_range(&self) -> SourceRange {
+        match self {
+            ClassMember::Method(m) => m.name_range,
+            ClassMember::Getter(g) => g.name_range,
+            ClassMember::Setter(s) => s.name_range,
+            ClassMember::Index(i) => i.name_range,
+            ClassMember::Variant(v) => v.name_range,
+            ClassMember::Field(f) => f.name_range,
+        }
+    }
 }
 
 /// A bracket-delimited subscript method definition — `[_ idx] { ... }` /
@@ -445,6 +559,7 @@ pub struct IndexMethodDef {
     /// Indexing arguments only. The assignment value is not included here.
     pub params: Vec<ParameterDef>,
     pub accessor: IndexAccessor,
+    pub return_annotation: Option<TypeAnnotation>,
     /// The method body.
     pub body: Vec<Statement>,
     /// `@name(args…)` attributes attached to this member, in declaration
@@ -523,6 +638,8 @@ pub struct FieldDef {
     pub mutable: bool,
     /// Whether field storage belongs to declaring class object (`@class`).
     pub is_static: bool,
+    /// Explicit type annotation, if provided.
+    pub annotation: Option<TypeAnnotation>,
     /// The field's default-value expression (`= expr`), or `None` if the
     /// field was declared with no initializer. A layout-derive attribute
     /// (e.g. `@construct`) that omits a defaulted field from its generated
@@ -560,6 +677,8 @@ pub struct ParameterDef {
     /// Parsed rest lane. The compiler normalizes this into runtime rest
     /// metadata without adding a second parser-side representation.
     pub rest_mode: RestMode,
+    /// Explicit type annotation, if provided.
+    pub annotation: Option<TypeAnnotation>,
     /// The parameter's source span.
     pub range: SourceRange,
 }
@@ -591,6 +710,7 @@ pub enum RestMode {
 pub struct MethodDef {
     pub name: String,
     pub params: Vec<ParameterDef>,
+    pub return_annotation: Option<TypeAnnotation>,
     pub body: Vec<Statement>,
     pub is_static: bool,
     /// Marks a source constructor before compiler lowering splits it into a
@@ -612,6 +732,7 @@ pub struct MethodDef {
 #[derive(Debug, Clone)]
 pub struct GetterDef {
     pub name: String,
+    pub return_annotation: Option<TypeAnnotation>,
     pub body: Vec<Statement>,
     pub is_static: bool,
     /// `@name(args…)` attributes attached to this getter, in declaration
@@ -629,6 +750,7 @@ pub struct GetterDef {
 pub struct SetterDef {
     pub name: String,
     pub param: ParameterDef,
+    pub return_annotation: Option<TypeAnnotation>,
     pub body: Vec<Statement>,
     pub is_static: bool,
     /// `@name(args…)` attributes attached to this setter, in declaration
@@ -677,6 +799,8 @@ pub struct LetBinding {
     pub kind: BindingKind,
     /// The bound name or destructuring pattern.
     pub pattern: Pattern,
+    /// Explicit type annotation attached to the binding pattern.
+    pub annotation: Option<TypeAnnotation>,
     /// The initializer expression, or `None` if the binding has no `= expr`.
     pub value: Option<Expr>,
     /// The source span covering the whole binding statement.

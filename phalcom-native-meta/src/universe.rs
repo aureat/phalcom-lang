@@ -50,6 +50,7 @@ pub enum UniverseKey {
     Project,
     System,
     Message,
+    Attribute,
 
     Error,
     MessageNotUnderstood,
@@ -117,6 +118,7 @@ impl UniverseKey {
             Self::Project => "Project",
             Self::System => "System",
             Self::Message => "Message",
+            Self::Attribute => "Attribute",
             Self::Error => "Error",
             Self::MessageNotUnderstood => "MessageNotUnderstood",
             Self::CannotYieldAcrossNativeFrame => "CannotYieldAcrossNativeFrame",
@@ -181,6 +183,7 @@ impl UniverseKey {
             "Project" => Some(Self::Project),
             "System" => Some(Self::System),
             "Message" => Some(Self::Message),
+            "Attribute" => Some(Self::Attribute),
             "Error" => Some(Self::Error),
             "MessageNotUnderstood" => Some(Self::MessageNotUnderstood),
             "CannotYieldAcrossNativeFrame" => Some(Self::CannotYieldAcrossNativeFrame),
@@ -494,6 +497,13 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         kind: UniverseBindingKind::Class,
         exported: true,
         prelude: false,
+    },
+    UniverseBindingSpec {
+        key: UniverseKey::Attribute,
+        name: "Attribute",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
     },
     UniverseBindingSpec {
         key: UniverseKey::Error,

@@ -141,6 +141,7 @@ impl Universe {
         // field count is stamped in `VM::new` mirroring `Some`. Its accessors
         // are native primitives (`primitive/object.rs`).
         let message_class = make_core_class(heap, "Message", object_class, metaclass_class);
+        let attribute_class = make_core_class(heap, "Attribute", object_class, metaclass_class);
 
         // `Error` root + `MessageNotUnderstood < Error` (U-CORE-6, ADR-0008):
         // the minimal reification slice of the surface error hierarchy. Like
@@ -227,6 +228,7 @@ impl Universe {
             range_class,
             bytes_class,
             message_class,
+            attribute_class,
             error_class,
             message_not_understood_class,
             fiber_class,
@@ -520,6 +522,8 @@ pub struct CoreClasses {
     pub project_identity_class: ClassId,
     /// `Uri`.
     pub uri_class: ClassId,
+    /// `Attribute`.
+    pub attribute_class: ClassId,
 }
 
 impl CoreClasses {
@@ -566,6 +570,7 @@ impl CoreClasses {
             UniverseKey::Project => self.project_class,
             UniverseKey::System => self.system_class,
             UniverseKey::Message => self.message_class,
+            UniverseKey::Attribute => self.attribute_class,
             UniverseKey::Error => self.error_class,
             UniverseKey::MessageNotUnderstood => self.message_not_understood_class,
             UniverseKey::CannotYieldAcrossNativeFrame => self.cannot_yield_across_native_frame_class,
@@ -665,6 +670,7 @@ impl CoreClasses {
             package_identity_class,
             project_identity_class,
             uri_class,
+            attribute_class,
         } = self;
 
         for handle in [
@@ -706,6 +712,7 @@ impl CoreClasses {
             range_class,
             bytes_class,
             message_class,
+            attribute_class,
             error_class,
             message_not_understood_class,
             fiber_class,

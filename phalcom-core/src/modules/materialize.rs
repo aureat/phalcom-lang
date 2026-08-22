@@ -260,6 +260,12 @@ impl VM {
                             Some(s) => s,
                             None => self.heap.module_mut(target_obj).declare(sym)?,
                         };
+                        if symbol_id.module.project.as_builtin().is_some() {
+                            if let Some(key) = phalcom_native_meta::UniverseKey::from_name(&symbol_id.name) {
+                                let class_id = self.universe.classes.resolve(key);
+                                self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
+                            }
+                        }
                         RuntimeLinkedRead::Binding(BindingRef {
                             module: target_obj,
                             slot: slot as u16,
@@ -291,6 +297,12 @@ impl VM {
                             Some(s) => s,
                             None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
                         };
+                        if symbol.module.project.as_builtin().is_some() {
+                            if let Some(key) = phalcom_native_meta::UniverseKey::from_name(&symbol.name) {
+                                let class_id = self.universe.classes.resolve(key);
+                                self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
+                            }
+                        }
                         exports.insert(
                             public_sym,
                             RuntimeExportRef::Binding(BindingRef {

@@ -391,6 +391,7 @@ impl AttributeExpander for EnsuresExpander {
                         name: "__result".to_string(),
                         range,
                     },
+                    annotation: None,
                     value: Some(expr),
                     range,
                 }));
@@ -434,6 +435,7 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
             old_lets.push(Statement::Let(LetBinding {
                 kind: BindingKind::Let,
                 pattern: Pattern::Name { name: var_name.clone(), range },
+                annotation: None,
                 value: Some(inner),
                 range,
             }));
@@ -473,6 +475,7 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
             old_lets.push(Statement::Let(LetBinding {
                 kind: BindingKind::Let,
                 pattern: Pattern::Name { name: var_name.clone(), range },
+                annotation: None,
                 value: Some(inner),
                 range,
             }));
@@ -575,6 +578,7 @@ fn rewrite_returns(body: &mut Vec<Statement>, ensures_args: &[Expr], method_name
                         name: "__result".to_string(),
                         range,
                     },
+                    annotation: None,
                     value: Some(value_expr),
                     range,
                 }));
@@ -1014,6 +1018,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
                 label: Some(pname),
                 label_range: None,
                 rest_mode: RestMode::None,
+                annotation: None,
                 range: f.range,
             }
         })
@@ -1033,6 +1038,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
     class.members.push(ClassMember::Method(MethodDef {
         name: "new".to_string(),
         params,
+        return_annotation: None,
         body,
         is_static: false,
         is_constructor: true,
@@ -1161,6 +1167,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                 check_accessor_collision(class, ctx, &base_name, SignatureKind::Getter, "get")?;
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name.clone(),
+                    return_annotation: None,
                     body: vec![Statement::Expr {
                         expr: Expr::Field {
                             value: field.name.clone(),
@@ -1188,8 +1195,10 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                         label: None,
                         label_range: None,
                         rest_mode: RestMode::None,
+                        annotation: None,
                         range: attr.range,
                     },
+                    return_annotation: None,
                     body: vec![field_assign_stmt(
                         &field.name,
                         Expr::Var {
@@ -1582,6 +1591,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             if !class_has_selector(class, ctx, &getter_selector)? {
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name,
+                    return_annotation: None,
                     body: vec![Statement::Expr {
                         expr: Expr::Field {
                             value: f.name.clone(),
@@ -1611,8 +1621,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 label: None,
                 label_range: None,
                 rest_mode: RestMode::None,
+                annotation: None,
                 range: attr_range,
             }],
+            return_annotation: None,
             body: vec![Statement::Return(ReturnStatement {
                 value: Some(eq_body),
                 range: attr_range,
@@ -1627,6 +1639,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let hash_body = build_data_hash(&fields, attr_range);
         class.members.push(ClassMember::Getter(GetterDef {
             name: "hash".to_string(),
+            return_annotation: None,
             body: vec![Statement::Return(ReturnStatement {
                 value: Some(hash_body),
                 range: attr_range,
@@ -1643,6 +1656,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let ts_body = build_data_to_string(&class.name, &fields, attr_range);
         class.members.push(ClassMember::Getter(GetterDef {
             name: "toString".to_string(),
+            return_annotation: None,
             body: vec![Statement::Return(ReturnStatement {
                 value: Some(ts_body),
                 range: attr_range,
@@ -1671,6 +1685,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                         label: Some(pname),
                         label_range: None,
                         rest_mode: RestMode::None,
+                        annotation: None,
                         range: f.range,
                     }
                 })
@@ -1678,6 +1693,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             class.members.push(ClassMember::Method(MethodDef {
                 name: "with".to_string(),
                 params: with_params,
+                return_annotation: None,
                 body: vec![Statement::Return(ReturnStatement {
                     value: Some(with_body),
                     range: attr_range,
@@ -1775,6 +1791,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
                 name_range: v.range,
                 mutable: true,
                 is_static: false,
+                annotation: None,
                 default: None,
                 attributes: Vec::new(),
                 range: v.range,
@@ -1796,6 +1813,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
                 label: None,
                 label_range: None,
                 rest_mode: RestMode::None,
+                annotation: None,
                 range: v.range,
             })
             .collect();
@@ -1812,6 +1830,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         members.push(ClassMember::Method(MethodDef {
             name: "_$matchArm".to_string(),
             params,
+            return_annotation: None,
             body: vec![Statement::Return(ReturnStatement {
                 value: Some(call_expr),
                 range: v.range,
@@ -1859,6 +1878,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             label: Some(n.clone()),
             label_range: Some(match_range),
             rest_mode: RestMode::None,
+            annotation: None,
             range: match_range,
         })
         .collect();
@@ -1888,6 +1908,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
     class.members.push(ClassMember::Method(MethodDef {
         name: "match".to_string(),
         params: match_params,
+        return_annotation: None,
         body: vec![Statement::Return(ReturnStatement {
             value: Some(arm_call),
             range: match_range,
@@ -2445,6 +2466,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                     name: "instance".to_string(),
                     range,
                 },
+                annotation: None,
                 value: Some(Expr::MethodCall(Box::new(MethodCallExpr {
                     object: Expr::SelfVar { range },
                     method: "_$new".to_string(),
@@ -2470,6 +2492,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
         members.push(ClassMember::Method(MethodDef {
             name: constructor_name.clone(),
             params: method.params.clone(),
+            return_annotation: None,
             body: factory_body,
             is_static: true,
             is_constructor: false,
@@ -2487,6 +2510,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
         members.push(ClassMember::Method(MethodDef {
             name: format!("init {constructor_name}"),
             params: method.params,
+            return_annotation: None,
             body: method.body,
             is_static: false,
             is_constructor: true,
@@ -2610,6 +2634,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
             name: "__invariant_owner".to_string(),
             range,
         },
+        annotation: None,
         value: Some(self_send0("_$invariantEnter", range)),
         range,
     });

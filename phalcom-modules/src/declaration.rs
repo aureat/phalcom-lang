@@ -8,13 +8,17 @@ use crate::graph::{SemanticEdgeKind, SemanticGraph, SemanticNodeId};
 use crate::identity::ModuleId;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DeclarationId {
     pub module: ModuleId,
     pub name: Box<str>,
 }
 
 impl DeclarationId {
+    pub fn new(module: ModuleId, name: Box<str>) -> Self {
+        Self { module, name }
+    }
+
     pub fn semantic_node(&self) -> SemanticNodeId {
         SemanticNodeId::Declaration {
             module: self.module.clone(),

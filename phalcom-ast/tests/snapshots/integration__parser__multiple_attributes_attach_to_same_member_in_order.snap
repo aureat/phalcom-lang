@@ -37,12 +37,14 @@ Program {
                                         },
                                     ),
                                     rest_mode: None,
+                                    annotation: None,
                                     range: CopyRange {
                                         start: 60,
                                         end: 61,
                                     },
                                 },
                             ],
+                            return_annotation: None,
                             body: [
                                 Expr {
                                     expr: SetProperty(

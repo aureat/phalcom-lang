@@ -419,6 +419,7 @@ impl VM {
         // completion of this row, not a fresh class.
         add_class!(bytes_class);
         add_class!(message_class);
+        add_class!(attribute_class);
         // `Error` root + `MessageNotUnderstood < Error` (U-CORE-6, ADR-0008):
         // globals only, no `.ph` reopen — an empty reopen would be harmless
         // (like `Message`'s) but is skipped as unnecessary; a reopen with a

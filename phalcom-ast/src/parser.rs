@@ -1392,7 +1392,33 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses a `let`/`var` binding: `<kw> pattern (= expr)?`.
+    /// Parses a statically-resolved type annotation (e.g. `Int` or `geometry.Point`).
+    pub fn parse_type_annotation(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        let root_start = self.cur_start();
+        let root = self.expect_identifier(&["type name"])?;
+        let root_range = (root_start..self.prev_end).into();
+        let mut members = Vec::new();
+        while self.eat(&Token::Dot) {
+            let member_start = self.cur_start();
+            let name = self.expect_identifier(&["qualified type name"])?;
+            let range = (member_start..self.prev_end).into();
+            members.push(PathSegment { name, range });
+        }
+        let range = (start..self.prev_end).into();
+        let sym_ref = StaticSymbolRef {
+            root,
+            root_range,
+            members,
+            range,
+        };
+        Ok(TypeAnnotation {
+            expr: TypeAnnotationExpr::Reference(sym_ref),
+            range,
+        })
+    }
+
+    /// Parses a `let`/`var` binding: `<kw> pattern (: Type)? (= expr)?`.
     ///
     /// `kind` records whether the `let` or `var` keyword was consumed
     /// (ADR-0014); the caller has already confirmed the current token matches.
@@ -1409,9 +1435,14 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         self.advance(); // 'let' or 'var'
         let pattern = self.parse_pattern()?;
+        let annotation = if self.eat(&Token::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
         let value = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
-        Ok(Statement::Let(LetBinding { kind, pattern, value, range }))
+        Ok(Statement::Let(LetBinding { kind, pattern, annotation, value, range }))
     }
 
     /// Parses a `let`/`var` binding's left-hand side [`Pattern`] (U14,
@@ -2073,6 +2104,11 @@ impl<'source> Parser<'source> {
             _ => return Err(self.error_here(strs(&["field name"]))),
         };
         let name_range = (name_start..self.prev_end).into();
+        let annotation = if self.eat(&Token::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
         let default = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
         match self.peek() {
@@ -2087,6 +2123,7 @@ impl<'source> Parser<'source> {
             name_range,
             mutable: !is_const,
             is_static: false,
+            annotation,
             default,
             attributes: Vec::new(),
             range,
@@ -2183,7 +2220,7 @@ impl<'source> Parser<'source> {
             });
         }
         if matches!(self.peek(), Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_))
-            && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal)
+            && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
         {
             return self.parse_field_decl(start, false);
         }
@@ -2209,28 +2246,6 @@ impl<'source> Parser<'source> {
                 },
                 range,
             });
-
-            // DEPRECATED:
-            // `constructor` syntax removed in favor of `@constructor` attribute
-            //
-            // let name_start = self.cur_start();
-            // let name = self.parse_method_name()?;
-            // let name_range = (name_start..self.prev_end).into();
-            // self.expect(&Token::LParen, &["\"(\""])?;
-            // let params = self.parse_param_list()?;
-            // self.expect(&Token::RParen, &["\")\""])?;
-            // let body = self.parse_method_block()?;
-            // let range = (start..self.prev_end).into();
-            // return Ok(ClassMember::Method(MethodDef {
-            //     name,
-            //     params,
-            //     body,
-            //     is_static: false,
-            //     is_constructor: true,
-            //     attributes: Vec::new(),
-            //     range,
-            //     name_range,
-            // }));
         }
         if self.eat(&Token::Static) {
             return Err(SyntaxError {
@@ -2253,19 +2268,14 @@ impl<'source> Parser<'source> {
                     range: start_put..self.prev_end,
                 });
             }
-            if matches!(self.peek(), Token::Colon) {
-                let err_start = self.cur_start();
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(
-                        "parameter declaration labels no longer use `:`; write `label local`, or `label` when the external and local names are identical"
-                            .to_string(),
-                    ),
-                    range: start_put..err_start,
-                });
-            }
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
+            let annotation = if self.eat(&Token::Colon) {
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
             self.expect(&Token::RParen, &["\")\""])?;
             let param = ParameterDef {
                 name: local_name,
@@ -2273,13 +2283,20 @@ impl<'source> Parser<'source> {
                 label: None,
                 label_range: None,
                 rest_mode: RestMode::None,
+                annotation,
                 range: (start_put..self.prev_end).into(),
+            };
+            let return_annotation = if self.eat(&Token::Arrow) {
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
             };
             let body = self.parse_method_block()?;
             let range = (start..self.prev_end).into();
             return Ok(ClassMember::Setter(SetterDef {
                 name,
                 param,
+                return_annotation,
                 body,
                 is_static,
                 attributes: Vec::new(),
@@ -2294,12 +2311,18 @@ impl<'source> Parser<'source> {
         } else {
             None
         };
+        let return_annotation = if self.eat(&Token::Arrow) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
             Ok(ClassMember::Method(MethodDef {
                 name,
                 params,
+                return_annotation,
                 body,
                 is_static,
                 is_constructor: false,
@@ -2310,6 +2333,7 @@ impl<'source> Parser<'source> {
         } else {
             Ok(ClassMember::Getter(GetterDef {
                 name,
+                return_annotation,
                 body,
                 is_static,
                 attributes: Vec::new(),
@@ -2322,20 +2346,6 @@ impl<'source> Parser<'source> {
     /// Parses a bracket subscript method — `[_ idx] { ... }` /
     /// `[_ idx]=(put value) { ... }` / `[] { ... }` / `[]=(put value) { ... }` (U-INDEX,
     /// [ADR-0060](../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
-    ///
-    /// `start` is the position of the already-peeked `[` (captured by the
-    /// caller before dispatching here, matching the sibling member-parsing
-    /// methods' convention). Reuses [`Parser::parse_param_list`] verbatim for
-    /// the bracketed parameter list — the *only* structural difference from
-    /// an ordinary `(params)` method is the delimiter; the assignment value
-    /// follows the brackets as `=(put value)`
-    /// parses exactly like `(idx, put:)` would, just bracket-closed instead
-    /// of paren-closed.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the parameter list or body is malformed, or the
-    /// closing `]` is missing.
     fn parse_index_member(&mut self, start: usize) -> ParserResult<ClassMember> {
         let name_start = self.cur_start();
         self.expect(&Token::LBracket, &["\"[\""])?;
@@ -2358,18 +2368,13 @@ impl<'source> Parser<'source> {
                     range: start_put..self.prev_end,
                 });
             }
-            if matches!(self.peek(), Token::Colon) {
-                let err_start = self.cur_start();
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(
-                        "parameter declaration labels no longer use `:`; write `label local`, or `label` when the external and local names are identical"
-                            .to_string(),
-                    ),
-                    range: start_put..err_start,
-                });
-            }
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
+            let annotation = if self.eat(&Token::Colon) {
+                Some(self.parse_type_annotation()?)
+            } else {
+                None
+            };
             self.expect(&Token::RParen, &["\")\""])?;
             let put = ParameterDef {
                 name: local_name,
@@ -2377,17 +2382,24 @@ impl<'source> Parser<'source> {
                 label: None,
                 label_range: None,
                 rest_mode: RestMode::None,
+                annotation,
                 range: (start_put..self.prev_end).into(),
             };
             IndexAccessor::Set { put }
         } else {
             IndexAccessor::Get
         };
+        let return_annotation = if self.eat(&Token::Arrow) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         Ok(ClassMember::Index(IndexMethodDef {
             params,
             accessor,
+            return_annotation,
             body,
             attributes: Vec::new(),
             range,
@@ -2506,6 +2518,11 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
+                let annotation = if self.eat(&Token::Colon) {
+                    Some(self.parse_type_annotation()?)
+                } else {
+                    None
+                };
                 let range: SourceRange = (start..self.prev_end).into();
                 match rest_mode {
                     RestMode::Positional if positional_rest || complete_rest => {
@@ -2537,6 +2554,7 @@ impl<'source> Parser<'source> {
                     label: None,
                     label_range: None,
                     rest_mode,
+                    annotation,
                     range,
                 });
             } else if self.eat(&Token::Underscore) {
@@ -2549,6 +2567,11 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
+                let annotation = if self.eat(&Token::Colon) {
+                    Some(self.parse_type_annotation()?)
+                } else {
+                    None
+                };
                 let range = (start..self.prev_end).into();
                 params.push(ParameterDef {
                     name,
@@ -2556,6 +2579,7 @@ impl<'source> Parser<'source> {
                     label: None,
                     label_range: None,
                     rest_mode: RestMode::None,
+                    annotation,
                     range,
                 });
             } else {
@@ -2573,16 +2597,6 @@ impl<'source> Parser<'source> {
                     return Err(self.error_here(strs(&["parameter name", "_", "*"])));
                 };
                 let label_range = (label_start..self.prev_end).into();
-                if matches!(self.peek(), Token::Colon) {
-                    let err_start = self.cur_start();
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message(
-                            "parameter declaration labels no longer use `:`; write `label local`, or `label` when the external and local names are identical"
-                                .to_string(),
-                        ),
-                        range: start..err_start,
-                    });
-                }
                 if matches!(self.peek(), Token::Identifier(_)) {
                     let name_start = self.cur_start();
                     let local_ident = self.expect_identifier(&["parameter name"])?;
@@ -2595,12 +2609,18 @@ impl<'source> Parser<'source> {
                             range: label_range.start..label_range.end,
                         });
                     }
+                    let annotation = if self.eat(&Token::Colon) {
+                        Some(self.parse_type_annotation()?)
+                    } else {
+                        None
+                    };
                     params.push(ParameterDef {
                         name: local_ident,
                         name_range,
                         label: Some(label),
                         label_range: Some(label_range),
                         rest_mode: RestMode::None,
+                        annotation,
                         range: (start..self.prev_end).into(),
                     });
                     self.skip_newlines();
@@ -2612,6 +2632,11 @@ impl<'source> Parser<'source> {
                 if !first_is_identifier {
                     return Err(self.error_here(strs(&["local parameter name after reserved label"])));
                 }
+                let annotation = if self.eat(&Token::Colon) {
+                    Some(self.parse_type_annotation()?)
+                } else {
+                    None
+                };
                 any_labeled = true;
                 let label = Some(first_ident.clone());
                 if labels.insert(first_ident.clone(), label_range).is_some() {
@@ -2626,6 +2651,7 @@ impl<'source> Parser<'source> {
                     label,
                     label_range: Some(label_range),
                     rest_mode: RestMode::None,
+                    annotation,
                     range: (start..self.prev_end).into(),
                 });
             }

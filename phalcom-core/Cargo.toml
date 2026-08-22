@@ -102,6 +102,7 @@ phalcom-native-meta = { path = "../phalcom-native-meta" }
 phalcom-native-macros = { path = "../phalcom-native-macros" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-modules = { path = "../phalcom-modules" }
+phalcom-semantic = { path = "../phalcom-semantic" }
 linkme = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }

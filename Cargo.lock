@@ -1059,6 +1059,7 @@ dependencies = [
  "phalcom-native-macros",
  "phalcom-native-meta",
  "phalcom-native-surface",
+ "phalcom-semantic",
  "phalcom-type-syntax",
  "rand",
  "ryu",
@@ -1081,6 +1082,7 @@ dependencies = [
  "phalcom-common",
  "phalcom-modules",
  "phalcom-native-surface",
+ "phalcom-semantic",
  "serde",
  "serde_json",
  "tokio",
@@ -1133,6 +1135,20 @@ dependencies = [
  "phalcom-lsp",
  "reedline",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "phalcom-semantic"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "phalcom-ast",
+ "phalcom-common",
+ "phalcom-modules",
+ "phalcom-native-meta",
+ "serde",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

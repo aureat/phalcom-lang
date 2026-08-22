@@ -52,20 +52,56 @@ impl BuiltinInterfaceBuilder {
         let mut iface =
             InterfaceBuilder::build(id.clone(), kind, &parse_result.program).map_err(|e| ModuleLoadError::Interface { module: id.clone(), error: e })?;
 
-        // Overlay primordial native universe bindings for the universe root package
-        if id.project == ProjectIdentity::Builtin(BuiltinProject::Universe) && id.path.is_root() {
-            for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|b| b.exported) {
+        // Overlay primordial native universe bindings for the universe root package or matching submodules
+        if id.project == ProjectIdentity::Builtin(BuiltinProject::Universe) {
+            let names: Vec<&'static str> = if id.path.is_root() {
+                phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|b| b.exported).map(|b| b.name).collect()
+            } else {
+                let comps: Vec<&str> = id.path.components().iter().map(|c| c.as_str()).collect();
+                match comps.as_slice() {
+                    ["reflection", "selector"] => vec!["Selector", "SelectorPattern"],
+                    ["reflection", "message"] => vec!["Message"],
+                    ["reflection", "attribute"] => vec!["Attribute"],
+                    ["reflection", "module"] => vec!["Module"],
+                    ["reflection", "package_object"] => vec!["Package"],
+                    ["reflection", "project"] => vec!["Project"],
+                    ["reflection", "uri"] => vec!["Uri"],
+                    ["reflection", "module_identity"] => vec!["ModuleIdentity"],
+                    ["reflection", "package_identity"] => vec!["PackageIdentity"],
+                    ["reflection", "project_identity"] => vec!["ProjectIdentity"],
+                    ["concurrency", "fiber"] => vec!["Fiber"],
+                    ["errors", "error"] => vec!["Error", "MessageNotUnderstood", "CannotYieldAcrossNativeFrame", "UseAfterCloseError"],
+                    ["object", "object"] => vec!["Object"],
+                    ["object", "behavior"] => vec!["Behavior"],
+                    ["object", "class"] => vec!["Class"],
+                    ["object", "metaclass"] => vec!["Metaclass"],
+                    ["scalar", "number"] => vec!["Number", "Int", "Float"],
+                    ["scalar", "string"] => vec!["String"],
+                    ["scalar", "bool"] => vec!["Bool", "True", "False"],
+                    ["scalar", "symbol"] => vec!["Symbol"],
+                    ["callable", "function"] => vec!["Function"],
+                    ["callable", "closure"] => vec!["Closure"],
+                    ["callable", "method"] => vec!["Method", "BoundMethod"],
+                    ["callable", "family"] => vec!["Family", "MethodFamily", "BoundMethodFamily"],
+                    ["option", "option"] => vec!["Option", "Some", "None", "Unit"],
+                    ["collections", "list"] => vec!["List"],
+                    ["collections", "map"] => vec!["Map"],
+                    ["collections", "set"] => vec!["Set"],
+                    ["collections", "tuple"] => vec!["Tuple"],
+                    ["collections", "record"] => vec!["Record"],
+                    ["collections", "range"] => vec!["Range"],
+                    ["collections", "bytes"] => vec!["Bytes"],
+                    ["collections", "iterable"] => vec!["Iterable"],
+                    _ => vec![],
+                }
+            };
+
+            for name_str in names {
                 let range = SourceRange::default();
-                let name = binding.name.to_string();
+                let name = name_str.to_string();
 
                 if iface.declarations.contains_key(&name) {
-                    return Err(ModuleLoadError::Interface {
-                        module: id.clone(),
-                        error: crate::error::InterfaceError::BuiltinInterfaceCollision {
-                            module: id.to_string(),
-                            name: name.clone(),
-                        },
-                    });
+                    continue;
                 }
 
                 iface.declarations.insert(
@@ -78,13 +114,7 @@ impl BuiltinInterfaceBuilder {
                 );
 
                 if iface.exports.contains_key(&name) {
-                    return Err(ModuleLoadError::Interface {
-                        module: id.clone(),
-                        error: crate::error::InterfaceError::BuiltinInterfaceCollision {
-                            module: id.to_string(),
-                            name: name.clone(),
-                        },
-                    });
+                    continue;
                 }
 
                 iface.exports.insert(

@@ -102,6 +102,9 @@ pub enum ProgramCompileError {
     /// Context-free REPL cannot import modules without project context.
     #[error("context-free inline/REPL execution does not support module import '{import_name}' (requires project context)")]
     ReplImportRequiresProjectContext { import_name: Box<str> },
+    /// Semantic type checking errors.
+    #[error("type error: {0:?}")]
+    Type(Vec<phalcom_semantic::SemanticDiagnostic>),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
@@ -213,6 +216,8 @@ impl ProgramCompiler {
                 interfaces.insert(entry_id.clone(), interface);
                 let linker = ModuleLinker::new(universe.clone(), interfaces);
                 let linked = Arc::new(linker.link(entry_id.clone(), &BTreeMap::new())?);
+
+                run_semantic_typecheck(&entry_id, &parsed.program)?;
 
                 let plan = ModuleMaterializationPlan::empty(&linked.modules[&entry_id]);
                 let compiled_mod = CompiledModule {
@@ -331,6 +336,8 @@ impl ProgramCompiler {
                 },
             );
         }
+        run_semantic_typecheck(&entry_id, &parsed.program)?;
+
         Ok(CompiledProgram {
             project_universe: universe,
             linked: linked.clone(),
@@ -501,4 +508,49 @@ fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLoca
         linked_reads: module.linked_reads.clone(),
         plan,
     }
+}
+
+pub fn run_semantic_typecheck(
+    module_id: &ModuleId,
+    program: &phalcom_ast::ast::Program,
+) -> Result<(), ProgramCompileError> {
+    use phalcom_semantic::{DeclarationId, MapTypeHierarchy, SimpleTypeResolver, TypeResolver, TypeStore};
+
+    let mut store = TypeStore::new();
+    let mut hierarchy = MapTypeHierarchy::new();
+    let mut resolver = SimpleTypeResolver::new();
+
+    let core_mod = ModuleId::core();
+    let object_decl = DeclarationId::new(core_mod.clone(), "Object".into());
+    resolver.insert("Object", object_decl.clone());
+
+    for builtin in &[
+        "Int", "Float", "String", "Bool", "Symbol", "Array", "Map", "Set", "Block", "Unit", "Never", "Dynamic",
+    ] {
+        let decl = DeclarationId::new(core_mod.clone(), (*builtin).into());
+        hierarchy.insert(decl.clone(), object_decl.clone());
+        resolver.insert(*builtin, decl);
+    }
+
+    for stmt in &program.statements {
+        if let phalcom_ast::ast::Statement::Class(class_def) = stmt {
+            let decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+            resolver.insert(class_def.name.clone(), decl.clone());
+            if let Some(super_ref) = &class_def.superclass {
+                if let Some(super_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &[]) {
+                    hierarchy.insert(decl, super_decl);
+                } else {
+                    hierarchy.insert(decl, object_decl.clone());
+                }
+            } else {
+                hierarchy.insert(decl, object_decl.clone());
+            }
+        }
+    }
+
+    let report = phalcom_semantic::check_program(&mut store, &hierarchy, &resolver, module_id.clone(), program);
+    if report.has_errors() {
+        return Err(ProgramCompileError::Type(report.diagnostics));
+    }
+    Ok(())
 }

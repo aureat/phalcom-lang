@@ -42,6 +42,10 @@ const COMPILER_ONLY_ATTRS: &[&str] = &[
     "private",
     "protected",
     "__synthetic",
+    "On",
+    "on",
+    "native",
+    "ignore",
 ];
 
 fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisibility {

@@ -21,6 +21,7 @@ Program {
                         MethodDef {
                             name: "get",
                             params: [],
+                            return_annotation: None,
                             body: [
                                 Return(
                                     ReturnStatement {

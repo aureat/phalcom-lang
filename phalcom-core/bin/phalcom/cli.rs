@@ -242,6 +242,12 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
                     std::process::exit(65);
                 }
             }
+            if let phalcom_core::modules::compile::ProgramCompileError::Type(diags) = &err {
+                for diag in diags {
+                    eprintln!("Type error [{}]: {}", diag.code, diag.message);
+                }
+                std::process::exit(65);
+            }
             eprintln!("Compile error: {err}");
             std::process::exit(65);
         }
@@ -319,7 +325,34 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
     };
     let source = read_source(args.path, args.source)?;
     match phalcom_ast::parse_source(&source, 0) {
-        Ok(_) => Ok(()),
+        Ok(program) => {
+            if let Err(phalcom_core::modules::compile::ProgramCompileError::Type(diags)) =
+                phalcom_core::modules::compile::run_semantic_typecheck(&phalcom_modules::ModuleId::core(), &program)
+            {
+                if args.format == "json" {
+                    for diag in &diags {
+                        let (start_line, start_col) = byte_offset_to_line_col(&source, diag.primary_range.start);
+                        let (end_line, end_col) = byte_offset_to_line_col(&source, diag.primary_range.end);
+                        println!(
+                            "{{\"severity\":\"error\",\"code\":{},\"message\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
+                            json_escape(diag.code.as_str()),
+                            json_escape(&diag.message),
+                            start_line,
+                            start_col,
+                            end_line,
+                            end_col
+                        );
+                    }
+                } else {
+                    for diag in &diags {
+                        let range = diag.primary_range.start..diag.primary_range.end;
+                        phalcom_core::diagnostics::print_parse(&source, path_str.as_deref(), &format!("{}: {}", diag.code, diag.message), range);
+                    }
+                }
+                std::process::exit(65);
+            }
+            Ok(())
+        }
         Err(err) => {
             let syntax_err: phalcom_ast::error::SyntaxError = err;
             let message = syntax_err.kind.to_string();

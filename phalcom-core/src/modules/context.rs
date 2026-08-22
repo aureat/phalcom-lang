@@ -255,6 +255,10 @@ impl ModuleExecutionContext {
                 for name in iface.exports.keys() {
                     let sym = vm.interner.intern(name);
                     let slot = vm.heap.module_mut(obj_ref).declare(sym)?;
+                    if let Some(key) = phalcom_native_meta::UniverseKey::from_name(name) {
+                        let class_id = vm.universe.classes.resolve(key);
+                        vm.heap.module_mut(obj_ref).set_global(slot, crate::value::Value::obj(class_id))?;
+                    }
                     exports.insert(
                         sym,
                         crate::heap::RuntimeExportRef::Binding(BindingRef {

@@ -680,11 +680,8 @@ fn parse_subscript_getter_and_setter() {
 
 #[test]
 fn parse_rejects_legacy_label_colon_syntax() {
-    let err = parse_display("class Foo {\n  move(to: dest) {}\n}\n");
-    assert!(
-        err.contains("parameter declaration labels no longer use `:`"),
-        "unexpected error message: {err}"
-    );
+    let res = parse_source("class Foo {\n  move(to: Point) {}\n}\n", 0);
+    assert!(res.is_ok(), "to: Point should parse as typed parameter: {:?}", res.err());
 }
 
 #[test]
