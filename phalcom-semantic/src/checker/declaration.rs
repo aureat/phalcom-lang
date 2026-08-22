@@ -26,7 +26,7 @@ fn member_side(member: &ClassMember) -> crate::identity::DispatchSide {
 pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
     let mut surface = DeclarationSurface::new(Some(decl_id.clone()));
-    let class_ty = ctx.store.nominal(decl_id.clone());
+    let class_ty = ctx.nominal_type_of(&decl_id);
     ctx.dispatch.register_type(class_ty, decl_id.clone());
 
     for member in &class_def.members {

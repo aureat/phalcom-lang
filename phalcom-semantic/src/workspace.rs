@@ -82,29 +82,37 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     // Phase B: Predeclare Every Source Declaration
     // -------------------------------------------------------------------------
     let mut shell_table = DeclarationShellTable::default();
-    let mut source_blueprints = Vec::new();
+    let mut initial_blueprints: Vec<DeclarationBlueprint> = declarations
+        .iter()
+        .map(|(decl_id, _)| DeclarationBlueprint {
+            id: decl_id.clone(),
+            kind: DeclarationKind::Class,
+        })
+        .collect();
 
     for (module_id, parsed_unit) in &input.sources {
         for stmt in &parsed_unit.program.statements {
             if let Statement::Class(class_def) = stmt {
                 let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                source_blueprints.push(DeclarationBlueprint {
+                initial_blueprints.push(DeclarationBlueprint {
                     id: decl_id.clone(),
                     kind: DeclarationKind::Class,
                 });
-                let form = store.nominal_type(decl_id.clone());
-                let class_obj_type = store.class_object_type(decl_id.clone());
-                declarations.insert(DeclarationTypeInfo {
-                    declaration: decl_id,
-                    form,
-                    class_object_type: class_obj_type,
-                    kind: KindId::TYPE,
-                    generic_signature: None,
-                });
+                if declarations.get(&decl_id).is_none() {
+                    let form = store.nominal_type(decl_id.clone());
+                    let class_obj_type = store.class_object_type(decl_id.clone());
+                    declarations.insert(DeclarationTypeInfo {
+                        declaration: decl_id,
+                        form,
+                        class_object_type: class_obj_type,
+                        kind: KindId::TYPE,
+                        generic_signature: None,
+                    });
+                }
             }
         }
     }
-    shell_table.predeclare(source_blueprints);
+    shell_table.predeclare(initial_blueprints);
 
     // -------------------------------------------------------------------------
     // Phase C: Construct LinkedTypeResolver
@@ -173,7 +181,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                         .or_default()
                         .push(SemanticDiagnostic::error(
                             DiagnosticCode::AnnotationUnresolved,
-                            format!("inheritance cycle detected: {cycle:?}"),
+                            format!("A class cannot extend itself: inheritance cycle detected: {cycle:?}"),
                             phalcom_common::range::SourceRange::default(),
                         ));
                 }

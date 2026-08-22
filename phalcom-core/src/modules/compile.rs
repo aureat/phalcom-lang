@@ -4,8 +4,9 @@ use super::artifact::ModuleMaterializationPlan;
 use phalcom_modules::{
     BuiltinProject, BuiltinProjectSourceProvider, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram,
     ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError,
-    SourceId, SourceLocation, SourceProvider, discover_owning_project,
+    SourceId, SourceLocation, discover_owning_project,
 };
+use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -61,6 +62,32 @@ pub struct CompiledProgram {
     pub initialization_order: Vec<ModuleId>,
 }
 
+/// Semantic diagnostics grouped by module.
+#[derive(Clone, Debug, Default)]
+pub struct ProgramSemanticDiagnostics {
+    pub by_module: BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+}
+
+impl ProgramSemanticDiagnostics {
+    pub fn is_empty(&self) -> bool {
+        self.by_module.values().all(|v| v.is_empty())
+    }
+
+    pub fn has_errors(&self) -> bool {
+        self.by_module.values().any(|v| {
+            v.iter().any(|d| d.severity == phalcom_semantic::DiagnosticSeverity::Error)
+        })
+    }
+
+    pub fn for_module(&self, module: &ModuleId) -> &[SemanticDiagnostic] {
+        self.by_module.get(module).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &[SemanticDiagnostic])> {
+        self.by_module.iter().map(|(m, v)| (m, v.as_slice()))
+    }
+}
+
 /// Program-level compile errors remain structured by phase.
 #[derive(Debug, Error, Clone)]
 pub enum ProgramCompileError {
@@ -103,29 +130,32 @@ pub enum ProgramCompileError {
     #[error("context-free inline/REPL execution does not support module import '{import_name}' (requires project context)")]
     ReplImportRequiresProjectContext { import_name: Box<str> },
     /// Semantic type checking errors.
-    #[error("type error: {0:?}")]
-    Type(Vec<phalcom_semantic::SemanticDiagnostic>),
+    #[error("semantic error: {0:?}")]
+    Semantic(ProgramSemanticDiagnostics),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
 }
 
-/// Compiler facade over an already-linked program or source project.
-pub struct ProgramCompiler {
-    linked: Option<Arc<LinkedProgram>>,
+/// Fully analyzed program snapshot ready for code generation.
+#[derive(Clone, Debug)]
+pub struct AnalyzedProgram {
+    pub project_universe: Arc<ProjectUniverse>,
+    pub linked: Arc<LinkedProgram>,
+    pub semantic: Arc<phalcom_semantic::SemanticSnapshot>,
+    pub sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    pub entry: ModuleId,
 }
 
-impl ProgramCompiler {
-    /// Creates a compiler for a closed linked plan.
-    pub fn new(linked: Arc<LinkedProgram>) -> Self {
-        Self { linked: Some(linked) }
-    }
+/// Analyzer that coordinates discovery, linking, and whole-workspace semantic analysis.
+pub struct ProgramAnalyzer;
 
-    /// Compiles an entry selection into a fully linked `CompiledProgram`.
-    pub fn compile_entry_selection(entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
+impl ProgramAnalyzer {
+    /// Analyzes an entry selection into an [`AnalyzedProgram`].
+    pub fn analyze_entry_selection(entry: EntrySelection) -> Result<AnalyzedProgram, ProgramCompileError> {
         match entry {
             EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
-                "EntrySelection::ModuleId({entry_id}) cannot be compiled without an existing linked project universe; use ProgramCompiler::new(linked).compile_entry(...)"
+                "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
             ))),
             EntrySelection::Project(root_dir) => {
                 let manifest_path = if root_dir.ends_with("project.toml") {
@@ -150,7 +180,7 @@ impl ProgramCompiler {
                     path: entry_path,
                 };
                 let provider = FilesystemSourceProvider::new();
-                Self::discover_and_link(Arc::new(universe), provider, entry_id)
+                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
             }
             EntrySelection::Package(pkg_dir) => {
                 let main_file = pkg_dir.join("main.ph");
@@ -167,7 +197,7 @@ impl ProgramCompiler {
                     ]),
                 };
                 let provider = FilesystemSourceProvider::new();
-                Self::discover_and_link(Arc::new(universe), provider, entry_id)
+                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
             }
             EntrySelection::Module(file_path) => {
                 if let Ok(Some(project_root)) = discover_owning_project(&file_path) {
@@ -186,9 +216,9 @@ impl ProgramCompiler {
                         path: module_path,
                     };
                     let provider = FilesystemSourceProvider::new();
-                    Self::discover_and_link(Arc::new(universe), provider, entry_id)
+                    Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
                 } else {
-                    Self::compile_standalone_module(file_path)
+                    Self::analyze_standalone_module(file_path)
                 }
             }
             EntrySelection::Inline(source_text) => {
@@ -217,33 +247,42 @@ impl ProgramCompiler {
                 let linker = ModuleLinker::new(universe.clone(), interfaces);
                 let linked = Arc::new(linker.link(entry_id.clone(), &BTreeMap::new())?);
 
-                run_semantic_typecheck(&entry_id, &parsed.program)?;
+                let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+                    entry_id.clone(),
+                    ModuleKind::Module,
+                    None,
+                    source_text,
+                    Arc::new(parsed.program),
+                ));
+                let mut sources = BTreeMap::new();
+                sources.insert(entry_id.clone(), parsed_unit);
 
-                let plan = ModuleMaterializationPlan::empty(&linked.modules[&entry_id]);
-                let compiled_mod = CompiledModule {
-                    id: entry_id.clone(),
-                    kind: ModuleKind::Module,
-                    source: None,
-                    source_text: Some(source_text.clone()),
-                    interface: Arc::new(linked.modules[&entry_id].interface.clone()),
-                    plan,
-                    linked_reads: linked.modules[&entry_id].linked_reads.clone(),
-                };
-                let mut modules = BTreeMap::new();
-                modules.insert(entry_id.clone(), compiled_mod);
-
-                Ok(CompiledProgram {
-                    project_universe: universe,
+                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
                     linked: linked.clone(),
-                    modules,
-                    entry: entry_id.clone(),
-                    initialization_order: linked.initialization_order.clone(),
+                    sources: sources.clone(),
+                    generation: 0,
+                });
+
+                if analysis.snapshot.has_errors() {
+                    let mut by_module = BTreeMap::new();
+                    for (m, d) in analysis.snapshot.diagnostics.iter() {
+                        by_module.insert(m.clone(), d.to_vec());
+                    }
+                    return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
+                }
+
+                Ok(AnalyzedProgram {
+                    project_universe: universe,
+                    linked,
+                    semantic: analysis.snapshot,
+                    sources,
+                    entry: entry_id,
                 })
             }
         }
     }
 
-    fn compile_standalone_module(file_path: PathBuf) -> Result<CompiledProgram, ProgramCompileError> {
+    fn analyze_standalone_module(file_path: PathBuf) -> Result<AnalyzedProgram, ProgramCompileError> {
         let canonical = file_path
             .canonicalize()
             .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", file_path.display())))?;
@@ -263,9 +302,19 @@ impl ProgramCompiler {
         let mut interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
         let mut resolved = BTreeMap::new();
 
-        // Standalone modules have no sibling/package authority. They may still
-        // import the two toolchain builtin roots because those are provider-
-        // backed and do not depend on a filesystem project context.
+        let mut sources = BTreeMap::new();
+        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+            entry_id.clone(),
+            ModuleKind::Module,
+            Some(SourceLocation {
+                source_id: SourceId(canonical.to_string_lossy().into()),
+                display_path: canonical.clone(),
+            }),
+            source_text,
+            Arc::new(parsed.program.clone()),
+        ));
+        sources.insert(entry_id.clone(), parsed_unit);
+
         for dependency in &parsed.program.preamble.dependencies {
             let path = match dependency {
                 phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(decl)) => &decl.path,
@@ -297,64 +346,45 @@ impl ProgramCompiler {
             let target_id = ModuleId::builtin(builtin, target_path);
             let provider = BuiltinProjectSourceProvider::new(builtin);
             let target_interface = provider.load_interface(&target_id)?;
+            let target_parsed = provider.load_parsed(&target_id)?;
             interfaces.entry(target_id.clone()).or_insert(target_interface);
+            sources.entry(target_id.clone()).or_insert(target_parsed);
             resolved.insert((entry_id.clone(), path.to_string()), target_id);
         }
 
         let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link(entry_id.clone(), &resolved)?);
-        let mut modules = BTreeMap::new();
-        for (id, linked_module) in &linked.modules {
-            let (source, text) = if id == &entry_id {
-                (
-                    Some(SourceLocation {
-                        source_id: SourceId(canonical.to_string_lossy().into()),
-                        display_path: canonical.clone(),
-                    }),
-                    Some(source_text.clone()),
-                )
-            } else if let Some(builtin) = id.project.as_builtin() {
-                let builtin_provider = BuiltinProjectSourceProvider::new(builtin);
-                let text = builtin_provider.source_text(id).ok();
-                let source = builtin_provider.source_id(id).ok().map(|source_id| SourceLocation {
-                    source_id,
-                    display_path: PathBuf::from(format!("<builtin:{builtin}>/{}", id.path)),
-                });
-                (source, text)
-            } else {
-                (None, None)
-            };
-            modules.insert(
-                id.clone(),
-                CompiledModule {
-                    id: id.clone(),
-                    kind: linked_module.interface.kind,
-                    source,
-                    source_text: text,
-                    interface: Arc::new(linked_module.interface.clone()),
-                    plan: ModuleMaterializationPlan::empty(linked_module),
-                    linked_reads: linked_module.linked_reads.clone(),
-                },
-            );
-        }
-        run_semantic_typecheck(&entry_id, &parsed.program)?;
 
-        Ok(CompiledProgram {
-            project_universe: universe,
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
             linked: linked.clone(),
-            modules,
+            sources: sources.clone(),
+            generation: 0,
+        });
+
+        if analysis.snapshot.has_errors() {
+            let mut by_module = BTreeMap::new();
+            for (m, d) in analysis.snapshot.diagnostics.iter() {
+                by_module.insert(m.clone(), d.to_vec());
+            }
+            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
+        }
+
+        Ok(AnalyzedProgram {
+            project_universe: universe,
+            linked,
+            semantic: analysis.snapshot,
+            sources,
             entry: entry_id,
-            initialization_order: linked.initialization_order.clone(),
         })
     }
 
-    /// Discovers all transitively reachable modules, parses interfaces, links, and builds a `CompiledProgram`.
-    fn discover_and_link(
+    fn discover_and_analyze(
         universe: Arc<ProjectUniverse>,
         source_provider: FilesystemSourceProvider,
         entry: ModuleId,
-    ) -> Result<CompiledProgram, ProgramCompileError> {
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let mut resolver = ModuleResolver::new(&universe, &source_provider);
         let mut interfaces = BTreeMap::new();
+        let mut sources = BTreeMap::new();
         let mut resolved = BTreeMap::new();
         let mut visited = HashSet::new();
         let mut pending = vec![entry.clone()];
@@ -367,15 +397,14 @@ impl ProgramCompiler {
             }
         }
 
-        let mut source_locations = BTreeMap::new();
-        let mut source_texts = BTreeMap::new();
-
         while let Some(current_id) = pending.pop() {
+            let parsed = resolver.load_parsed(&current_id)?;
             let interface = resolver.load_interface(&current_id)?;
             interfaces.insert(current_id.clone(), interface.clone());
+            sources.insert(current_id.clone(), parsed);
 
             if let Some(project_id) = current_id.project.as_resolved() {
-                if let Some(proj) = universe.get_project(project_id) {
+                if let Some(_proj) = universe.get_project(project_id) {
                     let mut curr_parent = current_id.path.parent();
                     while let Some(parent) = curr_parent {
                         let pkg_id = ModuleId::resolved(project_id, parent.clone());
@@ -384,32 +413,6 @@ impl ProgramCompiler {
                         }
                         curr_parent = parent.parent();
                     }
-
-                    if let Ok(unit) = source_provider.locate(proj, &current_id.path) {
-                        if let Ok(text) = source_provider.read(&unit.source.source_id) {
-                            source_texts.insert(current_id.clone(), text);
-                        }
-                        source_locations.insert(current_id.clone(), unit.source);
-                    }
-                }
-            } else if let Some(builtin) = current_id.project.as_builtin() {
-                let builtin_provider = BuiltinProjectSourceProvider::new(builtin);
-                if let Ok(text) = builtin_provider.source_text(&current_id) {
-                    source_texts.insert(current_id.clone(), text);
-                }
-                if let Ok(source_id) = builtin_provider.source_id(&current_id) {
-                    let uri_path = if current_id.path.is_root() {
-                        String::new()
-                    } else {
-                        current_id.path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
-                    };
-                    source_locations.insert(
-                        current_id.clone(),
-                        SourceLocation {
-                            source_id,
-                            display_path: PathBuf::from(format!("<builtin:{builtin}>/{uri_path}")),
-                        },
-                    );
                 }
             }
 
@@ -431,50 +434,62 @@ impl ProgramCompiler {
         let linker = ModuleLinker::new(universe.clone(), interfaces);
         let linked = Arc::new(linker.link(entry.clone(), &resolved)?);
 
-        let modules = linked
-            .modules
-            .iter()
-            .map(|(id, module)| {
-                let src = source_locations.get(id).cloned();
-                let txt = source_texts.get(id).cloned();
-                (id.clone(), compile_module(id.clone(), module, src, txt))
-            })
-            .collect();
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
+            linked: linked.clone(),
+            sources: sources.clone(),
+            generation: 0,
+        });
+
+        if analysis.snapshot.has_errors() {
+            let mut by_module = BTreeMap::new();
+            for (m, d) in analysis.snapshot.diagnostics.iter() {
+                by_module.insert(m.clone(), d.to_vec());
+            }
+            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
+        }
+
+        Ok(AnalyzedProgram {
+            project_universe: universe,
+            linked,
+            semantic: analysis.snapshot,
+            sources,
+            entry,
+        })
+    }
+}
+
+/// Compiler facade over an analyzed semantic program.
+pub struct ProgramCompiler;
+
+impl ProgramCompiler {
+    /// Compiles an analyzed program into a fully linked `CompiledProgram`.
+    pub fn compile_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+        let mut modules = BTreeMap::new();
+        for (id, linked_module) in &analyzed.linked.modules {
+            let (source, source_text) = if let Some(parsed_unit) = analyzed.sources.get(id) {
+                (parsed_unit.source.clone(), Some(parsed_unit.text.clone()))
+            } else {
+                (None, None)
+            };
+            modules.insert(
+                id.clone(),
+                compile_module(id.clone(), linked_module, source, source_text),
+            );
+        }
 
         Ok(CompiledProgram {
-            project_universe: universe,
-            linked: linked.clone(),
+            project_universe: analyzed.project_universe.clone(),
+            linked: analyzed.linked.clone(),
             modules,
-            entry,
-            initialization_order: linked.initialization_order.clone(),
+            entry: analyzed.entry.clone(),
+            initialization_order: analyzed.linked.initialization_order.clone(),
         })
     }
 
-    /// Validates entry selection for an existing linked program.
-    pub fn compile_entry(&self, entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
-        if let Some(linked) = &self.linked {
-            let entry_id = match entry {
-                EntrySelection::ModuleId(id) => id,
-                _ => return Self::compile_entry_selection(entry),
-            };
-            if !linked.modules.contains_key(&entry_id) {
-                return Err(ProgramCompileError::MissingEntry(entry_id));
-            }
-            let modules = linked
-                .modules
-                .iter()
-                .map(|(id, module)| (id.clone(), compile_module(id.clone(), module, None, None)))
-                .collect();
-            Ok(CompiledProgram {
-                project_universe: linked.universe.clone(),
-                linked: linked.clone(),
-                modules,
-                entry: entry_id,
-                initialization_order: linked.initialization_order.clone(),
-            })
-        } else {
-            Self::compile_entry_selection(entry)
-        }
+    /// Compiles an entry selection by analyzing it first and compiling the analyzed result.
+    pub fn compile_entry_selection(entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
+        let analyzed = ProgramAnalyzer::analyze_entry_selection(entry)?;
+        Self::compile_analyzed(&analyzed)
     }
 }
 
@@ -508,46 +523,4 @@ fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLoca
         linked_reads: module.linked_reads.clone(),
         plan,
     }
-}
-
-pub fn run_semantic_typecheck(module_id: &ModuleId, program: &phalcom_ast::ast::Program) -> Result<(), ProgramCompileError> {
-    use phalcom_semantic::{DeclarationId, MapTypeHierarchy, SimpleTypeResolver, TypeResolver, TypeStore};
-
-    let mut store = TypeStore::new();
-    let mut hierarchy = MapTypeHierarchy::new();
-    let mut resolver = SimpleTypeResolver::new();
-
-    let core_mod = ModuleId::core();
-    let object_decl = DeclarationId::new(core_mod.clone(), "Object".into());
-    resolver.insert("Object", object_decl.clone());
-
-    for builtin in &[
-        "Int", "Float", "String", "Bool", "Symbol", "Array", "Map", "Set", "Block", "Unit", "Never", "Dynamic",
-    ] {
-        let decl = DeclarationId::new(core_mod.clone(), (*builtin).into());
-        hierarchy.insert(decl.clone(), object_decl.clone());
-        resolver.insert(*builtin, decl);
-    }
-
-    for stmt in &program.statements {
-        if let phalcom_ast::ast::Statement::Class(class_def) = stmt {
-            let decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-            resolver.insert(class_def.name.clone(), decl.clone());
-            if let Some(super_ref) = &class_def.superclass {
-                if let Some(super_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &[]) {
-                    hierarchy.insert(decl, super_decl);
-                } else {
-                    hierarchy.insert(decl, object_decl.clone());
-                }
-            } else {
-                hierarchy.insert(decl, object_decl.clone());
-            }
-        }
-    }
-
-    let report = phalcom_semantic::check_program(&mut store, &hierarchy, &resolver, module_id.clone(), program);
-    if report.has_errors() {
-        return Err(ProgramCompileError::Type(report.diagnostics));
-    }
-    Ok(())
 }

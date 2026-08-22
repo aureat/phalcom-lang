@@ -5,6 +5,7 @@ pub mod checker;
 pub mod declarations;
 pub mod diagnostic;
 pub mod dispatch;
+pub mod export;
 pub mod identity;
 pub mod invalidation;
 pub mod resolver;
@@ -27,6 +28,11 @@ pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, Semant
 pub use dispatch::{
     CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide,
     DispatchTarget, SurfaceDispatchResolver,
+};
+pub use export::{
+    CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField,
+    CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef, SemanticExportError,
+    export_kind, export_type_form,
 };
 pub use identity::{BindingId, CallableId, DeclarationId, FieldId, ModuleId};
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};

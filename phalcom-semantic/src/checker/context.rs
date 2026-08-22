@@ -167,4 +167,12 @@ impl<'a> CheckingContext<'a> {
     pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
         self.dispatch.register_surface(decl, surface);
     }
+
+    pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> TypeId {
+        if let Some(form) = self.declarations.form(decl) {
+            form
+        } else {
+            self.store.nominal_type(decl.clone())
+        }
+    }
 }

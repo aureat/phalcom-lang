@@ -15,7 +15,10 @@ pub mod reflection_cache;
 pub mod registry;
 
 pub use artifact::{ClassBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint};
-pub use compile::{CompiledModule, CompiledProgram, EntrySelection, ProgramCompileError, ProgramCompiler};
+pub use compile::{
+    AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer,
+    ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics,
+};
 pub use context::ModuleExecutionContext;
 pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
 pub use reflection_cache::ReflectionCache;

@@ -137,11 +137,11 @@ fn test_native_frame_rendering() {
     assert!(stderr.contains("[native]"), "Must render native frame line: {}", stderr);
 }
 
+static COLOR_TEST_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn assert_color_invariance(source: &str, extra_args: &[&str]) {
-    let file_path = std::env::temp_dir().join(format!("color_invariance_{}_{}.ph", std::process::id(), {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos()
-    }));
+    let id = COLOR_TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let file_path = std::env::temp_dir().join(format!("color_invariance_{}_{}.ph", std::process::id(), id));
     fs::write(&file_path, source).unwrap();
 
     let file_str = file_path.to_str().unwrap();
