@@ -188,10 +188,8 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     ctx.register_surface(decl_id, surface);
 }
 
-/// Checks a class declaration and all its members.
-pub fn check_class(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
-    register_class_surface(ctx, class_def);
-
+/// Checks the member bodies of an already-registered class declaration.
+pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
     let old_class = ctx.current_class.replace(decl_id);
 
@@ -242,6 +240,12 @@ pub fn check_class(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     }
 
     ctx.current_class = old_class;
+}
+
+/// Checks a class declaration and all its members.
+pub fn check_class(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+    register_class_surface(ctx, class_def);
+    check_class_bodies(ctx, class_def);
 }
 
 fn check_callable_body(

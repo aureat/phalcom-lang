@@ -10,7 +10,7 @@ pub mod typed_expr;
 
 pub use call::{check_arguments, match_callable_arguments};
 pub use context::CheckingContext;
-pub use declaration::{check_class, register_class_surface};
+pub use declaration::{check_class, check_class_bodies, register_class_surface};
 pub use expression::{synthesize_expr, synthesize_typed_expr};
 pub use result::TypeCheckReport;
 pub use statement::check_statement;
