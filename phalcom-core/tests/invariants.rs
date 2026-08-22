@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 35] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 37] {
     let c = vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -65,6 +65,8 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 35] {
         ("MethodFamily", c.method_family_class),
         ("BoundMethodFamily", c.bound_method_family_class),
         ("Symbol", c.symbol_class),
+        ("Selector", c.selector_class),
+        ("SelectorPattern", c.selector_pattern_class),
         ("Module", c.module_class),
         ("System", c.system_class),
         ("Option", c.option_class),
@@ -833,7 +835,28 @@ fn floor_census_matches_installed_bindings() {
         // §2.7 Symbol
         (c.symbol_class, false, "toString"),
         (c.symbol_class, false, "hash"), // NEW (ADR-0023)
+        (c.symbol_class, false, "isSelector"),
+        (c.symbol_class, false, "isSelectorPattern"),
         (c.symbol_class, true, "new(_)"),
+        // §2.7.1 Selector
+        (c.selector_class, true, "call(_)"),
+        (c.selector_class, true, "from(_)"),
+        (c.selector_class, true, "new(_)"),
+        (c.selector_class, false, "base"),
+        (c.selector_class, false, "kind"),
+        (c.selector_class, false, "slots"),
+        (c.selector_class, false, "toString"),
+        (c.selector_class, false, "==(_)"),
+        (c.selector_class, false, "hash"),
+        // §2.7.2 SelectorPattern
+        (c.selector_pattern_class, true, "call(_)"),
+        (c.selector_pattern_class, true, "from(_)"),
+        (c.selector_pattern_class, true, "new(_)"),
+        (c.selector_pattern_class, false, "base"),
+        (c.selector_pattern_class, false, "matches(_)"),
+        (c.selector_pattern_class, false, "toString"),
+        (c.selector_pattern_class, false, "==(_)"),
+        (c.selector_pattern_class, false, "hash"),
         // §2.8 Absence
         (c.some_class, true, "call(_)"),
         (c.some_class, true, "new(_)"),
@@ -1051,10 +1074,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        186,
-        "census must enumerate exactly 186 bindings after Number + getter + bilateral semantics additions"
+        205,
+        "census must enumerate exactly 205 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern additions"
     );
-    assert_eq!(live.len(), 186, "the live floor must be exactly 186 bindings");
+    assert_eq!(live.len(), 205, "the live floor must be exactly 205 bindings");
 }
 
 #[test]

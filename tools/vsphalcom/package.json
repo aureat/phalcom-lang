@@ -32,6 +32,11 @@
         "command": "phalcom.showLanguageServerOutput",
         "title": "Show Language Server Output",
         "category": "Phalcom"
+      },
+      {
+        "command": "phalcom.showAnalysisStatus",
+        "title": "Show Analysis Status",
+        "category": "Phalcom"
       }
     ],
     "menus": {
@@ -103,6 +108,11 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Workspace path fragments or file patterns excluded from Phalcom source indexing/analysis."
+        },
+        "phalcom.analysis.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Phalcom LSP analysis status in the status bar."
         },
         "phalcom.inlayHints.types": {
           "type": "string",

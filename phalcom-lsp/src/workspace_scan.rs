@@ -19,6 +19,8 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use tower_lsp::lsp_types::Url;
 
 use crate::perf::PerfCounters;
@@ -28,7 +30,8 @@ use crate::perf::PerfCounters;
 // ---------------------------------------------------------------------------
 
 /// Controls the scope of deep interprocedural flow analysis.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum AnalysisMode {
     /// Restrict deep analysis to open documents and their transitive imports.
     /// Background workspace indexing still progresses for navigation.

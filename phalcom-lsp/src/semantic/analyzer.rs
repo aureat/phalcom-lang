@@ -46,59 +46,7 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
         Expr::Float { .. } => exact(ValueShape::Instance(core_class("Float")), range),
         Expr::String { .. } => exact(ValueShape::Instance(core_class("String")), range),
         Expr::Boolean { value, .. } => InferredValue::exact_boolean(*value, range),
-        Expr::Symbol(symbol) => match &symbol.kind {
-            SymbolLiteralKind::Name(_) => exact(ValueShape::Instance(core_class("Symbol")), range),
-            SymbolLiteralKind::Selector { name, labels } => {
-                let slots = labels
-                    .iter()
-                    .map(|l| match l {
-                        Some(label) => SelectorSlot::Label(label.clone()),
-                        None => SelectorSlot::Positional,
-                    })
-                    .collect::<Vec<_>>();
-                if let Ok(selector) = Selector::method(name, slots) {
-                    exact(ValueShape::Selector(selector), range)
-                } else {
-                    exact(ValueShape::Instance(core_class("Symbol")), range)
-                }
-            }
-            SymbolLiteralKind::Subscript { labels, setter } => {
-                let slots = labels
-                    .iter()
-                    .map(|label| match label {
-                        Some(label) => SelectorSlot::Label(label.clone()),
-                        None => SelectorSlot::Positional,
-                    })
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice();
-                let selector = if *setter {
-                    Selector::subscript_set(slots)
-                } else {
-                    Selector::subscript_get(slots)
-                };
-                selector.map_or_else(
-                    |_| exact(ValueShape::Instance(core_class("Symbol")), range),
-                    |selector| exact(ValueShape::Selector(selector), range),
-                )
-            }
-            SymbolLiteralKind::Pattern(syntax) => {
-                if let Ok(pattern) = SelectorPattern::new(
-                    if syntax.is_subscript {
-                        SelectorBase::Subscript
-                    } else {
-                        SelectorBase::Named(syntax.base.clone())
-                    },
-                    syntax.kind.clone(),
-                    syntax.prefix.iter().map(|s| s.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
-                    syntax.suffix.iter().map(|s| s.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
-                    true,
-                ) {
-                    exact(ValueShape::SelectorPattern(pattern), range)
-                } else {
-                    exact(ValueShape::Instance(core_class("Symbol")), range)
-                }
-            }
-        },
+        Expr::Symbol(_) => exact(ValueShape::Instance(core_class("Symbol")), range),
         Expr::Var { value, .. } => analyze_var(value, range, context),
         Expr::Field { value, .. } => context
             .current_class
@@ -154,8 +102,49 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
                             let family = (context.family_resolver)(&DispatchReceiver::Instance(class_id.clone()), pattern);
                             return exact(ValueShape::MethodFamily(Arc::new(family)), range);
                         }
-                        _ => {}
+                        _ => {
+                            if let Expr::Symbol(symbol) = &binary.right {
+                                match &symbol.kind {
+                                    SymbolLiteralKind::Pattern(syntax) => {
+                                        if let Ok(pat) = syntax.normalize() {
+                                            let family = (context.family_resolver)(&DispatchReceiver::Instance(class_id.clone()), &pat);
+                                            return exact(ValueShape::MethodFamily(Arc::new(family)), range);
+                                        }
+                                    }
+                                    _ => {
+                                        if let Some(sym_text) = symbol_from_expr(&binary.right) {
+                                            if let Ok(sel) = Selector::try_decode_exact(&sym_text) {
+                                                let resolved = (context.resolver)(&DispatchReceiver::Instance(class_id.clone()), &sel.encode())
+                                                    .or_else(|| (context.resolver)(&DispatchReceiver::ClassObject(class_id.clone()), &sel.encode()));
+                                                if let Some(resolved) = resolved {
+                                                    return exact(ValueShape::Method(resolved.callable), range);
+                                                } else {
+                                                    return flow(ValueShape::Unknown, range);
+                                                }
+                                            } else if let Ok(pat) = SelectorPattern::try_decode_pattern(&sym_text) {
+                                                let family = (context.family_resolver)(&DispatchReceiver::Instance(class_id.clone()), &pat);
+                                                return exact(ValueShape::MethodFamily(Arc::new(family)), range);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if let Some(sym_text) = symbol_from_expr(&binary.right) {
+                                if let Ok(sel) = Selector::try_decode_exact(&sym_text) {
+                                    let resolved = (context.resolver)(&DispatchReceiver::Instance(class_id.clone()), &sel.encode())
+                                        .or_else(|| (context.resolver)(&DispatchReceiver::ClassObject(class_id.clone()), &sel.encode()));
+                                    if let Some(resolved) = resolved {
+                                        return exact(ValueShape::Method(resolved.callable), range);
+                                    } else {
+                                        return flow(ValueShape::Unknown, range);
+                                    }
+                                } else if let Ok(pat) = SelectorPattern::try_decode_pattern(&sym_text) {
+                                    let family = (context.family_resolver)(&DispatchReceiver::Instance(class_id.clone()), &pat);
+                                    return exact(ValueShape::MethodFamily(Arc::new(family)), range);
+                                }
+                            }
+                        }
                     }
+                    return flow(ValueShape::Unknown, range);
                 }
             }
             if matches!(binary.op, BinaryOp::Same) {
@@ -211,6 +200,36 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             }
             if let Some(value) = analyze_trusted_type_test(call, &receiver, range, context) {
                 return value;
+            }
+            if let ValueShape::ClassObject(class_id) = &receiver.shape {
+                if class_id.name == "Selector" && (call.method == "call" || call.method == "from" || call.method == "new") && call.args.len() == 1 {
+                    let arg_expr = match &call.args[0] {
+                        PackItem::Positional { expr, .. } => Some(expr),
+                        PackItem::Labeled { value, .. } => Some(value),
+                        _ => None,
+                    };
+                    if let Some(expr) = arg_expr {
+                        if let Some(sym_text) = symbol_from_expr(expr) {
+                            if let Ok(sel) = Selector::try_decode_exact(&sym_text) {
+                                return exact(ValueShape::Selector(sel), range);
+                            }
+                        }
+                    }
+                }
+                if class_id.name == "SelectorPattern" && (call.method == "call" || call.method == "from" || call.method == "new") && call.args.len() == 1 {
+                    let arg_expr = match &call.args[0] {
+                        PackItem::Positional { expr, .. } => Some(expr),
+                        PackItem::Labeled { value, .. } => Some(value),
+                        _ => None,
+                    };
+                    if let Some(expr) = arg_expr {
+                        if let Some(sym_text) = symbol_from_expr(expr) {
+                            if let Ok(pat) = SelectorPattern::try_decode_pattern(&sym_text) {
+                                return exact(ValueShape::SelectorPattern(pat), range);
+                            }
+                        }
+                    }
+                }
             }
             // Method & MethodFamily .bind(receiver)
             if call.method == "bind" && call.args.len() == 1 {
@@ -469,9 +488,75 @@ fn analyze_var(name: &str, range: phalcom_common::range::SourceRange, context: &
         .unwrap_or_else(|| flow(ValueShape::Unknown, range))
 }
 
+fn symbol_from_expr(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Symbol(s) => match &s.kind {
+            SymbolLiteralKind::Name(name) => Some(name.clone()),
+            SymbolLiteralKind::Selector { name, labels } => {
+                let slots = labels
+                    .iter()
+                    .map(|l| match l {
+                        Some(label) => SelectorSlot::Label(label.clone()),
+                        None => SelectorSlot::Positional,
+                    })
+                    .collect::<Vec<_>>();
+                Selector::method(name, slots).ok().map(|s| s.encode())
+            }
+            SymbolLiteralKind::Subscript { labels, setter } => {
+                let slots = labels
+                    .iter()
+                    .map(|label| match label {
+                        Some(label) => SelectorSlot::Label(label.clone()),
+                        None => SelectorSlot::Positional,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                if *setter {
+                    Selector::subscript_set(slots).ok().map(|s| s.encode())
+                } else {
+                    Selector::subscript_get(slots).ok().map(|s| s.encode())
+                }
+            }
+            SymbolLiteralKind::Pattern(syntax) => {
+                syntax.normalize().ok().map(|p| p.encode())
+            }
+        },
+        Expr::String { value, .. } => Some(value.clone()),
+        _ => None,
+    }
+}
+
 fn analyze_unqualified_call(name: &str, args: &[PackItem], range: phalcom_common::range::SourceRange, context: &AnalysisContext<'_>) -> InferredValue {
     for argument in args {
         analyze_pack(argument, context);
+    }
+    if name == "Selector" && args.len() == 1 {
+        let arg_expr = match &args[0] {
+            PackItem::Positional { expr, .. } => Some(expr),
+            PackItem::Labeled { value, .. } => Some(value),
+            _ => None,
+        };
+        if let Some(expr) = arg_expr {
+            if let Some(sym_text) = symbol_from_expr(expr) {
+                if let Ok(sel) = Selector::try_decode_exact(&sym_text) {
+                    return exact(ValueShape::Selector(sel), range);
+                }
+            }
+        }
+    }
+    if name == "SelectorPattern" && args.len() == 1 {
+        let arg_expr = match &args[0] {
+            PackItem::Positional { expr, .. } => Some(expr),
+            PackItem::Labeled { value, .. } => Some(value),
+            _ => None,
+        };
+        if let Some(expr) = arg_expr {
+            if let Some(sym_text) = symbol_from_expr(expr) {
+                if let Ok(pat) = SelectorPattern::try_decode_pattern(&sym_text) {
+                    return exact(ValueShape::SelectorPattern(pat), range);
+                }
+            }
+        }
     }
     if let Some(binding) = context.environment.get(name).or_else(|| {
         context.local_facts.and_then(|facts| {

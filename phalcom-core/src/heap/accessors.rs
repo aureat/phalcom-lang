@@ -15,7 +15,7 @@ use crate::heap::TupleObject;
 use crate::heap::Upvalue;
 use crate::method::MethodObject;
 
-use super::object::{BoundMethodFamilyObject, BoundMethodObject, FamilyObject, MethodFamilyObject};
+use super::object::{BoundMethodFamilyObject, BoundMethodObject, FamilyObject, MethodFamilyObject, SelectorObject, SelectorPatternObject};
 use super::{ClassId, FiberObject, Heap, ObjRef, Object};
 
 impl Heap {
@@ -463,6 +463,34 @@ impl Heap {
     pub fn as_family(&self, id: ObjRef) -> Option<&FamilyObject> {
         match self.objects.get(id) {
             Some(Object::Family(family)) => Some(family),
+            _ => None,
+        }
+    }
+
+    pub fn selector(&self, id: ObjRef) -> &SelectorObject {
+        match self.get(id) {
+            Object::Selector(selector) => selector,
+            _ => panic!("ObjRef {id:?} is not an Object::Selector"),
+        }
+    }
+
+    pub fn as_selector(&self, id: ObjRef) -> Option<&SelectorObject> {
+        match self.objects.get(id) {
+            Some(Object::Selector(selector)) => Some(selector),
+            _ => None,
+        }
+    }
+
+    pub fn selector_pattern(&self, id: ObjRef) -> &SelectorPatternObject {
+        match self.get(id) {
+            Object::SelectorPattern(pat) => pat,
+            _ => panic!("ObjRef {id:?} is not an Object::SelectorPattern"),
+        }
+    }
+
+    pub fn as_selector_pattern(&self, id: ObjRef) -> Option<&SelectorPatternObject> {
+        match self.objects.get(id) {
+            Some(Object::SelectorPattern(pat)) => Some(pat),
             _ => None,
         }
     }

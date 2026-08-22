@@ -29,6 +29,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest};
+use crate::analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStatusNotification};
 
 use serde_json::Value as JsonValue;
 use tower_lsp::jsonrpc::Result;
@@ -1257,7 +1258,27 @@ impl LanguageServer for Backend {
                                 });
                             }
                         }
-                        AnalysisEvent::StaleBatchDiscarded { .. } | AnalysisEvent::Error { .. } => {}
+                        AnalysisEvent::Status(status) => {
+                            client.send_notification::<AnalysisStatusNotification>(status).await;
+                        }
+                        AnalysisEvent::Error { message } => {
+                            let status = AnalysisStatus {
+                                session: 0,
+                                sequence: 0,
+                                phase: AnalysisPhase::Error,
+                                step: None,
+                                mode: crate::workspace_scan::AnalysisMode::Local,
+                                current_uri: None,
+                                discovered_files: 0,
+                                indexed_files: 0,
+                                analyzed_files: 0,
+                                generation: None,
+                                complete: false,
+                                message: Some(message),
+                            };
+                            client.send_notification::<AnalysisStatusNotification>(status).await;
+                        }
+                        AnalysisEvent::StaleBatchDiscarded { .. } => {}
                     }
                 }
             });

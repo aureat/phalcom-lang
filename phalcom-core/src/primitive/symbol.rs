@@ -35,6 +35,36 @@ pub fn symbol_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     Ok(crate::primitive::hash_code(u64::from(symbol.0)))
 }
 
+/// Signature: `Symbol::isSelector` — true if text represents an exact selector syntax.
+#[phalcom_native_macros::primitive(
+    Symbol,
+    "isSelector",
+    params = [],
+    returns = Bool,
+    types = "() -> Bool",
+    effects = pure
+)]
+pub fn symbol_is_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let symbol = expect_value!(receiver, Symbol);
+    let text = vm.resolve_symbol(symbol);
+    Ok(Value::bool(phalcom_common::selector::is_exact_selector_syntax(text)))
+}
+
+/// Signature: `Symbol::isSelectorPattern` — true if text represents a selector pattern syntax.
+#[phalcom_native_macros::primitive(
+    Symbol,
+    "isSelectorPattern",
+    params = [],
+    returns = Bool,
+    types = "() -> Bool",
+    effects = pure
+)]
+pub fn symbol_is_selector_pattern(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let symbol = expect_value!(receiver, Symbol);
+    let text = vm.resolve_symbol(symbol);
+    Ok(Value::bool(phalcom_common::selector::is_selector_pattern_syntax(text)))
+}
+
 /// Signature: `Symbol.class::new(_)` — interns its argument into a symbol.
 #[phalcom_native_macros::primitive(
     Symbol,

@@ -108,27 +108,44 @@ pub fn behavior_extract_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
 
 fn behavior_extract_as(vm: &mut VM, behavior: crate::heap::ClassId, rhs: &Value, caller_authority: (Option<crate::heap::ClassId>, bool)) -> PhResult<Value> {
     if let Some(selector) = rhs.symbol_value() {
-        match lookup_method_in_hierarchy(&vm.heap, behavior, selector) {
-            Some(method) => {
-                vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
-                Ok(Value::obj(method))
-            }
-            None => Ok(vm.none_value()),
+        if let Some(method) = lookup_method_in_hierarchy(&vm.heap, behavior, selector) {
+            vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
+            return Ok(Value::obj(method));
         }
-    } else if let Some(pattern) = rhs.as_obj() {
-        if matches!(vm.heap.get(pattern), Object::SelectorPattern(_)) {
-            let family = vm.capture_method_family(behavior, pattern, caller_authority)?;
-            Ok(Value::obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))))
-        } else {
-            Err(RuntimeError::Type {
-                expected: "Symbol or SelectorPattern",
+        let text = vm.resolve_symbol(selector);
+        if phalcom_common::selector::is_selector_pattern_syntax(text) {
+            if let Ok(pattern) = phalcom_common::selector::SelectorPattern::try_decode_pattern(text) {
+                let pattern_object = crate::heap::SelectorPatternObject::compile(pattern, &mut vm.interner);
+                let pattern_ref = vm.heap.alloc(Object::SelectorPattern(Box::new(pattern_object)));
+                let family = vm.capture_method_family(behavior, pattern_ref, caller_authority)?;
+                return Ok(Value::obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))));
+            }
+        }
+        Ok(vm.none_value())
+    } else if let Some(id) = rhs.as_obj() {
+        match vm.heap.get(id) {
+            Object::Selector(sel) => {
+                match lookup_method_in_hierarchy(&vm.heap, behavior, sel.symbol) {
+                    Some(method) => {
+                        vm.authorize_method_access_as(method, caller_authority.0, caller_authority.1)?;
+                        Ok(Value::obj(method))
+                    }
+                    None => Ok(vm.none_value()),
+                }
+            }
+            Object::SelectorPattern(_) => {
+                let family = vm.capture_method_family(behavior, id, caller_authority)?;
+                Ok(Value::obj(vm.heap.alloc(Object::MethodFamily(Box::new(family)))))
+            }
+            _ => Err(RuntimeError::Type {
+                expected: "Symbol, Selector, or SelectorPattern",
                 found: rhs.type_name(),
             }
-            .into())
+            .into()),
         }
     } else {
         Err(RuntimeError::Type {
-            expected: "Symbol or SelectorPattern",
+            expected: "Symbol, Selector, or SelectorPattern",
             found: rhs.type_name(),
         }
         .into())

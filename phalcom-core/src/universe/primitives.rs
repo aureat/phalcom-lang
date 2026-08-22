@@ -41,10 +41,11 @@ use crate::primitive::primitive_static_internal;
 use crate::primitive::range::{range_raw_lower, range_raw_upper, range_raw_upper_inclusive};
 use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
 use crate::primitive::reflection::*;
-use crate::primitive::selector_pattern::selector_pattern_matches;
+use crate::primitive::selector::*;
+use crate::primitive::selector_pattern::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
-use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
+use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_raw_write, system_schedule};
 use crate::primitive::tuple::{
     tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size,
@@ -163,9 +164,6 @@ impl Universe {
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(0), number_class_new);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(1), number_class_new);
 
-        let selector_pattern_cls = vm.universe.classes.selector_pattern_class;
-        primitive!(vm, selector_pattern_cls, "matches", SignatureKind::Method(1), selector_pattern_matches);
-
         let int_cls = vm.universe.classes.int_class;
         primitive!(vm, int_cls, "&", SignatureKind::Method(1), int_and);
         primitive!(vm, int_cls, "|", SignatureKind::Method(1), int_or);
@@ -248,7 +246,30 @@ impl Universe {
         primitive!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
         // Value digest (ADR-0023): the interned id, so equal symbols agree.
         primitive!(vm, symbol_cls, "hash", SignatureKind::Getter, symbol_hash);
+        primitive!(vm, symbol_cls, "isSelector", SignatureKind::Getter, symbol_is_selector);
+        primitive!(vm, symbol_cls, "isSelectorPattern", SignatureKind::Getter, symbol_is_selector_pattern);
         primitive_static!(vm, symbol_cls, "new", SignatureKind::Method(1), symbol_class_new);
+
+        let selector_cls = vm.universe.classes.selector_class;
+        primitive_static!(vm, selector_cls, "call", SignatureKind::Method(1), selector_class_call);
+        primitive_static!(vm, selector_cls, "from", SignatureKind::Method(1), selector_class_from);
+        primitive_static!(vm, selector_cls, "new", SignatureKind::Method(1), selector_class_new);
+        primitive!(vm, selector_cls, "base", SignatureKind::Getter, selector_base);
+        primitive!(vm, selector_cls, "kind", SignatureKind::Getter, selector_kind);
+        primitive!(vm, selector_cls, "slots", SignatureKind::Getter, selector_slots);
+        primitive!(vm, selector_cls, "toString", SignatureKind::Getter, selector_to_string);
+        primitive!(vm, selector_cls, "==", SignatureKind::Method(1), selector_equals);
+        primitive!(vm, selector_cls, "hash", SignatureKind::Getter, selector_hash);
+
+        let selector_pattern_cls = vm.universe.classes.selector_pattern_class;
+        primitive_static!(vm, selector_pattern_cls, "call", SignatureKind::Method(1), selector_pattern_class_call);
+        primitive_static!(vm, selector_pattern_cls, "from", SignatureKind::Method(1), selector_pattern_class_from);
+        primitive_static!(vm, selector_pattern_cls, "new", SignatureKind::Method(1), selector_pattern_class_new);
+        primitive!(vm, selector_pattern_cls, "base", SignatureKind::Getter, selector_pattern_base);
+        primitive!(vm, selector_pattern_cls, "matches", SignatureKind::Method(1), selector_pattern_matches);
+        primitive!(vm, selector_pattern_cls, "toString", SignatureKind::Getter, selector_pattern_to_string);
+        primitive!(vm, selector_pattern_cls, "==", SignatureKind::Method(1), selector_pattern_equals);
+        primitive!(vm, selector_pattern_cls, "hash", SignatureKind::Getter, selector_pattern_hash);
 
         // Absence substrate (ADR-0007): `Some(_)` construction and the
         // `match(some:none:)` eliminator. Bootstrapped as Rust primitives so U6
@@ -742,6 +763,7 @@ fn validate_native_surface(vm: &VM) {
         classes.method_family_class,
         classes.bound_method_family_class,
         classes.symbol_class,
+        classes.selector_class,
         classes.selector_pattern_class,
         classes.module_class,
         classes.system_class,

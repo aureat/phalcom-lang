@@ -38,3 +38,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "io-util", "macros", "sy
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[[test]]
+name = "analysis_status"
+path = "tests/analysis_status.rs"

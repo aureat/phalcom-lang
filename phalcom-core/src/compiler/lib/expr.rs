@@ -793,11 +793,7 @@ impl<'vm> Compiler<'vm> {
                         let NormalizedSelectorSpec::Pattern(pattern) = normalized else {
                             unreachable!("pattern syntax normalized to exact selector")
                         };
-                        let pattern_object = crate::heap::SelectorPatternObject::compile(pattern, &mut self.vm.interner);
-                        let pattern = self.vm.heap.alloc(crate::heap::Object::SelectorPattern(Box::new(pattern_object)));
-                        let idx = self.add_constant(Value::obj(pattern));
-                        self.emit(Bytecode::Constant(idx), range);
-                        return Ok(());
+                        pattern.encode()
                     }
                 };
                 let sym = self.vm.interner.intern(&canonical);

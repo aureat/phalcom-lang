@@ -1231,6 +1231,16 @@ pub enum NormalizedSelectorSpec {
     Pattern(SelectorPattern),
 }
 
+impl NormalizedSelectorSpec {
+    pub fn try_decode(text: &str) -> Result<Self, SelectorError> {
+        if phalcom_common::selector::is_selector_pattern_syntax(text) {
+            SelectorPattern::try_decode_pattern(text).map(Self::Pattern)
+        } else {
+            Selector::try_decode_exact(text).map(Self::Exact)
+        }
+    }
+}
+
 impl ExactSelectorSyntax {
     pub fn normalize(&self) -> Result<Selector, SelectorError> {
         Selector::new(

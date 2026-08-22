@@ -91,7 +91,7 @@ fn comp_04_builtin_selective_import_real_export_compiles() {
     let src_dir = root.join("src");
     std::fs::create_dir_all(&src_dir).unwrap();
     std::fs::write(src_dir.join("package.ph"), "expose .entry\n").unwrap();
-    std::fs::write(src_dir.join("entry.ph"), "from universe.reflection.selector import Selector\n").unwrap();
+    std::fs::write(src_dir.join("entry.ph"), "from universe.errors.unsupported import unsupported\n").unwrap();
 
     let selection = EntrySelection::Project(root.to_path_buf());
     let program = ProgramCompiler::compile_entry_selection(selection).expect("compile should succeed");
@@ -103,12 +103,12 @@ fn comp_04_builtin_selective_import_real_export_compiles() {
         .expect("entry module present");
 
     let linked_entry = program.linked.modules.get(entry_id).expect("linked entry present");
-    assert!(linked_entry.bindings.imports.contains_key("Selector"));
+    assert!(linked_entry.bindings.imports.contains_key("unsupported"));
     assert!(
         entry_mod
             .linked_reads
             .iter()
-            .any(|spec| matches!(spec, LinkedReadSpec::Binding(sym) if &*sym.name == "Selector"))
+            .any(|spec| matches!(spec, LinkedReadSpec::Binding(sym) if &*sym.name == "unsupported"))
     );
 }
 
@@ -125,13 +125,13 @@ fn comp_05_builtin_selective_import_non_exported_fails() {
     let src_dir = root.join("src");
     std::fs::create_dir_all(&src_dir).unwrap();
     std::fs::write(src_dir.join("package.ph"), "expose .entry\n").unwrap();
-    std::fs::write(src_dir.join("entry.ph"), "from universe.reflection import Selector\n").unwrap();
+    std::fs::write(src_dir.join("entry.ph"), "from universe.reflection import NonExistentExport\n").unwrap();
 
     let selection = EntrySelection::Project(root.to_path_buf());
     let result = ProgramCompiler::compile_entry_selection(selection);
     assert!(
-        matches!(result, Err(ProgramCompileError::Link(LinkError::MissingExport { ref name, .. })) if name == "Selector"),
-        "expected MissingExport for Selector, got {:?}",
+        matches!(result, Err(ProgramCompileError::Link(LinkError::MissingExport { ref name, .. })) if name == "NonExistentExport"),
+        "expected MissingExport for NonExistentExport, got {:?}",
         result
     );
 }

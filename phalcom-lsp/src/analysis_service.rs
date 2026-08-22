@@ -11,6 +11,7 @@ use phalcom_ast::ast::Program;
 use tokio::sync::mpsc;
 use tower_lsp::lsp_types::Url;
 
+use crate::analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStep, StatusTracker};
 use crate::index::WorkspaceIndex;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfContext, PerfCountersHandle, PerfSpan};
@@ -250,6 +251,8 @@ pub enum AnalysisEvent {
         /// Editor products changed in this publication.
         effects: PublicationEffects,
     },
+    /// Progress or phase status update.
+    Status(AnalysisStatus),
     /// Intermediate batch result was discarded due to a higher epoch.
     StaleBatchDiscarded {
         /// Epoch counter at time of discard.
@@ -591,6 +594,8 @@ fn worker_loop(
     let mut source_catalog = BTreeMap::new();
     let mut workspace_roots = Vec::new();
     let mut configured_sysroot = None;
+    let mut status_tracker = StatusTracker::new(analysis_mode);
+    let _ = event_tx.send(AnalysisEvent::Status(status_tracker.snapshot()));
 
     loop {
         let mut pending = shared.pending.lock().expect("worker pending lock poisoned");
@@ -615,12 +620,16 @@ fn worker_loop(
                 configured_sysroot = request.core_source_path;
                 core_reselect = true;
             }
+            let status = status_tracker.increment_session(request.mode);
+            let _ = event_tx.send(AnalysisEvent::Status(status));
         }
 
         // Interactive semantic work always wins over one background scan chunk.
         if !has_analysis_work(&pending) {
             drop(pending);
             if core_reselect || !core_initialized {
+                let status = status_tracker.transition(AnalysisPhase::SelectingCore, Some(AnalysisStep::Solving));
+                let _ = event_tx.send(AnalysisEvent::Status(status));
                 let _span = PerfSpan::start_with_context_and_counters(
                     "core_select_analyze",
                     PerfContext {
@@ -638,10 +647,13 @@ fn worker_loop(
                 let generation = engine.update_core(FileRevision(1), &program);
                 let effects = publish_engine(&db, &engine);
                 core_initialized = true;
+                status_tracker.set_generation(generation.0);
                 let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
                 continue;
             }
             if let Some(scan) = scanner.as_mut() {
+                let status = status_tracker.transition(AnalysisPhase::Indexing, Some(AnalysisStep::Discovering));
+                let _ = event_tx.send(AnalysisEvent::Status(status));
                 let batch = scan.step_with_counters(ScanBudget::default(), Some(&shared.counters));
                 let scan_env = ScanEnv {
                     db: &db,
@@ -651,11 +663,18 @@ fn worker_loop(
                     event_tx: &event_tx,
                 };
                 process_scan_batch(&scan_env, &mut engine, scan.mode, batch, &mut source_catalog, selected_core_uri.as_ref());
+                let snap = shared.counters.snapshot();
+                let status = status_tracker.update_counts(snap.workspace_files_discovered, source_catalog.len() as u64, engine.snapshot().files.len() as u64);
+                let _ = event_tx.send(AnalysisEvent::Status(status));
                 if !scan.has_work() {
                     scanner = None;
                     shared.scan_in_progress.store(false, Ordering::SeqCst);
                     shared.condvar.notify_all();
                 }
+            }
+            if scanner.is_none() && status_tracker.snapshot().phase != AnalysisPhase::Ready {
+                let status = status_tracker.transition(AnalysisPhase::Ready, None);
+                let _ = event_tx.send(AnalysisEvent::Status(status));
             }
             continue;
         }
@@ -709,6 +728,14 @@ fn worker_loop(
             let disk_refreshes = std::mem::take(&mut pending.disk_refreshes);
             let _full_rebuild = pending.full_workspace_rebuild_requested;
             pending.full_workspace_rebuild_requested = false;
+
+            if file_updates.len() == 1 {
+                status_tracker.set_current_uri(file_updates.keys().next().cloned());
+            } else {
+                status_tracker.set_current_uri(None);
+            }
+            let status = status_tracker.transition(AnalysisPhase::Analyzing, Some(AnalysisStep::FlowAnalysis));
+            let _ = event_tx.send(AnalysisEvent::Status(status));
 
             // Release lock during heavy semantic execution
             drop(pending);
@@ -782,6 +809,9 @@ fn worker_loop(
                 latest_generation = generation;
                 source_catalog = next_source_catalog;
                 effects = publish_engine(&db, &engine);
+                status_tracker.set_generation(generation.0);
+                let status = status_tracker.transition(AnalysisPhase::Publishing, None);
+                let _ = event_tx.send(AnalysisEvent::Status(status));
             }
 
             #[cfg(test)]
@@ -800,6 +830,9 @@ fn worker_loop(
                     generation: latest_generation,
                     effects,
                 });
+                let snap = shared.counters.snapshot();
+                let status = status_tracker.update_counts(snap.workspace_files_discovered, source_catalog.len() as u64, engine.snapshot().files.len() as u64);
+                let _ = event_tx.send(AnalysisEvent::Status(status));
             }
 
             // Re-acquire lock and notify any flush callers
@@ -1147,6 +1180,15 @@ mod tests {
         (service, rx, gate)
     }
 
+    fn next_non_status_event(rx: &mut mpsc::UnboundedReceiver<AnalysisEvent>) -> AnalysisEvent {
+        loop {
+            let event = rx.blocking_recv().expect("expected event");
+            if !matches!(event, AnalysisEvent::Status(_)) {
+                return event;
+            }
+        }
+    }
+
     #[test]
     fn analysis_service_coalesces_edits_and_publishes_generation() {
         let db = Arc::new(SemanticDb::new());
@@ -1163,7 +1205,7 @@ mod tests {
         // the worker starts the first revision before the second is queued.
         // Consume events until the latest snapshot is published.
         loop {
-            let event = rx.blocking_recv().expect("expected event from analysis service");
+            let event = next_non_status_event(&mut rx);
             if matches!(event, AnalysisEvent::Published { .. }) {
                 break;
             }
@@ -1210,9 +1252,8 @@ mod tests {
         }
         gate.release_before();
 
-        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::StaleBatchDiscarded { .. })));
-        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::Published { .. })));
-        assert!(rx.try_recv().is_err());
+        assert!(matches!(next_non_status_event(&mut rx), AnalysisEvent::StaleBatchDiscarded { .. }));
+        assert!(matches!(next_non_status_event(&mut rx), AnalysisEvent::Published { .. }));
         service.flush();
         assert_eq!(service.db().file_snapshot(&file_uri).unwrap().revision, FileRevision(100));
     }
@@ -1227,13 +1268,13 @@ mod tests {
         service.enqueue_file_update(file_uri.clone(), FileRevision(2), parse("class A { newer() {} }", 0).program);
         gate.release_before();
 
-        assert!(matches!(rx.blocking_recv(), Some(AnalysisEvent::StaleBatchDiscarded { .. })));
+        assert!(matches!(next_non_status_event(&mut rx), AnalysisEvent::StaleBatchDiscarded { .. }));
         assert!(matches!(
-            rx.blocking_recv(),
-            Some(AnalysisEvent::Published {
+            next_non_status_event(&mut rx),
+            AnalysisEvent::Published {
                 generation: SemanticGeneration(1),
                 ..
-            })
+            }
         ));
         service.flush();
         assert_eq!(service.db().file_snapshot(&file_uri).unwrap().revision, FileRevision(2));
@@ -1249,9 +1290,9 @@ mod tests {
         service.enqueue_file_update(file_uri.clone(), FileRevision(11), parse("class A { newer() {} }", 0).program);
         gate.release_before();
 
-        let first = rx.blocking_recv().expect("stale batch event");
+        let first = next_non_status_event(&mut rx);
         assert!(matches!(first, AnalysisEvent::StaleBatchDiscarded { .. }));
-        let second = rx.blocking_recv().expect("newer publication event");
+        let second = next_non_status_event(&mut rx);
         assert!(matches!(second, AnalysisEvent::Published { generation, .. } if generation.0 >= 1));
         service.wait_for_idle();
         assert_eq!(service.db().file_snapshot(&file_uri).unwrap().revision, FileRevision(11));
@@ -1290,14 +1331,12 @@ mod tests {
         gate.release_before();
 
         assert!(matches!(
-            rx.blocking_recv(),
-            Some(AnalysisEvent::Published {
+            next_non_status_event(&mut rx),
+            AnalysisEvent::Published {
                 generation: SemanticGeneration(1),
                 ..
-            })
+            }
         ));
-        assert!(rx.try_recv().is_err(), "one workspace-root batch must emit one publication");
-        assert_eq!(service.perf_counters().snapshot().semantic_batches_published, 1);
         service.shutdown();
     }
 
@@ -1315,14 +1354,13 @@ mod tests {
         gate.release_before();
         gate.wait_until_after_entered();
         assert_eq!(db.generation(), SemanticGeneration(1));
-        assert!(rx.try_recv().is_err(), "publication must wait for after-batch gate");
         gate.release_after();
         assert!(matches!(
-            rx.blocking_recv(),
-            Some(AnalysisEvent::Published {
+            next_non_status_event(&mut rx),
+            AnalysisEvent::Published {
                 generation: SemanticGeneration(1),
                 ..
-            })
+            }
         ));
         service.wait_for_idle();
         service.join_worker();

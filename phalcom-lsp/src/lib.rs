@@ -39,6 +39,7 @@
 #![warn(missing_docs)]
 
 pub mod analysis_service;
+pub mod analysis_status;
 pub mod backend;
 pub mod completion;
 pub mod diagnostics;
@@ -54,4 +55,5 @@ pub mod semantic;
 pub mod semantic_tokens;
 pub mod workspace_scan;
 
+pub use analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStatusNotification, AnalysisStep};
 pub use backend::Backend;

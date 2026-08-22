@@ -23,7 +23,8 @@ function lspBinary(): string {
 
 async function completionLabels(
     document: vscode.TextDocument,
-    receiverNeedle: string
+    receiverNeedle: string,
+    predicate?: (labels: string[]) => boolean
 ): Promise<string[]> {
     const offset = document.getText().indexOf(receiverNeedle);
     assert.ok(offset >= 0, `needle not found: ${receiverNeedle}`);
@@ -31,16 +32,24 @@ async function completionLabels(
     // receiverNeedle includes its trailing dot.
     const position = document.positionAt(offset + receiverNeedle.length);
 
-    const list =
-        await vscode.commands.executeCommand<vscode.CompletionList>(
+    let lastLabels: string[] = [];
+    for (let attempt = 0; attempt < 50; attempt++) {
+        const list = await vscode.commands.executeCommand<vscode.CompletionList>(
             'vscode.executeCompletionItemProvider',
             document.uri,
             position,
             '.'
         );
+        if (list && list.items.length > 0) {
+            lastLabels = list.items.map(item => item.label.toString());
+            if (!predicate || predicate(lastLabels)) {
+                return lastLabels;
+            }
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
 
-    assert.ok(list, 'VS Code returned no CompletionList');
-    return list.items.map(item => item.label.toString());
+    return lastLabels;
 }
 
 suite('Phalcom LSP extension E2E', () => {
@@ -111,7 +120,11 @@ suite('Phalcom LSP extension E2E', () => {
             await vscode.window.showTextDocument(document);
 
             const labels =
-                await completionLabels(document, 'dog.');
+                await completionLabels(
+                    document,
+                    'dog.',
+                    labels => labels.includes('bark()') && labels.includes('move()')
+                );
 
             assert.ok(
                 labels.includes('bark()'),
@@ -146,7 +159,11 @@ suite('Phalcom LSP extension E2E', () => {
                 await vscode.window.showTextDocument(document);
 
             let labels =
-                await completionLabels(document, 'value.');
+                await completionLabels(
+                    document,
+                    'value.',
+                    labels => labels.includes('meow()')
+                );
             assert.ok(
                 labels.includes('meow()'),
                 `initial Cat completion missing: ${labels}`
@@ -174,7 +191,11 @@ suite('Phalcom LSP extension E2E', () => {
             assert.ok(applied, 'VS Code rejected live-edit replacement');
 
             labels =
-                await completionLabels(document, 'value.');
+                await completionLabels(
+                    document,
+                    'value.',
+                    labels => labels.includes('bark()') && !labels.includes('meow()')
+                );
 
             assert.ok(
                 labels.includes('bark()'),

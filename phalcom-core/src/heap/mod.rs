@@ -44,6 +44,7 @@ mod range;
 mod record;
 mod record_literal_builder;
 pub mod reflection;
+pub(crate) mod selector;
 pub(crate) mod selector_pattern;
 mod string;
 mod trace;
@@ -68,6 +69,7 @@ pub use reflection::{
     ChildModuleTableObject, ExportObject, ExportTableObject, ModuleDependencyObject, ModuleIdentityObject, PackageAuthorObject, PackageIdentityObject,
     PackageInfoObject, PackageRequirementObject, ProjectIdentityObject, ProjectManifestObject, ProjectObject, ResolvedProjectDependencyObject, UriObject,
 };
+pub use selector::SelectorObject;
 pub use selector_pattern::SelectorPatternObject;
 pub use string::StringObject;
 pub use trace::{trace_frame, trace_object};
@@ -337,6 +339,7 @@ impl Heap {
             Some(Object::Record(_)) => "Record",
             Some(Object::Range(_)) => "Range",
             Some(Object::Family(_)) => "Family",
+            Some(Object::Selector(_)) => "Selector",
             Some(Object::SelectorPattern(_)) => "SelectorPattern",
             Some(Object::MethodFamily(_)) => "MethodFamily",
             Some(Object::BoundMethodFamily(_)) => "BoundMethodFamily",

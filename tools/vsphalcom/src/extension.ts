@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { registerRunFile } from "./run"
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from "vscode-languageclient/node"
+import { AnalysisStatusBarController } from "./analysisStatus"
 
 /**
  * The running `phalcom-lsp` client, if `phalcom.lsp.enabled` is `true`
@@ -124,6 +125,8 @@ function readInitializationOptions() {
     }
 }
 
+let statusBarController: AnalysisStatusBarController | undefined
+
 /**
  * Constructs and starts the `vscode-languageclient` `LanguageClient` that
  * spawns `phalcom-lsp` over stdio and registers it for `.ph` documents.
@@ -147,6 +150,10 @@ function startLspClient(context: ExtensionContext): LanguageClient {
     }
 
     const client = new LanguageClient("phalcomLsp", "Phalcom Language Server", serverOptions, clientOptions)
+
+    if (statusBarController) {
+        statusBarController.attach(client)
+    }
 
     void client.start()
 
@@ -179,12 +186,19 @@ export function activate(context: ExtensionContext) {
 
     lspOutput = window.createOutputChannel("Phalcom Language Server")
     context.subscriptions.push(lspOutput)
+
+    statusBarController = new AnalysisStatusBarController()
+    context.subscriptions.push(statusBarController)
+
     ensureLspClientLifecycle(context)
 
     context.subscriptions.push(commands.registerCommand("phalcom.restartLanguageServer", async () => {
         await restartLspClient(context)
     }))
     context.subscriptions.push(commands.registerCommand("phalcom.showLanguageServerOutput", () => lspOutput?.show()))
+    context.subscriptions.push(commands.registerCommand("phalcom.showAnalysisStatus", async () => {
+        await statusBarController?.showStatusPopover()
+    }))
     context.subscriptions.push(workspace.onDidChangeConfiguration(async event => {
         if (event.affectsConfiguration("phalcom.lsp.enabled") || event.affectsConfiguration("phalcom.lsp.serverPath")) {
             await restartLspClient(context)

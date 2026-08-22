@@ -186,6 +186,14 @@ impl Selector {
     }
 }
 
+pub fn is_exact_selector_syntax(text: &str) -> bool {
+    !text.contains("...") && Selector::try_decode_exact(text).is_ok()
+}
+
+pub fn is_selector_pattern_syntax(text: &str) -> bool {
+    SelectorPattern::try_decode_pattern(text).is_ok()
+}
+
 impl SelectorPattern {
     /// Returns canonical source-like selector-pattern text for diagnostics.
     pub fn encode(&self) -> String {
@@ -311,6 +319,93 @@ impl SelectorPattern {
         }
         selector.slots.ends_with(&self.suffix)
     }
+
+    /// Strictly decodes canonical selector-pattern text.
+    pub fn try_decode_pattern(text: &str) -> Result<Self, SelectorError> {
+        if text.is_empty() {
+            return Err(SelectorError::EmptyBase);
+        }
+
+        if let Some(rest) = text.strip_prefix('[') {
+            if let Some(inner) = rest.strip_suffix("]=(put)") {
+                let (prefix, suffix) = parse_pattern_slots_strict(inner)?;
+                return Self::new(
+                    SelectorBase::Subscript,
+                    SelectorKindPattern::Exact(SelectorKind::SubscriptSet),
+                    prefix.into_boxed_slice(),
+                    suffix.into_boxed_slice(),
+                    true,
+                );
+            }
+            if let Some(inner) = rest.strip_suffix(']') {
+                let (prefix, suffix) = parse_pattern_slots_strict(inner)?;
+                return Self::new(
+                    SelectorBase::Subscript,
+                    SelectorKindPattern::Exact(SelectorKind::SubscriptGet),
+                    prefix.into_boxed_slice(),
+                    suffix.into_boxed_slice(),
+                    true,
+                );
+            }
+            return Err(SelectorError::InvalidSyntax(text.to_string()));
+        }
+
+        if let Some(base) = text.strip_suffix("=...") {
+            validate_named_base(base)?;
+            return Self::new(
+                SelectorBase::Named(base.to_string()),
+                SelectorKindPattern::Exact(SelectorKind::Setter),
+                Vec::<SelectorSlot>::new(),
+                Vec::<SelectorSlot>::new(),
+                true,
+            );
+        }
+
+        if let Some(base) = text.strip_suffix("...") {
+            if !base.is_empty() && !base.contains('(') && !base.contains(')') {
+                validate_named_base(base)?;
+                return Self::new(
+                    SelectorBase::Named(base.to_string()),
+                    SelectorKindPattern::AnyNamed,
+                    Vec::<SelectorSlot>::new(),
+                    Vec::<SelectorSlot>::new(),
+                    true,
+                );
+            }
+        }
+
+        let Some(open) = text.find('(') else {
+            return Err(SelectorError::MissingGap);
+        };
+        if !text.ends_with(')') || open == 0 {
+            return Err(SelectorError::InvalidSyntax(text.to_string()));
+        }
+
+        let head = &text[..open];
+        let inner = &text[open + 1..text.len() - 1];
+
+        let name = head.strip_prefix("init ").unwrap_or(head);
+        validate_named_base(name)?;
+        let (prefix, suffix) = parse_pattern_slots_strict(inner)?;
+        Self::new(
+            SelectorBase::Named(name.to_string()),
+            SelectorKindPattern::Exact(SelectorKind::Method),
+            prefix.into_boxed_slice(),
+            suffix.into_boxed_slice(),
+            true,
+        )
+    }
+
+    /// Total decode for selector-pattern values.
+    pub fn decode(text: &str) -> Self {
+        Self::try_decode_pattern(text).unwrap_or_else(|_| Self {
+            base: SelectorBase::Named(text.to_string()),
+            kind: SelectorKindPattern::AnyNamed,
+            prefix: Box::new([]),
+            suffix: Box::new([]),
+            has_gap: true,
+        })
+    }
 }
 
 impl fmt::Display for SelectorPattern {
@@ -373,26 +468,73 @@ fn encode_slots(slots: &[SelectorSlot]) -> String {
         .join(",")
 }
 
+fn parse_slot_strict(part: &str) -> Result<SelectorSlot, SelectorError> {
+    let part = part.trim();
+    if part.is_empty() {
+        return Err(SelectorError::InvalidSyntax("empty selector slot".into()));
+    }
+    if matches!(part, "_" | "*" | "**" | "***") {
+        return Ok(SelectorSlot::Positional);
+    }
+    Ok(SelectorSlot::Label(decode_label_component_strict(part)?))
+}
+
 fn parse_slots_strict(inner: &str) -> Result<Vec<SelectorSlot>, SelectorError> {
-    if inner.is_empty() {
+    if inner.trim().is_empty() {
         return Ok(Vec::new());
     }
     inner
         .split(',')
-        .map(|part| {
-            if part.is_empty() {
-                return Err(SelectorError::InvalidSyntax("empty selector slot".into()));
-            }
-            if matches!(part, "_" | "*" | "**" | "***") {
-                return Ok(SelectorSlot::Positional);
-            }
-            Ok(SelectorSlot::Label(decode_label_component_strict(part)?))
-        })
+        .map(parse_slot_strict)
         .collect::<Result<Vec<_>, _>>()
         .and_then(|slots| {
             validate_slots(&slots)?;
             Ok(slots)
         })
+}
+
+fn parse_pattern_slots_strict(inner: &str) -> Result<(Vec<SelectorSlot>, Vec<SelectorSlot>), SelectorError> {
+    let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+    if parts.is_empty() || (parts.len() == 1 && parts[0].is_empty()) {
+        return Err(SelectorError::MissingGap);
+    }
+    let gap_indices: Vec<usize> = parts
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, &part)| if part == "..." { Some(idx) } else { None })
+        .collect();
+
+    if gap_indices.is_empty() {
+        return Err(SelectorError::MissingGap);
+    }
+    if gap_indices.len() > 1 {
+        return Err(SelectorError::InvalidPatternSlots);
+    }
+
+    let gap_idx = gap_indices[0];
+    let prefix_parts = &parts[..gap_idx];
+    let suffix_parts = &parts[gap_idx + 1..];
+
+    let mut prefix = Vec::with_capacity(prefix_parts.len());
+    for &part in prefix_parts {
+        if part.is_empty() {
+            return Err(SelectorError::InvalidSyntax(inner.to_string()));
+        }
+        prefix.push(parse_slot_strict(part)?);
+    }
+
+    let mut suffix = Vec::with_capacity(suffix_parts.len());
+    for &part in suffix_parts {
+        if part.is_empty() {
+            return Err(SelectorError::InvalidSyntax(inner.to_string()));
+        }
+        suffix.push(parse_slot_strict(part)?);
+    }
+
+    validate_slots(&prefix)?;
+    validate_slots(&suffix)?;
+
+    Ok((prefix, suffix))
 }
 
 /// Decodes the VM's total selector transport, including legacy rest-family
@@ -520,6 +662,29 @@ mod tests {
     fn malformed_label_escape_is_total() {
         for raw in ["~", "~f", "~zz", "~ff"] {
             assert_eq!(decode_label_component(raw), raw);
+        }
+    }
+
+    #[test]
+    fn pattern_decode_round_trip() {
+        let patterns = [
+            "foo(...)",
+            "foo(_, ..., duration)",
+            "foo(..., duration)",
+            "foo...",
+            "foo=...",
+            "[...]",
+            "[...]=(put)",
+            "[_, ...]",
+            "[_, ...]=(put)",
+            "+...",
+            "+(...)",
+        ];
+        for text in patterns {
+            let pat = SelectorPattern::try_decode_pattern(text).unwrap_or_else(|e| panic!("failed to decode {text}: {e}"));
+            assert!(is_selector_pattern_syntax(text));
+            assert!(!is_exact_selector_syntax(text));
+            assert_eq!(pat.encode(), text);
         }
     }
 }

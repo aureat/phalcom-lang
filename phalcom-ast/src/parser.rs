@@ -5082,7 +5082,7 @@ fn symbol_text(symbol: &SymbolLiteralKind) -> String {
                 .join(",");
             if *setter { format!("[{slots}]=(put)") } else { format!("[{slots}]") }
         }
-        SymbolLiteralKind::Pattern(pattern) => pattern.base.clone(),
+        SymbolLiteralKind::Pattern(pattern) => pattern.normalize().map(|p| p.encode()).unwrap_or_else(|_| pattern.base.clone()),
     }
 }
 

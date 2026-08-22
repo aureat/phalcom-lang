@@ -43,12 +43,13 @@ class Num {
   /// Minimum of all given numbers.
   @class
   min(_ nums) {
-    if (nums.isEmpty) {
+    if nums.isEmpty {
       return nil
     }
+
     let m = nums.at(0)
-    for (n in nums) {
-      if (n < m) {
+    for n in nums {
+      if n < m {
         m = n
       }
     }
@@ -58,21 +59,23 @@ class Num {
   /// Maximum of all given numbers.
   @class
   max(_ nums) {
-    if (nums.isEmpty) {
+    if nums.isEmpty {
       return nil
     }
+
     let m = nums.at(0)
-    for (n in nums) {
+    for n in nums {
       if (n > m) {
         m = n
       }
     }
-    return m
+
+    m
   }
 
   /// Test whether n is an integer (has no fractional part).
   @class
   isInt(_ n) {
-    return n == (n - (n % 1))
+    n == (n - (n % 1))
   }
 }

@@ -14,7 +14,7 @@ System.print(None === None)
 // 2. candidate matches pattern
 System.print("abc" matches "abc")
 System.print("abc" matches "def")
-System.print(#+(_) matches #+...)
+System.print(#+(_) matches SelectorPattern(#+...))
 
 // 3. object understands selector
 System.print([1, 2] understands #size)

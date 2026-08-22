@@ -22,12 +22,12 @@ fn selective_import_exposed_child_not_exported_raises() {
 #[test]
 fn selective_import_selector_class_is_non_none() {
     let mut session = ReplSession::start(std::env::current_dir().unwrap());
-    let outcome1 = session.eval("from universe.reflection.selector import Selector");
+    let outcome1 = session.eval("from universe.errors.unsupported import unsupported");
     assert!(!matches!(outcome1, CellOutcome::Failed));
 
-    let outcome2 = session.eval("Selector");
+    let outcome2 = session.eval("unsupported");
     match outcome2 {
-        CellOutcome::Value(v) => assert!(!v.is_none(), "Selector must be a class, not None"),
+        CellOutcome::Value(v) => assert!(!v.is_none(), "unsupported must be a value, not None"),
         other => panic!("expected a value, got {:?}", other),
     }
 }
@@ -43,12 +43,12 @@ fn direct_path_import_package_info_resolves() {
 #[test]
 fn module_import_selector_property_access_is_non_none() {
     let mut session = ReplSession::start(std::env::current_dir().unwrap());
-    let outcome1 = session.eval("import universe.reflection.selector");
+    let outcome1 = session.eval("import universe.errors.unsupported");
     assert!(!matches!(outcome1, CellOutcome::Failed));
 
-    let outcome2 = session.eval("selector.Selector");
+    let outcome2 = session.eval("unsupported.unsupported");
     match outcome2 {
-        CellOutcome::Value(v) => assert!(!v.is_none(), "selector.Selector must be a class, not None"),
+        CellOutcome::Value(v) => assert!(!v.is_none(), "unsupported.unsupported must be a value, not None"),
         other => panic!("expected a value, got {:?}", other),
     }
 }

@@ -235,6 +235,7 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
                 push(pattern);
             }
         }
+        Object::Selector(_) => {}
         Object::SelectorPattern(_) => {}
         Object::MethodFamily(family) => {
             push(family.source_behavior);

@@ -81,15 +81,15 @@ fn bcat_04_load_interface_missing_path_returns_module_not_found() {
     );
 }
 
-/// BCAT-05 — load_interface for universe.reflection.selector returns an interface with Selector in exports
+/// BCAT-05 — load_interface for universe.errors.unsupported returns an interface with unsupported in exports
 #[test]
 fn bcat_05_load_interface_selector_exports_selector() {
     let provider = BuiltinProjectSourceProvider::new(BuiltinProject::Universe);
-    let id = make_universe_id(&["reflection", "selector"]);
-    let iface = provider.load_interface(&id).expect("load selector interface");
+    let id = make_universe_id(&["errors", "unsupported"]);
+    let iface = provider.load_interface(&id).expect("load unsupported interface");
     assert!(
-        iface.exports.contains_key("Selector"),
-        "Selector missing from exports of universe.reflection.selector: {:?}",
+        iface.exports.contains_key("unsupported"),
+        "unsupported missing from exports of universe.errors.unsupported: {:?}",
         iface.exports.keys().collect::<Vec<_>>()
     );
 }

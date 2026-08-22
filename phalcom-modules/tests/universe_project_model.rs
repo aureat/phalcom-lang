@@ -31,7 +31,7 @@ fn test_root_01_and_02_and_05_builtin_providers_source_text_embedded() {
 
     let selector_id = ModuleId::builtin(BuiltinProject::Universe, path(&["reflection", "selector"]));
     let sel_src = universe.source_text(&selector_id).unwrap();
-    assert!(sel_src.contains("class Selector"));
+    assert!(sel_src.contains("First-class dispatch selector representation"));
 
     let std_provider = BuiltinProjectSourceProvider::new(BuiltinProject::Std);
     let json_id = ModuleId::builtin(BuiltinProject::Std, path(&["json"]));

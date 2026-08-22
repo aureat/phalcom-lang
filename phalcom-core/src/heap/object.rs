@@ -133,6 +133,8 @@ pub enum Object {
     ///
     /// [ADR-0047]: ../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md
     Family(FamilyObject),
+    /// An exact selector object materialized on demand from an interned symbol.
+    Selector(Box<SelectorObject>),
     /// An immutable structural selector pattern compiled from a first-class
     /// selector-spec literal. It is boxed so selector metadata does not grow
     /// every arena slot.
@@ -203,6 +205,7 @@ pub enum FamilySpec {
     Pattern(ObjRef),
 }
 
+pub use super::selector::SelectorObject;
 pub use super::selector_pattern::SelectorPatternObject;
 
 /// The immutable result of extracting a structural selector pattern from a

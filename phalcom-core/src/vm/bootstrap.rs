@@ -224,7 +224,7 @@ impl VM {
         // Populate prelude_names with universe globals for compatibility,
         // excluding types explicitly prohibited from prelude by Spec §13.1.
         {
-            let non_prelude_names: std::collections::HashSet<&str> = ["Behavior", "Metaclass", "Selector", "Message"].into_iter().collect();
+            let non_prelude_names: std::collections::HashSet<&str> = ["Behavior", "Metaclass", "Message"].into_iter().collect();
 
             let core_mod = vm.core_module().expect("core module");
             for sym in vm.heap.module(core_mod).name_to_slot.keys().copied().collect::<Vec<_>>() {
@@ -357,6 +357,7 @@ impl VM {
         add_class!(false_class);
         add_class!(method_class);
         add_class!(symbol_class);
+        add_class!(selector_class);
         add_class!(selector_pattern_class);
         add_class!(system_class);
         add_class!(function_class);
