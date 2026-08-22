@@ -18,8 +18,12 @@
 //! grows, so their snapshots act as executable TODOs.
 
 use phalcom_ast::{
-    ast::{ClassMember, Expr, RecordLiteralEntry, ReturnStatement, SelectorSpecSyntax, Statement, SymbolLiteralKind},
-    parse_source,
+    ast::{
+        ClassMember, Expr, GenericConstraintSyntax, KindSyntax, RecordLiteralEntry, ReturnStatement, SelectorSpecSyntax, Statement, SymbolLiteralKind,
+        TypeAnnotationExpr, VarianceSyntax,
+    },
+    error::SyntaxErrorKind,
+    parse as parse_with_recovery, parse_source,
 };
 
 fn source_slice(source: &str, range: phalcom_common::range::SourceRange) -> &str {
@@ -77,12 +81,10 @@ fn class_inherits_from_qualified_static_symbol() {
         panic!("expected class statement")
     };
     let superclass = class.superclass.as_ref().expect("explicit superclass");
-    assert_eq!(superclass.root, "base");
-    assert_eq!(
-        superclass.members.iter().map(|segment| segment.name.as_str()).collect::<Vec<_>>(),
-        vec!["Shape"]
-    );
-    assert!(!superclass.is_bare());
+    let sym = superclass.origin_symbol_ref().expect("static symbol superclass");
+    assert_eq!(sym.root, "base");
+    assert_eq!(sym.members.iter().map(|segment| segment.name.as_str()).collect::<Vec<_>>(), vec!["Shape"]);
+    assert!(!sym.is_bare());
 }
 
 #[test]
@@ -981,4 +983,137 @@ fn parse_membership_range_precedence() {
         }
         other => panic!("expected Membership, got {other:?}"),
     }
+}
+
+#[test]
+fn parse_type_syntax_generic_class_and_token_fission() {
+    let p = parse_source("class Container<+T> is Super<List<T>> where T <: Object {}\n", 0).expect("generic class with >> token fission should parse");
+    let Statement::Class(class) = &p.statements[0] else { panic!() };
+    assert_eq!(class.name, "Container");
+    assert_eq!(class.generic_parameters.len(), 1);
+    assert_eq!(class.generic_parameters[0].name, "T");
+    assert_eq!(class.generic_parameters[0].variance, VarianceSyntax::Covariant);
+
+    let superclass = class.superclass.as_ref().expect("superclass");
+    match &superclass.expr {
+        TypeAnnotationExpr::Application { origin, arguments, .. } => {
+            let sym = origin.origin_symbol_ref().expect("symbol");
+            assert_eq!(sym.root, "Super");
+            assert_eq!(arguments.len(), 1);
+            match &arguments[0].expr {
+                TypeAnnotationExpr::Application {
+                    origin: inner_orig,
+                    arguments: inner_args,
+                    ..
+                } => {
+                    let inner_sym = inner_orig.origin_symbol_ref().expect("symbol");
+                    assert_eq!(inner_sym.root, "List");
+                    assert_eq!(inner_args.len(), 1);
+                }
+                other => panic!("expected nested application, got {other:?}"),
+            }
+        }
+        other => panic!("expected Application, got {other:?}"),
+    }
+
+    let where_clause = class.where_clause.as_ref().expect("where clause");
+    assert_eq!(where_clause.constraints.len(), 1);
+    match &where_clause.constraints[0] {
+        GenericConstraintSyntax::Subtype { lower, upper, .. } => {
+            assert_eq!(lower.origin_symbol_ref().unwrap().root, "T");
+            assert_eq!(upper.origin_symbol_ref().unwrap().root, "Object");
+        }
+        other => panic!("expected subtype constraint, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_type_alias_and_type_precedence() {
+    let p = parse_source("type Callback<T> = (T) -> String | None\n", 0).expect("type alias with callable and union should parse");
+    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
+    assert_eq!(alias.name, "Callback");
+    assert_eq!(alias.generic_parameters.len(), 1);
+    match &alias.body.expr {
+        TypeAnnotationExpr::Callable { parameters, result, .. } => {
+            assert_eq!(parameters.len(), 1);
+            match &result.expr {
+                TypeAnnotationExpr::Union { members, .. } => {
+                    assert_eq!(members.len(), 2);
+                }
+                other => panic!("expected Union on RHS of callable, got {other:?}"),
+            }
+        }
+        other => panic!("expected Callable, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_structural_record_types() {
+    let p = parse_source("type UserRow<R> = #{ name: String, age: Int, | R }\n", 0).expect("structural record type with row tail should parse");
+    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
+    match &alias.body.expr {
+        TypeAnnotationExpr::Record { fields, tail, .. } => {
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].name, "name");
+            assert_eq!(fields[1].name, "age");
+            assert_eq!(tail.as_ref().unwrap().name, "R");
+        }
+        other => panic!("expected Record, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_kind_expressions_and_higher_kinded_binders() {
+    let p = parse_source("type Functor<F: Type -> Type> = F\n", 0).expect("kind annotation on generic parameter should parse");
+    let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
+    let param = &alias.generic_parameters[0];
+    assert_eq!(param.name, "F");
+    match param.kind.as_ref().expect("kind") {
+        KindSyntax::Arrow { parameter, result, .. } => {
+            assert!(matches!(**parameter, KindSyntax::Type(_)));
+            assert!(matches!(**result, KindSyntax::Type(_)));
+        }
+        other => panic!("expected Arrow kind, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_type_lambda_expression() {
+    let p = parse_source("let t = <T> =>> List<T>\n", 0).expect("type lambda expression should parse");
+    let Statement::Let(let_stmt) = &p.statements[0] else { panic!() };
+    match let_stmt.value.as_ref().unwrap() {
+        Expr::TypeForm(ann) => match &ann.expr {
+            TypeAnnotationExpr::TypeLambda { parameters, body, .. } => {
+                assert_eq!(parameters.len(), 1);
+                assert_eq!(parameters[0].name, "T");
+                assert!(matches!(body.expr, TypeAnnotationExpr::Application { .. }));
+            }
+            other => panic!("expected TypeLambda, got {other:?}"),
+        },
+        other => panic!("expected Expr::TypeForm, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_type_syntax_diagnostics_and_recovery() {
+    // 1. Variance on method binder is rejected
+    let res1 = parse_with_recovery("class Foo { bar<+T>() {} }\n", 0);
+    assert!(res1.errors.iter().any(|e| match &e.kind {
+        SyntaxErrorKind::Message(msg) => msg.contains("variance marker '+' only permitted on nominal"),
+        _ => false,
+    }));
+
+    // 2. Inline bounds are rejected and directed to where clause
+    let res2 = parse_with_recovery("class Foo<T <: Int> {}\n", 0);
+    assert!(res2.errors.iter().any(|e| match &e.kind {
+        SyntaxErrorKind::Message(msg) => msg.contains("inline generic constraint"),
+        _ => false,
+    }));
+
+    // 3. Finite set constraint is rejected
+    let res3 = parse_with_recovery("class Foo<T> where T in (A, B) {}\n", 0);
+    assert!(res3.errors.iter().any(|e| match &e.kind {
+        SyntaxErrorKind::Message(msg) => msg.contains("finite exact-set constraint"),
+        _ => false,
+    }));
 }

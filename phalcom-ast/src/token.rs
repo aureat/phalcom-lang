@@ -96,6 +96,10 @@ pub enum Token {
     /// parse because [`crate::parser`]'s property-name production also accepts
     /// this token.
     Try,
+    /// The `where` keyword introducing generic declaration constraints (Spec 04).
+    Where,
+    /// The `type` keyword introducing transparent type alias declarations (Spec 04).
+    TypeKw,
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),
@@ -210,6 +214,10 @@ pub enum Token {
     DotDotDot,
     /// The `->` arrow punctuation mark.
     Arrow,
+    /// The `<:` generic subtype constraint operator (Spec 04).
+    Subtype,
+    /// The `=>>` type lambda arrow operator (Spec 04).
+    TypeLambdaArrow,
     /// The `?` punctuation mark.
     ///
     /// A lone `?` is reserved for a future ternary/try operator and is not part

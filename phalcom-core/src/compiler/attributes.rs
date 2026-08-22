@@ -4,7 +4,7 @@ use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
 use phalcom_ast::ast::{
     AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, FieldKind, GetPropertyExpr, GetterDef,
-    IndexAccessor, MethodDef, ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
+    IndexAccessor, MethodDef, ParameterDef, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr, VariantDef,
 };
 use std::collections::HashMap;
 
@@ -1037,8 +1037,10 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
 
     class.members.push(ClassMember::Method(MethodDef {
         name: "new".to_string(),
+        generic_parameters: Vec::new(),
         params,
         return_annotation: None,
+        where_clause: None,
         body,
         is_static: false,
         is_constructor: true,
@@ -1615,6 +1617,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let eq_body = build_data_eq(&fields, attr_range);
         class.members.push(ClassMember::Method(MethodDef {
             name: "==".to_string(),
+            generic_parameters: Vec::new(),
             params: vec![ParameterDef {
                 name: "other".to_string(),
                 name_range: attr_range,
@@ -1625,6 +1628,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 range: attr_range,
             }],
             return_annotation: None,
+            where_clause: None,
             body: vec![Statement::Return(ReturnStatement {
                 value: Some(eq_body),
                 range: attr_range,
@@ -1692,8 +1696,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 .collect();
             class.members.push(ClassMember::Method(MethodDef {
                 name: "with".to_string(),
+                generic_parameters: Vec::new(),
                 params: with_params,
                 return_annotation: None,
+                where_clause: None,
                 body: vec![Statement::Return(ReturnStatement {
                     value: Some(with_body),
                     range: attr_range,
@@ -1829,8 +1835,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         }));
         members.push(ClassMember::Method(MethodDef {
             name: "_$matchArm".to_string(),
+            generic_parameters: Vec::new(),
             params,
             return_annotation: None,
+            where_clause: None,
             body: vec![Statement::Return(ReturnStatement {
                 value: Some(call_expr),
                 range: v.range,
@@ -1844,12 +1852,17 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
 
         siblings.push(Statement::Class(ClassDef {
             name: v.name.clone(),
-            superclass: Some(SuperclassRef {
-                root: class.name.clone(),
-                root_range: v.range,
-                members: Vec::new(),
+            generic_parameters: Vec::new(),
+            superclass: Some(TypeAnnotation {
+                expr: TypeAnnotationExpr::Reference(StaticSymbolRef {
+                    root: class.name.clone(),
+                    root_range: v.range,
+                    members: Vec::new(),
+                    range: v.range,
+                }),
                 range: v.range,
             }),
+            where_clause: None,
             members,
             attributes: vec![Attribute {
                 kind: AttrKind::Builtin(BuiltinAttr::Data),
@@ -1907,8 +1920,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
     };
     class.members.push(ClassMember::Method(MethodDef {
         name: "match".to_string(),
+        generic_parameters: Vec::new(),
         params: match_params,
         return_annotation: None,
+        where_clause: None,
         body: vec![Statement::Return(ReturnStatement {
             value: Some(arm_call),
             range: match_range,
@@ -2491,8 +2506,10 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
         let constructor_name = method.name.clone();
         members.push(ClassMember::Method(MethodDef {
             name: constructor_name.clone(),
+            generic_parameters: Vec::new(),
             params: method.params.clone(),
             return_annotation: None,
+            where_clause: None,
             body: factory_body,
             is_static: true,
             is_constructor: false,
@@ -2509,8 +2526,10 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
         }));
         members.push(ClassMember::Method(MethodDef {
             name: format!("init {constructor_name}"),
+            generic_parameters: Vec::new(),
             params: method.params,
             return_annotation: None,
+            where_clause: None,
             body: method.body,
             is_static: false,
             is_constructor: true,
@@ -2592,6 +2611,7 @@ fn statement_range(stmt: &Statement) -> SourceRange {
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
         Statement::Export(e) => e.range,
+        Statement::TypeAlias(t) => t.range,
     }
 }
 

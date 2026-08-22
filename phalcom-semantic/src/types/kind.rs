@@ -6,6 +6,8 @@ use super::id::KindId;
 pub enum KindData {
     /// Fully saturated value type (`*` or `Type`).
     Type,
+    /// Record row kind (`RecordRow`).
+    RecordRow,
     /// Type constructor (`Kind -> Kind` or `(Kind, ...) -> Kind`).
     Arrow { parameters: Box<[KindId]>, result: KindId },
 }

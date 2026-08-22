@@ -165,6 +165,7 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
                 class_stmt_idx: usize::MAX,
                 member_idx: usize::MAX,
             },
+            origin: super::surface::MemberOrigin::Native,
         };
         let members = class.members.entry(native.selector.to_string()).or_default();
         match member.side {

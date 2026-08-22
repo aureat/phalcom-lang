@@ -242,7 +242,7 @@ impl<'vm> Compiler<'vm> {
         // consumes `class_def` and before `ctx` borrows `self.vm.interner`
         // mutably (borrow-order matters, see the handoff's "still unknown"
         // list — `class_parents` is read-only here, `interner` mutable).
-        let is_attribute_class = class_def.superclass.as_ref().is_some_and(|sc| sc.leaf_name() == "Attribute");
+        let is_attribute_class = class_def.superclass_ref().is_some_and(|sc| sc.leaf_name() == "Attribute");
         let core_module = self.vm.core_module();
         let mut ctx = ExpandCtx {
             interner: &mut self.vm.interner,
@@ -628,7 +628,7 @@ impl<'vm> Compiler<'vm> {
                     }
                     None => (0, 0),
                 }
-            } else if let Some(sc_ref) = &class_def.superclass {
+            } else if let Some(sc_ref) = class_def.superclass_ref() {
                 let sc_sym = self.vm.interner.intern(sc_ref.leaf_name());
                 let sc_key = self.resolve_superclass_ref(sc_ref);
                 // Self-inheritance and unknown/forward superclasses are
@@ -741,7 +741,7 @@ impl<'vm> Compiler<'vm> {
             };
 
             let mut field_slots = IndexMap::new();
-            if let Some(sc_ref) = &class_def.superclass {
+            if let Some(sc_ref) = class_def.superclass_ref() {
                 if let Some(key) = self.resolve_superclass_ref(sc_ref) {
                     if let Some(sc_layout) = self.vm.field_layouts.get(&key) {
                         for (k, v) in &sc_layout.field_slots {
@@ -803,7 +803,7 @@ impl<'vm> Compiler<'vm> {
             // ADR-0002 rule 4). An explicit `extends S` resolves `S` as an
             // ordinary global at runtime; with no `extends` the class
             // implicitly inherits from `Object`.
-            if let Some(sc_ref) = &class_def.superclass {
+            if let Some(sc_ref) = class_def.superclass_ref() {
                 let sc_sym = self.vm.interner.intern(sc_ref.leaf_name());
                 let sc_name_idx = self.add_constant(Value::symbol(sc_sym));
                 self.emit(Bytecode::GetGlobal(sc_name_idx), sc_ref.range);

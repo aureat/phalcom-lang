@@ -660,7 +660,7 @@ impl FlowAnalyzer<'_> {
                 continues: vec![state.clone()],
                 ..StatementFlow::default()
             },
-            Statement::Class(_) | Statement::Export(_) => StatementFlow {
+            Statement::Class(_) | Statement::Export(_) | Statement::TypeAlias(_) => StatementFlow {
                 normal: Some(state.clone()),
                 ..StatementFlow::default()
             },
@@ -1603,7 +1603,8 @@ impl FlowAnalyzer<'_> {
             | Expr::SuperVar { .. }
             | Expr::ImplementationSelector { .. }
             | Expr::Symbol { .. }
-            | Expr::Ellipsis { .. } => {}
+            | Expr::Ellipsis { .. }
+            | Expr::TypeForm(_) => {}
         }
     }
 

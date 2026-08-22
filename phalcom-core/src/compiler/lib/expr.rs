@@ -1447,6 +1447,16 @@ impl<'vm> Compiler<'vm> {
             Expr::Ellipsis { range } => {
                 self.emit(Bytecode::GetEllipsis, range);
             }
+            Expr::TypeForm(type_annotation) => match &type_annotation.expr {
+                phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
+                    let sym = self.vm.interner.intern(sym_ref.leaf_name());
+                    let name_idx = self.add_constant(Value::symbol(sym));
+                    self.emit(Bytecode::GetGlobal(name_idx), sym_ref.range);
+                }
+                _ => {
+                    self.emit(Bytecode::Nil, type_annotation.range);
+                }
+            },
         }
         Ok(())
     }

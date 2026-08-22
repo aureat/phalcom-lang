@@ -466,6 +466,8 @@ impl<'input> Lexer<'input> {
                 "construct" => Token::Construct,
                 "throw" => Token::Throw,
                 "try" => Token::Try,
+                "where" => Token::Where,
+                "type" => Token::TypeKw,
                 _ => Token::Identifier(slice.to_string()),
             });
         }
@@ -1086,7 +1088,9 @@ impl<'input> Lexer<'input> {
             b'~' if next == Some(b'/') => (2, Token::SlashTilde),
             b'%' if next == Some(b'=') => (2, Token::PercentEqual),
             b'%' => (1, Token::Percent),
+            b'<' if next == Some(b':') => (2, Token::Subtype),
             b'<' if next == Some(b'<') => (2, Token::ShiftLeft),
+            b'=' if next == Some(b'>') && self.peek_at(2) == Some(b'>') => (3, Token::TypeLambdaArrow),
             b'=' if next == Some(b'=') && self.peek_at(2) == Some(b'=') => (3, Token::TripleEqual),
             b'=' if next == Some(b'=') => (2, Token::EqualEqual),
             b'=' => (1, Token::Equal),
@@ -1200,6 +1204,12 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Dot
             | Token::ColonColon
             | Token::Colon
+            // Operators / Type syntax.
+            | Token::Pipe
+            | Token::Subtype
+            | Token::TypeLambdaArrow
+            | Token::Where
+            | Token::TypeKw
             // Arrows.
             | Token::Arrow
     )

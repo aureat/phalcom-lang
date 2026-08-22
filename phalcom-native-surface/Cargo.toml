@@ -7,3 +7,5 @@ description = "VM-free canonical native member descriptors shared by Phalcom run
 [lib]
 name = "phalcom_native_surface"
 path = "src/lib.rs"
+[dependencies]
+phalcom-native-meta = { path = "../phalcom-native-meta" }

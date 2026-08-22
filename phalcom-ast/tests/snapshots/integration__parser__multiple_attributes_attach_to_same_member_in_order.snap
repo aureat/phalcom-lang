@@ -15,11 +15,14 @@ Program {
         Class(
             ClassDef {
                 name: "Point",
+                generic_parameters: [],
                 superclass: None,
+                where_clause: None,
                 members: [
                     Method(
                         MethodDef {
                             name: "set",
+                            generic_parameters: [],
                             params: [
                                 ParameterDef {
                                     name: "x",
@@ -45,6 +48,7 @@ Program {
                                 },
                             ],
                             return_annotation: None,
+                            where_clause: None,
                             body: [
                                 Expr {
                                     expr: SetProperty(

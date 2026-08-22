@@ -8,6 +8,7 @@ phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
 phalcom-modules = { path = "../phalcom-modules" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
+phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
 thiserror = { workspace = true }
 serde = { workspace = true }

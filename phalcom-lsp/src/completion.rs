@@ -133,7 +133,7 @@ fn shallow_receiver_classes(program: &Program, receiver: &str, offset: usize) ->
         }
     } else if receiver == "super" {
         if let Some((class, _)) = enclosing_method(program, offset) {
-            if let Some(parent) = &class.superclass {
+            if let Some(parent) = class.superclass_ref() {
                 classes.insert(parent.leaf_name().to_string());
             }
         }

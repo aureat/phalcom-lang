@@ -216,6 +216,17 @@ impl RestSurface {
     }
 }
 
+/// Origin of a member declaration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MemberOrigin {
+    /// Normal source AST declaration.
+    Source(MemberAstRef),
+    /// Native primitive declaration.
+    Native,
+    /// Synthetic/generated declaration.
+    Generated,
+}
+
 /// One callable or field-like class member.
 #[derive(Clone, Debug)]
 pub struct MemberSurface {
@@ -243,6 +254,8 @@ pub struct MemberSurface {
     pub params: Vec<ParamSurface>,
     /// Reference to this member's AST in the source program.
     pub ast: MemberAstRef,
+    /// Member implementation origin.
+    pub origin: MemberOrigin,
 }
 
 /// One declared field.
@@ -421,7 +434,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
         }
         let Statement::Class(class) = statement else { continue };
         let id = ClassId::new(module.clone(), class.name.clone());
-        let superclass_reference = class.superclass.clone();
+        let superclass_reference = class.superclass_ref().cloned();
         let superclass = superclass_reference
             .as_ref()
             .map(|parent| ClassId::new(module.clone(), parent.leaf_name().to_string()));
@@ -486,6 +499,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                 name_range,
                 params,
                 ast,
+                origin: MemberOrigin::Source(ast),
             };
             class_surface.members.entry(selector).or_default().insert(side, member_surface);
         }

@@ -15,13 +15,17 @@ Program {
         Class(
             ClassDef {
                 name: "Point",
+                generic_parameters: [],
                 superclass: None,
+                where_clause: None,
                 members: [
                     Method(
                         MethodDef {
                             name: "magnitude",
+                            generic_parameters: [],
                             params: [],
                             return_annotation: None,
+                            where_clause: None,
                             body: [
                                 Return(
                                     ReturnStatement {

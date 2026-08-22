@@ -2,6 +2,7 @@
 //! and verification engine for Phalcom.
 
 pub mod checker;
+pub mod core_surface;
 pub mod db;
 pub mod declarations;
 pub mod diagnostic;
@@ -23,6 +24,7 @@ pub use checker::{
     CheckingContext, TypeCheckReport, TypedExpression, check_arguments, check_class, check_class_bodies, check_statement, match_callable_arguments,
     register_class_surface, synthesize_expr, synthesize_typed_expr,
 };
+pub use core_surface::*;
 pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};

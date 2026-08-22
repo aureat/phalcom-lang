@@ -25,6 +25,7 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Class(ClassDef),
+    TypeAlias(TypeAliasDef),
     Let(LetBinding),
     Return(ReturnStatement),
     Expr {
@@ -226,13 +227,17 @@ pub enum MetadataLiteral {
 #[derive(Debug, Clone)]
 pub struct ClassDef {
     pub name: String,
-    /// The explicit superclass named by an `is` clause, if any.
+    /// Generic parameter binders for this class (Spec 04).
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    /// The explicit superclass template named by an `is` clause, if any (Spec 04).
     ///
     /// `None` means no `is` clause was written, so the class implicitly
     /// inherits from `Object` (object-model.md §5.1). `Some(_)` carries the
-    /// superclass identifier and its span for compile-time resolution and
-    /// diagnostics (PDR-0030: `is` specifies superclass).
-    pub superclass: Option<StaticSymbolRef>,
+    /// superclass type template and its span for compile-time resolution and
+    /// diagnostics.
+    pub superclass: Option<TypeAnnotation>,
+    /// Generic `where` constraints attached to this class (Spec 04).
+    pub where_clause: Option<WhereClauseSyntax>,
     pub members: Vec<ClassMember>,
     /// `@name(args…)` attributes attached directly to the class header
     /// (e.g. a future class-level decorator), distinct from
@@ -264,6 +269,13 @@ pub struct ClassDef {
     /// the first occurrence of `name` inside `range` is the declaration
     /// token rather than an incidental earlier one).
     pub name_range: SourceRange,
+}
+
+impl ClassDef {
+    /// Returns the static symbol reference of the superclass origin, if any.
+    pub fn superclass_ref(&self) -> Option<&StaticSymbolRef> {
+        self.superclass.as_ref().and_then(|sc| sc.origin_symbol_ref())
+    }
 }
 
 /// A `@name(args…)` attribute attached to a class or class member.
@@ -401,11 +413,22 @@ impl StaticSymbolRef {
     }
 }
 
-/// Explicit source-level type annotation.
+/// Explicit source-level type annotation / type syntax.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAnnotation {
     pub expr: TypeAnnotationExpr,
     pub range: SourceRange,
+}
+
+impl TypeAnnotation {
+    /// Extracts the static symbol reference of the origin if this is a reference or applied reference.
+    pub fn origin_symbol_ref(&self) -> Option<&StaticSymbolRef> {
+        match &self.expr {
+            TypeAnnotationExpr::Reference(sym) => Some(sym),
+            TypeAnnotationExpr::Application { origin, .. } => origin.origin_symbol_ref(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -428,6 +451,28 @@ pub enum TypeAnnotationExpr {
         result: Box<TypeAnnotation>,
         range: SourceRange,
     },
+    /// Unit type `()`.
+    Unit { range: SourceRange },
+    /// Dynamic boundary type `Dynamic`.
+    Dynamic { range: SourceRange },
+    /// Bottom type `Never`.
+    Never { range: SourceRange },
+    /// Owner-relative type `Self`.
+    SelfType { range: SourceRange },
+    /// Structural record type (e.g. `#{ name: String, age: Int }` or `#{ name: String, | R }`).
+    Record {
+        fields: Vec<RecordTypeField>,
+        tail: Option<RecordRowTail>,
+        range: SourceRange,
+    },
+    /// Type lambda expression (e.g. `<T> =>> Result<T, Error>`).
+    TypeLambda {
+        parameters: Vec<TypeLambdaParameter>,
+        body: Box<TypeAnnotation>,
+        range: SourceRange,
+    },
+    /// Recovered invalid type expression.
+    Invalid { message: String, range: SourceRange },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -442,6 +487,118 @@ pub struct TypeCallableParameter {
     pub label: Option<String>,
     pub ty: TypeAnnotation,
     pub rest: bool,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VarianceSyntax {
+    Invariant,
+    Covariant,
+    Contravariant,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum KindSyntax {
+    Type(SourceRange),
+    RecordRow(SourceRange),
+    Arrow {
+        parameter: Box<KindSyntax>,
+        result: Box<KindSyntax>,
+        range: SourceRange,
+    },
+    Grouped {
+        inner: Box<KindSyntax>,
+        range: SourceRange,
+    },
+    Invalid {
+        message: String,
+        range: SourceRange,
+    },
+}
+
+impl KindSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            KindSyntax::Type(r) => *r,
+            KindSyntax::RecordRow(r) => *r,
+            KindSyntax::Arrow { range, .. } => *range,
+            KindSyntax::Grouped { range, .. } => *range,
+            KindSyntax::Invalid { range, .. } => *range,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenericParameterSyntax {
+    pub variance: VarianceSyntax,
+    pub name: String,
+    pub name_range: SourceRange,
+    pub kind: Option<KindSyntax>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenericConstraintSyntax {
+    Subtype {
+        lower: TypeAnnotation,
+        upper: TypeAnnotation,
+        range: SourceRange,
+    },
+    Equivalent {
+        left: TypeAnnotation,
+        right: TypeAnnotation,
+        range: SourceRange,
+    },
+    Invalid {
+        message: String,
+        range: SourceRange,
+    },
+}
+
+impl GenericConstraintSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            GenericConstraintSyntax::Subtype { range, .. } => *range,
+            GenericConstraintSyntax::Equivalent { range, .. } => *range,
+            GenericConstraintSyntax::Invalid { range, .. } => *range,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhereClauseSyntax {
+    pub constraints: Vec<GenericConstraintSyntax>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordTypeField {
+    pub name: String,
+    pub ty: TypeAnnotation,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordRowTail {
+    pub name: String,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeLambdaParameter {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub kind: Option<KindSyntax>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeAliasDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub body: TypeAnnotation,
     pub range: SourceRange,
 }
 
@@ -703,8 +860,12 @@ pub enum RestMode {
 #[derive(Debug, Clone)]
 pub struct MethodDef {
     pub name: String,
+    /// Generic parameter binders for this method (Spec 04).
+    pub generic_parameters: Vec<GenericParameterSyntax>,
     pub params: Vec<ParameterDef>,
     pub return_annotation: Option<TypeAnnotation>,
+    /// Generic `where` constraints attached to this method (Spec 04).
+    pub where_clause: Option<WhereClauseSyntax>,
     pub body: Vec<Statement>,
     pub is_static: bool,
     /// Marks a source constructor before compiler lowering splits it into a
@@ -1054,6 +1215,8 @@ pub enum Expr {
     Membership(Box<MembershipExpr>),
     /// A type membership test `left is in candidates` / `left is! in candidates` / `left is not in candidates` / `left is! not in candidates`.
     IsMembership(Box<IsMembershipExpr>),
+    /// A value-space type form expression (e.g. `List<Int>` or `<T> =>> Result<T, Error>`) (Spec 04).
+    TypeForm(Box<TypeAnnotation>),
 }
 
 impl Expr {
@@ -1098,6 +1261,7 @@ impl Expr {
             Expr::ListLiteral(e) => e.range,
             Expr::Membership(e) => e.range,
             Expr::IsMembership(e) => e.range,
+            Expr::TypeForm(t) => t.range,
         }
     }
 }

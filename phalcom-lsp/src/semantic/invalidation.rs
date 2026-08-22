@@ -248,6 +248,7 @@ fn statement_range(statement: &Statement) -> phalcom_common::range::SourceRange 
         Statement::Expr { range, .. } | Statement::Break { range } | Statement::Continue { range } | Statement::Throw { range, .. } => *range,
         Statement::For(for_statement) => for_statement.range,
         Statement::Export(export_decl) => export_decl.range,
+        Statement::TypeAlias(type_alias) => type_alias.range,
     }
 }
 

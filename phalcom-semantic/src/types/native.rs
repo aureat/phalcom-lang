@@ -111,8 +111,8 @@ pub fn normalize_native_type(
     }
 }
 
-/// Registers standard declaration surfaces and dispatch signatures for core primitive types.
-pub fn register_standard_surfaces(
+/// Registers declaration surfaces and dispatch signatures dynamically from the canonical native surface catalog.
+pub fn register_native_surfaces(
     store: &mut TypeStore,
     declarations: &DeclarationTypeTable,
     resolver: &dyn crate::types::annotation::TypeResolver,
@@ -121,202 +121,79 @@ pub fn register_standard_surfaces(
 ) {
     use crate::dispatch::{CallableParameter, CallableSignature};
     use crate::surface::DeclarationSurface;
-    use phalcom_common::selector::{Selector, SelectorSlot};
+    use phalcom_common::selector::Selector;
+    use phalcom_native_surface::NATIVE_SURFACES;
 
-    let int_decl = resolver.resolve_type_name(current_module, "Int", &[]);
-    let float_decl = resolver.resolve_type_name(current_module, "Float", &[]);
-    let string_decl = resolver.resolve_type_name(current_module, "String", &[]);
-    let bool_decl = resolver.resolve_type_name(current_module, "Bool", &[]);
-    let list_decl = resolver.resolve_type_name(current_module, "List", &[]);
-    let map_decl = resolver.resolve_type_name(current_module, "Map", &[]);
-    let set_decl = resolver.resolve_type_name(current_module, "Set", &[]);
-    let obj_decl = resolver.resolve_type_name(current_module, "Object", &[]);
-
-    let t_int = int_decl.as_ref().and_then(|d| declarations.form(d));
-    let t_float = float_decl.as_ref().and_then(|d| declarations.form(d));
-    let t_string = string_decl.as_ref().and_then(|d| declarations.form(d));
-    let t_bool = bool_decl.as_ref().and_then(|d| declarations.form(d));
-    let t_unit = store.unit();
-
-    let k_int = t_int.map(|t| TypeKnowledge::known(t, EvidenceAuthority::TrustedNative));
-    let k_float = t_float.map(|t| TypeKnowledge::known(t, EvidenceAuthority::TrustedNative));
-    let k_string = t_string.map(|t| TypeKnowledge::known(t, EvidenceAuthority::TrustedNative));
-    let k_bool = t_bool.map(|t| TypeKnowledge::known(t, EvidenceAuthority::TrustedNative));
-    let k_unit = TypeKnowledge::known(t_unit, EvidenceAuthority::TrustedNative);
-
-    let make_binary_sig = |op: &str, param_k: TypeKnowledge, ret_k: TypeKnowledge| -> CallableSignature {
-        let sel = Selector::method(op, vec![SelectorSlot::Positional]).unwrap();
-        let param = CallableParameter::new("other", param_k);
-        CallableSignature::new(sel, vec![param], ret_k)
+    let universe_resolver = |key: UniverseKey| -> DeclarationId {
+        resolver
+            .resolve_type_name(current_module, key.name(), &[])
+            .unwrap_or_else(|| DeclarationId::new(crate::identity::ModuleId::core(), key.name().into()))
     };
 
-    let make_getter_sig = |name: &str, ret_k: TypeKnowledge| -> CallableSignature {
-        let sel = Selector::getter(name).unwrap();
-        CallableSignature::new(sel, Vec::new(), ret_k)
-    };
+    let empty_params = HashMap::new();
+    let mut surfaces_by_decl: HashMap<DeclarationId, DeclarationSurface> = HashMap::new();
 
-    // Int surface
-    if let (Some(decl), Some(t_self), Some(k_self)) = (int_decl, t_int, k_int.clone()) {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-        dispatch.register_type(t_self, decl.clone());
-
-        for op in ["+", "-", "*", "//", "%", "**", "<<", ">>", "&", "|", "^"] {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), k_self.clone()));
-        }
-        if let Some(ref kf) = k_float {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig("/", k_self.clone(), kf.clone()));
-        }
-        if let Some(ref kb) = k_bool {
-            for op in ["==", "!=", "<", "<=", ">", ">="] {
-                surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), kb.clone()));
-            }
-        }
-        for op in ["+", "-", "~"] {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig(op, k_self.clone()));
-        }
-        if let Some(ref ks) = k_string {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("toString", ks.clone()));
-        }
-
-        dispatch.register_surface(decl, surface);
-    }
-
-    // Float surface
-    if let (Some(decl), Some(t_self), Some(k_self)) = (float_decl, t_float, k_float.clone()) {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-        dispatch.register_type(t_self, decl.clone());
-
-        for op in ["+", "-", "*", "/", "**"] {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), k_self.clone()));
-        }
-        if let Some(ref kb) = k_bool {
-            for op in ["==", "!=", "<", "<=", ">", ">="] {
-                surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), kb.clone()));
-            }
-        }
-        for op in ["+", "-"] {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig(op, k_self.clone()));
-        }
-        if let Some(ref ks) = k_string {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("toString", ks.clone()));
-        }
-
-        dispatch.register_surface(decl, surface);
-    }
-
-    // String surface
-    if let (Some(decl), Some(t_self), Some(k_self)) = (string_decl, t_string, k_string.clone()) {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-        dispatch.register_type(t_self, decl.clone());
-
-        surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig("+", k_self.clone(), k_self.clone()));
-        if let Some(ref kb) = k_bool {
-            for op in ["==", "!=", "<", "<=", ">", ">="] {
-                surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), kb.clone()));
-            }
-        }
-        if let Some(ref ki) = k_int {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
-            let sel = Selector::subscript_get(vec![SelectorSlot::Positional]).unwrap();
-            let param = CallableParameter::new("index", ki.clone());
-            surface.add_callable(
-                crate::identity::DispatchSide::Instance,
-                CallableSignature::new(sel, vec![param], k_self.clone()),
-            );
-        }
-
-        dispatch.register_surface(decl, surface);
-    }
-
-    // Bool surface
-    if let (Some(decl), Some(t_self), Some(k_self)) = (bool_decl, t_bool, k_bool.clone()) {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-        dispatch.register_type(t_self, decl.clone());
-
-        surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("not", k_self.clone()));
-        for op in ["==", "!=", "and", "or", "&", "|", "^"] {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_binary_sig(op, k_self.clone(), k_self.clone()));
-        }
-
-        dispatch.register_surface(decl, surface);
-    }
-
-    // List surface
-    if let Some(decl) = list_decl {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-
-        if let Some(ref ki) = k_int {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
-        }
-
-        let elem_param_k = if let Some(sig) = declarations.generic_signature(&decl) {
-            if !sig.parameters.is_empty() {
-                let p_form = store.parameter_form(sig.parameters[0]);
-                TypeKnowledge::known(p_form, EvidenceAuthority::TrustedNative)
-            } else {
-                TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape)
-            }
-        } else {
-            TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape)
+    for record in NATIVE_SURFACES {
+        let owner_name = record.owner().name();
+        let decl = match resolver.resolve_type_name(current_module, owner_name, &[]) {
+            Some(d) => d,
+            None => DeclarationId::new(crate::identity::ModuleId::core(), owner_name.into()),
         };
 
-        let add_sel = Selector::method("add", vec![SelectorSlot::Positional]).unwrap();
-        let add_param = CallableParameter::new("elem", elem_param_k);
-        surface.add_callable(
-            crate::identity::DispatchSide::Instance,
-            CallableSignature::new(add_sel, vec![add_param], k_unit.clone()),
-        );
+        if let Some(t_self) = declarations.form(&decl) {
+            dispatch.register_type(t_self, decl.clone());
+        }
 
-        dispatch.register_surface(decl, surface);
+        let side = match record.side() {
+            phalcom_native_meta::NativeDispatch::Instance => crate::identity::DispatchSide::Instance,
+            phalcom_native_meta::NativeDispatch::Class => crate::identity::DispatchSide::Class,
+        };
+
+        let Ok(selector) = Selector::try_decode_exact(record.selector()) else {
+            continue;
+        };
+
+        // Lower parameters
+        let mut params = Vec::new();
+        for (i, p_spec) in record.params().positional.iter().enumerate() {
+            let p_knowledge = normalize_native_type(store, declarations, &empty_params, &universe_resolver, p_spec);
+            let name = if i == 0 { "other" } else { "arg" };
+            params.push(CallableParameter::new(name, p_knowledge));
+        }
+
+        // Lower return type
+        let ret_knowledge = match record.flow() {
+            phalcom_native_meta::ReturnFlowSpec::Receiver => {
+                if let Some(t_self) = declarations.form(&decl) {
+                    TypeKnowledge::known(t_self, EvidenceAuthority::TrustedNative)
+                } else {
+                    normalize_native_type(store, declarations, &empty_params, &universe_resolver, record.returns())
+                }
+            }
+            phalcom_native_meta::ReturnFlowSpec::Never => TypeKnowledge::known(store.never(), EvidenceAuthority::TrustedNative),
+            _ => normalize_native_type(store, declarations, &empty_params, &universe_resolver, record.returns()),
+        };
+
+        let sig = CallableSignature::new(selector, params, ret_knowledge);
+        surfaces_by_decl
+            .entry(decl)
+            .or_insert_with(|| DeclarationSurface::new(None))
+            .add_callable(side, sig);
     }
 
-    // Map surface
-    if let Some(decl) = map_decl {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-
-        if let Some(ref ki) = k_int {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
-        }
-
+    for (decl, surface) in surfaces_by_decl {
         dispatch.register_surface(decl, surface);
     }
+}
 
-    // Set surface
-    if let Some(decl) = set_decl {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-
-        if let Some(ref ki) = k_int {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("length", ki.clone()));
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("size", ki.clone()));
-        }
-
-        dispatch.register_surface(decl, surface);
-    }
-
-    // Object surface
-    if let Some(decl) = obj_decl {
-        let mut surface = DeclarationSurface::new(Some(decl.clone()));
-        if let Some(t_obj) = declarations.form(&decl) {
-            dispatch.register_type(t_obj, decl.clone());
-        }
-
-        if let Some(ref kb) = k_bool {
-            surface.add_callable(
-                crate::identity::DispatchSide::Instance,
-                make_binary_sig("==", TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape), kb.clone()),
-            );
-            surface.add_callable(
-                crate::identity::DispatchSide::Instance,
-                make_binary_sig("!=", TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape), kb.clone()),
-            );
-        }
-        if let Some(ref ks) = k_string {
-            surface.add_callable(crate::identity::DispatchSide::Instance, make_getter_sig("toString", ks.clone()));
-        }
-
-        dispatch.register_surface(decl, surface);
-    }
+/// Registers standard declaration surfaces and dispatch signatures for core primitive types.
+#[inline]
+pub fn register_standard_surfaces(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn crate::types::annotation::TypeResolver,
+    current_module: &crate::identity::ModuleId,
+    dispatch: &mut crate::dispatch::SurfaceDispatchResolver,
+) {
+    register_native_surfaces(store, declarations, resolver, current_module, dispatch);
 }

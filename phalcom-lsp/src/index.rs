@@ -632,7 +632,7 @@ fn collect_var_occurrences(statement: &Statement, names: &std::collections::Hash
             }
         }
         Statement::Throw { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
-        Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) | Statement::Class(_) => {}
+        Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) | Statement::Class(_) | Statement::TypeAlias(_) => {}
     }
 }
 
@@ -655,7 +655,8 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. }
         | Expr::Symbol(_)
-        | Expr::Ellipsis { .. } => {}
+        | Expr::Ellipsis { .. }
+        | Expr::TypeForm(_) => {}
         Expr::Assignment(a) => {
             collect_var_occurrences_in_expr(&a.name, names, out);
             collect_var_occurrences_in_expr(&a.value, names, out);
@@ -850,7 +851,7 @@ impl Collector {
             Statement::For(f) => self.walk_for(f),
             Statement::Break { .. } | Statement::Continue { .. } => {}
             Statement::Throw { expr, .. } => self.walk_expr(expr),
-            Statement::Export(_) => {}
+            Statement::Export(_) | Statement::TypeAlias(_) => {}
         }
     }
 
@@ -883,7 +884,7 @@ impl Collector {
             .collect();
         self.classes.push(CollectedClass {
             name: class_def.name.clone(),
-            parent: class_def.superclass.as_ref().map(|s| s.leaf_name().to_string()),
+            parent: class_def.superclass_ref().map(|s| s.leaf_name().to_string()),
             members,
         });
 
@@ -1006,7 +1007,7 @@ impl Collector {
                     self.walk_statement(statement);
                 }
             }
-            Expr::Ellipsis { .. } => {}
+            Expr::Ellipsis { .. } | Expr::TypeForm(_) => {}
             Expr::MethodCall(m) => {
                 self.walk_expr(&m.object);
                 if let (Some(labels), Some(range)) = (static_pack_labels(&m.args), m.method_range) {

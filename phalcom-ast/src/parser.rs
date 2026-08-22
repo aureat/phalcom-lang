@@ -74,6 +74,15 @@ enum TrailingTarget {
     MemberSend,
 }
 
+/// Context controlling whether variance markers (+/-) are permitted on generic binders (Spec 04 §6.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenericBinderContext {
+    NominalDeclaration,
+    Callable,
+    Alias,
+    TypeLambda,
+}
+
 /// Result of parsing a Phalcom source string with error recovery.
 ///
 /// Carries the [`Program`] built from every statement that parsed successfully,
@@ -441,6 +450,93 @@ impl<'source> Parser<'source> {
             kind,
             range: lexeme.start..lexeme.end,
         }
+    }
+
+    /// Consumes a `>` token, handling nested `>>` token fission when needed (Spec 04 §15.5).
+    fn eat_greater(&mut self) -> bool {
+        if matches!(self.peek(), Token::Greater) {
+            self.advance();
+            true
+        } else if matches!(self.peek(), Token::ShiftRight) {
+            let lex = &mut self.tokens[self.pos];
+            let start = lex.start;
+            let mid = start + 1;
+            lex.start = mid;
+            lex.token = Token::Greater;
+            self.prev_end = mid;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Requires the current token to be `>`, consuming it (with `>>` fission support).
+    fn expect_greater(&mut self) -> ParserResult<()> {
+        if self.eat_greater() {
+            Ok(())
+        } else {
+            Err(self.error_here(vec!["\">\"".to_string()]))
+        }
+    }
+
+    /// Checks if a type lambda `<...>` followed by `=>>` is immediately ahead.
+    fn is_type_lambda_ahead(&self) -> bool {
+        if self.peek() != &Token::Less {
+            return false;
+        }
+        let mut depth: i32 = 0;
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::Less => depth += 1,
+                Token::Greater => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return i + 1 < self.tokens.len() && matches!(self.tokens[i + 1].token, Token::TypeLambdaArrow);
+                    }
+                }
+                Token::ShiftRight => {
+                    depth -= 2;
+                    if depth <= 0 {
+                        return i + 1 < self.tokens.len() && matches!(self.tokens[i + 1].token, Token::TypeLambdaArrow);
+                    }
+                }
+                Token::Newline | Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
+    /// Checks if a balanced angle bracket list `<...>` is ahead.
+    fn is_type_arguments_ahead(&self) -> bool {
+        if self.peek() != &Token::Less {
+            return false;
+        }
+        let mut depth: i32 = 0;
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::Less => depth += 1,
+                Token::Greater => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return true;
+                    }
+                }
+                Token::ShiftRight => {
+                    depth -= 2;
+                    if depth <= 0 {
+                        return true;
+                    }
+                }
+                Token::Newline | Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
     }
 
     /// Skips any run of [`Token::Newline`] tokens (blank lines).
@@ -1092,7 +1188,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
+                Token::Class | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
                 _ => {
                     self.advance();
                 }
@@ -1108,6 +1204,7 @@ impl<'source> Parser<'source> {
     /// Propagates any error from the underlying statement parser.
     fn parse_small_statement(&mut self) -> ParserResult<Statement> {
         match self.peek() {
+            Token::TypeKw => self.parse_type_alias(),
             Token::Let => self.parse_binding(BindingKind::Let),
             Token::Const => self.parse_binding(BindingKind::Const),
             Token::Return => self.parse_return(),
@@ -1161,6 +1258,36 @@ impl<'source> Parser<'source> {
             }
             _ => self.parse_expr_statement(),
         }
+    }
+
+    /// Parses a transparent type alias declaration `type Name<T> where ... = Body` (Spec 04 §7.5, §13).
+    fn parse_type_alias(&mut self) -> ParserResult<Statement> {
+        let start = self.cur_start();
+        self.expect(&Token::TypeKw, &["\"type\""])?;
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["type alias name"])?;
+        let name_range = (name_start..self.prev_end).into();
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::Alias)?
+        } else {
+            Vec::new()
+        };
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
+        self.expect(&Token::Equal, &["\"=\""])?;
+        let body = self.parse_type_form()?;
+        let range = (start..self.prev_end).into();
+        Ok(Statement::TypeAlias(TypeAliasDef {
+            name,
+            name_range,
+            generic_parameters,
+            where_clause,
+            body,
+            range,
+        }))
     }
 
     /// Parses `for pattern [at index] in iter, ... { body }` into a
@@ -1392,30 +1519,549 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses a statically-resolved type annotation (e.g. `Int` or `geometry.Point`).
+    /// Parses a complete type annotation / type form (Spec 04 §5).
     pub fn parse_type_annotation(&mut self) -> ParserResult<TypeAnnotation> {
-        let start = self.cur_start();
-        let root_start = self.cur_start();
-        let root = self.expect_identifier(&["type name"])?;
-        let root_range = (root_start..self.prev_end).into();
-        let mut members = Vec::new();
-        while self.eat(&Token::Dot) {
-            let member_start = self.cur_start();
-            let name = self.expect_identifier(&["qualified type name"])?;
-            let range = (member_start..self.prev_end).into();
-            members.push(PathSegment { name, range });
+        self.parse_type_form()
+    }
+
+    /// Parses a type form: type lambda or union type (Spec 04 §5.1).
+    pub fn parse_type_form(&mut self) -> ParserResult<TypeAnnotation> {
+        if matches!(self.peek(), Token::Less) && self.is_type_lambda_ahead() {
+            self.parse_type_lambda()
+        } else {
+            self.parse_union_type()
         }
+    }
+
+    /// Parses a type lambda: `<T, ...> =>> Body` (Spec 04 §9).
+    pub fn parse_type_lambda(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        self.expect(&Token::Less, &["\"<\""])?;
+        let mut parameters = Vec::new();
+        while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+            let param_start = self.cur_start();
+            if matches!(self.peek(), Token::Plus | Token::Minus) {
+                self.advance();
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("variance not allowed on type-lambda binder".to_string()),
+                    range: param_start..self.prev_end,
+                });
+            }
+            let name_start = self.cur_start();
+            let name = self.expect_identifier(&["type lambda parameter name"])?;
+            let name_range = (name_start..self.prev_end).into();
+            let kind = if self.eat(&Token::ColonColon) {
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("legacy kind ascription '::' is deprecated; use ':' for kind annotations".to_string()),
+                    range: param_start..self.prev_end,
+                });
+                Some(self.parse_kind_expression()?)
+            } else if self.eat(&Token::Colon) {
+                Some(self.parse_kind_expression()?)
+            } else {
+                None
+            };
+            let range = (param_start..self.prev_end).into();
+            parameters.push(TypeLambdaParameter { name, name_range, kind, range });
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+        }
+        self.expect_greater()?;
+        self.expect(&Token::TypeLambdaArrow, &["\"=>>\""])?;
+        let body = self.parse_type_form()?;
         let range = (start..self.prev_end).into();
-        let sym_ref = StaticSymbolRef {
-            root,
-            root_range,
-            members,
-            range,
-        };
         Ok(TypeAnnotation {
-            expr: TypeAnnotationExpr::Reference(sym_ref),
+            expr: TypeAnnotationExpr::TypeLambda {
+                parameters,
+                body: Box::new(body),
+                range,
+            },
             range,
         })
+    }
+
+    /// Parses a union type `A | B | C` (Spec 04 §5.5).
+    pub fn parse_union_type(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        let first = self.parse_callable_type()?;
+        if matches!(self.peek(), Token::Pipe) {
+            let mut members = vec![first];
+            while self.eat(&Token::Pipe) {
+                members.push(self.parse_callable_type()?);
+            }
+            let range = (start..self.prev_end).into();
+            Ok(TypeAnnotation {
+                expr: TypeAnnotationExpr::Union { members, range },
+                range,
+            })
+        } else {
+            Ok(first)
+        }
+    }
+
+    /// Parses a callable type or postfix type (Spec 04 §5.6).
+    pub fn parse_callable_type(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        if matches!(self.peek(), Token::LParen) {
+            let paren = self.parse_paren_type()?;
+            Ok(paren)
+        } else {
+            let atom = self.parse_postfix_type()?;
+            if self.eat(&Token::Arrow) {
+                let result = self.parse_type_form()?;
+                let range = (start..self.prev_end).into();
+                let param = TypeCallableParameter {
+                    label: None,
+                    ty: atom.clone(),
+                    rest: false,
+                    range: atom.range,
+                };
+                Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Callable {
+                        parameters: vec![param],
+                        result: Box::new(result),
+                        range,
+                    },
+                    range,
+                })
+            } else {
+                Ok(atom)
+            }
+        }
+    }
+
+    /// Parses parenthesized, unit, tuple, or callable domain types (Spec 04 §5.3, §5.6).
+    fn parse_paren_type(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        self.expect(&Token::LParen, &["\"(\""])?;
+        if self.eat(&Token::RParen) {
+            let unit_range = (start..self.prev_end).into();
+            if self.eat(&Token::Arrow) {
+                let result = self.parse_type_form()?;
+                let range = (start..self.prev_end).into();
+                return Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Callable {
+                        parameters: Vec::new(),
+                        result: Box::new(result),
+                        range,
+                    },
+                    range,
+                });
+            } else {
+                return Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Unit { range: unit_range },
+                    range: unit_range,
+                });
+            }
+        }
+
+        let mut items = Vec::new();
+        let mut trailing_comma = false;
+        while !matches!(self.peek(), Token::RParen | Token::Eof) {
+            let item_start = self.cur_start();
+            let rest = self.eat(&Token::DotDotDot);
+            let label = if matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon) {
+                let lbl = self.expect_identifier(&["label"])?;
+                self.advance(); // ':'
+                Some(lbl)
+            } else {
+                None
+            };
+            let ty = self.parse_type_form()?;
+            let item_range = (item_start..self.prev_end).into();
+            items.push((label, ty, rest, item_range));
+
+            if self.eat(&Token::Comma) {
+                if matches!(self.peek(), Token::RParen) {
+                    trailing_comma = true;
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        self.expect(&Token::RParen, &["\")\""])?;
+
+        if self.eat(&Token::Arrow) {
+            let result = self.parse_type_form()?;
+            let range = (start..self.prev_end).into();
+            let parameters = items
+                .into_iter()
+                .map(|(label, ty, rest, p_range)| TypeCallableParameter {
+                    label,
+                    ty,
+                    rest,
+                    range: p_range,
+                })
+                .collect();
+            Ok(TypeAnnotation {
+                expr: TypeAnnotationExpr::Callable {
+                    parameters,
+                    result: Box::new(result),
+                    range,
+                },
+                range,
+            })
+        } else {
+            let range = (start..self.prev_end).into();
+            if items.iter().any(|(_, _, rest, _)| *rest) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("rest parameter '...' only permitted in callable parameter list".to_string()),
+                    range: start..self.prev_end,
+                });
+            }
+            if items.len() == 1 && !trailing_comma && items[0].0.is_none() {
+                let (_, inner, _, _) = items.remove(0);
+                Ok(inner)
+            } else {
+                let elements = items
+                    .into_iter()
+                    .map(|(label, ty, _, el_range)| TypeTupleElement { label, ty, range: el_range })
+                    .collect();
+                Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Tuple { elements, range },
+                    range,
+                })
+            }
+        }
+    }
+
+    /// Parses a postfix type with angle-bracket application `<...>` (Spec 04 §5.4).
+    pub fn parse_postfix_type(&mut self) -> ParserResult<TypeAnnotation> {
+        let mut atom = self.parse_type_atom()?;
+        while matches!(self.peek(), Token::Less) {
+            let start = atom.range.start;
+            self.advance(); // '<'
+            let mut arguments = Vec::new();
+            while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+                arguments.push(self.parse_type_form()?);
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+            }
+            self.expect_greater()?;
+            let range = (start..self.prev_end).into();
+            atom = TypeAnnotation {
+                expr: TypeAnnotationExpr::Application {
+                    origin: Box::new(atom),
+                    arguments,
+                    range,
+                },
+                range,
+            };
+        }
+        Ok(atom)
+    }
+
+    /// Parses an atomic type form (Spec 04 §5.1).
+    pub fn parse_type_atom(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        match self.peek() {
+            Token::LParen => self.parse_paren_type(),
+            Token::RecordLBrace => self.parse_record_type(),
+            Token::Identifier(s) => {
+                let name = s.clone();
+                let root_start = self.cur_start();
+                self.advance();
+                let root_range = (root_start..self.prev_end).into();
+                let mut members = Vec::new();
+                while self.eat(&Token::Dot) {
+                    let m_start = self.cur_start();
+                    let m_name = self.expect_identifier(&["qualified type name"])?;
+                    members.push(PathSegment {
+                        name: m_name,
+                        range: (m_start..self.prev_end).into(),
+                    });
+                }
+                let range = (start..self.prev_end).into();
+                if members.is_empty() {
+                    match name.as_str() {
+                        "Never" => {
+                            return Ok(TypeAnnotation {
+                                expr: TypeAnnotationExpr::Never { range },
+                                range,
+                            });
+                        }
+                        "Dynamic" => {
+                            return Ok(TypeAnnotation {
+                                expr: TypeAnnotationExpr::Dynamic { range },
+                                range,
+                            });
+                        }
+                        "Self" => {
+                            return Ok(TypeAnnotation {
+                                expr: TypeAnnotationExpr::SelfType { range },
+                                range,
+                            });
+                        }
+                        "Unknown" => {
+                            self.errors.push(SyntaxError {
+                                kind: SyntaxErrorKind::Message("Unknown is an analysis state, not a source type; use Dynamic or omit annotation".to_string()),
+                                range: start..self.prev_end,
+                            });
+                        }
+                        "Any" => {
+                            self.errors.push(SyntaxError {
+                                kind: SyntaxErrorKind::Message("Any is reserved and not yet enabled as a source type".to_string()),
+                                range: start..self.prev_end,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                let sym_ref = StaticSymbolRef {
+                    root: name,
+                    root_range,
+                    members,
+                    range,
+                };
+                Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Reference(sym_ref),
+                    range,
+                })
+            }
+            _ => {
+                let err = self.error_here(vec!["type name".to_string(), "\"(\"".to_string(), "\"#{\"".to_string()]);
+                self.advance();
+                let range = (start..self.prev_end).into();
+                Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Invalid {
+                        message: format!("{:?}", err.kind),
+                        range,
+                    },
+                    range,
+                })
+            }
+        }
+    }
+
+    /// Parses a structural record type `#{ ... }` (Spec 04 §5.7).
+    pub fn parse_record_type(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        self.expect(&Token::RecordLBrace, &["\"#{\""])?;
+        let mut fields = Vec::new();
+        let mut tail = None;
+
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            if self.eat(&Token::Pipe) {
+                let tail_start = self.cur_start();
+                let tail_name = self.expect_identifier(&["record row tail name"])?;
+                tail = Some(RecordRowTail {
+                    name: tail_name,
+                    range: (tail_start..self.prev_end).into(),
+                });
+                self.eat(&Token::Comma);
+                break;
+            }
+
+            let field_start = self.cur_start();
+            let name = self.expect_identifier(&["field name"])?;
+            self.expect(&Token::Colon, &["\":\""])?;
+            let ty = self.parse_type_form()?;
+            let field_range = (field_start..self.prev_end).into();
+            fields.push(RecordTypeField { name, ty, range: field_range });
+
+            if self.eat(&Token::Comma) {
+                if self.eat(&Token::Pipe) {
+                    let tail_start = self.cur_start();
+                    let tail_name = self.expect_identifier(&["record row tail name"])?;
+                    tail = Some(RecordRowTail {
+                        name: tail_name,
+                        range: (tail_start..self.prev_end).into(),
+                    });
+                    self.eat(&Token::Comma);
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+        Ok(TypeAnnotation {
+            expr: TypeAnnotationExpr::Record { fields, tail, range },
+            range,
+        })
+    }
+
+    /// Parses a kind expression (Spec 04 §3.3): `Type`, `RecordRow`, `Kind -> Kind`, `(Kind)`.
+    pub fn parse_kind_expression(&mut self) -> ParserResult<KindSyntax> {
+        let start = self.cur_start();
+        let atom = if self.eat(&Token::LParen) {
+            let inner = self.parse_kind_expression()?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            let range = (start..self.prev_end).into();
+            KindSyntax::Grouped { inner: Box::new(inner), range }
+        } else if matches!(self.peek(), Token::Identifier(s) if s == "Type") {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            KindSyntax::Type(range)
+        } else if matches!(self.peek(), Token::Identifier(s) if s == "RecordRow") {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            KindSyntax::RecordRow(range)
+        } else {
+            let err = self.error_here(vec!["\"Type\"".to_string(), "\"RecordRow\"".to_string()]);
+            self.advance();
+            let range = (start..self.prev_end).into();
+            return Ok(KindSyntax::Invalid {
+                message: format!("{:?}", err.kind),
+                range,
+            });
+        };
+
+        if self.eat(&Token::Arrow) {
+            let result = self.parse_kind_expression()?;
+            let range = (start..self.prev_end).into();
+            Ok(KindSyntax::Arrow {
+                parameter: Box::new(atom),
+                result: Box::new(result),
+                range,
+            })
+        } else {
+            Ok(atom)
+        }
+    }
+
+    /// Parses generic parameter binders with contextual variance checks (Spec 04 §6).
+    pub fn parse_generic_parameters(&mut self, context: GenericBinderContext) -> ParserResult<Vec<GenericParameterSyntax>> {
+        self.expect(&Token::Less, &["\"<\""])?;
+        let mut params = Vec::new();
+        while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+            let param_start = self.cur_start();
+            let variance = if self.eat(&Token::Plus) {
+                if context != GenericBinderContext::NominalDeclaration {
+                    self.errors.push(SyntaxError {
+                        kind: SyntaxErrorKind::Message("variance marker '+' only permitted on nominal declaration parameters".to_string()),
+                        range: param_start..self.prev_end,
+                    });
+                }
+                VarianceSyntax::Covariant
+            } else if self.eat(&Token::Minus) {
+                if context != GenericBinderContext::NominalDeclaration {
+                    self.errors.push(SyntaxError {
+                        kind: SyntaxErrorKind::Message("variance marker '-' only permitted on nominal declaration parameters".to_string()),
+                        range: param_start..self.prev_end,
+                    });
+                }
+                VarianceSyntax::Contravariant
+            } else {
+                VarianceSyntax::Invariant
+            };
+
+            if matches!(self.peek(), Token::Underscore) {
+                let u_start = self.cur_start();
+                self.advance();
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("placeholder generic syntax 'F<_>' is rejected; declare explicit kind like 'F: Type -> Type'".to_string()),
+                    range: u_start..self.prev_end,
+                });
+            }
+
+            let name_start = self.cur_start();
+            let name = self.expect_identifier(&["type parameter name"])?;
+            let name_range = (name_start..self.prev_end).into();
+
+            let kind = if self.eat(&Token::ColonColon) {
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("legacy kind ascription '::' is deprecated; use ':' for kind annotations".to_string()),
+                    range: param_start..self.prev_end,
+                });
+                Some(self.parse_kind_expression()?)
+            } else if self.eat(&Token::Colon) {
+                Some(self.parse_kind_expression()?)
+            } else if self.eat(&Token::Subtype) {
+                let inline_bound_start = self.cur_start();
+                let _upper = self.parse_type_form()?;
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!(
+                        "inline generic constraint '<{} <: ...>' is rejected; move constraint to a 'where' clause",
+                        name
+                    )),
+                    range: inline_bound_start..self.prev_end,
+                });
+                None
+            } else {
+                None
+            };
+
+            let range = (param_start..self.prev_end).into();
+            params.push(GenericParameterSyntax {
+                variance,
+                name,
+                name_range,
+                kind,
+                range,
+            });
+
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+        }
+        self.expect_greater()?;
+        Ok(params)
+    }
+
+    /// Parses a generic `where` clause (Spec 04 §8).
+    pub fn parse_where_clause(&mut self) -> ParserResult<WhereClauseSyntax> {
+        let start = self.cur_start();
+        self.expect(&Token::Where, &["\"where\""])?;
+        let mut constraints = Vec::new();
+        while !matches!(self.peek(), Token::LBrace | Token::Equal | Token::Newline | Token::Eof) {
+            let c_start = self.cur_start();
+            let left = self.parse_type_form()?;
+            if self.eat(&Token::Subtype) {
+                let right = self.parse_type_form()?;
+                let range = (c_start..self.prev_end).into();
+                constraints.push(GenericConstraintSyntax::Subtype {
+                    lower: left,
+                    upper: right,
+                    range,
+                });
+            } else if self.eat(&Token::EqualEqual) {
+                let right = self.parse_type_form()?;
+                let range = (c_start..self.prev_end).into();
+                constraints.push(GenericConstraintSyntax::Equivalent { left, right, range });
+            } else if self.eat(&Token::In) {
+                let in_start = self.cur_start();
+                if self.eat(&Token::LParen) {
+                    while !matches!(self.peek(), Token::RParen | Token::Eof) {
+                        let _ = self.parse_type_form()?;
+                        if !self.eat(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(&Token::RParen, &["\")\""])?;
+                }
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("finite exact-set constraint 'in (...)' is not supported in generic calculus".to_string()),
+                    range: in_start..self.prev_end,
+                });
+                let range = (c_start..self.prev_end).into();
+                constraints.push(GenericConstraintSyntax::Invalid {
+                    message: "unsupported finite-set constraint".to_string(),
+                    range,
+                });
+            } else {
+                let range = (c_start..self.prev_end).into();
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("expected '<:' or '==' in generic constraint".to_string()),
+                    range: c_start..self.prev_end,
+                });
+                constraints.push(GenericConstraintSyntax::Invalid {
+                    message: "expected constraint operator".to_string(),
+                    range,
+                });
+                break;
+            }
+
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+        }
+        let range = (start..self.prev_end).into();
+        Ok(WhereClauseSyntax { constraints, range })
     }
 
     /// Parses a `let`/`var` binding: `<kw> pattern (: Type)? (= expr)?`.
@@ -1809,6 +2455,8 @@ impl<'source> Parser<'source> {
             Token::Construct => "construct",
             Token::Throw => "throw",
             Token::Try => "try",
+            Token::Where => "where",
+            Token::TypeKw => "type",
             _ => return None,
         })
     }
@@ -1846,28 +2494,23 @@ impl<'source> Parser<'source> {
         let name = self.expect_identifier(&["identifier"])?;
         let name_range = (name_start..self.prev_end).into();
 
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::NominalDeclaration)?
+        } else {
+            Vec::new()
+        };
+
         // Superclass clause: `is` is Token::Is keyword (PDR-0030).
-        // Grammar: `class` IDENT (`is` STATIC_SYMBOL_REF)? `{` … `}`.
+        // Grammar: `class` IDENT GENERIC_PARAMS? (`is` TYPE_FORM)? WHERE_CLAUSE? `{` … `}`.
         let superclass = if matches!(self.peek(), Token::Is) {
             self.advance(); // 'is'
-            let sc_start = self.cur_start();
-            let root_start = self.cur_start();
-            let root = self.expect_identifier(&["superclass name"])?;
-            let root_range = (root_start..self.prev_end).into();
-            let mut members = Vec::new();
-            while self.eat(&Token::Dot) {
-                let member_start = self.cur_start();
-                let name = self.expect_identifier(&["qualified superclass name"])?;
-                let range = (member_start..self.prev_end).into();
-                members.push(PathSegment { name, range });
-            }
-            let range = (sc_start..self.prev_end).into();
-            Some(StaticSymbolRef {
-                root,
-                root_range,
-                members,
-                range,
-            })
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
         } else {
             None
         };
@@ -1888,7 +2531,9 @@ impl<'source> Parser<'source> {
         header_attrs.extend(body_attrs);
         Ok(Statement::Class(ClassDef {
             name,
+            generic_parameters,
             superclass,
+            where_clause,
             members,
             attributes: header_attrs,
             invariants,
@@ -2294,6 +2939,11 @@ impl<'source> Parser<'source> {
                 name_range,
             }));
         }
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::Callable)?
+        } else {
+            Vec::new()
+        };
         let params = if self.eat(&Token::LParen) {
             let list = self.parse_selector_params(Token::RParen)?;
             self.expect(&Token::RParen, &["\")\""])?;
@@ -2302,13 +2952,20 @@ impl<'source> Parser<'source> {
             None
         };
         let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
             Ok(ClassMember::Method(MethodDef {
                 name,
+                generic_parameters,
                 params,
                 return_annotation,
+                where_clause,
                 body,
                 is_static,
                 is_constructor: false,
@@ -2317,6 +2974,12 @@ impl<'source> Parser<'source> {
                 name_range,
             }))
         } else {
+            if !generic_parameters.is_empty() {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("generic parameters not permitted on getters".to_string()),
+                    range: start..self.prev_end,
+                });
+            }
             Ok(ClassMember::Getter(GetterDef {
                 name,
                 return_annotation,
@@ -3438,6 +4101,31 @@ impl<'source> Parser<'source> {
                 }
             }
 
+            if matches!(self.peek(), Token::Less) && self.cur_start() == self.prev_end && self.is_type_arguments_ahead() {
+                if let Some(origin) = Self::expr_to_type_annotation(&expr) {
+                    self.advance(); // '<'
+                    let mut arguments = Vec::new();
+                    while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+                        arguments.push(self.parse_type_form()?);
+                        if !self.eat(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect_greater()?;
+                    let range = (start..self.prev_end).into();
+                    expr = Expr::TypeForm(Box::new(TypeAnnotation {
+                        expr: TypeAnnotationExpr::Application {
+                            origin: Box::new(origin),
+                            arguments,
+                            range,
+                        },
+                        range,
+                    }));
+                    trailing_target = TrailingTarget::None;
+                    continue;
+                }
+            }
+
             if !matches!(
                 self.peek(),
                 Token::Dot | Token::QuestionDot | Token::LParen | Token::ColonColon | Token::LBracket
@@ -4114,7 +4802,45 @@ impl<'source> Parser<'source> {
                     range: start..self.prev_end,
                 })
             }
+            Token::Less if self.is_type_lambda_ahead() => {
+                let lambda = self.parse_type_lambda()?;
+                Ok(Expr::TypeForm(Box::new(lambda)))
+            }
             _ => Err(self.error_here(primary_expected())),
+        }
+    }
+
+    /// Converts an expression representing a type origin into a TypeAnnotation if eligible.
+    fn expr_to_type_annotation(expr: &Expr) -> Option<TypeAnnotation> {
+        match expr {
+            Expr::Var { value, range } => Some(TypeAnnotation {
+                expr: TypeAnnotationExpr::Reference(StaticSymbolRef {
+                    root: value.clone(),
+                    root_range: *range,
+                    members: Vec::new(),
+                    range: *range,
+                }),
+                range: *range,
+            }),
+            Expr::GetProperty(gp) => {
+                let parent_ann = Self::expr_to_type_annotation(&gp.object)?;
+                if let TypeAnnotationExpr::Reference(mut sym) = parent_ann.expr {
+                    sym.members.push(PathSegment {
+                        name: gp.property.clone(),
+                        range: gp.property_range.unwrap_or(gp.range),
+                    });
+                    let range = (parent_ann.range.start..gp.range.end).into();
+                    sym.range = range;
+                    Some(TypeAnnotation {
+                        expr: TypeAnnotationExpr::Reference(sym),
+                        range,
+                    })
+                } else {
+                    None
+                }
+            }
+            Expr::TypeForm(ann) => Some((**ann).clone()),
+            _ => None,
         }
     }
 

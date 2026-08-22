@@ -47,6 +47,16 @@ fn install_one(vm: &mut VM, desc: &PrimitiveDescriptor) -> PhResult<()> {
 
     let method_id = vm.heap.alloc(Object::Method(Box::new(method)));
     vm.heap.class_mut(target).add_method(selector, method_id);
+    vm.typing_registry.method_implementations.insert(
+        method_id,
+        crate::typing::side_table::RuntimeImplementationRef {
+            kind: phalcom_native_meta::ImplementationKind::NativePrimitive,
+            key: Some(desc.surface.key),
+            intrinsic: desc.surface.intrinsic,
+            abi: Some(desc.abi),
+            source: Some(desc.source),
+        },
+    );
     vm.world_version += 1;
 
     Ok(())

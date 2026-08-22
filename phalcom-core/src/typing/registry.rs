@@ -3,7 +3,7 @@
 use crate::heap::ClassId;
 use crate::typing::handle::MetadataPoolId;
 use crate::typing::loader::{LoadedSemanticMetadata, RuntimeNominalBindingTable};
-use crate::typing::side_table::MethodSemanticIndex;
+use crate::typing::side_table::{MethodImplementationIndex, MethodSemanticIndex};
 use phalcom_type_meta::identity::StableDeclarationRef;
 use std::sync::Arc;
 
@@ -13,6 +13,7 @@ pub struct RuntimeTypingRegistry {
     pools: Vec<Arc<LoadedSemanticMetadata>>,
     nominal_bindings: RuntimeNominalBindingTable,
     pub method_semantics: MethodSemanticIndex,
+    pub method_implementations: MethodImplementationIndex,
 }
 
 impl RuntimeTypingRegistry {

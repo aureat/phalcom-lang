@@ -3,22 +3,61 @@
 use super::application::TypeApplicationError;
 use super::evidence::{DynamicReason, EvidenceAuthority, TypeEvidence, TypeKnowledge, UnknownReason};
 use super::id::KindId;
-use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeStore};
+use super::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
+use super::type_lambda::ScopedTypeData;
+use super::variance::Variance;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::identity::{DeclarationId, ModuleId};
-use phalcom_ast::ast::{TypeAnnotation, TypeAnnotationExpr};
+use crate::identity::{DeclarationId, DispatchSide, ModuleId};
+use phalcom_ast::ast::{GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax};
 
 /// Resolves type names to declaration identities or builtins.
 pub trait TypeResolver {
     /// Resolve an unqualified or qualified nominal type name to a DeclarationId.
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId>;
+
+    /// Resolve an in-scope type parameter name to its interned parameter TypeId.
+    fn resolve_type_parameter(&self, _name: &str) -> Option<crate::types::id::TypeId> {
+        None
+    }
+
+    /// The declaration currently enclosing the type resolution context, if any.
+    fn current_declaration(&self) -> Option<DeclarationId> {
+        None
+    }
+}
+
+/// A scoped type resolver overlaying lexical type parameters on top of a parent resolver.
+pub struct ScopedTypeResolver<'a> {
+    pub parent: &'a dyn TypeResolver,
+    pub type_parameters: std::collections::HashMap<String, crate::types::id::TypeId>,
+}
+
+impl<'a> TypeResolver for ScopedTypeResolver<'a> {
+    fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.parent.resolve_type_name(current_module, root, members)
+    }
+
+    fn resolve_type_parameter(&self, name: &str) -> Option<crate::types::id::TypeId> {
+        if let Some(&ty) = self.type_parameters.get(name) {
+            Some(ty)
+        } else {
+            self.parent.resolve_type_parameter(name)
+        }
+    }
+
+    fn current_declaration(&self) -> Option<DeclarationId> {
+        self.parent.current_declaration()
+    }
 }
 
 /// A standard resolver holding local declarations, imported declarations, and builtins.
 #[derive(Clone, Debug, Default)]
 pub struct SimpleTypeResolver {
     pub declarations: std::collections::HashMap<String, DeclarationId>,
+    pub type_parameters: std::collections::HashMap<String, crate::types::id::TypeId>,
+    pub enclosing_declaration: Option<DeclarationId>,
 }
 
 impl SimpleTypeResolver {
@@ -28,6 +67,15 @@ impl SimpleTypeResolver {
 
     pub fn insert(&mut self, name: impl Into<String>, decl: DeclarationId) {
         self.declarations.insert(name.into(), decl);
+    }
+
+    pub fn insert_parameter(&mut self, name: impl Into<String>, ty: crate::types::id::TypeId) {
+        self.type_parameters.insert(name.into(), ty);
+    }
+
+    pub fn with_enclosing_declaration(mut self, decl: DeclarationId) -> Self {
+        self.enclosing_declaration = Some(decl);
+        self
     }
 }
 
@@ -40,6 +88,14 @@ impl TypeResolver for SimpleTypeResolver {
             self.declarations.get(&full).cloned()
         }
     }
+
+    fn resolve_type_parameter(&self, name: &str) -> Option<crate::types::id::TypeId> {
+        self.type_parameters.get(name).copied()
+    }
+
+    fn current_declaration(&self) -> Option<DeclarationId> {
+        self.enclosing_declaration.clone()
+    }
 }
 
 /// Result of resolving an AST type annotation into a type form.
@@ -48,6 +104,30 @@ pub enum TypeFormResolution {
     Known(crate::types::id::TypeId),
     Dynamic,
     Unknown(UnknownReason),
+}
+
+/// Resolves a kind syntax node to a canonical [`KindId`].
+pub fn resolve_kind_syntax(store: &mut TypeStore, kind: &KindSyntax) -> KindId {
+    match kind {
+        KindSyntax::Type(_) => KindId::TYPE,
+        KindSyntax::RecordRow(_) => KindId::RECORD_ROW,
+        KindSyntax::Grouped { inner, .. } => resolve_kind_syntax(store, inner),
+        KindSyntax::Arrow { parameter, result, .. } => {
+            let p_kind = resolve_kind_syntax(store, parameter);
+            let r_kind = resolve_kind_syntax(store, result);
+            store.arrow_kind(Box::new([p_kind]), r_kind)
+        }
+        KindSyntax::Invalid { .. } => KindId::TYPE,
+    }
+}
+
+/// Lowers an AST variance marker into semantic [`Variance`].
+pub fn lower_variance(variance: VarianceSyntax) -> Variance {
+    match variance {
+        VarianceSyntax::Invariant => Variance::Invariant,
+        VarianceSyntax::Covariant => Variance::Covariant,
+        VarianceSyntax::Contravariant => Variance::Contravariant,
+    }
 }
 
 /// Resolves an AST [`TypeAnnotation`] into a type constructor or proper type form.
@@ -60,9 +140,32 @@ pub fn resolve_type_form(
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeFormResolution {
     match &annotation.expr {
+        TypeAnnotationExpr::Unit { .. } => TypeFormResolution::Known(store.unit()),
+        TypeAnnotationExpr::Dynamic { .. } => TypeFormResolution::Dynamic,
+        TypeAnnotationExpr::Never { .. } => TypeFormResolution::Known(store.never()),
+        TypeAnnotationExpr::SelfType { range } => {
+            if let Some(decl) = resolver.current_declaration() {
+                let term = SelfTypeTerm {
+                    owner: decl,
+                    side: DispatchSide::Instance,
+                    role: SelfRole::InstanceType,
+                };
+                TypeFormResolution::Known(store.self_type(term))
+            } else {
+                diagnostics.push(SemanticDiagnostic::error(
+                    DiagnosticCode::AnnotationUnresolved,
+                    "Self type is only valid within a class declaration or method context",
+                    *range,
+                ));
+                TypeFormResolution::Unknown(UnknownReason::UnresolvedName("Self".into()))
+            }
+        }
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();
             if sym_ref.members.is_empty() {
+                if let Some(param_ty) = resolver.resolve_type_parameter(name) {
+                    return TypeFormResolution::Known(param_ty);
+                }
                 match name {
                     "Never" => return TypeFormResolution::Known(store.never()),
                     "Unit" => return TypeFormResolution::Known(store.unit()),
@@ -142,6 +245,33 @@ pub fn resolve_type_form(
             let tuple_ty = store.tuple(tuple_elements.into_boxed_slice());
             TypeFormResolution::Known(tuple_ty)
         }
+        TypeAnnotationExpr::Record { fields, tail: _, range: _ } => {
+            let mut record_fields = Vec::with_capacity(fields.len());
+            for field in fields {
+                let f_res = resolve_type_form(store, declarations, resolver, current_module, &field.ty, diagnostics);
+                let ty = match f_res {
+                    TypeFormResolution::Known(ty) => {
+                        if store.kind_of(ty) != KindId::TYPE {
+                            diagnostics.push(SemanticDiagnostic::error(
+                                DiagnosticCode::KindExpectedType,
+                                "record field must be a proper type",
+                                field.range,
+                            ));
+                            return TypeFormResolution::Unknown(UnknownReason::UnannotatedDeclaration);
+                        }
+                        ty
+                    }
+                    TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+                    TypeFormResolution::Unknown(reason) => return TypeFormResolution::Unknown(reason),
+                };
+                record_fields.push(RecordTypeField {
+                    name: field.name.clone().into(),
+                    ty,
+                });
+            }
+            let rec_ty = store.record(record_fields.into_boxed_slice());
+            TypeFormResolution::Known(rec_ty)
+        }
         TypeAnnotationExpr::Callable { parameters, result, range: _ } => {
             let mut param_types = Vec::with_capacity(parameters.len());
             for param in parameters {
@@ -218,7 +348,96 @@ pub fn resolve_type_form(
             let union_ty = store.union(&resolved_tys);
             TypeFormResolution::Known(union_ty)
         }
+        TypeAnnotationExpr::TypeLambda { parameters, body, range: _ } => {
+            let mut param_kinds = Vec::with_capacity(parameters.len());
+            for p in parameters {
+                let kind = p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(store, k));
+                param_kinds.push(kind);
+            }
+
+            let body_res = resolve_type_form(store, declarations, resolver, current_module, body, diagnostics);
+            let body_ty = match body_res {
+                TypeFormResolution::Known(ty) => ty,
+                TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+                TypeFormResolution::Unknown(reason) => return TypeFormResolution::Unknown(reason),
+            };
+
+            let scoped_body = store.arena_mut().intern_scoped(ScopedTypeData::Free(body_ty));
+            let result_kind = store.kind_of(body_ty);
+            let lambda_ty = store.lambda(param_kinds.into_boxed_slice(), scoped_body, result_kind);
+            TypeFormResolution::Known(lambda_ty)
+        }
+        TypeAnnotationExpr::Invalid { message, range } => {
+            diagnostics.push(SemanticDiagnostic::error(DiagnosticCode::AnnotationUnresolved, message.clone(), *range));
+            TypeFormResolution::Unknown(UnknownReason::SyntaxError)
+        }
     }
+}
+
+/// Resolves generic parameters and where constraints into a [`GenericSignature`].
+pub fn resolve_generic_signature(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    current_module: &ModuleId,
+    owner: TypeParameterOwner,
+    params: &[GenericParameterSyntax],
+    where_clause: Option<&WhereClauseSyntax>,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> GenericSignature {
+    let mut param_ids = Vec::with_capacity(params.len());
+    for (idx, p) in params.iter().enumerate() {
+        let kind = p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(store, k));
+        let variance = lower_variance(p.variance);
+        let data = TypeParameterData::new(owner.clone(), idx as u32, p.name.clone(), kind)
+            .with_variance(variance)
+            .with_source(crate::diagnostic::SemanticSourceSpan::new(current_module.clone(), p.range));
+        let param_id = store.intern_type_parameter(data);
+        param_ids.push(param_id);
+    }
+
+    let mut param_map = std::collections::HashMap::new();
+    for (p, &param_id) in params.iter().zip(param_ids.iter()) {
+        let param_form = store.parameter_form(param_id);
+        param_map.insert(p.name.clone(), param_form);
+    }
+    let scoped_resolver = ScopedTypeResolver {
+        parent: resolver,
+        type_parameters: param_map,
+    };
+
+    let mut constraints = Vec::new();
+    if let Some(clause) = where_clause {
+        for c in &clause.constraints {
+            match c {
+                GenericConstraintSyntax::Subtype { lower, upper, range: _ } => {
+                    let l_res = resolve_type_form(store, declarations, &scoped_resolver, current_module, lower, diagnostics);
+                    let u_res = resolve_type_form(store, declarations, &scoped_resolver, current_module, upper, diagnostics);
+                    if let (TypeFormResolution::Known(l_ty), TypeFormResolution::Known(u_ty)) = (l_res, u_res) {
+                        constraints.push(GenericConstraint::Subtype {
+                            lower: TypeTerm::Canonical(l_ty),
+                            upper: TypeTerm::Canonical(u_ty),
+                        });
+                    }
+                }
+                GenericConstraintSyntax::Equivalent { left, right, range: _ } => {
+                    let l_res = resolve_type_form(store, declarations, &scoped_resolver, current_module, left, diagnostics);
+                    let r_res = resolve_type_form(store, declarations, &scoped_resolver, current_module, right, diagnostics);
+                    if let (TypeFormResolution::Known(l_ty), TypeFormResolution::Known(r_ty)) = (l_res, r_res) {
+                        constraints.push(GenericConstraint::Equivalent {
+                            left: TypeTerm::Canonical(l_ty),
+                            right: TypeTerm::Canonical(r_ty),
+                        });
+                    }
+                }
+                GenericConstraintSyntax::Invalid { message, range } => {
+                    diagnostics.push(SemanticDiagnostic::error(DiagnosticCode::AnnotationUnresolved, message.clone(), *range));
+                }
+            }
+        }
+    }
+
+    GenericSignature::with_constraints(owner, param_ids.into_boxed_slice(), constraints.into_boxed_slice())
 }
 
 /// Resolves an AST [`TypeAnnotation`] into semantic [`TypeKnowledge`] representing a proper value type.

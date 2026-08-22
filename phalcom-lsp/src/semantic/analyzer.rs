@@ -464,6 +464,7 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
             flow(ValueShape::Unknown, range)
         }
         Expr::Ellipsis { .. } => exact(ValueShape::Instance(core_class("Ellipsis")), range),
+        Expr::TypeForm(_) => flow(ValueShape::Unknown, range),
     }
 }
 
@@ -863,7 +864,8 @@ fn analyze_statement(statement: &phalcom_ast::ast::Statement, context: &Analysis
         phalcom_ast::ast::Statement::Class(_)
         | phalcom_ast::ast::Statement::Break { .. }
         | phalcom_ast::ast::Statement::Continue { .. }
-        | phalcom_ast::ast::Statement::Export(_) => {}
+        | phalcom_ast::ast::Statement::Export(_)
+        | phalcom_ast::ast::Statement::TypeAlias(_) => {}
     }
 }
 

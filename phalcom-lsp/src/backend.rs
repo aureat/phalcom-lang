@@ -1021,6 +1021,7 @@ fn statement_has_binding(statement: &phalcom_ast::ast::Statement, name: &str) ->
         phalcom_ast::ast::Statement::Expr { expr, .. } | phalcom_ast::ast::Statement::Throw { expr, .. } => expr_has_binding(expr, name),
         phalcom_ast::ast::Statement::Return(_)
         | phalcom_ast::ast::Statement::Class(_)
+        | phalcom_ast::ast::Statement::TypeAlias(_)
         | phalcom_ast::ast::Statement::Export(_)
         | phalcom_ast::ast::Statement::Break { .. }
         | phalcom_ast::ast::Statement::Continue { .. } => false,

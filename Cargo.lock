@@ -1125,6 +1125,9 @@ dependencies = [
 [[package]]
 name = "phalcom-native-surface"
 version = "0.1.0"
+dependencies = [
+ "phalcom-native-meta",
+]
 
 [[package]]
 name = "phalcom-repl"
@@ -1147,6 +1150,7 @@ dependencies = [
  "phalcom-common",
  "phalcom-modules",
  "phalcom-native-meta",
+ "phalcom-native-surface",
  "phalcom-type-meta",
  "serde",
  "tempfile",

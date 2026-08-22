@@ -15,7 +15,9 @@ Program {
         Class(
             ClassDef {
                 name: "Point",
+                generic_parameters: [],
                 superclass: None,
+                where_clause: None,
                 members: [],
                 attributes: [],
                 invariants: [],

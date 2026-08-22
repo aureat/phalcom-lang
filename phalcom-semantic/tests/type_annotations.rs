@@ -203,3 +203,120 @@ fn type_form_resolution_keeps_dynamic_separate_from_type_ids() {
         env.store.kind_of(env.declarations.form(&DeclarationId::new(env.module, "Int".into())).unwrap())
     );
 }
+
+#[test]
+fn lowers_primitive_and_self_type_annotations() {
+    let mut env = setup();
+    let decl = DeclarationId::new(env.module.clone(), "Point".into());
+    env.resolver.enclosing_declaration = Some(decl.clone());
+
+    // Unit
+    let unit_ann = TypeAnnotation {
+        expr: TypeAnnotationExpr::Unit { range: RANGE },
+        range: RANGE,
+    };
+    let (unit_res, _) = resolve(&mut env, &unit_ann);
+    assert_eq!(unit_res.ty().unwrap(), env.store.unit());
+
+    // Never
+    let never_ann = TypeAnnotation {
+        expr: TypeAnnotationExpr::Never { range: RANGE },
+        range: RANGE,
+    };
+    let (never_res, _) = resolve(&mut env, &never_ann);
+    assert_eq!(never_res.ty().unwrap(), env.store.never());
+
+    // Self
+    let self_ann = TypeAnnotation {
+        expr: TypeAnnotationExpr::SelfType { range: RANGE },
+        range: RANGE,
+    };
+    let (self_res, _) = resolve(&mut env, &self_ann);
+    assert!(matches!(env.store.get(self_res.ty().unwrap()), TypeData::SelfType(term) if term.owner == decl));
+}
+
+#[test]
+fn lowers_structural_record_annotations() {
+    let mut env = setup();
+    let record_ann = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: vec![
+                phalcom_ast::ast::RecordTypeField {
+                    name: "x".into(),
+                    ty: reference("Int"),
+                    range: RANGE,
+                },
+                phalcom_ast::ast::RecordTypeField {
+                    name: "y".into(),
+                    ty: reference("Int"),
+                    range: RANGE,
+                },
+            ],
+            tail: None,
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let (res, diags) = resolve(&mut env, &record_ann);
+    assert!(diags.is_empty());
+    assert!(matches!(env.store.get(res.ty().unwrap()), TypeData::Record(fields) if fields.len() == 2));
+}
+
+#[test]
+fn lowers_type_lambda_annotations() {
+    let mut env = setup();
+    let lambda_ann = TypeAnnotation {
+        expr: TypeAnnotationExpr::TypeLambda {
+            parameters: vec![phalcom_ast::ast::TypeLambdaParameter {
+                name: "T".into(),
+                name_range: RANGE,
+                kind: None,
+                range: RANGE,
+            }],
+            body: Box::new(reference("Int")),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diags = Vec::new();
+    let res = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.module, &lambda_ann, &mut diags);
+    assert!(diags.is_empty());
+    let TypeFormResolution::Known(lambda_ty) = res else { panic!() };
+    assert!(matches!(env.store.get(lambda_ty), TypeData::Lambda(_)));
+}
+
+#[test]
+fn lowers_generic_signature_with_where_constraints() {
+    let mut env = setup();
+    let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Container".into()));
+    let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        variance: phalcom_ast::ast::VarianceSyntax::Covariant,
+        name: "T".into(),
+        name_range: RANGE,
+        kind: None,
+        range: RANGE,
+    }];
+    let where_clause = phalcom_ast::ast::WhereClauseSyntax {
+        constraints: vec![phalcom_ast::ast::GenericConstraintSyntax::Subtype {
+            lower: reference("T"),
+            upper: reference("Object"),
+            range: RANGE,
+        }],
+        range: RANGE,
+    };
+
+    let mut diags = Vec::new();
+    let sig = phalcom_semantic::types::annotation::resolve_generic_signature(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.module,
+        owner,
+        &params,
+        Some(&where_clause),
+        &mut diags,
+    );
+
+    assert_eq!(sig.parameter_count(), 1);
+    assert_eq!(sig.constraint_count(), 1);
+}

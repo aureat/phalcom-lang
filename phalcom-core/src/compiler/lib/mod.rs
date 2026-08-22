@@ -588,6 +588,9 @@ impl<'vm> Compiler<'vm> {
             Statement::Export(_export_decl) => {
                 // Local exports in v1 Part 1 are static declarations for interface building; no runtime opcode emitted
             }
+            Statement::TypeAlias(_type_alias) => {
+                // Transparent type aliases (Spec 04) are compile-time declarations; no runtime opcode emitted
+            }
             Statement::Return(return_stmt) => {
                 let range = return_stmt.range;
                 if self.functions.last().unwrap().is_constructor {

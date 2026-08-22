@@ -793,8 +793,44 @@ pub fn render_selector_hover_with_value(
                 }
             })
             .collect::<Vec<_>>();
+
+        let mut native_info = None;
+        for site in sites {
+            if let Some(ukey) = phalcom_native_surface::UniverseKey::from_name(&site.owner.name) {
+                let side = match site.kind {
+                    crate::index::MemberKind::StaticMethod => phalcom_native_surface::NativeDispatch::Class,
+                    _ => phalcom_native_surface::NativeDispatch::Instance,
+                };
+                if let Some(native_rec) = phalcom_native_surface::find_native_surface(ukey, side, selector) {
+                    let mut b = vec!["native primitive"];
+                    if let Some(intrin) = native_rec.intrinsic() {
+                        b.push(match intrin {
+                            phalcom_native_surface::NativeIntrinsicId::BoolAnd => "intrinsic BoolAnd",
+                            phalcom_native_surface::NativeIntrinsicId::BoolOr => "intrinsic BoolOr",
+                            phalcom_native_surface::NativeIntrinsicId::BoolNot => "intrinsic BoolNot",
+                        });
+                    }
+                    if native_rec.effects() == phalcom_native_surface::EffectSpec::Pure {
+                        b.push("pure");
+                    }
+                    native_info = Some((b.join(" · "), native_rec.docs()));
+                    break;
+                }
+            }
+        }
+
         let kind = kind_word(*owners.values().next().unwrap_or(&sites[0].kind));
-        sections.push(format!("`{selector}` — {kind} on {}", classes.join(", ")));
+        if let Some((badge, _)) = &native_info {
+            sections.push(format!("`{selector}` — {kind} on {}\n*{}*", classes.join(", "), badge));
+        } else {
+            sections.push(format!("`{selector}` — {kind} on {}", classes.join(", ")));
+        }
+
+        if phaldoc.is_none() {
+            if let Some((_, Some(docs))) = native_info {
+                sections.push(docs.to_string());
+            }
+        }
     }
 
     if let Some(doc) = phaldoc {

@@ -344,7 +344,7 @@ impl ScopeBuilder {
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
                 Statement::Export(_) => {}
-                Statement::Break { .. } | Statement::Continue { .. } => {}
+                Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
             }
         }
     }
@@ -582,7 +582,8 @@ impl ScopeBuilder {
             | Expr::SuperVar { .. }
             | Expr::ImplementationSelector { .. }
             | Expr::Symbol { .. }
-            | Expr::Ellipsis { .. } => {}
+            | Expr::Ellipsis { .. }
+            | Expr::TypeForm(_) => {}
         }
     }
 
@@ -632,6 +633,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
         Statement::Export(export_decl) => export_decl.range,
+        Statement::TypeAlias(type_alias) => type_alias.range,
     }
 }
 

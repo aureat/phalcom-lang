@@ -105,6 +105,7 @@ impl<'a> MetadataExporter<'a> {
 
         let node = match data {
             KindData::Type => KindNode::Type,
+            KindData::RecordRow => KindNode::RecordRow,
             KindData::Arrow { ref parameters, result } => {
                 let p_nodes: Vec<KindNodeId> = parameters.iter().map(|&p| self.export_kind(p)).collect();
                 let r_node = self.export_kind(result);

@@ -4,6 +4,8 @@
 //! validates its primitive registration against this surface, while the LSP
 //! uses it to expose native members without linking the runtime.
 
+pub use phalcom_native_meta::*;
+
 /// Native member category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum NativeMemberKind {
@@ -15,22 +17,90 @@ pub enum NativeMemberKind {
     Setter,
 }
 
-/// Native dispatch side.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum NativeDispatch {
-    /// Instance-side dispatch.
-    Instance,
-    /// Class-side dispatch.
-    Class,
+/// Rich native surface record preserving complete declarative metadata.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeSurfaceRecord {
+    pub surface: PrimitiveSurfaceSpec,
+    pub kind: NativeMemberKind,
+    pub abi: PrimitiveAbi,
+    pub return_shape: NativeReturnShape,
 }
 
-/// Native visibility.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum NativeVisibility {
-    /// Public protocol member.
-    Public,
-    /// Runtime implementation member.
-    Internal,
+impl NativeSurfaceRecord {
+    pub const fn owner(&self) -> UniverseKey {
+        self.surface.key.owner
+    }
+
+    pub const fn side(&self) -> NativeDispatch {
+        self.surface.key.side
+    }
+
+    pub const fn selector(&self) -> &'static str {
+        self.surface.key.selector
+    }
+
+    pub const fn visibility(&self) -> NativeVisibility {
+        self.surface.visibility
+    }
+
+    pub const fn stability(&self) -> NativeStability {
+        self.surface.stability
+    }
+
+    pub const fn params(&self) -> &'static ParameterTupleSpec {
+        self.surface.params
+    }
+
+    pub const fn returns(&self) -> &'static TypeExprSpec {
+        self.surface.returns
+    }
+
+    pub const fn callable(&self) -> &'static CallableTypeSpec {
+        self.surface.callable
+    }
+
+    pub const fn raises(&self) -> RaisesSpec {
+        self.surface.raises
+    }
+
+    pub const fn effects(&self) -> EffectSpec {
+        self.surface.effects
+    }
+
+    pub const fn flow(&self) -> ReturnFlowSpec {
+        self.surface.flow
+    }
+
+    pub const fn intrinsic(&self) -> Option<NativeIntrinsicId> {
+        self.surface.intrinsic
+    }
+
+    pub const fn trust(&self) -> NativeTrust {
+        self.surface.trust
+    }
+
+    pub const fn docs(&self) -> Option<&'static str> {
+        self.surface.docs
+    }
+
+    pub const fn conceptual(&self) -> Option<&'static str> {
+        self.surface.conceptual
+    }
+}
+
+pub mod generated;
+pub use generated::NATIVE_SURFACES;
+
+/// Finds a canonical native surface record by owner, side, and selector.
+pub fn find_native_surface(owner: UniverseKey, side: NativeDispatch, selector: &str) -> Option<&'static NativeSurfaceRecord> {
+    NATIVE_SURFACES
+        .iter()
+        .find(|s| s.owner() == owner && s.side() == side && s.selector() == selector)
+}
+
+/// Returns an iterator over all canonical native surface records for a given owner.
+pub fn native_surfaces_for_owner(owner: UniverseKey) -> impl Iterator<Item = &'static NativeSurfaceRecord> {
+    NATIVE_SURFACES.iter().filter(move |s| s.owner() == owner)
 }
 
 /// VM-free semantic return contract for a native member.

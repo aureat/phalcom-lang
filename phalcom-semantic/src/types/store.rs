@@ -112,6 +112,8 @@ impl TypeStore {
         // Kind::Type is KindId(0)
         let type_kind = store.intern_kind(KindData::Type);
         assert_eq!(type_kind, KindId::TYPE);
+        let record_row_kind = store.intern_kind(KindData::RecordRow);
+        assert_eq!(record_row_kind, KindId::RECORD_ROW);
 
         store.never_id = store.intern_with_kind(TypeData::Never, KindId::TYPE);
         store.unit_id = store.intern_with_kind(TypeData::Unit, KindId::TYPE);
@@ -255,7 +257,7 @@ impl TypeStore {
 
         let callee_data = self.get_kind(callee).clone();
         match callee_data {
-            KindData::Type => Err(KindApplicationError::NotApplicable { kind: callee }),
+            KindData::Type | KindData::RecordRow => Err(KindApplicationError::NotApplicable { kind: callee }),
             KindData::Arrow { parameters, result } => {
                 if arguments.len() > parameters.len() {
                     return Err(KindApplicationError::TooManyArguments {

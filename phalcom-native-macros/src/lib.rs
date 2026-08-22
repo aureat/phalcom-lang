@@ -37,6 +37,7 @@ struct PrimitiveAttrArgs {
 
     intrinsic: Option<String>,
     trust: Option<String>,
+    conceptual: Option<String>,
 }
 
 impl Parse for PrimitiveAttrArgs {
@@ -70,6 +71,7 @@ impl Parse for PrimitiveAttrArgs {
             flow: None,
             intrinsic: None,
             trust: None,
+            conceptual: None,
         };
 
         while input.peek(Token![,]) {
@@ -172,6 +174,15 @@ impl Parse for PrimitiveAttrArgs {
                 "trust" => {
                     let id: Ident = input.parse()?;
                     args.trust = Some(id.to_string());
+                }
+                "conceptual" => {
+                    if input.peek(LitStr) {
+                        let lit: LitStr = input.parse()?;
+                        args.conceptual = Some(lit.value());
+                    } else {
+                        let expr: Expr = input.parse()?;
+                        args.conceptual = Some(quote!(#expr).to_string());
+                    }
                 }
                 other => {
                     return Err(Error::new(field_ident.span(), format!("unknown primitive attribute field '{other}'")));
@@ -503,6 +514,28 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
     let descriptor_ident = format_ident!("__PHALCOM_PRIMITIVE_DESCRIPTOR_{}", fn_name_upper);
     let surface_ident = format_ident!("__PHALCOM_PRIMITIVE_SURFACE_{}", fn_name_upper);
 
+    let mut doc_lines = Vec::new();
+    for attr in &item_fn.attrs {
+        if attr.path().is_ident("doc") {
+            if let syn::Meta::NameValue(meta) = &attr.meta {
+                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &meta.value {
+                    doc_lines.push(s.value());
+                }
+            }
+        }
+    }
+    let docs_tokens = if doc_lines.is_empty() {
+        quote!(None)
+    } else {
+        let combined_docs = doc_lines.join("\n");
+        quote!(Some(#combined_docs))
+    };
+
+    let conceptual_tokens = match &args.conceptual {
+        Some(s) => quote!(Some(#s)),
+        None => quote!(None),
+    };
+
     let expanded = quote! {
         #item_fn
 
@@ -528,6 +561,8 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
             replacement: #replacement_tokens,
             intrinsic: #intrinsic_tokens,
             trust: #trust_tokens,
+            docs: #docs_tokens,
+            conceptual: #conceptual_tokens,
         };
 
         #[::linkme::distributed_slice(crate::native::PRIMITIVES)]

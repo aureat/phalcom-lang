@@ -39,3 +39,43 @@ impl MethodSemanticIndex {
         self.by_method.clear();
     }
 }
+
+use phalcom_native_meta::{ImplementationKind, NativeIntrinsicId, NativeSourceSpec, PrimitiveAbi, PrimitiveKey};
+
+/// VM-owned runtime implementation provenance metadata.
+#[derive(Clone, Copy, Debug)]
+pub struct RuntimeImplementationRef {
+    pub kind: ImplementationKind,
+    pub key: Option<PrimitiveKey>,
+    pub intrinsic: Option<NativeIntrinsicId>,
+    pub abi: Option<PrimitiveAbi>,
+    pub source: Option<NativeSourceSpec>,
+}
+
+/// VM-owned mapping from live MethodObject `ObjRef` to implementation provenance.
+#[derive(Clone, Debug, Default)]
+pub struct MethodImplementationIndex {
+    by_method: HashMap<ObjRef, RuntimeImplementationRef>,
+}
+
+impl MethodImplementationIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, method: ObjRef, impl_ref: RuntimeImplementationRef) {
+        self.by_method.insert(method, impl_ref);
+    }
+
+    pub fn get(&self, method: ObjRef) -> Option<RuntimeImplementationRef> {
+        self.by_method.get(&method).copied()
+    }
+
+    pub fn remove(&mut self, method: ObjRef) {
+        self.by_method.remove(&method);
+    }
+
+    pub fn clear(&mut self) {
+        self.by_method.clear();
+    }
+}

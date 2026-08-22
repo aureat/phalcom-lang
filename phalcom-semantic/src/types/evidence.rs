@@ -107,6 +107,7 @@ pub enum UnknownReason {
     OpaqueNative,
     RecursiveFixpoint,
     UncheckedExpression,
+    SyntaxError,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

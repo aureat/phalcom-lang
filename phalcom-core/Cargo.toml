@@ -64,6 +64,11 @@ path = "tests/spec02_invariants.rs"
 name = "spec03_reflection"
 path = "tests/spec03_reflection.rs"
 
+[[test]]
+name = "spec03_5_conformance"
+path = "tests/spec03_5_conformance.rs"
+
+
 
 [features]
 default = []

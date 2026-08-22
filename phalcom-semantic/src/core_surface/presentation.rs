@@ -1,0 +1,157 @@
+//! Presentation IR for canonical core classes and methods.
+
+use super::merge::{MergedClassSurface, SurfaceMergeOutcome};
+use crate::identity::{DeclarationId, DispatchSide};
+use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeIntrinsicId};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MethodPresentation {
+    pub selector: String,
+    pub side: DispatchSide,
+    pub display_signature: String,
+    pub implementation_kind: ImplementationKind,
+    pub intrinsic: Option<NativeIntrinsicId>,
+    pub effects: Option<String>,
+    pub documentation: Option<String>,
+    pub conceptual: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClassPresentation {
+    pub declaration_id: DeclarationId,
+    pub name: String,
+    pub superclass: Option<String>,
+    pub members: Vec<MethodPresentation>,
+    pub documentation: Option<String>,
+}
+
+impl ClassPresentation {
+    pub fn from_merged(merged: &MergedClassSurface<'_>) -> Self {
+        let mut members = Vec::new();
+
+        for ((side, sel), outcome) in &merged.members {
+            match outcome {
+                SurfaceMergeOutcome::NativeOnly(n) => {
+                    let effects_str = match n.effects() {
+                        EffectSpec::Pure => Some("pure".to_string()),
+                        EffectSpec::Known(k) => Some(format!("{:?}", k)),
+                        EffectSpec::Unknown => None,
+                    };
+                    members.push(MethodPresentation {
+                        selector: sel.clone(),
+                        side: *side,
+                        display_signature: format!("{sel}"),
+                        implementation_kind: ImplementationKind::NativePrimitive,
+                        intrinsic: n.intrinsic(),
+                        effects: effects_str,
+                        documentation: n.docs().map(|s| s.to_string()),
+                        conceptual: n.conceptual().map(|s| s.to_string()),
+                    });
+                }
+                SurfaceMergeOutcome::SourceOnly(s) => {
+                    members.push(MethodPresentation {
+                        selector: sel.clone(),
+                        side: *side,
+                        display_signature: format!("{sel}"),
+                        implementation_kind: ImplementationKind::Source,
+                        intrinsic: None,
+                        effects: None,
+                        documentation: s.doc_comment.clone(),
+                        conceptual: None,
+                    });
+                }
+                SurfaceMergeOutcome::SourceDeclarationNativeImplementation { source, native } => {
+                    let doc = source.doc_comment.clone().or_else(|| native.docs().map(|s| s.to_string()));
+                    members.push(MethodPresentation {
+                        selector: sel.clone(),
+                        side: *side,
+                        display_signature: format!("{sel}"),
+                        implementation_kind: ImplementationKind::NativePrimitive,
+                        intrinsic: native.intrinsic(),
+                        effects: if native.effects() == EffectSpec::Pure {
+                            Some("pure".to_string())
+                        } else {
+                            None
+                        },
+                        documentation: doc,
+                        conceptual: native.conceptual().map(|s| s.to_string()),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        members.sort_by(|a, b| (a.side, &a.selector).cmp(&(b.side, &b.selector)));
+
+        ClassPresentation {
+            declaration_id: merged.declaration_id.clone(),
+            name: merged.name.clone(),
+            superclass: merged.superclass.clone(),
+            members,
+            documentation: merged.source_class.and_then(|s| s.doc_comment.clone()),
+        }
+    }
+
+    /// Renders concise markdown overview.
+    pub fn render_markdown(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("## class {}\n\n", self.name));
+        if let Some(ref sup) = self.superclass {
+            out.push_str(&format!("*Extends `{sup}`*\n\n"));
+        }
+        if let Some(ref doc) = self.documentation {
+            out.push_str(&format!("{}\n\n", doc));
+        }
+        out.push_str("### Methods\n\n");
+        for m in &self.members {
+            let side_badge = match m.side {
+                DispatchSide::Instance => "",
+                DispatchSide::Class => "*(static)* ",
+            };
+            let mut badges = Vec::new();
+            if m.implementation_kind == ImplementationKind::NativePrimitive {
+                badges.push("native");
+            }
+            if let Some(_intrin) = m.intrinsic {
+                badges.push("intrinsic");
+            }
+            if let Some(ref eff) = m.effects {
+                badges.push(eff.as_str());
+            }
+            let badge_str = if badges.is_empty() {
+                String::new()
+            } else {
+                format!(" · `{}`", badges.join(" · "))
+            };
+
+            out.push_str(&format!("- {}{}{}\n", side_badge, m.selector, badge_str));
+            if let Some(ref doc) = m.documentation {
+                out.push_str(&format!("  > {}\n", doc.trim()));
+            }
+        }
+        out
+    }
+
+    /// Renders virtual Phalcom source.
+    pub fn render_virtual_source(&self) -> String {
+        let mut out = String::new();
+        out.push_str("// Generated Canonical Core Surface — Read Only\n");
+        let sup = self.superclass.as_deref().map(|s| format!(" is {s}")).unwrap_or_default();
+        out.push_str(&format!("class {}{} {{\n", self.name, sup));
+        for m in &self.members {
+            if m.implementation_kind == ImplementationKind::NativePrimitive {
+                out.push_str("  @native\n");
+            }
+            if let Some(intrin) = m.intrinsic {
+                out.push_str(&format!("  @intrinsic({:?})\n", intrin));
+            }
+            if let Some(ref eff) = m.effects {
+                out.push_str(&format!("  @{}\n", eff));
+            }
+            let static_kw = if m.side == DispatchSide::Class { "static " } else { "" };
+            out.push_str(&format!("  {}{}\n\n", static_kw, m.selector));
+        }
+        out.push_str("}\n");
+        out
+    }
+}

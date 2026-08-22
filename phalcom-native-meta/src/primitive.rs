@@ -86,7 +86,16 @@ impl PrimitiveKey {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum ImplementationKind {
+    Source,
+    NativePrimitive,
+    Generated,
+    Abstract,
+    External,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeSourceSpec {
     pub module_path: &'static str,
     pub rust_name: &'static str,
@@ -94,7 +103,7 @@ pub struct NativeSourceSpec {
     pub line: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PrimitiveSurfaceSpec {
     pub key: PrimitiveKey,
     pub visibility: NativeVisibility,
@@ -114,4 +123,6 @@ pub struct PrimitiveSurfaceSpec {
 
     pub intrinsic: Option<NativeIntrinsicId>,
     pub trust: NativeTrust,
+    pub docs: Option<&'static str>,
+    pub conceptual: Option<&'static str>,
 }

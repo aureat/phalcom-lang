@@ -129,7 +129,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                     name: class_def.name.clone().into(),
                 };
 
-                if let Some(ref super_ref) = class_def.superclass {
+                if let Some(super_ref) = class_def.superclass_ref() {
                     let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
                     if let Some(target_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
                         let to_node = SemanticNodeId::Declaration {
@@ -189,7 +189,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
         for stmt in &parsed_unit.program.statements {
             if let Statement::Class(class_def) = stmt {
                 let class_decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                if let Some(ref super_ref) = class_def.superclass {
+                if let Some(super_ref) = class_def.superclass_ref() {
                     let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
                     if let Some(super_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
                         hierarchy.insert(class_decl, super_decl);

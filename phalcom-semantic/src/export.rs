@@ -10,6 +10,7 @@ use crate::types::store::{TypeData, TypeStore};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompiledKindRef {
     Type,
+    RecordRow,
     Arrow {
         parameters: Box<[CompiledKindRef]>,
         result: Box<CompiledKindRef>,
@@ -84,6 +85,7 @@ pub enum SemanticExportError {
 pub fn export_kind(store: &TypeStore, kind: KindId) -> CompiledKindRef {
     match store.get_kind(kind) {
         KindData::Type => CompiledKindRef::Type,
+        KindData::RecordRow => CompiledKindRef::RecordRow,
         KindData::Arrow { parameters, result } => {
             let p_kinds: Vec<CompiledKindRef> = parameters.iter().map(|&p| export_kind(store, p)).collect();
             let r_kind = export_kind(store, *result);

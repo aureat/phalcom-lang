@@ -98,3 +98,52 @@ pub fn method_holder(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
         None => Ok(vm.none_value()),
     }
 }
+
+/// Signature: `Method::isNative` — returns true if the method is implemented natively.
+#[phalcom_native_macros::primitive(
+    Method,
+    "isNative",
+    params = [],
+    returns = Bool,
+    types = "() -> Bool",
+    effects = pure
+)]
+pub fn method_is_native(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let method_id = expect_method(vm, receiver)?;
+    let is_native = matches!(vm.heap.method(method_id).kind, crate::method::MethodKind::Primitive(_));
+    Ok(Value::bool(is_native))
+}
+
+/// Signature: `Method::isIntrinsic` — returns true if the method has intrinsic compiler optimization.
+#[phalcom_native_macros::primitive(
+    Method,
+    "isIntrinsic",
+    params = [],
+    returns = Bool,
+    types = "() -> Bool",
+    effects = pure
+)]
+pub fn method_is_intrinsic(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let method_id = expect_method(vm, receiver)?;
+    let is_intrinsic = vm.typing_registry.method_implementations.get(method_id).and_then(|i| i.intrinsic).is_some();
+    Ok(Value::bool(is_intrinsic))
+}
+
+/// Signature: `Method::implementationKind` — returns `#native` or `#source`.
+#[phalcom_native_macros::primitive(
+    Method,
+    "implementationKind",
+    params = [],
+    returns = Symbol,
+    types = "() -> Symbol",
+    effects = pure
+)]
+pub fn method_implementation_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let method_id = expect_method(vm, receiver)?;
+    let kind_sym = if matches!(vm.heap.method(method_id).kind, crate::method::MethodKind::Primitive(_)) {
+        vm.interner.intern("native")
+    } else {
+        vm.interner.intern("source")
+    };
+    Ok(Value::symbol(kind_sym))
+}
