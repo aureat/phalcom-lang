@@ -94,6 +94,17 @@ impl<'a> CheckingContext<'a> {
                 .expect("canonical native surface must import during checking");
         }
 
+        Self::new_with_dispatch(store, hierarchy, resolver, declarations, dispatch, current_module)
+    }
+
+    pub fn new_with_dispatch(
+        store: &'a mut TypeStore,
+        hierarchy: &'a dyn TypeHierarchy,
+        resolver: &'a dyn TypeResolver,
+        declarations: &'a DeclarationTypeTable,
+        dispatch: SurfaceDispatchResolver,
+        current_module: ModuleId,
+    ) -> Self {
         Self {
             store,
             hierarchy,
@@ -148,9 +159,9 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn alloc_binding(&mut self) -> BindingId {
-        let id = BindingId(self.next_binding_id);
+        let id = self.next_binding_id;
         self.next_binding_id += 1;
-        id
+        BindingId(id)
     }
 
     pub fn alloc_expression_id(&mut self) -> ExpressionId {
@@ -191,10 +202,11 @@ impl<'a> CheckingContext<'a> {
         initial: TypeKnowledge,
         mutable: bool,
         denotation: Option<SemanticDenotation>,
+        range: SourceRange,
     ) -> BindingId {
         let name_str = name.into();
         let binding_id = self.alloc_binding();
-        self.flow.declare(binding_id, declared, initial.clone(), mutable);
+        self.flow.declare(binding_id, name_str.clone(), range, declared, initial.clone(), mutable);
         if let Some(state) = self.flow.get_binding(binding_id) {
             self.bindings.insert(binding_id, state.clone());
         }
@@ -218,9 +230,9 @@ impl<'a> CheckingContext<'a> {
         binding_id
     }
 
-    pub fn bind_local(&mut self, name: impl Into<String>, fact: ValueSemanticFact) {
+    pub fn bind_local(&mut self, name: impl Into<String>, fact: ValueSemanticFact, range: SourceRange) {
         let declared = fact.knowledge.ty();
-        self.bind_local_var(name, declared, fact.knowledge, true, fact.denotation);
+        self.bind_local_var(name, declared, fact.knowledge, true, fact.denotation, range);
     }
 
     pub fn lookup_binding_info(&self, name: &str) -> Option<&LocalBindingInfo> {

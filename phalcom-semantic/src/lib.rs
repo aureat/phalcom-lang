@@ -19,6 +19,7 @@ pub mod presentation;
 pub mod prover;
 pub mod resolver;
 pub mod scope;
+pub mod session;
 pub mod signature;
 pub mod snapshot;
 pub mod source;
@@ -57,6 +58,7 @@ pub use prover::{
 };
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
+pub use session::{SemanticUpdateStats, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 pub use signature::{CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable};
 pub use snapshot::SemanticSnapshot;
 pub use termination::{

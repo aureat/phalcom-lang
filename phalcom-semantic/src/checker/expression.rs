@@ -279,7 +279,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             for (i, p) in block.params.fixed.iter().enumerate() {
                 let p_ty = expected_params.get(i).and_then(|e| e.ty()).unwrap_or(top);
                 let p_k = TypeKnowledge::known(p_ty, EvidenceAuthority::ExactSyntax);
-                ctx.bind_local(p.name.clone(), ValueSemanticFact::new(p_k));
+                ctx.bind_local(p.name.clone(), ValueSemanticFact::new(p_k), p.range);
                 params.push(crate::types::store::CallableParameterType {
                     label: None,
                     ty: p_ty,
@@ -288,7 +288,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
             if let Some(ref rest_p) = block.params.positional_rest {
                 let rest_k = TypeKnowledge::known(top, EvidenceAuthority::ExactSyntax);
-                ctx.bind_local(rest_p.name.clone(), ValueSemanticFact::new(rest_k));
+                ctx.bind_local(rest_p.name.clone(), ValueSemanticFact::new(rest_k), rest_p.range);
                 params.push(crate::types::store::CallableParameterType {
                     label: None,
                     ty: top,
@@ -1076,7 +1076,7 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
 }
 
 fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact) {
-    if let Pattern::Name { name, .. } = pattern {
-        ctx.bind_local(name.clone(), fact);
+    if let Pattern::Name { name, range, .. } = pattern {
+        ctx.bind_local(name.clone(), fact, *range);
     }
 }

@@ -558,3 +558,160 @@ fn workspace_generic_class_and_callable_signature_publication() {
         .expect("value(_) callable signature published");
     assert_eq!(callable_sig.parameters.len(), 1);
 }
+
+#[test]
+fn workspace_constructor_and_cross_module_dispatch_inference() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    let proj_dir = root.join("app");
+    fs::create_dir_all(proj_dir.join("src/domain")).unwrap();
+    fs::create_dir_all(proj_dir.join("src/service")).unwrap();
+    fs::write(
+        proj_dir.join("project.toml"),
+        "[project]\nname = \"app\"\nnamespace = \"app\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+
+    fs::write(proj_dir.join("src/package.ph"), "expose .domain\nexpose .service\nexpose .main\n").unwrap();
+    fs::write(proj_dir.join("src/domain/package.ph"), "expose .point\nexpose .weight\nexpose .shipment\nexpose .parcel\n").unwrap();
+    fs::write(proj_dir.join("src/service/package.ph"), "expose .planner\n").unwrap();
+
+    fs::write(
+        proj_dir.join("src/domain/point.ph"),
+        "class Point {\n  _x: Int = 0\n  _y: Int = 0\n  @constructor\n  new(_ x: Int, y: Int) {\n    _x = x\n    _y = y\n  }\n}\nexport Point\n",
+    )
+    .unwrap();
+
+    fs::write(
+        proj_dir.join("src/domain/weight.ph"),
+        "class Weight {\n  _units: Int = 0\n  @constructor\n  new(_ units: Int) {\n    _units = units\n  }\n}\nexport Weight\n",
+    )
+    .unwrap();
+
+    fs::write(
+        proj_dir.join("src/domain/shipment.ph"),
+        "class Shipment {\n  @constructor\n  new() {}\n}\nexport Shipment\n",
+    )
+    .unwrap();
+
+    fs::write(
+        proj_dir.join("src/domain/parcel.ph"),
+        "from .point import Point\nfrom .weight import Weight\nclass Parcel {\n  _id: String\n  _destination: Point\n  _weight: Weight\n  @constructor\n  new(_ id: String, destination: Point, weight: Weight) -> () {\n    _id = id\n    _destination = destination\n    _weight = weight\n  }\n}\nexport Parcel\n",
+    )
+    .unwrap();
+
+    fs::write(
+        proj_dir.join("src/service/planner.ph"),
+        "from ..domain.parcel import Parcel\nfrom ..domain.shipment import Shipment\nfrom ..domain.point import Point\nclass Planner {\n  @class\n  plan(_ parcel: Parcel, origin: Point) -> Shipment {\n    Shipment.new()\n  }\n}\nexport Planner\n",
+    )
+    .unwrap();
+
+    fs::write(
+        proj_dir.join("src/main.ph"),
+        "from .domain.point import Point\nfrom .domain.weight import Weight\nfrom .domain.parcel import Parcel\nfrom .service.planner import Planner\nclass Main {\n  @class\n  main {\n    const origin = Point.new(0, y: 0)\n    const destination = Point.new(3, y: 4)\n    const parcel = Parcel.new(\"PKG-001\", destination: destination, weight: Weight.new(12))\n    const shipment = Planner.plan(parcel, origin: origin)\n  }\n}\n",
+    )
+    .unwrap();
+
+    let mut universe = ProjectUniverse::new();
+    let root_id = universe.load_root(proj_dir.join("project.toml")).expect("universe load succeeds");
+
+    let mut sources = BTreeMap::new();
+    let mut interfaces = BTreeMap::new();
+    let file_map = [
+        ("domain/point", proj_dir.join("src/domain/point.ph"), ModuleKind::Module),
+        ("domain/weight", proj_dir.join("src/domain/weight.ph"), ModuleKind::Module),
+        ("domain/shipment", proj_dir.join("src/domain/shipment.ph"), ModuleKind::Module),
+        ("domain/parcel", proj_dir.join("src/domain/parcel.ph"), ModuleKind::Module),
+        ("service/planner", proj_dir.join("src/service/planner.ph"), ModuleKind::Module),
+        ("main", proj_dir.join("src/main.ph"), ModuleKind::Module),
+        ("", proj_dir.join("src/package.ph"), ModuleKind::Package),
+        ("domain", proj_dir.join("src/domain/package.ph"), ModuleKind::Package),
+        ("service", proj_dir.join("src/service/package.ph"), ModuleKind::Package),
+    ];
+
+    for (mod_name, path, kind) in file_map {
+        let components: Vec<ModuleComponent> = if mod_name.is_empty() {
+            Vec::new()
+        } else {
+            mod_name.split('/').map(|s| ModuleComponent::from_identifier(s).unwrap()).collect()
+        };
+        let mod_id = ModuleId::resolved(root_id, ModulePath::from_components(components));
+        let src: Arc<str> = Arc::from(fs::read_to_string(&path).unwrap());
+        let prog = Arc::new(phalcom_ast::parse(&src, 0).program);
+        sources.insert(mod_id.clone(), Arc::new(ParsedModuleUnit::new(mod_id.clone(), kind, None, src, prog.clone())));
+        let iface = phalcom_modules::InterfaceBuilder::build(mod_id.clone(), kind, &prog).unwrap();
+        interfaces.insert(mod_id.clone(), iface);
+    }
+
+    let provider = phalcom_modules::FilesystemSourceProvider::new();
+    let mut resolver = phalcom_modules::ModuleResolver::new(&universe, &provider);
+    let mut resolved = BTreeMap::new();
+    for (mod_id, iface) in &interfaces {
+        for import in &iface.imports {
+            let path = match import {
+                phalcom_modules::ImportSurface::Module(m) => &m.path,
+                phalcom_modules::ImportSurface::Selective(s) => &s.path,
+                phalcom_modules::ImportSurface::ReExport(r) => &r.path,
+            };
+            if let Ok(target) = resolver.resolve_import(mod_id, path) {
+                resolved.insert((mod_id.clone(), path.to_string()), target.id);
+            }
+        }
+    }
+
+    let main_mod = ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]));
+    let linker = phalcom_modules::ModuleLinker::new(Arc::new(universe), interfaces);
+    let linked = Arc::new(linker.link(main_mod.clone(), &resolved).unwrap());
+
+    let analysis = analyze_workspace(SemanticWorkspaceInput {
+        linked,
+        sources,
+        generation: 1,
+    });
+
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
+
+    // Find Main.main callable analysis
+    let main_decl = DeclarationId::new(main_mod.clone(), "Main".into());
+    let main_sel = phalcom_common::selector::Selector::getter("main").unwrap();
+    let main_cid = phalcom_semantic::identity::CallableId::new(main_decl, main_sel, phalcom_semantic::identity::DispatchSide::Class);
+
+    let main_analysis = analysis.snapshot.callable_analyses.get(&main_cid).expect("Main.main analysis must exist");
+    assert_eq!(main_analysis.status, phalcom_semantic::checker::CallableAnalysisStatus::Complete);
+
+    // Verify formal types for the local bindings in Main.main
+    let point_decl = DeclarationId::new(
+        ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("domain").unwrap(), ModuleComponent::from_identifier("point").unwrap()])),
+        "Point".into(),
+    );
+    let parcel_decl = DeclarationId::new(
+        ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("domain").unwrap(), ModuleComponent::from_identifier("parcel").unwrap()])),
+        "Parcel".into(),
+    );
+    let shipment_decl = DeclarationId::new(
+        ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("domain").unwrap(), ModuleComponent::from_identifier("shipment").unwrap()])),
+        "Shipment".into(),
+    );
+
+    let point_form = analysis.snapshot.declarations.form(&point_decl).expect("Point form");
+    let parcel_form = analysis.snapshot.declarations.form(&parcel_decl).expect("Parcel form");
+    let shipment_form = analysis.snapshot.declarations.form(&shipment_decl).expect("Shipment form");
+
+    let origin_binding = main_analysis.bindings.values().find(|b| b.name == "origin").expect("origin binding");
+    let destination_binding = main_analysis.bindings.values().find(|b| b.name == "destination").expect("destination binding");
+    let parcel_binding = main_analysis.bindings.values().find(|b| b.name == "parcel").expect("parcel binding");
+    let shipment_binding = main_analysis.bindings.values().find(|b| b.name == "shipment").expect("shipment binding");
+
+    // All bindings must have distinct identities
+    assert_ne!(origin_binding.binding, destination_binding.binding);
+    assert_ne!(origin_binding.binding, parcel_binding.binding);
+    assert_ne!(origin_binding.binding, shipment_binding.binding);
+    assert_ne!(parcel_binding.binding, shipment_binding.binding);
+
+    // Inferred formal types
+    assert_eq!(origin_binding.current.ty(), Some(point_form), "origin must be formally known as Point");
+    assert_eq!(destination_binding.current.ty(), Some(point_form), "destination must be formally known as Point");
+    assert_eq!(parcel_binding.current.ty(), Some(parcel_form), "parcel must be formally known as Parcel");
+    assert_eq!(shipment_binding.current.ty(), Some(shipment_form), "shipment must be formally known as Shipment");
+}

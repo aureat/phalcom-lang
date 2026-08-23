@@ -29,6 +29,18 @@ fn stmt_range(stmt: &Statement) -> SourceRange {
     }
 }
 
+use crate::dispatch::SurfaceDispatchResolver;
+
+/// Context holding canonical published semantic inputs for callable body checking.
+pub struct BodyAnalysisContext<'a> {
+    pub store: &'a mut TypeStore,
+    pub hierarchy: &'a dyn TypeHierarchy,
+    pub resolver: &'a dyn TypeResolver,
+    pub declarations: &'a DeclarationTypeTable,
+    pub dispatch: &'a SurfaceDispatchResolver,
+    pub module: ModuleId,
+}
+
 /// Analyzes a single callable body and returns a complete [`CallableAnalysis`].
 pub fn analyze_callable_body(
     callable: CallableId,
@@ -38,11 +50,12 @@ pub fn analyze_callable_body(
     hierarchy: &dyn TypeHierarchy,
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
+    dispatch: &SurfaceDispatchResolver,
     module: ModuleId,
     mut budget: QueryBudget,
     cancel: &CancellationToken,
 ) -> CallableAnalysis {
-    let mut ctx = CheckingContext::new(store, hierarchy, resolver, declarations, module);
+    let mut ctx = CheckingContext::new_with_dispatch(store, hierarchy, resolver, declarations, dispatch.clone(), module);
     ctx.current_class = Some(callable.owner.clone());
     ctx.current_side = callable.side;
 
@@ -56,14 +69,18 @@ pub fn analyze_callable_body(
             crate::identity::DispatchSide::Instance => &surface.instance,
             crate::identity::DispatchSide::Class => &surface.class,
         };
-        member_surface.callable_signatures.get(&callable.selector).cloned()
+        member_surface
+            .callable_signatures
+            .get(&callable.selector)
+            .cloned()
+            .or_else(|| surface.class.callable_signatures.get(&callable.selector).cloned())
     });
 
     if let Some(sig) = sig_opt {
         ctx.push_scope();
         for param in &sig.parameters {
             let ty_opt = param.ty.ty();
-            ctx.bind_local_var(param.local_name.clone(), ty_opt, param.ty.clone(), false, None);
+            ctx.bind_local_var(param.local_name.clone(), ty_opt, param.ty.clone(), false, None, body_range);
         }
         if let Some(ret_ty) = sig.return_type.ty() {
             ctx.expected_return = Some(crate::types::evidence::TypeKnowledge::known(

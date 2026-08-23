@@ -149,6 +149,7 @@ fn test_generic_method_call_inference() {
     ctx.bind_local(
         "b",
         phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::known(box_ty, EvidenceAuthority::Declared)),
+        phalcom_common::range::SourceRange::default(),
     );
 
     // Call `b.id(42)`
@@ -173,7 +174,14 @@ fn test_flow_state_mutation_and_if_let_join() {
     let str_ty = ctx.nominal_type_of(&string_decl);
 
     // Bind mutable local `x` with initial Int
-    let x_binding = ctx.bind_local_var("x", None, TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax), true, None);
+    let x_binding = ctx.bind_local_var(
+        "x",
+        None,
+        TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax),
+        true,
+        None,
+        phalcom_common::range::SourceRange::default(),
+    );
     assert_eq!(ctx.flow.get_current_type(x_binding).and_then(|k| k.ty()), Some(int_ty));
 
     // Reassign x = "hello"

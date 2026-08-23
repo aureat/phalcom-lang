@@ -64,7 +64,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             };
 
             if let Pattern::Name { name, .. } = &binding.pattern {
-                ctx.bind_local(name.clone(), effective_fact);
+                ctx.bind_local(name.clone(), effective_fact, binding.range);
             }
         }
         Statement::Return(ret) => {
@@ -115,8 +115,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             }
             ctx.push_scope();
             for (pat, fact) in lane_facts {
-                if let Pattern::Name { name, .. } = pat {
-                    ctx.bind_local(name.clone(), fact);
+                if let Pattern::Name { name, range, .. } = pat {
+                    ctx.bind_local(name.clone(), fact, *range);
                 }
             }
             for s in &for_stmt.body {

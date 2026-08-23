@@ -107,6 +107,7 @@ fn test_body_query_execution_and_invalidation() {
     let hierarchy = MapTypeHierarchy::new();
     let resolver = SimpleTypeResolver::new();
     let decls = DeclarationTypeTable::new();
+    let dispatch = phalcom_semantic::dispatch::SurfaceDispatchResolver::new();
     let module = ModuleId::core();
     let cancel = CancellationToken::new();
     let budget = QueryBudget::default();
@@ -131,6 +132,7 @@ fn test_body_query_execution_and_invalidation() {
         &hierarchy,
         &resolver,
         &decls,
+        &dispatch,
         module.clone(),
         budget,
         &cancel,
@@ -146,6 +148,7 @@ fn test_body_query_execution_and_invalidation() {
         &hierarchy,
         &resolver,
         &decls,
+        &dispatch,
         module.clone(),
         budget,
         &cancel,
@@ -172,6 +175,7 @@ fn test_body_query_execution_and_invalidation() {
         &hierarchy,
         &resolver,
         &decls,
+        &dispatch,
         module.clone(),
         budget,
         &cancel,
@@ -197,6 +201,7 @@ fn test_body_query_execution_and_invalidation() {
         &hierarchy,
         &resolver,
         &decls,
+        &dispatch,
         module.clone(),
         budget,
         &failed_cancel,
@@ -222,6 +227,7 @@ fn test_body_query_execution_and_invalidation() {
         &hierarchy,
         &resolver,
         &decls,
+        &dispatch,
         module,
         budget,
         &cancel,

@@ -106,10 +106,14 @@ impl SemanticDb {
         self.query_states.get(key)
     }
 
-    /// Returns the typed product published for a ready query in this revision.
+    /// Returns the typed product published for a ready query.
     pub fn product(&self, key: &QueryKey) -> Option<&Arc<SemanticProduct>> {
         let state = self.query_states.get(key)?;
-        (state.is_ready() && state.revision() == Some(self.revision)).then(|| self.products.get(key))?
+        if state.is_ready() {
+            self.products.get(key)
+        } else {
+            None
+        }
     }
 
     /// Returns the last typed product that reached `Ready` for this key.

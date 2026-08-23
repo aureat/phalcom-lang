@@ -6,6 +6,7 @@ use crate::identity::{BindingId, ExplanationId};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
+use phalcom_common::range::SourceRange;
 use std::collections::BTreeMap;
 
 /// Flow predicate fact set tracking path-sensitive assertions.
@@ -103,8 +104,16 @@ impl FlowState {
         self.reachable = false;
     }
 
-    pub fn declare(&mut self, binding: BindingId, declared: Option<TypeId>, initial: TypeKnowledge, mutable: bool) {
-        let state = BindingState::new(binding, declared, initial, mutable);
+    pub fn declare(
+        &mut self,
+        binding: BindingId,
+        name: impl Into<String>,
+        range: SourceRange,
+        declared: Option<TypeId>,
+        initial: TypeKnowledge,
+        mutable: bool,
+    ) {
+        let state = BindingState::new(binding, name, range, declared, initial, mutable);
         self.bindings.insert(binding, state);
     }
 
@@ -175,7 +184,7 @@ impl FlowState {
                     sample_binding.current.clone()
                 };
 
-                let mut b = BindingState::new(id, declared, joined_knowledge, mutable);
+                let mut b = BindingState::new(id, sample_binding.name.clone(), sample_binding.range, declared, joined_knowledge, mutable);
                 b.version = max_version + 1;
                 joined_bindings.insert(id, b);
             }
@@ -209,7 +218,7 @@ impl FlowState {
                     } else {
                         next_b.current.clone()
                     };
-                    let mut wb = BindingState::new(*id, declared_ty, widened_knowledge, h_b.mutable);
+                    let mut wb = BindingState::new(*id, h_b.name.clone(), h_b.range, declared_ty, widened_knowledge, h_b.mutable);
                     wb.version = h_b.version.max(next_b.version) + 1;
                     widened_bindings.insert(*id, wb);
                 }

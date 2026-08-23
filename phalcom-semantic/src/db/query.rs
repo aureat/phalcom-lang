@@ -8,6 +8,7 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::{ProductFingerprint, QueryKey};
 use crate::db::state::{QueryOutcome, QueryState};
 use crate::declarations::DeclarationTypeTable;
+use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{CallableId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::relation::TypeHierarchy;
@@ -28,6 +29,7 @@ pub fn query_callable_body(
     hierarchy: &dyn TypeHierarchy,
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
+    dispatch: &SurfaceDispatchResolver,
     module: ModuleId,
     budget: QueryBudget,
     cancel: &CancellationToken,
@@ -36,14 +38,13 @@ pub fn query_callable_body(
 
     let input_fingerprint = callable_input_fingerprint(&callable, body, body_range, store);
 
-    // 1. Check if already computed and ready in current revision for the same
-    // callable input. The query key identifies the callable, while this
-    // fingerprint identifies the current body/product request. Without the
-    // second check, an edit to a body with the same CallableId would return a
-    // stale typed product.
+    // 1. Check if already computed and ready for the same callable input.
+    // The query key identifies the callable, while this fingerprint identifies
+    // the current body/product request. Without the second check, an edit to a
+    // body with the same CallableId would return a stale typed product.
     let reusable = db
         .query_state(&key)
-        .map(|state| state.is_ready() && state.revision() == Some(db.revision()) && state.fingerprint() == Some(input_fingerprint))
+        .map(|state| state.is_ready() && state.fingerprint() == Some(input_fingerprint))
         .unwrap_or(false);
     if reusable {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_body()) {
@@ -62,7 +63,7 @@ pub fn query_callable_body(
     db.metrics().record_miss();
 
     // 2. Perform analysis
-    let analysis = analyze_callable_body(callable, body, body_range, store, hierarchy, resolver, declarations, module, budget, cancel);
+    let analysis = analyze_callable_body(callable, body, body_range, store, hierarchy, resolver, declarations, dispatch, module, budget, cancel);
 
     let mut analysis = analysis;
     analysis.dependency_fingerprint = callable_fingerprint(&analysis);

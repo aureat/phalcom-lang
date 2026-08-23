@@ -63,6 +63,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 surface.add_field(side, &f.name, declared_k);
             }
             ClassMember::Method(m) => {
+                let is_constructor = m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor");
                 let mut slots = Vec::new();
                 let mut params = Vec::new();
                 for p in &m.params {
@@ -87,22 +88,28 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     params.push(param);
                 }
 
-                let ret_k = m
-                    .return_annotation
-                    .as_ref()
-                    .map(|ann| {
-                        let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                        ctx.diagnostics.extend(diags);
-                        k
-                    })
-                    .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                let (effective_side, ret_k) = if is_constructor {
+                    let class_ty = ctx.nominal_type_of(&decl_id);
+                    (crate::identity::DispatchSide::Class, TypeKnowledge::known(class_ty, EvidenceAuthority::Declared))
+                } else {
+                    let ret_k = m
+                        .return_annotation
+                        .as_ref()
+                        .map(|ann| {
+                            let mut diags = Vec::new();
+                            let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
+                            ctx.diagnostics.extend(diags);
+                            k
+                        })
+                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                    (side, ret_k)
+                };
 
                 if let Ok(sel) = Selector::method(&m.name, slots) {
                     let mut callable_sig = CallableSignature::new(sel.clone(), params, ret_k);
                     if !m.generic_parameters.is_empty() {
                         let mut diags = Vec::new();
-                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel, side);
+                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel, effective_side);
                         let sig = crate::types::annotation::resolve_generic_signature(
                             ctx.store,
                             ctx.declarations,
@@ -116,7 +123,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                         ctx.diagnostics.extend(diags);
                         callable_sig = callable_sig.with_generics(sig);
                     }
-                    surface.add_callable(side, callable_sig);
+                    surface.add_callable(effective_side, callable_sig);
                 }
             }
             ClassMember::Getter(g) => {
@@ -324,7 +331,7 @@ fn check_callable_body(
         } else {
             TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
         };
-        ctx.bind_local(param.name.clone(), ValueSemanticFact::new(param_k));
+        ctx.bind_local(param.name.clone(), ValueSemanticFact::new(param_k), param.range);
     }
 
     // Resolve return annotation

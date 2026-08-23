@@ -38,7 +38,7 @@ fn test_binding_state_and_flow_state_operations() {
     let b1 = BindingId(1);
 
     let mut state = FlowState::new();
-    state.declare(b1, Some(num_ty), TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax), true);
+    state.declare(b1, "b1", SourceRange::default(), Some(num_ty), TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax), true);
 
     assert_eq!(state.get_declared_type(b1), Some(num_ty));
     assert_eq!(state.get_current_type(b1).and_then(|k| k.ty()), Some(int_ty));

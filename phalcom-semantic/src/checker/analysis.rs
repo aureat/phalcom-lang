@@ -93,6 +93,8 @@ impl ExpressionAnalysis {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BindingState {
     pub binding: BindingId,
+    pub name: String,
+    pub range: SourceRange,
     pub declared: Option<crate::types::id::TypeId>,
     pub current: TypeKnowledge,
     pub mutable: bool,
@@ -101,9 +103,18 @@ pub struct BindingState {
 }
 
 impl BindingState {
-    pub fn new(binding: BindingId, declared: Option<crate::types::id::TypeId>, current: TypeKnowledge, mutable: bool) -> Self {
+    pub fn new(
+        binding: BindingId,
+        name: impl Into<String>,
+        range: SourceRange,
+        declared: Option<crate::types::id::TypeId>,
+        current: TypeKnowledge,
+        mutable: bool,
+    ) -> Self {
         Self {
             binding,
+            name: name.into(),
+            range,
             declared,
             current,
             mutable,
