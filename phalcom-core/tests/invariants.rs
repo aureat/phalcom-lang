@@ -184,7 +184,9 @@ fn expression_result_absence_surfaces_to_none() {
     is_none(bool_if_false(&mut vm, &Value::bool(true), &[unused_block]).expect("ifFalse"), "true.ifFalse");
 
     // `System.print(_)` — surface-reachable send result.
-    is_none(system_class_print(&mut vm, &Value::int(1), &[Value::int(1)]).expect("print"), "System.print");
+    let print_res = system_class_print(&mut vm, &Value::int(1), &[Value::int(1)]).expect("print");
+    assert!(!print_res.is_nil(), "System.print leaked the raw sentinel");
+    assert!(print_res.is_unit() || print_res.is_none(), "System.print should yield Unit");
 
     // `Object.superclass` — the root class has no superclass.
     let object = Value::obj(vm.universe.classes.object_class);

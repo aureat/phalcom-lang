@@ -9,8 +9,8 @@ use crate::vm::VM;
     System,
     "print(_)",
     params = [Object],
-    returns = Option,
-    types = "(Object) -> Option",
+    returns = Object,
+    types = "(Object) -> Object",
     side = class
 )]
 pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -80,8 +80,8 @@ pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) ->
     System,
     "gc",
     params = [],
-    returns = Option,
-    types = "() -> Option",
+    returns = Object,
+    types = "() -> Object",
     side = class
 )]
 pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -94,8 +94,8 @@ pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Va
     System,
     "_$write(_)",
     params = [String],
-    returns = Option,
-    types = "(String) -> Option",
+    returns = Unit,
+    types = "(String) -> Unit",
     side = class,
     visibility = internal
 )]
@@ -108,15 +108,15 @@ pub fn system_raw_write(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
                 expected: "String",
                 found: args[0].type_name(),
             }
-            .into());
+                .into());
         }
     } else {
         return Err(RuntimeError::Type {
             expected: "String",
             found: args[0].type_name(),
         }
-        .into());
+            .into());
     };
     print!("{s}");
-    Ok(vm.none_value())
+    Ok(vm.unit_value())
 }

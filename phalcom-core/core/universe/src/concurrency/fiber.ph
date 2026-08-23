@@ -1,13 +1,22 @@
 @native
 class System is Object {
-  @class @native print(_ value: Dynamic) -> Dynamic
-  @class @native new() -> System
-  @class @native schedule(_ fiber: Dynamic) -> Dynamic
+
+  @class @native print(_ value: Object) -> Unit
+
+  @class @native new() -> Never
+
+  @class @native schedule(_ fiber: Object) -> Fiber
+
   @class @native nextScheduled -> Option<Fiber>
+
   @class @native gc -> Dynamic
+
   @class @internal @native _$write(_ value: String) -> Dynamic
+
   @class @internal @native _$leakReport -> Dynamic
+
   @class @internal @native _$strictResources(_ enabled: Bool) -> Dynamic
+
   // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
   // native `write_(_)` and the `toString` message. Additive-only: does not
   // touch the native `print(_)` pathway (pre-existing divergence between
@@ -44,29 +53,41 @@ class System is Object {
   // `unwrapOr(_)` into a plain local first, and `try()` sent as its own
   // statement.
   @class
-  runScheduled() {
+  runScheduled() -> Unit {
     let next = System.nextScheduled
     while (next.isSome) {
       let f = next.unwrapOr(None)
       f.try()
       next = System.nextScheduled
     }
+    return ()
   }
 }
 
 @native
 class Fiber is Object {
   @class @native new(_ body: Dynamic) -> Fiber
+
   @native call() -> Dynamic
+
   @native call(_ value: Dynamic) -> Dynamic
+
   @native try() -> Dynamic
+
   @native try(_ value: Dynamic) -> Dynamic
+
   @class @native yield() -> Dynamic
+
   @class @native yield(_ value: Dynamic) -> Dynamic
+
   @class @native current -> Fiber
+
   @class @native abort(_ error: Error) -> Dynamic
+
   @native isDone -> Bool
+
   @native isRoot -> Bool
+
   @native error -> Option<Error>
 }
 
@@ -123,35 +144,33 @@ class Future {
 
   // `true` once `self` has settled (`fulfilled` or `rejected`); `false`
   // while `pending`.
-  isReady { _state != "pending" }
+  isReady -> Bool { _state != "pending" }
 
   // Settles `self` as `fulfilled` with `v`, unless already settled (settle-
   // once, C-FUT-3): a `self.isReady` receiver is a no-op that returns `self`
   // unchanged, so a second `settleValue`/`settleError` can never clobber the
   // first result. Returns `self` either way so callers can chain.
-  settleValue(_ v) {
-    if (self.isReady) {
-      return self
-    } else {
+  settleValue(_ v) -> Self {
+    if not self.isReady {
       _state = "fulfilled"
       _value = v
       self.drain()
-      return self
     }
+
+    self
   }
 
   // Settles `self` as `rejected` with `e` (an `Error`), unless already
   // settled — the rejection sibling of `settleValue(_)`; see it for
   // the settle-once contract (C-FUT-3).
-  settleError(_ e) {
-    if (self.isReady) {
-      return self
-    } else {
+  settleError(_ e) -> Self {
+    if not self.isReady {
       _state = "rejected"
       _value = e
       self.drain()
-      return self
     }
+
+    self
   }
 
   // Reschedules all waiters once settled.
@@ -164,20 +183,28 @@ class Future {
   // raises out of `await` with its registration still in the list). Resuming a
   // finished fiber aborts the whole run, taking every other waiter on this
   // future down with it, so skip those rather than scheduling a corpse.
-  drain() {
+  drain() -> Unit {
     _waiters.each |w| {
-      const dead = w.is(Fiber) and w.isDone
-      if (not dead) {
+      const dead = w is Fiber and w.isDone
+      if not dead {
         System.schedule(w)
       }
     }
     _waiters = List.new()
+
+    return ()
   }
 
   // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
   // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
   // reason is reached via `catch(_)`/`then(_)`, not `value`).
-  value { (_state == "fulfilled").ifTrue(|| { Some(_value) }, ifFalse: || { None }) }
+  value {
+    if _state == "fulfilled" {
+      return Some(_value)
+    } else {
+      return None
+    }
+  }
 
   // Suspends the current fiber until settled (U-FUTURE Slice B). On the root
   // fiber — which has no resumer and so cannot yield — degrades to driving the
