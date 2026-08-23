@@ -20,4 +20,5 @@ expose .uri
 expose .selector
 expose .message
 expose .attribute
+expose .implementation
 expose .typing

@@ -165,3 +165,30 @@ fn physical_universe_corpus_matches_catalog() {
         .collect::<BTreeSet<_>>();
     assert_eq!(physical, catalog, "physical universe source drifted from UNIVERSE_NODES");
 }
+
+#[test]
+fn package_exposures_match_catalog_children() {
+    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
+    for node in phalcom_modules::builtin::UNIVERSE_NODES.iter().filter(|node| node.kind.is_package_like()) {
+        let path = phalcom_modules::identity::ModulePath::from_components(
+            node.path
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
+                .collect(),
+        );
+        let id = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
+        let parsed = provider.load_parsed(&id).expect("canonical package must parse");
+        let exposed = parsed
+            .program
+            .preamble
+            .dependencies
+            .iter()
+            .filter_map(|dependency| match dependency {
+                phalcom_ast::ast::DependencyDecl::Expose(expose) => Some(expose.child.name.as_str()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let expected = node.children.iter().copied().collect::<BTreeSet<_>>();
+        assert_eq!(exposed, expected, "package exposure drift for {id}");
+    }
+}
