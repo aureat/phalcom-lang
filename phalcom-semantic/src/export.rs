@@ -152,8 +152,6 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
                 index: p_data.index as u16,
             })
         }
-        TypeData::Lambda(_) | TypeData::SelfType(_) => Err(SemanticExportError::NonExportableTypeForm { form }),
-        TypeData::Infer(var) => Err(SemanticExportError::InferenceVariable(*var)),
-        TypeData::ClassObject { .. } => Err(SemanticExportError::NonExportableTypeForm { form }),
+        TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::ClassObject { .. } => Err(SemanticExportError::NonExportableTypeForm { form }),
     }
 }

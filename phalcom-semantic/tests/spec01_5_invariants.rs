@@ -10,8 +10,6 @@ use phalcom_semantic::dispatch::{CallableParameter, CallableSignature, DispatchS
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::signature::{CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable};
 use phalcom_semantic::surface::DeclarationSurface;
-use phalcom_semantic::types::annotation::SimpleTypeResolver;
-use phalcom_semantic::types::constraint::{ConstraintSet, LocalConstraintSolver, TypeConstraint};
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
 use phalcom_semantic::types::id::{KindId, ProperTypeId, ScopedTypeId, TypeId, TypeParameterId};
@@ -242,33 +240,49 @@ fn gate_01_5_d_variance_subtyping_and_generic_inheritance() {
 
 #[test]
 fn gate_01_5_e_generic_method_inference_and_occurs_check() {
+    use phalcom_semantic::checker::inference::{ConstraintOrigin, InferenceOutcome, InferenceRelation, InferenceSession, InferenceTerm};
+
     let mut store = TypeStore::new();
     let hier = MapTypeHierarchy::new();
-    let mut solver = LocalConstraintSolver::new();
+    let mut session = InferenceSession::new();
 
     let int_ty = store.nominal_type(core_decl("Int"));
     let list_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
     let list_form = store.nominal_form(core_decl("List"), list_kind);
-
-    let (var_t, ty_infer) = solver.fresh_var(&mut store);
-    let list_infer = store.apply_type_form(list_form, &[ty_infer]).unwrap();
     let list_int = store.apply_type_form(list_form, &[int_ty]).unwrap();
 
+    let var_t = session.fresh_variable(KindId::TYPE);
+    let list_var_term = InferenceTerm::Applied {
+        origin: Box::new(InferenceTerm::Canonical(list_form)),
+        arguments: Box::new([InferenceTerm::Var(var_t)]),
+    };
+    let list_int_term = InferenceTerm::Canonical(list_int);
+
     // Constraint: List<T> == List<Int>
-    let mut cset = ConstraintSet::new();
-    cset.add(TypeConstraint::Equal(list_infer, list_int));
-    assert!(solver.solve(&cset, &mut store, &hier));
+    session.add_constraint(InferenceRelation::Equivalent(list_var_term, list_int_term), ConstraintOrigin::Explicit, None);
 
-    let solved_t = solver.substitute_type(ty_infer, &mut store);
-    assert_eq!(solved_t, int_ty, "Inferred T == Int from argument container");
+    let outcome = session.solve(&mut store, &hier);
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(sol) = outcome {
+        assert_eq!(sol.substitutions.get(&var_t), Some(&int_ty), "Inferred T == Int from argument container");
+    }
 
-    // Occurs check: T == List<T> should fail
-    let (var_x, ty_infer_x) = solver.fresh_var(&mut store);
-    let list_x = store.apply_type_form(list_form, &[ty_infer_x]).unwrap();
-    assert!(
-        !solver.bind(var_x, list_x, &store),
-        "Occurs check must reject recursive self-binding X := List<X>"
+    // Occurs check: X == List<X> should fail
+    let mut session2 = InferenceSession::new();
+    let var_x = session2.fresh_variable(KindId::TYPE);
+    let list_x_term = InferenceTerm::Applied {
+        origin: Box::new(InferenceTerm::Canonical(list_form)),
+        arguments: Box::new([InferenceTerm::Var(var_x)]),
+    };
+
+    session2.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_x), list_x_term),
+        ConstraintOrigin::Explicit,
+        None,
     );
+
+    let outcome2 = session2.solve(&mut store, &hier);
+    assert!(!outcome2.is_solved(), "Occurs check must reject recursive self-binding X := List<X>");
 }
 
 #[test]

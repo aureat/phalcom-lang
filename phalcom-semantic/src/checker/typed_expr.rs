@@ -102,3 +102,11 @@ impl From<TypeKnowledge> for TypedExpression {
         Self::new(knowledge)
     }
 }
+
+impl From<crate::checker::analysis::ExpressionAnalysis> for TypedExpression {
+    fn from(analysis: crate::checker::analysis::ExpressionAnalysis) -> Self {
+        let mut expr = Self::new(analysis.knowledge);
+        expr.denotation = analysis.denotation;
+        expr
+    }
+}

@@ -13,6 +13,7 @@ members = [
     "phalcom-lsp",
     "phalcom-modules",
     "phalcom-semantic",
+    "phalcom-diagnostics",
     "phalcom-type-meta",
 ]
 resolver = "2"
@@ -28,6 +29,7 @@ default-members = [
     "phalcom-lsp",
     "phalcom-modules",
     "phalcom-semantic",
+    "phalcom-diagnostics",
     "phalcom-type-meta",
 ]
 

@@ -19,7 +19,7 @@ pub mod variance;
 
 pub use annotation::{SimpleTypeResolver, TypeFormResolution, TypeResolver, resolve_type_annotation, resolve_type_form};
 pub use application::TypeApplicationError;
-pub use constraint::{ConstraintSet, InferVarState, LocalConstraintSolver, TypeConstraint};
+pub use constraint::{ConstraintSet, TypeConstraint};
 pub use denotation::{SemanticDenotation, ValueSemanticFact};
 pub use environment::{SpecializedCallableView, SpecializedMemberView, TypeEnvironment, TypeView};
 pub use evidence::{DynamicReason, EvidenceAuthority, EvidenceSet, TypeEvidence, TypeKnowledge, UnknownReason};

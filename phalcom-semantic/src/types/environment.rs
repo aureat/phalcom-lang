@@ -136,7 +136,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 return_type,
             })
         }
-        TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } | TypeData::Infer(_) | TypeData::Lambda(_) => ty,
+        TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } | TypeData::Lambda(_) => ty,
     }
 }
 

@@ -421,7 +421,6 @@ impl<'a> MetadataExporter<'a> {
                     body,
                 })
             }
-            TypeData::Infer(_) => return Err(MetadataExportError::InferenceVariable),
             TypeData::ClassObject { .. } => return Err(MetadataExportError::NonExportableForm(ty)),
         };
 

@@ -18,6 +18,7 @@ pub enum DiagnosticCode {
     ReturnMismatch,
     ArgumentMismatch,
     FieldMismatch,
+    TypeMismatch,
     AnnotationUnresolved,
     AnnotationUnsupported,
     AnnotationUnsaturatedConstructor,
@@ -45,6 +46,7 @@ impl DiagnosticCode {
             Self::ReturnMismatch => "type.return.mismatch",
             Self::ArgumentMismatch => "type.call.argument_mismatch",
             Self::FieldMismatch => "type.field.mismatch",
+            Self::TypeMismatch => "type.mismatch",
             Self::AnnotationUnresolved => "type.annotation.unresolved",
             Self::AnnotationUnsupported => "type.annotation.unsupported",
             Self::AnnotationUnsaturatedConstructor => "type.annotation.unsaturated_constructor",
@@ -111,6 +113,9 @@ pub struct SemanticDiagnostic {
     pub primary: SemanticSourceSpan,
     pub primary_range: SourceRange,
     pub labels: Vec<DiagnosticLabel>,
+    pub notes: Vec<String>,
+    pub helps: Vec<String>,
+    pub explanations: Vec<crate::identity::ExplanationId>,
 }
 
 impl SemanticDiagnostic {
@@ -126,6 +131,9 @@ impl SemanticDiagnostic {
             primary: SemanticSourceSpan { module, range: primary_range },
             primary_range,
             labels: Vec::new(),
+            notes: Vec::new(),
+            helps: Vec::new(),
+            explanations: Vec::new(),
         }
     }
 
@@ -141,6 +149,9 @@ impl SemanticDiagnostic {
             primary: SemanticSourceSpan { module, range: primary_range },
             primary_range,
             labels: Vec::new(),
+            notes: Vec::new(),
+            helps: Vec::new(),
+            explanations: Vec::new(),
         }
     }
 
@@ -152,6 +163,9 @@ impl SemanticDiagnostic {
             primary: SemanticSourceSpan { module, range: primary_range },
             primary_range,
             labels: Vec::new(),
+            notes: Vec::new(),
+            helps: Vec::new(),
+            explanations: Vec::new(),
         }
     }
 
@@ -172,5 +186,49 @@ impl SemanticDiagnostic {
             message: message.into(),
         });
         self
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.helps.push(help.into());
+        self
+    }
+
+    pub fn with_explanation(mut self, id: crate::identity::ExplanationId) -> Self {
+        self.explanations.push(id);
+        self
+    }
+
+    /// Renders this diagnostic to a formatted ANSI snippet if source text is available.
+    pub fn render(&self, source_text: Option<&str>, path: Option<&str>) -> String {
+        use phalcom_diagnostics::snippet::{Label, LabelKind, Snippet};
+        use phalcom_diagnostics::style::RenderConfig;
+
+        if let Some(src) = source_text {
+            let snippet = if let Some(p) = path { Snippet::with_file(p) } else { Snippet::new() };
+
+            let mut labels = vec![Label {
+                span: self.primary_range,
+                text: &self.message,
+                kind: LabelKind::Primary,
+            }];
+
+            for label in &self.labels {
+                labels.push(Label {
+                    span: label.range,
+                    text: &label.message,
+                    kind: LabelKind::Secondary,
+                });
+            }
+
+            let config = RenderConfig::default();
+            snippet.render(src, &labels, &config)
+        } else {
+            format!("[{}]: {}", self.code.as_str(), self.message)
+        }
     }
 }

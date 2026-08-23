@@ -1055,6 +1055,7 @@ dependencies = [
  "num-traits",
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-diagnostics",
  "phalcom-modules",
  "phalcom-native-macros",
  "phalcom-native-meta",
@@ -1071,6 +1072,15 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "unicode-width",
+]
+
+[[package]]
+name = "phalcom-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "phalcom-common",
  "unicode-width",
 ]
 
@@ -1171,6 +1181,7 @@ dependencies = [
  "indexmap",
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-diagnostics",
  "phalcom-modules",
  "phalcom-native-meta",
  "phalcom-native-surface",

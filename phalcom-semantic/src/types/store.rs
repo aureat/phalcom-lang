@@ -1,7 +1,7 @@
 //! Canonical Type Store with interning and normalization.
 
 use super::application::TypeApplicationError;
-use super::id::{InferVarId, KindId, ProperTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
+use super::id::{KindId, ProperTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena, TypeLambdaData, TypeLambdaProvenance};
@@ -64,8 +64,6 @@ pub enum TypeData {
     Lambda(TypeLambdaId),
     /// Owner-relative `Self` type term.
     SelfType(SelfTypeTerm),
-    /// Type inference variable.
-    Infer(InferVarId),
 }
 
 /// Central store for canonical type interning, hash-consing, and kind assignments.
@@ -129,6 +127,10 @@ impl TypeStore {
 
     pub fn id(&self) -> TypeStoreId {
         self.id
+    }
+
+    pub fn type_count(&self) -> usize {
+        self.types.len()
     }
 
     pub fn proper_type(&self, id: TypeId) -> Result<ProperTypeId, KindId> {
@@ -426,11 +428,6 @@ impl TypeStore {
         }
         debug_assert!(self.is_proper_type(callable.return_type), "callable return type must be a proper type");
         self.intern_with_kind(TypeData::Callable(callable), KindId::TYPE)
-    }
-
-    /// Interns an inference type variable.
-    pub fn infer(&mut self, var: InferVarId) -> TypeId {
-        self.intern_with_kind(TypeData::Infer(var), KindId::TYPE)
     }
 
     /// Interns a `List<T>` applied type.

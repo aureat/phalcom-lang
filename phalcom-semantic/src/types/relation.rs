@@ -420,8 +420,15 @@ fn check_subtype_impl(
                 RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
         }
+        (TypeData::Callable(_), TypeData::Nominal { declaration: sup_decl }) => {
+            if sup_decl.name.as_ref() == "Function" || sup_decl.name.as_ref() == "Closure" || sup_decl.name.as_ref() == "Object" {
+                RelationOutcome::proven(())
+            } else {
+                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+            }
+        }
+        (_, TypeData::Nominal { declaration: sup_decl }) if sup_decl.name.as_ref() == "Object" => RelationOutcome::proven(()),
         (TypeData::Unit, TypeData::Unit) => RelationOutcome::proven(()),
-        (TypeData::Infer(a), TypeData::Infer(b)) if a == b => RelationOutcome::proven(()),
         _ => RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup }),
     };
 
@@ -457,9 +464,7 @@ pub fn check_assignability_bounded(
 
     match (actual, expected) {
         (TypeKnowledge::Known(act_ev), TypeKnowledge::Known(exp_ev)) => {
-            if matches!(store.get(act_ev.ty), TypeData::Parameter(_) | TypeData::Infer(_))
-                || matches!(store.get(exp_ev.ty), TypeData::Parameter(_) | TypeData::Infer(_))
-            {
+            if matches!(store.get(act_ev.ty), TypeData::Parameter(_)) || matches!(store.get(exp_ev.ty), TypeData::Parameter(_)) {
                 return RelationOutcome::Blocked(BlockReason::RecursiveFixpoint);
             }
 

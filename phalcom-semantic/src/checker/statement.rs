@@ -8,7 +8,9 @@ use crate::types::annotation::resolve_type_annotation;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
 use crate::types::relation::{Assignability, check_assignability};
+use crate::types::store::TypeData;
 use phalcom_ast::ast::{Pattern, Statement};
+use phalcom_common::selector::Selector;
 
 /// Checks a single statement, updating context bindings and recording diagnostics.
 pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
@@ -93,8 +95,41 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
         Statement::For(for_stmt) => {
             let mut lane_facts = Vec::new();
             for lane in &for_stmt.lanes {
-                synthesize_expr(ctx, &lane.iter);
-                let elem_fact = ValueSemanticFact::new(TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape));
+                let iter_k = synthesize_expr(ctx, &lane.iter);
+                let elem_knowledge = if let Some(iter_ty) = iter_k.ty() {
+                    // 1. Direct collection element typing for List<T>, Set<T>, Map<K, V>
+                    if let TypeData::Applied { origin, arguments } = ctx.store.get(iter_ty).clone() {
+                        if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
+                            if declaration.name.as_ref() == "List" && arguments.len() == 1 {
+                                TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven)
+                            } else if declaration.name.as_ref() == "Set" && arguments.len() == 1 {
+                                TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven)
+                            } else {
+                                TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+                            }
+                        } else {
+                            TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+                        }
+                    } else {
+                        // 2. Protocol dispatch: iteratorValue(cursor)
+                        if let Ok(sel) = Selector::method("iteratorValue", vec![]) {
+                            let dispatch_res = ctx.resolve_dispatch(iter_ty, &sel, crate::dispatch::DispatchLookup::Normal);
+                            match dispatch_res {
+                                crate::dispatch::DispatchResult::Found(sig) => sig.return_type,
+                                crate::dispatch::DispatchResult::Dynamic => TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection),
+                                _ => TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend),
+                            }
+                        } else {
+                            TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
+                        }
+                    }
+                } else if iter_k.is_dynamic() {
+                    TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection)
+                } else {
+                    TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+                };
+
+                let elem_fact = ValueSemanticFact::new(elem_knowledge);
                 lane_facts.push((&lane.pattern, elem_fact));
             }
             ctx.push_scope();

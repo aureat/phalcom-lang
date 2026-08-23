@@ -93,7 +93,7 @@ impl TypeSubstitution {
             }
             TypeData::SelfType(_) => ty,
             TypeData::Lambda(_) => ty,
-            TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } | TypeData::Infer(_) => ty,
+            TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
         }
     }
 }

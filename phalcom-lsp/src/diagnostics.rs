@@ -41,22 +41,35 @@ pub fn semantic_diagnostic_to_lsp_diagnostic(diag: &phalcom_semantic::SemanticDi
         SemSeverity::Information => DiagnosticSeverity::INFORMATION,
         SemSeverity::Hint => DiagnosticSeverity::HINT,
     };
-    let related_information = if !diag.labels.is_empty() {
-        Some(
-            diag.labels
-                .iter()
-                .map(|label| tower_lsp::lsp_types::DiagnosticRelatedInformation {
-                    location: tower_lsp::lsp_types::Location {
-                        uri: uri.clone(),
-                        range: index.range(label.range.start..label.range.end),
-                    },
-                    message: label.message.clone(),
-                })
-                .collect(),
-        )
-    } else {
-        None
-    };
+    let mut related = Vec::new();
+    for label in &diag.labels {
+        related.push(tower_lsp::lsp_types::DiagnosticRelatedInformation {
+            location: tower_lsp::lsp_types::Location {
+                uri: uri.clone(),
+                range: index.range(label.range.start..label.range.end),
+            },
+            message: label.message.clone(),
+        });
+    }
+    for note in &diag.notes {
+        related.push(tower_lsp::lsp_types::DiagnosticRelatedInformation {
+            location: tower_lsp::lsp_types::Location {
+                uri: uri.clone(),
+                range: index.range(diag.primary_range.start..diag.primary_range.end),
+            },
+            message: format!("note: {note}"),
+        });
+    }
+    for help in &diag.helps {
+        related.push(tower_lsp::lsp_types::DiagnosticRelatedInformation {
+            location: tower_lsp::lsp_types::Location {
+                uri: uri.clone(),
+                range: index.range(diag.primary_range.start..diag.primary_range.end),
+            },
+            message: format!("help: {help}"),
+        });
+    }
+    let related_information = if !related.is_empty() { Some(related) } else { None };
 
     Diagnostic {
         range: index.range(diag.primary_range.start..diag.primary_range.end),

@@ -7,6 +7,7 @@ pub mod db;
 pub mod declarations;
 pub mod diagnostic;
 pub mod dispatch;
+pub mod explain;
 pub mod export;
 pub mod identity;
 pub mod invalidation;
@@ -28,6 +29,7 @@ pub use core_surface::*;
 pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
+pub use explain::{ExplanationArena, ExplanationNode, ExplanationStep, causal_slice};
 pub use export::{
     CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,
     SemanticExportError, export_kind, export_type_form,
@@ -45,11 +47,11 @@ pub use source::ParsedSourceUnit;
 pub use surface::DeclarationSurface;
 pub use types::{
     Assignability, BlockReason, BudgetKind, BudgetReport, CallableParameterType, CallableType, CancellationToken, ConstraintSet, DynamicBoundaryObligation,
-    DynamicReason, EvidenceAuthority, EvidenceSet, GenericSignature, InferVarId, KindData, KindId, LocalConstraintSolver, MapTypeHierarchy,
-    NativeSurfaceImportError, NativeSurfaceImportReport, NativeTypeResolutionError, QueryBudget, RecordTypeField, RefutationReason, RelationEvidence,
-    RelationFailure, RelationOutcome, SemanticDenotation, SimpleTypeResolver, TupleTypeElement, TypeApplicationError, TypeConstraint, TypeData, TypeEvidence,
-    TypeHierarchy, TypeId, TypeKnowledge, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver, TypeStore, TypeSubstitution, UnknownReason,
-    ValueSemanticFact, check_assignability, check_assignability_bounded, check_subtype_bounded, is_subtype, normalize_native_type, register_native_surfaces,
+    DynamicReason, EvidenceAuthority, EvidenceSet, GenericSignature, InferVarId, KindData, KindId, MapTypeHierarchy, NativeSurfaceImportError,
+    NativeSurfaceImportReport, NativeTypeResolutionError, QueryBudget, RecordTypeField, RefutationReason, RelationEvidence, RelationFailure, RelationOutcome,
+    SemanticDenotation, SimpleTypeResolver, TupleTypeElement, TypeApplicationError, TypeConstraint, TypeData, TypeEvidence, TypeHierarchy, TypeId,
+    TypeKnowledge, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver, TypeStore, TypeSubstitution, UnknownReason, ValueSemanticFact,
+    check_assignability, check_assignability_bounded, check_subtype_bounded, is_subtype, normalize_native_type, register_native_surfaces,
     resolve_native_type_form, resolve_type_annotation, resolve_type_form, substitution_for_applied,
 };
 pub use workspace::{SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace};

@@ -120,6 +120,7 @@ phalcom-native-macros = { path = "../phalcom-native-macros" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-modules = { path = "../phalcom-modules" }
 phalcom-semantic = { path = "../phalcom-semantic" }
+phalcom-diagnostics = { path = "../phalcom-diagnostics" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
 linkme = { workspace = true }
 indexmap = { workspace = true }

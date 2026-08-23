@@ -18,6 +18,28 @@ use phalcom_ast::ast::{
 };
 use phalcom_common::selector::{Selector, SelectorSlot};
 
+/// Bidirectionally checks an expression against an expected type.
+pub fn check_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &super::expected::ExpectedType) -> TypeKnowledge {
+    check_typed_expr(ctx, expr, expected).knowledge
+}
+
+/// Bidirectionally checks a typed expression against an expected type.
+pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &super::expected::ExpectedType) -> TypedExpression {
+    let typed = synthesize_typed_expr(ctx, expr);
+    if let Some(expected_ty) = expected.ty() {
+        let expected_k = TypeKnowledge::known(expected_ty, EvidenceAuthority::Declared);
+        let assignability = check_assignability(ctx.store, ctx.hierarchy, &typed.knowledge, &expected_k);
+        if let Assignability::Refuted { .. } = assignability {
+            ctx.diagnostics.push(SemanticDiagnostic::error(
+                DiagnosticCode::TypeMismatch,
+                "expression does not match expected type",
+                expr.range(),
+            ));
+        }
+    }
+    typed
+}
+
 /// Synthesizes epistemic type knowledge for an expression.
 pub fn synthesize_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> TypeKnowledge {
     synthesize_typed_expr(ctx, expr).knowledge
@@ -161,6 +183,27 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         // --- 5. Blocks and Control Flow ---
         Expr::Block(block) => {
             ctx.push_scope();
+            let mut params = Vec::new();
+            for p in &block.params.fixed {
+                let p_ty = ctx.store.unit();
+                let p_k = TypeKnowledge::known(p_ty, EvidenceAuthority::ExactSyntax);
+                ctx.bind_local(p.name.clone(), ValueSemanticFact::new(p_k));
+                params.push(crate::types::store::CallableParameterType {
+                    label: None,
+                    ty: p_ty,
+                    rest: false,
+                });
+            }
+            if let Some(ref rest_p) = block.params.positional_rest {
+                let rest_k = TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax);
+                ctx.bind_local(rest_p.name.clone(), ValueSemanticFact::new(rest_k));
+                params.push(crate::types::store::CallableParameterType {
+                    label: None,
+                    ty: ctx.store.unit(),
+                    rest: true,
+                });
+            }
+
             let mut tail_typed = TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, block.range);
             let len = block.body.len();
             for (i, stmt) in block.body.iter().enumerate() {
@@ -183,7 +226,13 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
                 }
             }
             ctx.pop_scope();
-            tail_typed
+
+            let return_type = tail_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+            let callable_ty = ctx.store.callable(crate::types::store::CallableType {
+                parameters: params.into_boxed_slice(),
+                return_type,
+            });
+            TypedExpression::known(callable_ty, EvidenceAuthority::ExactSyntax, block.range)
         }
         Expr::IfLet(if_let) => {
             let val_typed = synthesize_typed_expr(ctx, &if_let.value);
@@ -323,12 +372,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
         }
     }
 
-    let elem_ty = if elem_tys.is_empty() {
-        let (_var, infer_ty) = ctx.solver.fresh_var(ctx.store);
-        infer_ty
-    } else {
-        ctx.store.union(&elem_tys)
-    };
+    let elem_ty = if elem_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&elem_tys) };
 
     if let Some(decl) = list_decl {
         let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
@@ -361,12 +405,7 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
         }
     }
 
-    let elem_ty = if elem_tys.is_empty() {
-        let (_var, infer_ty) = ctx.solver.fresh_var(ctx.store);
-        infer_ty
-    } else {
-        ctx.store.union(&elem_tys)
-    };
+    let elem_ty = if elem_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&elem_tys) };
 
     if let Some(decl) = set_decl {
         let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
@@ -408,19 +447,9 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
         }
     }
 
-    let key_ty = if key_tys.is_empty() {
-        let (_var, infer_ty) = ctx.solver.fresh_var(ctx.store);
-        infer_ty
-    } else {
-        ctx.store.union(&key_tys)
-    };
+    let key_ty = if key_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&key_tys) };
 
-    let val_ty = if val_tys.is_empty() {
-        let (_var, infer_ty) = ctx.solver.fresh_var(ctx.store);
-        infer_ty
-    } else {
-        ctx.store.union(&val_tys)
-    };
+    let val_ty = if val_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&val_tys) };
 
     if let Some(decl) = map_decl {
         let k = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
@@ -532,32 +561,6 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) 
         match dispatch_res {
             DispatchResult::Found(sig) => {
                 let ret_k = match_callable_arguments(ctx, &call.args, &sig, call.range);
-
-                // Check generic collection constraint inference (e.g. List<T>.add(x))
-                if call.method == "add" && call.args.len() == 1 {
-                    if let TypeData::Applied { origin, arguments } = ctx.store.get(recv_ty).clone() {
-                        if let Some(list_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]) {
-                            let list_form = ctx.nominal_type_of(&list_decl);
-                            if origin == list_form && arguments.len() == 1 {
-                                let elem_var = arguments[0];
-                                let maybe_var = if let TypeData::Infer(var) = ctx.store.get(elem_var) {
-                                    Some(*var)
-                                } else {
-                                    None
-                                };
-                                if let Some(var) = maybe_var {
-                                    if let PackItem::Positional { expr: arg_expr, .. } = &call.args[0] {
-                                        let arg_k = synthesize_expr(ctx, arg_expr);
-                                        if let Some(arg_ty) = arg_k.ty() {
-                                            ctx.solver.bind(var, arg_ty, ctx.store);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 return TypedExpression::new(ret_k);
             }
             DispatchResult::Dynamic => {
@@ -631,12 +634,12 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                     match arg {
                         PackItem::Positional { expr, .. } => {
                             let k = synthesize_expr(ctx, expr);
-                            let t = if let Some(t) = k.ty() { t } else { ctx.solver.fresh_var(ctx.store).1 };
+                            let t = k.ty().unwrap_or_else(|| ctx.store.never());
                             arg_tys.push(t);
                         }
                         PackItem::Labeled { value, .. } => {
                             let k = synthesize_expr(ctx, value);
-                            let t = if let Some(t) = k.ty() { t } else { ctx.solver.fresh_var(ctx.store).1 };
+                            let t = k.ty().unwrap_or_else(|| ctx.store.never());
                             arg_tys.push(t);
                         }
                         PackItem::Expand { expr, .. } => {
@@ -645,8 +648,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                     }
                 }
                 while arg_tys.len() < sig.parameters.len() {
-                    let (_, var_ty) = ctx.solver.fresh_var(ctx.store);
-                    arg_tys.push(var_ty);
+                    arg_tys.push(ctx.store.never());
                 }
                 if arg_tys.len() == sig.parameters.len() {
                     if let Ok(applied) = ctx.store.apply_type_form(ty, &arg_tys) {
@@ -844,15 +846,12 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
     if let Some(recv_ty) = recv_k.ty() {
         // Direct generic List/Map indexing
         if let TypeData::Applied { origin, arguments } = ctx.store.get(recv_ty).clone() {
-            if let Some(list_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]) {
-                if origin == ctx.nominal_type_of(&list_decl) && arguments.len() == 1 {
-                    let elem_ty = ctx.solver.substitute_type(arguments[0], ctx.store);
+            if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
+                if declaration.name.as_ref() == "List" && arguments.len() == 1 {
+                    let elem_ty = arguments[0];
                     return TypedExpression::known(elem_ty, EvidenceAuthority::Proven, idx.range);
-                }
-            }
-            if let Some(map_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Map", &[]) {
-                if origin == ctx.nominal_type_of(&map_decl) && arguments.len() == 2 {
-                    let val_ty = ctx.solver.substitute_type(arguments[1], ctx.store);
+                } else if declaration.name.as_ref() == "Map" && arguments.len() == 2 {
+                    let val_ty = arguments[1];
                     return TypedExpression::known(val_ty, EvidenceAuthority::Proven, idx.range);
                 }
             }

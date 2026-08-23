@@ -42,6 +42,7 @@ pub struct SemanticSnapshot {
     pub hierarchy: Arc<MapTypeHierarchy>,
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
+    pub callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
     pub status: SnapshotStatus,
 }
 
@@ -72,6 +73,7 @@ impl SemanticSnapshot {
             hierarchy,
             diagnostics,
             semantic_graph,
+            callable_analyses: Arc::new(HashMap::new()),
             status: SnapshotStatus::Complete,
         }
     }
@@ -118,6 +120,10 @@ impl SemanticSnapshot {
 
     pub fn semantic_graph(&self) -> &Arc<SemanticGraph> {
         &self.semantic_graph
+    }
+
+    pub fn callable_analyses(&self) -> &Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>> {
+        &self.callable_analyses
     }
 
     pub fn has_errors(&self) -> bool {

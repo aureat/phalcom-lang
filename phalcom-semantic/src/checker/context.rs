@@ -5,7 +5,6 @@ use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::types::annotation::TypeResolver;
-use crate::types::constraint::LocalConstraintSolver;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
@@ -52,7 +51,6 @@ pub struct CheckingContext<'a> {
     pub expected_return: Option<TypeKnowledge>,
     pub local_envs: Vec<LocalEnv>,
     pub dispatch: SurfaceDispatchResolver,
-    pub solver: LocalConstraintSolver,
     pub diagnostics: Vec<SemanticDiagnostic>,
 }
 
@@ -91,7 +89,6 @@ impl<'a> CheckingContext<'a> {
             expected_return: None,
             local_envs: vec![LocalEnv::new()],
             dispatch,
-            solver: LocalConstraintSolver::new(),
             diagnostics: Vec::new(),
         }
     }

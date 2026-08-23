@@ -1,18 +1,26 @@
-//! Semantic type checking pipeline for Phalcom programs.
-
+pub mod analysis;
 pub mod call;
 pub mod context;
 pub mod declaration;
+pub mod expected;
 pub mod expression;
+pub mod flow;
+pub mod inference;
 pub mod result;
 pub mod statement;
 pub mod typed_expr;
 
+pub use analysis::{AnalysisStatus, BindingAnalysisIndex, BindingState, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
 pub use call::{check_arguments, match_callable_arguments};
 pub use context::CheckingContext;
 pub use declaration::{check_class, check_class_bodies, register_class_surface};
-pub use expression::{synthesize_expr, synthesize_typed_expr};
+pub use expected::ExpectedType;
+pub use expression::{check_expr, check_typed_expr, synthesize_expr, synthesize_typed_expr};
+
+pub use flow::FlowState;
+pub use inference::{InferenceOutcome, InferenceSession, InferenceTerm};
 pub use result::TypeCheckReport;
+
 pub use statement::check_statement;
 pub use typed_expr::TypedExpression;
 

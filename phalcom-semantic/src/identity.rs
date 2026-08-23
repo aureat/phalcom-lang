@@ -1,4 +1,4 @@
-pub use crate::types::id::{ProperTypeId, TypeId, TypeStoreId};
+pub use crate::types::id::{InferVarId, ProperTypeId, TypeId, TypeStoreId};
 use phalcom_common::selector::Selector;
 pub use phalcom_modules::{
     DeclarationId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId,
@@ -136,3 +136,52 @@ impl FieldId {
 /// Snapshot-local binding identity for local variables/parameters.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BindingId(pub u32);
+
+/// Snapshot-local identifier for a callable or top-level body.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct BodyId(pub u32);
+
+/// Snapshot-local identifier for an expression within a body.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LocalExpressionId(pub u32);
+
+/// Stable expression identifier within a callable-body analysis product.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ExpressionId {
+    pub owner: BodyId,
+    pub local: LocalExpressionId,
+}
+
+impl ExpressionId {
+    pub const fn new(owner: BodyId, local: LocalExpressionId) -> Self {
+        Self { owner, local }
+    }
+}
+
+/// Snapshot-local flow node identifier.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FlowNodeId(pub u32);
+
+/// Snapshot-local flow edge identifier.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FlowEdgeId(pub u32);
+
+/// Snapshot-local flow predicate identifier.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PredicateId(pub u32);
+
+/// Snapshot-local type explanation identifier.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ExplanationId(pub u32);
+
+/// Snapshot-local diagnostic cause identifier.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticCauseId(pub u32);
+
+/// Snapshot-local call resolution identifier.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CallResolutionId(pub u32);
+
+/// Snapshot-local analysis incident identifier.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AnalysisIncidentId(pub u32);

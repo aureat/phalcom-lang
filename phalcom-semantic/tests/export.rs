@@ -131,12 +131,8 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
 }
 
 #[test]
-fn export_rejects_infer_var_and_class_object() {
+fn export_rejects_class_object() {
     let mut store = TypeStore::new();
-
-    // Inference variable rejected
-    let infer_ty = store.infer(InferVarId(0));
-    assert_eq!(export_type_form(&store, infer_ty), Err(SemanticExportError::InferenceVariable(InferVarId(0))));
 
     // ClassObject rejected as non-exportable
     let decl = DeclarationId::new(ModuleId::core(), "Point".into());
