@@ -613,8 +613,9 @@ impl<'vm> Compiler<'vm> {
         // `.ph`) is module-scoped like any other (ruling 1) and carries no
         // literal-bound `ClassId`, so redeclaring or subclassing *that* name
         // from a non-core module is not the trap this ruling guards
-        // against — only the primitives are.
-        if !is_core_module && self.vm.kernel_class_names.contains(&name_sym) {
+        // against — only the primitives are. Bootstrap-owned universe source
+        // is privileged alongside the core module for these declarations.
+        if !is_privileged && self.vm.kernel_class_names.contains(&name_sym) {
             return Err(CompilerError::ClassReservedName(class_def.name.clone(), class_def.name_range));
         }
 

@@ -205,11 +205,11 @@ impl<'vm> Compiler<'vm> {
         }
     }
 
-    /// The bootstrap core module is the sole source module permitted to spell
-    /// implementation selectors and fields. Compare handles so a user module
+    /// Bootstrap-owned core and universe modules may spell implementation
+    /// selectors and native declarations. Compare handles so a user module
     /// named `core` cannot acquire this authority.
     pub(crate) fn compiling_privileged_core(&self) -> bool {
-        self.vm.core_module() == Some(self.module)
+        self.vm.is_privileged_core_module(self.module)
     }
 
     /// Whether compilation is currently inside a sacred call's deopt-fallback

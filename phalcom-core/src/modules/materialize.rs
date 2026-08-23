@@ -28,6 +28,12 @@ impl VM {
                 let mut module_obj = ModuleObject::new(id.clone(), compiled_mod.kind, display_name, name_sym, path, None, false);
                 module_obj.metadata = Some(Arc::new(compiled_mod.interface.metadata.clone()));
                 let obj_ref = self.heap.alloc(Object::Module(Box::new(module_obj)));
+                if matches!(
+                    id.project,
+                    phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::identity::BuiltinProject::Universe)
+                ) {
+                    self.privileged_modules.insert(obj_ref);
+                }
                 self.module_registry
                     .register_new(
                         id.clone(),
