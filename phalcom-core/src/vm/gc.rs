@@ -55,6 +55,7 @@ impl VM {
             // Module handles.
             module_registry,
             runtime_roots,
+            privileged_modules,
             semantic_roots,
 
             // Named class handles.
@@ -125,6 +126,7 @@ impl VM {
             out.push(roots.core);
             out.extend(roots.entry.iter().copied());
         }
+        out.extend(privileged_modules.iter().copied());
         out.extend(classes.values().copied());
         out.extend(sealed_classes.values().copied());
         out.extend(checking.iter().copied());

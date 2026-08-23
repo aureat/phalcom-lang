@@ -312,23 +312,24 @@ fn context_known(vm: &mut VM, context: ObjRef, handle: RuntimeTypeRef) -> PhResu
 
 fn descriptor_class_for_handle(vm: &VM, context: ObjRef, handle: RuntimeTypeRef) -> PhResult<crate::heap::ClassId> {
     let name = match handle {
-        RuntimeTypeRef::Overlay(id) => match vm.heap.as_typing_object(context).and_then(|object| match &object.payload {
-            TypingPayload::Context(data) => data.overlay.type_node(id).map(|node| match node {
-                RuntimeOverlayTypeNode::Applied { .. } => "AppliedType",
-                RuntimeOverlayTypeNode::Union(_) => "UnionType",
-                RuntimeOverlayTypeNode::Tuple(_) => "TupleType",
-                RuntimeOverlayTypeNode::Record(_) => "RecordType",
-                RuntimeOverlayTypeNode::Callable { .. } => "CallableType",
-                RuntimeOverlayTypeNode::TypeLambda { .. } => "TypeLambda",
-                RuntimeOverlayTypeNode::Special(_) => "SpecialType",
-                RuntimeOverlayTypeNode::SelfType(_) => "SelfType",
-                RuntimeOverlayTypeNode::Nominal { .. } => "TypeDescriptor",
-            }),
-            TypingPayload::Descriptor { .. } => None,
-        }) {
-            Some(name) => name,
-            None => "TypeDescriptor",
-        },
+        RuntimeTypeRef::Overlay(id) => vm
+            .heap
+            .as_typing_object(context)
+            .and_then(|object| match &object.payload {
+                TypingPayload::Context(data) => data.overlay.type_node(id).map(|node| match node {
+                    RuntimeOverlayTypeNode::Applied { .. } => "AppliedType",
+                    RuntimeOverlayTypeNode::Union(_) => "UnionType",
+                    RuntimeOverlayTypeNode::Tuple(_) => "TupleType",
+                    RuntimeOverlayTypeNode::Record(_) => "RecordType",
+                    RuntimeOverlayTypeNode::Callable { .. } => "CallableType",
+                    RuntimeOverlayTypeNode::TypeLambda { .. } => "TypeLambda",
+                    RuntimeOverlayTypeNode::Special(_) => "SpecialType",
+                    RuntimeOverlayTypeNode::SelfType(_) => "SelfType",
+                    RuntimeOverlayTypeNode::Nominal { .. } => "TypeDescriptor",
+                }),
+                TypingPayload::Descriptor { .. } => None,
+            })
+            .unwrap_or("TypeDescriptor"),
         RuntimeTypeRef::Base { pool, node } => match vm
             .typing_registry
             .get_pool(pool)
@@ -377,16 +378,6 @@ fn reify_callable_signature_obj(vm: &mut VM, context: ObjRef, handle: RuntimeCal
 fn reify_callable_parameter_obj(vm: &mut VM, context: ObjRef, handle: RuntimeCallableParameterRef) -> PhResult<Value> {
     let callable_param_class = class(vm, "CallableParameter")?;
     crate::typing::reify::reify_callable_parameter(context, handle, &mut vm.heap, callable_param_class)
-}
-
-fn reify_field_signature_obj(vm: &mut VM, context: ObjRef, handle: RuntimeFieldSignatureRef) -> PhResult<Value> {
-    let field_sig_class = class(vm, "FieldSignature")?;
-    crate::typing::reify::reify_field_signature(context, handle, &mut vm.heap, field_sig_class)
-}
-
-fn reify_type_use_obj(vm: &mut VM, context: ObjRef, handle: RuntimeTypeUseRef) -> PhResult<Value> {
-    let type_use_class = class(vm, "TypeUse")?;
-    crate::typing::reify::reify_type_use(context, handle, &mut vm.heap, type_use_class)
 }
 
 pub fn install(vm: &mut VM) {
@@ -985,7 +976,7 @@ fn kind_equivalent(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     }
     let (left_context, left) = context_kind_parts(receiver, vm)?;
     let (_right_context, right) = context_kind_parts(
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "equivalentTo(_)",
             expected: 1,
             found: args.len(),
@@ -1468,17 +1459,17 @@ fn descriptor_body(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 fn descriptor_apply(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let (context, _handle) = descriptor_parts(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ConstructTypeForms)?;
-    let arguments = args.first().ok_or_else(|| RuntimeError::Arity {
+    let arguments = args.first().ok_or(RuntimeError::Arity {
         signature: "apply(_)",
         expected: 1,
         found: args.len(),
     })?;
-    typing_context_apply(vm, &Value::obj(context), &[receiver.clone(), arguments.clone()])
+    typing_context_apply(vm, &Value::obj(context), &[*receiver, *arguments])
 }
 
 fn descriptor_equivalent(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let (context, handle) = descriptor_parts(receiver, vm)?;
-    let other_val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let other_val = args.first().ok_or(RuntimeError::Arity {
         signature: "equivalentTo(_)",
         expected: 1,
         found: args.len(),
@@ -2100,7 +2091,7 @@ fn typing_context_restrict(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
     let context = context_ref(receiver, vm)?;
     let requested = expect_tuple(
         vm,
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "restrictTo(_)",
             expected: 1,
             found: args.len(),
@@ -2165,7 +2156,7 @@ fn typing_context_world(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhRe
 fn typing_context_type_of_declaration(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ObservePublicTypes)?;
-    let decl_val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let decl_val = args.first().ok_or(RuntimeError::Arity {
         signature: "typeOfDeclaration(_)",
         expected: 1,
         found: args.len(),
@@ -2177,7 +2168,7 @@ fn typing_context_type_of_declaration(vm: &mut VM, receiver: &Value, args: &[Val
 fn typing_context_generic_signature_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ObserveSignatures)?;
-    let decl_val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let decl_val = args.first().ok_or(RuntimeError::Arity {
         signature: "genericSignatureOf(_)",
         expected: 1,
         found: args.len(),
@@ -2197,7 +2188,7 @@ fn typing_context_generic_signature_of(vm: &mut VM, receiver: &Value, args: &[Va
 fn typing_context_declared_supertype_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ObservePublicTypes)?;
-    let decl_val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let decl_val = args.first().ok_or(RuntimeError::Arity {
         signature: "declaredSupertypeOf(_)",
         expected: 1,
         found: args.len(),
@@ -2218,7 +2209,7 @@ fn typing_context_declared_supertype_of(vm: &mut VM, receiver: &Value, args: &[V
 fn typing_context_signature_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ObserveSignatures)?;
-    let method_val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let method_val = args.first().ok_or(RuntimeError::Arity {
         signature: "signatureOf(_)",
         expected: 1,
         found: args.len(),
@@ -2243,12 +2234,12 @@ fn typing_context_signature_of(vm: &mut VM, receiver: &Value, args: &[Value]) ->
 fn typing_context_apply(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ConstructTypeForms)?;
-    let origin = args.first().ok_or_else(|| RuntimeError::Arity {
+    let origin = args.first().ok_or(RuntimeError::Arity {
         signature: "apply(_,_)",
         expected: 2,
         found: args.len(),
     })?;
-    let arguments = args.get(1).ok_or_else(|| RuntimeError::Arity {
+    let arguments = args.get(1).ok_or(RuntimeError::Arity {
         signature: "apply(_,_)",
         expected: 2,
         found: args.len(),
@@ -2272,7 +2263,7 @@ fn typing_context_union_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
     let members = tuple_type_args(
         vm,
         context,
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "unionOf(_)",
             expected: 1,
             found: args.len(),
@@ -2295,7 +2286,7 @@ fn typing_context_tuple_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
     let types = tuple_type_args(
         vm,
         context,
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "tupleOf(_)",
             expected: 1,
             found: args.len(),
@@ -2320,7 +2311,7 @@ fn typing_context_tuple_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
 fn typing_context_record_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ConstructTypeForms)?;
-    let fields_arg = args.first().ok_or_else(|| RuntimeError::Arity {
+    let fields_arg = args.first().ok_or(RuntimeError::Arity {
         signature: "recordOf(_)",
         expected: 1,
         found: args.len(),
@@ -2359,7 +2350,7 @@ fn typing_context_callable(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
     let parameters = tuple_type_args(
         vm,
         context,
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "callable(_,_)",
             expected: 2,
             found: args.len(),
@@ -2368,7 +2359,7 @@ fn typing_context_callable(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
     let returns = nominal_handle(
         vm,
         context,
-        args.get(1).ok_or_else(|| RuntimeError::Arity {
+        args.get(1).ok_or(RuntimeError::Arity {
             signature: "callable(_,_)",
             expected: 2,
             found: args.len(),
@@ -2403,7 +2394,7 @@ fn typing_context_equivalent(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
     let left = nominal_handle(
         vm,
         context,
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "equivalent(_,_)",
             expected: 2,
             found: args.len(),
@@ -2412,7 +2403,7 @@ fn typing_context_equivalent(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
     let right = nominal_handle(
         vm,
         context,
-        args.get(1).ok_or_else(|| RuntimeError::Arity {
+        args.get(1).ok_or(RuntimeError::Arity {
             signature: "equivalent(_,_)",
             expected: 2,
             found: args.len(),
@@ -2432,7 +2423,7 @@ fn typing_context_subtype(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     let left = nominal_handle(
         vm,
         context,
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "subtype(_,_)",
             expected: 2,
             found: args.len(),
@@ -2441,7 +2432,7 @@ fn typing_context_subtype(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     let right = nominal_handle(
         vm,
         context,
-        args.get(1).ok_or_else(|| RuntimeError::Arity {
+        args.get(1).ok_or(RuntimeError::Arity {
             signature: "subtype(_,_)",
             expected: 2,
             found: args.len(),
@@ -2473,13 +2464,13 @@ fn typing_context_member(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
     let recv_ty = nominal_handle(
         vm,
         context,
-        args.first().ok_or_else(|| RuntimeError::Arity {
+        args.first().ok_or(RuntimeError::Arity {
             signature: "member(_,_,_,_)",
             expected: 4,
             found: args.len(),
         })?,
     )?;
-    let selector_val = args.get(1).ok_or_else(|| RuntimeError::Arity {
+    let selector_val = args.get(1).ok_or(RuntimeError::Arity {
         signature: "member(_,_,_,_)",
         expected: 4,
         found: args.len(),
@@ -2534,12 +2525,12 @@ fn typing_context_type_uses_of(vm: &mut VM, receiver: &Value, _args: &[Value]) -
 
 fn typing_context_matches(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
-    let val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let val = args.first().ok_or(RuntimeError::Arity {
         signature: "matches(_,_)",
         expected: 2,
         found: args.len(),
     })?;
-    let form_val = args.get(1).ok_or_else(|| RuntimeError::Arity {
+    let form_val = args.get(1).ok_or(RuntimeError::Arity {
         signature: "matches(_,_)",
         expected: 2,
         found: args.len(),
@@ -2604,12 +2595,12 @@ fn typing_context_matches(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 fn typing_context_validate(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::ValidateRuntimeValues)?;
-    let val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let val = args.first().ok_or(RuntimeError::Arity {
         signature: "validate(_,_)",
         expected: 2,
         found: args.len(),
     })?;
-    let form_val = args.get(1).ok_or_else(|| RuntimeError::Arity {
+    let form_val = args.get(1).ok_or(RuntimeError::Arity {
         signature: "validate(_,_)",
         expected: 2,
         found: args.len(),
@@ -2646,12 +2637,12 @@ fn typing_context_validate(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
 fn typing_context_construct(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let context = context_ref(receiver, vm)?;
     ensure_capability(vm, context, TypingCapability::InvokeReflectively)?;
-    let form_val = args.first().ok_or_else(|| RuntimeError::Arity {
+    let form_val = args.first().ok_or(RuntimeError::Arity {
         signature: "construct(_,_)",
         expected: 2,
         found: args.len(),
     })?;
-    let args_val = args.get(1).ok_or_else(|| RuntimeError::Arity {
+    let args_val = args.get(1).ok_or(RuntimeError::Arity {
         signature: "construct(_,_)",
         expected: 2,
         found: args.len(),
@@ -2669,11 +2660,11 @@ fn typing_context_construct(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
                 };
                 match context_data.overlay.type_node(id) {
                     Some(RuntimeOverlayTypeNode::Nominal { class }) => *class,
-                    Some(RuntimeOverlayTypeNode::Applied { origin, .. }) => match origin {
-                        RuntimeTypeRef::Overlay(o_id) => match context_data.overlay.type_node(*o_id) {
-                            Some(RuntimeOverlayTypeNode::Nominal { class }) => *class,
-                            _ => return Err(RuntimeError::Message("invalid construct target".into()).into()),
-                        },
+                    Some(RuntimeOverlayTypeNode::Applied {
+                        origin: RuntimeTypeRef::Overlay(o_id),
+                        ..
+                    }) => match context_data.overlay.type_node(*o_id) {
+                        Some(RuntimeOverlayTypeNode::Nominal { class }) => *class,
                         _ => return Err(RuntimeError::Message("invalid construct target".into()).into()),
                     },
                     _ => return Err(RuntimeError::Message("invalid construct target".into()).into()),

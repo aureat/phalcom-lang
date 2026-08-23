@@ -9,7 +9,7 @@ use phalcom_type_meta::type_node::TypeNode;
 
 const MAX_DISPLAY_DEPTH: usize = 64;
 
-pub fn overlay_node<'a>(context: &'a TypingContextData, handle: RuntimeTypeRef) -> Option<&'a RuntimeOverlayTypeNode> {
+pub fn overlay_node(context: &TypingContextData, handle: RuntimeTypeRef) -> Option<&RuntimeOverlayTypeNode> {
     match handle {
         RuntimeTypeRef::Overlay(id) => context.overlay.type_node(id),
         RuntimeTypeRef::Base { .. } => None,
@@ -397,10 +397,10 @@ pub fn kind_equivalent(_context: &TypingContextData, registry: &RuntimeTypingReg
 // TypeParameter inspection
 // ---------------------------------------------------------------------------
 
-pub fn type_param_record<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn type_param_record(
+    registry: &RuntimeTypingRegistry,
     handle: crate::typing::handle::RuntimeTypeParameterRef,
-) -> Option<&'a phalcom_type_meta::generic::TypeParameterRecord> {
+) -> Option<&phalcom_type_meta::generic::TypeParameterRecord> {
     registry
         .get_pool(handle.pool)
         .and_then(|loaded| loaded.bundle.parameters.get(handle.index as usize))
@@ -459,10 +459,10 @@ pub fn type_param_constraints(
 // GenericSignature inspection
 // ---------------------------------------------------------------------------
 
-pub fn generic_sig_record<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn generic_sig_record(
+    registry: &RuntimeTypingRegistry,
     handle: crate::typing::handle::RuntimeGenericSignatureRef,
-) -> Option<&'a phalcom_type_meta::generic::GenericSignatureRecord> {
+) -> Option<&phalcom_type_meta::generic::GenericSignatureRecord> {
     registry
         .get_pool(handle.pool)
         .and_then(|loaded| loaded.bundle.generic_signatures.get(handle.id.0 as usize))
@@ -510,10 +510,10 @@ pub fn generic_sig_constraints(
 // GenericConstraint inspection
 // ---------------------------------------------------------------------------
 
-pub fn generic_constraint_ref<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn generic_constraint_ref(
+    registry: &RuntimeTypingRegistry,
     handle: crate::typing::handle::RuntimeGenericConstraintRef,
-) -> Option<&'a phalcom_type_meta::generic::GenericConstraintRef> {
+) -> Option<&phalcom_type_meta::generic::GenericConstraintRef> {
     let sig = generic_sig_record(
         registry,
         crate::typing::handle::RuntimeGenericSignatureRef {
@@ -561,10 +561,10 @@ pub fn generic_constraint_right(registry: &RuntimeTypingRegistry, handle: crate:
 // CallableSignature inspection
 // ---------------------------------------------------------------------------
 
-pub fn callable_record<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn callable_record(
+    registry: &RuntimeTypingRegistry,
     handle: crate::typing::handle::RuntimeCallableSignatureRef,
-) -> Option<&'a phalcom_type_meta::declaration::CallableSemanticRecord> {
+) -> Option<&phalcom_type_meta::declaration::CallableSemanticRecord> {
     registry
         .get_pool(handle.pool)
         .and_then(|loaded| loaded.bundle.callables.get(handle.record.0 as usize))
@@ -659,10 +659,10 @@ pub fn callable_return_type(
 // CallableParameter inspection
 // ---------------------------------------------------------------------------
 
-pub fn callable_param_record<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn callable_param_record(
+    registry: &RuntimeTypingRegistry,
     handle: crate::typing::handle::RuntimeCallableParameterRef,
-) -> Option<&'a phalcom_type_meta::declaration::CallableParameterRecord> {
+) -> Option<&phalcom_type_meta::declaration::CallableParameterRecord> {
     let callable = callable_record(registry, handle.callable)?;
     callable.parameters.get(handle.index as usize)
 }
@@ -696,10 +696,10 @@ pub fn callable_param_type(
 // FieldSignature inspection
 // ---------------------------------------------------------------------------
 
-pub fn field_record<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn field_record(
+    registry: &RuntimeTypingRegistry,
     handle: crate::typing::handle::RuntimeFieldSignatureRef,
-) -> Option<&'a phalcom_type_meta::declaration::FieldSemanticRecord> {
+) -> Option<&phalcom_type_meta::declaration::FieldSemanticRecord> {
     registry
         .get_pool(handle.pool)
         .and_then(|loaded| loaded.bundle.fields.get(handle.record.0 as usize))
@@ -710,7 +710,7 @@ pub fn field_name(registry: &RuntimeTypingRegistry, handle: crate::typing::handl
 }
 
 pub fn field_mutable(registry: &RuntimeTypingRegistry, handle: crate::typing::handle::RuntimeFieldSignatureRef) -> bool {
-    field_record(registry, handle).map_or(false, |f| matches!(f.mutability, phalcom_type_meta::declaration::FieldMutabilityRef::Mutable))
+    field_record(registry, handle).is_some_and(|f| matches!(f.mutability, phalcom_type_meta::declaration::FieldMutabilityRef::Mutable))
 }
 
 pub fn field_type(
@@ -733,10 +733,10 @@ pub fn field_type(
 // TypeUse inspection
 // ---------------------------------------------------------------------------
 
-pub fn type_use_record<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn type_use_record(
+    registry: &RuntimeTypingRegistry,
     handle: crate::typing::handle::RuntimeTypeUseRef,
-) -> Option<&'a phalcom_type_meta::bundle::TypeUseRecord> {
+) -> Option<&phalcom_type_meta::bundle::TypeUseRecord> {
     registry
         .get_pool(handle.pool)
         .and_then(|loaded| loaded.bundle.occurrences.get(handle.index as usize))

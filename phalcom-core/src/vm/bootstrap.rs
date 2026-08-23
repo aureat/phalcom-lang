@@ -41,6 +41,7 @@ impl VM {
             module_registry: crate::modules::ModuleRegistry::new(),
             typing_registry: crate::typing::RuntimeTypingRegistry::new(),
             runtime_roots: None,
+            privileged_modules: std::collections::HashSet::new(),
             semantic_roots: crate::vm::SemanticRoots {
                 unsupported: Value::nil(),
                 ellipsis: Value::nil(),
@@ -80,6 +81,16 @@ impl VM {
 
         // Bootstrap core module and primitive methods
         vm.install_core();
+
+        // Source/native preflight runs before either native installer. During
+        // migration it enforces every newly authored source anchor while
+        // allowing legacy descriptor entries to migrate incrementally; strict
+        // descriptor-to-source bijection is enabled after the source corpus is
+        // complete.
+        let source_index = crate::native::NativeSourceIndex::build().expect("canonical universe source must parse");
+        let descriptors = crate::native::PRIMITIVES.iter().collect::<Vec<_>>();
+        crate::native::verify_native_contracts_with_mode(&source_index, &descriptors, crate::native::NativeContractMode::AnchorsMustResolve)
+            .expect("canonical native source anchors must resolve");
 
         // Populate prelude_names from UNIVERSE_BINDINGS
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
@@ -284,52 +295,27 @@ impl VM {
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
     fn run_universe_modules(&mut self) -> PhResult<()> {
         let module = self.core_module().expect("core module registered by install_core");
-        static SOURCES: &[(&str, &str)] = &[
-            ("object/object", include_str!("../../core/universe/src/object/object.ph")),
-            ("object/class", include_str!("../../core/universe/src/object/class.ph")),
-            ("object/metaclass", include_str!("../../core/universe/src/object/metaclass.ph")),
-            ("object/behavior", include_str!("../../core/universe/src/object/behavior.ph")),
-            ("object/ellipsis", include_str!("../../core/universe/src/object/ellipsis.ph")),
-            ("object/ordering", include_str!("../../core/universe/src/object/ordering.ph")),
-            ("scalar/number", include_str!("../../core/universe/src/scalar/number.ph")),
-            ("scalar/string", include_str!("../../core/universe/src/scalar/string.ph")),
-            ("scalar/bool", include_str!("../../core/universe/src/scalar/bool.ph")),
-            ("scalar/symbol", include_str!("../../core/universe/src/scalar/symbol.ph")),
-            ("errors/error", include_str!("../../core/universe/src/errors/error.ph")),
-            ("errors/contracts", include_str!("../../core/universe/src/errors/contracts.ph")),
-            ("errors/argument", include_str!("../../core/universe/src/errors/argument.ph")),
-            ("errors/indexing", include_str!("../../core/universe/src/errors/indexing.ph")),
-            ("errors/unsupported", include_str!("../../core/universe/src/errors/unsupported.ph")),
-            ("errors/unimplemented", include_str!("../../core/universe/src/errors/unimplemented.ph")),
-            ("option/option", include_str!("../../core/universe/src/option/option.ph")),
-            ("callable/function", include_str!("../../core/universe/src/callable/function.ph")),
-            ("callable/method", include_str!("../../core/universe/src/callable/method.ph")),
-            ("collections/iterable", include_str!("../../core/universe/src/collections/iterable.ph")),
-            ("collections/list", include_str!("../../core/universe/src/collections/list.ph")),
-            ("collections/map", include_str!("../../core/universe/src/collections/map.ph")),
-            ("collections/set", include_str!("../../core/universe/src/collections/set.ph")),
-            ("collections/tuple", include_str!("../../core/universe/src/collections/tuple.ph")),
-            ("collections/record", include_str!("../../core/universe/src/collections/record.ph")),
-            ("collections/range", include_str!("../../core/universe/src/collections/range.ph")),
-            ("concurrency/fiber", include_str!("../../core/universe/src/concurrency/fiber.ph")),
-            ("collections/bytes", include_str!("../../core/universe/src/collections/bytes.ph")),
-            ("reflection/attribute", include_str!("../../core/universe/src/reflection/attribute.ph")),
-            ("reflection/selector", include_str!("../../core/universe/src/reflection/selector.ph")),
-            (
-                "reflection/implementation",
-                include_str!("../../core/universe/src/reflection/implementation.ph"),
-            ),
-        ];
+        let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
 
-        for (name, source) in SOURCES {
-            let closure = self.compile_closure(module, source).map_err(|e| {
-                eprintln!("Failed compiling universe module {name}: {e:?}");
-                e
-            })?;
-            self.run_in_module(module, closure).map_err(|e| {
-                eprintln!("Failed executing universe module {name}: {e:?}");
-                e
-            })?;
+        for node in provider.nodes() {
+            let path = phalcom_modules::identity::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module_id = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
+            let parsed = provider
+                .load_parsed(&module_id)
+                .map_err(|e| crate::error::RuntimeError::Internal(format!("failed to load parsed universe module {module_id}: {e}")))?;
+
+            let source_text = provider
+                .source_text(&module_id)
+                .map_err(|e| crate::error::RuntimeError::Internal(format!("failed to load universe source {module_id}: {e}")))?;
+
+            let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(source_text.to_string()));
+            let closure = self.compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)?;
+            self.run_in_module(module, closure)?;
         }
         Ok(())
     }
@@ -339,6 +325,7 @@ impl VM {
         let core_id = phalcom_modules::ModuleId::core();
         let m = self.create_module_with_id(core_id, crate::heap::ModuleKind::Module, CORE_MODULE_NAME, "<internal core module>");
         self.runtime_roots = Some(crate::vm::RuntimeRoots { core: m, entry: None });
+        self.privileged_modules.insert(m);
 
         macro_rules! add_class {
             ($field:ident) => {

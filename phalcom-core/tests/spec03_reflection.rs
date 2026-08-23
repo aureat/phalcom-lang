@@ -346,7 +346,7 @@ fn spec03_reflects_generic_signatures_parameters_and_specialized_member_lookup()
     assert_eq!(vm.resolve_symbol(param_name.as_symbol().unwrap()), "T");
     assert_eq!(send0(&mut vm, param, "index").as_int(), Some(0));
     let variance = send0(&mut vm, param, "variance");
-    assert_eq!(variance.is_some(), true);
+    assert!(variance.is_some());
 
     // 2. Member lookup with specialization (Box<String>.value specialized to String)
     let args_tuple = tuple(&mut vm, vec![Value::obj(string_class_id)]);

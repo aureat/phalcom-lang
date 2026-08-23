@@ -289,6 +289,30 @@ pub enum CompilerError {
         first_line: usize,
         first_col: usize,
     },
+
+    /// `@native` attribute requires privileged core module.
+    #[error("native.requires_privileged_core: `@native` is permitted only in the bootstrap core module.")]
+    NativeAttributeRequiresPrivilegedCore(SourceRange),
+
+    /// Implementation selector (`_$`) or field (`__`) requires `@internal`.
+    #[error("internal.attribute_required: implementation member '{0}' requires `@internal` attribute.")]
+    InternalAttributeRequired(String, SourceRange),
+
+    /// `@internal` attribute used on non-implementation member.
+    #[error("internal.namespace_mismatch: `@internal` is only permitted on `_$` selectors or `__` fields (found '{0}').")]
+    InternalAttributeNamespaceMismatch(String, SourceRange),
+
+    /// Combined `@internal` with `@private` or `@protected`.
+    #[error("member.visibility_conflict: `@internal` cannot be combined with `@private` or `@protected`.")]
+    VisibilityConflict(SourceRange),
+
+    /// `@native class` does not match an existing primordial class.
+    #[error("native.class_identity_mismatch: `@native class {0}` does not match an existing primordial class.")]
+    NativeClassIdentityMismatch(String, SourceRange),
+
+    /// Declaration-only member without implementation or `@native`.
+    #[error("class.declaration_requires_implementation: member '{0}' has no body and is not `@native`.")]
+    DeclarationBodyRequiresImplementation(String, SourceRange),
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

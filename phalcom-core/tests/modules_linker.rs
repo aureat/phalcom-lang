@@ -215,7 +215,7 @@ fn mat_02_module_intrinsic_resolves_to_self() {
     vm.run_compiled(&program).expect("run simple_export");
 
     let mod_sym = vm.interner.intern("__module__");
-    for (id, _) in &program.modules {
+    for id in program.modules.keys() {
         let obj = vm.module_registry.get(id).unwrap().object;
         let val = vm.heap.module(obj).get(mod_sym).expect("__module__ present");
         assert_eq!(val, Value::obj(obj), "__module__ must match own object reference for {id}");
@@ -277,7 +277,7 @@ fn mat_05_selective_import_value_non_none() {
     let importer_obj = vm.module_registry.get(importer_id).unwrap().object;
 
     // Check linked_read slot 0
-    let linked_read = vm.heap.module(importer_obj).linked_reads.get(0).copied().expect("linked read 0");
+    let linked_read = vm.heap.module(importer_obj).linked_reads.first().copied().expect("linked read 0");
     let value = match linked_read {
         RuntimeLinkedRead::Module(m) => Value::obj(m),
         RuntimeLinkedRead::Binding(b) => vm.heap.module(b.module).get_by_slot(b.slot as usize).expect("slot value"),
@@ -313,7 +313,7 @@ fn mat_06_module_import_binding_resolves_to_module() {
         .expect("importer present");
     let importer_obj = vm.module_registry.get(importer_id).unwrap().object;
 
-    let linked_read = vm.heap.module(importer_obj).linked_reads.get(0).copied().expect("linked read 0");
+    let linked_read = vm.heap.module(importer_obj).linked_reads.first().copied().expect("linked read 0");
     match linked_read {
         RuntimeLinkedRead::Module(m) => {
             assert!(vm.heap.module(m).name.contains("reflection.selector"));

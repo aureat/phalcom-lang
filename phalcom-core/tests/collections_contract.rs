@@ -48,7 +48,8 @@ fn send0(vm: &mut VM, receiver: Value, selector: &str) -> Value {
 /// Mirrors the identical helper in `tests/invariants.rs`.
 fn send1(vm: &mut VM, receiver: Value, selector: &str, arg: Value) -> Value {
     let sym = vm.get_or_intern(selector);
-    vm.send_dynamic(receiver, sym, &[arg]).unwrap_or_else(|_| panic!("send `{selector}` failed"))
+    vm.send_dynamic(receiver, sym, &[arg])
+        .unwrap_or_else(|err| panic!("send `{selector}` failed: {err:?}"))
 }
 
 /// Extracts the `f64` behind a `Number` result (test-local helper, mirrors

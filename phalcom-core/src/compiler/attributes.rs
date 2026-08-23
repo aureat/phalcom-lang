@@ -4,7 +4,7 @@ use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
 use phalcom_ast::ast::{
     AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, FieldKind, GetPropertyExpr, GetterDef,
-    IndexAccessor, MethodDef, ParameterDef, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr, VariantDef,
+    IndexAccessor, MemberBody, MethodDef, ParameterDef, ReturnStatement, SetterDef, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr, VariantDef,
 };
 use std::collections::HashMap;
 
@@ -87,6 +87,8 @@ pub struct ExpandCtx<'a> {
     /// Handle to the core module, used for the core-module fallback in
     /// [`ClassKey`]-based lookups (when a name resolves from the core module).
     pub core_module: Option<ObjRef>,
+    /// Whether the currently-compiling module is privileged bootstrap core.
+    pub privileged_core: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -298,11 +300,13 @@ impl AttributeExpander for RequiresExpander {
         };
 
         // requires checks go directly into the prologue
-        let body = match member {
-            ClassMember::Method(m) => &mut m.body,
-            ClassMember::Getter(g) => &mut g.body,
-            ClassMember::Setter(s) => &mut s.body,
+        let Some(body) = (match member {
+            ClassMember::Method(m) => m.body.statements_mut(),
+            ClassMember::Getter(g) => g.body.statements_mut(),
+            ClassMember::Setter(s) => s.body.statements_mut(),
             _ => unreachable!(),
+        }) else {
+            return Ok(());
         };
 
         // Weave requires in declaration order
@@ -350,11 +354,13 @@ impl AttributeExpander for EnsuresExpander {
             _ => unreachable!(),
         };
 
-        let body = match member {
-            ClassMember::Method(m) => &mut m.body,
-            ClassMember::Getter(g) => &mut g.body,
-            ClassMember::Setter(s) => &mut s.body,
+        let Some(body) = (match member {
+            ClassMember::Method(m) => m.body.statements_mut(),
+            ClassMember::Getter(g) => g.body.statements_mut(),
+            ClassMember::Setter(s) => s.body.statements_mut(),
             _ => unreachable!(),
+        }) else {
+            return Ok(());
         };
 
         // 1. Hoist old(...) calls to lets
@@ -797,7 +803,21 @@ impl AttributeExpander for OnExpander {
 pub struct NativeExpander;
 impl AttributeExpander for NativeExpander {
     fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Method, Target::Getter, Target::Setter]
+        &[Target::Class, Target::Method, Target::Getter, Target::Setter]
+    }
+
+    fn expand(&self, ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
+        if !ctx.privileged_core {
+            return Err(CompilerError::NativeAttributeRequiresPrivilegedCore((0..0).into()));
+        }
+        Ok(())
+    }
+}
+
+pub struct InternalExpander;
+impl AttributeExpander for InternalExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter, Target::Field]
     }
 
     fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
@@ -878,12 +898,12 @@ impl AttributeExpander for ProtectedExpander {
 }
 
 pub struct AttributeRegistry {
-    expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 16],
+    expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 18],
 }
 
 impl Default for AttributeRegistry {
     fn default() -> Self {
-        let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 16] = Default::default();
+        let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 18] = Default::default();
         expanders[BuiltinAttr::Requires as usize] = Some(Box::new(RequiresExpander));
         expanders[BuiltinAttr::Ensures as usize] = Some(Box::new(EnsuresExpander));
         expanders[BuiltinAttr::Invariant as usize] = Some(Box::new(InvariantExpander));
@@ -900,6 +920,7 @@ impl Default for AttributeRegistry {
         expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
         expanders[BuiltinAttr::Private as usize] = Some(Box::new(PrivateExpander));
         expanders[BuiltinAttr::Protected as usize] = Some(Box::new(ProtectedExpander));
+        expanders[BuiltinAttr::Internal as usize] = Some(Box::new(InternalExpander));
         Self { expanders }
     }
 }
@@ -1041,7 +1062,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         params,
         return_annotation: None,
         where_clause: None,
-        body,
+        body: MemberBody::Block(body),
         is_static: false,
         is_constructor: true,
         attributes: Vec::new(),
@@ -1170,7 +1191,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name.clone(),
                     return_annotation: None,
-                    body: vec![Statement::Expr {
+                    body: MemberBody::Block(vec![Statement::Expr {
                         expr: Expr::Field {
                             value: field.name.clone(),
                             kind: if field.name.starts_with("__") {
@@ -1181,7 +1202,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                             range: attr.range,
                         },
                         range: attr.range,
-                    }],
+                    }]),
                     is_static: false,
                     attributes: Vec::new(),
                     range: attr.range,
@@ -1201,14 +1222,14 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                         range: attr.range,
                     },
                     return_annotation: None,
-                    body: vec![field_assign_stmt(
+                    body: MemberBody::Block(vec![field_assign_stmt(
                         &field.name,
                         Expr::Var {
                             value: "value".to_string(),
                             range: attr.range,
                         },
                         attr.range,
-                    )],
+                    )]),
                     is_static: false,
                     attributes: Vec::new(),
                     range: attr.range,
@@ -1594,7 +1615,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name,
                     return_annotation: None,
-                    body: vec![Statement::Expr {
+                    body: MemberBody::Block(vec![Statement::Expr {
                         expr: Expr::Field {
                             value: f.name.clone(),
                             kind: if f.name.starts_with("__") {
@@ -1605,7 +1626,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                             range: attr_range,
                         },
                         range: attr_range,
-                    }],
+                    }]),
                     is_static: false,
                     attributes: Vec::new(),
                     range: attr_range,
@@ -1629,10 +1650,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             }],
             return_annotation: None,
             where_clause: None,
-            body: vec![Statement::Return(ReturnStatement {
+            body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
                 value: Some(eq_body),
                 range: attr_range,
-            })],
+            })]),
             is_static: false,
             is_constructor: false,
             attributes: Vec::new(),
@@ -1644,10 +1665,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         class.members.push(ClassMember::Getter(GetterDef {
             name: "hash".to_string(),
             return_annotation: None,
-            body: vec![Statement::Return(ReturnStatement {
+            body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
                 value: Some(hash_body),
                 range: attr_range,
-            })],
+            })]),
             is_static: false,
             attributes: Vec::new(),
             range: attr_range,
@@ -1661,10 +1682,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         class.members.push(ClassMember::Getter(GetterDef {
             name: "toString".to_string(),
             return_annotation: None,
-            body: vec![Statement::Return(ReturnStatement {
+            body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
                 value: Some(ts_body),
                 range: attr_range,
-            })],
+            })]),
             is_static: false,
             attributes: Vec::new(),
             range: attr_range,
@@ -1700,10 +1721,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 params: with_params,
                 return_annotation: None,
                 where_clause: None,
-                body: vec![Statement::Return(ReturnStatement {
+                body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
                     value: Some(with_body),
                     range: attr_range,
-                })],
+                })]),
                 is_static: false,
                 is_constructor: false,
                 attributes: Vec::new(),
@@ -1839,10 +1860,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             params,
             return_annotation: None,
             where_clause: None,
-            body: vec![Statement::Return(ReturnStatement {
+            body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
                 value: Some(call_expr),
                 range: v.range,
-            })],
+            })]),
             is_static: false,
             is_constructor: false,
             attributes: Vec::new(),
@@ -1924,10 +1945,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         params: match_params,
         return_annotation: None,
         where_clause: None,
-        body: vec![Statement::Return(ReturnStatement {
+        body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
             value: Some(arm_call),
             range: match_range,
-        })],
+        })]),
         is_static: false,
         is_constructor: false,
         attributes: vec![synthetic_attr],
@@ -2231,6 +2252,7 @@ pub fn expand_class_attributes(
                     | BuiltinAttr::Ignore
                     | BuiltinAttr::Private
                     | BuiltinAttr::Protected
+                    | BuiltinAttr::Internal
                     | BuiltinAttr::Total => {}
                 },
                 AttrKind::User(_) => {}
@@ -2400,13 +2422,19 @@ pub fn expand_class_attributes(
         for member in &mut class.members {
             match member {
                 ClassMember::Method(m) if !m.is_static => {
-                    weave_invariant_checks(&mut m.body, &class_invariants, &class_name, m.is_constructor);
+                    if let Some(body) = m.body.statements_mut() {
+                        weave_invariant_checks(body, &class_invariants, &class_name, m.is_constructor);
+                    }
                 }
                 ClassMember::Getter(g) if !g.is_static => {
-                    weave_invariant_checks(&mut g.body, &class_invariants, &class_name, false);
+                    if let Some(body) = g.body.statements_mut() {
+                        weave_invariant_checks(body, &class_invariants, &class_name, false);
+                    }
                 }
                 ClassMember::Setter(s) if !s.is_static => {
-                    weave_invariant_checks(&mut s.body, &class_invariants, &class_name, false);
+                    if let Some(body) = s.body.statements_mut() {
+                        weave_invariant_checks(body, &class_invariants, &class_name, false);
+                    }
                 }
                 _ => {}
             }
@@ -2511,7 +2539,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             params: method.params.clone(),
             return_annotation: None,
             where_clause: None,
-            body: factory_body,
+            body: MemberBody::Block(factory_body),
             is_static: true,
             is_constructor: false,
             // This marker is consumed only by `class_decl` while compiling

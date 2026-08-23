@@ -41,6 +41,7 @@ const COMPILER_ONLY_ATTRS: &[&str] = &[
     "sealed",
     "private",
     "protected",
+    "internal",
     "__synthetic",
     "On",
     "on",
@@ -57,6 +58,29 @@ fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisi
         MemberVisibility::Protected
     } else {
         MemberVisibility::Public
+    }
+}
+
+fn member_has_attr(member: &ClassMember, name: &str) -> bool {
+    let attrs = match member {
+        ClassMember::Method(m) => &m.attributes,
+        ClassMember::Getter(g) => &g.attributes,
+        ClassMember::Setter(s) => &s.attributes,
+        ClassMember::Field(f) => &f.attributes,
+        ClassMember::Variant(v) => &v.attributes,
+        ClassMember::Index(ix) => &ix.attributes,
+    };
+    attrs.iter().any(|a| a.name == name)
+}
+
+fn member_range(member: &ClassMember) -> SourceRange {
+    match member {
+        ClassMember::Method(m) => m.range,
+        ClassMember::Getter(g) => g.range,
+        ClassMember::Setter(s) => s.range,
+        ClassMember::Field(f) => f.range,
+        ClassMember::Variant(v) => v.range,
+        ClassMember::Index(ix) => ix.range,
     }
 }
 
@@ -211,20 +235,80 @@ impl<'vm> Compiler<'vm> {
             CompileMode::Release => self.vm.strip_contract_metadata,
             CompileMode::Unchecked => true,
         };
-        // Validate the source AST before attribute expansion. Expansion may
-        // synthesize compiler-owned `_$...` hooks; source must never be able
-        // to forge the same namespace.
-        if !allow_synthetic_internal && !self.compiling_privileged_core() {
-            for member in &class_def.members {
-                let reserved = match member {
-                    ClassMember::Method(m) if m.name.starts_with("_$") => Some((&m.name, m.name_range)),
-                    ClassMember::Getter(g) if g.name.starts_with("_$") => Some((&g.name, g.name_range)),
-                    ClassMember::Setter(s) if s.name.starts_with("_$") => Some((&s.name, s.name_range)),
-                    ClassMember::Field(f) if f.name.starts_with("__") => Some((&f.name, f.range)),
-                    _ => None,
-                };
-                if let Some((name, range)) = reserved {
-                    return Err(CompilerError::InternalNamespaceReserved(name.clone(), range));
+        let is_privileged = self.compiling_privileged_core();
+        if !allow_synthetic_internal {
+            if !is_privileged {
+                if class_def.attributes.iter().any(|a| a.name == "native") {
+                    return Err(CompilerError::NativeAttributeRequiresPrivilegedCore(class_def.range));
+                }
+                if class_def.attributes.iter().any(|a| a.name == "internal") {
+                    return Err(CompilerError::InternalNamespaceReserved("@internal".to_string(), class_def.range));
+                }
+                for member in &class_def.members {
+                    let reserved = match member {
+                        ClassMember::Method(m) if m.name.starts_with("_$") => Some((&m.name, m.name_range)),
+                        ClassMember::Getter(g) if g.name.starts_with("_$") => Some((&g.name, g.name_range)),
+                        ClassMember::Setter(s) if s.name.starts_with("_$") => Some((&s.name, s.name_range)),
+                        ClassMember::Field(f) if f.name.starts_with("__") => Some((&f.name, f.range)),
+                        _ => None,
+                    };
+                    if let Some((name, range)) = reserved {
+                        return Err(CompilerError::InternalNamespaceReserved(name.clone(), range));
+                    }
+                    if member_has_attr(member, "native") {
+                        return Err(CompilerError::NativeAttributeRequiresPrivilegedCore(member_range(member)));
+                    }
+                    if member_has_attr(member, "internal") {
+                        return Err(CompilerError::InternalNamespaceReserved("@internal".to_string(), member_range(member)));
+                    }
+                }
+            } else {
+                for member in &class_def.members {
+                    let has_internal = member_has_attr(member, "internal");
+                    let has_private = member_has_attr(member, "private");
+                    let has_protected = member_has_attr(member, "protected");
+                    if has_internal && (has_private || has_protected) {
+                        return Err(CompilerError::VisibilityConflict(member_range(member)));
+                    }
+                    match member {
+                        ClassMember::Method(m) => {
+                            let is_impl = m.name.starts_with("_$");
+                            if is_impl && !has_internal {
+                                return Err(CompilerError::InternalAttributeRequired(m.name.clone(), m.name_range));
+                            }
+                            if has_internal && !is_impl {
+                                return Err(CompilerError::InternalAttributeNamespaceMismatch(m.name.clone(), m.name_range));
+                            }
+                        }
+                        ClassMember::Getter(g) => {
+                            let is_impl = g.name.starts_with("_$");
+                            if is_impl && !has_internal {
+                                return Err(CompilerError::InternalAttributeRequired(g.name.clone(), g.name_range));
+                            }
+                            if has_internal && !is_impl {
+                                return Err(CompilerError::InternalAttributeNamespaceMismatch(g.name.clone(), g.name_range));
+                            }
+                        }
+                        ClassMember::Setter(s) => {
+                            let is_impl = s.name.starts_with("_$");
+                            if is_impl && !has_internal {
+                                return Err(CompilerError::InternalAttributeRequired(s.name.clone(), s.name_range));
+                            }
+                            if has_internal && !is_impl {
+                                return Err(CompilerError::InternalAttributeNamespaceMismatch(s.name.clone(), s.name_range));
+                            }
+                        }
+                        ClassMember::Field(f) => {
+                            let is_impl = f.name.starts_with("__");
+                            if is_impl && !has_internal {
+                                return Err(CompilerError::InternalAttributeRequired(f.name.clone(), f.range));
+                            }
+                            if has_internal && !is_impl {
+                                return Err(CompilerError::InternalAttributeNamespaceMismatch(f.name.clone(), f.range));
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -252,6 +336,7 @@ impl<'vm> Compiler<'vm> {
             sealed_classes: &self.vm.sealed_classes,
             module: self.module,
             core_module,
+            privileged_core: is_privileged,
         };
         let registry = AttributeRegistry::new();
         // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`
@@ -380,8 +465,10 @@ impl<'vm> Compiler<'vm> {
             match member {
                 ClassMember::Method(m) if m.is_static => {
                     let mut fields = Vec::new();
-                    for stmt in &m.body {
-                        collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                    if let Some(stmts) = m.body.statements() {
+                        for stmt in stmts {
+                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        }
                     }
                     for f in fields {
                         if !own_static_fields.contains(&f) {
@@ -391,8 +478,10 @@ impl<'vm> Compiler<'vm> {
                 }
                 ClassMember::Getter(g) if g.is_static => {
                     let mut fields = Vec::new();
-                    for stmt in &g.body {
-                        collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                    if let Some(stmts) = g.body.statements() {
+                        for stmt in stmts {
+                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        }
                     }
                     for f in fields {
                         if !own_static_fields.contains(&f) {
@@ -402,8 +491,10 @@ impl<'vm> Compiler<'vm> {
                 }
                 ClassMember::Setter(s) if s.is_static => {
                     let mut fields = Vec::new();
-                    for stmt in &s.body {
-                        collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                    if let Some(stmts) = s.body.statements() {
+                        for stmt in stmts {
+                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        }
                     }
                     for f in fields {
                         if !own_static_fields.contains(&f) {
@@ -416,21 +507,6 @@ impl<'vm> Compiler<'vm> {
         }
 
         // Pass 2: Collect instance fields (only if not static).
-        //
-        // U-ANNOT-LAYOUT §3.1/DEC-ANNOT-H: a class that declares at least one
-        // `ClassMember::Field` uses its declared `FieldDef`s, in source
-        // order, as the *complete* instance-field list — the legacy
-        // implicit-by-assignment inference below is skipped entirely for
-        // that class. A class with zero `FieldDef`s is completely unaffected
-        // (byte-for-byte the same inference path as before this unit).
-        // Mixing declared and inferred fields within one class is
-        // unsupported (the "Rubric" hazard) — not detected/rejected here,
-        // just not attempted: any assignment-inferred field in a
-        // `FieldDef`-bearing class's hand-written members is simply not
-        // added to the layout, which will surface as a
-        // `ReadBeforeWrite`/missing-slot error at the assignment site rather
-        // than a dedicated diagnostic (deferred to a follow-on unit per
-        // DEC-ANNOT-H's "not a hard error, just inference off" resolution).
         let declared_fields: Vec<Symbol> = class_def
             .members
             .iter()
@@ -465,8 +541,10 @@ impl<'vm> Compiler<'vm> {
                 match member {
                     ClassMember::Method(m) if !m.is_static => {
                         let mut fields = Vec::new();
-                        for stmt in &m.body {
-                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        if let Some(stmts) = m.body.statements() {
+                            for stmt in stmts {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
                         }
                         for f in fields {
                             if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
@@ -476,8 +554,10 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Getter(g) if !g.is_static => {
                         let mut fields = Vec::new();
-                        for stmt in &g.body {
-                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        if let Some(stmts) = g.body.statements() {
+                            for stmt in stmts {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
                         }
                         for f in fields {
                             if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
@@ -487,8 +567,10 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Setter(s) if !s.is_static => {
                         let mut fields = Vec::new();
-                        for stmt in &s.body {
-                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        if let Some(stmts) = s.body.statements() {
+                            for stmt in stmts {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
                         }
                         for f in fields {
                             if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
@@ -498,8 +580,10 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Method(c) if c.is_constructor => {
                         let mut fields = Vec::new();
-                        for stmt in &c.body {
-                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        if let Some(stmts) = c.body.statements() {
+                            for stmt in stmts {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
                         }
                         for f in fields {
                             if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
@@ -840,7 +924,13 @@ impl<'vm> Compiler<'vm> {
                         .attributes
                         .iter()
                         .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor)) || attr.name == "__synthetic");
-                    let closure_result = self.compile_block(method_def.body, selector_sym, ClosureParameters::fixed(param_names), true, false, None);
+                    let body_stmts = match method_def.body {
+                        phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
+                        phalcom_ast::ast::MemberBody::Declaration => {
+                            return Err(CompilerError::DeclarationBodyRequiresImplementation(method_def.name, method_def.range));
+                        }
+                    };
+                    let closure_result = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(param_names), true, false, None);
                     self.compiler_internal = prior_compiler_internal;
                     let closure = closure_result?;
 
@@ -881,7 +971,13 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = getter_def.is_static;
-                    let closure = self.compile_block(getter_def.body, selector_sym, ClosureParameters::default(), true, false, None)?;
+                    let body_stmts = match getter_def.body {
+                        phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
+                        phalcom_ast::ast::MemberBody::Declaration => {
+                            return Err(CompilerError::DeclarationBodyRequiresImplementation(getter_def.name, getter_def.range));
+                        }
+                    };
+                    let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::default(), true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
@@ -914,8 +1010,14 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = setter_def.is_static;
+                    let body_stmts = match setter_def.body {
+                        phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
+                        phalcom_ast::ast::MemberBody::Declaration => {
+                            return Err(CompilerError::DeclarationBodyRequiresImplementation(setter_def.name, setter_def.range));
+                        }
+                    };
                     let closure = self.compile_block(
-                        setter_def.body,
+                        body_stmts,
                         selector_sym,
                         ClosureParameters::fixed(vec![setter_def.param.name.clone()]),
                         true,
@@ -952,24 +1054,21 @@ impl<'vm> Compiler<'vm> {
 
                     let arity = checked_send_arity("constructor declaration", construct_def.params.len(), construct_def.range)?;
                     let labels: Vec<Option<String>> = construct_def.params.iter().map(|p| p.label.clone()).collect();
-                    // Initializers install as ordinary instance-side methods
-                    // under their generated, source-unspellable `init <name>`
-                    // selector (ADR-0063). The paired factory is class-side
-                    // and dispatches under the original constructor selector.
                     let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity));
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
 
                     self.is_static_context = false;
-                    // `const` fields are only assignable within a constructor
-                    // body (ADR-0064 §3, U-BINDINGS §5) — gate the
-                    // `field.const_write` check in `expr.rs` on this flag,
-                    // restored unconditionally after the body compiles (a
-                    // constructor never nests another constructor).
                     self.in_constructor = true;
+                    let body_stmts = match construct_def.body {
+                        phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
+                        phalcom_ast::ast::MemberBody::Declaration => {
+                            return Err(CompilerError::DeclarationBodyRequiresImplementation(construct_def.name, construct_def.range));
+                        }
+                    };
                     let closure = self.compile_block(
-                        construct_def.body,
+                        body_stmts,
                         selector_sym,
                         ClosureParameters::fixed(param_names),
                         true,

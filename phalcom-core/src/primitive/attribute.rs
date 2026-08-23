@@ -18,7 +18,7 @@ use crate::vm::VM;
     params = [Object],
     returns = Option,
     types = "(Object) -> Option",
-    visibility = public
+    visibility = internal
 )]
 pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let attr = args[0];
@@ -53,7 +53,7 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     params = [],
     returns = List,
     types = "() -> List",
-    visibility = public
+    visibility = internal
 )]
 pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Some(id) = receiver.as_obj() else {
@@ -85,7 +85,7 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     params = [],
     returns = Option,
     types = "() -> Option",
-    visibility = public
+    visibility = internal
 )]
 pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Some(id) = receiver.as_obj() else {

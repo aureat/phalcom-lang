@@ -614,5 +614,5 @@ pub fn number_negate(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// Returns the receiver unchanged. Defined so user-defined classes and
 /// numeric subclasses can override the `+` getter when needed.
 pub fn number_unary_plus(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(receiver.clone())
+    Ok(*receiver)
 }

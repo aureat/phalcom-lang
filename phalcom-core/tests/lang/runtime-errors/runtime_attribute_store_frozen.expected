@@ -1,1 +1,1 @@
-attr.frozen: attribute store is frozen
+internal.selector_access: `_$attach(_)` is owned by `Object` and cannot be called from `<top-level>`

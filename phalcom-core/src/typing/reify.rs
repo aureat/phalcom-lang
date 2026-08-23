@@ -41,12 +41,10 @@ pub fn reify_type_form(
 
     if let TypingPayload::Context(ref ctx_data) = context_obj.payload {
         if let Some(&cached_ref) = ctx_data.descriptor_cache.get(&sem_handle) {
-            if let Some(cached_obj) = heap.try_get(cached_ref) {
-                if let Object::Typing(t) = cached_obj {
-                    if let TypingPayload::Descriptor { context, handle: h } = t.payload {
-                        if t.class == descriptor_class && context == context_ref && h == sem_handle {
-                            return Ok(Value::obj(cached_ref));
-                        }
+            if let Some(Object::Typing(t)) = heap.try_get(cached_ref) {
+                if let TypingPayload::Descriptor { context, handle: h } = t.payload {
+                    if t.class == descriptor_class && context == context_ref && h == sem_handle {
+                        return Ok(Value::obj(cached_ref));
                     }
                 }
             }
@@ -112,12 +110,10 @@ pub fn reify_semantic_handle(context_ref: ObjRef, handle: RuntimeSemanticHandle,
 
     if let TypingPayload::Context(ref ctx_data) = context_obj.payload {
         if let Some(&cached_ref) = ctx_data.descriptor_cache.get(&handle) {
-            if let Some(cached_obj) = heap.try_get(cached_ref) {
-                if let Object::Typing(t) = cached_obj {
-                    if let TypingPayload::Descriptor { context, handle: h } = t.payload {
-                        if t.class == descriptor_class && context == context_ref && h == handle {
-                            return Ok(Value::obj(cached_ref));
-                        }
+            if let Some(Object::Typing(t)) = heap.try_get(cached_ref) {
+                if let TypingPayload::Descriptor { context, handle: h } = t.payload {
+                    if t.class == descriptor_class && context == context_ref && h == handle {
+                        return Ok(Value::obj(cached_ref));
                     }
                 }
             }

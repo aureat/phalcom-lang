@@ -9,6 +9,7 @@ use crate::heap::ObjRef;
 use crate::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
 use crate::modules::{CompileBindings, RuntimeLinkedRead};
 use crate::vm::VM;
+use phalcom_ast::ast::Program;
 use phalcom_ast::parse_source;
 use std::sync::Arc;
 
@@ -65,18 +66,34 @@ impl VM {
         self.compile_closure_as_with_bindings(module, source, kind, None)
     }
 
-    /// Parses and compiles one already-linked module with its closed namespace.
-    pub fn compile_closure_as_with_bindings(&mut self, module: ObjRef, source: &str, kind: UnitKind, bindings: Option<CompileBindings>) -> PhResult<ObjRef> {
+    /// Compiles a pre-parsed AST for `module` with `kind`.
+    pub fn compile_ast_as_with_bindings(
+        &mut self,
+        module: ObjRef,
+        source_id: u32,
+        program: Program,
+        kind: UnitKind,
+        bindings: Option<CompileBindings>,
+    ) -> PhResult<ObjRef> {
         self.unit_kind = kind;
-        let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
-        let program = parse_source(source, 0).map_err(|e| PhError::Compile(CompilerError::Parse(e)))?;
-
         let compiler = match bindings {
             Some(bindings) => Compiler::new_with_bindings(self, module, source_id, kind, Some(bindings)),
             None => Compiler::new(self, module, source_id, kind),
         };
         let closure = compiler.compile(program)?;
         Ok(closure)
+    }
+
+    /// Compiles a pre-parsed AST for `module` with `kind`.
+    pub fn compile_ast_as(&mut self, module: ObjRef, source_id: u32, program: Program, kind: UnitKind) -> PhResult<ObjRef> {
+        self.compile_ast_as_with_bindings(module, source_id, program, kind, None)
+    }
+
+    /// Parses and compiles one already-linked module with its closed namespace.
+    pub fn compile_closure_as_with_bindings(&mut self, module: ObjRef, source: &str, kind: UnitKind, bindings: Option<CompileBindings>) -> PhResult<ObjRef> {
+        let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
+        let program = parse_source(source, 0).map_err(|e| PhError::Compile(CompilerError::Parse(e)))?;
+        self.compile_ast_as_with_bindings(module, source_id, program, kind, bindings)
     }
 
     /// Installs runtime entries for symbolic `GetLinked` reads.

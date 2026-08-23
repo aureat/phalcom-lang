@@ -220,6 +220,8 @@ pub struct VM {
     pub typing_registry: crate::typing::RuntimeTypingRegistry,
     /// Direct runtime roots for core and entry modules.
     pub runtime_roots: Option<RuntimeRoots>,
+    /// Set of modules with privileged core status (core and universe modules).
+    pub privileged_modules: std::collections::HashSet<ObjRef>,
     /// Canonical semantic values, initialized after universe bootstrap.
     pub semantic_roots: SemanticRoots,
 
@@ -393,6 +395,12 @@ impl VM {
     #[inline]
     pub fn entry_module(&self) -> Option<ObjRef> {
         self.runtime_roots.and_then(|r| r.entry)
+    }
+
+    /// Checks if a module has privileged core status (e.g. core or universe module).
+    #[inline]
+    pub fn is_privileged_core_module(&self, module: ObjRef) -> bool {
+        self.core_module() == Some(module) || self.privileged_modules.contains(&module)
     }
 
     /// Finds a module handle by its logical name symbol.

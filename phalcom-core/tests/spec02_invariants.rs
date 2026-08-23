@@ -1,8 +1,6 @@
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use phalcom_core::typing::reify::reify_type_form;
 use phalcom_core::vm::VM;
-use phalcom_semantic::metadata::MetadataExporter;
-use phalcom_type_meta::header::MetadataProfile;
 use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 use std::sync::Arc;
 
@@ -76,7 +74,7 @@ fn test_spec02_synthetic_descriptor_weak_cache_and_gc() {
     let desc_ref = val1.as_obj().unwrap();
 
     // Weak cache must not prevent GC from collecting unreferenced descriptors
-    let trace_roots = |push: &mut dyn FnMut(phalcom_core::heap::ObjRef)| {
+    let _trace_roots = |push: &mut dyn FnMut(phalcom_core::heap::ObjRef)| {
         // Trace only ctx_ref, not desc_ref
         push(ctx_ref);
     };

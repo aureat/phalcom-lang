@@ -42,6 +42,7 @@ class Range is Iterable {
 
   // Normalizes this bound descriptor for a finite sequence of `size` elements.
   // Omitted endpoints are distinct from a supplied None, which is malformed.
+  @internal
   _$sliceBounds(_ size) {
     let start = 0
     let end = size
