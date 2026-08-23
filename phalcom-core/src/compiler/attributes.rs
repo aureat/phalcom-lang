@@ -2230,7 +2230,8 @@ pub fn expand_class_attributes(
                     | BuiltinAttr::Native
                     | BuiltinAttr::Ignore
                     | BuiltinAttr::Private
-                    | BuiltinAttr::Protected => {}
+                    | BuiltinAttr::Protected
+                    | BuiltinAttr::Total => {}
                 },
                 AttrKind::User(_) => {}
             }

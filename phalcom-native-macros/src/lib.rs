@@ -558,6 +558,7 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
             raises: #raises_tokens,
             effects: #effects_tokens,
             flow: #flow_tokens,
+            termination: ::phalcom_native_meta::TerminationSpec::Unknown,
             since: #since_tokens,
             deprecated_since: #deprecated_since_tokens,
             replacement: #replacement_tokens,

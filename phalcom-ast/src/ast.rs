@@ -309,6 +309,7 @@ pub enum BuiltinAttr {
     Ignore,
     Private,
     Protected,
+    Total,
 }
 
 impl BuiltinAttr {
@@ -330,6 +331,7 @@ impl BuiltinAttr {
             BuiltinAttr::Ignore => "ignore",
             BuiltinAttr::Private => "private",
             BuiltinAttr::Protected => "protected",
+            BuiltinAttr::Total => "total",
         }
     }
 
@@ -351,6 +353,7 @@ impl BuiltinAttr {
             "ignore" => Some(BuiltinAttr::Ignore),
             "private" => Some(BuiltinAttr::Private),
             "protected" => Some(BuiltinAttr::Protected),
+            "total" => Some(BuiltinAttr::Total),
             _ => None,
         }
     }

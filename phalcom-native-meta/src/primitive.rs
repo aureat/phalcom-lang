@@ -129,6 +129,14 @@ pub struct NativeSourceSpec {
     pub line: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TerminationSpec {
+    #[default]
+    Unknown,
+    Terminates,
+    MayDiverge,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PrimitiveSurfaceSpec {
     pub key: PrimitiveKey,
@@ -142,6 +150,7 @@ pub struct PrimitiveSurfaceSpec {
     pub raises: RaisesSpec,
     pub effects: EffectSpec,
     pub flow: ReturnFlowSpec,
+    pub termination: TerminationSpec,
 
     pub since: Option<&'static str>,
     pub deprecated_since: Option<&'static str>,

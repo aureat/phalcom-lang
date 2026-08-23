@@ -135,6 +135,7 @@ macro_rules! surface_record {
                 raises: $raises,
                 effects: $effects,
                 flow: $flow,
+                termination: TerminationSpec::Unknown,
                 since: None,
                 deprecated_since: None,
                 replacement: None,
