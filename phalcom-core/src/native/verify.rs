@@ -2,7 +2,7 @@
 
 use super::descriptor::PrimitiveDescriptor;
 use super::source::{NativeMemberKey, NativeSourceIndex};
-use phalcom_native_meta::{NativeAnchorPolicy, PrimitiveKey};
+use phalcom_native_meta::{NativeAnchorPolicy, PrimitiveKey, UniverseKey, UNIVERSE_CLASS_RELATIONS};
 use thiserror::Error;
 
 /// Migration mode for source/native contract verification.
@@ -36,6 +36,22 @@ pub enum NativeContractError {
         desc_vis: phalcom_native_meta::NativeVisibility,
         source_vis: phalcom_native_meta::NativeVisibility,
     },
+
+    #[error("universe class {key:?} has no canonical source presentation")]
+    MissingClassPresentation { key: UniverseKey },
+
+    #[error("universe class {key:?} source presentation must be marked @native")]
+    NativeClassAnchorRequired { key: UniverseKey },
+
+    #[error("universe class {key:?} superclass mismatch: expected {expected:?}, source declares {actual:?}")]
+    SuperclassMismatch {
+        key: UniverseKey,
+        expected: Option<UniverseKey>,
+        actual: Option<String>,
+    },
+
+    #[error("native source member is missing a complete type annotation for owner {key:?}, selector '{selector}'")]
+    MissingTypeAnnotation { key: PrimitiveKey, selector: String },
 }
 
 /// Verifies that all registered descriptors match universe source anchors and vice versa.
@@ -97,7 +113,22 @@ pub fn verify_native_contracts_with_mode(
                     source_vis: anchor.visibility,
                 });
             }
+
+            let typed = ast_index
+                .census
+                .members
+                .iter()
+                .find(|member| member.owner == Some(key.owner) && member.side == key.side && member.selector == key.selector)
+                .is_some_and(|member| member.typed);
+            if !typed {
+                return Err(NativeContractError::MissingTypeAnnotation {
+                    key,
+                    selector: key.selector.to_owned(),
+                });
+            }
         }
+
+        verify_class_presentations(ast_index)?;
     } else {
         for desc in descriptors {
             let source_key = source_key(desc.surface.key);
@@ -114,6 +145,27 @@ pub fn verify_native_contracts_with_mode(
         }
     }
 
+    Ok(())
+}
+
+fn verify_class_presentations(ast_index: &NativeSourceIndex) -> Result<(), NativeContractError> {
+    for relation in UNIVERSE_CLASS_RELATIONS {
+        let Some(row) = ast_index.presentations.get(&relation.class) else {
+            return Err(NativeContractError::MissingClassPresentation { key: relation.class });
+        };
+        if !row.native {
+            return Err(NativeContractError::NativeClassAnchorRequired { key: relation.class });
+        }
+
+        let actual = row.superclass.as_deref().and_then(UniverseKey::from_name);
+        if actual != relation.superclass {
+            return Err(NativeContractError::SuperclassMismatch {
+                key: relation.class,
+                expected: relation.superclass,
+                actual: row.superclass.clone(),
+            });
+        }
+    }
     Ok(())
 }
 
