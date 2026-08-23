@@ -1,5 +1,12 @@
 @native
 class List is Iterable {
+  @class @native new() -> List
+  @internal @native _$length -> Int
+  @internal @native _$at(_ index: Int) -> Dynamic
+  @internal @native _$set(_ index: Int, _ value: Dynamic) -> Dynamic
+  @internal @native _$push(_ value: Dynamic) -> Dynamic
+  @internal @native _$replaceSlice(_ start: Int, _ end: Int, _ replacement: List) -> Dynamic
+  @native toString -> String
   size { self._$length }
 
   first {

@@ -6,6 +6,10 @@
 // mirroring how `call`/`on`/`ensure` are native on both.
 @native
 class Function is Object {
+  @native arity -> Int
+  @native name -> Symbol
+  @native callWith(_ value: Dynamic) -> Dynamic
+  @native call(***args: Dynamic) -> Dynamic
   // Explicit `()` (a method, not a getter — `attempt() { … }` vs `attempt {
   // …`) so the call-site selector encodes as `attempt()`, matching the
   // spec's `{ risky() }.attempt()` call form (error-handling.md §5) exactly.

@@ -28,6 +28,7 @@
 
 @native
 class Option is Object {
+  @native match(some: Dynamic, none: Dynamic) -> Dynamic
   // Runs `f` (0-arity) for its side effect when `self` is `None`; passes
   // `Some` through untouched. Never extracts — returns `self` so calls chain
   // (values-and-absence.md §3.3's "Effect" group).
@@ -108,7 +109,10 @@ class Option is Object {
 }
 
 @native
-class Some is Option {}
+class Some is Option {
+  @class @native call(_ value: Dynamic) -> Some
+  @class @native new(_ value: Dynamic) -> Some
+}
 
 @native
 class None is Option {}

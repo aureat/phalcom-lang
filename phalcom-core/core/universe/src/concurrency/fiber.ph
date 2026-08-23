@@ -1,5 +1,13 @@
 @native
 class System is Object {
+  @class @native print(_ value: Dynamic) -> Dynamic
+  @class @native new() -> System
+  @class @native schedule(_ fiber: Dynamic) -> Dynamic
+  @class @native nextScheduled -> Option<Fiber>
+  @class @native gc -> Dynamic
+  @class @internal @native _$write(_ value: String) -> Dynamic
+  @class @internal @native _$leakReport -> Dynamic
+  @class @internal @native _$strictResources(_ enabled: Bool) -> Dynamic
   // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
   // native `write_(_)` and the `toString` message. Additive-only: does not
   // touch the native `print(_)` pathway (pre-existing divergence between
@@ -47,7 +55,20 @@ class System is Object {
 }
 
 @native
-class Fiber is Object {}
+class Fiber is Object {
+  @class @native new(_ body: Dynamic) -> Fiber
+  @native call() -> Dynamic
+  @native call(_ value: Dynamic) -> Dynamic
+  @native try() -> Dynamic
+  @native try(_ value: Dynamic) -> Dynamic
+  @class @native yield() -> Dynamic
+  @class @native yield(_ value: Dynamic) -> Dynamic
+  @class @native current -> Fiber
+  @class @native abort(_ error: Error) -> Dynamic
+  @native isDone -> Bool
+  @native isRoot -> Bool
+  @native error -> Option<Error>
+}
 
 // `Future` (concurrency.md §2; ADR-0030 §1): a settle-once state machine over
 // a fulfilled/rejected result. A **plain `InstanceObject`** (concurrency.md §2

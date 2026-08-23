@@ -1,5 +1,25 @@
 @native
 class Bool is Object {
+  @class
+  @native
+  new() -> Bool
+  @class
+  @native
+  new(_ value: Dynamic) -> Bool
+  @native
+  and(_ other: Bool) -> Bool
+  @native
+  or(_ other: Bool) -> Bool
+  @native
+  not -> Bool
+  @native
+  ifTrue(_ then: Dynamic) -> Dynamic
+  @native
+  ifFalse(_ otherwise: Dynamic) -> Dynamic
+  @native
+  ifTrue(_ then: Dynamic, ifFalse: Dynamic) -> Dynamic
+  @native
+  hash -> Int
   // Display (U-CORE-4, R-INV-4.1): derived over the sacred `ifTrue(_,
   // ifFalse)` selector (proven syntax:
   // `control-flow/control_flow_send_equivalence.ph` L9). This `toString` is

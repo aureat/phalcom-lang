@@ -1,5 +1,22 @@
 @native
 class String is Object {
+  @native +(_ other: String) -> String
+  @native hash -> Int
+  @class
+  @native
+  new() -> String
+  @class
+  @native
+  new(_ value: Dynamic) -> String
+  @internal
+  @native
+  _$byteCount -> Int
+  @internal
+  @native
+  _$byteAt(_ index: Int) -> Option<Int>
+  @internal
+  @native
+  _$slice(_ start: Int, _ end: Int) -> String
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
   // representation read, so this is `.ph`-derivable rather than a floor
   // primitive (ADR-0019's derivability test).

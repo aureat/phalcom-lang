@@ -5,6 +5,14 @@
 
 @native
 class Tuple is Iterable {
+  @class @internal @native _$fromList(_ value: List) -> Tuple
+  @internal @native _$size -> Int
+  @internal @native _$at(_ index: Int) -> Dynamic
+  @internal @native _$positionalSize -> Int
+  @internal @native _$labelAt(_ index: Int) -> Symbol
+  @internal @native _$positionals -> List
+  @internal @native _$labeled -> Map
+  @internal @native _$slice(_ start: Int, _ end: Int) -> Tuple
   size { self._$size }
   positionals { self._$positionals }
   labeled { self._$labeled }

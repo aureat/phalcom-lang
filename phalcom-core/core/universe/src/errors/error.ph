@@ -14,6 +14,8 @@
 // subclasses need this to carry a real `message`).
 @native
 class Error is Object {
+  @native message -> String
+  @native raise() -> Dynamic
   _message // : Option<String>
   _kind // : Option<Symbol>
   _cause // : Option<Error>
@@ -64,6 +66,9 @@ class MessageNotUnderstood is Error {}
 
 @native
 class CannotYieldAcrossNativeFrame is Error {}
+
+@native
+class UseAfterCloseError is Error {}
 
 
 class Result {

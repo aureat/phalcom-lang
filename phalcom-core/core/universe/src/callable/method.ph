@@ -3,6 +3,14 @@
 // dictionary holds.
 @native
 class Method is Object {
+  @class @native new(_ value: Dynamic) -> Method
+  @native arity -> Int
+  @native name -> Symbol
+  @native invokeOn(_ receiver: Dynamic, ***args: Dynamic) -> Dynamic
+  @native bind(_ receiver: Dynamic) -> BoundMethod
+  @native selector -> Selector
+  @native holder -> Dynamic
+  @internal @native _$attributes -> Dynamic
   attributes { self._$attributes }
   attributesOfType(_ cls) { self._$attributes.filter |a| { a.is(cls) } }
 }

@@ -1,5 +1,13 @@
 @native
 class Map is Iterable {
+  @class @native new() -> Map
+  @internal @native _$size -> Int
+  @internal @native _$get(_ key: Dynamic) -> Option<Dynamic>
+  @internal @native _$put(_ key: Dynamic, _ value: Dynamic) -> Dynamic
+  @internal @native _$has(_ key: Dynamic) -> Bool
+  @internal @native _$remove(_ key: Dynamic) -> Dynamic
+  @internal @native _$keyAt(_ index: Int) -> Dynamic
+  @internal @native _$valueAt(_ index: Int) -> Dynamic
   size { self._$size }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s

@@ -3,6 +3,9 @@
 // and traversal are deliberately deferred.
 @native
 class Range is Iterable {
+  @internal @native _$lower -> Option<Number>
+  @internal @native _$upper -> Option<Number>
+  @internal @native _$upperInclusive -> Bool
   @class
   new(_ lower, _ upper, _ upperInclusive) {
     if (lower == None) {
