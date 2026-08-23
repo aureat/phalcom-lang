@@ -4325,7 +4325,11 @@ impl<'source> Parser<'source> {
     fn starts_labelled_braced_closure_literal(&self, pos: usize) -> bool {
         self.tokens.get(pos).is_some_and(|lexeme| Self::label_name(&lexeme.token).is_some())
             && matches!(self.tokens.get(pos + 1).map(|lexeme| &lexeme.token), Some(Token::Colon))
-            && self.starts_braced_closure_literal(pos + 2)
+            && (self.starts_braced_closure_literal(pos + 2)
+                // A bare brace is contextual zero-argument trailing-closure
+                // sugar, valid here because the label already establishes a
+                // member-send argument position.
+                || matches!(self.tokens.get(pos + 2).map(|lexeme| &lexeme.token), Some(Token::LBrace)))
     }
 
     /// Parses the closure-only, unparenthesized arguments attached to an
@@ -4353,7 +4357,11 @@ impl<'source> Parser<'source> {
             } else {
                 None
             };
-            let expr = parser.parse_closure_literal(ClosureBodyRequirement::Braced)?;
+            let expr = if matches!(parser.peek(), Token::LBrace) {
+                parser.parse_brace_block()?
+            } else {
+                parser.parse_closure_literal(ClosureBodyRequirement::Braced)?
+            };
             let range = (start..parser.prev_end).into();
             args.push(match label {
                 Some(label) => PackItem::Labeled { label, value: expr, range },
@@ -6481,6 +6489,20 @@ mod tests {
         assert!(!parse("items[0] { value }", 0).errors.is_empty());
         assert!(!parse("items::map { value }", 0).errors.is_empty());
         assert!(parse("items.map({ key: value })", 0).errors.is_empty());
+    }
+
+    #[test]
+    fn bare_labelled_trailing_closure_can_follow_bare_closure() {
+        let Statement::Expr { expr, .. } = only_statement("self.ifTrue { \"true\" } ifFalse: { \"false\" }") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else {
+            panic!("expected method call");
+        };
+        assert_eq!(call.method, "ifTrue");
+        assert_eq!(call.args.iter().map(static_pack_label).collect::<Vec<_>>(), [None, Some("ifFalse")]);
+        assert!(matches!(&call.args[0], PackItem::Positional { expr: Expr::Block(_), .. }));
+        assert!(matches!(&call.args[1], PackItem::Labeled { value: Expr::Block(_), .. }));
     }
 
     #[test]
