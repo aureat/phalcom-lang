@@ -293,7 +293,7 @@ impl VM {
     fn run_universe_modules(&mut self, source_index: &crate::native::NativeSourceIndex) -> PhResult<()> {
         let module = self.core_module().expect("core module registered by install_core");
         for parsed in &source_index.units {
-            let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.clone()));
+            let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
             let closure = self.compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)?;
             self.run_in_module(module, closure)?;
         }

@@ -15,9 +15,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
 
-/// Bundled source fallback for the semantic core module.
-pub const BUNDLED_CORE_SOURCE: &str = include_str!("../../../phalcom-core/core/universe/src/package.ph");
-
 pub use phalcom_native_surface::NativeReturnShape;
 
 /// Source location and text representation for the semantic core module.
@@ -37,7 +34,7 @@ pub enum CoreSource {
         /// Source text.
         text: Arc<str>,
     },
-    /// Bundled static core source fallback.
+    /// Provider-assembled bundled core source fallback.
     Bundled {
         /// Provider-assembled source text.
         text: Arc<str>,
@@ -116,7 +113,7 @@ fn canonical_universe_source() -> String {
             node.path
                 .iter()
                 .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
-                .collect(),
+                .collect::<Vec<_>>(),
         );
         let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
         let source = provider

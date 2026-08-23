@@ -793,7 +793,7 @@ fn behavior_remaining_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
             found: receiver.type_name(),
         })?;
     let count = behavior_generic_arity(vm, class_id);
-    Ok(Value::int(count))
+    Ok(Value::int(count as i64))
 }
 
 fn behavior_remaining_parameter_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {

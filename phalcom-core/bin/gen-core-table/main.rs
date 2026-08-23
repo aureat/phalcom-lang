@@ -115,7 +115,7 @@ fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) 
             node.path
                 .iter()
                 .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
-                .collect(),
+                .collect::<Vec<_>>(),
         );
         let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
         let source = provider.source_text(&module).unwrap_or_else(|e| panic!("failed to read {module}: {e}"));
