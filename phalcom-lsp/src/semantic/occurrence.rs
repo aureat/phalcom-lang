@@ -16,6 +16,8 @@ pub enum SemanticOccurrenceKind {
     Parameter,
     /// A class declaration/reference.
     Class,
+    /// A module namespace / import target.
+    Module,
     /// A member selector or property reference.
     Member,
     /// A field declaration/reference.
@@ -50,6 +52,8 @@ pub enum SemanticTarget {
     Callable(CallableId),
     /// Field identity, including owning class, spelling, and storage side.
     Field(FieldId),
+    /// Module namespace / import target.
+    Module(ModuleId),
     /// Member name awaiting Spec 2 dispatch enrichment.
     Member {
         /// Unresolved selector spelling.
@@ -134,6 +138,7 @@ pub fn build_occurrence_index(module: ModuleId, program: &Program, surface: &Mod
         occurrences: Vec::new(),
         current_side: None,
     };
+    builder.visit_preamble(&program.preamble);
     builder.visit_statements(&program.statements, scopes.root);
     builder.occurrences.sort_by(|left, right| {
         left.range
@@ -173,6 +178,145 @@ impl OccurrenceBuilder<'_> {
         self.occurrences.push(SemanticOccurrence { range, kind, role, target });
     }
 
+    fn visit_preamble(&mut self, preamble: &phalcom_ast::ast::ModulePreamble) {
+        for dep in &preamble.dependencies {
+            match dep {
+                phalcom_ast::ast::DependencyDecl::Import(imp) => match imp {
+                    phalcom_ast::ast::ImportDecl::Module(m) => {
+                        self.visit_import_path(&m.path);
+                        if let Some(alias) = &m.alias {
+                            if let Some(binding) = self.scopes.binding_for_declaration(alias.range) {
+                                self.push(
+                                    alias.range,
+                                    SemanticOccurrenceKind::Binding,
+                                    OccurrenceRole::Declaration,
+                                    SemanticTarget::Binding(binding),
+                                );
+                            }
+                        }
+                    }
+                    phalcom_ast::ast::ImportDecl::Selective(s) => {
+                        self.visit_import_path(&s.path);
+                        for item in &s.items {
+                            if let Some(alias) = &item.alias {
+                                if let Some(binding) = self.scopes.binding_for_declaration(alias.range) {
+                                    self.push(
+                                        alias.range,
+                                        SemanticOccurrenceKind::Binding,
+                                        OccurrenceRole::Declaration,
+                                        SemanticTarget::Binding(binding),
+                                    );
+                                }
+                                self.push(
+                                    item.name_range,
+                                    SemanticOccurrenceKind::Member,
+                                    OccurrenceRole::Reference,
+                                    SemanticTarget::Member {
+                                        name: item.name.clone(),
+                                    },
+                                );
+                            } else if let Some(binding) = self.scopes.binding_for_declaration(item.range) {
+                                self.push(
+                                    item.name_range,
+                                    SemanticOccurrenceKind::Binding,
+                                    OccurrenceRole::Declaration,
+                                    SemanticTarget::Binding(binding),
+                                );
+                            }
+                        }
+                    }
+                },
+                phalcom_ast::ast::DependencyDecl::ReExport(r) => {
+                    self.visit_import_path(&r.path);
+                    for item in &r.items {
+                        if let Some(alias) = &item.alias {
+                            if let Some(binding) = self.scopes.binding_for_declaration(alias.range) {
+                                self.push(
+                                    alias.range,
+                                    SemanticOccurrenceKind::Binding,
+                                    OccurrenceRole::Declaration,
+                                    SemanticTarget::Binding(binding),
+                                );
+                            }
+                        }
+                    }
+                }
+                phalcom_ast::ast::DependencyDecl::Expose(e) => {
+                    self.push(
+                        e.child.range,
+                        SemanticOccurrenceKind::Module,
+                        OccurrenceRole::Reference,
+                        SemanticTarget::Module(ModuleId::new(e.child.name.clone())),
+                    );
+                }
+            }
+        }
+    }
+
+    fn visit_import_path(&mut self, path: &phalcom_ast::ast::ImportPath) {
+        match &path.root {
+            phalcom_ast::ast::ImportRoot::Absolute(seg) => {
+                self.push(
+                    seg.range,
+                    SemanticOccurrenceKind::Module,
+                    OccurrenceRole::Reference,
+                    SemanticTarget::Module(ModuleId::new(seg.name.clone())),
+                );
+            }
+            phalcom_ast::ast::ImportRoot::Relative { range, .. } => {
+                self.push(
+                    *range,
+                    SemanticOccurrenceKind::Module,
+                    OccurrenceRole::Reference,
+                    SemanticTarget::Module(ModuleId::new(path.to_string())),
+                );
+            }
+        }
+        for seg in &path.segments {
+            self.push(
+                seg.range,
+                SemanticOccurrenceKind::Module,
+                OccurrenceRole::Reference,
+                SemanticTarget::Module(ModuleId::new(seg.name.clone())),
+            );
+        }
+    }
+
+    fn visit_type_annotation(&mut self, ty: &phalcom_ast::ast::TypeAnnotation, scope: super::scope::ScopeId) {
+        match &ty.expr {
+            phalcom_ast::ast::TypeAnnotationExpr::Reference(sym) => {
+                if sym.members.is_empty() {
+                    if let Some(target) = self.name_target(&sym.root, sym.root_range, scope) {
+                        self.push(sym.root_range, target_kind(&target), OccurrenceRole::Reference, target);
+                    }
+                }
+            }
+            phalcom_ast::ast::TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                self.visit_type_annotation(origin, scope);
+                for arg in arguments {
+                    self.visit_type_annotation(arg, scope);
+                }
+            }
+            phalcom_ast::ast::TypeAnnotationExpr::Union { members, .. } => {
+                for member in members {
+                    self.visit_type_annotation(member, scope);
+                }
+            }
+            phalcom_ast::ast::TypeAnnotationExpr::Tuple { elements, .. } => {
+                for el in elements {
+                    self.visit_type_annotation(&el.ty, scope);
+                }
+            }
+            phalcom_ast::ast::TypeAnnotationExpr::Callable { parameters, result, .. } => {
+                for param in parameters {
+                    self.visit_type_annotation(&param.ty, scope);
+                }
+                self.visit_type_annotation(result, scope);
+            }
+            _ => {}
+        }
+    }
+
     fn visit_statements(&mut self, statements: &[Statement], scope: super::scope::ScopeId) {
         for statement in statements {
             match statement {
@@ -184,6 +328,9 @@ impl OccurrenceBuilder<'_> {
                         OccurrenceRole::Declaration,
                         SemanticTarget::Class(class_id.clone()),
                     );
+                    if let Some(superclass) = &class.superclass {
+                        self.visit_type_annotation(superclass, scope);
+                    }
                     for member in &class.members {
                         self.visit_member(&class_id, member);
                     }
@@ -231,7 +378,15 @@ impl OccurrenceBuilder<'_> {
                         }
                     }
                 }
-                Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
+                Statement::TypeAlias(alias) => {
+                    self.push(
+                        alias.name_range,
+                        SemanticOccurrenceKind::Class,
+                        OccurrenceRole::Declaration,
+                        SemanticTarget::Class(ClassId::new(self.module.clone(), alias.name.clone())),
+                    );
+                }
+                Statement::Break { .. } | Statement::Continue { .. } => {}
             }
         }
     }
@@ -688,8 +843,8 @@ impl OccurrenceBuilder<'_> {
         match self.scopes.resolve(scope, name, range.start) {
             super::scope::NameResolution::Binding(binding) => Some(SemanticTarget::Binding(binding)),
             super::scope::NameResolution::Class(class) => Some(SemanticTarget::Class(class)),
+            super::scope::NameResolution::Module(module) => Some(SemanticTarget::Module(module)),
             super::scope::NameResolution::Global(_)
-            | super::scope::NameResolution::Module(_)
             | super::scope::NameResolution::ImplicitSelf
             | super::scope::NameResolution::Unresolved => None,
         }
@@ -718,6 +873,7 @@ fn target_kind(target: &SemanticTarget) -> SemanticOccurrenceKind {
     match target {
         SemanticTarget::Binding(_) => SemanticOccurrenceKind::Binding,
         SemanticTarget::Class(_) => SemanticOccurrenceKind::Class,
+        SemanticTarget::Module(_) => SemanticOccurrenceKind::Module,
         SemanticTarget::Callable(_) | SemanticTarget::Member { .. } => SemanticOccurrenceKind::Member,
         SemanticTarget::Field(_) => SemanticOccurrenceKind::Field,
         SemanticTarget::Operator(_) => SemanticOccurrenceKind::Operator,
@@ -729,6 +885,7 @@ fn occurrence_priority(kind: SemanticOccurrenceKind) -> u8 {
         SemanticOccurrenceKind::Binding | SemanticOccurrenceKind::Parameter => 0,
         SemanticOccurrenceKind::Member => 1,
         SemanticOccurrenceKind::Class => 2,
+        SemanticOccurrenceKind::Module => 2,
         SemanticOccurrenceKind::Field => 1,
         SemanticOccurrenceKind::Operator => 3,
     }
@@ -868,5 +1025,22 @@ class Widget {
         assert!(field_targets.contains(&(OccurrenceRole::Read, DispatchSide::Class)));
         assert!(field_targets.contains(&(OccurrenceRole::Write, DispatchSide::Instance)));
         assert!(field_targets.contains(&(OccurrenceRole::Write, DispatchSide::Class)));
+    }
+
+    #[test]
+    fn superclass_occurrence_resolves_to_class() {
+        let source = "class MyClass is Object {\n}\n";
+        let parsed = parse(source, 0);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+        let module = ModuleId::new("file:///sample.ph");
+        let surface = build_module_surface(module.clone(), &parsed.program);
+        let scopes = super::super::scope::build_scope_graph(module.clone(), &parsed.program);
+        let index = build_occurrence_index(module.clone(), &parsed.program, &surface, &scopes);
+        let object_offset = source.find("Object").unwrap();
+        let occ = index.occurrence_at(object_offset).expect("must have occurrence for Object");
+        assert_eq!(
+            occ.target,
+            SemanticTarget::Class(ClassId::new(ModuleId::new(crate::semantic::CORE_MODULE_URI), "Object"))
+        );
     }
 }

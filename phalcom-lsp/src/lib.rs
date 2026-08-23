@@ -46,6 +46,7 @@ pub mod completion;
 pub mod diagnostics;
 pub mod documents;
 pub mod hover;
+pub mod import_completion;
 pub mod index;
 pub mod inlay_hints;
 pub mod line_index;

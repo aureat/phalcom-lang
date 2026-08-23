@@ -585,6 +585,15 @@ pub(crate) struct SemanticCompletionContext<'a> {
 
 /// Builds completion items from live source and native semantic surfaces.
 pub(crate) fn semantic_contextual_completions(db: &SemanticSnapshot, context: SemanticCompletionContext<'_>) -> Vec<CompletionItem> {
+    let line_start = context.text[..context.offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_prefix = &context.text[line_start..context.offset];
+    if let Some(import_ctx) = crate::import_completion::detect_import_context(line_prefix) {
+        let import_items = crate::import_completion::import_completions(db, context.uri, &import_ctx);
+        if !import_items.is_empty() {
+            return import_items;
+        }
+    }
+
     let mut items = match context.resolved {
         Some(resolved) if resolved.alternatives.len() > 1 => semantic_union_completions(db, resolved, context.lexical_class, context.privileged),
         Some(resolved) => resolved

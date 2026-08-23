@@ -274,20 +274,22 @@ impl SemanticSnapshot {
     }
 
     /// Looks up formal binding knowledge, preserving non-ready states.
-    pub fn formal_binding_presentation_at(&self, uri: &Url, _name: &str, offset: usize) -> Option<FormalPresentation> {
+    pub fn formal_binding_presentation_at(&self, uri: &Url, name: &str, offset: usize) -> Option<FormalPresentation> {
         let static_snap = self.static_snapshot.as_ref()?;
         let static_mod = self.formal_static_module(uri)?;
         let presenter = TypePresenter::new(&static_snap.store);
 
         for (callable_id, analysis) in static_snap.callable_analyses.iter() {
             if &callable_id.owner.module == static_mod && analysis.body_range.contains(offset) {
+                for state in analysis.bindings.values() {
+                    if state.name == name && (state.range.contains(offset) || state.range.end == offset || state.range.start <= offset) {
+                        return Some(presenter.present_knowledge(&state.current));
+                    }
+                }
                 for expr in analysis.expressions.values() {
                     if expr.range.contains(offset) {
                         return Some(presenter.present_expression(expr));
                     }
-                }
-                for state in analysis.bindings.values() {
-                    return Some(presenter.present_knowledge(&state.current));
                 }
             }
         }

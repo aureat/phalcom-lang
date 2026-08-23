@@ -600,9 +600,6 @@ impl Backend {
 
     fn member_definition_location(&self, member: &crate::semantic::MemberSurface) -> Option<Location> {
         let owner = &member.callable.owner;
-        if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
-            return None;
-        }
         let definition_uri = Url::parse(owner.module.as_str()).ok()?;
         let range = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
             line_index.range(member.name_range.start..member.name_range.end)
@@ -704,8 +701,33 @@ impl Backend {
             return Some(f(&doc.text, &doc.parse.program, &doc.line_index));
         }
 
-        let source = self.cached_source(uri)?;
-        Some(f(&source.text, &source.program, &source.line_index))
+        if let Some(source) = self.cached_source(uri) {
+            return Some(f(&source.text, &source.program, &source.line_index));
+        }
+
+        if let Some(text) = virtual_source_text(uri) {
+            let parse_result = phalcom_ast::parser::parse(&text, 0);
+            let line_index = LineIndex::new(&text);
+            return Some(f(&text, &parse_result.program, &line_index));
+        }
+
+        if uri.as_str() == crate::semantic::CORE_MODULE_URI {
+            let config = self.config.read().expect("server config lock poisoned").clone();
+            let roots = self
+                .workspace_roots
+                .read()
+                .expect("workspace root lock poisoned")
+                .iter()
+                .filter_map(|uri| uri.to_file_path().ok())
+                .collect::<Vec<_>>();
+            let source = crate::semantic::core_source::CoreSource::select(config.sysroot_path.as_deref(), &roots);
+            let text = source.text();
+            let parse_result = phalcom_ast::parser::parse(text, 0);
+            let line_index = LineIndex::new(text);
+            return Some(f(text, &parse_result.program, &line_index));
+        }
+
+        None
     }
 
     fn semantic_class_target(
@@ -728,9 +750,6 @@ impl Backend {
 
     fn class_definition_location(&self, class: &crate::semantic::ClassSurface) -> Option<Location> {
         let owner = &class.id;
-        if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
-            return None;
-        }
         let definition_uri = Url::parse(owner.module.as_str()).ok()?;
         let range = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
             line_index.range(class.name_range.start..class.name_range.end)
@@ -740,9 +759,6 @@ impl Backend {
 
     fn member_phaldoc(&self, member: &crate::semantic::MemberSurface) -> Option<hover::PhaldocDoc> {
         let owner = &member.callable.owner;
-        if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
-            return None;
-        }
         let definition_uri = Url::parse(owner.module.as_str()).ok()?;
         self.with_source_snapshot(&definition_uri, |text, program, line_index| {
             let target = hover::DeclarationDocTarget::Member {
@@ -864,23 +880,19 @@ impl Backend {
             }
             crate::semantic::SemanticTarget::Class(class_id) => {
                 let class = request.semantic.class_surface(&class_id)?;
-                let phaldoc = if class.id.module.as_str() == crate::semantic::CORE_MODULE_URI {
-                    None
-                } else {
-                    Url::parse(class.id.module.as_str()).ok().and_then(|definition_uri| {
-                        self.with_source_snapshot(&definition_uri, |text, _, line_index| {
-                            hover::harvest_doc_for_declaration(
-                                text,
-                                line_index,
-                                hover::DeclarationDocTarget::Class {
-                                    declaration: class.source_range,
-                                    name: class.name_range,
-                                },
-                            )
-                        })
-                        .flatten()
+                let phaldoc = Url::parse(class.id.module.as_str()).ok().and_then(|definition_uri| {
+                    self.with_source_snapshot(&definition_uri, |text, _, line_index| {
+                        hover::harvest_doc_for_declaration(
+                            text,
+                            line_index,
+                            hover::DeclarationDocTarget::Class {
+                                declaration: class.source_range,
+                                name: class.name_range,
+                            },
+                        )
                     })
-                };
+                    .flatten()
+                });
                 Some(Hover {
                     contents: markdown_contents(hover::render_class_hover(&class.id, class.superclass.as_ref(), phaldoc.as_ref())),
                     range: Some(span),
@@ -1000,6 +1012,13 @@ impl Backend {
                 let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
                 Some(Hover {
                     contents: markdown_contents(value),
+                    range: Some(span),
+                })
+            }
+            crate::semantic::SemanticTarget::Module(module_id) => {
+                let doc = format!("```phalcom\nmodule {}\n```", module_id.as_str());
+                Some(Hover {
+                    contents: markdown_contents(doc),
                     range: Some(span),
                 })
             }
@@ -1683,6 +1702,42 @@ impl LanguageServer for Backend {
                         }
                     }
                 }
+                SemanticTarget::Module(module_id) => {
+                    if let Some(uri) = Url::parse(module_id.as_str()).ok() {
+                        return Ok(Some(GotoDefinitionResponse::Array(vec![Location {
+                            uri,
+                            range: tower_lsp::lsp_types::Range::default(),
+                        }])));
+                    }
+                    if let Some(doc_uri) = request.semantic.documents.uri_for_lsp(module_id) {
+                        return Ok(Some(GotoDefinitionResponse::Array(vec![Location {
+                            uri: doc_uri.clone(),
+                            range: tower_lsp::lsp_types::Range::default(),
+                        }])));
+                    }
+                    if let Some(import_edge) = request
+                        .semantic
+                        .graph
+                        .imports(request.semantic.module_for_uri(&uri).unwrap_or(module_id))
+                        .iter()
+                        .find(|edge| edge.binding == module_id.as_str() || edge.path == module_id.as_str())
+                    {
+                        if let Some(target) = &import_edge.target {
+                            if let Some(target_uri) = request
+                                .semantic
+                                .documents
+                                .uri_for_lsp(target)
+                                .cloned()
+                                .or_else(|| Url::parse(target.as_str()).ok())
+                            {
+                                return Ok(Some(GotoDefinitionResponse::Array(vec![Location {
+                                    uri: target_uri,
+                                    range: tower_lsp::lsp_types::Range::default(),
+                                }])));
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1935,6 +1990,32 @@ mod tests {
         let uri = Url::parse("phalcom://universe/object/object").unwrap();
         let text = super::virtual_source_text(&uri).expect("canonical builtin source must be available");
         assert!(!text.is_empty());
+    }
+
+    #[tokio::test]
+    async fn core_class_definition_location_resolves() {
+        let (service, _) = LspService::new(super::Backend::new);
+        let backend = service.inner();
+        let uri = Url::parse("file:///main.ph").unwrap();
+        let text = "class MyClass is Object {\n}\n".to_string();
+        backend.documents.open_or_update_versioned(uri.clone(), text.clone(), Some(1));
+        let parse_result = phalcom_ast::parser::parse(&text, 0);
+        let revision = crate::semantic::FileRevision(1);
+        backend.update_semantic_for_source(&uri, revision, std::sync::Arc::from(text.as_str()), &parse_result.program);
+        backend.analysis.flush();
+
+        let position = tower_lsp::lsp_types::Position { line: 0, character: 18 };
+        let params = tower_lsp::lsp_types::GotoDefinitionParams {
+            text_document_position_params: tower_lsp::lsp_types::TextDocumentPositionParams {
+                text_document: tower_lsp::lsp_types::TextDocumentIdentifier { uri: uri.clone() },
+                position,
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let response = backend.goto_definition(params).await.unwrap();
+        println!("RESPONSE: {response:?}");
+        assert!(response.is_some());
     }
 
     #[test]

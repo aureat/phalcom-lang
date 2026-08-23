@@ -107,6 +107,7 @@ pub struct ScopeGraph {
     /// Direct declaration lookup by exact source range.
     declarations: BTreeMap<(usize, usize), BindingId>,
     classes: BTreeMap<String, ClassId>,
+    modules: BTreeMap<String, ModuleId>,
 }
 
 impl ScopeGraph {
@@ -155,6 +156,12 @@ impl ScopeGraph {
         if let Some(class) = self.classes.get(name) {
             return NameResolution::Class(class.clone());
         }
+        if let Some(module) = self.modules.get(name) {
+            return NameResolution::Module(module.clone());
+        }
+        if is_builtin_class_name(name) {
+            return NameResolution::Class(ClassId::new(ModuleId::new(super::ids::CORE_MODULE_URI), name));
+        }
         if name == "self" {
             return NameResolution::ImplicitSelf;
         }
@@ -202,6 +209,7 @@ pub fn build_scope_graph(module: ModuleId, program: &Program) -> ScopeGraph {
             scope_max_end_prefix: Vec::new(),
             declarations: BTreeMap::new(),
             classes: BTreeMap::new(),
+            modules: BTreeMap::new(),
         },
         next_scope: 1,
         next_binding: 0,
@@ -240,7 +248,8 @@ pub fn build_scope_graph(module: ModuleId, program: &Program) -> ScopeGraph {
                     };
                     let range = m.alias.as_ref().map(|a| a.range).unwrap_or(m.range);
                     if !name.is_empty() {
-                        builder.declare(root, name, SemanticBindingKind::Import, range, false);
+                        builder.declare(root, name.clone(), SemanticBindingKind::Import, range, false);
+                        builder.graph.modules.insert(name, ModuleId::new(m.path.to_string()));
                     }
                 }
                 phalcom_ast::ast::ImportDecl::Selective(s) => {
@@ -640,6 +649,27 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::Export(export_decl) => export_decl.range,
         Statement::TypeAlias(type_alias) => type_alias.range,
     }
+}
+
+fn is_builtin_class_name(name: &str) -> bool {
+    matches!(
+        name,
+        "Object"
+            | "String"
+            | "Int"
+            | "Float"
+            | "Bool"
+            | "Array"
+            | "Symbol"
+            | "Exception"
+            | "Error"
+            | "Type"
+            | "Tuple"
+            | "Record"
+            | "Map"
+            | "Set"
+            | "List"
+    )
 }
 
 #[cfg(test)]

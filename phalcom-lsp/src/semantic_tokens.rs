@@ -565,6 +565,7 @@ fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw:
                 SemanticOccurrenceKind::Field => SemanticTokenKind::Property,
                 SemanticOccurrenceKind::Member => SemanticTokenKind::Method,
                 SemanticOccurrenceKind::Class => SemanticTokenKind::Class,
+                SemanticOccurrenceKind::Module => SemanticTokenKind::Variable,
                 SemanticOccurrenceKind::Operator => SemanticTokenKind::Operator,
             };
         }

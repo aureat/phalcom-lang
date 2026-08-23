@@ -51,3 +51,7 @@ path = "tests/analysis_logging.rs"
 [[test]]
 name = "core_startup"
 path = "tests/core_startup.rs"
+
+[[test]]
+name = "module_navigation"
+path = "tests/module_navigation.rs"
