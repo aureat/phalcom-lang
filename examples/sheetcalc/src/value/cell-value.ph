@@ -143,7 +143,7 @@ class CellNum is CellValue {
     _n >= other.value
   }
 
-  asNumber { _n }
+  asNumber -> Float { _n }
 
   toString {
     _n.toString

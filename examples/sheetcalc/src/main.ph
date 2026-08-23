@@ -33,6 +33,7 @@ class Main {
 
     /// Test CellValue
     const n1: Int = Value.CellNum.of(5)
+    const n2: Int = Value.CellNum.of(3)
     const n2: Value.CellNum = Value.CellNum.of(3)
     System.print("CellNum(5) + CellNum(3) = " + n1.plus(n2).toString)
     System.print("CellNum(5) - CellNum(3) = " + n1.minus(n2).toString)
