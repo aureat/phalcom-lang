@@ -2,7 +2,7 @@
 //! rows still exist in the compatibility installer.
 
 use phalcom_common::selector::Selector;
-use phalcom_core::native::PRIMITIVES;
+use phalcom_core::native::{NativeSourceIndex, PRIMITIVES};
 use phalcom_core::vm::VM;
 use phalcom_native_surface::{NATIVE_MEMBERS, NATIVE_SURFACES};
 use std::collections::BTreeSet;
@@ -106,4 +106,26 @@ fn runtime_bootstrap_matches_canonical_relations() {
         let expected = relation.superclass.map(|superclass| superclass.name().to_string());
         assert_eq!(actual, expected, "runtime relation drift for {}", relation.class.name());
     }
+}
+
+#[test]
+fn canonical_source_census_matches_descriptors_and_relations() {
+    let source = NativeSourceIndex::build().expect("canonical universe source must parse");
+    let source_keys = source
+        .members
+        .keys()
+        .map(|key| (key.owner, key.side, key.selector.clone()))
+        .collect::<BTreeSet<_>>();
+    let descriptors = descriptor_keys();
+    assert_eq!(source_keys, descriptors, "source/native selector census drifted");
+    assert!(source.census.members.iter().filter(|member| member.native).all(|member| member.typed), "native source member lacks complete type annotation");
+
+    for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
+        let presentation = source.presentations.get(&relation.class).expect("every runtime class needs one source presentation");
+        assert!(presentation.native, "{} source class must be @native", relation.class.name());
+        let actual = presentation.superclass.as_deref().and_then(phalcom_native_meta::UniverseKey::from_name);
+        assert_eq!(actual, relation.superclass, "superclass drift for {}", relation.class.name());
+    }
+
+    assert!(source.units.iter().all(|unit| !unit.program.statements.is_empty() || unit.kind.is_package_like()));
 }

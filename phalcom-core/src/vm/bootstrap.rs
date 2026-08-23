@@ -432,6 +432,18 @@ impl VM {
         // value, not the class), so it must be reserved (ruling 3) here
         // explicitly rather than falling out of that macro.
         self.kernel_class_names.insert(none_class_sym);
+
+        // `Nil` is the private tagged-value sentinel class. It gets a source
+        // presentation for census parity, but must not acquire a public class
+        // global when its source module is compiled.
+        let nil_class = self.universe.classes.nil_class;
+        let nil_class_sym = self.interner.intern(&self.heap.class(nil_class).name.clone());
+        let nil_class_key = crate::vm::ClassKey {
+            module: m,
+            name: nil_class_sym,
+        };
+        self.classes.insert(nil_class_key, nil_class);
+        self.kernel_class_names.insert(nil_class_sym);
         // Seal `None` to the core module too (see the sealing note above the
         // `Option`/`Some` rows): `class MyNone is None {}` in user code
         // must raise `attr.sealed_violation` the same as the other two.

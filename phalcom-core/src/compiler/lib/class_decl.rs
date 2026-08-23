@@ -1178,16 +1178,12 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::FinalizeClass, range);
 
         // After defining all methods, the class is still on the stack.
-        // Define it as a global variable — except `None` (`DEFERRED` #17,
-        // U-CLASSCLOSE §7): `None`'s global is bound to the shared
-        // *immediate value*, not the class object (`vm/bootstrap.rs`), so
-        // rebinding it here would silently break every `x == None`. `None`
-        // is reserved (ruling 3) so no non-core module ever reaches this —
-        // the guard exists for when `core.ph` itself gains a `class None {}`
-        // skeleton (not yet true today; `#17` stays open, this is only its
-        // prerequisite). `Pop` keeps the stack balanced in its place.
-        let is_none_in_core = is_core_module && self.vm.interner.find("None") == Some(name_sym);
-        if is_none_in_core {
+        // `None` and `Nil` have hidden class rows whose public names denote
+        // immediate values (or no value at all). Preserve those bindings while
+        // still allowing canonical source presentations to reopen their rows.
+        let is_hidden_value_class = is_core_module
+            && (self.vm.interner.find("None") == Some(name_sym) || self.vm.interner.find("Nil") == Some(name_sym));
+        if is_hidden_value_class {
             self.emit(Bytecode::Pop, range);
         } else {
             self.emit(Bytecode::DefineGlobal(name_idx), range);
@@ -1204,11 +1200,10 @@ impl<'vm> Compiler<'vm> {
         // (`COMPILER_ONLY_ATTRS`) are woven directly into method bodies
         // above and carry no runtime `Attribute` instance, so they are
         // skipped here.
-        // `None` global holds the immediate value, not the class (see the
-        // `DefineGlobal` guard above) — a `GetGlobal` re-fetch here would
-        // attach/freeze attributes on the wrong object, so skip this whole
-        // block for the same reason.
-        if !is_none_in_core {
+        // Hidden-value globals do not resolve to their class rows, so a
+        // `GetGlobal` re-fetch here would attach/freeze attributes on the
+        // wrong object. Skip this block for the same reason.
+        if !is_hidden_value_class {
             let has_runtime_attrs = class_level_attrs.iter().any(|a| !COMPILER_ONLY_ATTRS.contains(&a.name.as_str()));
             if has_runtime_attrs {
                 for attr in &class_level_attrs {
