@@ -885,6 +885,7 @@ fn floor_census_matches_installed_bindings() {
         (c.method_class, false, "isNative"),           // Spec 03.5 provenance
         (c.method_class, false, "isIntrinsic"),        // Spec 03.5 provenance
         (c.method_class, false, "implementationKind"), // Spec 03.5 provenance
+        (c.method_class, false, "_$attributes"),       // M-ATTR-ROOT source anchor
         // §2.9 MethodFamily
         (c.method_family_class, false, "selectors"),
         (c.method_family_class, false, "size"),
@@ -1090,10 +1091,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        219,
-        "census must enumerate exactly 219 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern + Behavior typing reflection + Method provenance additions"
+        220,
+        "census must enumerate exactly 220 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern + Behavior typing reflection + Method provenance additions"
     );
-    assert_eq!(live.len(), 219, "the live floor must be exactly 219 bindings");
+    assert_eq!(live.len(), 220, "the live floor must be exactly 220 bindings");
 }
 
 #[test]

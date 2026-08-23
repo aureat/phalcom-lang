@@ -1,6 +1,6 @@
 //! Parsed AST source index for native universe classes and members.
 
-use phalcom_ast::ast::{ClassDef, ClassMember, MemberBody, Program, Statement};
+use phalcom_ast::ast::{ClassDef, ClassMember, MemberBody, MethodDef, Program, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::builtin::BuiltinProjectSourceProvider;
 use phalcom_modules::identity::{BuiltinProject, ModuleId, ModulePath};
@@ -247,8 +247,12 @@ impl NativeSourceIndex {
                 let is_native = m.attributes.iter().any(|a| a.name == "native");
                 let has_internal = m.attributes.iter().any(|a| a.name == "internal");
                 let is_internal = has_internal || m.name.starts_with("_$");
-                let side = if m.is_static { NativeDispatch::Class } else { NativeDispatch::Instance };
-                let selector = phalcom_ast::selector::selector_from_method(m).encode();
+                let side = if m.is_static || m.attributes.iter().any(|a| a.name == "class") {
+                    NativeDispatch::Class
+                } else {
+                    NativeDispatch::Instance
+                };
+                let selector = source_method_selector(m);
                 let is_declaration = matches!(m.body, MemberBody::Declaration);
                 let typed = m.return_annotation.is_some() && m.params.iter().all(|param| param.annotation.is_some());
                 (is_native, has_internal, is_internal, side, selector, is_declaration, typed, m.range)
@@ -257,7 +261,11 @@ impl NativeSourceIndex {
                 let is_native = g.attributes.iter().any(|a| a.name == "native");
                 let has_internal = g.attributes.iter().any(|a| a.name == "internal");
                 let is_internal = has_internal || g.name.starts_with("_$");
-                let side = if g.is_static { NativeDispatch::Class } else { NativeDispatch::Instance };
+                let side = if g.is_static || g.attributes.iter().any(|a| a.name == "class") {
+                    NativeDispatch::Class
+                } else {
+                    NativeDispatch::Instance
+                };
                 let selector = phalcom_ast::selector::selector_from_getter(g).encode();
                 let is_declaration = matches!(g.body, MemberBody::Declaration);
                 (
@@ -275,7 +283,11 @@ impl NativeSourceIndex {
                 let is_native = s.attributes.iter().any(|a| a.name == "native");
                 let has_internal = s.attributes.iter().any(|a| a.name == "internal");
                 let is_internal = has_internal || s.name.starts_with("_$");
-                let side = if s.is_static { NativeDispatch::Class } else { NativeDispatch::Instance };
+                let side = if s.is_static || s.attributes.iter().any(|a| a.name == "class") {
+                    NativeDispatch::Class
+                } else {
+                    NativeDispatch::Instance
+                };
                 let selector = phalcom_ast::selector::selector_from_setter(s).encode();
                 let is_declaration = matches!(s.body, MemberBody::Declaration);
                 (
@@ -293,7 +305,11 @@ impl NativeSourceIndex {
                 let is_native = f.attributes.iter().any(|a| a.name == "native");
                 let has_internal = f.attributes.iter().any(|a| a.name == "internal");
                 let is_internal = has_internal || f.name.starts_with("__");
-                let side = if f.is_static { NativeDispatch::Class } else { NativeDispatch::Instance };
+                let side = if f.is_static || f.attributes.iter().any(|a| a.name == "class") {
+                    NativeDispatch::Class
+                } else {
+                    NativeDispatch::Instance
+                };
                 let selector = phalcom_ast::selector::selector_from_field(f).encode();
                 (is_native, has_internal, is_internal, side, selector, true, f.annotation.is_some(), f.range)
             }
@@ -360,6 +376,24 @@ impl NativeSourceIndex {
 
         Ok(())
     }
+}
+
+fn source_method_selector(method: &MethodDef) -> String {
+    let Some(_) = method.params.iter().find(|param| param.rest_mode != RestMode::None) else {
+        return phalcom_ast::selector::selector_from_method(method).encode();
+    };
+
+    let slots = method
+        .params
+        .iter()
+        .map(|param| match param.rest_mode {
+            RestMode::None => param.label.clone().unwrap_or_else(|| "_".to_owned()),
+            RestMode::Positional => "*".to_owned(),
+            RestMode::Labeled => "**".to_owned(),
+            RestMode::Complete => "***".to_owned(),
+        })
+        .collect::<Vec<_>>();
+    format!("{}({})", method.name, slots.join(","))
 }
 
 #[cfg(test)]

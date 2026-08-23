@@ -60,6 +60,7 @@ pub(crate) fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::he
 /// [`Object::BoundMethod`] delegates to the arity of the method it wraps
 /// (U-CORE-3) — neither has a [`ClosureObject`](crate::heap::ClosureObject)
 /// to read `arity` off directly, unlike `Block`/`Closure`.
+#[phalcom_native_macros::primitive(Function, "arity")]
 pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(id) = receiver.as_obj() {
         match vm.heap.get(id) {
@@ -85,11 +86,17 @@ pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     }
 }
 
+#[phalcom_native_macros::primitive(Closure, "arity")]
+pub fn closure_arity(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    block_arity(vm, receiver, args)
+}
+
 /// Returns the callable's display name.
 ///
 /// A [`Object::Method`] renders its encoded selector text; an
 /// [`Object::BoundMethod`] delegates to the name of the method it wraps
 /// (U-CORE-3).
+#[phalcom_native_macros::primitive(Function, "name")]
 pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let name = if let Some(id) = receiver.as_obj() {
         match vm.heap.get(id) {
@@ -121,9 +128,15 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
     Ok(vm.alloc_string_value(name))
 }
 
+#[phalcom_native_macros::primitive(Closure, "name")]
+pub fn closure_name(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    block_name(vm, receiver, args)
+}
+
 /// Shape-aware `Function#call(***)` gateway. The VM has already selected the
 /// concrete `call` rest method, so this activation only unwraps the sealed
 /// callable representation and reuses the current stack window.
+#[phalcom_native_macros::primitive(Function, "call(***)", abi = shape)]
 pub fn block_call_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     vm.activate_function(receiver, args, phalcom_common::range::SourceRange::default())
 }
@@ -132,6 +145,7 @@ pub fn block_call_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhR
 /// the existing argument window and forwarded through the same `call` gateway
 /// as ordinary invocation. Unit represents an empty pack; Tuple is the only
 /// heap-backed complete-pack representation.
+#[phalcom_native_macros::primitive(Function, "callWith(_)", abi = shape)]
 pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     let packed = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
         signature: "callWith",
@@ -277,6 +291,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 ///
 /// Returns [`RuntimeError::Type`] if a condition evaluation is not `Bool`,
 /// or any error raised calling the condition/body blocks.
+#[phalcom_native_macros::primitive(Closure, "whileTrue(_)")]
 pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     loop {
         let cond = block_call(vm, receiver, &[])?;
@@ -335,6 +350,7 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// Returns [`RuntimeError::Type`] if `args[0]` is not a `Class`. Propagates a
 /// non-matching `Err`/an `is` dispatch failure/any error raised running the
 /// protected or handler block.
+#[phalcom_native_macros::primitive(Closure, "on(_,_)")]
 pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let class_arg = args[0];
     let is_class = class_arg.as_obj().is_some_and(|id| matches!(vm.heap.get(id), Object::Class(_)));
@@ -426,6 +442,7 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
 ///
 /// Propagates whichever of the protected/cleanup outcomes wins per the
 /// cleanup-supersedes rule above.
+#[phalcom_native_macros::primitive(Closure, "ensure(_)")]
 pub fn block_ensure(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let cleanup = args[0];
     let outcome = block_call(vm, receiver, &[]);

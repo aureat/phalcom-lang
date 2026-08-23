@@ -78,6 +78,11 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     Ok(Value::obj(vm.heap.alloc(Object::List(crate::heap::ListObject::new(attrs)))))
 }
 
+#[phalcom_native_macros::primitive(Method, "_$attributes", visibility = internal)]
+pub fn method_attribute_attributes(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    attribute_attributes(vm, receiver, args)
+}
+
 /// Signature: `Object#__freezeAttributes` — marks the receiver's attribute
 #[phalcom_native_macros::primitive(
     Object,

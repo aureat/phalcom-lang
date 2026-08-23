@@ -81,6 +81,11 @@ pub fn string_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
     }
 }
 
+#[phalcom_native_macros::primitive(String, "new()", side = class)]
+pub fn string_class_new_default(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    string_class_new(vm, receiver, &[])
+}
+
 /// Signature: `String::_$byteCount` — the byte length of the underlying UTF-8 buffer.
 #[phalcom_native_macros::primitive(
     String,

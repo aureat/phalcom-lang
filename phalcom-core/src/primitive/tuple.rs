@@ -61,6 +61,7 @@ pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `args[0]` is not a `List`.
+#[phalcom_native_macros::primitive(Tuple, "_$fromList(_)" , side = class, visibility = internal)]
 pub fn tuple_from_list_internal(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let list_id: ObjRef = expect_list(vm, &args[0])?;
     let elements = vm.heap.list(list_id).elements().to_vec();
@@ -72,11 +73,13 @@ pub fn tuple_from_list_internal(vm: &mut VM, _receiver: &Value, args: &[Value]) 
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Tuple`.
+#[phalcom_native_macros::primitive(Tuple, "_$size", visibility = internal)]
 pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_tuple(vm, receiver)?;
     Ok(Value::int(vm.heap.tuple(id).len() as i64))
 }
 
+#[phalcom_native_macros::primitive(Tuple, "_$at(_)", visibility = internal)]
 pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_tuple(vm, receiver)?;
     let len = vm.heap.tuple(id).len();
@@ -89,11 +92,13 @@ pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     }
 }
 
+#[phalcom_native_macros::primitive(Tuple, "_$positionalSize", visibility = internal)]
 pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     Ok(Value::int(vm.heap.tuple(id).positional_len() as i64))
 }
 
+#[phalcom_native_macros::primitive(Tuple, "_$labelAt(_)", visibility = internal)]
 pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     let len = vm.heap.tuple(id).labels().len();
@@ -110,12 +115,14 @@ pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     }
 }
 
+#[phalcom_native_macros::primitive(Tuple, "_$positionals", visibility = internal)]
 pub fn tuple_raw_positionals(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     let values = vm.heap.tuple(id).positionals().to_vec();
     finish_tuple(vm, values, Vec::new()).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
+#[phalcom_native_macros::primitive(Tuple, "_$labeled", visibility = internal)]
 pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     let entries = vm.heap.tuple(id).labeled_entries().collect();
@@ -133,6 +140,7 @@ pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 ///
 /// Returns [`RuntimeError::Type`] when the receiver is not a `Tuple`, either bound is
 /// malformed, or the bounds do not satisfy `0 <= start <= end <= tuple size`.
+#[phalcom_native_macros::primitive(Tuple, "_$slice(_,_)" , visibility = internal)]
 pub fn tuple_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     let start = expect_index(&args[0])?;

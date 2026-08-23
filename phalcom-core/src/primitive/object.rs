@@ -194,6 +194,7 @@ pub fn object_neq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 /// Shape-aware `Object#perform(_,***)` gateway. The first positional value is
 /// the complete selector; all remaining values retain their canonical
 /// positional/labeled lanes and enter ordinary dispatch directly.
+#[phalcom_native_macros::primitive(Object, "perform(_,***)", abi = shape)]
 pub fn object_perform_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     let selector_value = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
         signature: "perform",

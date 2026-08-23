@@ -313,3 +313,8 @@ pub fn int_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult
         .into())
     }
 }
+
+#[phalcom_native_macros::primitive(Int, "new()", side = class)]
+pub fn int_class_new_default(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    int_class_new(vm, receiver, &[])
+}

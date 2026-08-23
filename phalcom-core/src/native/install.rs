@@ -4,8 +4,9 @@ use super::descriptor::{PrimitiveDescriptor, PrimitiveEntry};
 use super::registry::PRIMITIVES;
 use crate::error::PhResult;
 use crate::heap::Object;
-use crate::method::{MemberVisibility, MethodObject, Signature};
+use crate::method::{MemberVisibility, MethodObject};
 use crate::vm::VM;
+use phalcom_common::selector::{Selector, SelectorBase};
 use phalcom_native_meta::{NativeDispatch, NativeVisibility};
 
 /// Sorts registered descriptors by key and installs each into the VM.
@@ -30,15 +31,13 @@ fn install_one(vm: &mut VM, desc: &PrimitiveDescriptor) -> PhResult<()> {
     };
 
     let selector = vm.interner.intern(desc.surface.key.selector);
-    let sig_kind = desc.runtime_signature_kind();
+    let signature = desc.runtime_signature(vm, selector);
+    let sig_kind = signature.kind;
     let replaced = vm.heap.class(target).get_method(selector);
 
     let mut method = match desc.entry {
         PrimitiveEntry::Value(f) => MethodObject::new_primitive(selector, sig_kind, f, owner),
-        PrimitiveEntry::Shape(f) => {
-            let signature = Signature::new(selector, sig_kind);
-            MethodObject::new_shape_primitive(selector, signature, f, owner)
-        }
+        PrimitiveEntry::Shape(f) => MethodObject::new_shape_primitive(selector, signature, f, owner),
     };
 
     method.visibility = match desc.surface.visibility {
@@ -49,6 +48,13 @@ fn install_one(vm: &mut VM, desc: &PrimitiveDescriptor) -> PhResult<()> {
 
     let method_id = vm.heap.alloc(Object::Method(Box::new(method)));
     vm.heap.class_mut(target).add_method(selector, method_id);
+    if desc.surface.key.selector.contains("***") {
+        let parsed = Selector::try_decode_exact(desc.surface.key.selector).expect("descriptor selector must be valid");
+        let SelectorBase::Named(base) = parsed.base else {
+            panic!("rest descriptor must use named selector base");
+        };
+        vm.heap.class_mut(target).add_rest_method(vm.interner.intern(&base), method_id);
+    }
     if let Some(replaced) = replaced {
         vm.typing_registry.method_implementations.remove(replaced);
     }

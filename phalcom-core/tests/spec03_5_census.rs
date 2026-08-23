@@ -134,10 +134,11 @@ fn canonical_source_census_matches_descriptors_and_relations() {
         assert_eq!(actual, relation.superclass, "superclass drift for {}", relation.class.name());
     }
 
-    assert!(source
-        .units
-        .iter()
-        .all(|unit| !unit.program.statements.is_empty() || unit.kind.is_package_like()));
+    assert!(source.units.iter().all(|unit| {
+        !unit.program.statements.is_empty()
+            || unit.kind.is_package_like()
+            || unit.program.preamble.metadata.iter().any(|attribute| attribute.name == "documentation")
+    }));
 }
 
 #[test]

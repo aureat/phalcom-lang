@@ -18,10 +18,12 @@ fn family_id(vm: &VM, receiver: &Value) -> Result<crate::heap::ObjRef, RuntimeEr
     })
 }
 
+#[phalcom_native_macros::primitive(Family, "receiver")]
 pub fn family_receiver(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(vm.heap.family(family_id(vm, receiver)?).receiver)
 }
 
+#[phalcom_native_macros::primitive(Family, "selector")]
 pub fn family_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let spec = vm.heap.family(family_id(vm, receiver)?).spec;
     match spec {
@@ -30,6 +32,7 @@ pub fn family_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     }
 }
 
+#[phalcom_native_macros::primitive(Family, "pattern")]
 pub fn family_pattern(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let spec = vm.heap.family(family_id(vm, receiver)?).spec;
     match spec {
@@ -38,15 +41,18 @@ pub fn family_pattern(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     }
 }
 
+#[phalcom_native_macros::primitive(Family, "isExact")]
 pub fn family_is_exact(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let family = vm.heap.family(family_id(vm, receiver)?);
     Ok(Value::bool(matches!(family.spec, FamilySpec::Exact(_))))
 }
 
+#[phalcom_native_macros::primitive(Family, "get()", abi = shape)]
 pub fn family_get(vm: &mut VM, _receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     vm.activate_family_with_kind(args, crate::vm::FamilyInvocationKind::Getter, phalcom_common::range::SourceRange::default())
 }
 
+#[phalcom_native_macros::primitive(Family, "set(_)" , abi = shape)]
 pub fn family_set(vm: &mut VM, _receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     vm.activate_family_with_kind(args, crate::vm::FamilyInvocationKind::Setter, phalcom_common::range::SourceRange::default())
 }

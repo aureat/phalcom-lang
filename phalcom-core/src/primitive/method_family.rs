@@ -31,6 +31,7 @@ pub(crate) fn expect_method_family(vm: &VM, receiver: &Value) -> PhResult<ObjRef
 ///
 /// Returns [`RuntimeError::Type`] for a non-family receiver and
 /// [`RuntimeError::Arity`] when the receiver argument is missing.
+#[phalcom_native_macros::primitive(MethodFamily, "bind(_)")]
 pub fn method_family_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let bound_receiver = args.first().copied().ok_or(RuntimeError::Arity {
@@ -49,6 +50,7 @@ pub fn method_family_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is not a `MethodFamily`.
+#[phalcom_native_macros::primitive(MethodFamily, "selectors")]
 pub fn method_family_selectors(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let selectors = {
@@ -70,6 +72,7 @@ pub fn method_family_selectors(vm: &mut VM, receiver: &Value, _args: &[Value]) -
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is not a `MethodFamily`.
+#[phalcom_native_macros::primitive(MethodFamily, "size")]
 pub fn method_family_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let family = expect_method_family(vm, receiver)?;
     let size = {
@@ -99,6 +102,7 @@ pub fn method_family_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -
 /// # Errors
 ///
 /// Propagates the same type and arity errors as [`method_family_method_for`].
+#[phalcom_native_macros::primitive(MethodFamily, "methodFor(_)", abi = shape)]
 pub fn method_family_method_for_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     let selector = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
         signature: "methodFor",

@@ -45,6 +45,7 @@ fn map_mutation_error(err: MapMutationError, collection: &'static str) -> Runtim
 }
 
 /// Signature: `Map.class::new()` — allocates an empty map.
+#[phalcom_native_macros::primitive(Map, "new()", side = class)]
 pub fn map_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::obj(vm.heap.alloc_map()))
 }
@@ -54,6 +55,7 @@ pub fn map_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 /// # Errors
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Map`.
+#[phalcom_native_macros::primitive(Map, "_$size", visibility = internal)]
 pub fn map_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
     Ok(Value::int(vm.heap.map(id).len() as i64))
@@ -106,6 +108,7 @@ pub(crate) fn locate_key(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, 
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Map`, or
 /// propagates a `hash`/`==` send failure (see the module-private `locate`).
+#[phalcom_native_macros::primitive(Map, "_$get(_)", visibility = internal)]
 pub fn map_raw_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
     let (_, slot) = locate_key(vm, id, args[0])?;
@@ -129,6 +132,7 @@ pub fn map_raw_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Map`;
 /// returns a raised catchable `Error` ([`crate::error::RuntimeError::Raise`]) if
 /// `key` is a mutable collection; propagates a `hash`/`==` send failure.
+#[phalcom_native_macros::primitive(Map, "_$put(_,_)" , visibility = internal)]
 pub fn map_raw_put(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
     let key = args[0];
@@ -199,6 +203,7 @@ fn duplicate_key_error(vm: &mut VM) -> RuntimeError {
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Map`, or
 /// propagates a `hash`/`==` send failure.
+#[phalcom_native_macros::primitive(Map, "_$has(_)", visibility = internal)]
 pub fn map_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
     let (_, slot) = locate_key(vm, id, args[0])?;
@@ -212,6 +217,7 @@ pub fn map_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Map`, or
 /// propagates a `hash`/`==` send failure.
+#[phalcom_native_macros::primitive(Map, "_$remove(_)", visibility = internal)]
 pub fn map_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
     let (_, slot) = locate_key(vm, id, args[0])?;
@@ -268,6 +274,7 @@ fn expect_index(value: &Value) -> PhResult<usize> {
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Map`, or
 /// if `i` is not a non-negative integer.
+#[phalcom_native_macros::primitive(Map, "_$keyAt(_)", visibility = internal)]
 pub fn map_raw_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
     let index = expect_index(&args[0])?;
@@ -284,6 +291,7 @@ pub fn map_raw_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Map`, or
 /// if `i` is not a non-negative integer.
+#[phalcom_native_macros::primitive(Map, "_$valueAt(_)", visibility = internal)]
 pub fn map_raw_value_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
     let index = expect_index(&args[0])?;

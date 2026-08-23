@@ -54,6 +54,7 @@ fn expect_octet(value: &Value) -> PhResult<u8> {
 ///
 /// Returns [`RuntimeError::Type`] if the length is not a non-negative
 /// integer `Number`.
+#[phalcom_native_macros::primitive(Bytes, "new(_)" , side = class)]
 pub fn bytes_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let len = expect_index(&args[0])?;
     Ok(Value::obj(vm.heap.alloc_bytes(BytesObject::new_zeroed(len))))
@@ -68,6 +69,7 @@ pub fn bytes_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the argument is not a `String`.
+#[phalcom_native_macros::primitive(Bytes, "_$fromString(_)" , side = class, visibility = internal)]
 pub fn bytes_class_from_string(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let string = crate::primitive::expect_string(vm, &args[0])?;
     let octets = string.into_bytes();
@@ -82,6 +84,7 @@ pub fn bytes_class_from_string(vm: &mut VM, _receiver: &Value, args: &[Value]) -
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes`.
+#[phalcom_native_macros::primitive(Bytes, "_$size", visibility = internal)]
 pub fn bytes_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     Ok(Value::int(vm.heap.bytes(id).len() as i64))
@@ -98,6 +101,7 @@ pub fn bytes_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes` or the
 /// index is not a non-negative integer `Number`.
+#[phalcom_native_macros::primitive(Bytes, "_$at(_)", visibility = internal)]
 pub fn bytes_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     let len = vm.heap.bytes(id).len();
@@ -120,6 +124,7 @@ pub fn bytes_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes`, the
 /// index is malformed or out of range, or the value is not an octet.
+#[phalcom_native_macros::primitive(Bytes, "_$set(_,_)" , visibility = internal)]
 pub fn bytes_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     let len = vm.heap.bytes(id).len();
@@ -148,6 +153,7 @@ pub fn bytes_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes` or the
 /// value is not an octet.
+#[phalcom_native_macros::primitive(Bytes, "_$fill(_)" , visibility = internal)]
 pub fn bytes_raw_fill(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     let octet = expect_octet(&args[0])?;
@@ -165,6 +171,7 @@ pub fn bytes_raw_fill(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes`, either
 /// bound is malformed, or the range does not satisfy
 /// `start <= end <= size`.
+#[phalcom_native_macros::primitive(Bytes, "_$slice(_,_)" , visibility = internal)]
 pub fn bytes_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     let start = expect_index(&args[0])?;
@@ -194,6 +201,7 @@ pub fn bytes_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
 /// Returns [`RuntimeError::Type`] if the receiver or first argument is not a
 /// `Bytes`, the offset is malformed, or `offset + size` overflows the
 /// destination.
+#[phalcom_native_macros::primitive(Bytes, "_$copyInto(_,_)" , visibility = internal)]
 pub fn bytes_raw_copy_into(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let src_id: ObjRef = expect_bytes(vm, receiver)?;
     let dst_id: ObjRef = expect_bytes(vm, &args[0])?;
@@ -228,6 +236,7 @@ pub fn bytes_raw_copy_into(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes`.
+#[phalcom_native_macros::primitive(Bytes, "_$utf8", visibility = internal)]
 pub fn bytes_raw_utf8(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     match std::str::from_utf8(vm.heap.bytes(id).as_slice()) {
@@ -249,6 +258,7 @@ pub fn bytes_raw_utf8(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes`.
+#[phalcom_native_macros::primitive(Bytes, "_$utf8Lossy", visibility = internal)]
 pub fn bytes_raw_utf8_lossy(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
     let owned = String::from_utf8_lossy(vm.heap.bytes(id).as_slice()).into_owned();
@@ -274,6 +284,7 @@ pub fn bytes_raw_utf8_lossy(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
 /// argument is not a `Bytes` — a non-`Bytes` argument raises rather than
 /// comparing `false`, because silently answering `false` would hide a type
 /// bug in the security-critical path (`bytes.md` §8.3).
+#[phalcom_native_macros::primitive(Bytes, "_$equalsConstantTime(_)" , visibility = internal)]
 pub fn bytes_raw_equals_constant_time(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a_id: ObjRef = expect_bytes(vm, receiver)?;
     let b_id: ObjRef = expect_bytes(vm, &args[0])?;

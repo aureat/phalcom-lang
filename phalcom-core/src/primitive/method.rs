@@ -18,14 +18,26 @@ use crate::value::Value;
 use crate::vm::VM;
 
 /// `Method.class::new(_)`
+#[phalcom_native_macros::primitive(Method, "new(_)" , side = class)]
 pub fn method_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::NotAllowed("Method instances cannot be created directly".to_string()).into())
+}
+
+#[phalcom_native_macros::primitive(Method, "arity")]
+pub fn method_arity(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    crate::primitive::block::block_arity(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Method, "name")]
+pub fn method_name(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    crate::primitive::block::block_name(vm, receiver, args)
 }
 
 /// Shape-aware `Method#invokeOn(_,***)` gateway. The explicit receiver is
 /// validated before the stack window is rewritten; the remaining values then
 /// enter the exact reified method directly, without selector redispatch or a
 /// packed `List` intermediary.
+#[phalcom_native_macros::primitive(Method, "invokeOn(_,***)", abi = shape)]
 pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     let method_id = expect_method(vm, &receiver)?;
     let target = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
@@ -62,6 +74,7 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `self` is not a `Method`.
+#[phalcom_native_macros::primitive(Method, "bind(_)")]
 pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
     let bound = BoundMethodObject {
@@ -78,6 +91,7 @@ pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `self` is not a `Method`.
+#[phalcom_native_macros::primitive(Method, "selector")]
 pub fn method_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
     Ok(Value::symbol(vm.heap.method(method_id).signature.selector))
@@ -91,6 +105,7 @@ pub fn method_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `self` is not a `Method`.
+#[phalcom_native_macros::primitive(Method, "holder")]
 pub fn method_holder(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
     match vm.heap.method(method_id).holder {

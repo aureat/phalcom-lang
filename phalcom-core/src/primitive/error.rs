@@ -28,6 +28,7 @@ use crate::vm::VM;
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not an `Error` instance.
+#[phalcom_native_macros::primitive(Error, "message")]
 pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let slot0 = receiver
         .as_obj()
@@ -60,6 +61,7 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// `on(_)`/`ensure` (ADR-0031) or a fiber's result-slot capture intercepts it;
 /// uncaught, it renders and exits exactly like the retired native
 /// `MessageNotUnderstood` did.
+#[phalcom_native_macros::primitive(Error, "raise()")]
 pub fn error_raise(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let message_sym = vm.get_or_intern("message");
     let rendered = vm.send_dynamic(*receiver, message_sym, &[])?.to_string(vm);

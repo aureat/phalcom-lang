@@ -54,6 +54,7 @@ fn expect_finite_float(val: &Value, vm: &mut VM) -> PhResult<f64> {
 }
 
 /// Signature: `Float::abs()`
+#[phalcom_native_macros::primitive(Float, "abs")]
 pub fn float_abs(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(f) = receiver.as_float() {
         if f.is_nan() { Ok(Value::float(f64::NAN)) } else { Ok(Value::float(f.abs())) }
@@ -67,6 +68,7 @@ pub fn float_abs(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 }
 
 /// Signature: `Float::sign()`
+#[phalcom_native_macros::primitive(Float, "sign")]
 pub fn float_sign(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(f) = receiver.as_float() {
         if f.is_nan() || f.is_infinite() {
@@ -88,6 +90,7 @@ pub fn float_sign(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 }
 
 /// Signature: `Float::floor()`
+#[phalcom_native_macros::primitive(Float, "floor")]
 pub fn float_floor(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let f = expect_finite_float(receiver, vm)?;
     let (n, d) = float_to_rational(f);
@@ -100,6 +103,7 @@ pub fn float_floor(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 }
 
 /// Signature: `Float::ceil()`
+#[phalcom_native_macros::primitive(Float, "ceil")]
 pub fn float_ceil(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let f = expect_finite_float(receiver, vm)?;
     let (n, d) = float_to_rational(f);
@@ -113,6 +117,7 @@ pub fn float_ceil(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 }
 
 /// Signature: `Float::truncated()`
+#[phalcom_native_macros::primitive(Float, "truncated")]
 pub fn float_truncated(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let f = expect_finite_float(receiver, vm)?;
     let (n, d) = float_to_rational(f);
@@ -125,6 +130,7 @@ pub fn float_truncated(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 }
 
 /// Signature: `Float::rounded()`
+#[phalcom_native_macros::primitive(Float, "rounded")]
 pub fn float_rounded(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let f = expect_finite_float(receiver, vm)?;
     let (n, d) = float_to_rational(f);
@@ -146,6 +152,7 @@ pub fn float_rounded(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 }
 
 /// Signature: `Float::toIntExact()`
+#[phalcom_native_macros::primitive(Float, "toIntExact")]
 pub fn float_to_int_exact(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let f = expect_finite_float(receiver, vm)?;
     let (n, d) = float_to_rational(f);
@@ -164,6 +171,7 @@ pub fn float_to_int_exact(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 }
 
 /// Signature: `Float::isInteger`
+#[phalcom_native_macros::primitive(Float, "isInteger")]
 pub fn float_is_integer(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(f) = receiver.as_float() {
         if f.is_nan() || f.is_infinite() {
@@ -181,6 +189,7 @@ pub fn float_is_integer(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 }
 
 /// Signature: `Float::isNaN`
+#[phalcom_native_macros::primitive(Float, "isNaN")]
 pub fn float_is_nan(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(f) = receiver.as_float() {
         Ok(Value::bool(f.is_nan()))
@@ -194,6 +203,7 @@ pub fn float_is_nan(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 }
 
 /// Signature: `Float::isFinite`
+#[phalcom_native_macros::primitive(Float, "isFinite")]
 pub fn float_is_finite(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(f) = receiver.as_float() {
         Ok(Value::bool(f.is_finite()))
@@ -207,6 +217,7 @@ pub fn float_is_finite(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 }
 
 /// Signature: `Float::isInfinite`
+#[phalcom_native_macros::primitive(Float, "isInfinite")]
 pub fn float_is_infinite(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(f) = receiver.as_float() {
         Ok(Value::bool(f.is_infinite()))
@@ -410,4 +421,9 @@ pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
         }
         .into())
     }
+}
+
+#[phalcom_native_macros::primitive(Float, "new()", side = class)]
+pub fn float_class_new_default(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    float_class_new(vm, receiver, &[])
 }

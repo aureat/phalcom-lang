@@ -95,6 +95,7 @@ pub fn behavior_extract(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// Shape-aware gateway for `Behavior#>>(_)`. It preserves the authority of the
 /// caller that initiated reflection instead of treating the Behavior primitive
 /// itself as the caller.
+#[phalcom_native_macros::primitive(Behavior, ">>(_)", abi = shape)]
 pub fn behavior_extract_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     let behavior = expect_class(vm, &receiver)?;
     let rhs = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {

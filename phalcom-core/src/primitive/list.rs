@@ -55,6 +55,7 @@ pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
 /// Signature: `List.class::new()` — allocates an empty list.
 ///
 /// The allocate floor primitive (ADR-0020 §3).
+#[phalcom_native_macros::primitive(List, "new()", side = class)]
 pub fn list_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::obj(vm.heap.alloc_list(Vec::new())))
 }
@@ -67,6 +68,7 @@ pub fn list_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResu
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `List`.
+#[phalcom_native_macros::primitive(List, "_$length", visibility = internal)]
 pub fn list_raw_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
     Ok(Value::int(vm.heap.list(id).len() as i64))
@@ -83,6 +85,7 @@ pub fn list_raw_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `List`, or if the
 /// index is not a non-negative integer `Number`.
+#[phalcom_native_macros::primitive(List, "_$at(_)", visibility = internal)]
 pub fn list_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
     let len = vm.heap.list(id).len();
@@ -105,6 +108,7 @@ pub fn list_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `List`, the index
 /// is not a non-negative integer `Number`, or the index is out of range.
+#[phalcom_native_macros::primitive(List, "_$set(_,_)" , visibility = internal)]
 pub fn list_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
     let len = vm.heap.list(id).len();
@@ -132,6 +136,7 @@ pub fn list_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `List`.
+#[phalcom_native_macros::primitive(List, "_$push(_)" , visibility = internal)]
 pub fn list_raw_push(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
     vm.heap.list_mut(id).push(args[0]);
@@ -150,6 +155,7 @@ pub fn list_raw_push(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
 ///
 /// Returns [`RuntimeError::Type`] when either receiver is not a `List`, either bound
 /// is not a non-negative integer, or the bounds do not satisfy `start <= end <= len`.
+#[phalcom_native_macros::primitive(List, "_$replaceSlice(_,_,_)" , visibility = internal)]
 pub fn list_replace_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let destination: ObjRef = expect_list(vm, receiver)?;
     let replacement: ObjRef = expect_list(vm, &args[2])?;
@@ -177,6 +183,7 @@ pub fn list_replace_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 /// elements with user-defined overrides render through their override and
 /// strings render inside a list via their debug form (i.e. `"foo"` inside
 /// `["foo"]` retains its visual identity).
+#[phalcom_native_macros::primitive(List, "toString")]
 pub fn list_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
     // Snapshot the elements to avoid holding a heap borrow across sends.

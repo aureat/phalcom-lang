@@ -234,11 +234,13 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `args[0]` is not a `Block`/`Closure`.
+#[phalcom_native_macros::primitive(Fiber, "new(_)" , side = class)]
 pub fn fiber_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(Value::obj(new_fiber_ref(vm, args[0])?))
 }
 
 /// Signature: `Fiber::current` — the currently-running fiber (`VM::current`).
+#[phalcom_native_macros::primitive(Fiber, "current", side = class)]
 pub fn fiber_current(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::obj(vm.current))
 }
@@ -254,6 +256,7 @@ pub fn fiber_current(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
+#[phalcom_native_macros::primitive(Fiber, "isDone")]
 pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     let status = vm.heap.fiber(fiber_ref).status;
@@ -286,6 +289,7 @@ pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
+#[phalcom_native_macros::primitive(Fiber, "isRoot")]
 pub fn fiber_is_root(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     Ok(Value::bool(vm.heap.fiber(fiber_ref).resumer.is_none()))
@@ -301,6 +305,7 @@ pub fn fiber_is_root(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
+#[phalcom_native_macros::primitive(Fiber, "error")]
 pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
     let fiber = vm.heap.fiber(fiber_ref);
@@ -321,6 +326,7 @@ pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 /// (has no resumer) — the root fiber has nowhere to propagate a fiber-floor
 /// capture to, so aborting it is illegal (spec §2 rule 7, §6). Otherwise
 /// returns [`RuntimeError::Raise`] wrapping `args[0]`.
+#[phalcom_native_macros::primitive(Fiber, "abort(_)", side = class)]
 pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let me = vm.current;
     if vm.heap.fiber(me).resumer.is_none() {
@@ -339,14 +345,26 @@ pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
 
 /// Signature: `Fiber#call`/`call(_)` — resumes the receiver fiber, re-raising
 /// an uncaught failure into the resumer ([`FiberResumeMode::Call`]).
+#[phalcom_native_macros::primitive(Fiber, "call()")]
 pub fn fiber_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     fiber_resume(vm, receiver, args, FiberResumeMode::Call)
 }
 
+#[phalcom_native_macros::primitive(Fiber, "call(_)")]
+pub fn fiber_call_with_value(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    fiber_call(vm, receiver, args)
+}
+
 /// Signature: `Fiber#try`/`try(_)` — resumes the receiver fiber, capturing an
 /// uncaught failure as the delivered `Error` value ([`FiberResumeMode::Try`]).
+#[phalcom_native_macros::primitive(Fiber, "try()")]
 pub fn fiber_try(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     fiber_resume(vm, receiver, args, FiberResumeMode::Try)
+}
+
+#[phalcom_native_macros::primitive(Fiber, "try(_)")]
+pub fn fiber_try_with_value(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    fiber_try(vm, receiver, args)
 }
 
 /// Shared engine behind [`fiber_call`]/[`fiber_try`] (ADR-0030 §3/§4).
@@ -462,6 +480,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
 /// (has no resumer), or the `CannotYieldAcrossNativeFrame` error if
 /// `VM::native_reentry_depth` has grown past the fiber's recorded
 /// `floor_depth` since it was last resumed (ADR-0030 §4).
+#[phalcom_native_macros::primitive(Fiber, "yield()", side = class)]
 pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let me = vm.current;
     let Some(resumer) = vm.heap.fiber(me).resumer else {
@@ -520,4 +539,9 @@ pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     vm.switch_to_fiber_and_deliver(resumer, value);
     vm.switch_pending = true;
     Ok(Value::nil())
+}
+
+#[phalcom_native_macros::primitive(Fiber, "yield(_)", side = class)]
+pub fn fiber_yield_with_value(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    fiber_yield(vm, receiver, args)
 }

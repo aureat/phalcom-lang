@@ -35,6 +35,11 @@ pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     }
 }
 
+#[phalcom_native_macros::primitive(Bool, "new()", side = class)]
+pub fn bool_class_new_default(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    bool_class_new(vm, receiver, &[])
+}
+
 /// Signature: `Bool::hash` — `1` for `true`, `0` for `false`.
 #[phalcom_native_macros::primitive(
     Bool,

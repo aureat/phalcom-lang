@@ -193,6 +193,9 @@ impl VM {
         // reinstall the retired hand-written primitive table.
         let _ = native_install_mode;
         crate::native::install::install_registered_primitives(&mut vm).expect("registered primitives must install cleanly");
+        // Typing reflection is a separate semantic subsystem whose classes are
+        // not part of the primordial native-surface catalog.
+        crate::primitive::typing::install(&mut vm);
 
         // Finalize every kernel row's base-name index (selectors.md §3.1,
         // U16-Open) now that its native primitives are installed, so `::`

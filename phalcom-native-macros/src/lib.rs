@@ -237,7 +237,8 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
     let selector =
         Selector::try_decode_exact(&args.selector_str).map_err(|e| Error::new(args.selector_span, format!("invalid selector '{}': {e}", args.selector_str)))?;
     let canonical_str = selector.encode();
-    if canonical_str != args.selector_str {
+    let canonical_rest_spelling = args.selector_str.replace("***", "_");
+    if canonical_str != args.selector_str && canonical_str != canonical_rest_spelling {
         return Err(Error::new(
             args.selector_span,
             format!("noncanonical selector spelling '{}', expected canonical '{}'", args.selector_str, canonical_str),

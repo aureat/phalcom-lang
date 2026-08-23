@@ -5,6 +5,7 @@ use crate::value::Value;
 use crate::vm::VM;
 
 /// `Resource.register_(_)` static native primitive.
+#[phalcom_native_macros::primitive(Resource, "_$register(_)" , side = class, visibility = internal)]
 pub fn resource_register(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let kind_str = expect_string(vm, &args[0])?;
     let site = None;
@@ -52,6 +53,7 @@ fn raise_use_after_close(vm: &mut VM, message: &str) -> PhResult<Value> {
 }
 
 /// `Resource#close_` primitive.
+#[phalcom_native_macros::primitive(Resource, "_$close()", visibility = internal)]
 pub fn resource_raw_close(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let handle = extract_handle(vm, receiver)?;
     match vm.resources.close(handle) {
@@ -62,6 +64,7 @@ pub fn resource_raw_close(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
 }
 
 /// `Resource#isClosed_` primitive.
+#[phalcom_native_macros::primitive(Resource, "_$isClosed", visibility = internal)]
 pub fn resource_raw_is_closed(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let handle = extract_handle(vm, receiver)?;
     let closed = vm.resources.is_closed(handle);
@@ -69,6 +72,7 @@ pub fn resource_raw_is_closed(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
 }
 
 /// `System.leakReport_` primitive.
+#[phalcom_native_macros::primitive(System, "_$leakReport", side = class, visibility = internal)]
 pub fn system_leak_report(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let leaks = vm.resources.leaks_detail();
     let mut str_vals = Vec::new();
@@ -83,6 +87,7 @@ pub fn system_leak_report(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> Ph
 }
 
 /// `System.strictResources_(_)` primitive.
+#[phalcom_native_macros::primitive(System, "_$strictResources(_)" , side = class, visibility = internal)]
 pub fn system_strict_resources(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let flag = match args[0].as_bool() {
         Some(b) => b,

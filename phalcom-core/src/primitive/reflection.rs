@@ -11,6 +11,7 @@ use phalcom_modules::package_info::PackageInfoDescriptor;
 // Module Primitives
 // ==========================================
 
+#[phalcom_native_macros::primitive(Module, "name")]
 pub fn module_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -20,6 +21,12 @@ pub fn module_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     Ok(Value::symbol(module.name_sym))
 }
 
+#[phalcom_native_macros::primitive(Module, "__name__")]
+pub fn module_hidden_name(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    module_name(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Module, "namespace")]
 pub fn module_namespace(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let info = module_package_info(vm, receiver, args)?;
     if let Some(info_obj) = info.without_some_wrappers().as_obj() {
@@ -30,6 +37,7 @@ pub fn module_namespace(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     }
 }
 
+#[phalcom_native_macros::primitive(Module, "package")]
 pub fn module_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -43,6 +51,7 @@ pub fn module_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     }
 }
 
+#[phalcom_native_macros::primitive(Module, "rootPackage")]
 pub fn module_root_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -56,6 +65,7 @@ pub fn module_root_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     }
 }
 
+#[phalcom_native_macros::primitive(Module, "packageInfo")]
 pub fn module_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -119,6 +129,7 @@ pub fn module_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     Ok(Value::obj(info_obj).wrap_some()?)
 }
 
+#[phalcom_native_macros::primitive(Module, "exports")]
 pub fn module_exports(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -128,6 +139,12 @@ pub fn module_exports(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     Ok(Value::obj(table))
 }
 
+#[phalcom_native_macros::primitive(Module, "__exports__")]
+pub fn module_hidden_exports(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    module_exports(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Module, "__export__(_)")]
 pub fn module_export_by_name(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -138,6 +155,7 @@ pub fn module_export_by_name(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
     export_table_get(vm, &table_val, args)
 }
 
+#[phalcom_native_macros::primitive(Module, "__understands__(_)")]
 pub fn module_understands(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -184,6 +202,7 @@ pub fn module_understands(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     Ok(Value::bool(understands_method))
 }
 
+#[phalcom_native_macros::primitive(Module, "metadata")]
 pub fn module_metadata(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -209,6 +228,12 @@ pub fn module_metadata(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     }
 }
 
+#[phalcom_native_macros::primitive(Module, "__metadata__")]
+pub fn module_hidden_metadata(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    module_metadata(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Module, "dependencies")]
 pub fn module_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -237,6 +262,12 @@ pub fn module_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     Ok(Value::obj(tuple_obj))
 }
 
+#[phalcom_native_macros::primitive(Module, "__dependencies__")]
+pub fn module_hidden_dependencies(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    module_dependencies(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Module, "uri")]
 pub fn module_uri(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -254,6 +285,12 @@ pub fn module_uri(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
     Ok(Value::obj(uri_obj))
 }
 
+#[phalcom_native_macros::primitive(Module, "__uri__")]
+pub fn module_hidden_uri(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    module_uri(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Module, "identity")]
 pub fn module_identity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -264,6 +301,12 @@ pub fn module_identity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     Ok(Value::obj(id_obj))
 }
 
+#[phalcom_native_macros::primitive(Module, "__id__")]
+pub fn module_hidden_identity(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    module_identity(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Module, "__path__")]
 pub fn module_path(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -273,6 +316,7 @@ pub fn module_path(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     Ok(vm.alloc_string_value(path))
 }
 
+#[phalcom_native_macros::primitive(Module, "toString")]
 pub fn module_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Module",
@@ -287,10 +331,12 @@ pub fn module_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 // Package Primitives
 // ==========================================
 
+#[phalcom_native_macros::primitive(Package, "package")]
 pub fn package_package(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(*receiver)
 }
 
+#[phalcom_native_macros::primitive(Package, "parentPackage")]
 pub fn package_parent_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Package",
@@ -309,6 +355,12 @@ pub fn package_parent_package(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
     }
 }
 
+#[phalcom_native_macros::primitive(Package, "__parent__")]
+pub fn package_hidden_parent(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    package_parent_package(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Package, "rootPackage")]
 pub fn package_root_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Package",
@@ -319,6 +371,7 @@ pub fn package_root_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     Ok(Value::obj(root_ref))
 }
 
+#[phalcom_native_macros::primitive(Package, "packageInfo")]
 pub fn package_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Package",
@@ -377,6 +430,7 @@ pub fn package_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     Ok(Value::obj(info_obj))
 }
 
+#[phalcom_native_macros::primitive(Package, "children")]
 pub fn package_children(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Package",
@@ -386,6 +440,12 @@ pub fn package_children(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     Ok(Value::obj(table))
 }
 
+#[phalcom_native_macros::primitive(Package, "__children__")]
+pub fn package_hidden_children(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    package_children(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(Package, "isRoot")]
 pub fn package_is_root(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Package",
@@ -396,6 +456,7 @@ pub fn package_is_root(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     Ok(Value::bool(is_root))
 }
 
+#[phalcom_native_macros::primitive(Package, "__version__")]
 pub fn package_version(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let info = package_package_info(vm, receiver, args)?;
     let info_ref = info.as_obj().unwrap();
@@ -408,6 +469,7 @@ pub fn package_version(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
     }
 }
 
+#[phalcom_native_macros::primitive(Package, "__namespace__")]
 pub fn package_namespace(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let info = package_package_info(vm, receiver, args)?;
     let info_ref = info.as_obj().unwrap();
@@ -415,6 +477,7 @@ pub fn package_namespace(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
     Ok(Value::symbol(ns))
 }
 
+#[phalcom_native_macros::primitive(Package, "toString")]
 pub fn package_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Package",
@@ -429,6 +492,7 @@ pub fn package_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 // Project Primitives
 // ==========================================
 
+#[phalcom_native_macros::primitive(Project, "name")]
 pub fn project_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -438,6 +502,7 @@ pub fn project_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     Ok(vm.alloc_string_value(name))
 }
 
+#[phalcom_native_macros::primitive(Project, "namespace")]
 pub fn project_namespace(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -447,6 +512,7 @@ pub fn project_namespace(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
     Ok(Value::symbol(ns))
 }
 
+#[phalcom_native_macros::primitive(Project, "manifest")]
 pub fn project_manifest(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -456,6 +522,7 @@ pub fn project_manifest(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     Ok(Value::obj(manifest))
 }
 
+#[phalcom_native_macros::primitive(Project, "rootPackage")]
 pub fn project_root_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -465,6 +532,7 @@ pub fn project_root_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     Ok(Value::obj(root))
 }
 
+#[phalcom_native_macros::primitive(Project, "dependencies")]
 pub fn project_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -474,6 +542,7 @@ pub fn project_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     Ok(Value::obj(deps))
 }
 
+#[phalcom_native_macros::primitive(Project, "developmentEntry")]
 pub fn project_development_entry(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -486,6 +555,7 @@ pub fn project_development_entry(vm: &mut VM, receiver: &Value, _args: &[Value])
     }
 }
 
+#[phalcom_native_macros::primitive(Project, "identity")]
 pub fn project_identity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -495,6 +565,7 @@ pub fn project_identity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     Ok(Value::obj(identity))
 }
 
+#[phalcom_native_macros::primitive(Project, "toString")]
 pub fn project_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Project",
@@ -509,6 +580,7 @@ pub fn project_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 // ProjectManifest Primitives
 // ==========================================
 
+#[phalcom_native_macros::primitive(ProjectManifest, "name")]
 pub fn project_manifest_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -518,6 +590,7 @@ pub fn project_manifest_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     Ok(vm.alloc_string_value(name))
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "namespace")]
 pub fn project_manifest_namespace(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -527,6 +600,7 @@ pub fn project_manifest_namespace(vm: &mut VM, receiver: &Value, _args: &[Value]
     Ok(Value::symbol(ns))
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "version")]
 pub fn project_manifest_version(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -541,6 +615,7 @@ pub fn project_manifest_version(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     }
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "authors")]
 pub fn project_manifest_authors(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -550,6 +625,7 @@ pub fn project_manifest_authors(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     Ok(Value::obj(authors))
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "description")]
 pub fn project_manifest_description(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -564,6 +640,7 @@ pub fn project_manifest_description(vm: &mut VM, receiver: &Value, _args: &[Valu
     }
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "license")]
 pub fn project_manifest_license(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -578,6 +655,7 @@ pub fn project_manifest_license(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     }
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "homepage")]
 pub fn project_manifest_homepage(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -590,6 +668,7 @@ pub fn project_manifest_homepage(vm: &mut VM, receiver: &Value, _args: &[Value])
     }
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "repository")]
 pub fn project_manifest_repository(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -602,6 +681,7 @@ pub fn project_manifest_repository(vm: &mut VM, receiver: &Value, _args: &[Value
     }
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "source")]
 pub fn project_manifest_source(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -611,6 +691,7 @@ pub fn project_manifest_source(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     Ok(vm.alloc_string_value(src))
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "entry")]
 pub fn project_manifest_entry(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -625,6 +706,7 @@ pub fn project_manifest_entry(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
     }
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "defaultEntry")]
 pub fn project_manifest_default_entry(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -639,6 +721,7 @@ pub fn project_manifest_default_entry(vm: &mut VM, receiver: &Value, _args: &[Va
     }
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "dependencies")]
 pub fn project_manifest_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -648,6 +731,12 @@ pub fn project_manifest_dependencies(vm: &mut VM, receiver: &Value, _args: &[Val
     Ok(Value::obj(deps))
 }
 
+#[phalcom_native_macros::primitive(ProjectManifest, "dependencyDeclarations")]
+pub fn project_manifest_dependency_declarations(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    project_manifest_dependencies(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(ProjectManifest, "toString")]
 pub fn project_manifest_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectManifest",
@@ -662,6 +751,7 @@ pub fn project_manifest_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]
 // PackageInfo Primitives
 // ==========================================
 
+#[phalcom_native_macros::primitive(PackageInfo, "name")]
 pub fn package_info_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -671,6 +761,7 @@ pub fn package_info_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
     Ok(vm.alloc_string_value(name))
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "namespace")]
 pub fn package_info_namespace(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -680,6 +771,7 @@ pub fn package_info_namespace(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
     Ok(Value::symbol(ns))
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "version")]
 pub fn package_info_version(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -694,6 +786,7 @@ pub fn package_info_version(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     }
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "authors")]
 pub fn package_info_authors(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -703,6 +796,7 @@ pub fn package_info_authors(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     Ok(Value::obj(authors))
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "description")]
 pub fn package_info_description(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -717,6 +811,7 @@ pub fn package_info_description(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     }
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "license")]
 pub fn package_info_license(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -731,6 +826,7 @@ pub fn package_info_license(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     }
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "homepage")]
 pub fn package_info_homepage(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -743,6 +839,7 @@ pub fn package_info_homepage(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     }
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "repository")]
 pub fn package_info_repository(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -755,6 +852,7 @@ pub fn package_info_repository(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     }
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "requirements")]
 pub fn package_info_requirements(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -764,6 +862,7 @@ pub fn package_info_requirements(vm: &mut VM, receiver: &Value, _args: &[Value])
     Ok(Value::obj(reqs))
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "defaultEntry")]
 pub fn package_info_default_entry(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -778,6 +877,7 @@ pub fn package_info_default_entry(vm: &mut VM, receiver: &Value, _args: &[Value]
     }
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "identity")]
 pub fn package_info_identity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -787,6 +887,7 @@ pub fn package_info_identity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     Ok(Value::obj(identity))
 }
 
+#[phalcom_native_macros::primitive(PackageInfo, "toString")]
 pub fn package_info_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageInfo",
@@ -801,6 +902,7 @@ pub fn package_info_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
 // ExportTable & Export Primitives
 // ==========================================
 
+#[phalcom_native_macros::primitive(ExportTable, "names")]
 pub fn export_table_names(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ExportTable",
@@ -810,6 +912,12 @@ pub fn export_table_names(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
     Ok(Value::obj(tuple_ref))
 }
 
+#[phalcom_native_macros::primitive(ExportTable, "keys")]
+pub fn export_table_keys(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    export_table_names(vm, receiver, args)
+}
+
+#[phalcom_native_macros::primitive(ExportTable, "size")]
 pub fn export_table_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ExportTable",
@@ -819,6 +927,7 @@ pub fn export_table_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
     Ok(Value::int(len))
 }
 
+#[phalcom_native_macros::primitive(ExportTable, "contains(_)")]
 pub fn export_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ExportTable",
@@ -850,6 +959,7 @@ pub fn export_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
     Ok(Value::bool(has))
 }
 
+#[phalcom_native_macros::primitive(ExportTable, "descriptor(_)")]
 pub fn export_table_descriptor(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ExportTable",
@@ -885,6 +995,7 @@ pub fn export_table_descriptor(vm: &mut VM, receiver: &Value, args: &[Value]) ->
     }
 }
 
+#[phalcom_native_macros::primitive(ExportTable, "get(_)")]
 pub fn export_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ExportTable",
@@ -926,6 +1037,7 @@ pub fn export_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     }
 }
 
+#[phalcom_native_macros::primitive(Export, "name")]
 pub fn export_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Export",
@@ -935,6 +1047,7 @@ pub fn export_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     Ok(Value::symbol(name))
 }
 
+#[phalcom_native_macros::primitive(Export, "kind")]
 pub fn export_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Export",
@@ -944,6 +1057,7 @@ pub fn export_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     Ok(Value::symbol(kind))
 }
 
+#[phalcom_native_macros::primitive(Export, "module")]
 pub fn export_module(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Export",
@@ -953,6 +1067,7 @@ pub fn export_module(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     Ok(Value::obj(module))
 }
 
+#[phalcom_native_macros::primitive(Export, "value")]
 pub fn export_value(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Export",
@@ -974,6 +1089,7 @@ pub fn export_value(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     }
 }
 
+#[phalcom_native_macros::primitive(Export, "isModule")]
 pub fn export_is_module(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Export",
@@ -984,6 +1100,7 @@ pub fn export_is_module(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     Ok(Value::bool(is_mod))
 }
 
+#[phalcom_native_macros::primitive(Export, "isBinding")]
 pub fn export_is_binding(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Export",
@@ -998,6 +1115,7 @@ pub fn export_is_binding(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 // ChildModuleTable Primitives
 // ==========================================
 
+#[phalcom_native_macros::primitive(ChildModuleTable, "names")]
 pub fn child_module_table_names(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ChildModuleTable",
@@ -1007,6 +1125,7 @@ pub fn child_module_table_names(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     Ok(Value::obj(tuple_ref))
 }
 
+#[phalcom_native_macros::primitive(ChildModuleTable, "size")]
 pub fn child_module_table_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ChildModuleTable",
@@ -1016,6 +1135,7 @@ pub fn child_module_table_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     Ok(Value::int(len))
 }
 
+#[phalcom_native_macros::primitive(ChildModuleTable, "contains(_)")]
 pub fn child_module_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ChildModuleTable",
@@ -1047,6 +1167,7 @@ pub fn child_module_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]
     Ok(Value::bool(has))
 }
 
+#[phalcom_native_macros::primitive(ChildModuleTable, "get(_)")]
 pub fn child_module_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ChildModuleTable",
@@ -1086,6 +1207,7 @@ pub fn child_module_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> 
 // Uri, Identity, Author, Requirement, Dependency
 // ==========================================
 
+#[phalcom_native_macros::primitive(Uri, "toString")]
 pub fn uri_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Uri",
@@ -1095,6 +1217,7 @@ pub fn uri_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     Ok(vm.alloc_string_value(uri_str))
 }
 
+#[phalcom_native_macros::primitive(Uri, "==(_)")]
 pub fn uri_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "Uri",
@@ -1113,6 +1236,7 @@ pub fn uri_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> 
     Ok(Value::bool(false))
 }
 
+#[phalcom_native_macros::primitive(ModuleIdentity, "uri")]
 pub fn module_identity_uri(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ModuleIdentity",
@@ -1122,6 +1246,7 @@ pub fn module_identity_uri(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     Ok(Value::obj(uri))
 }
 
+#[phalcom_native_macros::primitive(ModuleIdentity, "toString")]
 pub fn module_identity_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ModuleIdentity",
@@ -1131,6 +1256,7 @@ pub fn module_identity_to_string(vm: &mut VM, receiver: &Value, _args: &[Value])
     Ok(vm.alloc_string_value(id_str))
 }
 
+#[phalcom_native_macros::primitive(PackageIdentity, "toString")]
 pub fn package_identity_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageIdentity",
@@ -1140,6 +1266,7 @@ pub fn package_identity_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]
     Ok(vm.alloc_string_value(id_str))
 }
 
+#[phalcom_native_macros::primitive(ProjectIdentity, "toString")]
 pub fn project_identity_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ProjectIdentity",
@@ -1149,6 +1276,7 @@ pub fn project_identity_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]
     Ok(vm.alloc_string_value(id_str))
 }
 
+#[phalcom_native_macros::primitive(PackageAuthor, "name")]
 pub fn package_author_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageAuthor",
@@ -1158,6 +1286,7 @@ pub fn package_author_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     Ok(vm.alloc_string_value(name))
 }
 
+#[phalcom_native_macros::primitive(PackageAuthor, "email")]
 pub fn package_author_email(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageAuthor",
@@ -1172,6 +1301,7 @@ pub fn package_author_email(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     }
 }
 
+#[phalcom_native_macros::primitive(PackageAuthor, "url")]
 pub fn package_author_url(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageAuthor",
@@ -1184,6 +1314,7 @@ pub fn package_author_url(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
     }
 }
 
+#[phalcom_native_macros::primitive(PackageRequirement, "alias")]
 pub fn package_requirement_alias(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageRequirement",
@@ -1193,6 +1324,7 @@ pub fn package_requirement_alias(vm: &mut VM, receiver: &Value, _args: &[Value])
     Ok(Value::symbol(alias))
 }
 
+#[phalcom_native_macros::primitive(PackageRequirement, "package")]
 pub fn package_requirement_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageRequirement",
@@ -1202,6 +1334,7 @@ pub fn package_requirement_package(vm: &mut VM, receiver: &Value, _args: &[Value
     Ok(vm.alloc_string_value(pkg))
 }
 
+#[phalcom_native_macros::primitive(PackageRequirement, "versionRequirement")]
 pub fn package_requirement_version_requirement(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageRequirement",
@@ -1211,6 +1344,7 @@ pub fn package_requirement_version_requirement(vm: &mut VM, receiver: &Value, _a
     Ok(vm.alloc_string_value(vreq))
 }
 
+#[phalcom_native_macros::primitive(PackageRequirement, "optional")]
 pub fn package_requirement_optional(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "PackageRequirement",
@@ -1220,6 +1354,7 @@ pub fn package_requirement_optional(vm: &mut VM, receiver: &Value, _args: &[Valu
     Ok(Value::bool(opt))
 }
 
+#[phalcom_native_macros::primitive(ResolvedProjectDependency, "alias")]
 pub fn resolved_project_dependency_alias(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ResolvedProjectDependency",
@@ -1229,6 +1364,7 @@ pub fn resolved_project_dependency_alias(vm: &mut VM, receiver: &Value, _args: &
     Ok(Value::symbol(alias))
 }
 
+#[phalcom_native_macros::primitive(ResolvedProjectDependency, "requirement")]
 pub fn resolved_project_dependency_requirement(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ResolvedProjectDependency",
@@ -1241,6 +1377,7 @@ pub fn resolved_project_dependency_requirement(vm: &mut VM, receiver: &Value, _a
     }
 }
 
+#[phalcom_native_macros::primitive(ResolvedProjectDependency, "packageInfo")]
 pub fn resolved_project_dependency_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ResolvedProjectDependency",
@@ -1250,6 +1387,7 @@ pub fn resolved_project_dependency_package_info(vm: &mut VM, receiver: &Value, _
     Ok(Value::obj(info))
 }
 
+#[phalcom_native_macros::primitive(ResolvedProjectDependency, "rootPackage")]
 pub fn resolved_project_dependency_root_package(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ResolvedProjectDependency",
@@ -1259,6 +1397,7 @@ pub fn resolved_project_dependency_root_package(vm: &mut VM, receiver: &Value, _
     Ok(Value::obj(root))
 }
 
+#[phalcom_native_macros::primitive(ResolvedProjectDependency, "origin")]
 pub fn resolved_project_dependency_origin(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ResolvedProjectDependency",
@@ -1268,6 +1407,7 @@ pub fn resolved_project_dependency_origin(vm: &mut VM, receiver: &Value, _args: 
     Ok(Value::symbol(origin))
 }
 
+#[phalcom_native_macros::primitive(ModuleDependency, "module")]
 pub fn module_dependency_module(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ModuleDependency",
@@ -1277,6 +1417,7 @@ pub fn module_dependency_module(vm: &mut VM, receiver: &Value, _args: &[Value]) 
     Ok(Value::obj(module))
 }
 
+#[phalcom_native_macros::primitive(ModuleDependency, "phase")]
 pub fn module_dependency_phase(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ModuleDependency",
@@ -1286,6 +1427,7 @@ pub fn module_dependency_phase(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     Ok(Value::symbol(phase))
 }
 
+#[phalcom_native_macros::primitive(ModuleDependency, "reason")]
 pub fn module_dependency_reason(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = receiver.as_obj().ok_or_else(|| RuntimeError::Type {
         expected: "ModuleDependency",

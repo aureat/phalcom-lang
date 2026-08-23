@@ -4,7 +4,8 @@ use phalcom_common::selector::Selector;
 
 pub fn validate_decl(decl: &NormalizedPrimitiveDecl) -> Result<(), DeclError> {
     let selector = Selector::try_decode_exact(&decl.key.selector).map_err(|error| DeclError::InvalidSelector(error.to_string()))?;
-    if selector.encode() != decl.key.selector {
+    let canonical_rest_spelling = decl.key.selector.replace("***", "_");
+    if selector.encode() != decl.key.selector && selector.encode() != canonical_rest_spelling {
         return Err(DeclError::InvalidSelector(format!("noncanonical spelling `{}`", decl.key.selector)));
     }
     let internal_selector = decl.key.selector.starts_with("_$");
