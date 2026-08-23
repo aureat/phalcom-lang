@@ -16,18 +16,11 @@
 // `None` (the name) resolves to the immediate *value*, not the `None`
 // class; that global is bound in Rust (VM::install_core).
 //
-// There is deliberately NO `class None {}` reopen here (unlike `Option`/
-// `Some`): `Statement::Class` unconditionally emits `DefineGlobal` at the end
-// of every class body, reopen or not (compiler/lib.rs). For every other core
-// class that's a harmless no-op — the global already points at that same
-// class object — but `None`'s global is bound to the *immediate value*,
-// not the class, so reopening it here would silently clobber that binding
-// back to the class object the moment core.ph runs. See DEFERRED.md: a
-// future unit that needs to add real members to `None` must fix that
-// compiler special case first, not just re-add this skeleton.
+// `None` has a source presentation below. The compiler preserves its special
+// public immediate-value binding while reopening the hidden class row.
 
 @native
-class Option is Object {
+class Option<T> is Object {
   @native match(some: Dynamic, none: Dynamic) -> Dynamic
   // Runs `f` (0-arity) for its side effect when `self` is `None`; passes
   // `Some` through untouched. Never extracts — returns `self` so calls chain
@@ -109,7 +102,7 @@ class Option is Object {
 }
 
 @native
-class Some is Option {
+class Some<T> is Option<T> {
   @class @native call(_ value: Dynamic) -> Some
   @class @native new(_ value: Dynamic) -> Some
 }

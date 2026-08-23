@@ -3,7 +3,7 @@
 //! autocomplete/hover legs read (U-VSPHALCOM-2, DEC-VSP-B).
 //!
 //! Two sources, merged:
-//! 1. `core/core.ph` — real Phalcom source, parsed with `phalcom_ast::parse_source`
+//! 1. Canonical universe `.ph` modules, parsed with `phalcom_ast::parse_source`
 //!    (an actual parse, not a regex over Phalcom syntax).
 //! 2. `src/universe/primitives.rs` — native primitive registrations, read as
 //!    text and manually scanned for `primitive!`/`primitive_static!` macro
@@ -41,7 +41,7 @@ struct SelectorEntry {
     class_side: bool,
     /// `"public"`, `"private"`, `"protected"`, or `"internal"`.
     visibility: &'static str,
-    /// `"core.ph"` or `"native"`.
+    /// `"universe"` or `"native"`.
     source: &'static str,
 }
 

@@ -1,5 +1,5 @@
 @native
-class Map is Iterable {
+class Map<K, V> is Iterable {
   @class @native new() -> Map
   @internal @native _$size -> Int
   @internal @native _$get(_ key: Dynamic) -> Option<Dynamic>

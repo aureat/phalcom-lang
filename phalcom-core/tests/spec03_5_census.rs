@@ -6,6 +6,7 @@ use phalcom_core::native::{NativeSourceIndex, PRIMITIVES};
 use phalcom_core::vm::VM;
 use phalcom_native_surface::{NATIVE_MEMBERS, NATIVE_SURFACES};
 use std::collections::BTreeSet;
+use std::path::Path;
 
 type Key = (phalcom_native_meta::UniverseKey, phalcom_native_meta::NativeDispatch, String);
 
@@ -128,4 +129,39 @@ fn canonical_source_census_matches_descriptors_and_relations() {
     }
 
     assert!(source.units.iter().all(|unit| !unit.program.statements.is_empty() || unit.kind.is_package_like()));
+}
+
+#[test]
+fn physical_universe_corpus_matches_catalog() {
+    fn collect(root: &Path, current: &Path, files: &mut BTreeSet<String>) {
+        for entry in std::fs::read_dir(current).expect("read canonical universe source") {
+            let path = entry.expect("read canonical universe directory entry").path();
+            if path.is_dir() {
+                collect(root, &path, files);
+                continue;
+            }
+            if path.extension().and_then(|extension| extension.to_str()) != Some("ph") {
+                continue;
+            }
+            let relative = path.strip_prefix(root).expect("universe source stays under root");
+            let mut components = relative.components().map(|component| component.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>();
+            let file = components.pop().expect("source file has a name");
+            if file == "package.ph" {
+                files.insert(components.join("/"));
+            } else {
+                let stem = file.strip_suffix(".ph").expect("source file extension checked").replace('-', "_");
+                components.push(stem);
+                files.insert(components.join("/"));
+            }
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("core/universe/src");
+    let mut physical = BTreeSet::new();
+    collect(&root, &root, &mut physical);
+    let catalog = phalcom_modules::builtin::UNIVERSE_NODES
+        .iter()
+        .map(|node| node.path.join("/"))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(physical, catalog, "physical universe source drifted from UNIVERSE_NODES");
 }

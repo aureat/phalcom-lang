@@ -39,8 +39,8 @@ pub enum CoreSource {
     },
     /// Bundled static core source fallback.
     Bundled {
-        /// Static source text.
-        text: &'static str,
+        /// Provider-assembled source text.
+        text: Arc<str>,
     },
 }
 
@@ -67,7 +67,7 @@ impl CoreSource {
             }
         }
 
-        Self::Bundled { text: BUNDLED_CORE_SOURCE }
+        Self::Bundled { text: Arc::from(canonical_universe_source()) }
     }
 
     fn load_from_path(path: &Path, is_configured: bool) -> Option<Self> {
@@ -103,8 +103,12 @@ impl CoreSource {
 
 /// Parses bundled core source.
 pub fn bundled_parse() -> Parse {
+    phalcom_ast::parser::parse(&canonical_universe_source(), 0)
+}
+
+fn canonical_universe_source() -> String {
     let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
-    let mut combined = phalcom_ast::parser::parse("");
+    let mut combined = String::new();
     for node in provider.nodes() {
         let path = phalcom_modules::identity::ModulePath::from_components(
             node.path
@@ -113,10 +117,9 @@ pub fn bundled_parse() -> Parse {
                 .collect(),
         );
         let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
-        let Ok(source) = provider.source_text(&module) else { continue };
-        let parsed = phalcom_ast::parser::parse(&source, 0);
-        combined.program.statements.extend(parsed.program.statements);
-        combined.errors.extend(parsed.errors);
+        let source = provider.source_text(&module).unwrap_or_else(|error| panic!("failed to load canonical universe source {module}: {error}"));
+        combined.push_str(&source);
+        combined.push('\n');
     }
     combined
 }
@@ -277,7 +280,7 @@ mod tests {
         // 4. Bundled fallback
         std::fs::remove_file(&root_core).unwrap();
         let selected = CoreSource::select(None, std::slice::from_ref(&root));
-        assert_eq!(selected.text(), BUNDLED_CORE_SOURCE);
+        assert!(selected.text().contains("class Object"));
         assert!(matches!(selected, CoreSource::Bundled { .. }));
 
         let _ = std::fs::remove_dir_all(root);

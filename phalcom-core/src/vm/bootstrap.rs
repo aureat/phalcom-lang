@@ -415,6 +415,18 @@ impl VM {
         add_class!(resource_class);
         add_class!(use_after_close_error_class);
 
+        // Typing reflection rows are allocated with the VM universe because
+        // native typing primitives need them before source execution. Register
+        // those same rows under the core module so canonical `.ph` class
+        // presentations complete the preallocated identities instead of
+        // allocating shadow classes during universe bootstrap.
+        for (name, class_id) in self.universe.typing_classes.iter() {
+            let name_sym = self.interner.intern(name);
+            let key = crate::vm::ClassKey { module: m, name: name_sym };
+            self.classes.insert(key, class_id);
+            self.kernel_class_names.insert(name_sym);
+        }
+
         // The `None` class row is *not* exposed under a class global (that name
         // is the singleton), but it must live in `self.classes` so a
         // `class None { ... }` skeleton in `core.ph` reopens this bootstrapped

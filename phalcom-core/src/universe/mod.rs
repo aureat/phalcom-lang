@@ -337,6 +337,11 @@ impl TypingClasses {
         self.rows.get(name).copied()
     }
 
+    /// Iterates stable source-facing names and their preallocated class rows.
+    pub fn iter(&self) -> impl Iterator<Item = (&'static str, ClassId)> + '_ {
+        self.rows.iter().map(|(&name, &class)| (name, class))
+    }
+
     pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
         for &class in self.rows.values() {
             push(class);

@@ -248,7 +248,7 @@ pub struct Backend {
     /// URI for the active on-disk core source, if one replaced bundled core.
     ///
     /// This must be explicit: configured sysroots need the same open-buffer
-    /// precedence as the repository's conventional `phalcom-core/core/core.ph`.
+    /// precedence as repository's conventional canonical universe package source.
     core_source_uris: Arc<RwLock<BTreeSet<Url>>>,
     /// Whether client requested dynamic watched-file registration.
     watch_registration: RwLock<bool>,
@@ -1778,13 +1778,13 @@ mod tests {
     #[test]
     fn server_config_parses_dotted_off_hint_policy() {
         let settings = json!({
-            "phalcom.lsp.sysrootPath": "/opt/phalcom/core/core.ph",
+            "phalcom.lsp.sysrootPath": "/opt/phalcom/phalcom-core/core/universe/src/package.ph",
             "phalcom.inlayHints.types": "off"
         });
 
         let config = ServerConfig::from_json(Some(&settings));
 
-        assert_eq!(config.sysroot_path.as_deref(), Some(std::path::Path::new("/opt/phalcom/core/core.ph")));
+        assert_eq!(config.sysroot_path.as_deref(), Some(std::path::Path::new("/opt/phalcom/phalcom-core/core/universe/src/package.ph")));
         assert_eq!(config.inlay_hints, HintPolicy::Off);
     }
 

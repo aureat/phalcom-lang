@@ -513,7 +513,7 @@ impl BuiltinProjectSourceProvider {
         }
     }
 
-    /// Loads the immutable public interface of a builtin node derived from source + native overlay.
+    /// Loads immutable public interface of builtin node derived from canonical source.
     pub fn load_interface(&self, id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         self.validate_id(id)?;
         crate::builtin_interface::BuiltinInterfaceBuilder::build(self, id)

@@ -1,5 +1,5 @@
 @native
-class List is Iterable {
+class List<T> is Iterable {
   @class @native new() -> List
   @internal @native _$length -> Int
   @internal @native _$at(_ index: Int) -> Dynamic

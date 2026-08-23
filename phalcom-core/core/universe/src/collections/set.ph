@@ -1,5 +1,5 @@
 @native
-class Set is Iterable {
+class Set<T> is Iterable {
   @class @native new() -> Set
   @internal @native _$size -> Int
   @internal @native _$add(_ value: Dynamic) -> Dynamic

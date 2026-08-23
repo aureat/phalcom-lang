@@ -731,6 +731,21 @@ fn result_cancelled(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 // Behavior methods
 // ---------------------------------------------------------------------------
 
+fn behavior_generic_arity(vm: &VM, class_id: crate::heap::ClassId) -> usize {
+    if let Some(signature) = inspect::generic_signature_of_declaration(&vm.typing_registry, class_id, &vm.heap) {
+        return inspect::generic_sig_parameters(&vm.typing_registry, signature).len();
+    }
+
+    // Runtime metadata may not yet be loaded for a primordial class. Keep
+    // fallback aligned with canonical universe type forms, including Option
+    // and Some rather than the historical collection-only projection.
+    match vm.heap.class(class_id).name.as_str() {
+        "List" | "Set" | "Option" | "Some" => 1,
+        "Map" => 2,
+        _ => 0,
+    }
+}
+
 fn behavior_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = receiver
         .as_obj()
@@ -739,11 +754,7 @@ fn behavior_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
             expected: "Class",
             found: receiver.type_name(),
         })?;
-    let parameter_count = match vm.heap.class(class_id).name.as_str() {
-        "List" | "Set" => 1,
-        "Map" => 2,
-        _ => 0,
-    };
+    let parameter_count = behavior_generic_arity(vm, class_id);
     if parameter_count == 0 {
         return Ok(Value::obj(class(vm, "Type")?));
     }
@@ -781,11 +792,7 @@ fn behavior_remaining_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
             expected: "Class",
             found: receiver.type_name(),
         })?;
-    let count = match vm.heap.class(class_id).name.as_str() {
-        "List" | "Set" => 1,
-        "Map" => 2,
-        _ => 0,
-    };
+    let count = behavior_generic_arity(vm, class_id);
     Ok(Value::int(count))
 }
 

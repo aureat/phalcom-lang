@@ -71,7 +71,7 @@ class CannotYieldAcrossNativeFrame is Error {}
 class UseAfterCloseError is Error {}
 
 
-class Result {
+class Result<T, E> {
   isOk { self.match(ok: |v| { true }, err: |e| { false }) }
 
   isErr { self.match(ok: |v| { false }, err: |e| { true }) }
@@ -121,14 +121,14 @@ class Result {
 }
 
 
-class Ok is Result {
+class Ok<T, E> is Result<T, E> {
   @constructor
   new(_ v) { _value = v }
 
   match(ok, err) { ok.call(_value) }
 }
 
-class Err is Result {
+class Err<T, E> is Result<T, E> {
   @constructor
   new(_ e) { _error = e }
 

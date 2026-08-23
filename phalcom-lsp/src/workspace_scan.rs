@@ -432,10 +432,10 @@ mod tests {
     }
 
     #[test]
-    fn scanner_skips_core_physical_path() {
+    fn scanner_skips_canonical_core_physical_path() {
         let root = tmpdir("core_skip");
-        fs::create_dir_all(root.join("core")).unwrap();
-        let core_path = root.join("core/core.ph");
+        fs::create_dir_all(root.join("core/universe/src")).unwrap();
+        let core_path = root.join("core/universe/src/package.ph");
         let other_path = root.join("other.ph");
         fs::write(&core_path, "").unwrap();
         fs::write(&other_path, "").unwrap();
@@ -453,7 +453,7 @@ mod tests {
         }
 
         let paths: std::collections::BTreeSet<_> = all.iter().map(|f| f.path.clone()).collect();
-        assert!(!paths.contains(&core_path), "core.ph should be skipped from ordinary scan");
+        assert!(!paths.contains(&core_path), "canonical core source should be skipped from ordinary scan");
         assert!(paths.contains(&other_path), "other.ph should be discovered");
 
         let _ = fs::remove_dir_all(&root);
