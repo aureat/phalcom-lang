@@ -552,7 +552,7 @@ fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut Ve
     }
 }
 
-fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw: &mut Vec<RawToken>) {
+fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw: &mut [RawToken]) {
     let mut occurrences_map = std::collections::BTreeMap::new();
     for occurrence in file.occurrences.all() {
         occurrences_map.insert((occurrence.range.start, occurrence.range.end), occurrence.kind);
@@ -681,7 +681,7 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
                 kind: SemanticTokenKind::Method,
                 is_index: false,
             });
-            collect_decl_names(&method_def.body, out);
+            collect_decl_names(method_def.body.statements().unwrap_or_default(), out);
         }
         ClassMember::Getter(getter_def) => {
             out.push(DeclNameOverride {
@@ -689,7 +689,7 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
                 kind: SemanticTokenKind::Method,
                 is_index: false,
             });
-            collect_decl_names(&getter_def.body, out);
+            collect_decl_names(getter_def.body.statements().unwrap_or_default(), out);
         }
         ClassMember::Setter(setter_def) => {
             out.push(DeclNameOverride {
@@ -697,7 +697,7 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
                 kind: SemanticTokenKind::Method,
                 is_index: false,
             });
-            collect_decl_names(&setter_def.body, out);
+            collect_decl_names(setter_def.body.statements().unwrap_or_default(), out);
         }
         ClassMember::Field(field_def) => {
             out.push(DeclNameOverride {

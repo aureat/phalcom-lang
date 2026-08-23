@@ -1005,7 +1005,13 @@ fn shallow_local_binding_at(program: &phalcom_ast::ast::Program, name: &str, off
         let phalcom_ast::ast::Statement::Class(class) = statement else { return false };
         class.members.iter().any(|member| match member {
             phalcom_ast::ast::ClassMember::Method(method) => {
-                method.range.contains(offset) && method.body.iter().any(|statement| statement_has_binding(statement, name))
+                method.range.contains(offset)
+                    && method
+                        .body
+                        .statements()
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|statement| statement_has_binding(statement, name))
             }
             _ => false,
         })

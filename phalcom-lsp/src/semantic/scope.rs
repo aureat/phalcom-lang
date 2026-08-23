@@ -354,20 +354,25 @@ impl ScopeBuilder {
             ClassMember::Method(method) => (
                 method.range,
                 method.params.as_slice(),
-                method.body.as_slice(),
+                method.body.statements().unwrap_or_default(),
                 SemanticBindingKind::MethodParameter,
             ),
-            ClassMember::Getter(getter) => (getter.range, &[][..], getter.body.as_slice(), SemanticBindingKind::MethodParameter),
+            ClassMember::Getter(getter) => (
+                getter.range,
+                &[][..],
+                getter.body.statements().unwrap_or_default(),
+                SemanticBindingKind::MethodParameter,
+            ),
             ClassMember::Setter(setter) => (
                 setter.range,
                 std::slice::from_ref(&setter.param),
-                setter.body.as_slice(),
+                setter.body.statements().unwrap_or_default(),
                 SemanticBindingKind::SetterParameter,
             ),
             ClassMember::Index(index) => {
                 let mut all = index.params.clone();
                 if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
-                    all.push(put.clone());
+                    all.push((**put).clone());
                 }
                 let scope = self.new_scope(parent, index.range);
                 for parameter in &all {

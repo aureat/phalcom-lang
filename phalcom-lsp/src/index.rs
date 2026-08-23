@@ -895,19 +895,19 @@ impl Collector {
             match member {
                 ClassMember::Method(m) => {
                     self.definitions.push((selector, m.name_range, class, kind));
-                    for statement in &m.body {
+                    for statement in m.body.statements().unwrap_or_default() {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Getter(g) => {
                     self.definitions.push((selector, g.name_range, class, kind));
-                    for statement in &g.body {
+                    for statement in g.body.statements().unwrap_or_default() {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Setter(s) => {
                     self.definitions.push((selector, s.name_range, class, kind));
-                    for statement in &s.body {
+                    for statement in s.body.statements().unwrap_or_default() {
                         self.walk_statement(statement);
                     }
                 }

@@ -227,7 +227,7 @@ fn find_method_return_class(program: &Program, class_name: &str, method_name: &s
         _ => None,
     })?;
     let body = class.members.iter().find_map(|member| match member {
-        ClassMember::Method(method) if method.name == method_name => Some(method.body.as_slice()),
+        ClassMember::Method(method) if method.name == method_name => method.body.statements(),
         _ => None,
     })?;
     body.iter().rev().find_map(|statement| match statement {
@@ -262,9 +262,9 @@ fn enclosing_method(program: &Program, offset: usize) -> Option<(&phalcom_ast::a
 
 fn member_body(member: &ClassMember) -> Option<&[Statement]> {
     match member {
-        ClassMember::Method(method) => Some(&method.body),
-        ClassMember::Getter(getter) => Some(&getter.body),
-        ClassMember::Setter(setter) => Some(&setter.body),
+        ClassMember::Method(method) => method.body.statements(),
+        ClassMember::Getter(getter) => getter.body.statements(),
+        ClassMember::Setter(setter) => setter.body.statements(),
         ClassMember::Index(index) => Some(&index.body),
         ClassMember::Field(_) | ClassMember::Variant(_) => None,
     }

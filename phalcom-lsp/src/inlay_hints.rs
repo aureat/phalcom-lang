@@ -76,7 +76,7 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
     };
     let mut hints = Vec::new();
     collect_file_semantic_hints(
-        &snapshot,
+        snapshot,
         Some(&request.semantic),
         &request.document.text,
         &request.document.line_index,
@@ -90,6 +90,8 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
     hints
 }
 
+// These inputs are intentionally explicit: each is independently sourced from the pinned request snapshot.
+#[allow(clippy::too_many_arguments)]
 fn collect_file_semantic_hints(
     file_snapshot: &FileSemanticSnapshot,
     global_snapshot: Option<&SemanticSnapshot>,
@@ -262,6 +264,7 @@ fn collect_file_semantic_hints(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_statement_closure_hints(
     stmt: &Statement,
     file_snapshot: &FileSemanticSnapshot,
@@ -285,17 +288,17 @@ fn collect_statement_closure_hints(
             for member in &class_def.members {
                 match member {
                     ClassMember::Method(m) => {
-                        for s in &m.body {
+                        for s in m.body.statements().unwrap_or_default() {
                             collect_statement_closure_hints(s, file_snapshot, text, line_index, visible_start, visible_end, policy, hints);
                         }
                     }
                     ClassMember::Getter(g) => {
-                        for s in &g.body {
+                        for s in g.body.statements().unwrap_or_default() {
                             collect_statement_closure_hints(s, file_snapshot, text, line_index, visible_start, visible_end, policy, hints);
                         }
                     }
                     ClassMember::Setter(s) => {
-                        for st in &s.body {
+                        for st in s.body.statements().unwrap_or_default() {
                             collect_statement_closure_hints(st, file_snapshot, text, line_index, visible_start, visible_end, policy, hints);
                         }
                     }
@@ -333,6 +336,7 @@ fn collect_statement_closure_hints(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_expr_closure_hints(
     expr: &Expr,
     file_snapshot: &FileSemanticSnapshot,
@@ -652,6 +656,7 @@ fn shallow_hints(doc: &Document, uri: &Url, visible_start: usize, visible_end: u
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn shallow_hints_internal(
     program: &Program,
     text: &str,
@@ -717,9 +722,9 @@ fn shallow_hints_internal(
                                 }
                             }
                         }
-                        ClassMember::Method(m) => {
+                        ClassMember::Method(m)
                             // Constructor return hint in shallow mode
-                            if m.is_constructor {
+                            if m.is_constructor => {
                                 let shape = ValueShape::Instance(crate::semantic::ClassId::new(module.clone(), class_def.name.clone()));
                                 if should_render(policy, &Confidence::Exact, &shape) {
                                     let offset =
@@ -744,7 +749,6 @@ fn shallow_hints_internal(
                                     }
                                 }
                             }
-                        }
                         _ => {}
                     }
                 }

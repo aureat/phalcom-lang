@@ -16,9 +16,9 @@ pub fn member_ast(source: &FileSourceSnapshot, ast_ref: MemberAstRef) -> Option<
 pub fn member_body(source: &FileSourceSnapshot, ast_ref: MemberAstRef) -> &[Statement] {
     match member_ast(source, ast_ref) {
         None => &[],
-        Some(ClassMember::Method(m)) => &m.body,
-        Some(ClassMember::Getter(g)) => &g.body,
-        Some(ClassMember::Setter(s)) => &s.body,
+        Some(ClassMember::Method(m)) => m.body.statements().unwrap_or_default(),
+        Some(ClassMember::Getter(g)) => g.body.statements().unwrap_or_default(),
+        Some(ClassMember::Setter(s)) => s.body.statements().unwrap_or_default(),
         Some(ClassMember::Index(i)) => &i.body,
         Some(_) => &[],
     }

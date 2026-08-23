@@ -486,7 +486,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
             if let ClassMember::Field(field) = member {
                 let field_surface = FieldSurface {
                     name: field.name.clone(),
-                    kind: if field.name.starts_with("_$") {
+                    kind: if field.name.starts_with("__") {
                         FieldKind::Implementation
                     } else {
                         FieldKind::Source
@@ -683,7 +683,7 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
         ClassMember::Index(index) => {
             let params = match &index.accessor {
                 IndexAccessor::Get => params(&index.params),
-                IndexAccessor::Set { put } => index.params.iter().chain(std::iter::once(put)).map(param).collect(),
+                IndexAccessor::Set { put } => index.params.iter().chain(std::iter::once(put.as_ref())).map(param).collect(),
             };
             (MemberKind::Index, DispatchSide::Instance, false, params, index.range, index.name_range)
         }

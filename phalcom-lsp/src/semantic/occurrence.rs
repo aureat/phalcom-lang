@@ -247,16 +247,16 @@ impl OccurrenceBuilder<'_> {
             ClassMember::Method(method) => {
                 self.push_callable_declaration(&member_surface);
                 self.visit_parameters(&method.params, scope);
-                self.visit_statements(&method.body, scope);
+                self.visit_statements(method.body.statements().unwrap_or_default(), scope);
             }
             ClassMember::Getter(getter) => {
                 self.push_callable_declaration(&member_surface);
-                self.visit_statements(&getter.body, scope);
+                self.visit_statements(getter.body.statements().unwrap_or_default(), scope);
             }
             ClassMember::Setter(setter) => {
                 self.push_callable_declaration(&member_surface);
                 self.visit_parameters(std::slice::from_ref(&setter.param), scope);
-                self.visit_statements(&setter.body, scope);
+                self.visit_statements(setter.body.statements().unwrap_or_default(), scope);
             }
             ClassMember::Index(index) => {
                 self.push_callable_declaration(&member_surface);
