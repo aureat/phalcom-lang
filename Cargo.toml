@@ -40,6 +40,15 @@ default-members = [
 debug = 1
 incremental = true
 
+[profile.release]
+opt-level = 3          # Maximum optimizations (Default for release)
+lto = true             # Enable Link-Time Optimization across all crates
+codegen-units = 1      # Reduce parallel code generation units for better optimization
+panic = "abort"
+
+[build]
+rustflags = ["-C", "target-cpu=native"]
+
 [workspace.dependencies]
 thiserror = "2.0.12"
 serde = { version = "1.0", features = ["derive"] }
