@@ -87,12 +87,11 @@ fn main() {
     });
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let core_ph_path = manifest_dir.join("core/core.ph");
     let primitives_rs_path = manifest_dir.join("src/universe/primitives.rs");
 
     let mut classes: BTreeMap<String, Vec<SelectorEntry>> = BTreeMap::new();
 
-    harvest_core_ph(&core_ph_path, &mut classes);
+    harvest_universe_sources(&mut classes);
     harvest_primitives_rs(&primitives_rs_path, &mut classes);
 
     for entries in classes.values_mut() {
@@ -107,13 +106,22 @@ fn main() {
     eprintln!("wrote {} classes to {out_path}", classes.len());
 }
 
-/// Parses `core.ph` and harvests every class's declared selectors in
+/// Parses every canonical universe module and harvests every class's declared selectors in
 /// comma-form.
-fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEntry>>) {
-    let source = fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-    let program = phalcom_ast::parse_source(&source, 0).unwrap_or_else(|e| panic!("failed to parse {}: {e:?}", path.display()));
+fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) {
+    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
+    for node in provider.nodes() {
+        let path = phalcom_modules::identity::ModulePath::from_components(
+            node.path
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
+                .collect(),
+        );
+        let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
+        let source = provider.source_text(&module).unwrap_or_else(|e| panic!("failed to read {module}: {e}"));
+        let program = phalcom_ast::parse_source(&source, 0).unwrap_or_else(|e| panic!("failed to parse {module}: {e:?}"));
 
-    for stmt in &program.statements {
+        for stmt in &program.statements {
         let Statement::Class(class_def) = stmt else { continue };
         let entries = classes.entry(class_def.name.clone()).or_default();
 
@@ -131,7 +139,7 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                         },
                         class_side,
                         visibility,
-                        source: "core.ph",
+                        source: "universe",
                     });
                 }
                 ClassMember::Getter(g) => {
@@ -140,7 +148,7 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                         kind: "getter",
                         class_side,
                         visibility,
-                        source: "core.ph",
+                        source: "universe",
                     });
                 }
                 ClassMember::Setter(s) => {
@@ -149,7 +157,7 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                         kind: "setter",
                         class_side,
                         visibility,
-                        source: "core.ph",
+                        source: "universe",
                     });
                 }
                 // A declared field (U-ANNOT-LAYOUT §3.1) has no selector of
@@ -173,10 +181,11 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                         kind: "method",
                         class_side,
                         visibility,
-                        source: "core.ph",
+                        source: "universe",
                     });
                 }
             }
+        }
         }
     }
 }
