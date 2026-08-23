@@ -59,18 +59,18 @@ impl<'a> ModuleQueryFacade<'a> {
         roots
     }
 
-    /// Returns direct module children of a canonical project-relative prefix.
+    /// Returns direct module children of a canonical project-relative prefix for any project.
     /// Package exposure is enforced from the source-owned unlinked interface.
-    pub fn import_children(&self, importer: &ModuleId, prefix: &ModulePath) -> Vec<ModuleId> {
+    pub fn import_children_in_project(&self, project: ProjectIdentity, prefix: &ModulePath) -> Vec<ModuleId> {
         let parent = ModuleId {
-            project: importer.project,
+            project,
             path: prefix.clone(),
         };
         let exposed = self.unlinked.get(&parent).map(|interface| &interface.exposed_children);
 
         self.linked
             .keys()
-            .filter(|candidate| candidate.project == importer.project)
+            .filter(|candidate| candidate.project == project)
             .filter_map(|candidate| {
                 let components = candidate.path.components();
                 if components.len() != prefix.components().len() + 1 || &components[..prefix.components().len()] != prefix.components() {
@@ -83,6 +83,12 @@ impl<'a> ModuleQueryFacade<'a> {
                 Some(candidate.clone())
             })
             .collect()
+    }
+
+    /// Returns direct module children of a canonical project-relative prefix for an importer's project.
+    /// Package exposure is enforced from the source-owned unlinked interface.
+    pub fn import_children(&self, importer: &ModuleId, prefix: &ModulePath) -> Vec<ModuleId> {
+        self.import_children_in_project(importer.project, prefix)
     }
 
     /// Returns linked public exports for a module.
