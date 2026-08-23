@@ -80,132 +80,41 @@ impl BuiltinInterfaceBuilder {
         result
     }
 
-    /// Derives unlinked module interface from a pre-parsed builtin module unit with native overlay.
+    /// Derives unlinked module interface from the canonical parsed source.
     pub fn build_from_parsed(_provider: &BuiltinProjectSourceProvider, parsed: &ParsedModuleUnit) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         let mut iface = InterfaceBuilder::build(parsed.id.clone(), parsed.kind, &parsed.program).map_err(|e| ModuleLoadError::Interface {
             module: parsed.id.clone(),
             error: e,
         })?;
 
-        let id = &parsed.id;
-        // Overlay primordial native universe bindings for the universe root package or matching submodules
-        if id.project == ProjectIdentity::Builtin(BuiltinProject::Universe) {
-            let names: Vec<&'static str> = if id.path.is_root() {
-                phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|b| b.exported).map(|b| b.name).collect()
-            } else {
-                let comps: Vec<&str> = id.path.components().iter().map(|c| c.as_str()).collect();
-                match comps.as_slice() {
-                    ["reflection", "selector"] => vec!["Selector", "SelectorPattern"],
-                    ["reflection", "message"] => vec!["Message"],
-                    ["reflection", "attribute"] => vec!["Attribute"],
-                    ["reflection", "typing", "kind"] => vec!["KindDescriptor", "AtomicKind", "FunctionKind", "Type"],
-                    ["reflection", "typing", "type_descriptor"] => vec![
-                        "TypeDescriptor",
-                        "AppliedType",
-                        "UnionType",
-                        "TupleType",
-                        "RecordType",
-                        "CallableType",
-                        "TypeLambda",
-                        "SpecialType",
-                        "SelfType",
-                    ],
-                    ["reflection", "typing", "type_parameter"] => vec!["TypeParameter"],
-                    ["reflection", "typing", "generic_signature"] => vec!["GenericSignature", "GenericConstraint"],
-                    ["reflection", "typing", "signature"] => vec!["CallableSignature", "CallableParameter", "FieldSignature"],
-                    ["reflection", "typing", "type_use"] => vec!["TypeUse"],
-                    ["reflection", "typing", "result"] => vec![
-                        "TypingResult",
-                        "TypingKnown",
-                        "TypingUnknown",
-                        "TypingInvalid",
-                        "TypingUnavailable",
-                        "TypingCancelled",
-                        "TypingBudgetExceeded",
-                        "TypingInternalFailure",
-                        "TypeRelationResult",
-                        "RelationSatisfied",
-                        "RelationRejected",
-                        "RelationDynamicBoundary",
-                        "RelationBlocked",
-                        "RelationCancelled",
-                        "RelationBudgetExceeded",
-                        "RelationInternalFailure",
-                        "MemberLookupResult",
-                        "MemberFound",
-                        "MemberMissing",
-                        "MemberDynamicBoundary",
-                        "MemberBlocked",
-                        "MemberCancelled",
-                        "MemberBudgetExceeded",
-                        "MemberInternalFailure",
-                    ],
-                    ["reflection", "typing", "evidence"] => vec!["RelationEvidence", "RelationFailure", "DynamicBoundary", "ReflectionCapability"],
-                    ["reflection", "typing", "context"] => vec!["TypingContext", "Typing"],
-                    ["reflection", "module"] => vec!["Module"],
-                    ["reflection", "package_object"] => vec!["Package"],
-                    ["reflection", "project"] => vec!["Project"],
-                    ["reflection", "uri"] => vec!["Uri"],
-                    ["reflection", "module_identity"] => vec!["ModuleIdentity"],
-                    ["reflection", "package_identity"] => vec!["PackageIdentity"],
-                    ["reflection", "project_identity"] => vec!["ProjectIdentity"],
-                    ["concurrency", "fiber"] => vec!["Fiber"],
-                    ["errors", "error"] => vec!["Error", "MessageNotUnderstood", "CannotYieldAcrossNativeFrame", "UseAfterCloseError"],
-                    ["object", "object"] => vec!["Object"],
-                    ["object", "behavior"] => vec!["Behavior"],
-                    ["object", "class"] => vec!["Class"],
-                    ["object", "metaclass"] => vec!["Metaclass"],
-                    ["scalar", "number"] => vec!["Number", "Int", "Float"],
-                    ["scalar", "string"] => vec!["String"],
-                    ["scalar", "bool"] => vec!["Bool", "True", "False"],
-                    ["scalar", "symbol"] => vec!["Symbol"],
-                    ["callable", "function"] => vec!["Function"],
-                    ["callable", "closure"] => vec!["Closure"],
-                    ["callable", "method"] => vec!["Method", "BoundMethod"],
-                    ["callable", "family"] => vec!["Family", "MethodFamily", "BoundMethodFamily"],
-                    ["option", "option"] => vec!["Option", "Some", "None", "Unit"],
-                    ["collections", "list"] => vec!["List"],
-                    ["collections", "map"] => vec!["Map"],
-                    ["collections", "set"] => vec!["Set"],
-                    ["collections", "tuple"] => vec!["Tuple"],
-                    ["collections", "record"] => vec!["Record"],
-                    ["collections", "range"] => vec!["Range"],
-                    ["collections", "bytes"] => vec!["Bytes"],
-                    ["collections", "iterable"] => vec!["Iterable"],
-                    _ => vec![],
-                }
-            };
-
-            for name_str in names {
+        if parsed.id.project == ProjectIdentity::Builtin(BuiltinProject::Universe) && parsed.id.path.is_root() {
+            // Root/prelude bindings are policy data, not source declarations.
+            // Module and class presentation data comes exclusively from the
+            // parsed universe modules above.
+            for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.exported) {
+                let name = binding.name.to_string();
                 let range = SourceRange::default();
-                let name = name_str.to_string();
-
-                if iface.declarations.contains_key(&name) {
-                    continue;
+                if !iface.declarations.contains_key(&name) {
+                    iface.declarations.insert(
+                        name.clone(),
+                        DeclarationSurface {
+                            name: name.clone(),
+                            is_const: true,
+                            range,
+                        },
+                    );
                 }
-
-                iface.declarations.insert(
-                    name.clone(),
-                    DeclarationSurface {
-                        name: name.clone(),
-                        is_const: true,
-                        range,
-                    },
-                );
-
-                if iface.exports.contains_key(&name) {
-                    continue;
+                if !iface.exports.contains_key(&name) {
+                    iface.exports.insert(
+                        name.clone(),
+                        ExportSurface {
+                            exported_name: name.clone(),
+                            internal_name: name.clone(),
+                            target: UnlinkedExportTarget::Local(name),
+                            range,
+                        },
+                    );
                 }
-
-                iface.exports.insert(
-                    name.clone(),
-                    ExportSurface {
-                        exported_name: name.clone(),
-                        internal_name: name.clone(),
-                        target: UnlinkedExportTarget::Local(name),
-                        range,
-                    },
-                );
             }
         }
 

@@ -12,7 +12,7 @@ impl VM {
     /// Creates a new VM: builds the heap, bootstraps the kernel tower, and
     /// installs the core module and native primitives.
     pub fn new() -> Self {
-        Self::new_with_native_install_mode(NativeInstallMode::Dual)
+        Self::new_with_native_install_mode(NativeInstallMode::DescriptorOnly)
     }
 
     /// Creates a VM with an explicit native installation path.
@@ -82,15 +82,12 @@ impl VM {
         // Bootstrap core module and primitive methods
         vm.install_core();
 
-        // Source/native preflight runs before either native installer. During
-        // migration it enforces every newly authored source anchor while
-        // allowing legacy descriptor entries to migrate incrementally; strict
-        // descriptor-to-source bijection is enabled after the source corpus is
-        // complete.
+        // Source/native preflight runs before native installation. The parsed
+        // units retained by this index are the same units compiled below, so
+        // verification and execution cannot observe different source text.
         let source_index = crate::native::NativeSourceIndex::build().expect("canonical universe source must parse");
         let descriptors = crate::native::PRIMITIVES.iter().collect::<Vec<_>>();
-        crate::native::verify_native_contracts_with_mode(&source_index, &descriptors, crate::native::NativeContractMode::AnchorsMustResolve)
-            .expect("canonical native source anchors must resolve");
+        crate::native::verify_native_contracts(&source_index, &descriptors).expect("canonical native source contracts must verify");
 
         // Populate prelude_names from UNIVERSE_BINDINGS
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
@@ -191,10 +188,10 @@ impl VM {
             vm.heap.class_mut(uace).field_slots.insert(displaced_sym, 3);
             vm.heap.class_mut(uace).field_count = 4;
         }
-        let descriptor_floor_complete = crate::native::descriptor_floor_is_complete();
-        if matches!(native_install_mode, NativeInstallMode::Dual) || !descriptor_floor_complete {
-            Universe::install_primitives(&mut vm);
-        }
+        // Native descriptors are the sole primitive authority. Keep the
+        // public mode parameter for callers during the migration, but never
+        // reinstall the retired hand-written primitive table.
+        let _ = native_install_mode;
         crate::native::install::install_registered_primitives(&mut vm).expect("registered primitives must install cleanly");
 
         // Finalize every kernel row's base-name index (selectors.md §3.1,
@@ -212,7 +209,7 @@ impl VM {
         // …) to its bootstrapped kernel row. Must run after
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`).
-        vm.run_universe_modules().expect("universe modules must compile and run cleanly");
+        vm.run_universe_modules(&source_index).expect("universe modules must compile and run cleanly");
 
         // Semantic roots are late-bound to the exact values exported by the
         // universe sources. No Rust replacement is valid for these identities.
@@ -293,27 +290,10 @@ impl VM {
     /// # Errors
     ///
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
-    fn run_universe_modules(&mut self) -> PhResult<()> {
+    fn run_universe_modules(&mut self, source_index: &crate::native::NativeSourceIndex) -> PhResult<()> {
         let module = self.core_module().expect("core module registered by install_core");
-        let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
-
-        for node in provider.nodes() {
-            let path = phalcom_modules::identity::ModulePath::from_components(
-                node.path
-                    .iter()
-                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
-                    .collect::<Vec<_>>(),
-            );
-            let module_id = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
-            let parsed = provider
-                .load_parsed(&module_id)
-                .map_err(|e| crate::error::RuntimeError::Internal(format!("failed to load parsed universe module {module_id}: {e}")))?;
-
-            let source_text = provider
-                .source_text(&module_id)
-                .map_err(|e| crate::error::RuntimeError::Internal(format!("failed to load universe source {module_id}: {e}")))?;
-
-            let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(source_text.to_string()));
+        for parsed in &source_index.units {
+            let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.clone()));
             let closure = self.compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)?;
             self.run_in_module(module, closure)?;
         }

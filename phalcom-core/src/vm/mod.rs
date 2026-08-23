@@ -65,10 +65,11 @@ pub const MAX_CALL_DEPTH: usize = 10_000;
 /// [`MAX_CALL_DEPTH`] instead.
 pub const MAX_NATIVE_REENTRY: usize = 32;
 
-/// Native installation path used during the descriptor migration.
+/// Native installation path retained for API compatibility while descriptors
+/// are the sole runtime primitive authority.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NativeInstallMode {
-    /// Keep legacy and descriptor installers active for parity comparison.
+    /// Historical dual mode; now aliases descriptor-only installation.
     Dual,
     /// Install only distributed primitive descriptors.
     DescriptorOnly,

@@ -1,7 +1,8 @@
 //! Live source and native declarations for the semantic core module.
 //!
-//! `core.ph` is embedded only as an installation fallback. Workspace and
-//! open-buffer copies replace it through [`super::SemanticDb::update_core`].
+//! Canonical universe source is used as the bundled semantic fallback.
+//! Workspace and open-buffer copies replace it through
+//! [`super::SemanticDb::update_core`].
 //! Native members use the same structured surface consumed by completion;
 //! opaque native returns deliberately carry no guessed value shape.
 
@@ -17,7 +18,7 @@ use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
 
 /// Bundled source fallback for the semantic core module.
-pub const BUNDLED_CORE_SOURCE: &str = include_str!("../../../phalcom-core/core/core.ph");
+pub const BUNDLED_CORE_SOURCE: &str = include_str!("../../../phalcom-core/core/universe/src/package.ph");
 
 pub use phalcom_native_surface::NativeReturnShape;
 
@@ -31,7 +32,7 @@ pub enum CoreSource {
         /// Source text.
         text: Arc<str>,
     },
-    /// Discovered workspace core source (`phalcom-core/core/core.ph` or `core/core.ph`).
+    /// Discovered canonical universe package source.
     Workspace {
         /// Physical source URI.
         physical_uri: Url,
@@ -49,8 +50,8 @@ impl CoreSource {
     /// Selects the best available core source based on precedence rules.
     ///
     /// 1. Explicitly configured sysroot/core path.
-    /// 2. Workspace conventional `phalcom-core/core/core.ph`.
-    /// 3. Workspace conventional `core/core.ph`.
+    /// 2. Workspace conventional `phalcom-core/core/universe/src/package.ph`.
+    /// 3. Workspace conventional `core/universe/src/package.ph`.
     /// 4. Bundled core source.
     pub fn select(configured_path: Option<&Path>, workspace_roots: &[PathBuf]) -> Self {
         if let Some(path) = configured_path {
@@ -60,10 +61,10 @@ impl CoreSource {
         }
 
         for root in workspace_roots {
-            if let Some(source) = Self::load_from_path(&root.join("phalcom-core/core/core.ph"), false) {
+            if let Some(source) = Self::load_from_path(&root.join("phalcom-core/core/universe/src/package.ph"), false) {
                 return source;
             }
-            if let Some(source) = Self::load_from_path(&root.join("core/core.ph"), false) {
+            if let Some(source) = Self::load_from_path(&root.join("core/universe/src/package.ph"), false) {
                 return source;
             }
         }
@@ -104,7 +105,22 @@ impl CoreSource {
 
 /// Parses bundled core source.
 pub fn bundled_parse() -> Parse {
-    phalcom_ast::parser::parse(BUNDLED_CORE_SOURCE, 0)
+    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
+    let mut combined = phalcom_ast::parser::parse("");
+    for node in provider.nodes() {
+        let path = phalcom_modules::identity::ModulePath::from_components(
+            node.path
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
+                .collect(),
+        );
+        let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
+        let Ok(source) = provider.source_text(&module) else { continue };
+        let parsed = phalcom_ast::parser::parse(&source, 0);
+        combined.program.statements.extend(parsed.program.statements);
+        combined.errors.extend(parsed.errors);
+    }
+    combined
 }
 
 /// Builds the core surface from source and the canonical native declarations.
@@ -323,13 +339,13 @@ mod tests {
     fn core_source_precedence_selection() {
         let root = std::env::temp_dir().join(format!("phalcom-core-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("phalcom-core/core")).unwrap();
-        std::fs::create_dir_all(root.join("core")).unwrap();
+        std::fs::create_dir_all(root.join("phalcom-core/core/universe/src")).unwrap();
+        std::fs::create_dir_all(root.join("core/universe/src")).unwrap();
 
-        let workspace_core = root.join("phalcom-core/core/core.ph");
+        let workspace_core = root.join("phalcom-core/core/universe/src/package.ph");
         std::fs::write(&workspace_core, "class WorkspaceCore {}").unwrap();
 
-        let root_core = root.join("core/core.ph");
+        let root_core = root.join("core/universe/src/package.ph");
         std::fs::write(&root_core, "class RootCore {}").unwrap();
 
         // 1. Configured wins
@@ -339,12 +355,12 @@ mod tests {
         assert_eq!(selected.text(), "class CustomCore {}");
         assert!(matches!(selected, CoreSource::Configured { .. }));
 
-        // 2. phalcom-core/core/core.ph wins over core/core.ph
+        // 2. canonical workspace universe source wins over fallback
         let selected = CoreSource::select(None, std::slice::from_ref(&root));
         assert_eq!(selected.text(), "class WorkspaceCore {}");
         assert!(matches!(selected, CoreSource::Workspace { .. }));
 
-        // 3. core/core.ph wins if phalcom-core not present
+        // 3. alternate canonical workspace source wins if primary is absent
         std::fs::remove_file(&workspace_core).unwrap();
         let selected = CoreSource::select(None, std::slice::from_ref(&root));
         assert_eq!(selected.text(), "class RootCore {}");
