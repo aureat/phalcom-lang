@@ -220,14 +220,16 @@ fn collect_file_semantic_hints(
             let return_val = global_snapshot.and_then(|db| db.return_for_callable(&member.callable));
             if let Some(ret) = return_val {
                 if should_render(policy, &ret.confidence, &ret.shape) {
-                    let ret_pos = find_return_hint_offset(
-                        &file_snapshot.source.program,
-                        member.ast.class_stmt_idx,
-                        member.ast.member_idx,
-                        member.kind,
-                        member.name_range,
-                        text,
-                    );
+                    let ret_pos = member.ast.and_then(|ast| {
+                        find_return_hint_offset(
+                            &file_snapshot.source.program,
+                            ast.class_stmt_idx,
+                            ast.member_idx,
+                            member.kind,
+                            member.name_range,
+                            text,
+                        )
+                    });
                     if let Some(offset) = ret_pos {
                         if offset >= visible_start && offset <= visible_end {
                             let rendered = render_shape(&ret.shape);

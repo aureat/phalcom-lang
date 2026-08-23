@@ -6,12 +6,17 @@ use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
-use super::VM;
+use super::{NativeInstallMode, VM};
 
 impl VM {
     /// Creates a new VM: builds the heap, bootstraps the kernel tower, and
     /// installs the core module and native primitives.
     pub fn new() -> Self {
+        Self::new_with_native_install_mode(NativeInstallMode::Dual)
+    }
+
+    /// Creates a VM with an explicit native installation path.
+    pub fn new_with_native_install_mode(native_install_mode: NativeInstallMode) -> Self {
         let interner = crate::interner::Interner::with_capacity(100);
         let mut heap = crate::heap::Heap::new();
         let universe = Universe::new(&mut heap);
@@ -175,7 +180,10 @@ impl VM {
             vm.heap.class_mut(uace).field_slots.insert(displaced_sym, 3);
             vm.heap.class_mut(uace).field_count = 4;
         }
-        Universe::install_primitives(&mut vm);
+        let descriptor_floor_complete = crate::native::descriptor_floor_is_complete();
+        if matches!(native_install_mode, NativeInstallMode::Dual) || !descriptor_floor_complete {
+            Universe::install_primitives(&mut vm);
+        }
         crate::native::install::install_registered_primitives(&mut vm).expect("registered primitives must install cleanly");
 
         // Finalize every kernel row's base-name index (selectors.md §3.1,
@@ -307,6 +315,10 @@ impl VM {
             ("collections/bytes", include_str!("../../core/universe/src/collections/bytes.ph")),
             ("reflection/attribute", include_str!("../../core/universe/src/reflection/attribute.ph")),
             ("reflection/selector", include_str!("../../core/universe/src/reflection/selector.ph")),
+            (
+                "reflection/implementation",
+                include_str!("../../core/universe/src/reflection/implementation.ph"),
+            ),
         ];
 
         for (name, source) in SOURCES {

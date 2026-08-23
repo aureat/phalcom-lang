@@ -2,7 +2,8 @@
 
 use super::merge::{MergedClassSurface, SurfaceMergeOutcome};
 use crate::identity::{DeclarationId, DispatchSide};
-use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeIntrinsicId};
+use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeIntrinsicId, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_native_surface::NativeSurfaceId;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MethodPresentation {
@@ -10,8 +11,12 @@ pub struct MethodPresentation {
     pub side: DispatchSide,
     pub display_signature: String,
     pub implementation_kind: ImplementationKind,
+    pub native_id: Option<NativeSurfaceId>,
     pub intrinsic: Option<NativeIntrinsicId>,
     pub effects: Option<String>,
+    pub raises: RaisesSpec,
+    pub flow: ReturnFlowSpec,
+    pub lifecycle: NativeLifecycleSpec,
     pub documentation: Option<String>,
     pub conceptual: Option<String>,
 }
@@ -42,8 +47,33 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: format!("{sel}"),
                         implementation_kind: ImplementationKind::NativePrimitive,
+                        native_id: Some(n.id()),
                         intrinsic: n.intrinsic(),
                         effects: effects_str,
+                        raises: n.raises(),
+                        flow: n.flow(),
+                        lifecycle: n.lifecycle(),
+                        documentation: n.docs().map(|s| s.to_string()),
+                        conceptual: n.conceptual().map(|s| s.to_string()),
+                    });
+                }
+                SurfaceMergeOutcome::Generated(n) => {
+                    let effects_str = match n.effects() {
+                        EffectSpec::Pure => Some("pure".to_string()),
+                        EffectSpec::Known(k) => Some(format!("{:?}", k)),
+                        EffectSpec::Unknown => None,
+                    };
+                    members.push(MethodPresentation {
+                        selector: sel.clone(),
+                        side: *side,
+                        display_signature: format!("{sel}"),
+                        implementation_kind: ImplementationKind::Generated,
+                        native_id: Some(n.id()),
+                        intrinsic: n.intrinsic(),
+                        effects: effects_str,
+                        raises: n.raises(),
+                        flow: n.flow(),
+                        lifecycle: n.lifecycle(),
                         documentation: n.docs().map(|s| s.to_string()),
                         conceptual: n.conceptual().map(|s| s.to_string()),
                     });
@@ -54,8 +84,12 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: format!("{sel}"),
                         implementation_kind: ImplementationKind::Source,
+                        native_id: None,
                         intrinsic: None,
                         effects: None,
+                        raises: RaisesSpec::Unknown,
+                        flow: ReturnFlowSpec::Unknown,
+                        lifecycle: NativeLifecycleSpec::UNKNOWN,
                         documentation: s.doc_comment.clone(),
                         conceptual: None,
                     });
@@ -67,17 +101,52 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: format!("{sel}"),
                         implementation_kind: ImplementationKind::NativePrimitive,
+                        native_id: Some(native.id()),
                         intrinsic: native.intrinsic(),
                         effects: if native.effects() == EffectSpec::Pure {
                             Some("pure".to_string())
                         } else {
                             None
                         },
+                        raises: native.raises(),
+                        flow: native.flow(),
+                        lifecycle: native.lifecycle(),
                         documentation: doc,
                         conceptual: native.conceptual().map(|s| s.to_string()),
                     });
                 }
-                _ => {}
+                SurfaceMergeOutcome::SourceWrapperOverNative { source, native } => {
+                    members.push(MethodPresentation {
+                        selector: sel.clone(),
+                        side: *side,
+                        display_signature: format!("{sel}"),
+                        implementation_kind: ImplementationKind::Source,
+                        native_id: Some(native.id()),
+                        intrinsic: native.intrinsic(),
+                        effects: None,
+                        raises: native.raises(),
+                        flow: native.flow(),
+                        lifecycle: native.lifecycle(),
+                        documentation: source.doc_comment.clone().or_else(|| native.docs().map(str::to_owned)),
+                        conceptual: native.conceptual().map(str::to_owned),
+                    });
+                }
+                SurfaceMergeOutcome::Conflict { source, native, .. } => {
+                    members.push(MethodPresentation {
+                        selector: sel.clone(),
+                        side: *side,
+                        display_signature: format!("{sel}"),
+                        implementation_kind: ImplementationKind::Source,
+                        native_id: Some(native.id()),
+                        intrinsic: None,
+                        effects: None,
+                        raises: RaisesSpec::Unknown,
+                        flow: ReturnFlowSpec::Unknown,
+                        lifecycle: NativeLifecycleSpec::UNKNOWN,
+                        documentation: source.doc_comment.clone(),
+                        conceptual: None,
+                    });
+                }
             }
         }
 
@@ -111,6 +180,9 @@ impl ClassPresentation {
             let mut badges = Vec::new();
             if m.implementation_kind == ImplementationKind::NativePrimitive {
                 badges.push("native");
+            }
+            if m.implementation_kind == ImplementationKind::Generated {
+                badges.push("generated");
             }
             if let Some(_intrin) = m.intrinsic {
                 badges.push("intrinsic");

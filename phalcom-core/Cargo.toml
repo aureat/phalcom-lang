@@ -68,6 +68,10 @@ path = "tests/spec03_reflection.rs"
 name = "spec03_5_conformance"
 path = "tests/spec03_5_conformance.rs"
 
+[[test]]
+name = "spec03_5_census"
+path = "tests/spec03_5_census.rs"
+
 
 
 [features]

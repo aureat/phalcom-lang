@@ -301,13 +301,12 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     prev_name = Some(&f.name);
                 }
                 let owner_key = format!("{:?}", open_rec.tail.owner);
-                let tail_param =
-                    param_map
-                        .get(&(owner_key.clone(), open_rec.tail.index))
-                        .ok_or_else(|| MetadataValidationError::RecordTailParameterMissing {
-                            owner: owner_key,
-                            index: open_rec.tail.index,
-                        })?;
+                let tail_param = param_map
+                    .get(&(owner_key.clone(), open_rec.tail.index))
+                    .ok_or(MetadataValidationError::RecordTailParameterMissing {
+                        owner: owner_key,
+                        index: open_rec.tail.index,
+                    })?;
                 let tail_kind_entry = &bundle.kinds[tail_param.kind.0 as usize];
                 if !matches!(tail_kind_entry.node, KindNode::RecordRow) {
                     return Err(MetadataValidationError::RecordTailKindMismatch {

@@ -757,6 +757,8 @@ fn floor_census_matches_installed_bindings() {
     // operations: Tuple#slice_ reconstructs a label-preserving immutable
     // product, and List#replaceSlice_ mutates a variable-length span while
     // preserving receiver identity. Combined delta: +1 (158 -> 159).
+    // Spec 03.5 admits Method implementation provenance reflection: `isNative`,
+    // `isIntrinsic`, and `implementationKind` (+3, 216 -> 219).
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -876,10 +878,13 @@ fn floor_census_matches_installed_bindings() {
         (c.method_class, true, "new(_)"),
         (c.method_class, false, "arity"),
         (c.method_class, false, "name"),
-        (c.method_class, false, "invokeOn(_,***)"), // callable rest gateway
-        (c.method_class, false, "bind(_)"),         // NEW (ADR-0028)
-        (c.method_class, false, "selector"),        // NEW (ADR-0028)
-        (c.method_class, false, "holder"),          // NEW (ADR-0028)
+        (c.method_class, false, "invokeOn(_,***)"),    // callable rest gateway
+        (c.method_class, false, "bind(_)"),            // NEW (ADR-0028)
+        (c.method_class, false, "selector"),           // NEW (ADR-0028)
+        (c.method_class, false, "holder"),             // NEW (ADR-0028)
+        (c.method_class, false, "isNative"),           // Spec 03.5 provenance
+        (c.method_class, false, "isIntrinsic"),        // Spec 03.5 provenance
+        (c.method_class, false, "implementationKind"), // Spec 03.5 provenance
         // §2.9 MethodFamily
         (c.method_family_class, false, "selectors"),
         (c.method_family_class, false, "size"),
@@ -1085,10 +1090,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        216,
-        "census must enumerate exactly 216 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern + Behavior typing reflection additions"
+        219,
+        "census must enumerate exactly 219 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern + Behavior typing reflection + Method provenance additions"
     );
-    assert_eq!(live.len(), 216, "the live floor must be exactly 216 bindings");
+    assert_eq!(live.len(), 219, "the live floor must be exactly 219 bindings");
 }
 
 #[test]

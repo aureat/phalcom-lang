@@ -117,6 +117,11 @@ row, not the count, is what makes the freeze real.
 > completions** (zero new bindings). R-INV-0.1 (`tests/invariants.rs`) audits
 > this set from a live `VM::new()` and fails on drift.
 
+> **Spec 03.5 amendment.** Method implementation provenance admits **+3**
+> bindings (216 -> 219): `Method#isNative` (`method_is_native`),
+> `Method#isIntrinsic` (`method_is_intrinsic`), and
+> `Method#implementationKind` (`method_implementation_kind`).
+
 > **U-CORE-4 amendment (ADR-00NN, floor amendment; number claimed at dispatch
 > time — see `docs/adr/` for the current max).** Value-class `toString`
 > (catalog-delta.md §4.4) admits **+1** binding (85 → 86) and **+2** distinct
@@ -489,6 +494,9 @@ over a receiver (`bind`), and reading its selector/holder.
 | `bind(_)` | instance | `method_bind` |
 | `selector` | instance | `method_selector` |
 | `holder` | instance | `method_holder` |
+| `isNative` | instance | `method_is_native` |
+| `isIntrinsic` | instance | `method_is_intrinsic` |
+| `implementationKind` | instance | `method_implementation_kind` |
 
 `Object#methodFor(_)` (`object_method_for`, §2.1) reifies the `MethodObject` a
 selector resolves to on a receiver, as a bare `Method` value; the `None`

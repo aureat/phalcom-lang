@@ -252,6 +252,21 @@ impl Universe {
             uri_class,
         };
 
+        // Apply canonical instance-side relations after allocation. The
+        // construction order above supplies dependency-safe class IDs; this
+        // catalog pass owns the final graph and mirrors each edge onto the
+        // corresponding metaclass according to the parallel rule.
+        for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
+            let class = res.resolve(relation.class);
+            let superclass = relation.superclass.map(|key| res.resolve(key));
+            heap.class_mut(class).superclass = superclass;
+            if relation.class != phalcom_native_meta::UniverseKey::Object {
+                let metaclass = heap.class(class).class;
+                let metaclass_superclass = superclass.map(|parent| heap.class(parent).class);
+                heap.class_mut(metaclass).superclass = metaclass_superclass;
+            }
+        }
+
         // Mark native representation classes that cannot be allocated via generic InstanceObject::new (new_).
         let native_repr_classes = [
             res.number_class,

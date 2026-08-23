@@ -8,6 +8,7 @@ use syn::spanned::Spanned;
 use syn::{Error, Expr, Ident, ItemFn, LitStr, Result, Token, parse_macro_input};
 
 use phalcom_common::selector::{Selector, SelectorKind, SelectorSlot};
+use phalcom_native_decl::{docs_from_attributes, parse_primitive_attribute};
 use phalcom_native_meta::UniverseKey;
 use phalcom_type_syntax::{CallableType, ParameterTuple, TypeExpr, parse_callable_type, parse_type_expr};
 
@@ -196,8 +197,18 @@ impl Parse for PrimitiveAttrArgs {
 
 #[proc_macro_attribute]
 pub fn primitive(args: TokenStream, input: TokenStream) -> TokenStream {
-    let attr_args = parse_macro_input!(args as PrimitiveAttrArgs);
+    let raw_args = TokenStream2::from(args.clone());
     let item_fn = parse_macro_input!(input as ItemFn);
+    let shared_attribute: syn::Attribute = syn::parse_quote!(#[primitive(#raw_args)]);
+    if let Err(error) = parse_primitive_attribute(&shared_attribute) {
+        let compile_err = Error::new(Span::call_site(), error.to_string()).to_compile_error();
+        return quote! {
+            #item_fn
+            #compile_err
+        }
+        .into();
+    }
+    let attr_args = parse_macro_input!(args as PrimitiveAttrArgs);
 
     match expand_primitive(attr_args, &item_fn) {
         Ok(ts) => ts.into(),
@@ -514,16 +525,7 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
     let descriptor_ident = format_ident!("__PHALCOM_PRIMITIVE_DESCRIPTOR_{}", fn_name_upper);
     let surface_ident = format_ident!("__PHALCOM_PRIMITIVE_SURFACE_{}", fn_name_upper);
 
-    let mut doc_lines = Vec::new();
-    for attr in &item_fn.attrs {
-        if attr.path().is_ident("doc") {
-            if let syn::Meta::NameValue(meta) = &attr.meta {
-                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &meta.value {
-                    doc_lines.push(s.value());
-                }
-            }
-        }
-    }
+    let doc_lines = docs_from_attributes(&item_fn.attrs);
     let docs_tokens = if doc_lines.is_empty() {
         quote!(None)
     } else {
@@ -559,6 +561,11 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
             since: #since_tokens,
             deprecated_since: #deprecated_since_tokens,
             replacement: #replacement_tokens,
+            lifecycle: ::phalcom_native_meta::NativeLifecycleSpec {
+                since: #since_tokens,
+                deprecated_since: #deprecated_since_tokens,
+                replacement: #replacement_tokens,
+            },
             intrinsic: #intrinsic_tokens,
             trust: #trust_tokens,
             docs: #docs_tokens,

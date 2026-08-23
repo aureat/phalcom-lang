@@ -9,10 +9,11 @@ use crate::types::constraint::LocalConstraintSolver;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
-use crate::types::native::register_standard_surfaces;
+use crate::types::native::register_native_surfaces;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::selector::Selector;
+use phalcom_native_surface::NATIVE_SURFACES;
 use std::collections::HashMap;
 
 /// Environment of local bindings in current lexical block/scope.
@@ -64,7 +65,20 @@ impl<'a> CheckingContext<'a> {
         current_module: ModuleId,
     ) -> Self {
         let mut dispatch = SurfaceDispatchResolver::new();
-        register_standard_surfaces(store, declarations, resolver, &current_module, &mut dispatch);
+        // Focused type-checking fixtures can intentionally provide only a
+        // subset of declarations. Import the complete native core only when
+        // every native owner is available; normal workspace setup always
+        // satisfies this and still fails loudly on malformed native metadata.
+        let has_complete_native_core = NATIVE_SURFACES.iter().all(|record| {
+            let owner = resolver
+                .resolve_type_name(&current_module, record.owner().name(), &[])
+                .unwrap_or_else(|| DeclarationId::new(ModuleId::core(), record.owner().name().into()));
+            declarations.form(&owner).is_some()
+        });
+        if has_complete_native_core {
+            register_native_surfaces(store, declarations, resolver, &current_module, &mut dispatch)
+                .expect("canonical native surface must import during checking");
+        }
 
         Self {
             store,

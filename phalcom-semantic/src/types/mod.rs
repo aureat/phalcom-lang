@@ -25,7 +25,9 @@ pub use environment::{SpecializedCallableView, SpecializedMemberView, TypeEnviro
 pub use evidence::{DynamicReason, EvidenceAuthority, EvidenceSet, TypeEvidence, TypeKnowledge, UnknownReason};
 pub use id::{InferVarId, KindId, ProperTypeId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
 pub use kind::{KindApplicationError, KindData};
-pub use native::{NativeTypeResolutionError, normalize_native_type, register_standard_surfaces, resolve_native_type_form};
+pub use native::{
+    NativeSurfaceImportError, NativeSurfaceImportReport, NativeTypeResolutionError, normalize_native_type, register_native_surfaces, resolve_native_type_form,
+};
 pub use outcome::{
     BlockReason, BudgetKind, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationEvidence, RelationFailure, RelationOutcome,
 };

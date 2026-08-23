@@ -47,7 +47,10 @@ pub use module_graph::{ImportEdge, ImportEdgeKind, ModuleGraph, ReverseDependenc
 pub use occurrence::{OccurrenceIndex, OccurrenceRole, SemanticOccurrence, SemanticOccurrenceKind, SemanticTarget};
 pub use query::{SemanticGeneration, SnapshotStamp};
 pub use scope::{BindingId, BindingInfo, NameResolution, ScopeGraph, ScopeId, ScopeInfo, SemanticBindingKind};
-pub use surface::{ClassSurface, FieldKind, FieldSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, ParamSurface, build_module_surface};
+pub use surface::{
+    ClassSurface, FieldKind, FieldSurface, GeneratedMemberOrigin, MemberAstRef, MemberKind, MemberOrigin, MemberSurface, MemberVisibility, ModuleSurface,
+    ParamSurface, build_module_surface,
+};
 
 /// Renders one advisory runtime shape for editor surfaces.
 pub fn render_value_shape(shape: &ValueShape) -> String {

@@ -7,7 +7,7 @@ use phalcom_ast::ast::{
 };
 use phalcom_common::range::SourceRange;
 pub use phalcom_common::selector::{Selector, SelectorPattern};
-use phalcom_native_surface::NativeReturnShape;
+use phalcom_native_surface::{NativeReturnShape, NativeSurfaceId};
 
 use super::ids::{CallableId, ClassId, DispatchSide, ModuleId};
 
@@ -173,8 +173,8 @@ impl ModuleSurface {
             .values()
             .flat_map(|class| {
                 class.all_members().filter_map(|member| {
-                    if let MemberOrigin::Source(ast_ref) = member.origin {
-                        Some((member.callable.clone(), ast_ref))
+                    if let MemberOrigin::Source(ast_ref) = &member.origin {
+                        Some((member.callable.clone(), *ast_ref))
                     } else {
                         None
                     }
@@ -226,14 +226,21 @@ impl RestSurface {
 }
 
 /// Origin of a member declaration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MemberOrigin {
     /// Normal source AST declaration.
     Source(MemberAstRef),
     /// Native primitive declaration.
-    Native,
+    Native(NativeSurfaceId),
     /// Synthetic/generated declaration.
-    Generated,
+    Generated(GeneratedMemberOrigin),
+}
+
+/// Stable identity for a generated presentation member without a source AST.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GeneratedMemberOrigin {
+    /// Stable canonical identifier assigned by the generated member catalog.
+    pub stable_key: Box<str>,
 }
 
 /// One callable or field-like class member.
@@ -262,7 +269,7 @@ pub struct MemberSurface {
     /// Parameter surface.
     pub params: Vec<ParamSurface>,
     /// Reference to this member's AST in the source program.
-    pub ast: MemberAstRef,
+    pub ast: Option<MemberAstRef>,
     /// Member implementation origin.
     pub origin: MemberOrigin,
 }
@@ -308,20 +315,6 @@ pub struct MemberAstRef {
     pub class_stmt_idx: usize,
     /// Index into `ClassDef::members`.
     pub member_idx: usize,
-}
-
-impl MemberAstRef {
-    /// Sentinel for native/generated members that have no source AST location.
-    /// Callers must check `MemberOrigin` before dereferencing this value.
-    pub const INVALID: Self = Self {
-        class_stmt_idx: usize::MAX,
-        member_idx: usize::MAX,
-    };
-
-    /// Returns true if this ref is the INVALID sentinel (no source AST).
-    pub const fn is_invalid(self) -> bool {
-        self.class_stmt_idx == usize::MAX && self.member_idx == usize::MAX
-    }
 }
 
 /// Source-level member category.
@@ -521,7 +514,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                 source_range: (declaration_start..source_range.end).into(),
                 name_range,
                 params,
-                ast,
+                ast: Some(ast),
                 origin: MemberOrigin::Source(ast),
             };
             class_surface.members.entry(selector).or_default().insert(side, member_surface);

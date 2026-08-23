@@ -7,6 +7,8 @@ use super::types::parameter::{GenericSignature, TypeTerm};
 use super::types::store::TypeStore;
 use phalcom_ast::ast::RestMode;
 use phalcom_common::selector::Selector;
+use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_native_surface::NativeSurfaceId;
 use std::collections::HashMap;
 
 /// Canonical parameter specification for a callable signature.
@@ -59,6 +61,12 @@ pub struct CallableSemanticSignature {
     pub parameters: Box<[CallableParameterSemantic]>,
     pub return_type: TypeTerm,
     pub source: Option<SemanticSourceSpan>,
+    pub implementation: ImplementationKind,
+    pub native_id: Option<NativeSurfaceId>,
+    pub effects: EffectSpec,
+    pub raises: RaisesSpec,
+    pub flow: ReturnFlowSpec,
+    pub lifecycle: NativeLifecycleSpec,
 }
 
 impl CallableSemanticSignature {

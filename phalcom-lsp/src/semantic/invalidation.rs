@@ -218,7 +218,10 @@ fn callable_source(source: &FileSourceSnapshot, member: &super::surface::MemberS
         .text
         .get(member.source_range.start..member.source_range.end)
         .map(str::to_owned)
-        .unwrap_or_else(|| format!("{:?}", super::source::member_body(source, member.ast)))
+        .unwrap_or_else(|| match &member.origin {
+            super::surface::MemberOrigin::Source(ast) => format!("{:?}", super::source::member_body(source, *ast)),
+            super::surface::MemberOrigin::Native(_) | super::surface::MemberOrigin::Generated(_) => String::new(),
+        })
 }
 
 fn top_level_source(source: &FileSourceSnapshot) -> Vec<String> {

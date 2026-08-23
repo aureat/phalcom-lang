@@ -14,10 +14,11 @@ pub enum TypingCapability {
     ValidateRuntimeValues,
     InspectProofs,
     InvokeReflectively,
+    ObserveImplementationProvenance,
 }
 
 impl TypingCapability {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::ObservePublicTypes,
         Self::ObserveSignatures,
         Self::ConstructTypeForms,
@@ -27,6 +28,7 @@ impl TypingCapability {
         Self::ValidateRuntimeValues,
         Self::InspectProofs,
         Self::InvokeReflectively,
+        Self::ObserveImplementationProvenance,
     ];
 
     pub const fn display(self) -> &'static str {
@@ -40,6 +42,7 @@ impl TypingCapability {
             Self::ValidateRuntimeValues => "VALIDATE_RUNTIME_VALUES",
             Self::InspectProofs => "INSPECT_PROOFS",
             Self::InvokeReflectively => "INVOKE_REFLECTIVELY",
+            Self::ObserveImplementationProvenance => "OBSERVE_IMPLEMENTATION_PROVENANCE",
         }
     }
 }
@@ -55,7 +58,7 @@ impl TypingCapabilities {
 
     pub const fn for_profile(profile: MetadataProfile) -> Self {
         let public = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
-        let tooling = public | (1 << 4);
+        let tooling = public | (1 << 4) | (1 << 9);
         let proof = tooling | (1 << 7);
         match profile {
             MetadataProfile::RuntimeMinimal => Self(0),

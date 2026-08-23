@@ -45,15 +45,27 @@ done
 
 step() { printf '\n==> %s\n' "$*"; }
 
+step "cargo run -p phalcom-native-surface-gen -- --root . --check"
+cargo run -p phalcom-native-surface-gen -- --root . --check
+
+step "canonical native sentinel drift check"
+if rg -n "MemberAstRef::INVALID|native.*usize::MAX|usize::MAX.*native" phalcom-lsp/src phalcom-native-surface/src; then
+  printf 'canonical native sentinel remains in source\n' >&2
+  exit 1
+fi
+
 if (( run_build )); then
   step "cargo build --workspace"
   cargo build --workspace
 fi
 
-step "cargo nextest run --workspace --no-fail-fast"
-# Nextest runs Rust unit and integration tests across binaries concurrently.
+step "cargo nextest run --workspace --no-fail-fast --test-threads=2"
+# LSP integration cases each start a semantic worker that bootstraps the full
+# core surface. Unbounded binary concurrency starves those workers and turns
+# their 30-second readiness assertions into host-load flakes. Two test
+# processes retain parallel coverage without oversubscribing the gate.
 # Doctests are not supported by nextest, so retain Cargo's dedicated doc lane.
-cargo nextest run --workspace --no-fail-fast
+cargo nextest run --workspace --no-fail-fast --test-threads=2
 
 step "cargo test --workspace --doc"
 cargo test --workspace --doc

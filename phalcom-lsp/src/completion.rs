@@ -5,7 +5,7 @@
 
 use phalcom_ast::ast::{ClassMember, Expr, MethodDef, PackItem, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
-use phalcom_native_surface::{NATIVE_MEMBERS, NativeDispatch, NativeMemberKind, NativeVisibility};
+use phalcom_native_surface::{NativeDispatch, NativeMemberKind, NativeVisibility, UniverseKey, native_surfaces_for_owner};
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
 use crate::documents::{Document, DocumentSnapshot};
@@ -440,16 +440,15 @@ fn shallow_union_items(candidates: Vec<Vec<CompletionItem>>) -> Vec<CompletionIt
 }
 
 fn native_object_items() -> Vec<CompletionItem> {
-    NATIVE_MEMBERS
-        .iter()
-        .filter(|member| member.class == "Object" && member.side == NativeDispatch::Instance && member.visibility == NativeVisibility::Public)
+    native_surfaces_for_owner(UniverseKey::Object)
+        .filter(|member| member.side() == NativeDispatch::Instance && member.visibility() == NativeVisibility::Public)
         .map(|member| {
             let kind = match member.kind {
                 NativeMemberKind::Getter => crate::index::MemberKind::Getter,
                 NativeMemberKind::Setter => crate::index::MemberKind::Setter,
                 NativeMemberKind::Method => crate::index::MemberKind::Method,
             };
-            shallow_member_item(member.selector, kind, "Object")
+            shallow_member_item(member.selector(), kind, "Object")
         })
         .collect()
 }

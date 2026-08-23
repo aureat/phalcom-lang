@@ -942,14 +942,14 @@ impl Backend {
                 }
             }
             if sites.is_empty() {
-                if let Some(native) = phalcom_native_surface::NATIVE_MEMBERS.iter().find(|member| member.selector == selector) {
+                if let Some(native) = phalcom_native_surface::find_native_surface_by_selector(&selector) {
                     let kind = match native.kind {
                         phalcom_native_surface::NativeMemberKind::Getter => crate::index::MemberKind::Getter,
                         phalcom_native_surface::NativeMemberKind::Setter => crate::index::MemberKind::Setter,
                         phalcom_native_surface::NativeMemberKind::Method => crate::index::MemberKind::Method,
                     };
                     sites.push(SelectorSite {
-                        owner: crate::semantic::ClassId::new(crate::semantic::ModuleId::new(crate::semantic::CORE_MODULE_URI), native.class),
+                        owner: crate::semantic::ClassId::new(crate::semantic::ModuleId::new(crate::semantic::CORE_MODULE_URI), native.owner().name()),
                         receiver: None,
                         kind,
                     });

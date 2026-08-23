@@ -3,6 +3,13 @@
 /// Schema version of the generated native surface manifest.
 pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 1;
 
+/// One VM-free bootstrap class relation owned by the native universe.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct UniverseClassRelationSpec {
+    pub class: UniverseKey,
+    pub superclass: Option<UniverseKey>,
+}
+
 /// Stable VM-free enumeration of every canonical built-in class.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum UniverseKey {
@@ -75,6 +82,251 @@ pub enum UniverseKey {
     ProjectIdentity,
     Uri,
 }
+
+/// Canonical relations for classes whose existence is owned by the runtime.
+/// Source-only helper classes are intentionally absent.
+pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
+    UniverseClassRelationSpec {
+        class: UniverseKey::Object,
+        superclass: None,
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Behavior,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Class,
+        superclass: Some(UniverseKey::Behavior),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Metaclass,
+        superclass: Some(UniverseKey::Behavior),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Number,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Int,
+        superclass: Some(UniverseKey::Number),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Float,
+        superclass: Some(UniverseKey::Number),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::String,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Nil,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Bool,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::True,
+        superclass: Some(UniverseKey::Bool),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::False,
+        superclass: Some(UniverseKey::Bool),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Symbol,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Selector,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::SelectorPattern,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Option,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Some,
+        superclass: Some(UniverseKey::Option),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::None,
+        superclass: Some(UniverseKey::Option),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Unit,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Function,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Closure,
+        superclass: Some(UniverseKey::Function),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::BoundMethod,
+        superclass: Some(UniverseKey::Function),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Method,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::MethodFamily,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::BoundMethodFamily,
+        superclass: Some(UniverseKey::Function),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Family,
+        superclass: Some(UniverseKey::Function),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Iterable,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::List,
+        superclass: Some(UniverseKey::Iterable),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Map,
+        superclass: Some(UniverseKey::Iterable),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Set,
+        superclass: Some(UniverseKey::Iterable),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Tuple,
+        superclass: Some(UniverseKey::Iterable),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Record,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Range,
+        superclass: Some(UniverseKey::Iterable),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Bytes,
+        superclass: Some(UniverseKey::Iterable),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Module,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Package,
+        superclass: Some(UniverseKey::Module),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Project,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::System,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Message,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Attribute,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Error,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::MessageNotUnderstood,
+        superclass: Some(UniverseKey::Error),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::CannotYieldAcrossNativeFrame,
+        superclass: Some(UniverseKey::Error),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::UseAfterCloseError,
+        superclass: Some(UniverseKey::Error),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Fiber,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Resource,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ProjectManifest,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::PackageInfo,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::PackageAuthor,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::PackageRequirement,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ResolvedProjectDependency,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ModuleDependency,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ExportTable,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Export,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ExportKind,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ChildModuleTable,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ModuleIdentity,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::PackageIdentity,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::ProjectIdentity,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Uri,
+        superclass: Some(UniverseKey::Object),
+    },
+];
 
 impl UniverseKey {
     pub const fn name(&self) -> &'static str {

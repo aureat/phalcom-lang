@@ -13,6 +13,7 @@ quote = { workspace = true }
 proc-macro2 = { workspace = true }
 phalcom-type-syntax = { path = "../phalcom-type-syntax" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
+phalcom-native-decl = { path = "../phalcom-native-decl" }
 phalcom-common = { path = "../phalcom-common" }
 
 [dev-dependencies]

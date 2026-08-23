@@ -288,7 +288,10 @@ fn analyze_surface_for_callable(
                 continue;
             }
             counters.callables_analyzed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let body = member_body(source, member.ast);
+            let body = match &member.origin {
+                super::surface::MemberOrigin::Source(ast) => member_body(source, *ast),
+                super::surface::MemberOrigin::Native(_) | super::surface::MemberOrigin::Generated(_) => &[],
+            };
             if body.is_empty() {
                 parameter_contributions.insert(ContributionSource::Callable(member.callable.clone()), ParameterFacts::default());
                 continue;

@@ -1,0 +1,11 @@
+[package]
+name = "phalcom-native-surface-gen"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+phalcom-native-decl = { path = "../phalcom-native-decl" }
+phalcom-native-meta = { path = "../phalcom-native-meta" }
+proc-macro2 = "1.0"
+syn = { workspace = true, features = ["full", "extra-traits", "parsing", "printing"] }

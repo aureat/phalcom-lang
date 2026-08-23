@@ -110,7 +110,12 @@ pub fn method_holder(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 )]
 pub fn method_is_native(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
-    let is_native = matches!(vm.heap.method(method_id).kind, crate::method::MethodKind::Primitive(_));
+    let is_native = vm
+        .typing_registry
+        .method_implementations
+        .get(method_id)
+        .map(|implementation| matches!(implementation.kind, phalcom_native_meta::ImplementationKind::NativePrimitive))
+        .unwrap_or_else(|| matches!(vm.heap.method(method_id).kind, crate::method::MethodKind::Primitive(_)));
     Ok(Value::bool(is_native))
 }
 
@@ -140,10 +145,18 @@ pub fn method_is_intrinsic(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
 )]
 pub fn method_implementation_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
-    let kind_sym = if matches!(vm.heap.method(method_id).kind, crate::method::MethodKind::Primitive(_)) {
-        vm.interner.intern("native")
-    } else {
-        vm.interner.intern("source")
-    };
+    let kind = vm
+        .typing_registry
+        .method_implementations
+        .get(method_id)
+        .map(|implementation| match implementation.kind {
+            phalcom_native_meta::ImplementationKind::Source => "source",
+            phalcom_native_meta::ImplementationKind::NativePrimitive => "native",
+            phalcom_native_meta::ImplementationKind::Generated => "generated",
+            phalcom_native_meta::ImplementationKind::Abstract => "abstract",
+            phalcom_native_meta::ImplementationKind::External => "external",
+        })
+        .unwrap_or("source");
+    let kind_sym = vm.interner.intern(kind);
     Ok(Value::symbol(kind_sym))
 }

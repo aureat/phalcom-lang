@@ -73,6 +73,32 @@ pub enum PrimitiveAbi {
     Shape,
 }
 
+/// Release metadata attached to one native declaration.
+///
+/// Kept as one value so every projection can preserve lifecycle information
+/// without reinterpreting the individual optional fields.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct NativeLifecycleSpec {
+    pub since: Option<&'static str>,
+    pub deprecated_since: Option<&'static str>,
+    pub replacement: Option<&'static str>,
+}
+
+impl NativeLifecycleSpec {
+    pub const UNKNOWN: Self = Self {
+        since: None,
+        deprecated_since: None,
+        replacement: None,
+    };
+
+    pub const fn is_consistent(self) -> bool {
+        match self.replacement {
+            Some(_) => self.deprecated_since.is_some(),
+            None => true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct PrimitiveKey {
     pub owner: UniverseKey,
@@ -120,6 +146,8 @@ pub struct PrimitiveSurfaceSpec {
     pub since: Option<&'static str>,
     pub deprecated_since: Option<&'static str>,
     pub replacement: Option<&'static str>,
+
+    pub lifecycle: NativeLifecycleSpec,
 
     pub intrinsic: Option<NativeIntrinsicId>,
     pub trust: NativeTrust,

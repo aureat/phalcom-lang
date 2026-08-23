@@ -5,6 +5,14 @@ use phalcom_ast::ast::{ClassMember, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
+/// Explicit authority for a source/native collision.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SourceNativeBindingRole {
+    None,
+    DeclarationImplementation,
+    WrapperOverNative,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceMemberRecord {
     pub selector: Selector,
@@ -14,6 +22,7 @@ pub struct SourceMemberRecord {
     pub is_setter: bool,
     pub range: SourceRange,
     pub doc_comment: Option<String>,
+    pub binding_role: SourceNativeBindingRole,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,6 +65,7 @@ pub fn extract_source_surface(module_id: &ModuleId, program: &Program) -> Vec<So
                                 is_setter: false,
                                 range: m.range,
                                 doc_comment: None,
+                                binding_role: source_native_binding_role(&m.attributes),
                             });
                         }
                     }
@@ -69,6 +79,7 @@ pub fn extract_source_surface(module_id: &ModuleId, program: &Program) -> Vec<So
                                 is_setter: false,
                                 range: g.range,
                                 doc_comment: None,
+                                binding_role: source_native_binding_role(&g.attributes),
                             });
                         }
                     }
@@ -82,6 +93,7 @@ pub fn extract_source_surface(module_id: &ModuleId, program: &Program) -> Vec<So
                                 is_setter: true,
                                 range: s.range,
                                 doc_comment: None,
+                                binding_role: source_native_binding_role(&s.attributes),
                             });
                         }
                     }
@@ -100,4 +112,17 @@ pub fn extract_source_surface(module_id: &ModuleId, program: &Program) -> Vec<So
         }
     }
     classes
+}
+
+fn source_native_binding_role(attributes: &[phalcom_ast::ast::Attribute]) -> SourceNativeBindingRole {
+    if attributes
+        .iter()
+        .any(|attribute| matches!(attribute.name.as_str(), "wrapsNative" | "wrap_native" | "nativeWrapper"))
+    {
+        SourceNativeBindingRole::WrapperOverNative
+    } else if attributes.iter().any(|attribute| attribute.name == "native") {
+        SourceNativeBindingRole::DeclarationImplementation
+    } else {
+        SourceNativeBindingRole::None
+    }
 }

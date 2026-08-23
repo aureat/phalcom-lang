@@ -6,8 +6,11 @@ use super::id::TypeId;
 use super::store::{TupleTypeElement, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::DeclarationId;
+use phalcom_common::selector::Selector;
 use phalcom_native_meta::types::TypeExprSpec;
 use phalcom_native_meta::universe::UniverseKey;
+use phalcom_native_meta::{NativeDispatch, PrimitiveKey, ReturnFlowSpec};
+use phalcom_native_surface::{NATIVE_SURFACES, NativeCatalogFingerprint, NativeSurfaceId, catalog_fingerprint};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -20,6 +23,41 @@ pub enum NativeTypeResolutionError {
     Application(#[from] TypeApplicationError),
     #[error("unsupported native type expression")]
     Unsupported,
+}
+
+/// Structured failure while importing generated native metadata.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum NativeSurfaceImportError {
+    #[error("native surface {key:?} has invalid selector: {details}")]
+    InvalidSelector { key: PrimitiveKey, details: String },
+    #[error("native surface {key:?} owner is missing from semantic declarations")]
+    OwnerMissing { key: PrimitiveKey },
+    #[error("native surface {key:?} selector/callable arity mismatch: {details}")]
+    SelectorArityMismatch { key: PrimitiveKey, details: String },
+    #[error("native surface {key:?} type lowering failed: {source}")]
+    TypeLowering { key: PrimitiveKey, source: NativeTypeResolutionError },
+    #[error("native surface {key:?} has unsupported metadata: {reason}")]
+    UnsupportedMetadata { key: PrimitiveKey, reason: String },
+}
+
+/// Result of importing the VM-free native catalog into semantic dispatch.
+#[derive(Clone, Debug)]
+pub struct NativeSurfaceImportReport {
+    pub imported_keys: Vec<NativeSurfaceId>,
+    pub callable_signatures: Vec<(crate::identity::CallableId, crate::signature::CallableSemanticSignature)>,
+    pub failures: Vec<NativeSurfaceImportError>,
+    pub fingerprint: NativeCatalogFingerprint,
+}
+
+impl Default for NativeSurfaceImportReport {
+    fn default() -> Self {
+        Self {
+            imported_keys: Vec::new(),
+            callable_signatures: Vec::new(),
+            failures: Vec::new(),
+            fingerprint: catalog_fingerprint(),
+        }
+    }
 }
 
 /// Resolves a native [`TypeExprSpec`] into a canonical [`TypeId`] form within the given store.
@@ -111,6 +149,28 @@ pub fn normalize_native_type(
     }
 }
 
+fn import_native_type(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    parameters: &HashMap<&str, TypeId>,
+    universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId,
+    key: PrimitiveKey,
+    spec: &TypeExprSpec,
+) -> Result<TypeKnowledge, NativeSurfaceImportError> {
+    if matches!(spec, TypeExprSpec::Unknown | TypeExprSpec::SelfType) {
+        return Ok(normalize_native_type(store, declarations, parameters, universe_resolver, spec));
+    }
+    let form = resolve_native_type_form(store, declarations, parameters, universe_resolver, spec)
+        .map_err(|source| NativeSurfaceImportError::TypeLowering { key, source })?;
+    if !store.is_proper_type(form) {
+        return Err(NativeSurfaceImportError::TypeLowering {
+            key,
+            source: NativeTypeResolutionError::Unsupported,
+        });
+    }
+    Ok(TypeKnowledge::known(form, EvidenceAuthority::TrustedNative))
+}
+
 /// Registers declaration surfaces and dispatch signatures dynamically from the canonical native surface catalog.
 pub fn register_native_surfaces(
     store: &mut TypeStore,
@@ -118,11 +178,9 @@ pub fn register_native_surfaces(
     resolver: &dyn crate::types::annotation::TypeResolver,
     current_module: &crate::identity::ModuleId,
     dispatch: &mut crate::dispatch::SurfaceDispatchResolver,
-) {
+) -> Result<NativeSurfaceImportReport, NativeSurfaceImportError> {
     use crate::dispatch::{CallableParameter, CallableSignature};
     use crate::surface::DeclarationSurface;
-    use phalcom_common::selector::Selector;
-    use phalcom_native_surface::NATIVE_SURFACES;
 
     let universe_resolver = |key: UniverseKey| -> DeclarationId {
         resolver
@@ -132,12 +190,21 @@ pub fn register_native_surfaces(
 
     let empty_params = HashMap::new();
     let mut surfaces_by_decl: HashMap<DeclarationId, DeclarationSurface> = HashMap::new();
+    let mut report = NativeSurfaceImportReport::default();
+    let mut records: Vec<_> = NATIVE_SURFACES.iter().collect();
+    records.sort_by_key(|record| record.surface.key.sort_key());
 
-    for record in NATIVE_SURFACES {
+    for record in records {
         let owner_name = record.owner().name();
         let decl = match resolver.resolve_type_name(current_module, owner_name, &[]) {
             Some(d) => d,
-            None => DeclarationId::new(crate::identity::ModuleId::core(), owner_name.into()),
+            None => {
+                let fallback = DeclarationId::new(crate::identity::ModuleId::core(), owner_name.into());
+                if declarations.form(&fallback).is_none() {
+                    return Err(NativeSurfaceImportError::OwnerMissing { key: record.surface.key });
+                }
+                fallback
+            }
         };
 
         if let Some(t_self) = declarations.form(&decl) {
@@ -145,55 +212,125 @@ pub fn register_native_surfaces(
         }
 
         let side = match record.side() {
-            phalcom_native_meta::NativeDispatch::Instance => crate::identity::DispatchSide::Instance,
-            phalcom_native_meta::NativeDispatch::Class => crate::identity::DispatchSide::Class,
+            NativeDispatch::Instance => crate::identity::DispatchSide::Instance,
+            NativeDispatch::Class => crate::identity::DispatchSide::Class,
         };
 
-        let Ok(selector) = Selector::try_decode_exact(record.selector()) else {
-            continue;
+        let selector = Selector::try_decode_exact(record.selector()).map_err(|error| NativeSurfaceImportError::InvalidSelector {
+            key: record.surface.key,
+            details: error.to_string(),
+        })?;
+
+        let declared_arity = record.params().positional.len() + record.params().labeled.len();
+        let selector_arity = selector.slots.len();
+        if declared_arity != selector_arity && record.params().rest.is_none() {
+            return Err(NativeSurfaceImportError::SelectorArityMismatch {
+                key: record.surface.key,
+                details: format!("selector has {selector_arity} slots but metadata has {declared_arity} parameters"),
+            });
         };
 
         // Lower parameters
         let mut params = Vec::new();
         for (i, p_spec) in record.params().positional.iter().enumerate() {
-            let p_knowledge = normalize_native_type(store, declarations, &empty_params, &universe_resolver, p_spec);
+            let p_knowledge = import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, p_spec)?;
             let name = if i == 0 { "other" } else { "arg" };
             params.push(CallableParameter::new(name, p_knowledge));
+        }
+        for labeled in record.params().labeled {
+            let p_knowledge = import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, labeled.ty)?;
+            params.push(CallableParameter::new(labeled.label, p_knowledge).with_label(labeled.label));
+        }
+        if let Some(rest) = record.params().rest {
+            let rest_knowledge = rest
+                .ty
+                .map(|ty| import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, ty))
+                .transpose()?
+                .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::OpaqueNative));
+            params.push(CallableParameter::new("rest", rest_knowledge).with_rest(true));
         }
 
         // Lower return type
         let ret_knowledge = match record.flow() {
-            phalcom_native_meta::ReturnFlowSpec::Receiver => {
+            ReturnFlowSpec::Receiver => {
                 if let Some(t_self) = declarations.form(&decl) {
                     TypeKnowledge::known(t_self, EvidenceAuthority::TrustedNative)
                 } else {
-                    normalize_native_type(store, declarations, &empty_params, &universe_resolver, record.returns())
+                    return Err(NativeSurfaceImportError::TypeLowering {
+                        key: record.surface.key,
+                        source: NativeTypeResolutionError::MissingDeclaration(decl.clone()),
+                    });
                 }
             }
-            phalcom_native_meta::ReturnFlowSpec::Never => TypeKnowledge::known(store.never(), EvidenceAuthority::TrustedNative),
-            _ => normalize_native_type(store, declarations, &empty_params, &universe_resolver, record.returns()),
+            ReturnFlowSpec::Never => TypeKnowledge::known(store.never(), EvidenceAuthority::TrustedNative),
+            ReturnFlowSpec::Argument(index) => {
+                params
+                    .get(index)
+                    .map(|param| param.ty.clone())
+                    .ok_or_else(|| NativeSurfaceImportError::UnsupportedMetadata {
+                        key: record.surface.key,
+                        reason: format!("return flow references missing parameter {index}"),
+                    })?
+            }
+            _ => import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, record.returns())?,
         };
 
         let sig = CallableSignature::new(selector, params, ret_knowledge);
+        let callable_id = crate::identity::CallableId::new(decl.clone(), sig.selector.clone(), side);
+        report.imported_keys.push(record.id());
         surfaces_by_decl
-            .entry(decl)
-            .or_insert_with(|| DeclarationSurface::new(None))
+            .entry(decl.clone())
+            .or_insert_with(|| DeclarationSurface::new(Some(decl.clone())))
             .add_callable(side, sig);
+
+        // The legacy dispatch surface remains the live query adapter. The
+        // canonical identity is retained in the import report for clients
+        // that publish the richer signature table.
+        if let Some(surface) = surfaces_by_decl.get(&callable_id.owner) {
+            if let Some(signature) = surface.get_callable(side, &callable_id.selector) {
+                let parameters = signature
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, parameter)| {
+                        let ty = parameter.ty.ty()?;
+                        Some(crate::signature::CallableParameterSemantic::new(
+                            index as u32,
+                            parameter.local_name.clone(),
+                            ty.into(),
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                if let Some(return_type) = signature.return_type.ty() {
+                    let callable_owner = callable_id.owner.clone();
+                    report.callable_signatures.push((
+                        callable_id.clone(),
+                        crate::signature::CallableSemanticSignature {
+                            callable: callable_id.clone(),
+                            owner: callable_owner,
+                            side,
+                            selector: signature.selector.clone(),
+                            generics: None,
+                            parameters,
+                            return_type: return_type.into(),
+                            source: None,
+                            implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
+                            native_id: Some(record.id()),
+                            effects: record.effects(),
+                            raises: record.raises(),
+                            flow: record.flow(),
+                            lifecycle: record.lifecycle(),
+                        },
+                    ));
+                }
+            }
+        }
     }
 
     for (decl, surface) in surfaces_by_decl {
         dispatch.register_surface(decl, surface);
     }
-}
 
-/// Registers standard declaration surfaces and dispatch signatures for core primitive types.
-#[inline]
-pub fn register_standard_surfaces(
-    store: &mut TypeStore,
-    declarations: &DeclarationTypeTable,
-    resolver: &dyn crate::types::annotation::TypeResolver,
-    current_module: &crate::identity::ModuleId,
-    dispatch: &mut crate::dispatch::SurfaceDispatchResolver,
-) {
-    register_native_surfaces(store, declarations, resolver, current_module, dispatch);
+    Ok(report)
 }

@@ -19,6 +19,14 @@ impl Universe {
     pub fn verify_invariants(&self, heap: &Heap) -> Result<(), String> {
         let c = &self.classes;
 
+        for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
+            let class = c.resolve(relation.class);
+            let expected = relation.superclass.map(|superclass| c.resolve(superclass));
+            if heap.class(class).superclass != expected {
+                return Err(format!("{} superclass diverges from canonical universe relation", relation.class.name()));
+            }
+        }
+
         let object_metaclass = heap.class(c.object_class).class;
         let behavior_metaclass = heap.class(c.behavior_class).class;
         let class_metaclass = heap.class(c.class_class).class;

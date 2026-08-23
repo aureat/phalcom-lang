@@ -5,7 +5,7 @@
 //! Native members use the same structured surface consumed by completion;
 //! opaque native returns deliberately carry no guessed value shape.
 
-use phalcom_ast::ast::Program;
+use phalcom_ast::ast::{Program, RestMode};
 use phalcom_ast::parser::Parse;
 use phalcom_native_surface::NATIVE_CLASSES;
 
@@ -109,11 +109,25 @@ pub fn bundled_parse() -> Parse {
 
 /// Builds the core surface from source and the canonical native declarations.
 pub fn build_core_surface(program: &Program) -> ModuleSurface {
-    use phalcom_native_surface::{NATIVE_MEMBERS, NATIVE_SURFACES, NativeDispatch, NativeMemberKind, NativeVisibility};
+    use phalcom_native_surface::{NATIVE_MEMBERS, NATIVE_SURFACE_CATALOG, NativeDispatch, NativeMemberKind, NativeVisibility};
     let module = ModuleId::new(CORE_MODULE_URI);
     let mut source = build_module_surface(module.clone(), program);
 
-    // 1. Ensure bootstrapped class entries exist from NATIVE_CLASSES
+    // 1. Ensure canonical bootstrapped class entries exist from the shared
+    // universe relation catalog. NATIVE_CLASSES remains only for transitional
+    // source-only helper owners not yet represented by UniverseKey.
+    for relation in phalcom_native_surface::UNIVERSE_CLASS_RELATIONS {
+        let class_id = ClassId::new(module.clone(), relation.class.name());
+        source.classes.entry(class_id.clone()).or_insert_with(|| ClassSurface {
+            id: class_id.clone(),
+            superclass: relation.superclass.map(|name| ClassId::new(module.clone(), name.name())),
+            superclass_reference: None,
+            members: Default::default(),
+            fields: Default::default(),
+            source_range: Default::default(),
+            name_range: Default::default(),
+        });
+    }
     for native_class in NATIVE_CLASSES {
         let class_id = ClassId::new(module.clone(), native_class.name);
         source.classes.entry(class_id.clone()).or_insert_with(|| ClassSurface {
@@ -130,7 +144,7 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
     // 2. Ingest rich native members from the generated canonical surface catalog (NATIVE_SURFACES).
     //    These records carry complete type/effect/doc metadata and are the preferred source.
     //    As #[primitive] annotations migrate to use rich specs, this set grows and NATIVE_MEMBERS shrinks.
-    for native in NATIVE_SURFACES {
+    for native in NATIVE_SURFACE_CATALOG.iter() {
         let owner_name = native.owner().name();
         let class_id = ClassId::new(module.clone(), owner_name);
         let Some(class) = source.classes.get_mut(&class_id) else {
@@ -169,10 +183,10 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             native_return: Some(native.return_shape),
             source_range: Default::default(),
             name_range: Default::default(),
-            params: Vec::new(),
+            params: native_params(native),
             // No AST sentinel: origin explicitly tracks that this is native.
-            ast: super::surface::MemberAstRef::INVALID,
-            origin: super::surface::MemberOrigin::Native,
+            ast: None,
+            origin: super::surface::MemberOrigin::Native(native.id()),
         };
         let members = class.members.entry(native.selector().to_string()).or_default();
         match member.side {
@@ -222,9 +236,11 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             native_return: Some(native.return_shape),
             source_range: Default::default(),
             name_range: Default::default(),
-            params: Vec::new(),
-            ast: super::surface::MemberAstRef::INVALID,
-            origin: super::surface::MemberOrigin::Native,
+            params: legacy_native_params(native.selector),
+            ast: None,
+            origin: super::surface::MemberOrigin::Generated(super::surface::GeneratedMemberOrigin {
+                stable_key: format!("legacy:{}:{}:{}", native.class, native.side as u8, native.selector).into_boxed_str(),
+            }),
         };
         let members = class.members.entry(native.selector.to_string()).or_default();
         match member.side {
@@ -233,6 +249,70 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
         }
     }
     source
+}
+
+fn native_params(native: &phalcom_native_surface::NativeSurfaceRecord) -> Vec<super::surface::ParamSurface> {
+    let mut params = native
+        .params()
+        .positional
+        .iter()
+        .enumerate()
+        .map(|(index, _)| super::surface::ParamSurface {
+            name: format!("arg{index}"),
+            label: None,
+            rest_mode: RestMode::None,
+            source_range: Default::default(),
+            name_range: Default::default(),
+            label_range: None,
+        })
+        .collect::<Vec<_>>();
+    params.extend(native.params().labeled.iter().map(|parameter| super::surface::ParamSurface {
+        name: parameter.label.to_owned(),
+        label: Some(parameter.label.to_owned()),
+        rest_mode: RestMode::None,
+        source_range: Default::default(),
+        name_range: Default::default(),
+        label_range: None,
+    }));
+    if let Some(rest) = native.params().rest {
+        params.push(super::surface::ParamSurface {
+            name: "rest".to_string(),
+            label: None,
+            rest_mode: match rest.ty {
+                Some(_) => RestMode::Positional,
+                None => RestMode::Complete,
+            },
+            source_range: Default::default(),
+            name_range: Default::default(),
+            label_range: None,
+        });
+    }
+    params
+}
+
+fn legacy_native_params(selector: &str) -> Vec<super::surface::ParamSurface> {
+    let Some(open) = selector.find('(') else { return Vec::new() };
+    let Some(inner) = selector[open + 1..].strip_suffix(')') else {
+        return Vec::new();
+    };
+    inner
+        .split(',')
+        .filter(|slot| !slot.is_empty())
+        .enumerate()
+        .map(|(index, slot)| super::surface::ParamSurface {
+            name: format!("arg{index}"),
+            label: (!matches!(slot, "_" | "*" | "**" | "***")).then(|| slot.to_string()),
+            rest_mode: match slot {
+                "*" => RestMode::Positional,
+                "**" => RestMode::Labeled,
+                "***" => RestMode::Complete,
+                _ => RestMode::None,
+            },
+            source_range: Default::default(),
+            name_range: Default::default(),
+            label_range: None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

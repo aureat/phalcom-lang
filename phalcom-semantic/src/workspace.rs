@@ -8,11 +8,12 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId};
 use crate::resolver::LinkedTypeResolver;
+use crate::signature::CallableSignatureTable;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::types::annotation::TypeResolver;
 use crate::types::id::KindId;
-use crate::types::native::register_standard_surfaces;
+use crate::types::native::register_native_surfaces;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::{Program, Statement};
@@ -48,28 +49,13 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     let mut declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::core(), key.name().into()));
 
     let mut hierarchy = MapTypeHierarchy::new();
-    for (sub_name, super_name) in [
-        ("Behavior", "Object"),
-        ("Class", "Behavior"),
-        ("Metaclass", "Class"),
-        ("Int", "Number"),
-        ("Float", "Number"),
-        ("Some", "Option"),
-        ("None", "Option"),
-        ("True", "Bool"),
-        ("False", "Bool"),
-        ("BoundMethod", "Method"),
-        ("Closure", "Function"),
-        ("MethodFamily", "Family"),
-        ("BoundMethodFamily", "Family"),
-        ("MessageNotUnderstood", "Error"),
-        ("CannotYieldAcrossNativeFrame", "Error"),
-        ("UseAfterCloseError", "Error"),
-    ] {
-        hierarchy.insert(
-            DeclarationId::new(ModuleId::core(), sub_name.into()),
-            DeclarationId::new(ModuleId::core(), super_name.into()),
-        );
+    for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
+        if let Some(superclass) = relation.superclass {
+            hierarchy.insert(
+                DeclarationId::new(ModuleId::core(), relation.class.name().into()),
+                DeclarationId::new(ModuleId::core(), superclass.name().into()),
+            );
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -214,7 +200,12 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
     // Phase G: Collect Declaration Surfaces Before Bodies
     // -------------------------------------------------------------------------
     let mut dispatch = SurfaceDispatchResolver::new();
-    register_standard_surfaces(&mut store, &declarations, &resolver, &ModuleId::core(), &mut dispatch);
+    let native_report = register_native_surfaces(&mut store, &declarations, &resolver, &ModuleId::core(), &mut dispatch)
+        .expect("canonical native surface must import during semantic bootstrap");
+    let mut callable_signatures = CallableSignatureTable::new();
+    for (_, signature) in native_report.callable_signatures {
+        callable_signatures.insert(signature);
+    }
 
     for (module_id, parsed_unit) in &input.sources {
         let mut dummy_ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module_id.clone());
@@ -270,6 +261,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
         Arc::new(input.sources),
         Arc::new(dispatch.surfaces().clone()),
         Arc::new(dispatch),
+        Arc::new(callable_signatures),
         Arc::new(declarations),
         Arc::new(hierarchy),
         Arc::new(diagnostics_map),

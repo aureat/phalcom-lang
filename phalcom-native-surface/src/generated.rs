@@ -1,5 +1,10 @@
 //! Generated canonical native surface records.
 
+/// Number of authored `#[primitive]` declarations scanned by the surface
+/// generator. Rich projection migration may lag this count, but source drift
+/// must update the checked-in artifact deliberately.
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 93;
+
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 
@@ -133,6 +138,7 @@ macro_rules! surface_record {
                 since: None,
                 deprecated_since: None,
                 replacement: None,
+                lifecycle: NativeLifecycleSpec::UNKNOWN,
                 intrinsic: $intrinsic,
                 trust: NativeTrust::Ordinary,
                 docs: $docs,
@@ -208,7 +214,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         effects = EffectSpec::Pure,
         raises = RaisesSpec::Unknown,
         flow = ReturnFlowSpec::Value,
-        intrinsic = Some(NativeIntrinsicId::BoolAnd),
+        intrinsic = None,
         return_shape = NativeReturnShape::Instance("Bool"),
         docs = Some("Computes strict bitwise/logical AND.")
     ),
@@ -224,7 +230,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         effects = EffectSpec::Pure,
         raises = RaisesSpec::Unknown,
         flow = ReturnFlowSpec::Value,
-        intrinsic = Some(NativeIntrinsicId::BoolOr),
+        intrinsic = None,
         return_shape = NativeReturnShape::Instance("Bool"),
         docs = Some("Computes strict bitwise/logical OR.")
     ),

@@ -1104,10 +1104,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "phalcom-native-decl"
+version = "0.1.0"
+dependencies = [
+ "phalcom-common",
+ "phalcom-native-meta",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
+ "thiserror",
+]
+
+[[package]]
 name = "phalcom-native-macros"
 version = "0.1.0"
 dependencies = [
  "phalcom-common",
+ "phalcom-native-decl",
  "phalcom-native-meta",
  "phalcom-type-syntax",
  "proc-macro2",
@@ -1127,6 +1140,16 @@ name = "phalcom-native-surface"
 version = "0.1.0"
 dependencies = [
  "phalcom-native-meta",
+]
+
+[[package]]
+name = "phalcom-native-surface-gen"
+version = "0.1.0"
+dependencies = [
+ "phalcom-native-decl",
+ "phalcom-native-meta",
+ "proc-macro2",
+ "syn 2.0.104",
 ]
 
 [[package]]

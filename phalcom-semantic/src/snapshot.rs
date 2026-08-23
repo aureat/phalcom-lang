@@ -2,6 +2,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, WorkspaceId};
+use crate::signature::CallableSignatureTable;
 use crate::source::ParsedModuleUnit;
 use crate::surface::DeclarationSurface;
 use crate::types::relation::MapTypeHierarchy;
@@ -36,6 +37,7 @@ pub struct SemanticSnapshot {
     pub sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
     pub surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
     pub dispatch: Arc<SurfaceDispatchResolver>,
+    pub callable_signatures: Arc<CallableSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
     pub hierarchy: Arc<MapTypeHierarchy>,
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
@@ -50,6 +52,7 @@ impl SemanticSnapshot {
         sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
         surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
         dispatch: Arc<SurfaceDispatchResolver>,
+        callable_signatures: Arc<CallableSignatureTable>,
         declarations: Arc<DeclarationTypeTable>,
         hierarchy: Arc<MapTypeHierarchy>,
         diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
@@ -64,6 +67,7 @@ impl SemanticSnapshot {
             sources,
             surfaces,
             dispatch,
+            callable_signatures,
             declarations,
             hierarchy,
             diagnostics,
@@ -94,6 +98,10 @@ impl SemanticSnapshot {
 
     pub fn dispatch(&self) -> &Arc<SurfaceDispatchResolver> {
         &self.dispatch
+    }
+
+    pub fn callable_signatures(&self) -> &Arc<CallableSignatureTable> {
+        &self.callable_signatures
     }
 
     pub fn declarations(&self) -> &Arc<DeclarationTypeTable> {

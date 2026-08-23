@@ -352,14 +352,13 @@ async fn cross_file_hover_resolves_the_doc_from_the_declaring_file() {
 }
 
 #[tokio::test]
-async fn builtin_hover_has_kind_and_selector_but_no_phaldoc_section() {
+async fn builtin_hover_has_kind_selector_and_native_documentation() {
     let (mut client_end, server_task) = spawn_server();
     initialize(&mut client_end, None).await;
 
     let uri = "file:///workspace/main.ph";
-    // `ifTrue(_)` is a core-table (`Bool`) selector with no local
-    // declaration in this file, so it must resolve purely from the builtin
-    // table with no Phaldoc section.
+    // `ifTrue(_)` is a native `Bool` selector with no local declaration in
+    // this file, so it must resolve from canonical native metadata.
     let text = "let x = true.ifTrue || { 1 };\n";
     did_open(&mut client_end, uri, text).await;
 
@@ -368,9 +367,8 @@ async fn builtin_hover_has_kind_and_selector_but_no_phaldoc_section() {
     let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("ifTrue(_)"), "{value:?}");
     assert!(value.contains("on Bool"), "{value:?}");
-    // No Phaldoc section: no `---` divider, since there is no local `.ph`
-    // source to harvest a doc comment from for a native/core builtin.
-    assert!(!value.contains("---"), "{value:?}");
+    assert!(value.contains("native primitive"), "{value:?}");
+    assert!(value.contains("Executes block if receiver is true."), "{value:?}");
 
     drop(client_end);
     let _ = server_task.await;

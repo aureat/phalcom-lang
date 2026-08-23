@@ -22,6 +22,9 @@ pub fn validate_native_surface_conformance(
     current_module: &ModuleId,
 ) -> ConformanceReport {
     let mut report = ConformanceReport::default();
+    if let Err(failures) = phalcom_native_surface::validate_native_surface_catalog(NATIVE_SURFACES) {
+        report.failures.extend(failures);
+    }
     let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> crate::identity::DeclarationId {
         resolver
             .resolve_type_name(current_module, key.name(), &[])
@@ -47,6 +50,25 @@ pub fn validate_native_surface_conformance(
                 report
                     .failures
                     .push(format!("{:?}.{}: failed to resolve param {i}: {e}", record.owner(), record.selector()));
+                failed = true;
+            }
+        }
+        for labeled in record.params().labeled {
+            if let Err(e) = resolve_native_type_form(store, declarations, &empty_params, &universe_resolver, labeled.ty) {
+                report.failures.push(format!(
+                    "{:?}.{}: failed to resolve labeled param {}: {e}",
+                    record.owner(),
+                    record.selector(),
+                    labeled.label
+                ));
+                failed = true;
+            }
+        }
+        if let Some(rest) = record.params().rest.and_then(|rest| rest.ty) {
+            if let Err(e) = resolve_native_type_form(store, declarations, &empty_params, &universe_resolver, rest) {
+                report
+                    .failures
+                    .push(format!("{:?}.{}: failed to resolve rest param: {e}", record.owner(), record.selector()));
                 failed = true;
             }
         }
