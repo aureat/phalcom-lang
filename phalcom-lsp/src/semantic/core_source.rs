@@ -99,7 +99,7 @@ impl CoreSource {
     pub fn parse(&self) -> Parse {
         match self {
             Self::Bundled { .. } => bundled_parse(),
-            Self::Configured { text, .. } | Self::Workspace { text, .. } => phalcom_ast::parser::parse(text, 0),
+            Self::Configured { .. } | Self::Workspace { .. } => phalcom_ast::parser::parse(self.text(), 0),
         }
     }
 
