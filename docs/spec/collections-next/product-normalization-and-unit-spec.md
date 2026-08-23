@@ -1,7 +1,7 @@
 # Phalcom Product Normalization and Unit Specification
 
-**Status:** Ratified language design specification  
-**Scope:** `Unit`, the zero-arity product, normalization of empty Tuple and closed empty Record forms, compile-time and runtime canonicalization, interaction with variadic capture/expansion, runtime representation, and distinctions from empty collection canonicalization.  
+**Status:** Ratified language design specification
+**Scope:** `Unit`, the zero-arity product, normalization of empty Tuple and closed empty Record forms, compile-time and runtime canonicalization, interaction with variadic capture/expansion, runtime representation, and distinctions from empty collection canonicalization.
 **Out of scope:** Full Tuple and Record semantics, row-polymorphism syntax, generic specialization internals beyond required normalization behavior, complete collection literal rules, and nominal empty-class semantics except where contrasted with structural products.
 
 ---

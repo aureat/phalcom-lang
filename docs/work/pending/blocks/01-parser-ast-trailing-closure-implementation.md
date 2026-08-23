@@ -1,11 +1,11 @@
 # Task 1 — Parser, AST Grammar, and Trailing-Closure Syntax
 
-**Project:** Phalcom  
-**Repository:** `aureat/phalcom-lang`  
-**Baseline inspected:** `main` at `32580cc6599ccebd31447d69e2557bfcacdcd95f`  
-**Status:** Implementation-ready  
-**Primary implementation area:** `phalcom-ast/src/parser.rs`  
-**Depends on:** transition-1 Tasks 1–2; collection work through the current A–C baseline  
+**Project:** Phalcom
+**Repository:** `aureat/phalcom-lang`
+**Baseline inspected:** `main` at `32580cc6599ccebd31447d69e2557bfcacdcd95f`
+**Status:** Implementation-ready
+**Primary implementation area:** `phalcom-ast/src/parser.rs`
+**Depends on:** transition-1 Tasks 1–2; collection work through the current A–C baseline
 **Must preserve:** existing `Expr::Block`, `BlockExpr`, `MethodCallExpr`, `Argument`, selector encoding, lexer `Token::Pipe`, and all current bitwise-OR semantics
 
 ---

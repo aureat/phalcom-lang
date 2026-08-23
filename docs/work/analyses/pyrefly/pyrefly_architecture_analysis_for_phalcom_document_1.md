@@ -588,7 +588,7 @@ The target architecture:
   Lazy calculations       Demand-driven queries   IDE responsiveness
 
   Answer tables           Persistent semantic     Incremental analysis
-                          cache                   
+                          cache
 
   Dependency graph        Fine-grained            Large project
                           invalidation            scalability
@@ -596,7 +596,7 @@ The target architecture:
   Type heap               Type arena              Cheap recursive types
 
   Cycle-aware solver      Fixed-point semantic    Recursive semantics
-                          engine                  
+                          engine
   -----------------------------------------------------------------------
 
 ------------------------------------------------------------------------

@@ -14,7 +14,7 @@
 
 ## 1. Authority, checkpoint, and relation to the previous plan
 
-The attached plan remains the authority for the first async-performance completion phase: one semantic worker, immutable publication, progressive scanning, unified flow results, callable worklists, contribution storage, closed-source caching, performance instrumentation, and resilient extension restart behavior. 
+The attached plan remains the authority for the first async-performance completion phase: one semantic worker, immutable publication, progressive scanning, unified flow results, callable worklists, contribution storage, closed-source caching, performance instrumentation, and resilient extension restart behavior.
 
 The new starting point is remote `main` at:
 
@@ -25,23 +25,23 @@ perf(lsp): finalize async worker scheduling
 
 This is 29 commits beyond the attached plan's `195ef13` checkpoint. Do **not** reimplement Tasks 8–13 wholesale. Treat their landed architecture as prerequisite infrastructure and modify it only where this plan explicitly identifies remaining gaps.
 
-The re-audit confirms several important unfinished seams. `SemanticDb` still owns a mutex-protected mutable `SemanticEngine`, while `SemanticEngine` itself clones its state transactionally; `SemanticDb::apply_mutations_with_cancel` then adds a second engine clone before publication. `SemanticEngine::snapshot()` deep-clones file/class/summary products into new `Arc`s on every publication.  
+The re-audit confirms several important unfinished seams. `SemanticDb` still owns a mutex-protected mutable `SemanticEngine`, while `SemanticEngine` itself clones its state transactionally; `SemanticDb::apply_mutations_with_cancel` then adds a second engine clone before publication. `SemanticEngine::snapshot()` deep-clones file/class/summary products into new `Arc`s on every publication.
 
-The immutable query layer also reconstructs complete class/summary maps for individual operations such as `receiver_member`, `return_for_callable`, `class_for_name`, `returns_for_callables`, and `infer_expression`; it additionally returns deep owned clones for many simple lookups. 
+The immutable query layer also reconstructs complete class/summary maps for individual operations such as `receiver_member`, `return_for_callable`, `class_for_name`, `returns_for_callables`, and `infer_expression`; it additionally returns deep owned clones for many simple lookups.
 
-Semantic member identity is not fully preserved. `ClassSurface` simultaneously keeps a side-blind `members: BTreeMap<String, MemberSurface>` and a side-aware `members_by_side`, so an already-resolved `CallableId { owner, selector, side }` can later be degraded to `(owner, selector)` and select the wrong class-side/instance-side declaration. 
+Semantic member identity is not fully preserved. `ClassSurface` simultaneously keeps a side-blind `members: BTreeMap<String, MemberSurface>` and a side-aware `members_by_side`, so an already-resolved `CallableId { owner, selector, side }` can later be degraded to `(owner, selector)` and select the wrong class-side/instance-side declaration.
 
-`ModuleId::from_uri` still performs `std::fs::canonicalize`, and it is called from semantic query paths. Filesystem identity therefore remains coupled to interactive lookup. 
+`ModuleId::from_uri` still performs `std::fs::canonicalize`, and it is called from semantic query paths. Filesystem identity therefore remains coupled to interactive lookup.
 
-`ParameterContributions::replace_source` removes one source by scanning every parameter slot and then recomputes the joined value for every slot, so its data model is contribution-aware but its update algorithm is still global. 
+`ParameterContributions::replace_source` removes one source by scanning every parameter slot and then recomputes the joined value for every slot, so its data model is contribution-aware but its update algorithm is still global.
 
-The incremental callable solver initially queues every callable belonging to every affected input module, then reconstructs the complete current parameter-fact map after each analyzed callable. 
+The incremental callable solver initially queues every callable belonging to every affected input module, then reconstructs the complete current parameter-fact map after each analyzed callable.
 
-The progressive scanner limits the number of directories per turn but consumes every entry in each selected directory before yielding, meaning a single extremely wide directory can still monopolize the worker. 
+The progressive scanner limits the number of directories per turn but consumes every entry in each selected directory before yielding, meaning a single extremely wide directory can still monopolize the worker.
 
-The open-document store already exposes the right primitive—an owned `DocumentSnapshot` that releases the `DashMap` guard immediately—but many backend paths still execute semantic/query work inside `with_document`. 
+The open-document store already exposes the right primitive—an owned `DocumentSnapshot` that releases the `DashMap` guard immediately—but many backend paths still execute semantic/query work inside `with_document`.
 
-Semantic token refinement uses whichever semantic file snapshot exists without verifying that its source revision matches the text currently being lexed. 
+Semantic token refinement uses whichever semantic file snapshot exists without verifying that its source revision matches the text currently being lexed.
 
 These are the targets of this plan.
 
@@ -3074,7 +3074,7 @@ CARGO_TARGET_DIR=target \
 cargo test -p phalcom-lsp --test integration workspace_semantics --quiet
 ```
 
-The repository currently aggregates these modules through `phalcom-lsp/tests/integration.rs`. 
+The repository currently aggregates these modules through `phalcom-lsp/tests/integration.rs`.
 
 ---
 

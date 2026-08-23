@@ -138,13 +138,13 @@ It may therefore interpret both `#*` and `#**`.
 This callable accepts:
 
 1. one required positional `Request`;
-    
+
 2. zero or more positional `Bytes`;
-    
+
 3. one required `timeout: Duration`;
-    
+
 4. zero or more additional labeled arguments whose values satisfy `Metadata`.
-    
+
 
 The following domain is valid:
 
@@ -530,9 +530,9 @@ method(**config: ConnectionConfig) {
 The captured result preserves the annotation’s structural kind:
 
 - tuple annotation produces a labeled Tuple;
-    
+
 - record annotation produces a Record.
-    
+
 
 ---
 
@@ -820,24 +820,24 @@ Capture the lanes separately:
 ## 15. Core invariants
 
 1. `#*` and `#**` are ordinary Symbol keys.
-    
+
 2. Tuple construction never assigns argument-pack semantics.
-    
+
 3. Argument-pack semantics belong to the consuming context.
-    
+
 4. A callable domain owns both lanes.
-    
+
 5. A `*parameter` binder owns only the positional lane.
-    
+
 6. A `**parameter` binder owns only the labeled lane.
-    
+
 7. A binder rejects annotations describing lanes it does not own.
-    
+
 8. Non-tuple rest annotations are shorthand for homogeneous open lanes.
-    
+
 9. Rest captures produce ordinary Tuple values or annotation-prescribed Records.
-    
+
 10. Type-level unpacking `*P` is distinct from the symbolic tuple label `*:`.
-    
+
 
 This creates a uniform model in which Phalcom’s surface syntax is ordinary object syntax, while argument domains arise through disciplined contextual interpretation.

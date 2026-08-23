@@ -1,8 +1,8 @@
 # Task 5 — Internal Namespaces, Primitive Migration, Float Cleanup, and `core.ph` Convergence
 
-> **Repository:** `aureat/phalcom-lang`  
-> **Depends on:** Tasks 1–4  
-> **Must finish before:** Task 6  
+> **Repository:** `aureat/phalcom-lang`
+> **Depends on:** Tasks 1–4
+> **Must finish before:** Task 6
 > **Primary objective:** Move genuinely internal runtime operations into the `_$selector` namespace, reserve `__field` for implementation storage, make internal access enforceable, fix Float's public selector kinds, and migrate `core.ph` from transitional primitive/private naming to the final language.
 
 ---

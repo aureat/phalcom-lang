@@ -1,7 +1,7 @@
 # Phalcom Argument Packs and Expansion Specification
 
-**Status:** Ratified language design specification  
-**Scope:** Argument-pack construction, selector derivation context, positional and labeled lanes, expansion operators, variadic capture, forwarding, and eager expansion constraints.  
+**Status:** Ratified language design specification
+**Scope:** Argument-pack construction, selector derivation context, positional and labeled lanes, expansion operators, variadic capture, forwarding, and eager expansion constraints.
 **Out of scope:** Full Tuple semantics, Record and Map type specifications, Symbol grammar in full, iterator protocol details, and generic capability hierarchy except where required to define expansion behavior.
 
 ---

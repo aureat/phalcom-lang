@@ -1,5 +1,5 @@
 # Type Expression Foundation
- 
+
 > **Superseded terminology:** current Phalcom typing ontology reserves `Type`
 > for the atomic kind and uses `TypeForm` for the common type-denoting role.
 > This document is retained as design history. See `ontology.md`.

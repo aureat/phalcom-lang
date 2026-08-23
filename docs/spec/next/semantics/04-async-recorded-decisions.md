@@ -1,6 +1,6 @@
 # Phalcom Async Semantics — Recorded Decisions Pending Reconciliation
 
-**Status:** Provisional design record; not yet normative  
+**Status:** Provisional design record; not yet normative
 **Important:** Phalcom already has async specifications whose semantics may differ from the assumptions recorded here. This document preserves the decisions accepted in the design discussion so they can later be compared with and reconciled into the authoritative async specification. It must not silently override existing async semantics.
 
 ---

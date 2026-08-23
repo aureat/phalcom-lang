@@ -1,6 +1,6 @@
 # Phalcom Callable Body and Return Semantics
 
-**Status:** Normative design specification  
+**Status:** Normative design specification
 **Scope:** Brace-bodied named callables, expression-bodied methods using existing `method => expression` syntax, closures, empty bodies, explicit return, fallthrough, constructors, and interaction with `Never`.
 
 ---

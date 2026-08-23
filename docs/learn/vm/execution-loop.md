@@ -391,7 +391,7 @@ Bytecode:
   0000: Constant(0)              # push 1
   0001: Constant(1)              # push 2
   0002: InvokeConst(2, 1, 3)     # fused: push 3, then send `*` to 2  → 6
-  0003: Invoke(1, 3)             # ??? 
+  0003: Invoke(1, 3)             # ???
   0004: Invoke(1, 4)             # send `+` to 1 with 6              → 7
   0005: Return                   # pop 7, yield it
 ```

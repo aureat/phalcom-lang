@@ -1,9 +1,9 @@
 # Phalcom Collection Literal Spread Completion — Part I
 ## Frontend, Shared Positional Expansion Architecture, and List `*` Support
 
-**Status:** implementation specification / execution plan  
-**Repository baseline:** `aureat/phalcom-lang` at `9ca245f86a62e0b3064d88027f7992c27330f36d`  
-**Depends on:** F.1/F.2 outgoing-pack infrastructure, E.1 cursor protocol, E.3 boundedness, D.2 direct List literal construction  
+**Status:** implementation specification / execution plan
+**Repository baseline:** `aureat/phalcom-lang` at `9ca245f86a62e0b3064d88027f7992c27330f36d`
+**Depends on:** F.1/F.2 outgoing-pack infrastructure, E.1 cursor protocol, E.3 boundedness, D.2 direct List literal construction
 **Companion:** Part II — labeled expansion, Record/Map construction, diagnostics, traceback, and completion gates
 
 ---
@@ -352,7 +352,7 @@ Alternative naming is acceptable if stack contracts remain clear and the distinc
 Semantic contract:
 
 ```text
-... 
+...
 BeginListLiteral
 ... | list
 ```

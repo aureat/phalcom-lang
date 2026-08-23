@@ -63,7 +63,7 @@ This distinction matters for:
 I would add a formal section:
 
 > Mixed methods have two identities:
-> 
+>
 > - dispatch identity: the consuming class;
 > - origin identity: the contributing mixin application.
 
@@ -257,7 +257,7 @@ self.bar()
 
 may dispatch to any available implementation.
 
-Static checking:  
+Static checking:
 requires declared capability.
 
 This distinction is very Phalcom-like and should be captured.

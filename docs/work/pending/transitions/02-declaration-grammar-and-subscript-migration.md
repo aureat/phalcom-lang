@@ -1,8 +1,8 @@
 # Task 2 — Selector Parameter Grammar, Setter Grammar, and Repository Declaration Migration
 
-> **Repository:** `aureat/phalcom-lang`  
-> **Depends on:** Task 1  
-> **Must finish before:** Tasks 3–6  
+> **Repository:** `aureat/phalcom-lang`
+> **Depends on:** Task 1
+> **Must finish before:** Tasks 3–6
 > **Primary objective:** Perform the deliberate source-breaking declaration grammar switch atomically and migrate every selector-bearing declaration to the new external-label/local-name form.
 
 ---

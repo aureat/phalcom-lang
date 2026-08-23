@@ -1,11 +1,11 @@
 # Task 3 — Documentation, Tests, Verification, and Cross-Project Cleanup
 
-**Project:** Phalcom  
-**Repository:** `aureat/phalcom-lang`  
-**Baseline inspected:** `main` at `32580cc6599ccebd31447d69e2557bfcacdcd95f`  
-**Status:** Implementation-ready  
-**Depends on:** Task 1 parser syntax and Task 2 executable-source migration  
-**Primary areas:** normative docs, guides, pending specs, LSP fixtures, fuzzing, full test matrix, repository hygiene  
+**Project:** Phalcom
+**Repository:** `aureat/phalcom-lang`
+**Baseline inspected:** `main` at `32580cc6599ccebd31447d69e2557bfcacdcd95f`
+**Status:** Implementation-ready
+**Depends on:** Task 1 parser syntax and Task 2 executable-source migration
+**Primary areas:** normative docs, guides, pending specs, LSP fixtures, fuzzing, full test matrix, repository hygiene
 **Must preserve:** historical records unless actively normative; existing AST/runtime architecture; current selector semantics; B.3b as separate future work
 
 ---

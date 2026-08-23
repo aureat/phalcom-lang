@@ -1,7 +1,7 @@
 # Phalcom Type, Protocol, Record, Callable, and Unit Semantics
 
-**Status:** Consolidated design specification and decision ledger  
-**Scope:** Decisions and unresolved questions developed in the associated design conversation  
+**Status:** Consolidated design specification and decision ledger
+**Scope:** Decisions and unresolved questions developed in the associated design conversation
 **Audience:** Language designers, compiler implementers, runtime implementers, standard-library authors, tooling authors, and specification reviewers
 
 ---

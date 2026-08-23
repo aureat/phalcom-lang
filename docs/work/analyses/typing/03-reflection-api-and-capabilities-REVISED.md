@@ -1,11 +1,11 @@
 # 03 — User-Facing Typing Reflection API and Capabilities
 
-**Date:** 2026-08-22  
-**Status:** Ratified API architecture and implementation specification  
-**Authority:** Normative runtime reflection behavior and semantic-query projection. This document does not redefine the canonical generic/type calculus, metadata representation, or parser grammar.  
-**Primary owners:** `phalcom-core` universe/runtime reflection, `phalcom-semantic` read-only semantic query facade, metadata/runtime registry from Spec 02  
-**Dependencies:** [01 — Implementation Architecture](01-implementation-architecture.md), [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md), [02 — Runtime Reification, Semantic Metadata, and Artifact Contract](02-runtime-reification-and-metadata.md)  
-**Syntax dependency:** [04 — User-Facing Type Syntax and Lowering](04-user-facing-type-syntax-and-lowering.md) defines how source expressions produce the semantic forms reflected here; Spec 03 does not block parser implementation.  
+**Date:** 2026-08-22
+**Status:** Ratified API architecture and implementation specification
+**Authority:** Normative runtime reflection behavior and semantic-query projection. This document does not redefine the canonical generic/type calculus, metadata representation, or parser grammar.
+**Primary owners:** `phalcom-core` universe/runtime reflection, `phalcom-semantic` read-only semantic query facade, metadata/runtime registry from Spec 02
+**Dependencies:** [01 — Implementation Architecture](01-implementation-architecture.md), [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md), [02 — Runtime Reification, Semantic Metadata, and Artifact Contract](02-runtime-reification-and-metadata.md)
+**Syntax dependency:** [04 — User-Facing Type Syntax and Lowering](04-user-facing-type-syntax-and-lowering.md) defines how source expressions produce the semantic forms reflected here; Spec 03 does not block parser implementation.
 **Advanced dependency:** revised Spec 05 owns effects, totality, contracts-as-proof-input, proof-result semantics, and advanced kind/row domains; this document reserves projection seams without freezing those payloads early.
 
 ---

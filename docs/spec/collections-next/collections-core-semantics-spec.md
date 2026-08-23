@@ -1,7 +1,7 @@
 # Phalcom Collections Core Semantics Specification
 
-**Status:** Ratified language design specification  
-**Scope:** Core collection access and mutation semantics shared across built-in collections; strict and safe lookup; subscript getter/setter behavior; subscript assignment expression value; negative indexing; insertion positions; slicing; List slice assignment; eager collection transformations; standard transformation/query vocabulary; `fold`/`reduce`; mutation result conventions; sorting; grouping; partitioning; Map entry/value conventions; conversion rules already ratified.  
+**Status:** Ratified language design specification
+**Scope:** Core collection access and mutation semantics shared across built-in collections; strict and safe lookup; subscript getter/setter behavior; subscript assignment expression value; negative indexing; insertion positions; slicing; List slice assignment; eager collection transformations; standard transformation/query vocabulary; `fold`/`reduce`; mutation result conventions; sorting; grouping; partitioning; Map entry/value conventions; conversion rules already ratified.
 **Out of scope:** Full collection protocol hierarchy, iterator object model, mutation-during-iteration rules, complete Set semantics, generic variance, complete Range/Progression runtime semantics, Bytes details, collection printing, and unresolved cross-family equality rules.
 
 ---

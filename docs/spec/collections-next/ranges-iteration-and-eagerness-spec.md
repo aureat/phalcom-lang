@@ -1,7 +1,7 @@
 # Phalcom Ranges, Iteration, and Eagerness Specification
 
-**Status:** Ratified language design specification  
-**Scope:** Range syntax and precedence, inclusive/exclusive bounds, one-sided ranges, Range versus Progression, slice-bound use, eager concrete collection operations, lazy iterator pipelines, eager exhaustors, source boundedness classification, compile-time rejection of provably unbounded eager consumption, and boundedness propagation principles already ratified.  
+**Status:** Ratified language design specification
+**Scope:** Range syntax and precedence, inclusive/exclusive bounds, one-sided ranges, Range versus Progression, slice-bound use, eager concrete collection operations, lazy iterator pipelines, eager exhaustors, source boundedness classification, compile-time rejection of provably unbounded eager consumption, and boundedness propagation principles already ratified.
 **Out of scope:** Full Range/Progression runtime object model, complete iterator protocol, mutation during iteration, exact lazy pipeline implementation, all terminal iterator operations, Range equality/hashability, descending/reversed Range semantics, and generic capability hierarchy.
 
 ---

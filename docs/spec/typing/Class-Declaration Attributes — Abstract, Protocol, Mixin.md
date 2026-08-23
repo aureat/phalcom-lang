@@ -55,17 +55,17 @@ class User is Object {
 A concrete class:
 
 - may be instantiated;
-    
+
 - may declare storage and constructors;
-    
+
 - may inherit from zero or one class;
-    
+
 - may consume mixins;
-    
+
 - may explicitly declare protocol conformance;
-    
+
 - must have no unresolved abstract methods.
-    
+
 
 Composition and explicit conformance use `@compose(...)`.
 
@@ -159,17 +159,17 @@ class Hashable {
 The descriptor records:
 
 - its name;
-    
+
 - generic parameters;
-    
+
 - directly declared requirements;
-    
+
 - included protocols;
-    
+
 - effective requirements;
-    
+
 - attributes and documentation.
-    
+
 
 It does not create an instantiable class.
 
@@ -294,21 +294,21 @@ Protocol methods have signatures but no executable bodies.
 A protocol may not declare:
 
 - instance fields;
-    
+
 - constructors;
-    
+
 - concrete instance methods;
-    
+
 - a nominal superclass through `is`;
-    
+
 - mixin composition;
-    
+
 - `intercept`;
-    
+
 - `doesNotUnderstand`;
-    
+
 - allocation or destruction hooks.
-    
+
 
 ## 4.5 Included requirement conflicts
 
@@ -392,13 +392,13 @@ The former `@needs(...)` helper is unnecessary.
 Requirements are checked after:
 
 1. inherited methods are resolved;
-    
+
 2. class-declared methods are collected;
-    
+
 3. generated methods are produced;
-    
+
 4. all mixin methods are composed.
-    
+
 
 This permits one mixin to help satisfy another mixin’s requirements.
 
@@ -494,17 +494,17 @@ class M {
 A mixin may declare:
 
 - concrete instance methods;
-    
+
 - private helper methods;
-    
+
 - generic methods;
-    
+
 - method attributes;
-    
+
 - documentation;
-    
+
 - generic type parameters.
-    
+
 
 ```
 @mixin(Comparable<T>)
@@ -522,21 +522,21 @@ class EqualityFromComparison<T> {
 A mixin may not declare:
 
 - instance fields;
-    
+
 - constructors;
-    
+
 - a superclass through `is`;
-    
+
 - abstract methods;
-    
+
 - class variants;
-    
+
 - `intercept`;
-    
+
 - `doesNotUnderstand`;
-    
+
 - instance initialization or finalization hooks.
-    
+
 
 Invalid:
 
@@ -624,17 +624,17 @@ class BaseStream<T> {
 It remains a real class:
 
 - it may have storage;
-    
+
 - it may have constructors;
-    
+
 - it may inherit through `is`;
-    
+
 - it may supply concrete methods;
-    
+
 - it participates in nominal subtype checks;
-    
+
 - it may call `super`.
-    
+
 
 It cannot be instantiated directly.
 
@@ -1152,31 +1152,31 @@ class Identifier {
 The compiler processes declaration metadata in fixed semantic phases:
 
 1. Determine the declaration kind.
-    
+
 2. Resolve generic parameters.
-    
+
 3. Resolve the optional superclass from `is`.
-    
+
 4. Resolve protocol inclusions.
-    
+
 5. Expand derivations such as `@data`.
-    
+
 6. Resolve and flatten mixins.
-    
+
 7. Merge effective selectors.
-    
+
 8. Diagnose method conflicts.
-    
+
 9. Validate mixin host requirements.
-    
+
 10. Validate explicit protocol conformance.
-    
+
 11. Validate abstract methods.
-    
+
 12. Validate sealing and immutability.
-    
+
 13. produce reflection metadata and method tables.
-    
+
 
 ---
 
@@ -1226,13 +1226,13 @@ class Identifier {
 There is one decorator for each independent semantic dimension:
 
 - `@sealed`: hierarchy restriction;
-    
+
 - `@data`: derived value behavior;
-    
+
 - `@immutable`: write-once state;
-    
+
 - `@compose`: mixins and explicit conformance.
-    
+
 
 ---
 
@@ -1400,15 +1400,15 @@ class Enumerable<T> {
 Problems:
 
 - excessive declaration noise;
-    
+
 - duplicated decorators;
-    
+
 - possible ordering questions;
-    
+
 - related mixin metadata is scattered;
-    
+
 - reflection must merge several attribute instances.
-    
+
 
 Preferred:
 
@@ -1442,13 +1442,13 @@ class Enumerable<T> {
 Problems:
 
 - declaration kinds become enum values rather than language concepts;
-    
+
 - diagnostics become less direct;
-    
+
 - invalid combinations become easier to construct;
-    
+
 - `@protocol`, `@mixin`, and `@abstract` disappear from the visible language vocabulary.
-    
+
 
 ## 13.3 Heterogeneous positional lists
 

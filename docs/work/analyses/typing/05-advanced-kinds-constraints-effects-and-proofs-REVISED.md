@@ -1,12 +1,12 @@
 # 05 — Advanced Type-Level Semantics, Effects, Totality, Contracts, and Proofs
 
-**Date:** 2026-08-22  
-**Status:** Ratified advanced semantic architecture; implementation is staged behind explicit gates; prover/backend choices remain unratified  
-**Authority:** advanced semantic domains above the canonical generic calculus, including record-row solving, effect and exit summaries, termination and `@total`, canonical contract semantics, verification conditions, proof evidence/trust, and advanced kind-polymorphism extension points  
-**Primary owners:** `phalcom-semantic`, `phalcom-native-meta`, compiler contract bridge in `phalcom-core`, metadata extensions defined through Spec 02, reflection projections defined through Spec 03, CLI/LSP/REPL consumers  
-**Hard semantic dependencies:** [01 — Compiler-Owned Typing Implementation Architecture](01-implementation-architecture.md), [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md)  
-**Source-syntax dependency:** [04 — User-Facing Type Syntax and Lowering](04-user-facing-type-syntax-and-lowering.md)  
-**Runtime projection dependencies:** [02 — Runtime Reification, Semantic Metadata, and Artifact Contract](02-runtime-reification-and-metadata.md), [03 — User-Facing Typing Reflection API and Capabilities](03-reflection-api-and-capabilities.md)  
+**Date:** 2026-08-22
+**Status:** Ratified advanced semantic architecture; implementation is staged behind explicit gates; prover/backend choices remain unratified
+**Authority:** advanced semantic domains above the canonical generic calculus, including record-row solving, effect and exit summaries, termination and `@total`, canonical contract semantics, verification conditions, proof evidence/trust, and advanced kind-polymorphism extension points
+**Primary owners:** `phalcom-semantic`, `phalcom-native-meta`, compiler contract bridge in `phalcom-core`, metadata extensions defined through Spec 02, reflection projections defined through Spec 03, CLI/LSP/REPL consumers
+**Hard semantic dependencies:** [01 — Compiler-Owned Typing Implementation Architecture](01-implementation-architecture.md), [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md)
+**Source-syntax dependency:** [04 — User-Facing Type Syntax and Lowering](04-user-facing-type-syntax-and-lowering.md)
+**Runtime projection dependencies:** [02 — Runtime Reification, Semantic Metadata, and Artifact Contract](02-runtime-reification-and-metadata.md), [03 — User-Facing Typing Reflection API and Capabilities](03-reflection-api-and-capabilities.md)
 **Non-goals:** redefining ordinary generic semantics; redefining type-lambda semantics; changing selector identity or runtime dispatch; dependent types; `Type :: Type`; universe polymorphism; proof terms as ordinary values; effect handlers; a mandatory SMT/prover vendor; trusting runtime guards as proofs
 
 ---

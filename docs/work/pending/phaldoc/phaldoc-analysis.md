@@ -2,7 +2,7 @@
 
 Phaldoc should be a **source documentation language layered over comments**, not a runtime feature and not another attribute system. Its job is to express human intent, examples, explanations, and semantic cross-references while allowing the compiler, LSP, `phalcom doc`, and native primitive manifest to merge in machine-readable facts—types, effects, raises contracts, stability, deprecation, invariants, provenance—without requiring authors to repeat them.
 
-The repository already has an experimental Phaldoc proposal built around `///`, `//!`, Markdown, selector-keyed attachment, and documentation tags.  I would retain those foundations, but substantially tighten the format in light of the native metadata and attribute work we have just designed. In particular, `@since`, `@deprecated`, type information, effects, contracts, and other machine facts should **not** be Phaldoc prose when an authoritative metadata representation exists. This agrees with the more recent repository design principle that documentation is free comment trivia while executable/passive attributes remain the authoritative source for machine facts. 
+The repository already has an experimental Phaldoc proposal built around `///`, `//!`, Markdown, selector-keyed attachment, and documentation tags.  I would retain those foundations, but substantially tighten the format in light of the native metadata and attribute work we have just designed. In particular, `@since`, `@deprecated`, type information, effects, contracts, and other machine facts should **not** be Phaldoc prose when an authoritative metadata representation exists. This agrees with the more recent repository design principle that documentation is free comment trivia while executable/passive attributes remain the authoritative source for machine facts.
 
 The resulting philosophy is:
 
@@ -109,7 +109,7 @@ Likewise, don't make documentation an attribute:
 class String
 ```
 
-Phaldoc should cost nothing in stripped builds. The repository has already reached essentially this same boundary: documentation comments should remain trivia rather than retained heap objects. 
+Phaldoc should cost nothing in stripped builds. The repository has already reached essentially this same boundary: documentation comments should remain trivia rather than retained heap objects.
 
 ---
 
@@ -132,7 +132,7 @@ Not:
  */
 ```
 
-The repository's existing draft already identifies a concrete reason: although block comments appear in lexical documentation, the current lexer does not actually treat `/* ... */` as inert trivia. 
+The repository's existing draft already identifies a concrete reason: although block comments appear in lexical documentation, the current lexer does not actually treat `/* ... */` as inert trivia.
 
 Even after block comments eventually work, there is little need for a second canonical documentation notation.
 
@@ -401,7 +401,7 @@ And do not add:
 @invariant
 ```
 
-because those names already correspond to actual executable Phalcom attributes. The existing experimental design correctly recognizes that executable contracts should be harvested directly rather than copied into documentation. 
+because those names already correspond to actual executable Phalcom attributes. The existing experimental design correctly recognizes that executable contracts should be harvested directly rather than copied into documentation.
 
 ---
 
@@ -829,7 +829,7 @@ Therefore documentation should internally key methods exactly as the runtime doe
 (owner, side, canonical selector)
 ```
 
-The existing draft gets this principle right. 
+The existing draft gets this principle right.
 
 The source author normally doesn't have to state it because adjacency resolves the declaration.
 
@@ -845,7 +845,7 @@ The experimental draft proposed something like:
 /// selector: move(_,to,duration)
 ```
 
-for detached docs. 
+for detached docs.
 
 I would remove this.
 
@@ -1400,7 +1400,7 @@ Raises
 
 No `@raises PreconditionError` appears in Phaldoc because that would merely duplicate the contract.
 
-That contract-view idea from the existing draft remains one of its strongest decisions. 
+That contract-view idea from the existing draft remains one of its strongest decisions.
 
 ---
 
@@ -1427,7 +1427,7 @@ For Phalcom source, use/passively retain language attributes once standardized:
 oldMethod(...)
 ```
 
-The repository's metadata design is already moving toward that distinction. 
+The repository's metadata design is already moving toward that distinction.
 
 Therefore the old Phaldoc:
 
@@ -1795,7 +1795,7 @@ Likewise Phaldoc must never introduce:
 
 if those are actual language attributes.
 
-The existing repository documentation explicitly calls out this namespace separation. 
+The existing repository documentation explicitly calls out this namespace separation.
 
 Automate the check rather than leaving it as a review convention.
 

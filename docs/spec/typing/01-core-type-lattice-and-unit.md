@@ -1,6 +1,6 @@
 # Phalcom Core Type Lattice and Unit Semantics
 
-**Status:** Normative design specification  
+**Status:** Normative design specification
 **Scope:** `Never`, `()`, `Unit`, `None`, `Option<T>`, `Any`, `Dynamic`, `Object`, callable domains, ordinary return behavior, and associated normalization rules.
 
 ---

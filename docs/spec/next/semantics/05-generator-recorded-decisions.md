@@ -1,6 +1,6 @@
 # Phalcom Generator Semantics — Recorded Decisions Pending Reconciliation
 
-**Status:** Provisional design record; not yet normative  
+**Status:** Provisional design record; not yet normative
 **Important:** Phalcom already has generator specifications whose semantics may differ from the assumptions recorded here. This document preserves accepted recommendations for later comparison and reconciliation. It must not silently override existing generator semantics.
 
 ---

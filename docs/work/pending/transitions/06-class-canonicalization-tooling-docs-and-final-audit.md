@@ -1,7 +1,7 @@
 # Task 6 — `@class` Canonicalization, Tooling, Documentation, Generated Metadata, and Final Audit
 
-> **Repository:** `aureat/phalcom-lang`  
-> **Depends on:** Tasks 1–5  
+> **Repository:** `aureat/phalcom-lang`
+> **Depends on:** Tasks 1–5
 > **Primary objective:** Finish the migration by removing transitional class-side syntax from canonical source, updating LSP/tooling/generated metadata/specification, deleting obsolete underscore heuristics, and running a comprehensive repository audit.
 
 ---

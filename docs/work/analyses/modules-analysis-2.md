@@ -7,7 +7,7 @@ There is substantial value in the pasted analysis. Most of its broad architectur
 3. establish a useful invariant that the current specs imply but do not state strongly enough; or
 4. reveal a place where the analysis is slightly too optimistic and needs a stronger semantic rule.
 
-The current repair specification already establishes a statically linked module architecture, canonical cross-module declaration identity, declaration-shell SCC realization, an acyclic runtime initialization graph, provider-backed source resolution, authoritative ownership, and shared compiler/LSP identity.  The companion specification also makes `Project : Package : Module`, `universe`/`std` builtin Projects, static package exposure, builtin source providers, and semantic declaration SCCs architectural facts. 
+The current repair specification already establishes a statically linked module architecture, canonical cross-module declaration identity, declaration-shell SCC realization, an acyclic runtime initialization graph, provider-backed source resolution, authoritative ownership, and shared compiler/LSP identity.  The companion specification also makes `Project : Package : Module`, `universe`/`std` builtin Projects, static package exposure, builtin source providers, and semantic declaration SCCs architectural facts.
 
 The pasted analysis fits this direction extremely well. But it contains several ideas worth promoting into the actual module model.
 
@@ -47,7 +47,7 @@ This is not merely an implementation organization. It should be considered a fun
 
 > **Import syntax describes relationships in a statically resolved program universe. It does not itself perform module loading or initialization.**
 
-That rule is already strongly consistent with the attached specifications. The repair spec explicitly separates declaration planning from runtime initialization and requires runtime initialization to consume a distinct dependency DAG.  The universe spec similarly places interface discovery/linking, declaration-shell realization, and runtime initialization into distinct bootstrap phases. 
+That rule is already strongly consistent with the attached specifications. The repair spec explicitly separates declaration planning from runtime initialization and requires runtime initialization to consume a distinct dependency DAG.  The universe spec similarly places interface discovery/linking, declaration-shell realization, and runtime initialization into distinct bootstrap phases.
 
 I would make this even more explicit in the main modules specification.
 
@@ -258,7 +258,7 @@ Runtime initialization graph
     → cycles forbidden
 ```
 
-This matches the attached specification's explicit distinction between semantic SCCs, inheritance cycles, and runtime initialization cycles. 
+This matches the attached specification's explicit distinction between semantic SCCs, inheritance cycles, and runtime initialization cycles.
 
 This is worth documenting centrally because otherwise developers will keep asking an underspecified question:
 
@@ -510,7 +510,7 @@ describe the same module dependencies.
 
 Import source order should not be a hidden initialization mechanism.
 
-The universe specification already assumes ordinary module dependency preambles for `std`, so turning that concept into an explicit grammar invariant is a natural strengthening. 
+The universe specification already assumes ordinary module dependency preambles for `std`, so turning that concept into an explicit grammar invariant is a natural strengthening.
 
 ---
 
@@ -801,7 +801,7 @@ Benefits include:
 - no gigantic root package exposure registry;
 - natural LSP completion;
 - clean reflection through `Package.__children__`;
-- compatibility with the attached requirement that `__children__` expose logical/exposed children rather than raw filesystem structure. 
+- compatibility with the attached requirement that `__children__` expose logical/exposed children rather than raw filesystem structure.
 
 I would preserve this.
 
@@ -849,7 +849,7 @@ ModuleInitPlan(package)
 normal runtime initialization
 ```
 
-This also preserves the current requirement that the compiler and LSP resolve exposure/private access identically. 
+This also preserves the current requirement that the compiler and LSP resolve exposure/private access identically.
 
 ---
 
@@ -944,7 +944,7 @@ Initializing
 Failed   Initialized
 ```
 
-with the topological driver as the sole normal initialization authority. 
+with the topological driver as the sole normal initialization authority.
 
 That is the right design.
 
@@ -1043,7 +1043,7 @@ This gives a very clear front-end sequence:
 3. Parse declarations / exports / runtime body
 ```
 
-The attached specification already requires `@!` to be declarative unit-header metadata rather than an executable statement. 
+The attached specification already requires `@!` to be declarative unit-header metadata rather than an executable statement.
 
 ---
 
@@ -1175,7 +1175,7 @@ trait SourceProvider
 
 This is absolutely worth retaining.
 
-The current repair spec already moves in this direction with distinct Project, standalone Package, standalone Module, builtin, and inline providers. 
+The current repair spec already moves in this direction with distinct Project, standalone Package, standalone Module, builtin, and inline providers.
 
 But the architectural payoff is broader:
 
@@ -1255,7 +1255,7 @@ This distinction is also why the canonical builtin URI model works:
 phalcom://universe/reflection/selector
 ```
 
-rather than a fake `<core>` path. The current specs explicitly make the LSP consume shared `ModuleId`/`SourceId` identity rather than reconstructing semantic identity from URIs. 
+rather than a fake `<core>` path. The current specs explicitly make the LSP consume shared `ModuleId`/`SourceId` identity rather than reconstructing semantic identity from URIs.
 
 ---
 
@@ -1356,7 +1356,7 @@ struct ResolvedDocument {
 }
 ```
 
-and requires the semantic engine not to perform a second independent resolver pass. 
+and requires the semantic engine not to perform a second independent resolver pass.
 
 The pasted analysis explains why that decision is so valuable.
 
@@ -1416,7 +1416,7 @@ enum ProjectIdentity {
 }
 ```
 
-with builtin, user-resolved, and synthetic identity spaces structurally disjoint. 
+with builtin, user-resolved, and synthetic identity spaces structurally disjoint.
 
 The useful principle from the pasted text is:
 
@@ -1471,7 +1471,7 @@ The current specification explicitly requires:
 7. execute runtime initialization separately
 ```
 
-and explicitly supports semantic SCCs. 
+and explicitly supports semantic SCCs.
 
 This is stronger than treating all compile-time relationships merely as “interface edges.”
 
@@ -1557,7 +1557,7 @@ class B is A
 
 remains illegal even though both classes can be placed into a semantic SCC for predeclaration.
 
-The current specs are very strong here, and that separation should remain one of Phalcom's central explanatory concepts. 
+The current specs are very strong here, and that separation should remain one of Phalcom's central explanatory concepts.
 
 ---
 
@@ -1853,27 +1853,27 @@ ProjectIdentity::Resolved
 ProjectIdentity::Synthetic
 ```
 
-That is better than the pasted `ResolvedProjectId`-only formulation. 
+That is better than the pasted `ResolvedProjectId`-only formulation.
 
 ## Semantic declaration cycles
 
-The attached specs already go significantly further than the analysis by explicitly supporting declaration SCCs and declaration-shell materialization. 
+The attached specs already go significantly further than the analysis by explicitly supporting declaration SCCs and declaration-shell materialization.
 
 ## Runtime initialization
 
-The current repair specification already has the simplified nonrecursive topological state machine and sticky failure semantics. 
+The current repair specification already has the simplified nonrecursive topological state machine and sticky failure semantics.
 
 ## Source authority
 
-The attached repair spec already has authoritative `EntryOwnership`, restricted providers, canonical source confinement, and bidirectional `SourceId ↔ ModuleId` mappings. 
+The attached repair spec already has authoritative `EntryOwnership`, restricted providers, canonical source confinement, and bidirectional `SourceId ↔ ModuleId` mappings.
 
 ## LSP authority
 
-The current spec already makes `phalcom-modules` the sole authority and prohibits a second LSP resolver. 
+The current spec already makes `phalcom-modules` the sole authority and prohibits a second LSP resolver.
 
 ## Builtins
 
-The current universe spec already makes `universe` and `std` complete provider-backed Project graphs rather than resolver aliases. 
+The current universe spec already makes `universe` and `std` complete provider-backed Project graphs rather than resolver aliases.
 
 So these parts of the pasted analysis should be viewed as architectural justification for decisions that are now already ratified.
 

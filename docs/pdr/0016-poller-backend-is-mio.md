@@ -109,7 +109,7 @@ VM thread; no worker ever touches a socket.
   dev box is Darwin — but it makes the net unit Darwin-only until someone writes and
   tests a second backend plus per-OS wake machinery (`EVFILT_USER` / `eventfd`), which
   is a whole unit of work `mio` has already done and had audited by a decade of
-  production tokio. The trait we'd design today would have one implementor — 
+  production tokio. The trait we'd design today would have one implementor —
   speculative generality with none of the second data point that makes abstractions
   honest.
 - **The `polling` crate.** The genuinely close call, named as such: smaller than `mio`,

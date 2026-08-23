@@ -2,8 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this specification task-by-task, with tests at every representation boundary.
 
-**Repository:** `aureat/phalcom-lang`  
-**Repository snapshot inspected:** `main`, 2026-08-11  
+**Repository:** `aureat/phalcom-lang`
+**Repository snapshot inspected:** `main`, 2026-08-11
 **Suggested repository destination:** `docs/superpowers/plans/2026-08-11-immediate-option.md`
 
 ## Goal

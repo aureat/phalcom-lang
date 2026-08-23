@@ -1,6 +1,6 @@
 I investigated the repository structure and the existing selector implementation before writing this specification. The current design already has an important foundation: Phalcom’s selector specification treats exact selectors as symbolic values and reserves selector patterns as a distinct runtime concept. The repository currently implements `SelectorPatternObject` as a VM heap object with a compiled matcher representation (`phalcom-core/src/heap/selector_pattern.rs`) and exposes matching through the primitive bridge (`phalcom-core/src/primitive/selector_pattern.rs`). The current behavior diverges from the desired model because selector-pattern-shaped literals are promoted eagerly into objects while exact selector literals remain symbols. The change below normalizes both paths.
 
-The existing selector specification already states the intended semantic direction: exact selectors are represented through symbols, selector-aware consumers interpret them, and patterns are different because they represent a set of selectors rather than one selector.  
+The existing selector specification already states the intended semantic direction: exact selectors are represented through symbols, selector-aware consumers interpret them, and patterns are different because they represent a set of selectors rather than one selector.
 
 # Implementation Specification: Lazy Selector and SelectorPattern Materialization
 

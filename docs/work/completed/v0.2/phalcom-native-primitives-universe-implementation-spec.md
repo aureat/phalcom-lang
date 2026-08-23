@@ -2,10 +2,10 @@
 
 ## Detailed Implementation Specification — Minimal Functional Vertical Slice
 
-**Status:** Proposed implementation specification  
-**Date:** 2026-08-15  
-**Target repository:** `aureat/phalcom-lang`  
-**Scope:** Full native primitive attribute metadata system, descriptor-driven primitive registration, VM-free native semantic surface generation, and a minimal built-in `Package`/`universe` namespace that is compatible with the future modules/packages/projects design.  
+**Status:** Proposed implementation specification
+**Date:** 2026-08-15
+**Target repository:** `aureat/phalcom-lang`
+**Scope:** Full native primitive attribute metadata system, descriptor-driven primitive registration, VM-free native semantic surface generation, and a minimal built-in `Package`/`universe` namespace that is compatible with the future modules/packages/projects design.
 **Explicitly deferred:** Phaldoc syntax and parsing, full projects/modules/packages implementation, runtime realization of the future Phalcom type system, general user-defined native extensions.
 
 ---
@@ -775,7 +775,7 @@ phalcom-type-syntax
         ^
         |
 phalcom-native-meta
-        ^                 
+        ^
        / \
       /   \
 macros   native-surface/generated

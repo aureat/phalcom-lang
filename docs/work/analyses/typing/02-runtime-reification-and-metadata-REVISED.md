@@ -1,14 +1,14 @@
 # 02 — Runtime Reification, Semantic Metadata, and Artifact Contract
 
-**Date:** 2026-08-22  
-**Revision:** post-Spec-01.5 canonical generic semantic model  
-**Status:** Ratified metadata/reification specification; implementation is dependency-gated on the relevant Spec 01 and Spec 01.5 semantic products  
-**Authority:** durable semantic metadata schema, artifact-retention contract, semantic export boundary, runtime metadata loading, runtime typing-context storage, lazy reification, descriptor identity/lifetime, GC/cache policy, native-metadata convergence, and metadata security/performance requirements  
-**Depends on:** [01 — Compiler-Owned Typing Implementation Architecture](01-implementation-architecture.md) and [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md)  
-**Consumed by:** [03 — Reflection API and Capabilities](03-reflection-api-and-capabilities.md), explicit runtime type-form values from [04 — User-Facing Type Syntax and Lowering](04-user-facing-type-syntax-and-lowering.md), compiler artifacts, native surfaces, runtime validation, and future advanced-effect/proof extensions from Spec 05  
-**Primary owners:** new VM-independent `phalcom-type-meta` crate; `phalcom-semantic` exporter; `phalcom-core` artifact loader/runtime typing registry and heap bridge; `phalcom-native-meta` producer/adaptor  
-**Repository snapshot inspected:** `aureat/phalcom-lang@a43f26e0ddd6b1d6e37ddf7a0b9588769bb41f3e` (`main`, 2026-08-22)  
-**Scope:** stable store-independent type/kind/signature metadata; generic parameters/constraints/variance; type lambdas; `Self`; generic superclass templates; callable and field signatures; aliases; metadata profiles and required roots; deterministic fingerprints; artifact carriage; lazy runtime descriptors; runtime overlay composition; weak descriptor caching; runtime method-to-semantic-signature indexing; world-sensitive cache invalidation; native metadata convergence; validation limits; migration and verification  
+**Date:** 2026-08-22
+**Revision:** post-Spec-01.5 canonical generic semantic model
+**Status:** Ratified metadata/reification specification; implementation is dependency-gated on the relevant Spec 01 and Spec 01.5 semantic products
+**Authority:** durable semantic metadata schema, artifact-retention contract, semantic export boundary, runtime metadata loading, runtime typing-context storage, lazy reification, descriptor identity/lifetime, GC/cache policy, native-metadata convergence, and metadata security/performance requirements
+**Depends on:** [01 — Compiler-Owned Typing Implementation Architecture](01-implementation-architecture.md) and [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md)
+**Consumed by:** [03 — Reflection API and Capabilities](03-reflection-api-and-capabilities.md), explicit runtime type-form values from [04 — User-Facing Type Syntax and Lowering](04-user-facing-type-syntax-and-lowering.md), compiler artifacts, native surfaces, runtime validation, and future advanced-effect/proof extensions from Spec 05
+**Primary owners:** new VM-independent `phalcom-type-meta` crate; `phalcom-semantic` exporter; `phalcom-core` artifact loader/runtime typing registry and heap bridge; `phalcom-native-meta` producer/adaptor
+**Repository snapshot inspected:** `aureat/phalcom-lang@a43f26e0ddd6b1d6e37ddf7a0b9588769bb41f3e` (`main`, 2026-08-22)
+**Scope:** stable store-independent type/kind/signature metadata; generic parameters/constraints/variance; type lambdas; `Self`; generic superclass templates; callable and field signatures; aliases; metadata profiles and required roots; deterministic fingerprints; artifact carriage; lazy runtime descriptors; runtime overlay composition; weak descriptor caching; runtime method-to-semantic-signature indexing; world-sensitive cache invalidation; native metadata convergence; validation limits; migration and verification
 **Non-goals:** redefining canonical generic semantics from 01.5; defining source grammar from 04; defining public reflection selector spelling from 03; inventing effect/proof semantics before 05; serializing raw `TypeId`/`KindId`/solver IDs; per-instance generic tokens; specialized runtime classes/metaclasses; type-directed selector identity; permanent package-file binary encoding before package/reproducibility policy is ratified
 
 ---

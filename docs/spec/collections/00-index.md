@@ -1,7 +1,7 @@
 # Phalcom Collections and Argument-Pack Specification Suite
 
-**Status:** Draft normative candidate for systematic language review  
-**Scope:** Tuples, records, sets, argument packs, rest/spread operators, callable domains, reflection, normalization, diagnostics, and conformance  
+**Status:** Draft normative candidate for systematic language review
+**Scope:** Tuples, records, sets, argument packs, rest/spread operators, callable domains, reflection, normalization, diagnostics, and conformance
 **Audience:** Language architects, parser/compiler implementers, VM/runtime implementers, standard-library authors, tooling authors, and specification reviewers
 
 ## 1. Purpose

@@ -1,7 +1,7 @@
 # Phalcom Tuple, Record, and Symbol Specification
 
-**Status:** Ratified language design specification  
-**Scope:** Tuple and Record semantic models; Symbol-backed labels; bare, explicit, and computed labels; Tuple lane structure and linearization; Record field structure; equality/hashability direction; encounter order; interaction with expansion; zero-product boundary references.  
+**Status:** Ratified language design specification
+**Scope:** Tuple and Record semantic models; Symbol-backed labels; bare, explicit, and computed labels; Tuple lane structure and linearization; Record field structure; equality/hashability direction; encounter order; interaction with expansion; zero-product boundary references.
 **Out of scope:** Full generic typing and row-polymorphism rules, complete Record update/merge APIs, complete Map specification, iterator protocol details, full parser grammar productions, and implementation-specific memory layout except where required to preserve semantics.
 
 ---

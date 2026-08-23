@@ -42,8 +42,8 @@ register(+(_): handler)
 
 Options:
 
-A. Call labels remain Symbols only.  
-B. Call labels become `Symbol | Selector`.  
+A. Call labels remain Symbols only.
+B. Call labels become `Symbol | Selector`.
 C. Direct syntax stays Symbol-only, but dynamic expansion may carry Selector labels.
 
 Recommendation: A initially. B requires auditing selector interning, dispatch caches, method declaration grammar, protocol conformance, `doesNotUnderstand`, serialization, and diagnostics.

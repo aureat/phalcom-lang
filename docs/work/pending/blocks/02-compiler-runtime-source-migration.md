@@ -1,11 +1,11 @@
 # Task 2 — Compiler/Runtime Invariants and Executable Source Migration
 
-**Project:** Phalcom  
-**Repository:** `aureat/phalcom-lang`  
-**Baseline inspected:** `main` at `32580cc6599ccebd31447d69e2557bfcacdcd95f`  
-**Status:** Implementation-ready  
-**Primary areas:** compiler/runtime audit plus migration of executable `.ph` source  
-**Depends on:** Task 1 parser support for `|...|` closures and trailing-closure syntax  
+**Project:** Phalcom
+**Repository:** `aureat/phalcom-lang`
+**Baseline inspected:** `main` at `32580cc6599ccebd31447d69e2557bfcacdcd95f`
+**Status:** Implementation-ready
+**Primary areas:** compiler/runtime audit plus migration of executable `.ph` source
+**Depends on:** Task 1 parser support for `|...|` closures and trailing-closure syntax
 **Must preserve:** existing `Block` / `ClosureObject` runtime machinery, bytecodes, captures, selector encoding, non-local returns, sacred inlining, and callable protocol
 
 ---

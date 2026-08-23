@@ -1,9 +1,9 @@
 # Phalcom Collection Literal Spread Completion — Part II
 ## Shared Labeled Expansion, Record `**`, Map `**`, Diagnostics, Traceback, and Completion Gates
 
-**Status:** implementation specification / execution plan  
-**Repository baseline:** `aureat/phalcom-lang` at `9ca245f86a62e0b3064d88027f7992c27330f36d`  
-**Depends on:** Part I frontend/shared positional work where applicable, A.2/A.3 product finalizers, B.3 atomic Map construction, F.2 outgoing pack assembly, GC tracing infrastructure  
+**Status:** implementation specification / execution plan
+**Repository baseline:** `aureat/phalcom-lang` at `9ca245f86a62e0b3064d88027f7992c27330f36d`
+**Depends on:** Part I frontend/shared positional work where applicable, A.2/A.3 product finalizers, B.3 atomic Map construction, F.2 outgoing pack assembly, GC tracing infrastructure
 **Companion:** Part I — frontend/shared positional expansion/List `*`
 
 ---

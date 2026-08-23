@@ -1,7 +1,7 @@
 # Phalcom Collection Literals and Map Specification
 
-**Status:** Ratified language design specification  
-**Scope:** Collection literal classification, Map literal syntax, Map key syntax, Map encounter-order semantics, Map equality and mutation behavior, duplicate handling during literal construction, Record-to-Map conversion, Set literal classification where required to disambiguate brace syntax, and future `HashMap` / `OrderedMap` boundaries.  
+**Status:** Ratified language design specification
+**Scope:** Collection literal classification, Map literal syntax, Map key syntax, Map encounter-order semantics, Map equality and mutation behavior, duplicate handling during literal construction, Record-to-Map conversion, Set literal classification where required to disambiguate brace syntax, and future `HashMap` / `OrderedMap` boundaries.
 **Out of scope:** Full Set and `ImmutableSet` APIs, complete Record semantics, generic Map typing and variance, iterator/view mutation rules, complete hashing protocol definitions, and collection protocol hierarchy.
 
 ---

@@ -1,9 +1,9 @@
 # Task 1 — Lexical Namespaces, AST Foundations, and Selector Kinds
 
-> **Repository:** `aureat/phalcom-lang`  
-> **Baseline inspected:** `main` at `c406977666aa5d9d05d3dbf9a78e7c55b39d0b98`  
-> **Dependency:** none  
-> **Must finish before:** Tasks 2–6  
+> **Repository:** `aureat/phalcom-lang`
+> **Baseline inspected:** `main` at `c406977666aa5d9d05d3dbf9a78e7c55b39d0b98`
+> **Dependency:** none
+> **Must finish before:** Tasks 2–6
 > **Primary objective:** Introduce the structural language/runtime representations required by the migration without yet performing the repository-wide declaration-syntax flag day.
 
 ---

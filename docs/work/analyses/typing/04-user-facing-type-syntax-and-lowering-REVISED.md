@@ -1,14 +1,14 @@
 # Phalcom User-Facing Type Syntax and Lowering
 
-**Date:** 2026-08-22  
-**Revision:** post-Spec-01.5 canonical generic semantic model  
-**Status:** Ratified syntax and lowering specification, with named implementation gates  
-**Authority:** source-facing type-form grammar, generic declaration grammar, parser/recovery rules, and compiler-authoritative lowering into the canonical semantic model defined by Spec 01.5  
-**Depends on:** [01 — Implementation Architecture](01-implementation-architecture.md) and [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md)  
-**Coordinates with:** [02 — Runtime Reification and Metadata](02-runtime-reification-and-metadata.md), [03 — Reflection API and Capabilities](03-reflection-api-and-capabilities.md), and [05 — Advanced Kinds, Effects, Contracts, and Proofs](05-advanced-kinds-constraints-effects-and-proofs.md)  
-**Owners:** `phalcom-ast` for source syntax/recovery, `phalcom-semantic` for source lowering and semantic validation, `phalcom-type-syntax` only for native-metadata textual syntax, and future formatter/source-printer ownership  
-**Repository snapshot inspected:** `a43f26e0ddd6b1d6e37ddf7a0b9588769bb41f3e` (`main`, 2026-08-22)  
-**Scope:** annotations, type forms, applications, unions, tuples, callable types, structural record types, generic binders, declaration-site variance, explicit kinds, `where` constraints, type lambdas, partial type application, generic superclass templates, `Self`, transparent aliases, record-row source spelling, type-form value boundaries, parser recovery, lowering, diagnostics, formatting, and tooling-facing syntax provenance  
+**Date:** 2026-08-22
+**Revision:** post-Spec-01.5 canonical generic semantic model
+**Status:** Ratified syntax and lowering specification, with named implementation gates
+**Authority:** source-facing type-form grammar, generic declaration grammar, parser/recovery rules, and compiler-authoritative lowering into the canonical semantic model defined by Spec 01.5
+**Depends on:** [01 — Implementation Architecture](01-implementation-architecture.md) and [01.5 — Canonical Generic Type Semantics and Declaration Model](01.5-canonical-generic-type-semantics-and-declaration-model.md)
+**Coordinates with:** [02 — Runtime Reification and Metadata](02-runtime-reification-and-metadata.md), [03 — Reflection API and Capabilities](03-reflection-api-and-capabilities.md), and [05 — Advanced Kinds, Effects, Contracts, and Proofs](05-advanced-kinds-constraints-effects-and-proofs.md)
+**Owners:** `phalcom-ast` for source syntax/recovery, `phalcom-semantic` for source lowering and semantic validation, `phalcom-type-syntax` only for native-metadata textual syntax, and future formatter/source-printer ownership
+**Repository snapshot inspected:** `a43f26e0ddd6b1d6e37ddf7a0b9588769bb41f3e` (`main`, 2026-08-22)
+**Scope:** annotations, type forms, applications, unions, tuples, callable types, structural record types, generic binders, declaration-site variance, explicit kinds, `where` constraints, type lambdas, partial type application, generic superclass templates, `Self`, transparent aliases, record-row source spelling, type-form value boundaries, parser recovery, lowering, diagnostics, formatting, and tooling-facing syntax provenance
 **Non-goals:** defining canonical generic semantics already owned by 01.5; runtime descriptor representation; metadata wire format; reflection capability/security policy; kind polymorphism; effect/proof syntax; protocol coherence; opaque/newtype aliases; recursive type aliases; runtime selector specialization; runtime class specialization; per-instance generic tokens
 
 ---
@@ -2371,7 +2371,7 @@ The units are intentionally staged so some work may proceed while Spec 01 is sti
 
 ## Unit S7 — transparent aliases and record rows
 
-**Alias dependencies:** 01.5 alias query/fingerprint support.  
+**Alias dependencies:** 01.5 alias query/fingerprint support.
 **Row dependencies:** revised Spec 05 row domain.
 
 **Implement aliases:**

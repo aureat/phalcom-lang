@@ -1,8 +1,8 @@
 # Task 4 — `@private`, `@protected`, and Uniform Runtime Access Control
 
-> **Repository:** `aureat/phalcom-lang`  
-> **Depends on:** Tasks 1–3  
-> **Must finish before:** Tasks 5–6  
+> **Repository:** `aureat/phalcom-lang`
+> **Depends on:** Tasks 1–3
+> **Must finish before:** Tasks 5–6
 > **Primary objective:** Implement real class-private and class-family-private method visibility, enforced uniformly across ordinary dispatch, reflection, method references, bound methods, `super`, and inline-cache paths.
 
 ---

@@ -227,7 +227,7 @@ error: expected one of `!`, `.`, `::`, `;`, `?`, `{`, `}`, or an operator, found
 The user has typed:
 
 ```rust
-fn foo(a: u32, b: 
+fn foo(a: u32, b:
 ```
 
 and the editor must offer completion for `b`'s type.

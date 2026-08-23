@@ -1,7 +1,7 @@
 # Phalcom Tuples, Records, Sets, Maps, and Associative Value Semantics
 
-**Status:** Normative design specification  
-**Scope:** Tuples, callable argument domains, records, sets, maps, brace literals, access, concatenation, spread, equality, hashing, structural typing, reflection, conversion, diagnostics, and runtime obligations  
+**Status:** Normative design specification
+**Scope:** Tuples, callable argument domains, records, sets, maps, brace literals, access, concatenation, spread, equality, hashing, structural typing, reflection, conversion, diagnostics, and runtime obligations
 **Revision:** 2026-07-29
 
 ---

@@ -1,8 +1,8 @@
 # Task 3 — Implicit `self`, Field Semantics, and Unqualified Name Resolution
 
-> **Repository:** `aureat/phalcom-lang`  
-> **Depends on:** Tasks 1–2  
-> **Must finish before:** Tasks 4–6  
+> **Repository:** `aureat/phalcom-lang`
+> **Depends on:** Tasks 1–2
+> **Must finish before:** Tasks 4–6
 > **Primary objective:** Add implicit receiver capability for ordinary selectors, source fields, implementation fields, and implementation selectors while preserving lexical shadowing and global/module resolution.
 
 ---

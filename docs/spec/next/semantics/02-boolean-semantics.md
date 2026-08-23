@@ -1,6 +1,6 @@
 # Phalcom Boolean Semantics and Explicit Boolean Conversion
 
-**Status:** Normative design specification  
+**Status:** Normative design specification
 **Scope:** Conditions, Boolean operators, contracts and guards, truthiness rejection, `Bool.from(_)`, `ToBool`, and the recognized `toBool()` conversion method.
 
 ---

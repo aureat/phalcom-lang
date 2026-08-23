@@ -154,7 +154,7 @@ index d4ee7fa..3e228b6 100644
      "InvokeConst",
 +    "GetSelfField",
  ];
- 
+
  // The set of instructions for our VM. This is the language the compiler "speaks".
 @@ -352,12 +353,29 @@ pub enum Bytecode {
      /// Same in-place rewrite, `ip += 2` advance and `ip + 1` cache/span
@@ -178,13 +178,13 @@ index d4ee7fa..3e228b6 100644
 +    /// reads it from `stack[stack_offset]` without ever touching the stack top.
 +    GetSelfField(u16),
  }
- 
+
  impl Bytecode {
      /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
      /// histogram in [`opcode_stats`](crate::opcode_stats).
 -    pub const VARIANTS: usize = 37;
 +    pub const VARIANTS: usize = 38;
- 
+
      /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
      ///
 @@ -405,6 +423,7 @@ impl Bytecode {
@@ -194,7 +194,7 @@ index d4ee7fa..3e228b6 100644
 +            Bytecode::GetSelfField(..) => 37,
          }
      }
- 
+
 diff --git a/phalcom-core/src/chunk.rs b/phalcom-core/src/chunk.rs
 index 0dc2a50..4de4415 100644
 --- a/phalcom-core/src/chunk.rs
@@ -202,7 +202,7 @@ index 0dc2a50..4de4415 100644
 @@ -87,42 +87,47 @@ impl Chunk {
          (self.constants.len() - 1) as u16
      }
- 
+
 -    /// Rewrites statically-adjacent `(GetLocal | Constant) -> Invoke` pairs into the
 -    /// fused [`Bytecode::InvokeLocal`] / [`Bytecode::InvokeConst`], each of which
 -    /// retires the pair's work in **one** dispatch instead of two (perf-log cut 008).
@@ -269,7 +269,7 @@ index 0dc2a50..4de4415 100644
 @@ -182,6 +187,28 @@ mod tests {
          assert_eq!(chunk.code[3], Bytecode::Invoke(0, 9));
      }
- 
+
 +    #[test]
 +    fn fuses_get_self_get_field() {
 +        let mut chunk = chunk_of(&[Bytecode::GetSelf, Bytecode::GetField(2)]);
@@ -302,7 +302,7 @@ index 2eec3fc..e59487a 100644
 @@ -378,6 +378,61 @@ impl VM {
          Value::Obj(self.heap.alloc(Object::Instance(inst)))
      }
- 
+
 +    /// The whole body of the fused [`Bytecode::GetSelfField`] arm: steps `ip` past
 +    /// the dead `GetField` at `ip + 1`, then reads the current frame's receiver's
 +    /// field at `slot` and pushes it.

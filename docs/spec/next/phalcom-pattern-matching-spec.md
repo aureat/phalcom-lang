@@ -1,8 +1,8 @@
 # Phalcom Pattern Matching Specification
 
-**Status:** Draft language specification  
-**Version:** 0.1  
-**Date:** 2026-07-26  
+**Status:** Draft language specification
+**Version:** 0.1
+**Date:** 2026-07-26
 **Audience:** Language designers, compiler and interpreter implementers, standard-library authors, tooling authors, and conformance-test maintainers
 
 ---

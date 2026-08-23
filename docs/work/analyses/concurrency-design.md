@@ -14,7 +14,7 @@ There is also one major architectural finding that changes part of my previous r
 
 > **M:N shared-memory multi-core Fibers are incompatible with Phalcom's currently accepted architecture.**
 
-PDR-0003 deliberately commits each VM to one thread and one heap owner, with parallelism—if Phalcom gets it—going through isolates rather than shared-memory threads. That is not a minor scheduler choice; it protects the current heap, GC, `ObjRef`, `Value`, and primitive ABI. 
+PDR-0003 deliberately commits each VM to one thread and one heap owner, with parallelism—if Phalcom gets it—going through isolates rather than shared-memory threads. That is not a minor scheduler choice; it protects the current heap, GC, `ObjRef`, `Value`, and primitive ABI.
 
 So I would now divide the future design into two layers:
 
@@ -60,7 +60,7 @@ That actually fits Phalcom's existing architecture extremely well.
 | Shared-memory threads? | **Explicitly rejected** |
 | Planned parallelism model | **Isolates, if implemented** |
 
-The current concurrency specification itself is explicit: concurrency is **cooperative and single-threaded**, and a Fiber runs until it yields, awaits, returns, or raises. Structured concurrency/cancellation scopes and scheduler fairness remain open.  
+The current concurrency specification itself is explicit: concurrency is **cooperative and single-threaded**, and a Fiber runs until it yields, awaits, returns, or raises. Structured concurrency/cancellation scopes and scheduler fairness remain open.
 
 ---
 
@@ -106,7 +106,7 @@ pub struct FiberObject {
 }
 ```
 
-That is a real execution context, not a “generator state” object. Each Fiber has its own operand stack, call-frame stack, open upvalues, execution status, result, resumer, and entry closure. 
+That is a real execution context, not a “generator state” object. Each Fiber has its own operand stack, call-frame stack, open upvalues, execution status, result, resumer, and entry closure.
 
 While a Fiber is running, those three main execution structures are temporarily represented by:
 
@@ -126,7 +126,7 @@ load_live_from(vm, new_fiber)
 vm.current = new_fiber
 ```
 
-using `mem::take`; execution stacks are not copied frame-by-frame. 
+using `mem::take`; execution stacks are not copied frame-by-frame.
 
 That is a strong foundation for future concurrency work.
 
@@ -171,7 +171,7 @@ That is the important semantic property.
 
 ## At the native-machine-stack level: deliberately no
 
-ADR-0030 calls the current implementation “Lua-5.1 style” and explicitly rejected the alternative of allocating/capturing real native stacks. The current Fiber does **not** save arbitrary Rust frames that happen to be active underneath the VM. 
+ADR-0030 calls the current implementation “Lua-5.1 style” and explicitly rejected the alternative of allocating/capturing real native stacks. The current Fiber does **not** save arbitrary Rust frames that happen to be active underneath the VM.
 
 That causes the current restriction:
 
@@ -201,7 +201,7 @@ can raise:
 CannotYieldAcrossNativeFrame
 ```
 
-because the native implementation of `each` has called the user block through a re-entrant Rust call into the VM. Suspending would require preserving that Rust call frame too. The runtime deliberately refuses instead of corrupting execution. 
+because the native implementation of `each` has called the user block through a re-entrant Rust call into the VM. Suspending would require preserving that Rust call frame too. The runtime deliberately refuses instead of corrupting execution.
 
 So the precise classification should be:
 
@@ -217,7 +217,7 @@ That is probably the most accurate terminology.
 
 # 4. It is indeed very Lua-coroutine-like
 
-ADR-0030 explicitly characterizes the design as a restricted Lua-5.1-style model. 
+ADR-0030 explicitly characterizes the design as a restricted Lua-5.1-style model.
 
 The public mechanics are:
 
@@ -284,7 +284,7 @@ fiber_resume(..., FiberResumeMode::Call)
 fiber_resume(..., FiberResumeMode::Try)
 ```
 
-`fiber_resume` validates Fiber state, parks the current Fiber, installs the current Fiber as the callee's `resumer`, restores or initializes the callee's execution stack, changes it to `Running`, changes `VM::current`, and sets the typed `switch_pending` flag. 
+`fiber_resume` validates Fiber state, parks the current Fiber, installs the current Fiber as the callee's `resumer`, restores or initializes the callee's execution stack, changes it to `Running`, changes `VM::current`, and sets the typed `switch_pending` flag.
 
 This is a particularly important implementation detail:
 
@@ -470,7 +470,7 @@ Those states have substantially different lifecycle meanings.
 pub(crate) ready_queue: VecDeque<ObjRef>
 ```
 
-It is explicitly a FIFO queue of scheduled Fibers. 
+It is explicitly a FIFO queue of scheduled Fibers.
 
 And `System.schedule` does essentially:
 
@@ -486,7 +486,7 @@ while:
 System.nextScheduled
 ```
 
-pops the next one. 
+pops the next one.
 
 The library-side scheduler drain is:
 
@@ -503,7 +503,7 @@ runScheduled() {
 }
 ```
 
-The deliberate `try()` is significant: one scheduled Fiber's uncaught error is captured instead of terminating scheduler processing for unrelated scheduled work. 
+The deliberate `try()` is significant: one scheduled Fiber's uncaught error is captured instead of terminating scheduler processing for unrelated scheduled work.
 
 So Phalcom definitely already has a scheduler.
 
@@ -525,7 +525,7 @@ That was later superseded by the currently implemented **root-drive pump**.
 
 The normal root program runs directly.
 
-After root execution, the VM drains scheduled work; during execution, library code can explicitly call `System.runScheduled`. 
+After root execution, the VM drains scheduled work; during execution, library code can explicitly call `System.runScheduled`.
 
 This produced a visible semantic asymmetry in `Future.await`.
 
@@ -557,7 +557,7 @@ while (not self.isReady) {
 }
 ```
 
-That is in the actual `Future.await` implementation. 
+That is in the actual `Future.await` implementation.
 
 This is one of the strongest signals that the current machinery needs to evolve.
 
@@ -679,7 +679,7 @@ settleValue(_ v) {
 }
 ```
 
-and similarly for rejection. 
+and similarly for rejection.
 
 That decomposition is good:
 
@@ -729,7 +729,7 @@ So `Future.async`:
 2. creates a scheduler driver Fiber;
 3. driver creates another Fiber for the user's action;
 4. calls the user Fiber via `try`;
-5. translates its terminal status into Future settlement. 
+5. translates its terminal status into Future settlement.
 
 Graphically:
 
@@ -803,7 +803,7 @@ drain() {
 }
 ```
 
-`System.schedule` happens to accept either an existing Fiber or a function it wraps as a Fiber. 
+`System.schedule` happens to accept either an existing Fiber or a function it wraps as a Fiber.
 
 This is clever for a minimal implementation.
 
@@ -870,7 +870,7 @@ or:
 handler executes on a later scheduler turn
 ```
 
-depending solely on whether settlement won a timing race. 
+depending solely on whether settlement won a timing race.
 
 That is exactly the sort of reentrancy nondeterminism a concurrency API should eliminate.
 
@@ -949,7 +949,7 @@ The future model should move toward:
 
 No.
 
-And this is not an ambiguous judgment: the current specification explicitly leaves structured concurrency/cancellation scopes open. 
+And this is not an ambiguous judgment: the current specification explicitly leaves structured concurrency/cancellation scopes open.
 
 The current `FiberObject` contains:
 
@@ -975,7 +975,7 @@ spawn_file
 spawn_line
 ```
 
-and the spawn path computes a `parent_seq` for tracing. But that is observability, not ownership.  
+and the spawn path computes a `parent_seq` for tracing. But that is observability, not ownership.
 
 This distinction is essential.
 
@@ -1063,7 +1063,7 @@ expected local outcome → Result / Option
 
 `on`, `catch`, and `ensure` are built over the block protocol.
 
-The spec explicitly says `ensure` participates in all unwind paths, including throw, non-local return, and Fiber abort. 
+The spec explicitly says `ensure` participates in all unwind paths, including throw, non-local return, and Fiber abort.
 
 Inside a Fiber:
 
@@ -1126,7 +1126,7 @@ pub enum FiberResumeMode {
 }
 ```
 
-on the callee. 
+on the callee.
 
 This is an unusually nice low-level coroutine API.
 
@@ -1158,7 +1158,7 @@ root
 
 and every edge is `call`, the failure propagates along that dynamic resumer chain.
 
-The current concurrency spec states that the entry error reaches the Fiber floor, the Fiber becomes `failed`, and under `call` the error is re-raised through the cascade. 
+The current concurrency spec states that the entry error reaches the Fiber floor, the Fiber becomes `failed`, and under `call` the error is re-raised through the cascade.
 
 This is a **coroutine-call-stack policy**.
 
@@ -1184,7 +1184,7 @@ the error becomes the delivered result.
 
 The calling Fiber continues.
 
-That is represented by `FiberResumeMode::Try`. 
+That is represented by `FiberResumeMode::Try`.
 
 The Fiber itself remains terminal:
 
@@ -1288,7 +1288,7 @@ The primitive currently returns:
 cannot abort the root fiber
 ```
 
-because there is no resumer into which its fiber-floor failure can be delivered. 
+because there is no resumer into which its fiber-floor failure can be delivered.
 
 ### Unhandled root Error terminates the run
 
@@ -1348,7 +1348,7 @@ There was a serious bug in Fiber-floor failure teardown: escaping closures could
 
 That was not hypothetical; it could crash the VM.
 
-But it is **fixed** as of commit `a265684` on July 20, 2026. The fix closes both the originating Fiber's live upvalues and intermediate call-mode resumers' parked upvalues before their stacks are destroyed. Regression tests cover both cases. 
+But it is **fixed** as of commit `a265684` on July 20, 2026. The fix closes both the originating Fiber's live upvalues and intermediate call-mode resumers' parked upvalues before their stacks are destroyed. Regression tests cover both cases.
 
 Current `dispatch.rs` now has both:
 
@@ -1362,7 +1362,7 @@ for the current live Fiber and:
 close_fiber_upvalues_from(fiber_ref, ...)
 ```
 
-for parked Fiber state. 
+for parked Fiber state.
 
 This matters architecturally.
 
@@ -1391,7 +1391,7 @@ Fiber.abort(value)
 
 is implemented as a fiber-floor raise.
 
-The primitive itself accepts a generic `Value`, whereas normal `throw` is specified as only accepting `Error` subclasses.  
+The primitive itself accepts a generic `Value`, whereas normal `throw` is specified as only accepting `Error` subclasses.
 
 That gives Phalcom two subtly different failure surfaces:
 
@@ -1620,9 +1620,9 @@ with cancellation meaning **renunciation**:
 - late settlement gets dropped;
 - cancellation is shallow;
 - no Fiber cancellation;
-- no structured propagation. 
+- no structured propagation.
 
-The accompanying cancellation spec explicitly leaves structured propagation and Fiber cancellation as open questions. 
+The accompanying cancellation spec explicitly leaves structured propagation and Fiber cancellation as open questions.
 
 I would **not ratify this surface unchanged**.
 
@@ -1756,7 +1756,7 @@ VM
 
 They exchange owned plain data only.
 
-Completion returns to the VM thread, and only that thread can settle a Future or modify the ready queue. 
+Completion returns to the VM thread, and only that thread can settle a Future or modify the ready queue.
 
 This follows directly from PDR-0003's single-owner VM architecture.
 
@@ -1805,7 +1805,7 @@ What is missing is making `park` and `ready` true scheduler concepts instead of 
 
 The reactor is not currently landed.
 
-A repository search for the runtime seams such as `reactor.rs`, `System.sleep`, completion parking, and completion draining returned the reactor specification and pending implementation specification rather than runtime source.  
+A repository search for the runtime seams such as `reactor.rs`, `System.sleep`, completion parking, and completion draining returned the reactor specification and pending implementation specification rather than runtime source.
 
 So we should distinguish:
 
@@ -1852,7 +1852,7 @@ PDR-0003 explicitly says:
 - no `Atomic`;
 - no shared-object `spawn`;
 - runtime worker threads may not touch Phalcom Values or objects;
-- future CPU parallelism should use isolates. 
+- future CPU parallelism should use isolates.
 
 Changing that would require reworking:
 
@@ -1943,7 +1943,7 @@ while (true) {
 }
 ```
 
-can starve every other Fiber indefinitely. The accepted concurrency design makes that explicit. 
+can starve every other Fiber indefinitely. The accepted concurrency design makes that explicit.
 
 A future scheduler could introduce safepoint preemption:
 
@@ -3156,7 +3156,7 @@ Supervisor
 
 # 66. One repository hygiene issue
 
-`docs/guide/concurrency.md` is stale: it still says that Fiber and Future do not run yet, whereas the current spec and actual `heap/fiber.rs`, `primitive/fiber.rs`, `core.ph`, and scheduler primitives clearly show that both Fiber and Future slices have landed.  
+`docs/guide/concurrency.md` is stale: it still says that Fiber and Future do not run yet, whereas the current spec and actual `heap/fiber.rs`, `primitive/fiber.rs`, `core.ph`, and scheduler primitives clearly show that both Fiber and Future slices have landed.
 
 That should be corrected because concurrency semantics are now substantial enough that an outdated guide will actively mislead contributors.
 
@@ -3168,7 +3168,7 @@ The answer to your original questions is therefore:
 
 **Is current Phalcom Fiber stackful?**
 
-Yes in the important language sense: it owns and preserves an arbitrary Phalcom VM call stack. No in the native-stack-switching sense: it cannot preserve arbitrary Rust frames. The repository deliberately chose this restricted Lua-like architecture. 
+Yes in the important language sense: it owns and preserves an arbitrary Phalcom VM call stack. No in the native-stack-switching sense: it cannot preserve arbitrary Rust frames. The repository deliberately chose this restricted Lua-like architecture.
 
 **Is it coroutine-like?**
 
@@ -3180,7 +3180,7 @@ No, and I would not add it to the concurrent Fiber abstraction.
 
 **Does it already schedule Fibers?**
 
-Yes. There is a FIFO VM `ready_queue`, `System.schedule`, `System.nextScheduled`, `System.runScheduled`, a VM root-drive pump, and Future settlement reschedules waiting Fibers.  
+Yes. There is a FIFO VM `ready_queue`, `System.schedule`, `System.nextScheduled`, `System.runScheduled`, a VM root-drive pump, and Future settlement reschedules waiting Fibers.
 
 **Is it scheduler-aware?**
 
@@ -3188,11 +3188,11 @@ Future is. Raw Fiber is fundamentally manually resumed. `await` currently bridge
 
 **Is it structured?**
 
-No. There is no scope ownership, child tree, structured cancellation, scope join barrier, sibling failure policy, or failure aggregation. `resumer` is control-flow state, not ownership. The current specification explicitly leaves structured concurrency open. 
+No. There is no scope ownership, child tree, structured cancellation, scope join barrier, sibling failure policy, or failure aggregation. `resumer` is control-flow state, not ownership. The current specification explicitly leaves structured concurrency open.
 
 **How do errors work today?**
 
-Within a Fiber, ordinary Phalcom terminating error semantics apply, including `catch`/`on` and `ensure`. If the error reaches the Fiber floor, the Fiber becomes `Failed` and captures the error. A `call`-resumed failure propagates along the resumer chain; a `try`-resumed failure becomes a value. Future drivers translate Fiber failure into Future rejection; `await` re-raises that rejection in the waiting Fiber. Root uncaught failure exits the execution because root has no resumer. 
+Within a Fiber, ordinary Phalcom terminating error semantics apply, including `catch`/`on` and `ensure`. If the error reaches the Fiber floor, the Fiber becomes `Failed` and captures the error. A `call`-resumed failure propagates along the resumer chain; a `try`-resumed failure becomes a value. Future drivers translate Fiber failure into Future rejection; `await` re-raises that rejection in the waiting Fiber. Root uncaught failure exits the execution because root has no resumer.
 
 **How should errors work eventually?**
 
@@ -3204,6 +3204,6 @@ No. It is a useful result abstraction and the implementation is nicely lightweig
 
 **Should we pursue the M:N shared-memory scheduler I previously proposed?**
 
-Not under the current Phalcom architecture. The accepted single-owner heap design makes that a VM rewrite rather than a scheduler upgrade. Structured single-threaded Fibers plus parallel isolates is the more coherent path. 
+Not under the current Phalcom architecture. The accepted single-owner heap design makes that a VM rewrite rather than a scheduler upgrade. Structured single-threaded Fibers plus parallel isolates is the more coherent path.
 
 The most consequential next design exercise is therefore not “design more Fiber methods.” It is to define the exact boundary between **Coroutine and concurrent Fiber**, and then specify **`FiberScope`, scheduler `park/wake`, `Outcome`, cancellation unwinding, and scope failure algebra** together. Those five decisions determine almost everything else—and the existing VM is already surprisingly well-positioned to support them.

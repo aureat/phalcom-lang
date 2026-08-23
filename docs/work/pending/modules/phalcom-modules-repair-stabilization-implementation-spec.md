@@ -364,7 +364,7 @@ For the same `RuntimeProgramId` and plan fingerprint, a second run of an `Initia
 
 ```
 Allocated -> Prepared -> Initializing -> Initialized
-                           |               
+                           |
                            +-------------> Failed
 Prepared --------------------------------> Failed
 ```

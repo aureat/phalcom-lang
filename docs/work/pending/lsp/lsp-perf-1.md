@@ -14,13 +14,13 @@ C/C++ implementation      Rust implementation
 NumPy/OpenCV/etc.         ndarray/image/polars/etc.
 ```
 
-CPython extensions can expose ordinary Python modules, types, methods and subclasses while implementing them in C/C++; NumPy adds separate memory-sharing protocols so high-level objects can exchange large native buffers without converting them element-by-element. 
+CPython extensions can expose ordinary Python modules, types, methods and subclasses while implementing them in C/C++; NumPy adds separate memory-sharing protocols so high-level objects can exchange large native buffers without converting them element-by-element.
 
 For Phalcom, I think the right destination is even cleaner because Rust can be the privileged native implementation language from the beginning.
 
 The first major decision is what “Rust compatibility” means.
 
-It should not mean binary compatibility with arbitrary Rust crates. Rust's native `"Rust"` ABI explicitly provides no stability guarantee. 
+It should not mean binary compatibility with arbitrary Rust crates. Rust's native `"Rust"` ABI explicitly provides no stability guarantee.
 
 So this would be the wrong architecture:
 
@@ -48,7 +48,7 @@ Instead:
 
 Existing Rust crates remain normal Rust dependencies. A small native extension crate adapts them to Phalcom.
 
-That is analogous to how Python doesn't magically understand every C library. An extension layer adapts native functionality into Python modules and objects. 
+That is analogous to how Python doesn't magically understand every C library. An extension layer adapts native functionality into Python modules and objects.
 
 And this leads to the most important architectural recommendation:
 
@@ -209,7 +209,7 @@ There are then several areas that need explicit language/runtime decisions.
 
 1. Native ABI stability. I would copy one particularly good idea from CPython: have multiple compatibility levels.
 
-Python distinguishes its ordinary/version-specific C API from a Limited API / Stable ABI; the stable subset sacrifices some implementation-specific optimizations in exchange for binaries that work across multiple Python versions. 
+Python distinguishes its ordinary/version-specific C API from a Limited API / Stable ABI; the stable subset sacrifices some implementation-specific optimizations in exchange for binaries that work across multiple Python versions.
 
 Phalcom could have:
 
@@ -328,7 +328,7 @@ I would favor making the safe SDK types automatically traceable wherever possibl
 
 3. Rust lifetimes must not escape into the Phalcom model.
 
-This is a lesson PyO3 has had to formalize: a dynamic-language object can survive arbitrarily long, so an exported native object cannot safely contain ordinary short-lived Rust borrows; PyO3 consequently restricts exposed classes with lifetime parameters and recommends owned/shared representations instead. 
+This is a lesson PyO3 has had to formalize: a dynamic-language object can survive arbitrarily long, so an exported native object cannot safely contain ordinary short-lived Rust borrows; PyO3 consequently restricts exposed classes with lifetime parameters and recommends owned/shared representations instead.
 
 Phalcom should adopt the same underlying principle:
 
@@ -379,7 +379,7 @@ For tiny things, fine.
 
 For a 4 GB matrix, catastrophic.
 
-PyO3 itself explicitly distinguishes conversions into ordinary Rust types, which may carry conversion cost, from operating on interpreter-native objects with near-zero conversion overhead. 
+PyO3 itself explicitly distinguishes conversions into ordinary Rust types, which may carry conversion cost, from operating on interpreter-native objects with near-zero conversion overhead.
 
 Phalcom's SDK should make this visible in the Rust type system.
 
@@ -427,7 +427,7 @@ This is a very worthwhile distinction.
 
 If you want a future Phalcom equivalent of NumPy, Polars, Arrow, image processing, ML tensors, audio, GPU buffers, database columns, etc., ordinary object FFI is insufficient.
 
-NumPy's array interface exists specifically so array-like objects can share N-dimensional data buffers rather than copying data between implementations. 
+NumPy's array interface exists specifically so array-like objects can share N-dimensional data buffers rather than copying data between implementations.
 
 Phalcom should eventually have a language/runtime-level protocol something conceptually like:
 
@@ -668,7 +668,7 @@ should normally map to Phalcom `Result<T,E>`.
 
 A Rust panic is something else.
 
-It must never arbitrarily unwind through the Phalcom runtime boundary. Rust's FFI documentation explicitly requires careful ABI treatment for unwinding, and `catch_unwind` only catches unwinding panics, not `panic=abort`. 
+It must never arbitrarily unwind through the Phalcom runtime boundary. Rust's FFI documentation explicitly requires careful ABI treatment for unwinding, and `catch_unwind` only catches unwinding panics, not `panic=abort`.
 
 I would make official Phalcom native modules use generated boundary trampolines:
 
@@ -722,7 +722,7 @@ or can declare:
 thread-affine
 ```
 
-PyO3 has had to explicitly impose thread/lifetime restrictions on native classes for similar reasons. 
+PyO3 has had to explicitly impose thread/lifetime restrictions on native classes for similar reasons.
 
 I would not simply require `Send + Sync` universally. It would unnecessarily exclude useful Rust libraries.
 
@@ -755,7 +755,7 @@ Ideally a native function that has converted all inputs to owned Rust values can
 
 This becomes necessary if Phalcom wants serious access to Tokio, network libraries, database clients, etc.
 
-PyO3's async integration similarly requires an adapter between Rust `Future`s and Python's coroutine/event-loop model. 
+PyO3's async integration similarly requires an adapter between Rust `Future`s and Python's coroutine/event-loop model.
 
 Phalcom should not bake Tokio itself into the native ABI.
 
@@ -994,7 +994,7 @@ The generated trampoline and raw VM interaction can be unsafe internally.
 
 Extension authors only need `unsafe` when they're actually doing unsafe things.
 
-That's analogous to what PyO3 does by wrapping raw Python runtime interactions in higher-level Rust conversions, classes, borrowed handles and owned handles. 
+That's analogous to what PyO3 does by wrapping raw Python runtime interactions in higher-level Rust conversions, classes, borrowed handles and owned handles.
 
 20. And finally, the type system should treat native contracts exactly like Phalcom contracts.
 
@@ -1045,7 +1045,7 @@ The most important decisions I would lock in early are therefore:
 
 - Phalcom object model is authoritative; Rust is implementation.
 - Public native APIs are preferably declared as Phalcom interfaces/contracts.
-- Rust native ABI is never used as Phalcom's plugin ABI because Rust explicitly does not guarantee its stability. 
+- Rust native ABI is never used as Phalcom's plugin ABI because Rust explicitly does not guarantee its stability.
 - Define a narrow, language-neutral stable ABI plus an ergonomic Rust SDK over it.
 - Native objects use payload composition, not Rust struct layout as VM object layout.
 - Long-lived native payloads are owned/`'static`; temporary call arguments may be borrowed.

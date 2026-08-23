@@ -1,7 +1,7 @@
 # Phalcom Meta-Dispatch and Type-Driven Extension Specification
 
-**Status:** Proposed normative specification  
-**Audience:** Language implementers, standard-library authors, compiler and VM developers, tool authors  
+**Status:** Proposed normative specification
+**Audience:** Language implementers, standard-library authors, compiler and VM developers, tool authors
 **Scope:** Multimethods; predicate and value dispatch; protocol instances; reflective pattern matching; capability composition through richer mixins; units and dimensions as first-class types
 
 ---

@@ -23,7 +23,7 @@ The repair commit is substantive. Several earlier defects are genuinely fixed. B
 
 This is now the largest discrepancy between the implementation and the architecture.
 
-`ProgramCompiler::compile_entry_selection()` discovers sources, builds interfaces and links them, but each `CompiledModule` still carries its source text. `compile_module()` constructs its artifact with `ModuleArtifact::empty(module)`. 
+`ProgramCompiler::compile_entry_selection()` discovers sources, builds interfaces and links them, but each `CompiledModule` still carries its source text. `compile_module()` constructs its artifact with `ModuleArtifact::empty(module)`.
 
 And `ModuleArtifact::empty()` is literally:
 
@@ -36,7 +36,7 @@ Self {
 }
 ```
 
-So the declaration-blueprint and compiled-initializer portions of the abstraction are currently empty scaffolding. 
+So the declaration-blueprint and compiled-initializer portions of the abstraction are currently empty scaffolding.
 
 Then `VM::run_compiled()` does this:
 
@@ -52,7 +52,7 @@ for (id, compiled_mod) in &program.modules {
 self.initialize_program(program)
 ```
 
-and `compile_program_module_closure()` eventually enters `compile_closure_as_with_bindings()`, which calls `parse_source(source, 0)` again. In other words, sources have already been parsed for interfaces, but are reparsed and bytecode-compiled inside the VM after program materialization. 
+and `compile_program_module_closure()` eventually enters `compile_closure_as_with_bindings()`, which calls `parse_source(source, 0)` again. In other words, sources have already been parsed for interfaces, but are reparsed and bytecode-compiled inside the VM after program materialization.
 
 That is materially different from the intended architecture:
 
@@ -68,11 +68,11 @@ resolve
 → initialization
 ```
 
-Part II explicitly requires a `ModuleArtifact` containing declaration metadata and initializer bytecode/compiled closure representation, and Part III consumes that artifact. 
+Part II explicitly requires a `ModuleArtifact` containing declaration metadata and initializer bytecode/compiled closure representation, and Part III consumes that artifact.
 
-This has a second consequence: the declaration-materialization architecture has not actually landed. `RuntimeDeclarationBlueprint::Class` and `ClassBlueprint` exist, but repository search finds them consumed by materialization rather than produced by compilation. `ModuleArtifact::declarations` is always empty along this program-compilation path. 
+This has a second consequence: the declaration-materialization architecture has not actually landed. `RuntimeDeclarationBlueprint::Class` and `ClassBlueprint` exist, but repository search finds them consumed by materialization rather than produced by compilation. `ModuleArtifact::declarations` is always empty along this program-compilation path.
 
-That also explains why qualified semantic declaration references are not operational. The AST supports static references such as `base.Shape`, and the linker exposes `resolve_static_symbol()`, but the ordinary class compiler still resolves a superclass through `resolve_superclass_ref()`. That helper only resolves bare references; qualified references deliberately return no local `ClassKey`. The class compiler subsequently treats an unresolved superclass as unknown/forward.  
+That also explains why qualified semantic declaration references are not operational. The AST supports static references such as `base.Shape`, and the linker exposes `resolve_static_symbol()`, but the ordinary class compiler still resolves a superclass through `resolve_superclass_ref()`. That helper only resolves bare references; qualified references deliberately return no local `ClassKey`. The class compiler subsequently treats an unresolved superclass as unknown/forward.
 
 So something as fundamental as:
 
@@ -85,17 +85,17 @@ class Child is base.Shape {
 
 has the parser/linker vocabulary needed to represent the relationship but not the completed compiler/materialization path needed to realize it.
 
-This means semantic SCC support is currently infrastructure rather than an implemented semantic cycle model. The graph code itself is well designed—it has separate reference, semantic and runtime graphs and deterministic SCC computation—but actual declaration identities are not being materialized through those SCCs. 
+This means semantic SCC support is currently infrastructure rather than an implemented semantic cycle model. The graph code itself is well designed—it has separate reference, semantic and runtime graphs and deterministic SCC computation—but actual declaration identities are not being materialized through those SCCs.
 
 I would not close Parts II–III until `ProgramCompiler` produces populated artifacts, qualified declaration references are consumed by compiler/materializer code, and `VM::run_compiled()` no longer reparses source.
 
 ## BLOCKER — the new `core` root resolves, but cannot participate in a linked program
 
-The repair correctly introduced `ImportRootTarget::Core` and reserved project ID zero. That fixes the original identity collision for normal project modules. 
+The repair correctly introduced `ImportRootTarget::Core` and reserved project ID zero. That fixes the original identity collision for normal project modules.
 
 But the implementation currently stops at resolver-level recognition.
 
-For an absolute `core` import, `ModuleResolver::resolve_import()` manufactures a `SourceUnit` for `ModuleId::core()` and returns it directly. `ModuleId::core()` belongs to reserved project ID zero, which intentionally has no `ResolvedProject` in `ProjectUniverse`. 
+For an absolute `core` import, `ModuleResolver::resolve_import()` manufactures a `SourceUnit` for `ModuleId::core()` and returns it directly. `ModuleId::core()` belongs to reserved project ID zero, which intentionally has no `ResolvedProject` in `ProjectUniverse`.
 
 `ProgramCompiler::discover_and_link()`, however, treats every resolved import uniformly:
 
@@ -105,7 +105,7 @@ resolve import
 → later resolver.load_interface(target)
 ```
 
-`load_interface(ModuleId::core())` asks `ProjectUniverse::get_project(RESERVED)`, which cannot return a filesystem project. The linker also requires reachable import targets to have interfaces in its supplied interface map.  
+`load_interface(ModuleId::core())` asks `ProjectUniverse::get_project(RESERVED)`, which cannot return a filesystem project. The linker also requires reachable import targets to have interfaces in its supplied interface map.
 
 So the newly added test:
 
@@ -120,7 +120,7 @@ proves only resolver recognition. It does not prove:
 import core
 ```
 
-can be compiled and linked. 
+can be compiled and linked.
 
 There is another bug in the same resolver branch: it returns the core `SourceUnit` immediately and does not reject additional path segments. Thus logically distinct input such as:
 
@@ -132,11 +132,11 @@ can resolve to the same `ModuleId::core()` instead of producing a path error.
 
 Core needs to become a genuine non-filesystem provider/prelinked interface in the module universe. It should have a static interface that the linker can consume without asking `FilesystemSourceProvider` for project zero. If v1 has no `core.*` child modules, any nonempty path after the reserved root should be rejected.
 
-The LSP has the same missing abstraction: `SharedModuleResolver` attempts to turn the returned `SourceUnit.display_path` into a file URI. A synthetic `<core>` source path is not a normal filesystem document. 
+The LSP has the same missing abstraction: `SharedModuleResolver` attempts to turn the returned `SourceUnit.display_path` into a file URI. A synthetic `<core>` source path is not a normal filesystem document.
 
 ## BLOCKER — LSP production analysis is still using the old URI/filesystem resolver
 
-The latest LSP code contains a good `SharedModuleResolver` adapter around `phalcom_modules::ModuleResolver`. It also has a `DocumentModuleMap` that can map editor URIs to semantic module identities.  
+The latest LSP code contains a good `SharedModuleResolver` adapter around `phalcom_modules::ModuleResolver`. It also has a `DocumentModuleMap` that can map editor URIs to semantic module identities.
 
 But that is not the path used by `SemanticEngine`.
 
@@ -150,7 +150,7 @@ self.state.graph.update(
 );
 ```
 
-That is the legacy `ModuleGraph::update`, not `update_with_shared_resolver`. 
+That is the legacy `ModuleGraph::update`, not `update_with_shared_resolver`.
 
 And the legacy resolver explicitly says:
 
@@ -168,7 +168,7 @@ import geometry.point
 import math.vector
 ```
 
-cannot be resolved by the actual semantic-engine path. Nor does this compatibility resolver have authoritative dependency-alias or `expose` visibility information. 
+cannot be resolved by the actual semantic-engine path. Nor does this compatibility resolver have authoritative dependency-alias or `expose` visibility information.
 
 This is exactly the duplicated-meaning problem the new module crate was intended to eliminate.
 
@@ -178,9 +178,9 @@ This is a Part-II completion blocker. The semantic worker needs a project/univer
 
 ## HIGH — standalone-file and standalone-package ownership semantics remain wrong
 
-Part I is very explicit here: a standalone module gets one execution-local identity, core/builtin visibility, and **no sibling imports**. A standalone package is instead discovered from a contiguous hierarchy of directories containing `package.ph`. 
+Part I is very explicit here: a standalone module gets one execution-local identity, core/builtin visibility, and **no sibling imports**. A standalone package is instead discovered from a contiguous hierarchy of directories containing `package.ph`.
 
-There is now an `EntryOwnership` enum in the source subsystem, which is the right abstraction. But the execution path is not using it. 
+There is now an `EntryOwnership` enum in the source subsystem, which is the right abstraction. But the execution path is not using it.
 
 For a module file outside a project, `EntrySelection::Module` still does:
 
@@ -195,7 +195,7 @@ universe.load_synthetic_root(
 )?;
 ```
 
-That turns the file's containing directory into an ordinary source root. 
+That turns the file's containing directory into an ordinary source root.
 
 Thus:
 
@@ -234,7 +234,7 @@ ModulePath(["main"])
 
 Those `ModuleId`s compare equal even though they belong to unrelated project universes. This is acceptable inside the compile-time abstraction only if `ModuleId` values never cross universe boundaries without their universe.
 
-The runtime registry does exactly that: it is VM-global and keyed solely by `ModuleId`. 
+The runtime registry does exactly that: it is VM-global and keyed solely by `ModuleId`.
 
 The latest `materialize_program()` adds “idempotence”:
 
@@ -244,13 +244,13 @@ if !self.module_registry.contains_key(id) {
 }
 ```
 
-If the ID is already present, it silently reuses that runtime module object. Subsequent phases replace linked reads, exports and closure information on the reused object while retaining its existing globals and lifecycle state. 
+If the ID is already present, it silently reuses that runtime module object. Subsequent phases replace linked reads, exports and closure information on the reused object while retaining its existing globals and lifecycle state.
 
-That is safe only for repeated materialization of the exact same installed program generation. The new test checks precisely that narrow case. It does not check two separately compiled projects that happen to receive the same universe-local IDs. 
+That is safe only for repeated materialization of the exact same installed program generation. The new test checks precisely that narrow case. It does not check two separately compiled projects that happen to receive the same universe-local IDs.
 
-`VM::run_compiled()` currently accepts any `CompiledProgram`, so the restriction is not enforced. 
+`VM::run_compiled()` currently accepts any `CompiledProgram`, so the restriction is not enforced.
 
-There is a related escape hatch. `ModuleRegistry` gained the safer `register_new()`, but still exposes overwrite-style `insert()`, and `VM::create_module_with_id()` still uses that overwrite operation. `VM::create_module()` constructs its ID with `ModuleId::synthetic(logical_name)`.  
+There is a related escape hatch. `ModuleRegistry` gained the safer `register_new()`, but still exposes overwrite-style `insert()`, and `VM::create_module_with_id()` still uses that overwrite operation. `VM::create_module()` constructs its ID with `ModuleId::synthetic(logical_name)`.
 
 Because synthetic IDs also use reserved project zero, this remains possible at the identity level:
 
@@ -262,13 +262,13 @@ and the compatibility creation API can overwrite a registry record.
 
 V1 does not need multi-program loading, but it needs an explicit invariant. Either a VM owns exactly one installed user `ProjectUniverse`/program generation and rejects a different one, or runtime keys must include a universe/program identity. I would choose the former for v1. Then delete/generalize the overwrite `insert()` path and make synthetic identities a distinct tagged domain rather than encoding them through reserved project zero.
 
-Also, `ResolvedProjectId::from_raw()` is public, which weakens the otherwise good “opaque ID issued by ProjectUniverse” abstraction. 
+Also, `ResolvedProjectId::from_raw()` is public, which weakens the otherwise good “opaque ID issued by ProjectUniverse” abstraction.
 
 ## HIGH — `InterfaceBuilder` is now order-independent, but duplicate declarations still overwrite
 
 The three-pass interface refactor is the right fix for the previous export-order bug.
 
-However, the first declaration pass still builds its namespace and `declarations` maps with ordinary insertion. A second declaration of the same name can replace the first static surface instead of producing an interface error. 
+However, the first declaration pass still builds its namespace and `declarations` maps with ordinary insertion. A second declaration of the same name can replace the first static surface instead of producing an interface error.
 
 The compiler may subsequently reject some duplicate declarations, but that is architecturally too late. `UnlinkedModuleInterface` is consumed by the linker and LSP as static truth; it should never represent source that its own module namespace considers ambiguous/redeclared.
 
@@ -276,11 +276,11 @@ The interface builder needs a single insertion operation that preserves the firs
 
 ## MEDIUM — manifest identity is still conflating project name and programming namespace
 
-The implementation now deliberately accepts an omitted `namespace` and derives it from the project name. The implementation spec uses an explicit namespace because project/distribution naming and source namespace identity were meant to remain independent. 
+The implementation now deliberately accepts an omitted `namespace` and derives it from the project name. The implementation spec uses an explicit namespace because project/distribution naming and source namespace identity were meant to remain independent.
 
 This may be a perfectly reasonable ergonomic change, but it is a language-design change rather than merely an implementation detail.
 
-There is also still a concrete diagnostic-data bug: `ValidatedProjectManifest.name` is assigned the normalized namespace, while `raw_name` retains the actual project name; `ResolvedProject.name` is documented as the original name for diagnostics but receives the former.  
+There is also still a concrete diagnostic-data bug: `ValidatedProjectManifest.name` is assigned the normalized namespace, while `raw_name` retains the actual project name; `ResolvedProject.name` is documented as the original name for diagnostics but receives the former.
 
 Keep these concepts unambiguously separate:
 
@@ -313,7 +313,7 @@ The implementation spec instead introduced explicit header targets:
 @package.documentation(...)
 ```
 
-precisely so metadata target was explicit and orthogonal to ordinary class/member `@Attribute` syntax. 
+precisely so metadata target was explicit and orthogonal to ordinary class/member `@Attribute` syntax.
 
 The important semantic requirement—metadata is inert—is satisfied. But `@!` and those two magical names are unratified language surface. This should be settled before source compatibility matters.
 
@@ -329,19 +329,19 @@ ModuleLoadError::Parse
 ModuleLoadError::Interface
 ```
 
-was the correct repair. Interface errors now survive as typed `InterfaceError`s. 
+was the correct repair. Interface errors now survive as typed `InterfaceError`s.
 
 Two holes remain.
 
 `Parse` stores only a `String`, rather than the actual parser diagnostic/span, so structured parse information is still lost at the module boundary.
 
-And exposure traversal through `load_package_surface()` still has to translate module-load failures back into a `ModuleResolutionError` surface, which causes some structured parse/interface information to degrade again. 
+And exposure traversal through `load_package_surface()` still has to translate module-load failures back into a `ModuleResolutionError` surface, which causes some structured parse/interface information to degrade again.
 
 A resolver error, source error, parse error and interface error should remain separate all the way to the compiler/LSP diagnostic adapter.
 
 ## MEDIUM — source-provider cache lifetime still has no generation model
 
-`FilesystemSourceProvider` now correctly caches resolution, source contents, and reverse source identities, with `clear_cache()` clearing all of them. 
+`FilesystemSourceProvider` now correctly caches resolution, source contents, and reverse source identities, with `clear_cache()` clearing all of them.
 
 But negative resolutions and source contents remain valid indefinitely until that global clear.
 
@@ -363,11 +363,11 @@ The portability checks from Part I—especially case-fold-equivalent module name
 
 The repair tests are useful and clearly targeted at the earlier review. But several are weaker than their names suggest.
 
-`test_confinement_violation_for_root_package` creates a completely valid ordinary root package; it does not symlink `package.ph` outside the source root, so it would not catch a regression that removed the confinement check again. `test_distinct_synthetic_modules_have_distinct_identities` compares `"mod1"` and `"mod2"` rather than two independent synthetic modules with the same display name, and does not test `"core"`. `test_import_core_resolves_reserved_root` stops at resolver output rather than compiling a project using that import. 
+`test_confinement_violation_for_root_package` creates a completely valid ordinary root package; it does not symlink `package.ph` outside the source root, so it would not catch a regression that removed the confinement check again. `test_distinct_synthetic_modules_have_distinct_identities` compares `"mod1"` and `"mod2"` rather than two independent synthetic modules with the same display name, and does not test `"core"`. `test_import_core_resolves_reserved_root` stops at resolver output rather than compiling a project using that import.
 
 The current suite also needs end-to-end negative or positive coverage for standalone sibling rejection, standalone-package file ownership, duplicate body declarations at the interface layer, two independently compiled programs entering one VM, qualified cross-module superclass resolution, a legal semantic SCC, and LSP absolute/dependency-alias resolution through the shared resolver.
 
-The runtime repair tests for whole-module re-export, callable exports, export/method collisions and same-program materialization identity are good additions. 
+The runtime repair tests for whole-module re-export, callable exports, export/method collisions and same-program materialization identity are good additions.
 
 I also found no GitHub Actions workflow run or combined status attached to the latest commit through the connector, so this assessment is based on source inspection and the test code present in the repository, not an independently verified green CI run.
 

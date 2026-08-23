@@ -61,7 +61,7 @@ predecessor block. Consider a loop whose header contains:
 ```
 L:  x1 = phi(a, y1)
     y1 = phi(b, x1)
-    ... 
+    ...
     goto L
 ```
 
