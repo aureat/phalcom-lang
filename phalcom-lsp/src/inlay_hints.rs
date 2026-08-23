@@ -1,8 +1,10 @@
 //! Standard LSP runtime-value inlay hints.
 
+use std::collections::HashSet;
+
 use phalcom_ast::ast::{
-    ClassMember, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, Pattern, Program, RecordLiteralEntry, SetLiteralEntry,
-    Statement, TupleLiteralEntry,
+    ClassMember, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, Program,
+    RecordLiteralEntry, SetLiteralEntry, Statement, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip, MarkupContent, MarkupKind, Range, Url};
@@ -11,6 +13,341 @@ use crate::documents::{Document, DocumentSnapshot};
 use crate::line_index::LineIndex;
 use crate::request_context::RequestContext;
 use crate::semantic::{Confidence, FileSemanticSnapshot, InferredValue, SemanticBindingKind, SemanticDb, SemanticSnapshot, ValueShape};
+
+type SourceRangeKey = (usize, usize);
+
+fn source_range_key(range: SourceRange) -> SourceRangeKey {
+    (range.start, range.end)
+}
+
+/// Source-owned annotation facts used only to suppress duplicate advisory hints.
+///
+/// This index deliberately contains no inferred or formal semantic state. It is
+/// rebuilt from the pinned program so explicit source annotations remain the
+/// sole reason an advisory hint is suppressed.
+#[derive(Default)]
+struct ExplicitAnnotationIndex {
+    binding_names: HashSet<SourceRangeKey>,
+    parameter_names: HashSet<SourceRangeKey>,
+    field_names: HashSet<SourceRangeKey>,
+    return_members: HashSet<(usize, usize)>,
+}
+
+impl ExplicitAnnotationIndex {
+    fn from_program(program: &Program) -> Self {
+        let mut index = Self::default();
+        for (statement_idx, statement) in program.statements.iter().enumerate() {
+            collect_statement_annotations(statement, &mut index, statement_idx);
+        }
+        index
+    }
+
+    fn has_binding(&self, range: SourceRange) -> bool {
+        self.binding_names.contains(&source_range_key(range))
+    }
+
+    fn has_parameter(&self, range: SourceRange) -> bool {
+        self.parameter_names.contains(&source_range_key(range))
+    }
+
+    fn has_field(&self, range: SourceRange) -> bool {
+        self.field_names.contains(&source_range_key(range))
+    }
+
+    fn has_return(&self, class_stmt_idx: usize, member_idx: usize) -> bool {
+        self.return_members.contains(&(class_stmt_idx, member_idx))
+    }
+}
+
+fn collect_pattern_names(pattern: &Pattern, names: &mut HashSet<SourceRangeKey>) {
+    match pattern {
+        Pattern::Name { range, .. } => {
+            names.insert(source_range_key(*range));
+        }
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                collect_pattern_names(element, names);
+            }
+        }
+        Pattern::List { elements, rest, .. } => {
+            for element in elements {
+                collect_pattern_names(element, names);
+            }
+            if let Some(rest) = rest {
+                collect_pattern_names(rest, names);
+            }
+        }
+        Pattern::Variant { arguments, .. } => {
+            for argument in arguments {
+                collect_pattern_names(argument, names);
+            }
+        }
+        Pattern::Record { entries, .. } => {
+            for entry in entries {
+                collect_pattern_names(&entry.pattern, names);
+            }
+        }
+        Pattern::Map { entries, .. } => {
+            for entry in entries {
+                collect_pattern_names(&entry.pattern, names);
+            }
+        }
+    }
+}
+
+fn collect_statement_annotations(statement: &Statement, index: &mut ExplicitAnnotationIndex, statement_idx: usize) {
+    match statement {
+        Statement::Class(class_def) => {
+            for (member_idx, member) in class_def.members.iter().enumerate() {
+                match member {
+                    ClassMember::Method(method) => {
+                        for parameter in &method.params {
+                            if parameter.annotation.is_some() {
+                                index.parameter_names.insert(source_range_key(parameter.name_range));
+                            }
+                        }
+                        if method.return_annotation.is_some() {
+                            index.return_members.insert((statement_idx, member_idx));
+                        }
+                        for nested in method.body.statements().unwrap_or_default() {
+                            collect_statement_annotations(nested, index, statement_idx);
+                        }
+                    }
+                    ClassMember::Getter(getter) => {
+                        if getter.return_annotation.is_some() {
+                            index.return_members.insert((statement_idx, member_idx));
+                        }
+                        for nested in getter.body.statements().unwrap_or_default() {
+                            collect_statement_annotations(nested, index, statement_idx);
+                        }
+                    }
+                    ClassMember::Setter(setter) => {
+                        if setter.param.annotation.is_some() {
+                            index.parameter_names.insert(source_range_key(setter.param.name_range));
+                        }
+                        if setter.return_annotation.is_some() {
+                            index.return_members.insert((statement_idx, member_idx));
+                        }
+                        for nested in setter.body.statements().unwrap_or_default() {
+                            collect_statement_annotations(nested, index, statement_idx);
+                        }
+                    }
+                    ClassMember::Field(field) => {
+                        if field.annotation.is_some() {
+                            index.field_names.insert(source_range_key(field.name_range));
+                        }
+                        if let Some(default) = &field.default {
+                            collect_expr_annotations(default, index);
+                        }
+                    }
+                    ClassMember::Variant(_) => {}
+                    ClassMember::Index(index_method) => {
+                        for parameter in &index_method.params {
+                            if parameter.annotation.is_some() {
+                                index.parameter_names.insert(source_range_key(parameter.name_range));
+                            }
+                        }
+                        if let IndexAccessor::Set { put } = &index_method.accessor {
+                            if put.annotation.is_some() {
+                                index.parameter_names.insert(source_range_key(put.name_range));
+                            }
+                        }
+                        if index_method.return_annotation.is_some() {
+                            index.return_members.insert((statement_idx, member_idx));
+                        }
+                        for nested in &index_method.body {
+                            collect_statement_annotations(nested, index, statement_idx);
+                        }
+                    }
+                }
+            }
+            for (expr, _) in &class_def.invariants {
+                collect_expr_annotations(expr, index);
+            }
+        }
+        Statement::Let(binding) => {
+            if binding.annotation.is_some() {
+                collect_pattern_names(&binding.pattern, &mut index.binding_names);
+            }
+            if let Some(value) = &binding.value {
+                collect_expr_annotations(value, index);
+            }
+        }
+        Statement::Return(return_statement) => {
+            if let Some(value) = &return_statement.value {
+                collect_expr_annotations(value, index);
+            }
+        }
+        Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => collect_expr_annotations(expr, index),
+        Statement::For(for_statement) => {
+            for lane in &for_statement.lanes {
+                collect_expr_annotations(&lane.iter, index);
+            }
+            for nested in &for_statement.body {
+                collect_statement_annotations(nested, index, statement_idx);
+            }
+        }
+        Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) | Statement::TypeAlias(_) => {}
+    }
+}
+
+fn collect_expr_annotations(expr: &Expr, index: &mut ExplicitAnnotationIndex) {
+    match expr {
+        Expr::Assignment(assignment) => {
+            collect_expr_annotations(&assignment.name, index);
+            collect_expr_annotations(&assignment.value, index);
+        }
+        Expr::Range(range) => {
+            if let Some(lower) = &range.lower {
+                collect_expr_annotations(lower, index);
+            }
+            if let Some(upper) = &range.upper {
+                collect_expr_annotations(upper, index);
+            }
+        }
+        Expr::Unary(unary) => collect_expr_annotations(&unary.expr, index),
+        Expr::Binary(binary) => {
+            collect_expr_annotations(&binary.left, index);
+            collect_expr_annotations(&binary.right, index);
+        }
+        Expr::ComparisonChain(chain) => {
+            for operand in &chain.operands {
+                collect_expr_annotations(operand, index);
+            }
+        }
+        Expr::Membership(membership) => {
+            collect_expr_annotations(&membership.left, index);
+            collect_expr_annotations(&membership.right, index);
+        }
+        Expr::IsMembership(membership) => {
+            collect_expr_annotations(&membership.left, index);
+            collect_expr_annotations(&membership.candidates, index);
+        }
+        Expr::IfLet(if_let) => {
+            collect_expr_annotations(&if_let.value, index);
+            for nested in &if_let.then_body.body {
+                collect_statement_annotations(nested, index, usize::MAX);
+            }
+            if let Some(else_body) = &if_let.else_body {
+                for nested in &else_body.body {
+                    collect_statement_annotations(nested, index, usize::MAX);
+                }
+            }
+        }
+        Expr::WhileLet(while_let) => {
+            collect_expr_annotations(&while_let.value, index);
+            for nested in &while_let.body {
+                collect_statement_annotations(nested, index, usize::MAX);
+            }
+        }
+        Expr::UnqualifiedCall(call) => collect_pack_annotations(&call.args, index),
+        Expr::MethodCall(call) => {
+            collect_expr_annotations(&call.object, index);
+            collect_pack_annotations(&call.args, index);
+        }
+        Expr::GetProperty(property) => collect_expr_annotations(&property.object, index),
+        Expr::SetProperty(property) => {
+            collect_expr_annotations(&property.object, index);
+            collect_expr_annotations(&property.value, index);
+        }
+        Expr::Index(index_expr) => {
+            collect_expr_annotations(&index_expr.object, index);
+            collect_pack_annotations(&index_expr.args, index);
+        }
+        Expr::SetIndex(index_expr) => {
+            collect_expr_annotations(&index_expr.object, index);
+            collect_pack_annotations(&index_expr.args, index);
+            collect_expr_annotations(&index_expr.value, index);
+        }
+        Expr::Block(block) => {
+            for nested in &block.body {
+                collect_statement_annotations(nested, index, usize::MAX);
+            }
+        }
+        Expr::MethodRef(method_ref) => collect_expr_annotations(&method_ref.receiver, index),
+        Expr::TupleLiteral(tuple) => {
+            for entry in &tuple.entries {
+                match entry {
+                    TupleLiteralEntry::Positional { expr, .. } | TupleLiteralEntry::Expand { expr, .. } => collect_expr_annotations(expr, index),
+                    TupleLiteralEntry::Labeled { label, value, .. } => {
+                        collect_product_label_annotations(label, index);
+                        collect_expr_annotations(value, index);
+                    }
+                }
+            }
+        }
+        Expr::RecordLiteral(record) => {
+            for entry in &record.entries {
+                match entry {
+                    RecordLiteralEntry::Field(field) => {
+                        collect_product_label_annotations(&field.label, index);
+                        collect_expr_annotations(&field.value, index);
+                    }
+                    RecordLiteralEntry::Expansion { expr, .. } => collect_expr_annotations(expr, index),
+                }
+            }
+        }
+        Expr::MapLiteral(map) => {
+            for entry in &map.entries {
+                match entry {
+                    MapLiteralEntry::Association { key, value, .. } => {
+                        if let MapLiteralKey::Computed { expr, .. } = key {
+                            collect_expr_annotations(expr, index);
+                        }
+                        collect_expr_annotations(value, index);
+                    }
+                    MapLiteralEntry::Expansion { expr, .. } => collect_expr_annotations(expr, index),
+                }
+            }
+        }
+        Expr::SetLiteral(set) => {
+            for entry in &set.entries {
+                match entry {
+                    SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => collect_expr_annotations(expr, index),
+                }
+            }
+        }
+        Expr::ListLiteral(list) => {
+            for element in &list.elements {
+                match element {
+                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => collect_expr_annotations(expr, index),
+                }
+            }
+        }
+        Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::String { .. }
+        | Expr::Boolean { .. }
+        | Expr::Var { .. }
+        | Expr::Field { .. }
+        | Expr::SelfVar { .. }
+        | Expr::SuperVar { .. }
+        | Expr::ImplementationSelector { .. }
+        | Expr::Symbol { .. }
+        | Expr::Ellipsis { .. }
+        | Expr::TypeForm(_) => {}
+    }
+}
+
+fn collect_pack_annotations(items: &[PackItem], index: &mut ExplicitAnnotationIndex) {
+    for item in items {
+        match item {
+            PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_expr_annotations(expr, index),
+            PackItem::Labeled { label, value, .. } => {
+                if let PackLabel::Computed { expr, .. } = label {
+                    collect_expr_annotations(expr, index);
+                }
+                collect_expr_annotations(value, index);
+            }
+        }
+    }
+}
+
+fn collect_product_label_annotations(label: &ProductLabel, index: &mut ExplicitAnnotationIndex) {
+    if let ProductLabel::Computed { expr, .. } = label {
+        collect_expr_annotations(expr, index);
+    }
+}
 
 /// Server policy for runtime-value inlay hints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -103,6 +440,8 @@ fn collect_file_semantic_hints(
     suppress_obvious: bool,
     hints: &mut Vec<InlayHint>,
 ) {
+    let annotations = ExplicitAnnotationIndex::from_program(&file_snapshot.source.program);
+
     // 1. Local bindings (let/const)
     for binding in file_snapshot.source.scopes.bindings.values() {
         if binding.kind == SemanticBindingKind::Import {
@@ -112,34 +451,48 @@ fn collect_file_semantic_hints(
         if range.end < visible_start || range.start > visible_end {
             continue;
         }
+        if annotations.has_binding(range) {
+            continue;
+        }
         let Some(value) = file_snapshot.local_facts.value_before(binding.id, range.end.saturating_add(1)) else {
             continue;
         };
-        if !should_render(policy, &value.confidence, &value.shape) || (suppress_obvious && obvious_initializer_text(text, range)) {
+        let formal = global_snapshot.and_then(|snap| {
+            let uri = snap.documents.uri_for_lsp(&file_snapshot.module)?;
+            snap.formal_binding_presentation_at(&uri, &binding.name, range.end)
+        });
+        if formal.is_none() && (!should_render(policy, &value.confidence, &value.shape) || (suppress_obvious && obvious_initializer_text(text, range))) {
             continue;
         }
-        let formal_type = global_snapshot.and_then(|snap| {
-            let uri = snap.documents.uri_for_lsp(&file_snapshot.module)?;
-            snap.formal_binding_type_at(&uri, &binding.name, range.end)
-        });
-        crate::parity::ShadowParityHarness::new().record_inlay_hint_parity(
-            &binding.name,
-            formal_type.as_deref(),
-            Some(&render_shape(&value.shape)),
-        );
+        let formal_text = formal.as_ref().map(|presentation| presentation.text());
+        crate::parity::ShadowParityHarness::new().record_inlay_hint_parity(&binding.name, formal_text.as_deref(), Some(&render_shape(&value.shape)));
 
-        let rendered = render_shape(&value.shape);
+        let (label, tooltip) = if let Some(formal) = formal.as_ref() {
+            (
+                format!(": {}", formal.text()),
+                format!(
+                    "Formal semantic result: `{}`\n\nThis result is compiler-owned and authoritative.",
+                    formal.text()
+                ),
+            )
+        } else {
+            let rendered = render_shape(&value.shape);
+            (
+                format!("≈ {rendered}"),
+                format!(
+                    "Observed runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
+                    confidence_name(value.confidence)
+                ),
+            )
+        };
         hints.push(InlayHint {
             position: line_index.position(range.end),
-            label: InlayHintLabel::String(format!(": {rendered}")),
+            label: InlayHintLabel::String(label),
             kind: Some(InlayHintKind::TYPE),
             text_edits: None,
             tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                 kind: MarkupKind::Markdown,
-                value: format!(
-                    "Inferred runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
-                    confidence_name(value.confidence)
-                ),
+                value: tooltip,
             })),
             padding_left: Some(true),
             padding_right: None,
@@ -156,6 +509,9 @@ fn collect_file_semantic_hints(
             ] {
                 let Some(f) = field_surface else { continue };
                 if f.source_range.end < visible_start || f.source_range.start > visible_end {
+                    continue;
+                }
+                if annotations.has_field(f.name_range) {
                     continue;
                 }
                 let field_value = global_snapshot.and_then(|db| db.field_value(&class.id, field_name, side)).or_else(|| {
@@ -175,7 +531,7 @@ fn collect_file_semantic_hints(
                         let rendered = render_shape(&val.shape);
                         hints.push(InlayHint {
                             position: line_index.position(f.name_range.end),
-                            label: InlayHintLabel::String(format!(": {rendered}")),
+                            label: InlayHintLabel::String(format!("≈ {rendered}")),
                             kind: Some(InlayHintKind::TYPE),
                             text_edits: None,
                             tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -204,13 +560,16 @@ fn collect_file_semantic_hints(
                 if param.name_range.end < visible_start || param.name_range.start > visible_end {
                     continue;
                 }
+                if annotations.has_parameter(param.name_range) {
+                    continue;
+                }
                 let param_val = global_snapshot.and_then(|db| db.parameter_at(&member.callable, &param.name));
                 if let Some(val) = param_val {
                     if should_render(policy, &val.confidence, &val.shape) {
                         let rendered = render_shape(&val.shape);
                         hints.push(InlayHint {
                             position: line_index.position(param.name_range.end),
-                            label: InlayHintLabel::String(format!(": {rendered}")),
+                            label: InlayHintLabel::String(format!("≈ {rendered}")),
                             kind: Some(InlayHintKind::TYPE),
                             text_edits: None,
                             tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -233,6 +592,9 @@ fn collect_file_semantic_hints(
             if let Some(ret) = return_val {
                 if should_render(policy, &ret.confidence, &ret.shape) {
                     let ret_pos = member.ast.and_then(|ast| {
+                        if annotations.has_return(ast.class_stmt_idx, ast.member_idx) {
+                            return None;
+                        }
                         find_return_hint_offset(
                             &file_snapshot.source.program,
                             ast.class_stmt_idx,
@@ -247,7 +609,7 @@ fn collect_file_semantic_hints(
                             let rendered = render_shape(&ret.shape);
                             hints.push(InlayHint {
                                 position: line_index.position(offset),
-                                label: InlayHintLabel::String(format!(" -> {rendered}")),
+                                label: InlayHintLabel::String(format!(" ≈ {rendered}")),
                                 kind: Some(InlayHintKind::TYPE),
                                 text_edits: None,
                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -376,7 +738,7 @@ fn collect_expr_closure_hints(
                             let rendered = render_shape(&val.shape);
                             hints.push(InlayHint {
                                 position: line_index.position(param.range.end),
-                                label: InlayHintLabel::String(format!(": {rendered}")),
+                                label: InlayHintLabel::String(format!("≈ {rendered}")),
                                 kind: Some(InlayHintKind::TYPE),
                                 text_edits: None,
                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -408,7 +770,7 @@ fn collect_expr_closure_hints(
                             let rendered = render_shape(&val.shape);
                             hints.push(InlayHint {
                                 position: line_index.position(param.range.end),
-                                label: InlayHintLabel::String(format!(": {rendered}")),
+                                label: InlayHintLabel::String(format!("≈ {rendered}")),
                                 kind: Some(InlayHintKind::TYPE),
                                 text_edits: None,
                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -682,6 +1044,9 @@ fn shallow_hints_internal(
         match statement {
             Statement::Let(binding) => {
                 let Pattern::Name { .. } = &binding.pattern else { continue };
+                if binding.annotation.is_some() {
+                    continue;
+                }
                 let Some(value) = binding.value.as_ref() else { continue };
                 let Some(shape) = shallow_expression_shape(value, module) else { continue };
                 if binding.range.end < visible_start || binding.range.start > visible_end || !should_render(policy, &Confidence::Exact, &shape) {
@@ -693,7 +1058,7 @@ fn shallow_hints_internal(
                 let rendered = render_shape(&shape);
                 hints.push(InlayHint {
                     position: line_index.position(binding.range.end),
-                    label: InlayHintLabel::String(format!(": {rendered}")),
+                    label: InlayHintLabel::String(format!("≈ {rendered}")),
                     kind: Some(InlayHintKind::TYPE),
                     text_edits: None,
                     tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -712,13 +1077,16 @@ fn shallow_hints_internal(
                             if f.range.end < visible_start || f.range.start > visible_end {
                                 continue;
                             }
+                            if f.annotation.is_some() {
+                                continue;
+                            }
                             let shape = f.default.as_ref().and_then(|def| shallow_expression_shape(def, module));
                             if let Some(shape) = shape {
                                 if should_render(policy, &Confidence::Exact, &shape) {
                                     let rendered = render_shape(&shape);
                                     hints.push(InlayHint {
                                         position: line_index.position(f.name_range.end),
-                                        label: InlayHintLabel::String(format!(": {rendered}")),
+                                        label: InlayHintLabel::String(format!("≈ {rendered}")),
                                         kind: Some(InlayHintKind::TYPE),
                                         text_edits: None,
                                         tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -734,7 +1102,7 @@ fn shallow_hints_internal(
                         }
                         ClassMember::Method(m)
                             // Constructor return hint in shallow mode
-                            if m.is_constructor => {
+                            if m.is_constructor && m.return_annotation.is_none() => {
                                 let shape = ValueShape::Instance(crate::semantic::ClassId::new(module.clone(), class_def.name.clone()));
                                 if should_render(policy, &Confidence::Exact, &shape) {
                                     let offset =
@@ -744,7 +1112,7 @@ fn shallow_hints_internal(
                                             let rendered = render_shape(&shape);
                                             hints.push(InlayHint {
                                                 position: line_index.position(offset),
-                                                label: InlayHintLabel::String(format!(" -> {rendered}")),
+                                                label: InlayHintLabel::String(format!(" ≈ {rendered}")),
                                                 kind: Some(InlayHintKind::TYPE),
                                                 text_edits: None,
                                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
@@ -853,8 +1221,75 @@ mod tests {
             },
         );
         assert_eq!(hints.len(), 1);
-        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == ": String"));
+        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == "≈ String"));
         assert_eq!(hints[0].kind, Some(InlayHintKind::TYPE));
+    }
+
+    #[test]
+    fn explicit_binding_annotation_suppresses_duplicate_hint() {
+        let uri = Url::parse("file:///annotated.ph").unwrap();
+        let doc = Document::new("let annotated: Int = 1\nlet inferred = 2\n".to_string());
+        assert!(doc.parse.errors.is_empty(), "parse errors: {:?}", doc.parse.errors);
+        let db = SemanticDb::new();
+        db.update_file(&uri, FileRevision(1), &doc.parse.program);
+
+        let hints = hints_for(
+            &db,
+            &uri,
+            &doc,
+            Range {
+                start: Position::new(0, 0),
+                end: Position::new(5, 0),
+            },
+        );
+
+        let labels = hints
+            .iter()
+            .filter_map(|hint| match &hint.label {
+                InlayHintLabel::String(label) => Some(label.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(labels, vec!["≈ Int"], "only unannotated binding should receive a hint: {hints:?}");
+    }
+
+    #[test]
+    fn explicit_member_annotations_suppress_field_parameter_and_return_hints() {
+        let uri = Url::parse("file:///annotated-members.ph").unwrap();
+        let source = "class Service {\n  const _annotated: Int = 1\n  const _inferred = 2\n  compute(value: Int) -> Int { 42 }\n  infer(value) { 42 }\n}\n";
+        let doc = Document::new(source.to_string());
+        assert!(doc.parse.errors.is_empty(), "parse errors: {:?}", doc.parse.errors);
+        let db = SemanticDb::new();
+        db.update_core(FileRevision(1), &crate::semantic::core_source::bundled_parse().program);
+        db.update_file(&uri, FileRevision(1), &doc.parse.program);
+
+        let hints = hints_for(
+            &db,
+            &uri,
+            &doc,
+            Range {
+                start: Position::new(0, 0),
+                end: Position::new(10, 0),
+            },
+        );
+        let labels = hints
+            .iter()
+            .filter_map(|hint| match &hint.label {
+                InlayHintLabel::String(label) => Some(label.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            labels.iter().filter(|label| **label == "≈ Int").count(),
+            1,
+            "only _inferred should get ≈ Int: {labels:?}"
+        );
+        assert_eq!(
+            labels.iter().filter(|label| **label == " ≈ Int").count(),
+            1,
+            "only infer should get ≈ Int: {labels:?}"
+        );
     }
 
     #[test]
@@ -912,7 +1347,7 @@ mod tests {
             },
         );
         assert_eq!(hints.len(), 1);
-        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == ": Int"));
+        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == "≈ Int"));
     }
 
     #[test]
@@ -973,10 +1408,10 @@ mod tests {
             },
         );
 
-        let x_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == ": Int"));
-        assert!(x_hint.is_some(), "Field _x should have : Int hint, got: {hints:?}");
-        let y_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == ": String"));
-        assert!(y_hint.is_some(), "Field _y should have : String hint, got: {hints:?}");
+        let x_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == "≈ Int"));
+        assert!(x_hint.is_some(), "Field _x should have ≈ Int hint, got: {hints:?}");
+        let y_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == "≈ String"));
+        assert!(y_hint.is_some(), "Field _y should have ≈ String hint, got: {hints:?}");
     }
 
     #[test]
@@ -999,13 +1434,13 @@ mod tests {
             },
         );
 
-        let method_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " -> Int"));
-        assert!(method_ret.is_some(), "Method compute should have -> Int return hint, got: {hints:?}");
+        let method_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " ≈ Int"));
+        assert!(method_ret.is_some(), "Method compute should have ≈ Int return hint, got: {hints:?}");
 
-        let getter_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " -> String"));
-        assert!(getter_ret.is_some(), "Getter name should have -> String return hint, got: {hints:?}");
+        let getter_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " ≈ String"));
+        assert!(getter_ret.is_some(), "Getter name should have ≈ String return hint, got: {hints:?}");
 
-        let index_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " -> Bool"));
-        assert!(index_ret.is_some(), "Index getter should have -> Bool return hint, got: {hints:?}");
+        let index_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " ≈ Bool"));
+        assert!(index_ret.is_some(), "Index getter should have ≈ Bool return hint, got: {hints:?}");
     }
 }

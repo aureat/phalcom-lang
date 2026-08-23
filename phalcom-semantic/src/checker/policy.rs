@@ -5,6 +5,7 @@
 //! honestly without generating spurious secondary errors.
 
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
+use crate::identity::ModuleId;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::outcome::RelationOutcome;
 use crate::types::relation::{Assignability, TypeHierarchy, check_assignability};
@@ -15,6 +16,7 @@ use phalcom_common::range::SourceRange;
 /// Returns `true` if the relation holds (or is non-refuting), `false` if refuted.
 pub fn handle_relation_outcome<T>(
     outcome: &RelationOutcome<T>,
+    module: &ModuleId,
     code: DiagnosticCode,
     message: impl Into<String>,
     range: SourceRange,
@@ -22,7 +24,7 @@ pub fn handle_relation_outcome<T>(
 ) -> bool {
     match outcome {
         RelationOutcome::Refuted(_) => {
-            diagnostics.push(SemanticDiagnostic::error(code, message.into(), range));
+            diagnostics.push(SemanticDiagnostic::error_in(module.clone(), code, message.into(), range));
             false
         }
         _ => true,
@@ -36,6 +38,7 @@ pub fn enforce_assignability(
     hierarchy: &dyn TypeHierarchy,
     actual: &TypeKnowledge,
     expected: &TypeKnowledge,
+    module: &ModuleId,
     code: DiagnosticCode,
     message: impl Into<String>,
     range: SourceRange,
@@ -44,7 +47,7 @@ pub fn enforce_assignability(
     let outcome = check_assignability(store, hierarchy, actual, expected);
     match outcome {
         Assignability::Refuted { .. } => {
-            diagnostics.push(SemanticDiagnostic::error(code, message.into(), range));
+            diagnostics.push(SemanticDiagnostic::error_in(module.clone(), code, message.into(), range));
             false
         }
         _ => true,

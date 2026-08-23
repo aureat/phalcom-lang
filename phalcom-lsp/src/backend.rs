@@ -29,7 +29,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest};
-use crate::analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStatusNotification};
+use crate::analysis_status::AnalysisStatusNotification;
 
 use serde_json::Value as JsonValue;
 use tower_lsp::jsonrpc::Result;
@@ -39,13 +39,13 @@ use tower_lsp::lsp_types::{
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint, InlayHintOptions,
     InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams,
     Registration, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities,
-    WorkspaceServerCapabilities, WorkspaceSymbolParams,
+    ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
 use crate::completion;
-use crate::diagnostics::syntax_errors_to_diagnostics;
+use crate::diagnostics::{SemanticDiagnosticSource, semantic_diagnostics_to_lsp_diagnostics_with_sources, syntax_errors_to_diagnostics};
 use crate::documents::{DocumentSnapshot, DocumentStore};
 use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
@@ -55,6 +55,7 @@ use crate::perf::{PerfCountersHandle, PerfSpan};
 use crate::request_context::RequestContext;
 use crate::semantic::{FileRevision, OccurrenceRole, SemanticDb, SemanticSnapshot, SemanticTarget, ValueShape};
 use crate::semantic_tokens;
+use crate::signature_help;
 
 use crate::workspace_scan::AnalysisMode;
 
@@ -93,10 +94,30 @@ fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticDb, ur
         return Some(syntax_only(diagnostics));
     }
     if let Some(semantic_diagnostics) = static_snapshot.diagnostics.get(static_module) {
-        diagnostics.extend(crate::diagnostics::semantic_diagnostics_to_lsp_diagnostics(
+        let mut diagnostic_sources = BTreeMap::new();
+        for (module, source) in static_snapshot.sources.iter() {
+            if let Some(source_uri) = advisory.documents.get_by_module(module) {
+                diagnostic_sources.insert(
+                    module.clone(),
+                    SemanticDiagnosticSource {
+                        uri: source_uri.clone(),
+                        line_index: LineIndex::new(&source.text),
+                    },
+                );
+            }
+        }
+        diagnostic_sources.insert(
+            static_module.clone(),
+            SemanticDiagnosticSource {
+                uri: uri.clone(),
+                line_index: (*document.line_index).clone(),
+            },
+        );
+        diagnostics.extend(semantic_diagnostics_to_lsp_diagnostics_with_sources(
             semantic_diagnostics,
             &document.line_index,
             uri,
+            &diagnostic_sources,
         ));
     }
     Some(DiagnosticPublication {
@@ -448,10 +469,21 @@ impl Backend {
         position: Position,
     ) -> Option<completion::SemanticResolvedReceiver> {
         let target = completion::target_at_snapshot(doc, position)?;
-        let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?;
-        let offset = target.receiver_range.end;
+        self.semantic_receiver_for_range(semantic, uri, doc, target.receiver_range)
+    }
+
+    fn semantic_receiver_for_range(
+        &self,
+        semantic: &SemanticSnapshot,
+        uri: &Url,
+        doc: &DocumentSnapshot,
+        receiver_range: phalcom_common::range::SourceRange,
+    ) -> Option<completion::SemanticResolvedReceiver> {
+        let receiver = doc.text.get(receiver_range.start..receiver_range.end)?;
+        let offset = receiver_range.end;
         if receiver == "self" {
-            return semantic.class_at(uri, offset).map(|class| completion::SemanticResolvedReceiver {
+            let class = semantic.class_at(uri, offset);
+            return class.map(|class| completion::SemanticResolvedReceiver {
                 alternatives: vec![(class, completion::ReceiverKind::Instance)],
             });
         }
@@ -483,12 +515,12 @@ impl Backend {
                 }
             }
         }
-        let parse = phalcom_ast::parser::parse(receiver, target.receiver_range.start);
+        let parse = phalcom_ast::parser::parse(receiver, receiver_range.start);
         let expression = parse.program.statements.iter().find_map(|statement| match statement {
             phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
             _ => None,
         })?;
-        if let Some(formal_expr_type) = semantic.formal_expression_type_at(uri, target.receiver_range.start) {
+        if let Some(formal_expr_type) = semantic.formal_expression_type_at(uri, receiver_range.start) {
             if let Some(class) = semantic.class_for_name(uri, &formal_expr_type) {
                 return Some(completion::SemanticResolvedReceiver {
                     alternatives: vec![(class, completion::ReceiverKind::Instance)],
@@ -718,6 +750,51 @@ impl Backend {
         self.hover_at_request(&request, uri, position)
     }
 
+    /// Resolves read-only signature help from the pinned source and semantic snapshot.
+    fn signature_help_at(&self, uri: &Url, position: Position) -> Option<SignatureHelp> {
+        let request = self.request_context(uri)?;
+        let offset = request.document.line_index.offset(position);
+        let site = signature_help::call_site_at(&request.document.text, offset)?;
+        let member = if let Some(receiver_range) = site.receiver_range {
+            let resolved = self.semantic_receiver_for_range(&request.semantic, uri, &request.document, receiver_range)?;
+            resolved.alternatives.into_iter().find_map(|(class, receiver_kind)| {
+                let side = match receiver_kind {
+                    completion::ReceiverKind::Instance => crate::semantic::DispatchSide::Instance,
+                    completion::ReceiverKind::ClassObject => crate::semantic::DispatchSide::Class,
+                };
+                request.semantic.receiver_member(&class, &site.selector, side).or_else(|| {
+                    let surface = request.semantic.class_surface(&class)?;
+                    surface.all_members().find(|candidate| member_matches_call(candidate, &site)).cloned()
+                })
+            })?
+        } else {
+            let local_class = request.semantic.class_at(uri, site.name_range.start);
+            local_class
+                .and_then(|class| {
+                    request
+                        .semantic
+                        .receiver_member(&class, &site.selector, crate::semantic::DispatchSide::Instance)
+                })
+                .or_else(|| {
+                    request
+                        .semantic
+                        .classes
+                        .values()
+                        .flat_map(|class| class.all_members())
+                        .find(|candidate| member_matches_call(candidate, &site))
+                        .cloned()
+                })?
+        };
+        let formal = request.semantic.formal_callable_presentation(&member.callable);
+        let advisory = request.semantic.callable_signature(&member.callable);
+        Some(signature_help::render_signature_help(
+            &member,
+            formal.as_ref(),
+            advisory.as_ref(),
+            site.active_parameter,
+        ))
+    }
+
     fn hover_at_request(&self, request: &RequestContext, uri: &Url, position: Position) -> Option<Hover> {
         let offset = request.document.line_index.offset(position);
         let Some(occurrence) = request.exact_file().and_then(|_| request.semantic.occurrence_at(uri, offset)) else {
@@ -729,14 +806,11 @@ impl Backend {
             crate::semantic::SemanticTarget::Binding(binding) => {
                 let info = request.semantic.binding_info(uri, binding)?;
                 let value = request.semantic.binding_at(uri, &info.name, offset);
-                let formal_type = request.semantic.formal_binding_type_at(uri, &info.name, offset);
+                let formal = request.semantic.formal_binding_presentation_at(uri, &info.name, offset);
 
                 let advisory_str = value.as_ref().map(|v| crate::semantic::render_value_shape(&v.shape));
-                crate::parity::ShadowParityHarness::new().record_hover_parity(
-                    &info.name,
-                    formal_type.as_deref(),
-                    advisory_str.as_deref(),
-                );
+                let formal_text = formal.as_ref().map(|presentation| presentation.text());
+                crate::parity::ShadowParityHarness::new().record_hover_parity(&info.name, formal_text.as_deref(), advisory_str.as_deref());
 
                 let phaldoc = hover::harvest_doc_for_selector(
                     &request.document.text,
@@ -745,7 +819,12 @@ impl Backend {
                     &info.name,
                 );
                 Some(Hover {
-                    contents: markdown_contents(hover::render_binding_hover_with_formal(&info, formal_type.as_deref(), value.as_ref(), phaldoc.as_ref())),
+                    contents: markdown_contents(hover::render_binding_hover_with_formal(
+                        &info,
+                        formal.as_ref(),
+                        value.as_ref(),
+                        phaldoc.as_ref(),
+                    )),
                     range: Some(span),
                 })
             }
@@ -781,10 +860,12 @@ impl Backend {
                     kind: hover_member_kind(member),
                 };
                 let phaldoc = self.member_phaldoc(member);
-                let value = hover::render_selector_hover_with_value(
+                let formal = request.semantic.formal_callable_return_presentation(&callable);
+                let value = hover::render_selector_hover_with_formal_value(
                     &callable.selector,
                     &[site],
                     phaldoc.as_ref(),
+                    formal.as_ref(),
                     request.semantic.return_for_callable(&member.callable).as_ref(),
                 )?;
                 Some(Hover {
@@ -1154,6 +1235,11 @@ fn hover_member_kind(member: &crate::semantic::MemberSurface) -> crate::index::M
     }
 }
 
+fn member_matches_call(member: &crate::semantic::MemberSurface, site: &signature_help::CallSite) -> bool {
+    let encoded = member.selector.encode();
+    encoded == site.selector || (encoded.split_once('(').map(|(name, _)| name == site.name).unwrap_or(false) && member.params.len() > site.active_parameter)
+}
+
 /// Wraps `value` as an LSP [`HoverContents::Markup`] block of
 /// [`MarkupKind::Markdown`] — the one place `hover_at` builds a [`Hover`]'s
 /// contents, so every hover renders through the same markdown wrapper.
@@ -1224,6 +1310,11 @@ impl LanguageServer for Backend {
                     // re-requests on identifier characters as the user types.
                     trigger_characters: Some(vec![".".to_string()]),
                     ..CompletionOptions::default()
+                }),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: Some(vec![",".to_string()]),
+                    ..SignatureHelpOptions::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(InlayHintOptions {
@@ -1346,22 +1437,11 @@ impl LanguageServer for Backend {
                         AnalysisEvent::Status(status) => {
                             client.send_notification::<AnalysisStatusNotification>(status).await;
                         }
+                        AnalysisEvent::Log(log) => {
+                            client.send_notification::<crate::analysis_log::AnalysisLogNotification>(log).await;
+                        }
                         AnalysisEvent::Error { message } => {
-                            let status = AnalysisStatus {
-                                session: 0,
-                                sequence: 0,
-                                phase: AnalysisPhase::Error,
-                                step: None,
-                                mode: crate::workspace_scan::AnalysisMode::Local,
-                                current_uri: None,
-                                discovered_files: 0,
-                                indexed_files: 0,
-                                analyzed_files: 0,
-                                generation: None,
-                                complete: false,
-                                message: Some(message),
-                            };
-                            client.send_notification::<AnalysisStatusNotification>(status).await;
+                            client.log_message(MessageType::ERROR, message).await;
                         }
                         AnalysisEvent::StaleBatchDiscarded { .. } => {}
                     }
@@ -1736,6 +1816,14 @@ impl LanguageServer for Backend {
         Ok(self.hover_at(&uri, position))
     }
 
+    /// Answers `textDocument/signatureHelp` from the pinned read-only snapshot.
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let _span = PerfSpan::start_with_counters("signature_help", self.perf_counters());
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        Ok(self.signature_help_at(&uri, position))
+    }
+
     /// Answers standard inlay-hint requests from the live semantic database.
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
         let _span = PerfSpan::start_with_counters("inlay", self.perf_counters());
@@ -1937,6 +2025,7 @@ mod tests {
         .expect("initialize params");
         let response = backend.initialize(initialize).await.expect("initialize response");
         assert!(response.capabilities.inlay_hint_provider.is_some());
+        assert!(response.capabilities.signature_help_provider.is_some());
         assert_eq!(
             backend.perf_counters().snapshot().semantic_batches_started,
             0,

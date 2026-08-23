@@ -29,7 +29,13 @@ impl SemanticProduct {
 
     /// Converts typed product into type-erased `QueryValue`.
     pub fn to_query_value(&self) -> QueryValue {
-        // Placeholder byte representation for query cache
-        QueryValue::from_bytes(&[])
+        // The typed product is retained by `SemanticDb::products`; this small
+        // discriminator keeps the erased state lossless enough for generic
+        // query instrumentation without pretending bytes are the product.
+        let kind = match self {
+            Self::CallableBody(_) => b"callable-body".as_slice(),
+            Self::ModuleDiagnostics(_) => b"module-diagnostics".as_slice(),
+        };
+        QueryValue::from_bytes(kind)
     }
 }

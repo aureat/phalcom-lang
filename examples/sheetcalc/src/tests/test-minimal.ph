@@ -1,4 +1,4 @@
-import "./src/support/num" as Num
+import sheetcalc.support.num as Num
 
 class Main {
   @class
@@ -6,6 +6,7 @@ class Main {
     System.print("Num.floor(-3.7) = " + Num.Num.floor(-3.7).toString)
     System.print("Num.ceil(-3.7) = " + Num.Num.ceil(-3.7).toString)
     System.print("✓ Num tests passed")
+    const system = System.new()
   }
 }
 

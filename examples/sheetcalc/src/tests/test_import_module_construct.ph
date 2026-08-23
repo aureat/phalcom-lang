@@ -1,4 +1,4 @@
-import "./src/test_construct_module" as TCM
+import sheetcalc.test_construct_module as TCM
 
 class Main {
   @class

@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
+use serde::{Deserialize, Serialize};
+
 /// Performance counters owned by one analysis service and semantic database.
 #[derive(Debug, Default)]
 pub struct PerfCounters {
@@ -151,7 +153,8 @@ impl PerfCounters {
 }
 
 /// Immutable snapshot of performance counters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CounterSnapshot {
     /// Count of source updates enqueued.
     pub source_updates_enqueued: u64,

@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, fs, io, path::{Path, PathBuf}};
+use std::{
+    collections::BTreeSet,
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use tempfile::TempDir;
 
@@ -13,11 +17,15 @@ pub enum GoldenWorkspaceError {
 }
 
 impl From<io::Error> for GoldenWorkspaceError {
-    fn from(value: io::Error) -> Self { Self::Io(value) }
+    fn from(value: io::Error) -> Self {
+        Self::Io(value)
+    }
 }
 
 impl From<toml::de::Error> for GoldenWorkspaceError {
-    fn from(value: toml::de::Error) -> Self { Self::Toml(value) }
+    fn from(value: toml::de::Error) -> Self {
+        Self::Toml(value)
+    }
 }
 
 pub struct GoldenWorkspace {
@@ -28,12 +36,18 @@ impl GoldenWorkspace {
     pub fn repository_fixture() -> Self {
         let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let repository_root = crate_root.parent().expect("test-support crate lives at repository root");
-        Self { root: repository_root.join("examples/ide-golden") }
+        Self {
+            root: repository_root.join("examples/ide-golden"),
+        }
     }
 
-    pub fn from_root(root: impl Into<PathBuf>) -> Self { Self { root: root.into() } }
+    pub fn from_root(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
 
-    pub fn root(&self) -> &Path { &self.root }
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
 
     pub fn baseline(&self) -> Result<BaselineExpectations, GoldenWorkspaceError> {
         let raw = fs::read_to_string(self.root.join("expectations/baseline.toml"))?;

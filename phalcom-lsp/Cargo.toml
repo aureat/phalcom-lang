@@ -43,3 +43,11 @@ path = "tests/integration.rs"
 [[test]]
 name = "analysis_status"
 path = "tests/analysis_status.rs"
+
+[[test]]
+name = "analysis_logging"
+path = "tests/analysis_logging.rs"
+
+[[test]]
+name = "core_startup"
+path = "tests/core_startup.rs"

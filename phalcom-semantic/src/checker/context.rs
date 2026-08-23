@@ -2,6 +2,7 @@ use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionA
 use crate::checker::flow::FlowState;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::SemanticDiagnostic;
+use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
 use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
@@ -10,7 +11,6 @@ use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::{TypeData, TypeStore};
-use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;

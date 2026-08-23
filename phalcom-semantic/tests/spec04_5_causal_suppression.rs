@@ -29,7 +29,8 @@ fn test_causal_suppression_and_marking() {
     };
 
     // Push an error diagnostic for this expression range
-    ctx.diagnostics.push(SemanticDiagnostic::error(
+    ctx.diagnostics.push(SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
         DiagnosticCode::TypeMismatch,
         "root error",
         range,

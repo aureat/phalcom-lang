@@ -1,4 +1,4 @@
-import "./src/value/cell_value" as Value
+import sheetcalc.value.cell_value as Value
 
 class Main {
   @class

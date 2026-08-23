@@ -15,6 +15,7 @@ pub mod export;
 pub mod identity;
 pub mod invalidation;
 pub mod metadata;
+pub mod presentation;
 pub mod prover;
 pub mod resolver;
 pub mod scope;
@@ -49,6 +50,7 @@ pub use identity::{
     BindingId, CallableId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SnapshotId, SnapshotTypeRef, TypeStoreId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
+pub use presentation::{FormalPresentation, FormalSiteId, FormalTypeSite, SemanticPresentationIndex, TypePresenter};
 pub use prover::{
     Counterexample, ProofBinaryOp, ProofEvidence, ProofObligationKind, ProofOpaqueReason, ProofTerm, ProofUnaryOp, VcStatus, VcUnknownReason,
     VerificationCondition, simplify_proof_term, solve_vc_deterministic,

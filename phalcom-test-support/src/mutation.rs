@@ -37,10 +37,25 @@ mod tests {
 
     #[test]
     fn mutation_is_guarded_by_expected_old_text() {
-        let source = MarkedSource::parse("const x = /*@value*/42
-");
-        let mutation = Mutation { anchor: "value".into(), old: "42".into(), new: ""wrong"".into() };
-        assert_eq!(mutation.apply(&source).unwrap(), "const x = "wrong"
-");
+        let source = MarkedSource::parse(
+            r#"const x = /*@value*/42
+"#,
+        );
+        let mutation = Mutation {
+            anchor: "value".into(),
+            old: "42".into(),
+            new: r#""wrong""#.into(),
+        };
+        assert_eq!(mutation.apply(&source).unwrap(), "const x = \"wrong\"\n");
+
+        let wrong_old = Mutation { old: "41".into(), ..mutation };
+        assert_eq!(
+            wrong_old.apply(&source),
+            Err(MutationError::OldTextMismatch {
+                anchor: "value".into(),
+                expected: "41".into(),
+                actual_prefix: "42".into(),
+            })
+        );
     }
 }

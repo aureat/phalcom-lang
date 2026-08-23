@@ -83,3 +83,69 @@ fn analysis_status_transitions_and_session_increment() {
     service.shutdown();
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn edit_only_batch_returns_to_ready_after_publication() {
+    let root = std::env::temp_dir().join(format!("phalcom_lsp_status_edit_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("create temp dir");
+    let file_path = root.join("main.ph");
+    fs::write(&file_path, "class Main { main() {} }\n").expect("write main file");
+
+    let db = Arc::new(SemanticDb::new());
+    let (service, mut rx) = AnalysisService::new(db);
+
+    service.configure_workspace(WorkspaceScanRequest {
+        roots: vec![root.clone()],
+        mode: AnalysisMode::Local,
+        excludes: Vec::new(),
+        core_source_path: None,
+    });
+    service.flush();
+
+    // Drain until initial Ready
+    loop {
+        let event = rx.blocking_recv().expect("expected event");
+        if let AnalysisEvent::Status(status) = event {
+            if status.phase == AnalysisPhase::Ready && status.session == 2 {
+                break;
+            }
+        }
+    }
+
+    // Now enqueue an edit-only file update
+    let uri = tower_lsp::lsp_types::Url::from_file_path(&file_path).unwrap();
+    let source = "class Main { main() { let x = 42; } }\n";
+    let program = phalcom_ast::parse(source, 0).program;
+    service.mark_open(uri.clone());
+    service.enqueue_file_update(uri, phalcom_lsp::semantic::FileRevision(2), program);
+    service.flush();
+
+    let mut statuses = Vec::new();
+    let mut saw_publishing = false;
+    let mut final_status = None;
+
+    // Collect status events until flush finishes
+    while let Ok(event) = rx.try_recv() {
+        if let AnalysisEvent::Status(status) = event {
+            if status.phase == AnalysisPhase::Publishing {
+                saw_publishing = true;
+            }
+            final_status = Some(status.clone());
+            statuses.push(status);
+        }
+    }
+
+    assert!(saw_publishing, "expected to observe Publishing phase during edit batch");
+    let last = final_status.expect("expected at least one status update after edit");
+    assert_eq!(
+        last.phase,
+        AnalysisPhase::Ready,
+        "edit-only batch must finish in Ready, not stuck in Publishing: last was {:?}",
+        last
+    );
+    assert!(last.complete, "final status must have complete == true");
+
+    service.shutdown();
+    let _ = fs::remove_dir_all(root);
+}

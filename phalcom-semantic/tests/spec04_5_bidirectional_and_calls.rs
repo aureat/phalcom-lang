@@ -115,7 +115,11 @@ fn test_generic_method_call_inference() {
     let box_decl = DeclarationId::new(ctx.current_module.clone(), "IdBox".into());
     let mut surface = phalcom_semantic::surface::DeclarationSurface::new(Some(box_decl.clone()));
 
-    let callable_id = CallableId::new(box_decl.clone(), phalcom_common::selector::Selector::method("id", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap(), DispatchSide::Instance);
+    let callable_id = CallableId::new(
+        box_decl.clone(),
+        phalcom_common::selector::Selector::method("id", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
     let param_t = ctx.store.intern_type_parameter(phalcom_semantic::types::parameter::TypeParameterData::new(
         phalcom_semantic::types::parameter::TypeParameterOwner::Callable(callable_id.clone()),
         0,
@@ -134,14 +138,18 @@ fn test_generic_method_call_inference() {
         callable_id.selector.clone(),
         vec![param],
         TypeKnowledge::known(t_ty, EvidenceAuthority::Declared),
-    ).with_generics(generic_sig);
+    )
+    .with_generics(generic_sig);
 
     surface.add_callable(DispatchSide::Instance, callable_sig);
     ctx.register_surface(box_decl.clone(), surface);
 
     // Bind `b` as instance of IdBox
     let box_ty = ctx.nominal_type_of(&box_decl);
-    ctx.bind_local("b", phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::known(box_ty, EvidenceAuthority::Declared)));
+    ctx.bind_local(
+        "b",
+        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::known(box_ty, EvidenceAuthority::Declared)),
+    );
 
     // Call `b.id(42)`
     let program = parse_source("b.id(42)", 0).unwrap();
@@ -169,7 +177,10 @@ fn test_flow_state_mutation_and_if_let_join() {
     assert_eq!(ctx.flow.get_current_type(x_binding).and_then(|k| k.ty()), Some(int_ty));
 
     // Reassign x = "hello"
-    ctx.assign_existing("x", phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::known(str_ty, EvidenceAuthority::ExactSyntax)));
+    ctx.assign_existing(
+        "x",
+        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::known(str_ty, EvidenceAuthority::ExactSyntax)),
+    );
     assert_eq!(ctx.flow.get_current_type(x_binding).and_then(|k| k.ty()), Some(str_ty));
     assert_eq!(ctx.flow.get_binding(x_binding).unwrap().version, 1);
 }

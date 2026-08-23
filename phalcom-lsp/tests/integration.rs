@@ -1,4 +1,5 @@
 mod performance;
+mod signature_help;
 mod stage1_diagnostics;
 mod stage2_index;
 mod stage3_completion;

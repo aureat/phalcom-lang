@@ -6,6 +6,8 @@ use std::sync::Arc;
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
+use phalcom_semantic::{FormalPresentation, TypePresenter};
+
 use super::analyzer::{AnalysisContext, analyze_expr};
 use super::callable::{CallableSignature, CallableSummary, ParameterSignature};
 use super::dispatch::{DispatchReceiver, DispatchResolver};
@@ -50,6 +52,15 @@ impl FileSourceSnapshot {
 pub type AdvisorySemanticSnapshot = SemanticSnapshot;
 /// Static type/kind semantic snapshot produced by `phalcom-semantic`.
 pub type StaticSemanticSnapshot = phalcom_semantic::SemanticSnapshot;
+
+/// Compiler-owned callable signature projected for editor presentation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FormalCallablePresentation {
+    /// Formal parameter states in declaration order.
+    pub parameters: Vec<FormalPresentation>,
+    /// Formal return state.
+    pub return_type: FormalPresentation,
+}
 
 /// Immutable published generation of all workspace semantic facts.
 #[derive(Clone, Debug, Default)]
@@ -258,32 +269,50 @@ impl SemanticSnapshot {
     }
 
     /// Returns a formal callable analysis for a callable identity if present.
-    pub fn formal_callable_analysis(
-        &self,
-        callable: &phalcom_semantic::identity::CallableId,
-    ) -> Option<&Arc<phalcom_semantic::checker::CallableAnalysis>> {
+    pub fn formal_callable_analysis(&self, callable: &phalcom_semantic::identity::CallableId) -> Option<&Arc<phalcom_semantic::checker::CallableAnalysis>> {
         self.static_snapshot.as_ref()?.callable_analyses.get(callable)
     }
 
-    /// Looks up formal binding type knowledge covering a given source offset in a document.
-    pub fn formal_binding_type_at(&self, uri: &Url, _name: &str, offset: usize) -> Option<String> {
+    /// Looks up formal binding knowledge, preserving non-ready states.
+    pub fn formal_binding_presentation_at(&self, uri: &Url, _name: &str, offset: usize) -> Option<FormalPresentation> {
         let static_snap = self.static_snapshot.as_ref()?;
         let static_mod = self.formal_static_module(uri)?;
+        let presenter = TypePresenter::new(&static_snap.store);
 
         for (callable_id, analysis) in static_snap.callable_analyses.iter() {
             if &callable_id.owner.module == static_mod && analysis.body_range.contains(offset) {
                 for expr in analysis.expressions.values() {
                     if expr.range.contains(offset) {
-                        let formatted = static_snap.store.format_knowledge(&expr.knowledge);
-                        if formatted != "Unknown" && formatted != "Dynamic" {
-                            return Some(formatted);
-                        }
+                        return Some(presenter.present_expression(expr));
                     }
                 }
                 for state in analysis.bindings.values() {
-                    let formatted = static_snap.store.format_knowledge(&state.current);
-                    if formatted != "Unknown" && formatted != "Dynamic" {
-                        return Some(formatted);
+                    return Some(presenter.present_knowledge(&state.current));
+                }
+            }
+        }
+        None
+    }
+
+    /// Looks up a known formal binding type for compatibility with receiver resolution.
+    pub fn formal_binding_type_at(&self, uri: &Url, name: &str, offset: usize) -> Option<String> {
+        match self.formal_binding_presentation_at(uri, name, offset)? {
+            FormalPresentation::Known(ty) => Some(ty),
+            _ => None,
+        }
+    }
+
+    /// Looks up formal expression knowledge, preserving non-ready states.
+    pub fn formal_expression_presentation_at(&self, uri: &Url, offset: usize) -> Option<FormalPresentation> {
+        let static_snap = self.static_snapshot.as_ref()?;
+        let static_mod = self.formal_static_module(uri)?;
+        let presenter = TypePresenter::new(&static_snap.store);
+
+        for (callable_id, analysis) in static_snap.callable_analyses.iter() {
+            if &callable_id.owner.module == static_mod && analysis.body_range.contains(offset) {
+                for expr in analysis.expressions.values() {
+                    if expr.range.contains(offset) {
+                        return Some(presenter.present_expression(expr));
                     }
                 }
             }
@@ -291,24 +320,49 @@ impl SemanticSnapshot {
         None
     }
 
-    /// Looks up formal expression type at an offset.
+    /// Looks up a known formal expression type for compatibility with receiver resolution.
     pub fn formal_expression_type_at(&self, uri: &Url, offset: usize) -> Option<String> {
-        let static_snap = self.static_snapshot.as_ref()?;
-        let static_mod = self.formal_static_module(uri)?;
-
-        for (callable_id, analysis) in static_snap.callable_analyses.iter() {
-            if &callable_id.owner.module == static_mod && analysis.body_range.contains(offset) {
-                for expr in analysis.expressions.values() {
-                    if expr.range.contains(offset) {
-                        let formatted = static_snap.store.format_knowledge(&expr.knowledge);
-                        if formatted != "Unknown" && formatted != "Dynamic" {
-                            return Some(formatted);
-                        }
-                    }
-                }
-            }
+        match self.formal_expression_presentation_at(uri, offset)? {
+            FormalPresentation::Known(ty) => Some(ty),
+            _ => None,
         }
-        None
+    }
+
+    /// Looks up the compiler-owned formal return type of one LSP callable identity.
+    pub fn formal_callable_return_presentation(&self, callable: &CallableId) -> Option<FormalPresentation> {
+        Some(self.formal_callable_presentation(callable)?.return_type)
+    }
+
+    /// Looks up the compiler-owned formal parameter and return states of one callable.
+    pub fn formal_callable_presentation(&self, callable: &CallableId) -> Option<FormalCallablePresentation> {
+        let static_snap = self.static_snapshot.as_ref()?;
+        let uri = self.documents.uri_for_lsp(&callable.owner.module)?;
+        let module = self.formal_static_module(uri)?;
+        let side = match callable.side {
+            DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
+            DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
+        };
+        let signature = static_snap.callable_signatures.iter().find_map(|(_, signature)| {
+            (signature.owner.module == *module
+                && signature.owner.name.as_ref() == callable.owner.name
+                && signature.selector.encode() == callable.selector
+                && signature.side == side)
+                .then_some(signature)
+        })?;
+        let presenter = TypePresenter::new(&static_snap.store);
+        let parameters = signature
+            .parameters
+            .iter()
+            .map(|parameter| match &parameter.ty {
+                phalcom_semantic::types::TypeTerm::Canonical(ty) => FormalPresentation::Known(presenter.present_type(*ty)),
+                phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => FormalPresentation::Unknown,
+            })
+            .collect();
+        let return_type = match &signature.return_type {
+            phalcom_semantic::types::TypeTerm::Canonical(ty) => FormalPresentation::Known(presenter.present_type(*ty)),
+            phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => FormalPresentation::Unknown,
+        };
+        Some(FormalCallablePresentation { parameters, return_type })
     }
 
     /// Returns a source callable summary from the current semantic generation.

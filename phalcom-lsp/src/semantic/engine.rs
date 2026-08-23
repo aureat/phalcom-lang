@@ -31,6 +31,15 @@ pub(crate) struct RebuildTraceData {
     pub callables_recomputed: BTreeSet<CallableId>,
 }
 
+/// Controls whether source bodies are eligible for analysis during a batch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SourceAnalysisDepth {
+    /// Ingest declarations and native surfaces without solving source bodies.
+    SurfaceOnly,
+    /// Analyze source bodies and publish local flow products.
+    Deep,
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct SemanticState {
     pub generation: SemanticGeneration,
@@ -158,7 +167,17 @@ impl SemanticEngine {
             .expect("uncancelled update must complete")
     }
 
-    fn update_files_batch_inner(&mut self, files: Vec<(Url, FileRevision, Arc<str>, Program)>, cancelled: &dyn Fn() -> bool) -> Option<SemanticGeneration> {
+    fn update_files_batch_with_source_depth(&mut self, files: Vec<(Url, FileRevision, Arc<str>, Program)>, depth: SourceAnalysisDepth) -> SemanticGeneration {
+        self.update_files_batch_with_source_depth_cancel(files, depth, &|| false)
+            .expect("uncancelled update must complete")
+    }
+
+    fn update_files_batch_inner(
+        &mut self,
+        files: Vec<(Url, FileRevision, Arc<str>, Program)>,
+        cancelled: &dyn Fn() -> bool,
+        depth: SourceAnalysisDepth,
+    ) -> Option<SemanticGeneration> {
         for (uri, _, _, _) in &files {
             self.state.documents.ensure_lsp_for_uri(uri);
         }
@@ -250,13 +269,14 @@ impl SemanticEngine {
         }
 
         self.state.generation = next_generation;
-        let trace = rebuild_affected_state(
+        let trace = rebuild_affected_state_with_depth(
             &mut self.state,
             next_generation,
             affected,
             if precise_body_frontier { Some(dirty_callables) } else { None },
             cancelled,
             &self.counters,
+            depth,
         )?;
         #[cfg(test)]
         {
@@ -284,11 +304,20 @@ impl SemanticEngine {
         files: Vec<(Url, FileRevision, Arc<str>, Program)>,
         cancelled: &dyn Fn() -> bool,
     ) -> Option<SemanticGeneration> {
+        self.update_files_batch_with_source_depth_cancel(files, SourceAnalysisDepth::Deep, cancelled)
+    }
+
+    fn update_files_batch_with_source_depth_cancel(
+        &mut self,
+        files: Vec<(Url, FileRevision, Arc<str>, Program)>,
+        depth: SourceAnalysisDepth,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<SemanticGeneration> {
         if cancelled() {
             return None;
         }
         let mut candidate = self.clone();
-        let generation = candidate.update_files_batch_inner(files, cancelled)?;
+        let generation = candidate.update_files_batch_inner(files, cancelled, depth)?;
         if cancelled() {
             return None;
         }
@@ -324,6 +353,20 @@ impl SemanticEngine {
         core_update: Option<(FileRevision, Arc<str>, Program)>,
         cancelled: &dyn Fn() -> bool,
     ) -> Option<SemanticGeneration> {
+        self.apply_mutations_with_source_cancel_and_core_depth(removals, files, core_update, SourceAnalysisDepth::SurfaceOnly, cancelled)
+    }
+
+    /// Applies worker mutations while selecting whether the active core body
+    /// may be analyzed. Startup uses surface-only; opening the selected core
+    /// source can explicitly request deep analysis.
+    pub(crate) fn apply_mutations_with_source_cancel_and_core_depth(
+        &mut self,
+        removals: Vec<Url>,
+        files: Vec<(Url, FileRevision, Arc<str>, Program)>,
+        core_update: Option<(FileRevision, Arc<str>, Program)>,
+        core_depth: SourceAnalysisDepth,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<SemanticGeneration> {
         if cancelled() {
             return None;
         }
@@ -335,11 +378,11 @@ impl SemanticEngine {
             candidate.remove_file_with_cancel(&uri, cancelled)?;
         }
         if !files.is_empty() {
-            candidate.update_files_batch_inner(files, cancelled)?;
+            candidate.update_files_batch_inner(files, cancelled, SourceAnalysisDepth::Deep)?;
         }
         if let Some((revision, text, program)) = core_update {
             let uri = Url::parse(CORE_MODULE_URI).expect("core module URI must parse");
-            candidate.update_files_batch_inner(vec![(uri, revision, text, program)], cancelled)?;
+            candidate.update_files_batch_inner(vec![(uri, revision, text, program)], cancelled, core_depth)?;
         }
         let generation = candidate.state.generation;
         if cancelled() {
@@ -354,6 +397,14 @@ impl SemanticEngine {
     pub fn update_core(&mut self, revision: FileRevision, program: &Program) -> SemanticGeneration {
         let uri = Url::parse(CORE_MODULE_URI).expect("core module URI must parse");
         self.update_file(&uri, revision, program)
+    }
+
+    /// Ingests core declarations and native surfaces without eagerly solving
+    /// every bundled callable body. Deep analysis remains available through
+    /// [`Self::update_core`] when a caller explicitly requests it.
+    pub fn update_core_surface_only(&mut self, revision: FileRevision, program: &Program) -> SemanticGeneration {
+        let uri = Url::parse(CORE_MODULE_URI).expect("core module URI must parse");
+        self.update_files_batch_with_source_depth(vec![(uri, revision, Arc::from(""), program.clone())], SourceAnalysisDepth::SurfaceOnly)
     }
 
     /// Removes one source file from the active universe.
@@ -451,10 +502,22 @@ fn record_parameter_deltas(counters: &PerfCounters, touched_slots: usize, deltas
 pub(crate) fn rebuild_affected_state(
     state: &mut SemanticState,
     generation: SemanticGeneration,
+    affected: BTreeSet<ModuleId>,
+    dirty_callables: Option<BTreeSet<CallableId>>,
+    cancelled: &dyn Fn() -> bool,
+    counters: &PerfCounters,
+) -> Option<RebuildTraceData> {
+    rebuild_affected_state_with_depth(state, generation, affected, dirty_callables, cancelled, counters, SourceAnalysisDepth::Deep)
+}
+
+pub(crate) fn rebuild_affected_state_with_depth(
+    state: &mut SemanticState,
+    generation: SemanticGeneration,
     mut affected: BTreeSet<ModuleId>,
     mut dirty_callables: Option<BTreeSet<CallableId>>,
     cancelled: &dyn Fn() -> bool,
     counters: &PerfCounters,
+    depth: SourceAnalysisDepth,
 ) -> Option<RebuildTraceData> {
     let previous_summaries = state.summaries.clone();
     let previous_parameters = state.parameter_facts.clone();
@@ -481,6 +544,7 @@ pub(crate) fn rebuild_affected_state(
             .files
             .values()
             .filter(|file| affected.contains(&file.module))
+            .filter(|file| depth == SourceAnalysisDepth::Deep || file.module.as_str() != CORE_MODULE_URI)
             .map(|file| file.source.clone())
             .collect::<Vec<_>>();
         let seed_summaries = state
@@ -727,6 +791,28 @@ class Service {
   call() { Service.consume(1) }
 }
 "#;
+
+    #[test]
+    fn core_surface_only_skips_eager_callable_body_solves() {
+        let counters = Arc::new(crate::perf::PerfCounters::new());
+        let mut engine = SemanticEngine::new_with_counters(counters.clone());
+        let bundled = core_source::bundled_parse();
+
+        engine.update_core_surface_only(FileRevision(1), &bundled.program);
+
+        let snapshot = engine.snapshot();
+        assert!(!snapshot.classes.is_empty(), "surface-only startup must publish core declarations");
+        assert_eq!(
+            counters.snapshot().callables_analyzed,
+            0,
+            "surface-only startup must not solve core callable bodies"
+        );
+        assert_eq!(
+            counters.snapshot().solver_callables_visited,
+            0,
+            "surface-only startup must not visit core callable work items"
+        );
+    }
 
     #[test]
     fn engine_uses_one_unified_surface_flow_result() {

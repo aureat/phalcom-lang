@@ -14,6 +14,7 @@ pub mod manifest;
 pub mod metadata;
 pub mod package_info;
 pub mod project;
+pub mod query;
 pub mod resolver;
 pub mod source;
 pub mod stabilization;
@@ -46,6 +47,7 @@ pub use package_info::{
     PackageArtifactIdentity, PackageAuthorDescriptor, PackageInfoDescriptor, PackageOrigin, PackageRequirementDescriptor, ResolvedProjectDependencyDescriptor,
 };
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
+pub use query::ModuleQueryFacade;
 pub use resolver::ModuleResolver;
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};

@@ -158,7 +158,10 @@ impl SurfaceDispatchResolver {
                         if let Some(defining_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == decl { Some(*ty) } else { None }) {
                             if result_sig.return_type.ty() == Some(defining_form) {
                                 if let Some(start_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == start_decl { Some(*ty) } else { None }) {
-                                    let auth = result_sig.return_type.authority().unwrap_or(crate::types::evidence::EvidenceAuthority::TrustedNative);
+                                    let auth = result_sig
+                                        .return_type
+                                        .authority()
+                                        .unwrap_or(crate::types::evidence::EvidenceAuthority::TrustedNative);
                                     result_sig.return_type = TypeKnowledge::known(start_form, auth);
                                 }
                             }

@@ -37,6 +37,10 @@ pub enum QueryState {
         fingerprint: ProductFingerprint,
         value: QueryValue,
     },
+    BudgetExceeded {
+        revision: SemanticRevision,
+        report: BudgetReport,
+    },
     Blocked {
         revision: SemanticRevision,
         reason: BlockReason,
@@ -56,6 +60,7 @@ impl QueryState {
             Self::Vacant => None,
             Self::Computing { revision, .. }
             | Self::Ready { revision, .. }
+            | Self::BudgetExceeded { revision, .. }
             | Self::Blocked { revision, .. }
             | Self::Cancelled { revision }
             | Self::Failed { revision, .. } => Some(*revision),
@@ -64,6 +69,24 @@ impl QueryState {
 
     pub fn is_ready(&self) -> bool {
         matches!(self, Self::Ready { .. })
+    }
+
+    /// Returns the input/result fingerprint recorded for a ready product.
+    ///
+    /// Non-ready states deliberately have no reusable fingerprint. A caller
+    /// must not treat a cancelled, blocked, or failed query as a cache hit.
+    pub fn fingerprint(&self) -> Option<ProductFingerprint> {
+        match self {
+            Self::Ready { fingerprint, .. } => Some(*fingerprint),
+            _ => None,
+        }
+    }
+
+    pub fn as_ready_value(&self) -> Option<&QueryValue> {
+        match self {
+            Self::Ready { value, .. } => Some(value),
+            _ => None,
+        }
     }
 }
 

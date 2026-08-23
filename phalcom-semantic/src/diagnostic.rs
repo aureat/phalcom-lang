@@ -143,10 +143,7 @@ pub struct SemanticDiagnostic {
 }
 
 impl SemanticDiagnostic {
-    pub fn error(code: DiagnosticCode, message: impl Into<String>, primary_range: SourceRange) -> Self {
-        Self::error_in(ModuleId::core(), code, message, primary_range)
-    }
-
+    /// Creates an error diagnostic owned by `module`.
     pub fn error_in(module: ModuleId, code: DiagnosticCode, message: impl Into<String>, primary_range: SourceRange) -> Self {
         Self {
             code,
@@ -163,10 +160,7 @@ impl SemanticDiagnostic {
         }
     }
 
-    pub fn warning(code: DiagnosticCode, message: impl Into<String>, primary_range: SourceRange) -> Self {
-        Self::warning_in(ModuleId::core(), code, message, primary_range)
-    }
-
+    /// Creates a warning diagnostic owned by `module`.
     pub fn warning_in(module: ModuleId, code: DiagnosticCode, message: impl Into<String>, primary_range: SourceRange) -> Self {
         Self {
             code,
@@ -257,7 +251,7 @@ impl SemanticDiagnostic {
                 kind: LabelKind::Primary,
             }];
 
-            for label in &self.labels {
+            for label in self.labels.iter().filter(|label| label.span.module == self.primary.module) {
                 labels.push(Label {
                     span: label.range,
                     text: &label.message,

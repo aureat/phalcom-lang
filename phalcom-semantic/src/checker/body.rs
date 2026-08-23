@@ -63,13 +63,7 @@ pub fn analyze_callable_body(
         ctx.push_scope();
         for param in &sig.parameters {
             let ty_opt = param.ty.ty();
-            ctx.bind_local_var(
-                param.local_name.clone(),
-                ty_opt,
-                param.ty.clone(),
-                false,
-                None,
-            );
+            ctx.bind_local_var(param.local_name.clone(), ty_opt, param.ty.clone(), false, None);
         }
         if let Some(ret_ty) = sig.return_type.ty() {
             ctx.expected_return = Some(crate::types::evidence::TypeKnowledge::known(
@@ -89,7 +83,8 @@ pub fn analyze_callable_body(
         }
 
         if let Err(report) = budget.charge_step() {
-            ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::warning(
+            ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::warning_in(
+                ctx.current_module.clone(),
                 crate::diagnostic::DiagnosticCode::AnalysisBudgetExceeded,
                 format!("callable body analysis exceeded step budget ({}/{})", report.used, report.limit),
                 stmt_range(stmt),

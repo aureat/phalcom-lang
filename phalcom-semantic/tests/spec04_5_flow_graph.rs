@@ -131,13 +131,7 @@ fn parse_expr_helper(src: &str) -> phalcom_ast::ast::Expr {
 #[test]
 fn test_predicate_extraction_from_ast() {
     let (mut store, hier, resolver, decls, module) = setup_test_env();
-    let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(
-        &mut store,
-        &hier,
-        &resolver,
-        &decls,
-        module,
-    );
+    let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(&mut store, &hier, &resolver, &decls, module);
 
     let b1 = ctx.bind_local_var("x", None, TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Declared), true, None);
 
@@ -207,8 +201,14 @@ fn test_mutation_invalidation_kills_dependent_facts() {
     state.declare(b_x, None, TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax), true);
     state.declare(b_y, None, TypeKnowledge::known(str_ty, EvidenceAuthority::ExactSyntax), true);
 
-    let pred_x = FlowPredicate::EqualLiteral { binding: b_x, literal: "42".into() };
-    let pred_y = FlowPredicate::EqualLiteral { binding: b_y, literal: "\"hello\"".into() };
+    let pred_x = FlowPredicate::EqualLiteral {
+        binding: b_x,
+        literal: "42".into(),
+    };
+    let pred_y = FlowPredicate::EqualLiteral {
+        binding: b_y,
+        literal: "\"hello\"".into(),
+    };
 
     apply_predicate(&mut state, &pred_x, &mut store);
     apply_predicate(&mut state, &pred_y, &mut store);
@@ -238,8 +238,15 @@ fn test_flow_state_conservative_join_and_loop_widening() {
 
     let mut branch_a = FlowState::new();
     branch_a.declare(b1, None, TypeKnowledge::known(int_ty, EvidenceAuthority::Proven), true);
-    let fact_shared = FlowPredicate::OrderedPredicate { binding: b1, op: ">".into(), threshold: 0 };
-    let fact_a_only = FlowPredicate::EqualLiteral { binding: b1, literal: "10".into() };
+    let fact_shared = FlowPredicate::OrderedPredicate {
+        binding: b1,
+        op: ">".into(),
+        threshold: 0,
+    };
+    let fact_a_only = FlowPredicate::EqualLiteral {
+        binding: b1,
+        literal: "10".into(),
+    };
     apply_predicate(&mut branch_a, &fact_shared, &mut store);
     apply_predicate(&mut branch_a, &fact_a_only, &mut store);
 
@@ -276,16 +283,14 @@ fn test_protocol_derived_iteration_typing_no_name_matching() {
     let int_ty = store.nominal_type(int_decl);
     let list_int = store.apply_type_form(list_form, &[int_ty]).expect("valid application");
 
-    let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(
-        &mut store,
-        &hier,
-        &resolver,
-        &decls,
-        module.clone(),
-    );
+    let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(&mut store, &hier, &resolver, &decls, module.clone());
 
     let elem_k = resolve_iteration_element(&mut ctx, list_int);
-    assert_eq!(elem_k.ty(), Some(int_ty), "List<Int> iteration element must resolve to Int without nominal name check");
+    assert_eq!(
+        elem_k.ty(),
+        Some(int_ty),
+        "List<Int> iteration element must resolve to Int without nominal name check"
+    );
 
     // 2. Program with for loop over List<String>
     let source = r#"
@@ -299,6 +304,9 @@ class IterationSubject {
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let report = check_program(ctx.store, &hier, &resolver, &decls, module, &program);
-    assert!(!report.has_errors(), "protocol-derived for loop typing should succeed for List<String>, got: {:?}", report.diagnostics);
+    assert!(
+        !report.has_errors(),
+        "protocol-derived for loop typing should succeed for List<String>, got: {:?}",
+        report.diagnostics
+    );
 }
-

@@ -13,6 +13,7 @@ members = [
     "phalcom-lsp",
     "phalcom-modules",
     "phalcom-semantic",
+    "phalcom-test-support",
     "phalcom-diagnostics",
     "phalcom-type-meta",
 ]

@@ -1,4 +1,4 @@
-import "./src/support/num" as Num
+import sheetcalc.support.num as Num
 
 class Main {
   @class

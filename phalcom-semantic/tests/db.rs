@@ -3,6 +3,7 @@ use phalcom_semantic::db::{
     BudgetKind, CancellationToken, DependencyIndex, DependencyRecorder, ProductFingerprint, QueryBudget, QueryKey, QueryOutcome, QueryScheduler, QueryValue,
     SemanticDb,
 };
+use std::sync::Arc;
 
 fn module() -> ModuleId {
     ModuleId::core()
@@ -78,14 +79,28 @@ fn stale_revision_cannot_publish_a_ready_product() {
 }
 
 #[test]
+fn semantic_db_keeps_type_store_identity_across_revisions() {
+    let mut db = SemanticDb::new();
+    let store_id = db.store().id();
+    let first_revision = db.revision();
+
+    let second_revision = db.begin_revision();
+    assert_ne!(first_revision, second_revision);
+    assert_eq!(db.store().id(), store_id, "one semantic DB epoch keeps one TypeStoreId");
+
+    db.begin_revision();
+    assert_eq!(db.store().id(), store_id, "later revisions reuse the same type store");
+}
+
+#[test]
 fn test_body_query_execution_and_invalidation() {
     use phalcom_common::range::SourceRange;
     use phalcom_common::selector::Selector;
+    use phalcom_semantic::declarations::DeclarationTypeTable;
     use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
     use phalcom_semantic::types::annotation::SimpleTypeResolver;
     use phalcom_semantic::types::relation::MapTypeHierarchy;
     use phalcom_semantic::types::store::TypeStore;
-    use phalcom_semantic::declarations::DeclarationTypeTable;
 
     let mut db = SemanticDb::new();
     let mut store = TypeStore::new();
@@ -96,8 +111,16 @@ fn test_body_query_execution_and_invalidation() {
     let cancel = CancellationToken::new();
     let budget = QueryBudget::default();
 
-    let cid1 = CallableId::new(DeclarationId::new(module.clone(), "C1".into()), Selector::getter("m1").unwrap(), DispatchSide::Instance);
-    let cid2 = CallableId::new(DeclarationId::new(module.clone(), "C2".into()), Selector::getter("m2").unwrap(), DispatchSide::Instance);
+    let cid1 = CallableId::new(
+        DeclarationId::new(module.clone(), "C1".into()),
+        Selector::getter("m1").unwrap(),
+        DispatchSide::Instance,
+    );
+    let cid2 = CallableId::new(
+        DeclarationId::new(module.clone(), "C2".into()),
+        Selector::getter("m2").unwrap(),
+        DispatchSide::Instance,
+    );
 
     let outcome1 = phalcom_semantic::db::query_callable_body(
         &mut db,
@@ -113,6 +136,82 @@ fn test_body_query_execution_and_invalidation() {
         &cancel,
     );
     assert!(outcome1.is_ready());
+
+    let outcome1_cached = phalcom_semantic::db::query_callable_body(
+        &mut db,
+        cid1.clone(),
+        &[],
+        SourceRange { start: 0, end: 10 },
+        &mut store,
+        &hierarchy,
+        &resolver,
+        &decls,
+        module.clone(),
+        budget,
+        &cancel,
+    );
+    match (&outcome1, &outcome1_cached) {
+        (QueryOutcome::Ready(first), QueryOutcome::Ready(second)) => assert!(Arc::ptr_eq(first, second), "cache hit must return typed product"),
+        _ => panic!("expected two ready callable products"),
+    }
+    let key1 = QueryKey::CallableBody(cid1.clone());
+    assert_eq!(db.query_state(&key1).unwrap().is_ready(), true);
+    assert_eq!(db.query_state(&key1).unwrap().revision(), Some(db.revision()));
+    assert_eq!(db.query_state(&key1).unwrap().as_ready_value().unwrap().as_bytes(), b"callable-body");
+    let first_input_fingerprint = db.query_state(&key1).unwrap().fingerprint().expect("ready callable has input fingerprint");
+    assert_ne!(first_input_fingerprint.raw(), 0);
+    assert!(db.product(&key1).and_then(|product| product.as_callable_body()).is_some());
+
+    let changed_body = phalcom_ast::parse_source("1", 0).expect("changed callable body parses");
+    let changed = phalcom_semantic::db::query_callable_body(
+        &mut db,
+        cid1.clone(),
+        &changed_body.statements,
+        SourceRange { start: 0, end: 10 },
+        &mut store,
+        &hierarchy,
+        &resolver,
+        &decls,
+        module.clone(),
+        budget,
+        &cancel,
+    );
+    match (&outcome1, &changed) {
+        (QueryOutcome::Ready(first), QueryOutcome::Ready(second)) => {
+            assert!(!Arc::ptr_eq(first, second), "changed callable body must not reuse old typed product");
+        }
+        _ => panic!("expected changed body to produce a ready callable product"),
+    }
+    let changed_input_fingerprint = db.query_state(&key1).unwrap().fingerprint().expect("changed body has input fingerprint");
+    assert_ne!(first_input_fingerprint, changed_input_fingerprint);
+
+    let failed_body = phalcom_ast::parse_source("2", 0).expect("failed callable body parses");
+    let failed_cancel = CancellationToken::new();
+    failed_cancel.cancel();
+    let failed = phalcom_semantic::db::query_callable_body(
+        &mut db,
+        cid1.clone(),
+        &failed_body.statements,
+        SourceRange { start: 0, end: 10 },
+        &mut store,
+        &hierarchy,
+        &resolver,
+        &decls,
+        module.clone(),
+        budget,
+        &failed_cancel,
+    );
+    assert!(matches!(failed, QueryOutcome::Cancelled));
+    assert!(db.product(&key1).is_none(), "cancelled generation must not appear current-ready");
+    let last_good = db
+        .last_known_good_product(&key1)
+        .and_then(|product| product.as_callable_body())
+        .expect("cancelled refresh retains last-known-good callable");
+    let changed_arc = match &changed {
+        QueryOutcome::Ready(product) => product,
+        _ => panic!("changed body must have produced a ready product"),
+    };
+    assert!(Arc::ptr_eq(last_good, changed_arc), "last-known-good product must be prior ready result");
 
     let outcome2 = phalcom_semantic::db::query_callable_body(
         &mut db,
@@ -132,7 +231,7 @@ fn test_body_query_execution_and_invalidation() {
     let key1 = QueryKey::CallableBody(cid1);
     let key2 = QueryKey::CallableBody(cid2);
 
-    assert!(db.query_state(&key1).unwrap().is_ready());
+    assert!(matches!(db.query_state(&key1), Some(phalcom_semantic::db::QueryState::Cancelled { .. })));
     assert!(db.query_state(&key2).unwrap().is_ready());
 
     // Invalidate key1 only

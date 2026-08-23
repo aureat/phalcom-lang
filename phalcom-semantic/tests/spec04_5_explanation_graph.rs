@@ -1,7 +1,9 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_semantic::explain::{DerivationRule, EvidenceRef, ExplanationArena, ExplanationStep, PredicateKind, causal_slice};
-use phalcom_semantic::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExplanationId, ExpressionId, LocalExpressionId, ModuleId, TypeId};
+use phalcom_semantic::identity::{
+    BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExplanationId, ExpressionId, LocalExpressionId, ModuleId, TypeId,
+};
 use phalcom_semantic::types::evidence::EvidenceAuthority;
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 10 };
@@ -47,16 +49,26 @@ fn test_explanation_graph_derivation_rules() {
     };
     let n3 = arena.alloc_full(
         flow_step,
-        DerivationRule::FlowRefinement { predicate_kind: PredicateKind::IsInstance },
+        DerivationRule::FlowRefinement {
+            predicate_kind: PredicateKind::IsInstance,
+        },
         EvidenceAuthority::Proven,
-        vec![EvidenceRef::BindingVersion { binding: BindingId(1), version: 1 }],
+        vec![EvidenceRef::BindingVersion {
+            binding: BindingId(1),
+            version: 1,
+        }],
         vec![n2],
     );
 
     assert_eq!(arena.len(), 3);
 
     let node3 = arena.get(n3).unwrap();
-    assert_eq!(node3.rule, DerivationRule::FlowRefinement { predicate_kind: PredicateKind::IsInstance });
+    assert_eq!(
+        node3.rule,
+        DerivationRule::FlowRefinement {
+            predicate_kind: PredicateKind::IsInstance
+        }
+    );
     assert_eq!(node3.parents, vec![n2]);
 
     let slice = causal_slice(&arena, n3);

@@ -11,11 +11,12 @@ use phalcom_ast::ast::Program;
 use tokio::sync::mpsc;
 use tower_lsp::lsp_types::Url;
 
+use crate::analysis_log::{AnalysisLogEvent, AnalysisLogLevel};
 use crate::analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStep, StatusTracker};
 use crate::index::WorkspaceIndex;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfContext, PerfCountersHandle, PerfSpan};
-use crate::semantic::{FileRevision, SemanticDb, SemanticEngine, SemanticGeneration, SemanticSnapshot, StaticSemanticSnapshot};
+use crate::semantic::{FileRevision, SemanticDb, SemanticEngine, SemanticGeneration, SemanticSnapshot, SourceAnalysisDepth, StaticSemanticSnapshot};
 use crate::workspace_scan::{AnalysisMode, ExcludeMatcher, ScanBudget, WorkspaceScanState};
 
 /// Closed-file source metadata populated by the worker before it publishes
@@ -253,6 +254,8 @@ pub enum AnalysisEvent {
     },
     /// Progress or phase status update.
     Status(AnalysisStatus),
+    /// Structured log event emitted during analysis.
+    Log(crate::analysis_log::AnalysisLogEvent),
     /// Intermediate batch result was discarded due to a higher epoch.
     StaleBatchDiscarded {
         /// Epoch counter at time of discard.
@@ -622,7 +625,22 @@ fn worker_loop(
                 core_reselect = true;
             }
             let status = status_tracker.increment_session(request.mode);
-            let _ = event_tx.send(AnalysisEvent::Status(status));
+            let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
+            let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                session: status.session,
+                sequence: status.sequence,
+                level: AnalysisLogLevel::Info,
+                phase: status.phase,
+                event: "workspace.session.started".to_string(),
+                epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                generation: None,
+                uri: None,
+                revision: None,
+                batch_size: None,
+                duration_ms: None,
+                message: Some(format!("workspace session {} started in {:?} mode", status.session, request.mode)),
+                counters: Some(shared.counters.snapshot()),
+            }));
         }
 
         // Interactive semantic work always wins over one background scan chunk.
@@ -645,11 +663,26 @@ fn worker_loop(
                     uri: selected_core_uri.clone(),
                 });
                 let program = core_source.parse().program;
-                let generation = engine.update_core(FileRevision(1), &program);
+                let generation = engine.update_core_surface_only(FileRevision(1), &program);
                 let effects = publish_engine(&db, &engine);
                 core_initialized = true;
                 status_tracker.set_generation(generation.0);
                 let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
+                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                    session: status_tracker.snapshot().session,
+                    sequence: status_tracker.snapshot().sequence,
+                    level: AnalysisLogLevel::Info,
+                    phase: AnalysisPhase::SelectingCore,
+                    event: "core.surface.loaded".to_string(),
+                    epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                    generation: Some(generation.0),
+                    uri: selected_core_uri.clone(),
+                    revision: Some(1),
+                    batch_size: None,
+                    duration_ms: None,
+                    message: Some("core surface loaded".to_string()),
+                    counters: Some(shared.counters.snapshot()),
+                }));
                 continue;
             }
             if let Some(scan) = scanner.as_mut() {
@@ -682,7 +715,22 @@ fn worker_loop(
                     source_catalog.len() as u64,
                     engine.snapshot().files.len() as u64,
                 );
-                let _ = event_tx.send(AnalysisEvent::Status(status));
+                let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
+                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                    session: status.session,
+                    sequence: status.sequence,
+                    level: AnalysisLogLevel::Verbose,
+                    phase: AnalysisPhase::Indexing,
+                    event: "scan.batch.completed".to_string(),
+                    epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                    generation: None,
+                    uri: None,
+                    revision: None,
+                    batch_size: None,
+                    duration_ms: None,
+                    message: Some(format!("indexed files total: {}", source_catalog.len())),
+                    counters: Some(snap),
+                }));
                 if scan_complete {
                     scanner = None;
                     shared.scan_in_progress.store(false, Ordering::SeqCst);
@@ -724,6 +772,13 @@ fn worker_loop(
                         refresh: scan_complete,
                     },
                 );
+                let snap = shared.counters.snapshot();
+                let status = status_tracker.update_counts(
+                    snap.workspace_files_discovered,
+                    source_catalog.len() as u64,
+                    engine.snapshot().files.len() as u64,
+                );
+                let _ = event_tx.send(AnalysisEvent::Status(status));
                 if scan_complete {
                     scanner = None;
                     shared.scan_in_progress.store(false, Ordering::SeqCst);
@@ -764,7 +819,22 @@ fn worker_loop(
                 status_tracker.set_current_uri(None);
             }
             let status = status_tracker.transition(AnalysisPhase::Analyzing, Some(AnalysisStep::FlowAnalysis));
-            let _ = event_tx.send(AnalysisEvent::Status(status));
+            let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
+            let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                session: status.session,
+                sequence: status.sequence,
+                level: AnalysisLogLevel::Info,
+                phase: AnalysisPhase::Analyzing,
+                event: "semantic.batch.started".to_string(),
+                epoch: Some(batch_epoch),
+                generation: None,
+                uri: status_tracker.snapshot().current_uri,
+                revision: None,
+                batch_size: Some(file_updates.len() as u32),
+                duration_ms: None,
+                message: Some("semantic batch started".to_string()),
+                counters: Some(shared.counters.snapshot()),
+            }));
 
             // Release lock during heavy semantic execution
             drop(pending);
@@ -831,7 +901,13 @@ fn worker_loop(
                 },
                 shared.counters.clone(),
             );
-            let generation = engine.apply_mutations_with_source_cancel(removals.into_iter().collect(), batch, core_update, &cancelled);
+            let core_depth = if core_update.is_some() {
+                SourceAnalysisDepth::Deep
+            } else {
+                SourceAnalysisDepth::SurfaceOnly
+            };
+            let generation =
+                engine.apply_mutations_with_source_cancel_and_core_depth(removals.into_iter().collect(), batch, core_update, core_depth, &cancelled);
             let solve_cancelled = generation.is_none();
             let mut effects = PublicationEffects::default();
             if let Some(generation) = generation {
@@ -856,6 +932,21 @@ fn worker_loop(
             if solve_cancelled || current_epoch > batch_epoch {
                 shared.counters.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::StaleBatchDiscarded { epoch: batch_epoch });
+                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                    session: status_tracker.snapshot().session,
+                    sequence: status_tracker.snapshot().sequence,
+                    level: AnalysisLogLevel::Info,
+                    phase: AnalysisPhase::Analyzing,
+                    event: "semantic.batch.cancelled".to_string(),
+                    epoch: Some(batch_epoch),
+                    generation: None,
+                    uri: None,
+                    revision: None,
+                    batch_size: None,
+                    duration_ms: None,
+                    message: Some(format!("batch for epoch {} cancelled or superseded by {}", batch_epoch, current_epoch)),
+                    counters: Some(shared.counters.snapshot()),
+                }));
             } else {
                 shared.counters.semantic_batches_published.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::Published {
@@ -863,19 +954,47 @@ fn worker_loop(
                     effects,
                 });
                 let snap = shared.counters.snapshot();
-                let status = status_tracker.update_counts(
+                status_tracker.update_counts(
                     snap.workspace_files_discovered,
                     source_catalog.len() as u64,
                     engine.snapshot().files.len() as u64,
                 );
-                let _ = event_tx.send(AnalysisEvent::Status(status));
+                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                    session: status_tracker.snapshot().session,
+                    sequence: status_tracker.snapshot().sequence,
+                    level: AnalysisLogLevel::Info,
+                    phase: AnalysisPhase::Publishing,
+                    event: "snapshot.published".to_string(),
+                    epoch: Some(batch_epoch),
+                    generation: Some(latest_generation.0),
+                    uri: None,
+                    revision: None,
+                    batch_size: None,
+                    duration_ms: None,
+                    message: Some(format!("published snapshot generation {}", latest_generation.0)),
+                    counters: Some(snap),
+                }));
             }
 
             // Re-acquire lock and notify any flush callers
             pending = shared.pending.lock().expect("worker pending lock poisoned");
             pending.is_processing = false;
+            let scanner_active = shared.scan_in_progress.load(Ordering::SeqCst) || pending.workspace_scan.is_some();
+            let pending_newer_work = has_analysis_work(&pending);
+            let final_status = finish_status_after_batch(&mut status_tracker, scanner_active, pending_newer_work);
+            let _ = event_tx.send(AnalysisEvent::Status(final_status));
             shared.condvar.notify_all();
         }
+    }
+}
+
+fn finish_status_after_batch(tracker: &mut StatusTracker, scanner_active: bool, pending_newer_work: bool) -> AnalysisStatus {
+    if pending_newer_work {
+        tracker.transition(AnalysisPhase::Analyzing, Some(AnalysisStep::FlowAnalysis))
+    } else if scanner_active {
+        tracker.transition(AnalysisPhase::Indexing, Some(AnalysisStep::Discovering))
+    } else {
+        tracker.transition(AnalysisPhase::Ready, None)
     }
 }
 
@@ -1644,6 +1763,8 @@ mod tests {
 
         let formal_y = published.formal_binding_type_at(&file_uri, "y", 70);
         assert_eq!(formal_y, Some("Int".to_string()));
+        let formal_y_state = published.formal_binding_presentation_at(&file_uri, "y", 70);
+        assert_eq!(formal_y_state, Some(phalcom_semantic::FormalPresentation::Known("Int".to_string())));
 
         service.shutdown();
     }

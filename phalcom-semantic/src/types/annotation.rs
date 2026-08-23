@@ -152,7 +152,8 @@ pub fn resolve_type_form(
                 };
                 TypeFormResolution::Known(store.self_type(term))
             } else {
-                diagnostics.push(SemanticDiagnostic::error(
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
                     DiagnosticCode::AnnotationUnresolved,
                     "Self type is only valid within a class declaration or method context",
                     *range,
@@ -179,7 +180,8 @@ pub fn resolve_type_form(
                 let form = declarations.form(&decl).unwrap_or_else(|| store.nominal_type(decl));
                 TypeFormResolution::Known(form)
             } else {
-                diagnostics.push(SemanticDiagnostic::error(
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
                     DiagnosticCode::AnnotationUnresolved,
                     format!("unresolved type `{}`", sym_ref.root),
                     annotation.range,
@@ -213,7 +215,7 @@ pub fn resolve_type_form(
                         TypeApplicationError::TooManyArguments { .. } => DiagnosticCode::ApplicationTooManyArguments,
                         TypeApplicationError::ArgumentKindMismatch { .. } => DiagnosticCode::ApplicationArgumentKindMismatch,
                     };
-                    diagnostics.push(SemanticDiagnostic::error(code, format!("{err}"), annotation.range));
+                    diagnostics.push(SemanticDiagnostic::error_in(current_module.clone(), code, format!("{err}"), annotation.range));
                     TypeFormResolution::Unknown(UnknownReason::UnannotatedDeclaration)
                 }
             }
@@ -225,7 +227,8 @@ pub fn resolve_type_form(
                 let ty = match elem_res {
                     TypeFormResolution::Known(ty) => {
                         if store.kind_of(ty) != KindId::TYPE {
-                            diagnostics.push(SemanticDiagnostic::error(
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
                                 DiagnosticCode::KindExpectedType,
                                 "tuple element must be a proper type",
                                 elem.range,
@@ -250,7 +253,8 @@ pub fn resolve_type_form(
             let mut seen_names = std::collections::HashSet::new();
             for field in fields {
                 if !seen_names.insert(field.name.clone()) {
-                    diagnostics.push(SemanticDiagnostic::error(
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
                         DiagnosticCode::KindExpectedType,
                         format!("duplicate field `{}` in record type annotation", field.name),
                         field.range,
@@ -261,7 +265,8 @@ pub fn resolve_type_form(
                 let ty = match f_res {
                     TypeFormResolution::Known(ty) => {
                         if store.kind_of(ty) != KindId::TYPE {
-                            diagnostics.push(SemanticDiagnostic::error(
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
                                 DiagnosticCode::KindExpectedType,
                                 "record field must be a proper type",
                                 field.range,
@@ -288,7 +293,8 @@ pub fn resolve_type_form(
                 let ty = match param_res {
                     TypeFormResolution::Known(ty) => {
                         if store.kind_of(ty) != KindId::TYPE {
-                            diagnostics.push(SemanticDiagnostic::error(
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
                                 DiagnosticCode::KindExpectedType,
                                 "callable parameter must be a proper type",
                                 param.range,
@@ -311,7 +317,8 @@ pub fn resolve_type_form(
             let return_type = match result_res {
                 TypeFormResolution::Known(ty) => {
                     if store.kind_of(ty) != KindId::TYPE {
-                        diagnostics.push(SemanticDiagnostic::error(
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
                             DiagnosticCode::KindExpectedType,
                             "callable return type must be a proper type",
                             result.range,
@@ -337,7 +344,8 @@ pub fn resolve_type_form(
                 match k {
                     TypeFormResolution::Known(ty) => {
                         if store.kind_of(ty) != KindId::TYPE {
-                            diagnostics.push(SemanticDiagnostic::error(
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
                                 DiagnosticCode::KindExpectedType,
                                 "union member must be a proper type",
                                 m.range,
@@ -377,7 +385,12 @@ pub fn resolve_type_form(
             TypeFormResolution::Known(lambda_ty)
         }
         TypeAnnotationExpr::Invalid { message, range } => {
-            diagnostics.push(SemanticDiagnostic::error(DiagnosticCode::AnnotationUnresolved, message.clone(), *range));
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                message.clone(),
+                *range,
+            ));
             TypeFormResolution::Unknown(UnknownReason::SyntaxError)
         }
     }
@@ -442,7 +455,12 @@ pub fn resolve_generic_signature(
                     }
                 }
                 GenericConstraintSyntax::Invalid { message, range } => {
-                    diagnostics.push(SemanticDiagnostic::error(DiagnosticCode::AnnotationUnresolved, message.clone(), *range));
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        message.clone(),
+                        *range,
+                    ));
                 }
             }
         }
@@ -481,7 +499,8 @@ pub fn resolve_type_annotation(
                 }
             }
             if store.kind_of(ty) != KindId::TYPE {
-                diagnostics.push(SemanticDiagnostic::error(
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
                     DiagnosticCode::AnnotationUnsaturatedConstructor,
                     "type constructor requires type arguments and cannot be used directly as a value type",
                     annotation.range,

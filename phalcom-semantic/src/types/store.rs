@@ -543,28 +543,16 @@ impl TypeStore {
             TypeData::Nominal { declaration } => declaration.name.to_string(),
             TypeData::Applied { origin, arguments } => {
                 let orig_str = self.format_type(*origin);
-                let args_str = arguments
-                    .iter()
-                    .map(|&arg| self.format_type(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let args_str = arguments.iter().map(|&arg| self.format_type(arg)).collect::<Vec<_>>().join(", ");
                 format!("{orig_str}<{args_str}>")
             }
-            TypeData::Union(types) => types
-                .iter()
-                .map(|&t| self.format_type(t))
-                .collect::<Vec<_>>()
-                .join(" | "),
+            TypeData::Union(types) => types.iter().map(|&t| self.format_type(t)).collect::<Vec<_>>().join(" | "),
             TypeData::Tuple(elements) => {
                 let elems = elements
                     .iter()
                     .map(|elem| {
                         let t_str = self.format_type(elem.ty);
-                        if let Some(ref l) = elem.label {
-                            format!("{l}: {t_str}")
-                        } else {
-                            t_str
-                        }
+                        if let Some(ref l) = elem.label { format!("{l}: {t_str}") } else { t_str }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");

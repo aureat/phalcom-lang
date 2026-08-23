@@ -191,10 +191,7 @@ impl InferenceSession {
     }
 
     /// Instantiates fresh inference variables for each generic parameter in `generic_sig`.
-    pub fn instantiate_generic_signature(
-        &mut self,
-        generic_sig: &GenericSignature,
-    ) -> HashMap<TypeParameterId, InferenceTerm> {
+    pub fn instantiate_generic_signature(&mut self, generic_sig: &GenericSignature) -> HashMap<TypeParameterId, InferenceTerm> {
         let mut map = HashMap::new();
         for &param in &generic_sig.parameters {
             let var = self.fresh_variable(KindId::TYPE);
@@ -204,12 +201,7 @@ impl InferenceSession {
     }
 
     /// Converts a canonical `TypeId` to an `InferenceTerm`, replacing generic parameters with their instantiated inference terms.
-    pub fn type_id_to_inference(
-        &self,
-        ty: TypeId,
-        subst: &HashMap<TypeParameterId, InferenceTerm>,
-        store: &TypeStore,
-    ) -> InferenceTerm {
+    pub fn type_id_to_inference(&self, ty: TypeId, subst: &HashMap<TypeParameterId, InferenceTerm>, store: &TypeStore) -> InferenceTerm {
         match store.get(ty) {
             TypeData::Parameter(p) => {
                 if let Some(t) = subst.get(p) {
@@ -220,20 +212,14 @@ impl InferenceSession {
             }
             TypeData::Applied { origin, arguments } => {
                 let orig_term = self.type_id_to_inference(*origin, subst, store);
-                let arg_terms: Vec<InferenceTerm> = arguments
-                    .iter()
-                    .map(|&a| self.type_id_to_inference(a, subst, store))
-                    .collect();
+                let arg_terms: Vec<InferenceTerm> = arguments.iter().map(|&a| self.type_id_to_inference(a, subst, store)).collect();
                 InferenceTerm::Applied {
                     origin: Box::new(orig_term),
                     arguments: arg_terms.into_boxed_slice(),
                 }
             }
             TypeData::Union(members) => {
-                let member_terms: Vec<InferenceTerm> = members
-                    .iter()
-                    .map(|&m| self.type_id_to_inference(m, subst, store))
-                    .collect();
+                let member_terms: Vec<InferenceTerm> = members.iter().map(|&m| self.type_id_to_inference(m, subst, store)).collect();
                 InferenceTerm::Union(member_terms.into_boxed_slice())
             }
             TypeData::Tuple(elems) => {
@@ -267,12 +253,7 @@ impl InferenceSession {
     }
 
     /// Converts a `TypeTerm` to an `InferenceTerm`.
-    pub fn type_term_to_inference(
-        &self,
-        term: &TypeTerm,
-        subst: &HashMap<TypeParameterId, InferenceTerm>,
-        store: &TypeStore,
-    ) -> InferenceTerm {
+    pub fn type_term_to_inference(&self, term: &TypeTerm, subst: &HashMap<TypeParameterId, InferenceTerm>, store: &TypeStore) -> InferenceTerm {
         match term {
             TypeTerm::Canonical(ty) => self.type_id_to_inference(*ty, subst, store),
             TypeTerm::SelfType(_) => InferenceTerm::Canonical(store.unit()),
@@ -606,4 +587,3 @@ impl InferenceSession {
         }
     }
 }
-

@@ -41,11 +41,7 @@ impl ExpectedType {
     }
 
     pub fn from_knowledge(k: &crate::types::evidence::TypeKnowledge) -> Self {
-        if let Some(ty) = k.ty() {
-            Self::Proper(ty)
-        } else {
-            Self::None
-        }
+        if let Some(ty) = k.ty() { Self::Proper(ty) } else { Self::None }
     }
 
     pub fn collection_element_type(&self, store: &crate::types::store::TypeStore) -> ExpectedType {

@@ -40,9 +40,10 @@ impl MarkedSource {
     }
 
     pub fn position(&self, name: &str) -> MarkerPosition {
-        *self.positions.get(name).unwrap_or_else(|| {
-            panic!("golden source has no marker named {name:?}; markers={:?}", self.positions.keys())
-        })
+        *self
+            .positions
+            .get(name)
+            .unwrap_or_else(|| panic!("golden source has no marker named {name:?}; markers={:?}", self.positions.keys()))
     }
 
     pub fn markers(&self) -> impl Iterator<Item = (&str, MarkerPosition)> {
@@ -54,7 +55,11 @@ fn position_of(text: &str) -> MarkerPosition {
     let line_start = text.rfind('\n').map_or(0, |idx| idx + 1);
     let line = text[..line_start].bytes().filter(|byte| *byte == b'\n').count() as u32;
     let utf16_character = text[line_start..].encode_utf16().count() as u32;
-    MarkerPosition { byte_offset: text.len(), line, utf16_character }
+    MarkerPosition {
+        byte_offset: text.len(),
+        line,
+        utf16_character,
+    }
 }
 
 #[cfg(test)]
@@ -67,7 +72,11 @@ mod tests {
         assert_eq!(source.text, "α.beta()\n");
         assert_eq!(
             source.position("completion"),
-            MarkerPosition { byte_offset: 3, line: 0, utf16_character: 2 }
+            MarkerPosition {
+                byte_offset: 3,
+                line: 0,
+                utf16_character: 2
+            }
         );
     }
 }

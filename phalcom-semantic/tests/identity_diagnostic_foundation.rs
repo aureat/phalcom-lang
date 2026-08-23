@@ -45,9 +45,14 @@ fn diagnostic_primary_and_related_spans_own_their_modules() {
 }
 
 #[test]
-fn legacy_diagnostic_constructors_keep_range_and_severity_behavior() {
-    let diagnostic = SemanticDiagnostic::error(DiagnosticCode::BindingInitializerMismatch, "incompatible initializer", (3..6).into())
-        .with_label((10..12).into(), "declared type");
+fn explicit_diagnostic_constructor_keeps_range_and_severity_behavior() {
+    let diagnostic = SemanticDiagnostic::error_in(
+        module("source"),
+        DiagnosticCode::BindingInitializerMismatch,
+        "incompatible initializer",
+        (3..6).into(),
+    )
+    .with_label((10..12).into(), "declared type");
 
     assert_eq!(diagnostic.severity, DiagnosticSeverity::Error);
     assert_eq!(diagnostic.primary_range, (3..6).into());

@@ -157,9 +157,9 @@ fn primary_expected() -> Vec<String> {
         "\"|\"",
         "\"{\"",
     ]
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect()
+    .iter()
+    .map(|s| (*s).to_string())
+    .collect()
 }
 
 /// Converts a slice of `&str` labels into an owned `expected` list.
@@ -5043,10 +5043,10 @@ impl<'source> Parser<'source> {
             Token::QuotedSymbol(_) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::ExplicitSymbol),
             Token::Identifier(name) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::BareName(name.clone())),
             Token::Identifier(name)
-            if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
-                {
-                    Some(ProductLabelStart::BareName(format!("{name}?")))
-                }
+                if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
+            {
+                Some(ProductLabelStart::BareName(format!("{name}?")))
+            }
             Token::Identifier(name) if matches!(self.peek_next(), Token::LParen) && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) => {
                 Some(ProductLabelStart::BareSelector(name.clone()))
             }
@@ -5057,12 +5057,12 @@ impl<'source> Parser<'source> {
                 Some(ProductLabelStart::BareName(Self::bare_product_label_name(token).unwrap().to_string()))
             }
             token
-            if Self::bare_product_label_name(token).is_some()
-                && matches!(self.peek_next(), Token::LParen)
-                && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
-                {
-                    Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
-                }
+                if Self::bare_product_label_name(token).is_some()
+                    && matches!(self.peek_next(), Token::LParen)
+                    && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
+            {
+                Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
+            }
             _ => None,
         }
     }

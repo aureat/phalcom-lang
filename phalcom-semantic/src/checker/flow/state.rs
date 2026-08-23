@@ -230,4 +230,3 @@ impl FlowState {
         // Retain direct immutable facts while invalidating volatile projection facts
     }
 }
-

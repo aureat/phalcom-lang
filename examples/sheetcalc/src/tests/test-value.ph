@@ -1,5 +1,5 @@
-import "./src/support/num" as Num
-import "./src/value/cell_value" as Value
+import sheetcalc.support.num as Num
+import sheetcalc.value.cell_value as Value
 
 class Main {
   @class

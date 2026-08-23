@@ -1,9 +1,9 @@
 //! Deterministic primitive-attribute census and generated-surface drift gate.
 
 use phalcom_common::selector::{Selector, SelectorKind};
-use phalcom_native_decl::{docs_from_attributes, parse_primitive_attribute, NormalizedPrimitiveDecl};
+use phalcom_native_decl::{NormalizedPrimitiveDecl, docs_from_attributes, parse_primitive_attribute};
 use phalcom_native_meta::*;
-use phalcom_type_syntax::{parse_callable_type, parse_type_expr, CallableType, ParameterTuple, TypeExpr};
+use phalcom_type_syntax::{CallableType, ParameterTuple, TypeExpr, parse_callable_type, parse_type_expr};
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
@@ -147,8 +147,7 @@ fn generate_surface_source(declarations: &[NormalizedPrimitiveDecl]) -> Result<S
 fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, String> {
     let owner_ident = format_ident!("{}", decl.key.owner.name());
     let selector_str = &decl.key.selector;
-    let selector = Selector::try_decode_exact(selector_str)
-        .map_err(|e| format!("invalid selector `{selector_str}` for {owner_ident}: {e}"))?;
+    let selector = Selector::try_decode_exact(selector_str).map_err(|e| format!("invalid selector `{selector_str}` for {owner_ident}: {e}"))?;
 
     let kind_ident = match selector.kind {
         SelectorKind::Getter => format_ident!("Getter"),
@@ -162,11 +161,9 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
     };
 
     let is_internal = selector_str.starts_with("_$");
-    let vis = decl.visibility.unwrap_or(if is_internal {
-        NativeVisibility::Internal
-    } else {
-        NativeVisibility::Public
-    });
+    let vis = decl
+        .visibility
+        .unwrap_or(if is_internal { NativeVisibility::Internal } else { NativeVisibility::Public });
     let vis_ident = match vis {
         NativeVisibility::Public => format_ident!("Public"),
         NativeVisibility::Internal => format_ident!("Internal"),
@@ -285,8 +282,8 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
     };
 
     let (callable_tokens, params_tokens, returns_tokens, return_shape_tokens) = if let Some(types_str) = &decl.types {
-        let parsed_callable = parse_callable_type(types_str)
-            .map_err(|e| format!("failed to parse types contract `{types_str}` on {owner_ident}>>{selector_str}: {e}"))?;
+        let parsed_callable =
+            parse_callable_type(types_str).map_err(|e| format!("failed to parse types contract `{types_str}` on {owner_ident}>>{selector_str}: {e}"))?;
         let binders: Vec<String> = parsed_callable.type_params.iter().map(|p| p.name.clone()).collect();
         let callable_tok = emit_callable_spec(&parsed_callable)?;
         let params_tok = emit_params_spec(&parsed_callable.params, &binders)?;
@@ -323,11 +320,7 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
             }
         }
 
-        let default_params = ParameterTuple {
-            positional,
-            labeled,
-            rest,
-        };
+        let default_params = ParameterTuple { positional, labeled, rest };
         let default_returns = TypeExpr::Unknown;
         let default_callable = CallableType {
             type_params: Vec::new(),

@@ -148,6 +148,17 @@ impl TestLsp {
         .await
     }
 
+    pub async fn signature_help(&mut self, uri: &str, position: Position) -> Value {
+        self.request(
+            "textDocument/signatureHelp",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": position
+            }),
+        )
+        .await
+    }
+
     pub async fn inlay_hints(&mut self, uri: &str, end_line: u32) -> Value {
         self.request(
             "textDocument/inlayHint",

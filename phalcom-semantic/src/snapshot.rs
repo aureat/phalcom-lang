@@ -113,10 +113,7 @@ impl SemanticSnapshot {
         }
     }
 
-    pub fn with_callable_analyses(
-        mut self,
-        callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
-    ) -> Self {
+    pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
         self.callable_analyses = callable_analyses;
         self
     }

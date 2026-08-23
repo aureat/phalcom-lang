@@ -529,9 +529,8 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
 #[test]
 fn workspace_generic_class_and_callable_signature_publication() {
     let module = ModuleId::core();
-    let source: Arc<str> = Arc::from(
-        "class Container<T> {\n  value(_ v: T) -> T { v }\n}\nclass Box<U> is Container<U> {\n  unbox() -> U { self.value(1) }\n}\n"
-    );
+    let source: Arc<str> =
+        Arc::from("class Container<T> {\n  value(_ v: T) -> T { v }\n}\nclass Box<U> is Container<U> {\n  unbox() -> U { self.value(1) }\n}\n");
     let parse_res = phalcom_ast::parse(&source, 0);
     let program = Arc::new(parse_res.program);
 
@@ -552,8 +551,10 @@ fn workspace_generic_class_and_callable_signature_publication() {
 
     let sel = phalcom_common::selector::Selector::method("value", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
     let callable_id = phalcom_semantic::identity::CallableId::new(container_id, sel, phalcom_semantic::identity::DispatchSide::Instance);
-    let callable_sig = analysis.snapshot.callable_signatures.get(&callable_id).expect("value(_) callable signature published");
+    let callable_sig = analysis
+        .snapshot
+        .callable_signatures
+        .get(&callable_id)
+        .expect("value(_) callable signature published");
     assert_eq!(callable_sig.parameters.len(), 1);
 }
-
-

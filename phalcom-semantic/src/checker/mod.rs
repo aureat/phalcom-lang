@@ -13,8 +13,8 @@ pub mod statement;
 pub mod typed_expr;
 
 pub use analysis::{
-    AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis,
-    ExpressionAnalysisIndex, FlowStateSummary,
+    AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex,
+    FlowStateSummary,
 };
 pub use body::analyze_callable_body;
 pub use call::{check_arguments, match_callable_arguments, resolve_call};

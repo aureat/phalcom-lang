@@ -84,13 +84,7 @@ impl FlowGraph {
         self.add_edge_with_kind(source, target, FlowEdgeKind::Normal, predicate)
     }
 
-    pub fn add_edge_with_kind(
-        &mut self,
-        source: FlowNodeId,
-        target: FlowNodeId,
-        kind: FlowEdgeKind,
-        predicate: Option<PredicateId>,
-    ) -> FlowEdgeId {
+    pub fn add_edge_with_kind(&mut self, source: FlowNodeId, target: FlowNodeId, kind: FlowEdgeKind, predicate: Option<PredicateId>) -> FlowEdgeId {
         let id = FlowEdgeId(self.next_edge_id);
         self.next_edge_id += 1;
         self.edges.insert(
@@ -114,8 +108,7 @@ impl FlowGraph {
 
     /// Checks if this graph contains cycle candidates or loop back-edges.
     pub fn is_acyclic(&self) -> bool {
-        !self.nodes.values().any(|n| matches!(n.kind, FlowNodeKind::LoopHeader))
-            && !self.edges.values().any(|e| matches!(e.kind, FlowEdgeKind::BackEdge))
+        !self.nodes.values().any(|n| matches!(n.kind, FlowNodeKind::LoopHeader)) && !self.edges.values().any(|e| matches!(e.kind, FlowEdgeKind::BackEdge))
     }
 
     /// Returns the set of reachable nodes from the entry node.
@@ -150,10 +143,7 @@ impl FlowGraph {
         let entry = graph.add_node(FlowNodeKind::Entry, r0);
         graph.entry = Some(entry);
 
-        let mut builder = CfgBuilder {
-            graph,
-            loop_stack: Vec::new(),
-        };
+        let mut builder = CfgBuilder { graph, loop_stack: Vec::new() };
 
         let active_tails = builder.build_statements(statements, vec![entry]);
 
@@ -280,13 +270,7 @@ impl CfgBuilder {
         incoming
     }
 
-    fn build_expression_flow(
-        &mut self,
-        expr: &Expr,
-        expr_range: SourceRange,
-        stmt_idx: usize,
-        incoming: Vec<FlowNodeId>,
-    ) -> Vec<FlowNodeId> {
+    fn build_expression_flow(&mut self, expr: &Expr, expr_range: SourceRange, stmt_idx: usize, incoming: Vec<FlowNodeId>) -> Vec<FlowNodeId> {
         match expr {
             Expr::MethodCall(call) => {
                 if let Some(res) = self.build_method_call_flow(call, incoming.clone()) {

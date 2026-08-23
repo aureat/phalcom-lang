@@ -217,4 +217,3 @@ fn test_generic_signature_instantiation_and_callable_solving() {
 
     assert_eq!(solved_callable, expected_callable);
 }
-

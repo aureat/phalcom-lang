@@ -160,4 +160,3 @@ pub struct CallableAnalysis {
     pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
 }
-

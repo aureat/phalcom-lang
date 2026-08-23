@@ -77,9 +77,7 @@ pub fn resolve_native_type_form(
                 while !store.is_proper_type(form) {
                     let kind_id = store.kind_of(form);
                     if let crate::types::kind::KindData::Arrow { parameters: ref params, .. } = store.get_kind(kind_id).clone() {
-                        let top = declarations
-                            .form(&universe_resolver(UniverseKey::Object))
-                            .unwrap_or_else(|| store.never());
+                        let top = declarations.form(&universe_resolver(UniverseKey::Object)).unwrap_or_else(|| store.never());
                         let args = vec![top; params.len()];
                         if let Ok(applied) = store.apply_type_form(form, &args) {
                             form = applied;
@@ -204,9 +202,7 @@ pub fn register_native_surfaces(
     use crate::dispatch::{CallableParameter, CallableSignature};
     use crate::surface::DeclarationSurface;
 
-    let universe_resolver = |key: UniverseKey| -> DeclarationId {
-        DeclarationId::new(crate::identity::ModuleId::core(), key.name().into())
-    };
+    let universe_resolver = |key: UniverseKey| -> DeclarationId { DeclarationId::new(crate::identity::ModuleId::core(), key.name().into()) };
 
     let empty_params = HashMap::new();
     let mut surfaces_by_decl: HashMap<DeclarationId, DeclarationSurface> = HashMap::new();

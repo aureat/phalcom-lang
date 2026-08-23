@@ -71,6 +71,15 @@ pub struct ProgramSemanticDiagnostics {
 }
 
 impl ProgramSemanticDiagnostics {
+    pub fn from_snapshot(snapshot: &phalcom_semantic::SemanticSnapshot) -> Self {
+        let by_module = snapshot
+            .diagnostics
+            .iter()
+            .map(|(module, diagnostics)| (module.clone(), diagnostics.to_vec()))
+            .collect();
+        Self { by_module }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.by_module.values().all(|v| v.is_empty())
     }
@@ -443,11 +452,7 @@ impl ProgramCompiler {
     /// Compiles an analyzed program into a fully linked `CompiledProgram`.
     pub fn compile_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
         if analyzed.semantic.has_errors() {
-            let mut by_module = BTreeMap::new();
-            for (m, d) in analyzed.semantic.diagnostics.iter() {
-                by_module.insert(m.clone(), d.to_vec());
-            }
-            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
+            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics::from_snapshot(&analyzed.semantic)));
         }
 
         let mut modules = BTreeMap::new();

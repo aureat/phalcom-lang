@@ -7,8 +7,8 @@ from geo.route import Route
 class Planner {
   @class
   plan(_ parcel: Parcel, origin: Point) -> Shipment {
-    const route = Route.new(origin, parcel.destination)
-    Shipment.new(parcel, route, PlannedStatus.new())
+    const route = Route.new(origin, destination: parcel.destination)
+    Shipment.new(parcel, route: route, status: PlannedStatus.new())
   }
 }
 

@@ -1,4 +1,4 @@
-import "./src/grid/grid" as GridMod
+import sheetcalc.grid.grid as GridMod
 
 class Main {
   @class

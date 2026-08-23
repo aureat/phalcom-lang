@@ -1,5 +1,5 @@
-import "./src/grid/cell" as Cell
-import "./src/value/cell_value" as Value
+import sheetcalc.grid.cell as Cell
+import sheetcalc.value.cell_value as Value
 
 class Main {
   @class

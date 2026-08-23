@@ -165,7 +165,8 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                         SemanticNodeId::Module(m) => m.clone(),
                         SemanticNodeId::Declaration { module, .. } => module.clone(),
                     };
-                    diags_by_module.entry(mod_id).or_default().push(SemanticDiagnostic::error(
+                    diags_by_module.entry(mod_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                        mod_id,
                         DiagnosticCode::AnnotationUnresolved,
                         format!("A class cannot extend itself: inheritance cycle detected: {cycle:?}"),
                         phalcom_common::range::SourceRange::default(),
@@ -177,7 +178,8 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                     SemanticNodeId::Module(m) => m.clone(),
                     SemanticNodeId::Declaration { module, .. } => module.clone(),
                 };
-                diags_by_module.entry(mod_id).or_default().push(SemanticDiagnostic::error(
+                diags_by_module.entry(mod_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                    mod_id,
                     DiagnosticCode::AnnotationUnresolved,
                     format!("missing declaration shell for {node:?}"),
                     phalcom_common::range::SourceRange::default(),
@@ -263,7 +265,8 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                     if let Some(super_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
                         hierarchy.insert(class_decl, super_decl);
                     } else {
-                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error(
+                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                            module_id.clone(),
                             DiagnosticCode::AnnotationUnresolved,
                             format!("unresolved superclass `{}`", super_ref.root),
                             super_ref.range,
@@ -301,7 +304,10 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
 
         for (decl_id, surface) in dummy_ctx.dispatch.surfaces() {
             dispatch.register_surface(decl_id.clone(), surface.clone());
-            for (side, member_surface) in [(crate::identity::DispatchSide::Instance, &surface.instance), (crate::identity::DispatchSide::Class, &surface.class)] {
+            for (side, member_surface) in [
+                (crate::identity::DispatchSide::Instance, &surface.instance),
+                (crate::identity::DispatchSide::Class, &surface.class),
+            ] {
                 for (sel, sig) in &member_surface.callable_signatures {
                     let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel.clone(), side);
                     if let Some(return_type) = sig.return_type.ty() {
@@ -311,11 +317,7 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                             .enumerate()
                             .filter_map(|(index, parameter)| {
                                 let ty = parameter.ty.ty()?;
-                                let mut p = crate::signature::CallableParameterSemantic::new(
-                                    index as u32,
-                                    parameter.local_name.clone(),
-                                    ty.into(),
-                                );
+                                let mut p = crate::signature::CallableParameterSemantic::new(index as u32, parameter.local_name.clone(), ty.into());
                                 if let Some(ref l) = parameter.external_label {
                                     p = p.with_label(l.clone());
                                 }
@@ -379,21 +381,21 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
                     let side = crate::checker::declaration::member_side(member);
                     let (selector_opt, body_opt, range_opt) = match member {
                         ClassMember::Method(m) => {
-                            let slots = m.params.iter().map(|p| {
-                                if let Some(ref l) = p.label {
-                                    phalcom_common::selector::SelectorSlot::Label(l.clone())
-                                } else {
-                                    phalcom_common::selector::SelectorSlot::Positional
-                                }
-                            }).collect::<Vec<_>>();
+                            let slots = m
+                                .params
+                                .iter()
+                                .map(|p| {
+                                    if let Some(ref l) = p.label {
+                                        phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                    } else {
+                                        phalcom_common::selector::SelectorSlot::Positional
+                                    }
+                                })
+                                .collect::<Vec<_>>();
                             (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
                         }
-                        ClassMember::Getter(g) => {
-                            (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range))
-                        }
-                        ClassMember::Setter(s) => {
-                            (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range))
-                        }
+                        ClassMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
+                        ClassMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
                         _ => (None, None, None),
                     };
 

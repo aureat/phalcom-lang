@@ -1,4 +1,4 @@
-import "./src/support/str" as Str
+import sheetcalc.support.str as Str
 
 class Main {
   @class

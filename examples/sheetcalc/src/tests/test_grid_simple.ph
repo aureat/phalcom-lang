@@ -1,7 +1,7 @@
-import "./src/grid/ref" as Ref
-import "./src/grid/cell" as Cell
-import "./src/grid/grid" as Grid
-import "./src/value/cell_value" as Value
+import sheetcalc.grid.ref as Ref
+import sheetcalc.grid.cell as Cell
+import sheetcalc.grid.grid as Grid
+import sheetcalc.value.cell_value as Value
 
 class Main {
   @class

@@ -43,17 +43,16 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     let explanation_id = if let Some(ty) = typed.knowledge.ty() {
         let step = match expr {
             Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } => {
-                crate::explain::ExplanationStep::Literal {
-                    expression: expr_id,
-                    ty,
-                }
+                crate::explain::ExplanationStep::Literal { expression: expr_id, ty }
             }
             Expr::MethodCall(call) => {
                 let sel = Selector::getter(&call.method)
                     .or_else(|_| Selector::method(&call.method, vec![]))
                     .unwrap_or_else(|_| Selector::getter("unknown").unwrap());
                 let callable = crate::identity::CallableId::new(
-                    ctx.current_class.clone().unwrap_or_else(|| crate::identity::DeclarationId::new(ctx.current_module.clone(), "Unknown".into())),
+                    ctx.current_class
+                        .clone()
+                        .unwrap_or_else(|| crate::identity::DeclarationId::new(ctx.current_module.clone(), "Unknown".into())),
                     sel,
                     ctx.current_side,
                 );
@@ -63,10 +62,7 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
                     return_ty: ty,
                 }
             }
-            _ => crate::explain::ExplanationStep::Literal {
-                expression: expr_id,
-                ty,
-            },
+            _ => crate::explain::ExplanationStep::Literal { expression: expr_id, ty },
         };
         let rule = step.derivation_rule();
         let ev = vec![crate::explain::EvidenceRef::SourceSpan(expr.range()), crate::explain::EvidenceRef::TypeId(ty)];
@@ -98,6 +94,7 @@ pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &E
             ctx.hierarchy,
             &typed.knowledge,
             &expected_k,
+            &ctx.current_module,
             DiagnosticCode::TypeMismatch,
             "expression does not match expected type",
             expr.range(),
@@ -248,6 +245,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         ctx.hierarchy,
                         val_k,
                         &target_fact.knowledge,
+                        &ctx.current_module,
                         DiagnosticCode::AssignmentMismatch,
                         format!("assigned value is not assignable to `{}`", var_name),
                         assign.range,
@@ -936,6 +934,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
                 ctx.hierarchy,
                 &val_k,
                 field_k,
+                &ctx.current_module,
                 DiagnosticCode::FieldMismatch,
                 format!("assigned value does not match field `{}` type", set.property),
                 set.range,
@@ -954,6 +953,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
                         ctx.hierarchy,
                         &val_k,
                         &param.ty,
+                        &ctx.current_module,
                         DiagnosticCode::AssignmentMismatch,
                         format!("assigned value does not match setter `{}=` parameter type", set.property),
                         set.range,
@@ -1060,6 +1060,7 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
                         ctx.hierarchy,
                         &val_k,
                         &elem_k,
+                        &ctx.current_module,
                         DiagnosticCode::AssignmentMismatch,
                         "value assigned to List index does not match element type",
                         set_idx.range,

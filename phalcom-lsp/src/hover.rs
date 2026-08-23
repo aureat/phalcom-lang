@@ -38,6 +38,7 @@ use phalcom_ast::token::Token;
 use crate::line_index::LineIndex;
 use crate::selectors::class_member_selector;
 use crate::semantic::{BindingInfo, ClassId, Confidence, InferredValue, SemanticBindingKind, ValueShape};
+use phalcom_semantic::FormalPresentation;
 
 /// The contextual (non-keyword-token) words that carry their own hover blurb
 /// only by convention, not by reserved-word status: they lex as
@@ -681,7 +682,7 @@ pub fn render_class_hover(class: &ClassId, superclass: Option<&ClassId>, phaldoc
 /// Renders one lexical binding or parameter with formal type knowledge or advisory value.
 pub fn render_binding_hover_with_formal(
     binding: &BindingInfo,
-    formal_type: Option<&str>,
+    formal: Option<&FormalPresentation>,
     value: Option<&InferredValue>,
     phaldoc: Option<&PhaldocDoc>,
 ) -> String {
@@ -695,11 +696,11 @@ pub fn render_binding_hover_with_formal(
         SemanticBindingKind::Import => "import binding",
     };
     let mut sections = vec![format!("`{}` — {kind}", binding.name)];
-    if let Some(formal) = formal_type {
-        sections.push(format!("**Type:** `{formal}`"));
+    if let Some(formal) = formal {
+        sections.push(format!("**Formal type:** `{}`", formal.text()));
     } else if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
         sections.push(format!(
-            "**Observed type:** `{}`\n\nConfidence: {}",
+            "**Observed type:** `≈ {}`\n\nConfidence: {}",
             crate::semantic::render_value_shape(&value.shape),
             crate::semantic::confidence_name(value.confidence)
         ));
@@ -771,6 +772,17 @@ pub fn render_selector_hover_with_value(
     selector: &str,
     sites: &[SelectorSite],
     phaldoc: Option<&PhaldocDoc>,
+    inferred: Option<&InferredValue>,
+) -> Option<String> {
+    render_selector_hover_with_formal_value(selector, sites, phaldoc, None, inferred)
+}
+
+/// Renders selector hover with compiler-owned formal return state and optional advisory evidence.
+pub fn render_selector_hover_with_formal_value(
+    selector: &str,
+    sites: &[SelectorSite],
+    phaldoc: Option<&PhaldocDoc>,
+    formal: Option<&FormalPresentation>,
     inferred: Option<&InferredValue>,
 ) -> Option<String> {
     if sites.is_empty() && phaldoc.is_none() {
@@ -855,10 +867,12 @@ pub fn render_selector_hover_with_value(
         }
     }
 
-    if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
+    if let Some(formal) = formal {
+        sections.push(format!("**Formal return:** `{}`", formal.text()));
+    } else if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
         let label = if is_field { "Observed value" } else { "Observed return" };
         sections.push(format!(
-            "**{label}:** `{}`\n\nConfidence: {}",
+            "**{label}:** `≈ {}`\n\nConfidence: {}",
             crate::semantic::render_value_shape(&value.shape),
             crate::semantic::confidence_name(value.confidence)
         ));
@@ -1097,8 +1111,44 @@ mod tests {
             kind: crate::index::MemberKind::Method,
         }];
         let rendered = render_selector_hover_with_value("make()", &sites, None, Some(&value)).unwrap();
-        assert!(rendered.contains("**Observed return:** `String`"));
+        assert!(rendered.contains("**Observed return:** `≈ String`"));
         assert!(rendered.contains("Confidence: flow"));
+    }
+
+    #[test]
+    fn render_selector_hover_prefers_formal_return_state() {
+        let formal = FormalPresentation::Dynamic;
+        let sites = vec![SelectorSite {
+            owner: ClassId::new(crate::semantic::ModuleId::new("file:///factory.ph"), "Factory"),
+            receiver: None,
+            kind: crate::index::MemberKind::Method,
+        }];
+        let inferred = InferredValue::flow(
+            ValueShape::Instance(crate::semantic::ClassId::new(crate::semantic::ModuleId::new("phalcom://core"), "String")),
+            (0..0).into(),
+        );
+        let rendered = render_selector_hover_with_formal_value("make()", &sites, None, Some(&formal), Some(&inferred)).unwrap();
+        assert!(rendered.contains("**Formal return:** `Dynamic`"));
+        assert!(!rendered.contains("Observed return"));
+    }
+
+    #[test]
+    fn render_binding_hover_keeps_formal_dynamic_state_authoritative() {
+        let uri = tower_lsp::lsp_types::Url::parse("file:///main.ph").unwrap();
+        let document = crate::documents::Document::new("let value = 1\n".to_string());
+        let db = crate::semantic::SemanticDb::new();
+        db.update_file(&uri, crate::semantic::FileRevision(1), &document.parse.program);
+        let snapshot = db.snapshot();
+        let binding = snapshot
+            .files
+            .values()
+            .next()
+            .and_then(|file| file.source.scopes.bindings.values().next())
+            .expect("binding");
+        let formal = FormalPresentation::Dynamic;
+        let rendered = render_binding_hover_with_formal(binding, Some(&formal), None, None);
+        assert!(rendered.contains("**Formal type:** `Dynamic`"));
+        assert!(!rendered.contains("Observed type"));
     }
 
     #[test]

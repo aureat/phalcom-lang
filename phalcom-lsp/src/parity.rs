@@ -15,32 +15,17 @@ impl ShadowParityHarness {
     }
 
     /// Records hover parity between formal type representation and advisory inferred value.
-    pub fn record_hover_parity(
-        &self,
-        _target_name: &str,
-        _formal_type: Option<&str>,
-        _advisory_type: Option<&str>,
-    ) {
+    pub fn record_hover_parity(&self, _target_name: &str, _formal_type: Option<&str>, _advisory_type: Option<&str>) {
         // Active parity recording channel
     }
 
     /// Records receiver/completion parity between formal resolved receiver and advisory receiver.
-    pub fn record_receiver_parity(
-        &self,
-        _receiver_name: &str,
-        _formal_classes: &[String],
-        _advisory_classes: &[String],
-    ) {
+    pub fn record_receiver_parity(&self, _receiver_name: &str, _formal_classes: &[String], _advisory_classes: &[String]) {
         // Active parity recording channel
     }
 
     /// Records inlay hint parity between formal binding type and advisory runtime shape.
-    pub fn record_inlay_hint_parity(
-        &self,
-        _binding_name: &str,
-        _formal_type: Option<&str>,
-        _advisory_shape: Option<&str>,
-    ) {
+    pub fn record_inlay_hint_parity(&self, _binding_name: &str, _formal_type: Option<&str>, _advisory_shape: Option<&str>) {
         // Active parity recording channel
     }
 }
@@ -65,4 +50,3 @@ mod tests {
         harness.record_inlay_hint_parity("x", Some("Int"), None);
     }
 }
-

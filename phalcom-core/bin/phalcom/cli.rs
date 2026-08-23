@@ -4,6 +4,7 @@ use clap::{Args, Parser, Subcommand, ValueHint};
 use phalcom_core::compiler::attributes::CompileMode;
 use phalcom_core::diagnostics::style::{ColorMode, RenderConfig};
 use phalcom_core::vm::VM;
+use serde::Serialize;
 use std::sync::Arc;
 use std::{fs, path::PathBuf};
 
@@ -306,6 +307,162 @@ pub fn cmd_parse(args: ParseArgs) -> Result<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct SemanticJsonPosition {
+    line: usize,
+    column: usize,
+}
+
+#[derive(Serialize)]
+struct SemanticJsonRange {
+    start: SemanticJsonPosition,
+    end: SemanticJsonPosition,
+}
+
+#[derive(Serialize)]
+struct SemanticJsonLabel {
+    module: String,
+    source: Option<String>,
+    range: SemanticJsonRange,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct SemanticJsonFix {
+    message: String,
+    range: Option<SemanticJsonRange>,
+    replacement: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SemanticJsonDiagnostic {
+    severity: &'static str,
+    code: String,
+    message: String,
+    module: String,
+    source: Option<String>,
+    range: SemanticJsonRange,
+    labels: Vec<SemanticJsonLabel>,
+    notes: Vec<String>,
+    helps: Vec<String>,
+    explanations: Vec<String>,
+    fixes: Vec<SemanticJsonFix>,
+    root_cause: Option<String>,
+}
+
+fn semantic_severity_name(severity: phalcom_semantic::DiagnosticSeverity) -> &'static str {
+    match severity {
+        phalcom_semantic::DiagnosticSeverity::Error => "error",
+        phalcom_semantic::DiagnosticSeverity::Warning => "warning",
+        phalcom_semantic::DiagnosticSeverity::Information => "information",
+        phalcom_semantic::DiagnosticSeverity::Hint => "hint",
+    }
+}
+
+fn semantic_json_range(source: Option<&str>, range: std::ops::Range<usize>) -> SemanticJsonRange {
+    let (start_line, start_col) = source.map_or_else(|| byte_offset_to_line_col("", range.start), |text| byte_offset_to_line_col(text, range.start));
+    let (end_line, end_col) = source.map_or_else(|| byte_offset_to_line_col("", range.end), |text| byte_offset_to_line_col(text, range.end));
+    SemanticJsonRange {
+        start: SemanticJsonPosition {
+            line: start_line,
+            column: start_col,
+        },
+        end: SemanticJsonPosition {
+            line: end_line,
+            column: end_col,
+        },
+    }
+}
+
+fn semantic_source<'a>(
+    sources: &'a std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    module: &phalcom_modules::identity::ModuleId,
+) -> (Option<&'a str>, Option<String>) {
+    let Some(unit) = sources.get(module) else {
+        return (None, None);
+    };
+    let path = unit.source.as_ref().map(|source| source.display_path.display().to_string());
+    (Some(unit.text.as_ref()), path)
+}
+
+fn semantic_json_value(
+    diag: &phalcom_semantic::SemanticDiagnostic,
+    sources: &std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+) -> SemanticJsonDiagnostic {
+    let (primary_source, primary_path) = semantic_source(sources, &diag.primary.module);
+    let labels = diag
+        .labels
+        .iter()
+        .map(|label| {
+            let (label_source, label_path) = semantic_source(sources, &label.span.module);
+            SemanticJsonLabel {
+                module: label.span.module.to_string(),
+                source: label_path,
+                range: semantic_json_range(label_source.or(primary_source), label.range.start..label.range.end),
+                message: label.message.clone(),
+            }
+        })
+        .collect();
+    let fixes = diag
+        .fixes
+        .iter()
+        .map(|fix| {
+            let (range, replacement) = match &fix.replacement {
+                Some((range, text)) => (Some(semantic_json_range(primary_source, range.start..range.end)), Some(text.clone())),
+                None => (None, None),
+            };
+            SemanticJsonFix {
+                message: fix.message.clone(),
+                range,
+                replacement,
+            }
+        })
+        .collect();
+    SemanticJsonDiagnostic {
+        severity: semantic_severity_name(diag.severity),
+        code: diag.code.as_str().to_string(),
+        message: diag.message.clone(),
+        module: diag.primary.module.to_string(),
+        source: primary_path,
+        range: semantic_json_range(primary_source, diag.primary_range.start..diag.primary_range.end),
+        labels,
+        notes: diag.notes.clone(),
+        helps: diag.helps.clone(),
+        explanations: diag.explanations.iter().map(|id| format!("{id:?}")).collect(),
+        fixes,
+        root_cause: diag.root_cause.map(|id| format!("{id:?}")),
+    }
+}
+
+fn print_semantic_json(
+    diag: &phalcom_semantic::SemanticDiagnostic,
+    sources: &std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+) {
+    let value = semantic_json_value(diag, sources);
+    match serde_json::to_string(&value) {
+        Ok(json) => println!("{json}"),
+        Err(error) => eprintln!("failed to serialize semantic diagnostic: {error}"),
+    }
+}
+
+fn print_semantic_text(
+    diag: &phalcom_semantic::SemanticDiagnostic,
+    sources: &std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+) {
+    let (source, path) = semantic_source(sources, &diag.primary.module);
+    eprintln!("{} [{}]: {}", semantic_severity_name(diag.severity), diag.code, diag.message);
+    eprint!("{}", diag.render(source, path.as_deref()));
+    for label in diag.labels.iter().filter(|label| label.span.module != diag.primary.module) {
+        eprintln!("related [{}] {}: {}", label.span.module, label.range.start, label.message);
+    }
+    for note in &diag.notes {
+        eprintln!("note: {note}");
+    }
+    for help in &diag.helps {
+        eprintln!("help: {help}");
+    }
+}
+
 /// Lexes and parses source only (no compile, no run) and reports syntax
 /// diagnostics.
 ///
@@ -340,34 +497,11 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
     match phalcom_core::modules::compile::ProgramAnalyzer::analyze_entry_selection(selection) {
         Ok(analyzed) => {
             if analyzed.semantic.has_errors() {
-                for (module, diags) in analyzed.semantic.diagnostics.iter() {
-                    let source_text = analyzed.sources.get(module).map(|u| u.text.clone()).unwrap_or_else(|| Arc::from(""));
-                    let path_str = analyzed
-                        .sources
-                        .get(module)
-                        .and_then(|u| u.source.as_ref())
-                        .map(|s| s.display_path.display().to_string());
-
+                for diag in analyzed.semantic.all_diagnostics() {
                     if args.format == "json" {
-                        for diag in diags.iter() {
-                            let (start_line, start_col) = byte_offset_to_line_col(&source_text, diag.primary_range.start);
-                            let (end_line, end_col) = byte_offset_to_line_col(&source_text, diag.primary_range.end);
-                            println!(
-                                "{{\"severity\":\"error\",\"code\":{},\"message\":{},\"module\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
-                                json_escape(diag.code.as_str()),
-                                json_escape(&diag.message),
-                                json_escape(&module.to_string()),
-                                start_line,
-                                start_col,
-                                end_line,
-                                end_col
-                            );
-                        }
+                        print_semantic_json(diag, &analyzed.sources);
                     } else {
-                        for diag in diags.iter() {
-                            let range = diag.primary_range.start..diag.primary_range.end;
-                            phalcom_core::diagnostics::print_parse(&source_text, path_str.as_deref(), &format!("{}: {}", diag.code, diag.message), range);
-                        }
+                        print_semantic_text(diag, &analyzed.sources);
                     }
                 }
                 std::process::exit(65);
@@ -376,21 +510,13 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
         }
         Err(err) => match err {
             phalcom_core::modules::compile::ProgramCompileError::Semantic(diags) => {
-                if args.format == "json" {
-                    for (module, module_diags) in diags.iter() {
-                        for diag in module_diags {
-                            println!(
-                                "{{\"severity\":\"error\",\"code\":{},\"message\":{},\"module\":{}}}",
-                                json_escape(diag.code.as_str()),
-                                json_escape(&diag.message),
-                                json_escape(&module.to_string()),
-                            );
-                        }
-                    }
-                } else {
-                    for (module, module_diags) in diags.iter() {
-                        for diag in module_diags {
-                            eprintln!("Semantic error in {module} [{}]: {}", diag.code, diag.message);
+                let sources = std::collections::BTreeMap::new();
+                for (_, module_diags) in diags.iter() {
+                    for diag in module_diags {
+                        if args.format == "json" {
+                            print_semantic_json(diag, &sources);
+                        } else {
+                            print_semantic_text(diag, &sources);
                         }
                     }
                 }

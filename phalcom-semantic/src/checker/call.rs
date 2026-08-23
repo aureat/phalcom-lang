@@ -24,6 +24,7 @@ pub fn check_arguments(ctx: &mut CheckingContext<'_>, args: &[Expr], param_types
                 ctx.hierarchy,
                 &arg_typed.knowledge,
                 param_k,
+                &ctx.current_module,
                 DiagnosticCode::ArgumentMismatch,
                 format!("argument at position {} does not match expected parameter type", i + 1),
                 call_range,
@@ -156,11 +157,10 @@ pub fn resolve_call(
                         signature.return_type.clone().with_range(call_range)
                     }
                 }
-                crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
-                    TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable)
-                }
+                crate::checker::inference::InferenceOutcome::Underconstrained(_) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
                 crate::checker::inference::InferenceOutcome::Conflicting(_) => {
-                    ctx.diagnostics.push(SemanticDiagnostic::error(
+                    ctx.diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
                         DiagnosticCode::ArgumentMismatch,
                         "generic argument does not satisfy type constraints",
                         call_range,
@@ -194,6 +194,7 @@ pub fn resolve_call(
                         ctx.hierarchy,
                         &arg_typed.knowledge,
                         &param.ty,
+                        &ctx.current_module,
                         DiagnosticCode::ArgumentMismatch,
                         format!("positional argument `{}` does not match expected parameter type", param.local_name),
                         *range,
@@ -220,6 +221,7 @@ pub fn resolve_call(
                             ctx.hierarchy,
                             &arg_typed.knowledge,
                             &param.ty,
+                            &ctx.current_module,
                             DiagnosticCode::ArgumentMismatch,
                             format!("argument for label `{}:` does not match expected parameter type", text),
                             *range,
@@ -238,4 +240,3 @@ pub fn resolve_call(
 
     signature.return_type.clone().with_range(call_range)
 }
-

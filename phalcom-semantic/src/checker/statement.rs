@@ -39,7 +39,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                     let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_typed.knowledge, decl_k);
                     if let Assignability::Refuted { .. } = assignability {
                         is_assignable = false;
-                        let mut diag = SemanticDiagnostic::error(
+                        let mut diag = SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
                             DiagnosticCode::BindingInitializerMismatch,
                             "initializer expression is not assignable to declared type",
                             binding.range,
@@ -80,6 +81,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                     ctx.hierarchy,
                     &val_typed.knowledge,
                     &expected,
+                    &ctx.current_module,
                     DiagnosticCode::ReturnMismatch,
                     "returned value is not assignable to method's declared return type",
                     ret.range,
@@ -182,4 +184,3 @@ pub fn resolve_iteration_element(ctx: &mut CheckingContext<'_>, receiver_ty: Typ
 
     TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
 }
-

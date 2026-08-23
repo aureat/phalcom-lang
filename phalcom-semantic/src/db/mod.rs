@@ -31,6 +31,8 @@ pub struct SemanticDb {
     revision: SemanticRevision,
     store: Arc<TypeStore>,
     query_states: BTreeMap<QueryKey, QueryState>,
+    products: BTreeMap<QueryKey, Arc<SemanticProduct>>,
+    last_known_good: BTreeMap<QueryKey, Arc<SemanticProduct>>,
     index: DependencyIndex,
     scheduler: QueryScheduler,
     metrics: Arc<QueryMetrics>,
@@ -49,6 +51,8 @@ impl SemanticDb {
             revision: SemanticRevision::from_raw(1),
             store: Arc::new(TypeStore::new()),
             query_states: BTreeMap::new(),
+            products: BTreeMap::new(),
+            last_known_good: BTreeMap::new(),
             index: DependencyIndex::new(),
             scheduler: QueryScheduler::new(),
             metrics: Arc::new(QueryMetrics::new()),
@@ -61,6 +65,8 @@ impl SemanticDb {
             revision: SemanticRevision::from_raw(1),
             store: Arc::new(TypeStore::new()),
             query_states: BTreeMap::new(),
+            products: BTreeMap::new(),
+            last_known_good: BTreeMap::new(),
             index: DependencyIndex::new(),
             scheduler: QueryScheduler::new(),
             metrics: Arc::new(QueryMetrics::new()),
@@ -100,7 +106,26 @@ impl SemanticDb {
         self.query_states.get(key)
     }
 
+    /// Returns the typed product published for a ready query in this revision.
+    pub fn product(&self, key: &QueryKey) -> Option<&Arc<SemanticProduct>> {
+        let state = self.query_states.get(key)?;
+        (state.is_ready() && state.revision() == Some(self.revision)).then(|| self.products.get(key))?
+    }
+
+    /// Returns the last typed product that reached `Ready` for this key.
+    ///
+    /// This intentionally differs from [`Self::product`]: a failed or
+    /// cancelled refresh must not replace a published good product, while
+    /// current-generation query consumers still need an explicit way to ask
+    /// for that last-known-good value.
+    pub fn last_known_good_product(&self, key: &QueryKey) -> Option<&Arc<SemanticProduct>> {
+        self.last_known_good.get(key)
+    }
+
     pub fn set_state(&mut self, key: QueryKey, state: QueryState) {
+        if !state.is_ready() {
+            self.products.remove(&key);
+        }
         self.query_states.insert(key, state);
     }
 
@@ -117,8 +142,28 @@ impl SemanticDb {
         }
 
         self.index.replace_dependencies(key.clone(), dependencies);
-        self.query_states.insert(key, QueryState::Ready { revision, fingerprint, value });
+        self.query_states.insert(key.clone(), QueryState::Ready { revision, fingerprint, value });
+        self.products.remove(&key);
         self.metrics.record_hit();
+        Ok(())
+    }
+
+    /// Publishes a lossless typed product alongside its query state.
+    pub fn publish_product_ready(
+        &mut self,
+        key: QueryKey,
+        revision: SemanticRevision,
+        fingerprint: ProductFingerprint,
+        product: SemanticProduct,
+        dependencies: impl IntoIterator<Item = DependencyEdge>,
+    ) -> Result<(), PublishError> {
+        let query_value = product.to_query_value();
+        let product = Arc::new(product);
+        self.publish_ready(key.clone(), revision, fingerprint, query_value, dependencies)?;
+        self.products.insert(key.clone(), product);
+        if let Some(product) = self.products.get(&key) {
+            self.last_known_good.insert(key, product.clone());
+        }
         Ok(())
     }
 
@@ -126,6 +171,7 @@ impl SemanticDb {
         let closure = self.index.reverse_closure(seeds);
         for key in &closure {
             self.query_states.remove(key);
+            self.products.remove(key);
             self.index.remove_dependencies(key);
             self.metrics.record_invalidation();
         }

@@ -263,5 +263,12 @@ mod tests {
         assert_eq!(new_session.session, 2);
         assert_eq!(new_session.sequence, 1);
         assert_eq!(new_session.mode, AnalysisMode::Workspace);
+
+        let error_status = tracker.set_error("test error".to_string());
+        assert_eq!(error_status.session, 2);
+        assert_eq!(error_status.sequence, 2);
+        assert_eq!(error_status.phase, AnalysisPhase::Error);
+        assert_eq!(error_status.message, Some("test error".to_string()));
+        assert!(!error_status.complete);
     }
 }

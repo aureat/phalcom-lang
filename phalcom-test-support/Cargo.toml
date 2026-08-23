@@ -8,3 +8,6 @@ publish = false
 serde = { workspace = true }
 toml = { workspace = true }
 tempfile = "3"
+
+[dev-dependencies]
+phalcom-ast = { path = "../phalcom-ast" }

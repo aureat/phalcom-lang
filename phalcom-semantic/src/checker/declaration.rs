@@ -260,7 +260,8 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
                     let init_k = synthesize_expr(ctx, default_expr);
                     let assignability = check_assignability(ctx.store, ctx.hierarchy, &init_k, &decl_k);
                     if let Assignability::Refuted { .. } = assignability {
-                        ctx.diagnostics.push(SemanticDiagnostic::error(
+                        ctx.diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
                             DiagnosticCode::FieldMismatch,
                             format!("default value for field `{}` does not match declared type", f.name),
                             f.range,
@@ -340,7 +341,10 @@ fn check_callable_body(
     for (i, stmt) in body.iter().enumerate() {
         if i == body.len() - 1 {
             if let Statement::Expr { expr, range } = stmt {
-                let expected_ret_type = expected_return.as_ref().map(crate::checker::expected::ExpectedType::from_knowledge).unwrap_or_default();
+                let expected_ret_type = expected_return
+                    .as_ref()
+                    .map(crate::checker::expected::ExpectedType::from_knowledge)
+                    .unwrap_or_default();
                 let tail_typed = crate::checker::expression::analyze_expression(ctx, expr, &expected_ret_type);
                 if let Some(expected) = &expected_return {
                     crate::checker::policy::enforce_assignability(
@@ -348,6 +352,7 @@ fn check_callable_body(
                         ctx.hierarchy,
                         &tail_typed.knowledge,
                         expected,
+                        &ctx.current_module,
                         DiagnosticCode::ReturnMismatch,
                         "tail expression result is not assignable to method's declared return type",
                         *range,

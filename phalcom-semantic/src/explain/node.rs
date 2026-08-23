@@ -90,9 +90,7 @@ impl ExplanationStep {
             Self::FlowRefinement { .. } => DerivationRule::FlowRefinement {
                 predicate_kind: PredicateKind::IsInstance,
             },
-            Self::BranchJoin { branches, .. } => DerivationRule::BranchJoin {
-                branch_count: branches.len(),
-            },
+            Self::BranchJoin { branches, .. } => DerivationRule::BranchJoin { branch_count: branches.len() },
             Self::Subtyping { .. } => DerivationRule::PolicyEnforcement {
                 code: DiagnosticCode::TypeMismatch,
             },
@@ -110,4 +108,3 @@ pub struct ExplanationNode {
     pub evidence: Vec<EvidenceRef>,
     pub parents: Vec<ExplanationId>,
 }
-

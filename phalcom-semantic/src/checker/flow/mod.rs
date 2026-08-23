@@ -9,4 +9,3 @@ pub use graph::{FlowEdge, FlowEdgeKind, FlowGraph, FlowNode, FlowNodeKind};
 pub use predicate::{FlowPredicate, PredicateEntry, extract_predicate};
 pub use state::{FactSet, FlowState};
 pub use transfer::apply_predicate;
-

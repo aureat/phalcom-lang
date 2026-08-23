@@ -53,26 +53,32 @@ impl FlowPredicate {
     /// Logical inversion of this predicate on an alternate branch.
     pub fn invert(&self) -> Option<Self> {
         match self {
-            FlowPredicate::IsInstance { binding, target } => {
-                Some(FlowPredicate::IsNotInstance { binding: *binding, target: *target })
-            }
-            FlowPredicate::IsNotInstance { binding, target } => {
-                Some(FlowPredicate::IsInstance { binding: *binding, target: *target })
-            }
+            FlowPredicate::IsInstance { binding, target } => Some(FlowPredicate::IsNotInstance {
+                binding: *binding,
+                target: *target,
+            }),
+            FlowPredicate::IsNotInstance { binding, target } => Some(FlowPredicate::IsInstance {
+                binding: *binding,
+                target: *target,
+            }),
             FlowPredicate::IsNil { binding } => Some(FlowPredicate::NotNil { binding: *binding }),
             FlowPredicate::NotNil { binding } => Some(FlowPredicate::IsNil { binding: *binding }),
-            FlowPredicate::Equal { binding, target } => {
-                Some(FlowPredicate::NotEqual { binding: *binding, target: *target })
-            }
-            FlowPredicate::NotEqual { binding, target } => {
-                Some(FlowPredicate::Equal { binding: *binding, target: *target })
-            }
-            FlowPredicate::EqualLiteral { binding, literal } => {
-                Some(FlowPredicate::NotEqualLiteral { binding: *binding, literal: literal.clone() })
-            }
-            FlowPredicate::NotEqualLiteral { binding, literal } => {
-                Some(FlowPredicate::EqualLiteral { binding: *binding, literal: literal.clone() })
-            }
+            FlowPredicate::Equal { binding, target } => Some(FlowPredicate::NotEqual {
+                binding: *binding,
+                target: *target,
+            }),
+            FlowPredicate::NotEqual { binding, target } => Some(FlowPredicate::Equal {
+                binding: *binding,
+                target: *target,
+            }),
+            FlowPredicate::EqualLiteral { binding, literal } => Some(FlowPredicate::NotEqualLiteral {
+                binding: *binding,
+                literal: literal.clone(),
+            }),
+            FlowPredicate::NotEqualLiteral { binding, literal } => Some(FlowPredicate::EqualLiteral {
+                binding: *binding,
+                literal: literal.clone(),
+            }),
             FlowPredicate::Truthy { binding } => Some(FlowPredicate::Falsy { binding: *binding }),
             FlowPredicate::Falsy { binding } => Some(FlowPredicate::Truthy { binding: *binding }),
             FlowPredicate::OrderedPredicate { binding, op, threshold } => {
@@ -104,9 +110,7 @@ pub struct PredicateEntry {
 /// Extracts a direct flow predicate from a conditional expression.
 pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool) -> Option<FlowPredicate> {
     match expr {
-        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Not) => {
-            extract_predicate(ctx, &unary.expr, !truth)
-        }
+        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Not) => extract_predicate(ctx, &unary.expr, !truth),
         Expr::MethodCall(call) => match call.method.as_str() {
             "is" | "is!" => {
                 let Expr::Var { value: name, .. } = &call.object else { return None };
@@ -142,9 +146,15 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                     }
                     Expr::Int { digits, .. } => {
                         if truth {
-                            Some(FlowPredicate::EqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::EqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         } else {
-                            Some(FlowPredicate::NotEqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::NotEqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         }
                     }
                     _ => None,
@@ -165,9 +175,15 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                     }
                     Expr::Int { digits, .. } => {
                         if truth {
-                            Some(FlowPredicate::NotEqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::NotEqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         } else {
-                            Some(FlowPredicate::EqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::EqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         }
                     }
                     _ => None,
@@ -189,9 +205,15 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                         }
                     } else if let Expr::Int { digits, .. } = &binary.right {
                         return if truth {
-                            Some(FlowPredicate::EqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::EqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         } else {
-                            Some(FlowPredicate::NotEqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::NotEqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         };
                     }
                 } else if let Expr::Var { value: name, .. } = &binary.right {
@@ -221,9 +243,15 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                         }
                     } else if let Expr::Int { digits, .. } = &binary.right {
                         return if truth {
-                            Some(FlowPredicate::NotEqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::NotEqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         } else {
-                            Some(FlowPredicate::EqualLiteral { binding, literal: digits.clone() })
+                            Some(FlowPredicate::EqualLiteral {
+                                binding,
+                                literal: digits.clone(),
+                            })
                         };
                     }
                 } else if let Expr::Var { value: name, .. } = &binary.right {
@@ -246,10 +274,34 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                     if let Expr::Int { digits, .. } = &binary.right {
                         if let Ok(threshold) = digits.parse::<i64>() {
                             let op_str = match binary.op {
-                                BinaryOp::GreaterThan => if truth { ">" } else { "<=" },
-                                BinaryOp::GreaterThanOrEqual => if truth { ">=" } else { "<" },
-                                BinaryOp::LessThan => if truth { "<" } else { ">=" },
-                                BinaryOp::LessThanOrEqual => if truth { "<=" } else { ">" },
+                                BinaryOp::GreaterThan => {
+                                    if truth {
+                                        ">"
+                                    } else {
+                                        "<="
+                                    }
+                                }
+                                BinaryOp::GreaterThanOrEqual => {
+                                    if truth {
+                                        ">="
+                                    } else {
+                                        "<"
+                                    }
+                                }
+                                BinaryOp::LessThan => {
+                                    if truth {
+                                        "<"
+                                    } else {
+                                        ">="
+                                    }
+                                }
+                                BinaryOp::LessThanOrEqual => {
+                                    if truth {
+                                        "<="
+                                    } else {
+                                        ">"
+                                    }
+                                }
                                 _ => unreachable!(),
                             };
                             return Some(FlowPredicate::OrderedPredicate {
@@ -275,4 +327,3 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
         _ => None,
     }
 }
-

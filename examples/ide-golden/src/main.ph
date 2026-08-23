@@ -6,10 +6,16 @@ from units.weight import Weight
 class Main {
   @class
   main {
-    const origin = Point.new(0, 0)
-    const destination = Point.new(3, 4)
-    const parcel = Parcel.new("PKG-001", destination, Weight.new(12))
-    const shipment = Planner.plan(parcel, origin)
+    const origin = Point.new(0, y: 0)
+    const destination = Point.new(3, y: 4)
+
+    const parcel = Parcel.new(
+      "PKG-001", 
+      destination: destination, 
+      weight: Weight.new(12)
+    )
+
+    const shipment = Planner.plan(parcel, origin: origin)
 
     System.print("Phalcom IDE Golden")
     System.print("parcel: " + shipment.parcel.id)

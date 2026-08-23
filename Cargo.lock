@@ -1195,6 +1195,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "phalcom-test-support"
+version = "0.1.0"
+dependencies = [
+ "phalcom-ast",
+ "serde",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "phalcom-type-meta"
 version = "0.1.0"
 dependencies = [

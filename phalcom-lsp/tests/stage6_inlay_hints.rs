@@ -102,7 +102,70 @@ async fn inlay_hint_returns_runtime_value_for_literal_binding() {
     let response = read_response(&mut client_end, 2).await;
     let hints = response["result"].as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
-    assert_eq!(hints[0]["label"], json!(": String"));
+    assert_eq!(hints[0]["label"], json!("≈ String"));
+
+    drop(client_end);
+    let _ = server_task.await;
+}
+
+#[tokio::test]
+async fn inlay_hint_skips_explicit_binding_annotation() {
+    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
+    let (server_read, server_write) = tokio::io::split(server_end);
+    let (service, socket) = LspService::new(Backend::new);
+    let server_task = tokio::spawn(async move {
+        Server::new(server_read, server_write, socket).serve(service).await;
+    });
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "processId": null, "capabilities": {} }
+        }),
+    )
+    .await;
+    let _init = read_response(&mut client_end, 1).await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
+
+    let uri = "file:///workspace/annotated.ph";
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "phalcom",
+                    "version": 1,
+                    "text": "let annotated: Int = 1\nlet inferred = 2\n"
+                }
+            }
+        }),
+    )
+    .await;
+    let _diagnostics = read_message(&mut client_end).await;
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/inlayHint",
+            "params": {
+                "textDocument": { "uri": uri },
+                "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 2, "character": 0 } }
+            }
+        }),
+    )
+    .await;
+    let response = read_response(&mut client_end, 2).await;
+    let hints = response["result"].as_array().expect("inlay hint array");
+    assert_eq!(hints.len(), 1, "only unannotated binding should receive a hint: {response:#?}");
+    assert_eq!(hints[0]["label"], json!("≈ Int"));
 
     drop(client_end);
     let _ = server_task.await;

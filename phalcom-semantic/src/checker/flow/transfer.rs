@@ -16,11 +16,7 @@ pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: 
         FlowPredicate::IsNotInstance { binding, target } => {
             if let Some(current_ty) = state.get_current_type(*binding).and_then(|k| k.ty()) {
                 if let crate::types::store::TypeData::Union(members) = store.get(current_ty).clone() {
-                    let remaining: Vec<TypeId> = members
-                        .iter()
-                        .copied()
-                        .filter(|&m| m != *target)
-                        .collect();
+                    let remaining: Vec<TypeId> = members.iter().copied().filter(|&m| m != *target).collect();
                     if !remaining.is_empty() && remaining.len() < members.len() {
                         let refined = store.union(&remaining);
                         state.assign(*binding, TypeKnowledge::known(refined, EvidenceAuthority::Proven));
@@ -35,11 +31,7 @@ pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: 
             // Filter out nil from union if present
             if let Some(current_ty) = state.get_current_type(*binding).and_then(|k| k.ty()) {
                 if let crate::types::store::TypeData::Union(members) = store.get(current_ty).clone() {
-                    let non_nil: Vec<TypeId> = members
-                        .iter()
-                        .copied()
-                        .filter(|&m| m != store.unit())
-                        .collect();
+                    let non_nil: Vec<TypeId> = members.iter().copied().filter(|&m| m != store.unit()).collect();
                     if !non_nil.is_empty() && non_nil.len() < members.len() {
                         let refined = store.union(&non_nil);
                         state.assign(*binding, TypeKnowledge::known(refined, EvidenceAuthority::Proven));
@@ -53,11 +45,7 @@ pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: 
         FlowPredicate::NotEqual { binding, target } => {
             if let Some(current_ty) = state.get_current_type(*binding).and_then(|k| k.ty()) {
                 if let crate::types::store::TypeData::Union(members) = store.get(current_ty).clone() {
-                    let remaining: Vec<TypeId> = members
-                        .iter()
-                        .copied()
-                        .filter(|&m| m != *target)
-                        .collect();
+                    let remaining: Vec<TypeId> = members.iter().copied().filter(|&m| m != *target).collect();
                     if !remaining.is_empty() && remaining.len() < members.len() {
                         let refined = store.union(&remaining);
                         state.assign(*binding, TypeKnowledge::known(refined, EvidenceAuthority::Proven));
@@ -89,4 +77,3 @@ fn refine_binding_type(state: &mut FlowState, binding: BindingId, target: TypeId
     }
     state.assign(binding, TypeKnowledge::known(target, EvidenceAuthority::Proven));
 }
-
