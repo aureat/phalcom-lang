@@ -78,6 +78,23 @@ impl KindId {
     }
 }
 
+/// Store/snapshot-local interned record row identifier.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RecordRowId(pub u32);
+
+impl RecordRowId {
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
+    }
+}
+
 /// Identifier for generic type parameters within a `TypeStore`.
 ///
 /// The integer is meaningful only with the `TypeStore` that allocated it.

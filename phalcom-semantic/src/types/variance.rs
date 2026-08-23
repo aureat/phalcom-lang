@@ -187,9 +187,10 @@ pub fn compute_variance_occurrence(
             }
             result_variance
         }
-        TypeData::Record(fields) => {
+        TypeData::Record(row_id) => {
+            let row = store.record_row(*row_id);
             let mut result_variance = None;
-            for f in fields.iter() {
+            for f in row.fields.iter() {
                 path.push(VarianceStep::RecordField { name: f.name.clone() });
                 if let Some((occ, p)) = compute_variance_occurrence(store, param, f.ty, context_polarity, path) {
                     result_variance = match result_variance {

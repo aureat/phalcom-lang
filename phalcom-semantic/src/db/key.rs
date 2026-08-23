@@ -26,6 +26,11 @@ pub enum QueryKey {
     SemanticComponent(ModuleId),
     DeclarationSurface(DeclarationId),
     CallableBody(CallableId),
+    CallableEffects(CallableId),
+    CallableControl(CallableId),
+    CallableTermination(CallableId),
+    CallableContracts(CallableId),
+    VerificationConditions(CallableId),
     ModuleDiagnostics(ModuleId),
     ModuleMetadata(ModuleId),
 }

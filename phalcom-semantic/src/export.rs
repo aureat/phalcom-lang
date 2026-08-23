@@ -122,8 +122,10 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(CompiledTypeRef::Tuple(tuple_elems.into_boxed_slice()))
         }
-        TypeData::Record(fields) => {
-            let rec_fields = fields
+        TypeData::Record(row_id) => {
+            let row = store.record_row(*row_id);
+            let rec_fields = row
+                .fields
                 .iter()
                 .map(|f| export_type_form(store, f.ty).map(|t| CompiledRecordField { name: f.name.clone(), ty: t }))
                 .collect::<Result<Vec<_>, _>>()?;

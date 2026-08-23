@@ -2,22 +2,27 @@
 //! and verification engine for Phalcom.
 
 pub mod checker;
+pub mod contracts;
+pub mod control_summary;
 pub mod core_surface;
 pub mod db;
 pub mod declarations;
 pub mod diagnostic;
 pub mod dispatch;
+pub mod effects;
 pub mod explain;
 pub mod export;
 pub mod identity;
 pub mod invalidation;
 pub mod metadata;
+pub mod prover;
 pub mod resolver;
 pub mod scope;
 pub mod signature;
 pub mod snapshot;
 pub mod source;
 pub mod surface;
+pub mod termination;
 pub mod types;
 pub mod workspace;
 
@@ -25,10 +30,16 @@ pub use checker::{
     CheckingContext, TypeCheckReport, TypedExpression, check_arguments, check_class, check_class_bodies, check_statement, match_callable_arguments,
     register_class_surface, synthesize_expr, synthesize_typed_expr,
 };
+pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
+pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};
 pub use core_surface::*;
 pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
+pub use effects::{
+    EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
+    infer_intraprocedural_effects,
+};
 pub use explain::{ExplanationArena, ExplanationNode, ExplanationStep, causal_slice};
 pub use export::{
     CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,
@@ -38,10 +49,18 @@ pub use identity::{
     BindingId, CallableId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SnapshotId, SnapshotTypeRef, TypeStoreId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
+pub use prover::{
+    Counterexample, ProofBinaryOp, ProofEvidence, ProofObligationKind, ProofOpaqueReason, ProofTerm, ProofUnaryOp, VcStatus, VcUnknownReason,
+    VerificationCondition, simplify_proof_term, solve_vc_deterministic,
+};
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use signature::{CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable};
 pub use snapshot::SemanticSnapshot;
+pub use termination::{
+    RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,
+    analyze_callable_termination, check_cfg_acyclicity,
+};
 
 pub use source::ParsedSourceUnit;
 pub use surface::DeclarationSurface;

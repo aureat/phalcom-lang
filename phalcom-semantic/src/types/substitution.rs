@@ -1,7 +1,8 @@
 //! Type parameter substitution for generic declarations and applied member views.
 
 use super::id::{TypeId, TypeParameterId};
-use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
+use super::row::{RecordRowData, RecordRowField};
+use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use std::collections::HashMap;
 
@@ -65,15 +66,24 @@ impl TypeSubstitution {
                     .collect();
                 store.tuple(subst_elements.into_boxed_slice())
             }
-            TypeData::Record(fields) => {
-                let subst_fields: Vec<RecordTypeField> = fields
-                    .iter()
-                    .map(|field| RecordTypeField {
-                        name: field.name.clone(),
+            TypeData::Record(row_id) => {
+                let (fields, tail) = {
+                    let row = store.record_row(row_id);
+                    (row.fields.to_vec(), row.tail)
+                };
+                let subst_fields: Vec<RecordRowField> = fields
+                    .into_iter()
+                    .map(|field| RecordRowField {
+                        name: field.name,
                         ty: self.apply(store, field.ty),
                     })
                     .collect();
-                store.record(subst_fields.into_boxed_slice())
+                let row_data = RecordRowData {
+                    fields: subst_fields.into_boxed_slice(),
+                    tail,
+                };
+                let new_row_id = store.intern_record_row(row_data);
+                store.record_type(new_row_id)
             }
             TypeData::Callable(callable) => {
                 let params: Vec<CallableParameterType> = callable

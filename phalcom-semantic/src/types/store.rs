@@ -1,9 +1,10 @@
 //! Canonical Type Store with interning and normalization.
 
 use super::application::TypeApplicationError;
-use super::id::{KindId, ProperTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
+use super::id::{KindId, ProperTypeId, RecordRowId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
+use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena, TypeLambdaData, TypeLambdaProvenance};
 use super::variance::Variance;
 use crate::identity::DeclarationId;
@@ -18,11 +19,7 @@ pub struct TupleTypeElement {
     pub ty: TypeId,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct RecordTypeField {
-    pub name: Box<str>,
-    pub ty: TypeId,
-}
+pub type RecordTypeField = RecordRowField;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CallableParameterType {
@@ -54,8 +51,8 @@ pub enum TypeData {
     Union(Box<[TypeId]>),
     /// Tuple type.
     Tuple(Box<[TupleTypeElement]>),
-    /// Record / structural property map.
-    Record(Box<[RecordTypeField]>),
+    /// Record / structural property map backed by a canonical record row.
+    Record(RecordRowId),
     /// Callable / block signature.
     Callable(CallableType),
     /// Type variable parameter in generic declaration.
@@ -79,6 +76,8 @@ pub struct TypeStore {
     parameter_to_id: HashMap<(TypeParameterOwner, u32), TypeParameterId>,
     parameter_variances: HashMap<(DeclarationId, u32), Variance>,
     lambda_arena: TypeLambdaArena,
+    row_arena: Vec<RecordRowData>,
+    row_interner: HashMap<RecordRowData, RecordRowId>,
 
     never_id: TypeId,
     unit_id: TypeId,
@@ -103,6 +102,8 @@ impl TypeStore {
             parameter_to_id: HashMap::new(),
             parameter_variances: HashMap::new(),
             lambda_arena: TypeLambdaArena::new(),
+            row_arena: Vec::new(),
+            row_interner: HashMap::new(),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
         };
@@ -204,6 +205,11 @@ impl TypeStore {
 
     pub fn parameter_form(&mut self, id: TypeParameterId) -> TypeId {
         let kind = self.type_parameter(id).kind;
+        assert_ne!(
+            kind,
+            KindId::RECORD_ROW,
+            "RecordRow-kinded type parameters must never produce TypeData::Parameter"
+        );
         self.intern_with_kind(TypeData::Parameter(id), kind)
     }
 
@@ -413,12 +419,54 @@ impl TypeStore {
         self.intern_with_kind(TypeData::Tuple(elements), KindId::TYPE)
     }
 
-    /// Interns a record type.
-    pub fn record(&mut self, fields: Box<[RecordTypeField]>) -> TypeId {
+    /// Interns a record row into the store.
+    pub fn intern_record_row(&mut self, data: RecordRowData) -> RecordRowId {
+        if let Some(&id) = self.row_interner.get(&data) {
+            return id;
+        }
+        let id = RecordRowId(self.row_arena.len() as u32);
+        self.row_arena.push(data.clone());
+        self.row_interner.insert(data, id);
+        id
+    }
+
+    /// Accesses a record row by its ID.
+    #[inline]
+    pub fn record_row(&self, id: RecordRowId) -> &RecordRowData {
+        &self.row_arena[id.index()]
+    }
+
+    /// Looks up an already-interned record row.
+    pub fn find_record_row(&self, data: &RecordRowData) -> Option<RecordRowId> {
+        self.row_interner.get(data).copied()
+    }
+
+    /// Returns the number of interned record rows.
+    #[inline]
+    pub fn record_row_count(&self) -> usize {
+        self.row_arena.len()
+    }
+
+    /// Interns a record type backed by a canonical closed row.
+    pub fn record(&mut self, fields: Box<[RecordRowField]>) -> TypeId {
         for field in fields.iter() {
             debug_assert!(self.is_proper_type(field.ty), "record field must be a proper type");
         }
-        self.intern_with_kind(TypeData::Record(fields), KindId::TYPE)
+        let mut sorted_fields = fields.into_vec();
+        sorted_fields.sort_by(|a, b| a.name.cmp(&b.name));
+        for i in 1..sorted_fields.len() {
+            assert_ne!(sorted_fields[i - 1].name, sorted_fields[i].name, "duplicate record field");
+        }
+        let row_id = self.intern_record_row(RecordRowData {
+            fields: sorted_fields.into_boxed_slice(),
+            tail: RecordRowTail::Closed,
+        });
+        self.intern_with_kind(TypeData::Record(row_id), KindId::TYPE)
+    }
+
+    /// Interns a record type from an already-interned row.
+    pub fn record_type(&mut self, row_id: RecordRowId) -> TypeId {
+        self.intern_with_kind(TypeData::Record(row_id), KindId::TYPE)
     }
 
     /// Interns a callable type.

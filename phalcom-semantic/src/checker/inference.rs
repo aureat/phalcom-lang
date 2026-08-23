@@ -240,7 +240,7 @@ impl InferenceSession {
             }
             TypeData::Union(members) => members.iter().any(|&m| self.occurs_in_type(var, m, store)),
             TypeData::Tuple(elems) => elems.iter().any(|e| self.occurs_in_type(var, e.ty, store)),
-            TypeData::Record(fields) => fields.iter().any(|f| self.occurs_in_type(var, f.ty, store)),
+            TypeData::Record(row_id) => store.record_row(*row_id).fields.iter().any(|f| self.occurs_in_type(var, f.ty, store)),
             TypeData::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_type(var, p.ty, store)) || self.occurs_in_type(var, c.return_type, store),
             _ => false,
         }

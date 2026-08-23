@@ -247,7 +247,16 @@ pub fn resolve_type_form(
         }
         TypeAnnotationExpr::Record { fields, tail: _, range: _ } => {
             let mut record_fields = Vec::with_capacity(fields.len());
+            let mut seen_names = std::collections::HashSet::new();
             for field in fields {
+                if !seen_names.insert(field.name.clone()) {
+                    diagnostics.push(SemanticDiagnostic::error(
+                        DiagnosticCode::KindExpectedType,
+                        format!("duplicate field `{}` in record type annotation", field.name),
+                        field.range,
+                    ));
+                    return TypeFormResolution::Unknown(UnknownReason::UnannotatedDeclaration);
+                }
                 let f_res = resolve_type_form(store, declarations, resolver, current_module, &field.ty, diagnostics);
                 let ty = match f_res {
                     TypeFormResolution::Known(ty) => {

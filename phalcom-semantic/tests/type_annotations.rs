@@ -259,7 +259,7 @@ fn lowers_structural_record_annotations() {
     };
     let (res, diags) = resolve(&mut env, &record_ann);
     assert!(diags.is_empty());
-    assert!(matches!(env.store.get(res.ty().unwrap()), TypeData::Record(fields) if fields.len() == 2));
+    assert!(matches!(env.store.get(res.ty().unwrap()), TypeData::Record(row_id) if env.store.record_row(*row_id).fields.len() == 2));
 }
 
 #[test]

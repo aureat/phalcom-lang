@@ -1,7 +1,8 @@
 //! Type environment, specialization views, and lazy member projection.
 
 use super::id::{TypeId, TypeParameterId};
-use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
+use super::row::{RecordRowData, RecordRowField};
+use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::identity::{CallableId, DeclarationId};
 use std::collections::HashMap;
@@ -110,15 +111,24 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 .collect();
             store.tuple(subst_elems.into_boxed_slice())
         }
-        TypeData::Record(fields) => {
-            let subst_fields: Vec<RecordTypeField> = fields
-                .iter()
-                .map(|f| RecordTypeField {
-                    name: f.name.clone(),
+        TypeData::Record(row_id) => {
+            let (fields, tail) = {
+                let row = store.record_row(row_id);
+                (row.fields.to_vec(), row.tail)
+            };
+            let subst_fields: Vec<RecordRowField> = fields
+                .into_iter()
+                .map(|f| RecordRowField {
+                    name: f.name,
                     ty: materialize_view(store, f.ty, env),
                 })
                 .collect();
-            store.record(subst_fields.into_boxed_slice())
+            let row_data = RecordRowData {
+                fields: subst_fields.into_boxed_slice(),
+                tail,
+            };
+            let new_row_id = store.intern_record_row(row_data);
+            store.record_type(new_row_id)
         }
         TypeData::Callable(call) => {
             let params: Vec<CallableParameterType> = call

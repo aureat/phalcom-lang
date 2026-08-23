@@ -1,7 +1,8 @@
 use super::environment::TypeView;
 use super::evidence::TypeKnowledge;
-use super::id::TypeId;
+use super::id::{RecordRowId, TypeId};
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationFailure, RelationOutcome};
+use super::row::{RecordAccess, RecordRowTail};
 use super::store::{TypeData, TypeStore};
 use super::variance::Variance;
 use crate::declarations::GenericSupertypeTemplate;
@@ -374,27 +375,18 @@ fn check_subtype_impl(
                 RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
         }
-        (TypeData::Record(sub_fields), TypeData::Record(sup_fields)) => {
-            let mut all_ok = true;
-            for sup_f in sup_fields.iter() {
-                let matching = sub_fields.iter().find(|sub_f| sub_f.name == sup_f.name);
-                if let Some(sub_f) = matching {
-                    let out = check_subtype_impl(store, hierarchy, sub_f.ty, sup_f.ty, budget, cancellation, visited);
-                    if !out.is_proven() {
-                        all_ok = false;
-                        break;
-                    }
-                } else {
-                    all_ok = false;
-                    break;
-                }
-            }
-            if all_ok {
-                RelationOutcome::proven(())
-            } else {
-                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
-            }
-        }
+        (TypeData::Record(sub_row_id), TypeData::Record(sup_row_id)) => check_record_row_subtype(
+            store,
+            hierarchy,
+            *sub_row_id,
+            *sup_row_id,
+            sub,
+            sup,
+            RecordAccess::ReadOnly,
+            budget,
+            cancellation,
+            visited,
+        ),
         (TypeData::Callable(sub_call), TypeData::Callable(sup_call)) => {
             if sub_call.parameters.len() == sup_call.parameters.len() {
                 let mut params_ok = true;
@@ -491,6 +483,102 @@ pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, act
     let mut budget = QueryBudget::default();
     let cancellation = CancellationToken::new();
     check_assignability_bounded(store, hierarchy, actual, expected, &mut budget, &cancellation).into()
+}
+
+pub fn check_record_row_subtype(
+    store: &TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    sub_row_id: RecordRowId,
+    sup_row_id: RecordRowId,
+    sub_ty: TypeId,
+    sup_ty: TypeId,
+    access: RecordAccess,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+    visited: &mut HashSet<(TypeId, TypeId)>,
+) -> RelationOutcome<()> {
+    let sub_row = store.record_row(sub_row_id);
+    let sup_row = store.record_row(sup_row_id);
+
+    match access {
+        RecordAccess::ReadOnly => {
+            if sub_row.tail != sup_row.tail && (sub_row.tail != RecordRowTail::Closed || sup_row.tail != RecordRowTail::Closed) {
+                return RelationOutcome::Blocked(BlockReason::RecursiveFixpoint);
+            }
+            for sup_f in sup_row.fields.iter() {
+                if let Some(sub_f_ty) = sub_row.find_field(&sup_f.name) {
+                    let out = check_subtype_impl(store, hierarchy, sub_f_ty, sup_f.ty, budget, cancellation, visited);
+                    if !out.is_proven() {
+                        return out;
+                    }
+                } else {
+                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                        actual: sub_ty,
+                        expected: sup_ty,
+                    });
+                }
+            }
+            RelationOutcome::proven(())
+        }
+        RecordAccess::ReadWrite => {
+            if sub_row.tail != sup_row.tail {
+                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                    actual: sub_ty,
+                    expected: sup_ty,
+                });
+            }
+            if sub_row.fields.len() != sup_row.fields.len() {
+                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                    actual: sub_ty,
+                    expected: sup_ty,
+                });
+            }
+            for (sub_f, sup_f) in sub_row.fields.iter().zip(sup_row.fields.iter()) {
+                if sub_f.name != sup_f.name {
+                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                        actual: sub_ty,
+                        expected: sup_ty,
+                    });
+                }
+                let cov = check_subtype_impl(store, hierarchy, sub_f.ty, sup_f.ty, budget, cancellation, visited);
+                if !cov.is_proven() {
+                    return cov;
+                }
+                let contra = check_subtype_impl(store, hierarchy, sup_f.ty, sub_f.ty, budget, cancellation, visited);
+                if !contra.is_proven() {
+                    return contra;
+                }
+            }
+            RelationOutcome::proven(())
+        }
+        RecordAccess::WriteOnly => {
+            if sub_row.tail != sup_row.tail {
+                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                    actual: sub_ty,
+                    expected: sup_ty,
+                });
+            }
+            if sub_row.fields.len() != sup_row.fields.len() {
+                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                    actual: sub_ty,
+                    expected: sup_ty,
+                });
+            }
+            for (sub_f, sup_f) in sub_row.fields.iter().zip(sup_row.fields.iter()) {
+                if sub_f.name != sup_f.name {
+                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                        actual: sub_ty,
+                        expected: sup_ty,
+                    });
+                }
+                let contra = check_subtype_impl(store, hierarchy, sup_f.ty, sub_f.ty, budget, cancellation, visited);
+                if !contra.is_proven() {
+                    return contra;
+                }
+            }
+            RelationOutcome::proven(())
+        }
+    }
 }
 
 #[cfg(test)]

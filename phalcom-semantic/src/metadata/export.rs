@@ -373,9 +373,10 @@ impl<'a> MetadataExporter<'a> {
                 }
                 TypeNode::Tuple(elem_refs.into_boxed_slice())
             }
-            TypeData::Record(ref fields) => {
+            TypeData::Record(row_id) => {
+                let row = self.store.record_row(row_id);
                 let mut field_refs = Vec::new();
-                for f in fields.iter() {
+                for f in row.fields.iter() {
                     let ty_id = self.export_type_form(f.ty)?;
                     field_refs.push(RecordFieldRef {
                         name: f.name.clone(),
