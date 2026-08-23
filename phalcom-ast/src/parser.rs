@@ -3103,6 +3103,9 @@ impl<'source> Parser<'source> {
             // `class` is a declaration keyword elsewhere, but is also the
             // canonical Object class getter/setter selector.
             Token::Class => "class".to_string(),
+            // `try` is a statement keyword elsewhere, but remains the
+            // canonical Fiber resume selector.
+            Token::Try => "try".to_string(),
             // `from` is a module-syntax keyword, but remains valid as a
             // selector for existing APIs such as `Map.from(...)`.
             Token::From => "from".to_string(),
@@ -5990,13 +5993,15 @@ mod tests {
 
     #[test]
     fn class_keyword_is_valid_selector_in_class_members() {
-        let source = "@native\nclass Object {\n  @native\n  class -> Dynamic\n  @native\n  class=(put value: Dynamic) -> Dynamic\n}\n";
+        let source =
+            "@native\nclass Object {\n  @native\n  class -> Dynamic\n  @native\n  class=(put value: Dynamic) -> Dynamic\n  @native\n  try() -> Dynamic\n}\n";
         let program = parse_source(source, 0).expect("class selectors must parse");
         let Statement::Class(class) = program.statements.into_iter().next().expect("class statement") else {
             panic!("expected class declaration");
         };
         assert!(matches!(&class.members[0], ClassMember::Getter(getter) if getter.name == "class"));
         assert!(matches!(&class.members[1], ClassMember::Setter(setter) if setter.name == "class"));
+        assert!(matches!(&class.members[2], ClassMember::Method(method) if method.name == "try"));
     }
 
     #[test]
