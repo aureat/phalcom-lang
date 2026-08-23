@@ -84,7 +84,7 @@ pub fn format_diagnostic<'a>(
     // Notes and helps
     for note in notes {
         let prefix = if note.is_help { "help" } else { "note" };
-        let role = if note.is_help { Role::SeverityHelp } else { Role::SeverityHelp };
+        let role = Role::SeverityHelp;
         out.push_str("  ");
         out.push_str(&styler.paint(role, prefix));
         out.push_str(&styler.paint(role, ": "));
