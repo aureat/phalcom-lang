@@ -2,7 +2,7 @@
 
 use super::descriptor::PrimitiveDescriptor;
 use super::source::{NativeMemberKey, NativeSourceIndex};
-use phalcom_native_meta::{NativeAnchorPolicy, PrimitiveKey, UniverseKey, UNIVERSE_CLASS_RELATIONS};
+use phalcom_native_meta::{NativeAnchorPolicy, PrimitiveKey, UNIVERSE_CLASS_RELATIONS, UniverseKey};
 use thiserror::Error;
 
 /// Migration mode for source/native contract verification.
