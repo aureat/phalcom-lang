@@ -1,19 +1,28 @@
-//! Checking context and scope environments.
-
+use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex};
+use crate::checker::flow::FlowState;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
-use crate::identity::{DeclarationId, DispatchSide, ModuleId};
+use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
 use crate::types::annotation::TypeResolver;
-use crate::types::denotation::ValueSemanticFact;
+use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::{TypeData, TypeStore};
+use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
+use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
 use std::collections::HashMap;
+
+/// Metadata for a scoped local variable binding.
+#[derive(Clone, Debug)]
+pub struct LocalBindingInfo {
+    pub id: BindingId,
+    pub declared: Option<TypeId>,
+    pub denotation: Option<SemanticDenotation>,
+}
 
 /// Environment of local bindings in current lexical block/scope.
 #[derive(Clone, Debug, Default)]
@@ -50,6 +59,17 @@ pub struct CheckingContext<'a> {
     pub current_side: DispatchSide,
     pub expected_return: Option<TypeKnowledge>,
     pub local_envs: Vec<LocalEnv>,
+    pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
+    pub flow: FlowState,
+    pub body_id: BodyId,
+    pub next_local_expr_id: u32,
+    pub next_binding_id: u32,
+    pub expressions: ExpressionAnalysisIndex,
+    pub bindings: BindingAnalysisIndex,
+    pub explanations: crate::explain::ExplanationArena,
+    pub suppressed: std::collections::BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
+    pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
+    pub dependencies: Vec<CallableId>,
     pub dispatch: SurfaceDispatchResolver,
     pub diagnostics: Vec<SemanticDiagnostic>,
 }
@@ -63,10 +83,6 @@ impl<'a> CheckingContext<'a> {
         current_module: ModuleId,
     ) -> Self {
         let mut dispatch = SurfaceDispatchResolver::new();
-        // Focused type-checking fixtures can intentionally provide only a
-        // subset of declarations. Import the complete native core only when
-        // every native owner is available; normal workspace setup always
-        // satisfies this and still fails loudly on malformed native metadata.
         let has_complete_native_core = NATIVE_SURFACES.iter().all(|record| {
             let owner = resolver
                 .resolve_type_name(&current_module, record.owner().name(), &[])
@@ -88,23 +104,132 @@ impl<'a> CheckingContext<'a> {
             current_side: DispatchSide::Instance,
             expected_return: None,
             local_envs: vec![LocalEnv::new()],
+            scopes: vec![HashMap::new()],
+            flow: FlowState::new(),
+            body_id: BodyId(0),
+            next_local_expr_id: 0,
+            next_binding_id: 0,
+            expressions: ExpressionAnalysisIndex::new(),
+            bindings: BindingAnalysisIndex::new(),
+            explanations: crate::explain::ExplanationArena::new(),
+            suppressed: std::collections::BTreeMap::new(),
+            flow_graph: None,
+            dependencies: Vec::new(),
             dispatch,
             diagnostics: Vec::new(),
         }
     }
 
+    pub fn with_resolver<'b>(&'b mut self, resolver: &'b dyn TypeResolver) -> CheckingContext<'b> {
+        CheckingContext {
+            store: self.store,
+            hierarchy: self.hierarchy,
+            resolver,
+            declarations: self.declarations,
+            current_module: self.current_module.clone(),
+            current_class: self.current_class.clone(),
+            current_side: self.current_side,
+            expected_return: self.expected_return.clone(),
+            local_envs: self.local_envs.clone(),
+            scopes: self.scopes.clone(),
+            flow: self.flow.clone(),
+            body_id: self.body_id,
+            next_local_expr_id: self.next_local_expr_id,
+            next_binding_id: self.next_binding_id,
+            expressions: self.expressions.clone(),
+            bindings: self.bindings.clone(),
+            explanations: self.explanations.clone(),
+            suppressed: self.suppressed.clone(),
+            flow_graph: self.flow_graph.clone(),
+            dependencies: self.dependencies.clone(),
+            dispatch: self.dispatch.clone(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub fn alloc_binding(&mut self) -> BindingId {
+        let id = BindingId(self.next_binding_id);
+        self.next_binding_id += 1;
+        id
+    }
+
+    pub fn alloc_expression_id(&mut self) -> ExpressionId {
+        let local = LocalExpressionId(self.next_local_expr_id);
+        self.next_local_expr_id += 1;
+        ExpressionId::new(self.body_id, local)
+    }
+
+    pub fn record_expression(
+        &mut self,
+        id: ExpressionId,
+        range: SourceRange,
+        knowledge: TypeKnowledge,
+        denotation: Option<SemanticDenotation>,
+        status: AnalysisStatus,
+    ) -> ExpressionAnalysis {
+        let mut analysis = ExpressionAnalysis::ready(id, range, knowledge);
+        analysis.denotation = denotation;
+        analysis.status = status;
+        self.expressions.insert(id, analysis.clone());
+        analysis
+    }
+
     pub fn push_scope(&mut self) {
         self.local_envs.push(LocalEnv::new());
+        self.scopes.push(HashMap::new());
     }
 
     pub fn pop_scope(&mut self) {
         self.local_envs.pop();
+        self.scopes.pop();
+    }
+
+    pub fn bind_local_var(
+        &mut self,
+        name: impl Into<String>,
+        declared: Option<TypeId>,
+        initial: TypeKnowledge,
+        mutable: bool,
+        denotation: Option<SemanticDenotation>,
+    ) -> BindingId {
+        let name_str = name.into();
+        let binding_id = self.alloc_binding();
+        self.flow.declare(binding_id, declared, initial.clone(), mutable);
+        if let Some(state) = self.flow.get_binding(binding_id) {
+            self.bindings.insert(binding_id, state.clone());
+        }
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(
+                name_str.clone(),
+                LocalBindingInfo {
+                    id: binding_id,
+                    declared,
+                    denotation,
+                },
+            );
+        }
+        let fact = ValueSemanticFact {
+            knowledge: initial,
+            denotation,
+        };
+        if let Some(env) = self.local_envs.last_mut() {
+            env.insert(name_str, fact);
+        }
+        binding_id
     }
 
     pub fn bind_local(&mut self, name: impl Into<String>, fact: ValueSemanticFact) {
-        if let Some(env) = self.local_envs.last_mut() {
-            env.insert(name, fact);
+        let declared = fact.knowledge.ty();
+        self.bind_local_var(name, declared, fact.knowledge, true, fact.denotation);
+    }
+
+    pub fn lookup_binding_info(&self, name: &str) -> Option<&LocalBindingInfo> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(info) = scope.get(name) {
+                return Some(info);
+            }
         }
+        None
     }
 
     pub fn lookup_local(&self, name: &str) -> Option<&ValueSemanticFact> {
@@ -117,17 +242,30 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn lookup_local_knowledge(&self, name: &str) -> Option<TypeKnowledge> {
+        if let Some(info) = self.lookup_binding_info(name) {
+            if let Some(k) = self.flow.get_current_type(info.id) {
+                return Some(k.clone());
+            }
+        }
         self.lookup_local(name).map(|f| f.knowledge.clone())
     }
 
     pub fn assign_existing(&mut self, name: &str, fact: ValueSemanticFact) -> bool {
+        let mut found = false;
+        if let Some(info) = self.lookup_binding_info(name).cloned() {
+            self.flow.assign(info.id, fact.knowledge.clone());
+            if let Some(state) = self.flow.get_binding(info.id) {
+                self.bindings.insert(info.id, state.clone());
+            }
+            found = true;
+        }
         for env in self.local_envs.iter_mut().rev() {
             if let Some(slot) = env.get_mut(name) {
                 *slot = fact;
                 return true;
             }
         }
-        false
+        found
     }
 
     pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
@@ -184,6 +322,68 @@ impl<'a> CheckingContext<'a> {
             form
         } else {
             self.store.nominal_type(decl.clone())
+        }
+    }
+
+    pub fn record_derivation(
+        &mut self,
+        step: crate::explain::ExplanationStep,
+        rule: crate::explain::DerivationRule,
+        authority: crate::types::evidence::EvidenceAuthority,
+        evidence: Vec<crate::explain::EvidenceRef>,
+        parents: Vec<crate::identity::ExplanationId>,
+    ) -> crate::identity::ExplanationId {
+        self.explanations.alloc_full(step, rule, authority, evidence, parents)
+    }
+
+    pub fn suppression_cause(&self, id: ExpressionId) -> Option<crate::identity::DiagnosticCauseId> {
+        self.suppressed.get(&id).copied()
+    }
+
+    pub fn mark_suppressed(&mut self, id: ExpressionId, cause: crate::identity::DiagnosticCauseId) {
+        self.suppressed.insert(id, cause);
+    }
+
+    pub fn finalize(
+        self,
+        callable: CallableId,
+        body_range: SourceRange,
+        status: crate::checker::analysis::CallableAnalysisStatus,
+    ) -> crate::checker::analysis::CallableAnalysis {
+        let flow_graph = self
+            .flow_graph
+            .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
+
+        let mut known_bindings = std::collections::BTreeMap::new();
+        for (b_id, state) in &self.bindings {
+            if let Some(ty) = state.current.ty() {
+                known_bindings.insert(*b_id, ty);
+            }
+        }
+        let entry_flow = crate::checker::analysis::FlowStateSummary {
+            known_bindings,
+            fact_count: self.flow.facts.len(),
+        };
+
+        let exits = crate::checker::analysis::BodyExitFacts {
+            returns: vec![entry_flow.clone()],
+            throws: Vec::new(),
+            unreachable: false,
+        };
+
+        crate::checker::analysis::CallableAnalysis {
+            callable,
+            body_range,
+            expressions: self.expressions,
+            bindings: self.bindings,
+            flow_graph,
+            entry_flow,
+            exits,
+            diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
+            explanations: std::sync::Arc::new(self.explanations),
+            dependencies: std::sync::Arc::from(self.dependencies.into_boxed_slice()),
+            dependency_fingerprint: crate::db::ProductFingerprint::new(0),
+            status,
         }
     }
 }

@@ -8,7 +8,7 @@ use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
-fn setup_test_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, DeclarationTypeTable, ModuleId) {
+pub fn setup_test_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, DeclarationTypeTable, ModuleId) {
     let mut store = TypeStore::new();
     let mut hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();

@@ -157,6 +157,7 @@ pub enum BlockReason {
     OpaqueNative(Box<str>),
     ReflectionBoundary,
     BudgetExceeded(BudgetReport),
+    SuppressedDependency,
 }
 
 /// Evidence supporting a proven relation judgment.

@@ -736,14 +736,13 @@ fn behavior_generic_arity(vm: &VM, class_id: crate::heap::ClassId) -> usize {
         return inspect::generic_sig_parameters(&vm.typing_registry, signature).len();
     }
 
-    // Runtime metadata may not yet be loaded for a primordial class. Keep
-    // fallback aligned with canonical universe type forms, including Option
-    // and Some rather than the historical collection-only projection.
-    match vm.heap.class(class_id).name.as_str() {
-        "List" | "Set" | "Option" | "Some" => 1,
-        "Map" => 2,
-        _ => 0,
+    let class_name = vm.heap.class(class_id).name.as_str();
+    for spec in phalcom_native_meta::universe::UNIVERSE_TYPE_FORMS {
+        if spec.owner.name() == class_name {
+            return spec.parameters.len();
+        }
     }
+    0
 }
 
 fn behavior_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -1490,12 +1489,19 @@ fn descriptor_equivalent(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
 }
 
 fn descriptor_subtype(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let equivalent = descriptor_equivalent(vm, receiver, args)?.as_bool().unwrap_or(false);
-    alloc_variant(
-        vm,
-        if equivalent { "RelationSatisfied" } else { "RelationRejected" },
-        Some(Value::bool(equivalent)),
-    )
+    let (context, left) = descriptor_parts(receiver, vm)?;
+    let right_val = args.first().ok_or(RuntimeError::Arity {
+        signature: "subtypeOf(_)",
+        expected: 1,
+        found: args.len(),
+    })?;
+    let right = nominal_handle(vm, context, right_val)?;
+    let context_data = match &vm.heap.typing_object(context).payload {
+        TypingPayload::Context(data) => data,
+        _ => unreachable!(),
+    };
+    let is_sub = inspect::subtype(context_data, &vm.typing_registry, &vm.heap, left, right);
+    alloc_variant(vm, if is_sub { "RelationSatisfied" } else { "RelationRejected" }, Some(Value::bool(is_sub)))
 }
 
 // ---------------------------------------------------------------------------
@@ -2449,20 +2455,80 @@ fn typing_context_subtype(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
         TypingPayload::Context(data) => data,
         _ => unreachable!(),
     };
-    let eq = inspect::equivalent(context_data, &vm.typing_registry, left, right);
-    alloc_variant(vm, if eq { "RelationSatisfied" } else { "RelationRejected" }, Some(Value::bool(eq)))
+    let is_sub = inspect::subtype(context_data, &vm.typing_registry, &vm.heap, left, right);
+    alloc_variant(vm, if is_sub { "RelationSatisfied" } else { "RelationRejected" }, Some(Value::bool(is_sub)))
 }
 
 fn typing_context_assignable(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    typing_context_subtype(vm, receiver, args)
+    let context = context_ref(receiver, vm)?;
+    ensure_capability(vm, context, TypingCapability::EvaluateRelations)?;
+    let _left = nominal_handle(
+        vm,
+        context,
+        args.first().ok_or(RuntimeError::Arity {
+            signature: "assignable(_,_)",
+            expected: 2,
+            found: args.len(),
+        })?,
+    )?;
+    let _right = nominal_handle(
+        vm,
+        context,
+        args.get(1).ok_or(RuntimeError::Arity {
+            signature: "assignable(_,_)",
+            expected: 2,
+            found: args.len(),
+        })?,
+    )?;
+    alloc_unavailable(vm, "assignability_unavailable")
 }
 
 fn typing_context_consistent(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    typing_context_subtype(vm, receiver, args)
+    let context = context_ref(receiver, vm)?;
+    ensure_capability(vm, context, TypingCapability::EvaluateRelations)?;
+    let _left = nominal_handle(
+        vm,
+        context,
+        args.first().ok_or(RuntimeError::Arity {
+            signature: "consistent(_,_)",
+            expected: 2,
+            found: args.len(),
+        })?,
+    )?;
+    let _right = nominal_handle(
+        vm,
+        context,
+        args.get(1).ok_or(RuntimeError::Arity {
+            signature: "consistent(_,_)",
+            expected: 2,
+            found: args.len(),
+        })?,
+    )?;
+    alloc_unavailable(vm, "consistency_unavailable")
 }
 
 fn typing_context_conforms(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    typing_context_subtype(vm, receiver, args)
+    let context = context_ref(receiver, vm)?;
+    ensure_capability(vm, context, TypingCapability::EvaluateRelations)?;
+    let _left = nominal_handle(
+        vm,
+        context,
+        args.first().ok_or(RuntimeError::Arity {
+            signature: "conforms(_,_)",
+            expected: 2,
+            found: args.len(),
+        })?,
+    )?;
+    let _right = nominal_handle(
+        vm,
+        context,
+        args.get(1).ok_or(RuntimeError::Arity {
+            signature: "conforms(_,_)",
+            expected: 2,
+            found: args.len(),
+        })?,
+    )?;
+    alloc_unavailable(vm, "conformance_unavailable")
 }
 
 fn typing_context_member(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {

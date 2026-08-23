@@ -533,6 +533,95 @@ impl TypeStore {
             }
         }
     }
+
+    /// Formats a canonical TypeId into human-readable type syntax.
+    pub fn format_type(&self, ty: TypeId) -> String {
+        match self.get(ty) {
+            TypeData::Never => "Never".to_string(),
+            TypeData::Unit => "Unit".to_string(),
+            TypeData::ClassObject { declaration } => format!("class {}", declaration.name),
+            TypeData::Nominal { declaration } => declaration.name.to_string(),
+            TypeData::Applied { origin, arguments } => {
+                let orig_str = self.format_type(*origin);
+                let args_str = arguments
+                    .iter()
+                    .map(|&arg| self.format_type(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{orig_str}<{args_str}>")
+            }
+            TypeData::Union(types) => types
+                .iter()
+                .map(|&t| self.format_type(t))
+                .collect::<Vec<_>>()
+                .join(" | "),
+            TypeData::Tuple(elements) => {
+                let elems = elements
+                    .iter()
+                    .map(|elem| {
+                        let t_str = self.format_type(elem.ty);
+                        if let Some(ref l) = elem.label {
+                            format!("{l}: {t_str}")
+                        } else {
+                            t_str
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({elems})")
+            }
+            TypeData::Record(row_id) => {
+                let row = &self.row_arena[row_id.index()];
+                let fields = row
+                    .fields
+                    .iter()
+                    .map(|f| format!("{}: {}", f.name, self.format_type(f.ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                match row.tail {
+                    RecordRowTail::Closed => format!("{{{fields}}}"),
+                    RecordRowTail::Parameter(p) => {
+                        let p_name = &self.type_parameters[p.index()].name;
+                        if fields.is_empty() {
+                            format!("{{..{p_name}}}")
+                        } else {
+                            format!("{{{fields}, ..{p_name}}}")
+                        }
+                    }
+                }
+            }
+            TypeData::Callable(callable) => {
+                let params = callable
+                    .parameters
+                    .iter()
+                    .map(|p| {
+                        let t_str = self.format_type(p.ty);
+                        let prefix = if p.rest { "..." } else { "" };
+                        if let Some(ref l) = p.label {
+                            format!("{prefix}{l}: {t_str}")
+                        } else {
+                            format!("{prefix}{t_str}")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let ret = self.format_type(callable.return_type);
+                format!("({params}) -> {ret}")
+            }
+            TypeData::Parameter(param_id) => self.type_parameters[param_id.index()].name.to_string(),
+            TypeData::Lambda(_) => "[TypeLambda]".to_string(),
+            TypeData::SelfType(_) => "Self".to_string(),
+        }
+    }
+
+    /// Formats TypeKnowledge into human-readable type syntax.
+    pub fn format_knowledge(&self, knowledge: &crate::types::evidence::TypeKnowledge) -> String {
+        match knowledge {
+            crate::types::evidence::TypeKnowledge::Known(ev) => self.format_type(ev.ty),
+            crate::types::evidence::TypeKnowledge::Dynamic(_) => "Dynamic".to_string(),
+            crate::types::evidence::TypeKnowledge::Unknown(_) => "Unknown".to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

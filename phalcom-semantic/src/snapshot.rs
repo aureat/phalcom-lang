@@ -80,6 +80,47 @@ impl SemanticSnapshot {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_callable_analyses(
+        generation: u64,
+        store: Arc<TypeStore>,
+        sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
+        surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
+        dispatch: Arc<SurfaceDispatchResolver>,
+        callable_signatures: Arc<CallableSignatureTable>,
+        declarations: Arc<DeclarationTypeTable>,
+        hierarchy: Arc<MapTypeHierarchy>,
+        diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
+        semantic_graph: Arc<SemanticGraph>,
+        callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    ) -> Self {
+        let store_id = store.id();
+        let id = SnapshotId::new(WorkspaceId::from_raw(1), SemanticRevision::from_raw(generation), store_id);
+        Self {
+            id,
+            generation,
+            store,
+            sources,
+            surfaces,
+            dispatch,
+            callable_signatures,
+            declarations,
+            hierarchy,
+            diagnostics,
+            semantic_graph,
+            callable_analyses,
+            status: SnapshotStatus::Complete,
+        }
+    }
+
+    pub fn with_callable_analyses(
+        mut self,
+        callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    ) -> Self {
+        self.callable_analyses = callable_analyses;
+        self
+    }
+
     pub fn id(&self) -> SnapshotId {
         self.id
     }

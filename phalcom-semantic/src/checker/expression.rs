@@ -1,15 +1,18 @@
-//! Expression type synthesis and message-based inference engine.
+//! Expression type synthesis, bidirectional checking, and inference engine (Spec 04.5 / Wave 3).
 
-use super::call::match_callable_arguments;
+use super::call::resolve_call;
 use super::context::CheckingContext;
+use super::expected::ExpectedType;
+use super::flow::FlowState;
+use super::policy::enforce_assignability;
 use super::statement::check_statement;
 use super::typed_expr::TypedExpression;
-use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::dispatch::DispatchResult;
+use crate::checker::analysis::AnalysisStatus;
+use crate::diagnostic::DiagnosticCode;
+use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult};
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge, UnknownReason};
 use crate::types::id::KindId;
-use crate::types::relation::{Assignability, check_assignability};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     BinaryExpr, BinaryOp, Expr, GetPropertyExpr, IndexExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern,
@@ -18,35 +21,103 @@ use phalcom_ast::ast::{
 };
 use phalcom_common::selector::{Selector, SelectorSlot};
 
+/// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
+pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    let expr_id = ctx.alloc_expression_id();
+    let typed = analyze_expression_inner(ctx, expr, expected);
+
+    let status = if let Some(_diag) = ctx
+        .diagnostics
+        .iter()
+        .find(|d| d.primary.range == expr.range() && d.severity == crate::diagnostic::DiagnosticSeverity::Error)
+    {
+        let cause_id = crate::identity::DiagnosticCauseId(expr_id.local.0);
+        ctx.mark_suppressed(expr_id, cause_id);
+        AnalysisStatus::Invalid(cause_id)
+    } else if typed.knowledge.is_dynamic() {
+        AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection)
+    } else {
+        AnalysisStatus::Ready
+    };
+
+    let explanation_id = if let Some(ty) = typed.knowledge.ty() {
+        let step = match expr {
+            Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } => {
+                crate::explain::ExplanationStep::Literal {
+                    expression: expr_id,
+                    ty,
+                }
+            }
+            Expr::MethodCall(call) => {
+                let sel = Selector::getter(&call.method)
+                    .or_else(|_| Selector::method(&call.method, vec![]))
+                    .unwrap_or_else(|_| Selector::getter("unknown").unwrap());
+                let callable = crate::identity::CallableId::new(
+                    ctx.current_class.clone().unwrap_or_else(|| crate::identity::DeclarationId::new(ctx.current_module.clone(), "Unknown".into())),
+                    sel,
+                    ctx.current_side,
+                );
+                crate::explain::ExplanationStep::MethodCall {
+                    call: expr_id,
+                    callable,
+                    return_ty: ty,
+                }
+            }
+            _ => crate::explain::ExplanationStep::Literal {
+                expression: expr_id,
+                ty,
+            },
+        };
+        let rule = step.derivation_rule();
+        let ev = vec![crate::explain::EvidenceRef::SourceSpan(expr.range()), crate::explain::EvidenceRef::TypeId(ty)];
+        Some(ctx.record_derivation(step, rule, crate::types::evidence::EvidenceAuthority::Proven, ev, Vec::new()))
+    } else {
+        None
+    };
+
+    let mut analysis = ctx.record_expression(expr_id, expr.range(), typed.knowledge.clone(), typed.denotation, status);
+    if let Some(eid) = explanation_id {
+        analysis.explanation = Some(eid);
+        ctx.expressions.insert(expr_id, analysis);
+    }
+    typed
+}
+
 /// Bidirectionally checks an expression against an expected type.
-pub fn check_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &super::expected::ExpectedType) -> TypeKnowledge {
+pub fn check_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypeKnowledge {
     check_typed_expr(ctx, expr, expected).knowledge
 }
 
-/// Bidirectionally checks a typed expression against an expected type.
-pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &super::expected::ExpectedType) -> TypedExpression {
-    let typed = synthesize_typed_expr(ctx, expr);
+/// Bidirectionally checks a typed expression against an expected type, recording a TypeMismatch diagnostic on refutation.
+pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    let typed = analyze_expression(ctx, expr, expected);
     if let Some(expected_ty) = expected.ty() {
         let expected_k = TypeKnowledge::known(expected_ty, EvidenceAuthority::Declared);
-        let assignability = check_assignability(ctx.store, ctx.hierarchy, &typed.knowledge, &expected_k);
-        if let Assignability::Refuted { .. } = assignability {
-            ctx.diagnostics.push(SemanticDiagnostic::error(
-                DiagnosticCode::TypeMismatch,
-                "expression does not match expected type",
-                expr.range(),
-            ));
-        }
+        let _ = enforce_assignability(
+            ctx.store,
+            ctx.hierarchy,
+            &typed.knowledge,
+            &expected_k,
+            DiagnosticCode::TypeMismatch,
+            "expression does not match expected type",
+            expr.range(),
+            &mut ctx.diagnostics,
+        );
     }
     typed
 }
 
 /// Synthesizes epistemic type knowledge for an expression.
 pub fn synthesize_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> TypeKnowledge {
-    synthesize_typed_expr(ctx, expr).knowledge
+    analyze_expression(ctx, expr, &ExpectedType::None).knowledge
 }
 
 /// Synthesizes a full [`TypedExpression`] with type knowledge, constraints, and provenance.
 pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> TypedExpression {
+    analyze_expression(ctx, expr, &ExpectedType::None)
+}
+
+fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
     match expr {
         // --- 1. Primitive Literals ---
         Expr::Int { range, .. } => {
@@ -155,37 +226,54 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
 
         // --- 3. Assignments ---
         Expr::Assignment(assign) => {
-            let val_typed = synthesize_typed_expr(ctx, &assign.value);
+            let target_expected = if let Expr::Var { value: var_name, .. } = &*assign.name {
+                if let Some(info) = ctx.lookup_binding_info(var_name) {
+                    info.declared
+                        .map(ExpectedType::Proper)
+                        .or_else(|| ctx.flow.get_current_type(info.id).and_then(|k| k.ty()).map(ExpectedType::Proper))
+                        .unwrap_or_default()
+                } else {
+                    ExpectedType::None
+                }
+            } else {
+                ExpectedType::None
+            };
+
+            let val_typed = analyze_expression(ctx, &assign.value, &target_expected);
             let val_k = &val_typed.knowledge;
             if let Expr::Var { value: var_name, .. } = &*assign.name {
                 if let Some(target_fact) = ctx.lookup_local(var_name).cloned() {
-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, val_k, &target_fact.knowledge);
-                    if let Assignability::Refuted { .. } = assignability {
-                        ctx.diagnostics.push(SemanticDiagnostic::error(
-                            DiagnosticCode::AssignmentMismatch,
-                            format!("assigned value is not assignable to `{}`", var_name),
-                            assign.range,
-                        ));
-                    }
+                    enforce_assignability(
+                        ctx.store,
+                        ctx.hierarchy,
+                        val_k,
+                        &target_fact.knowledge,
+                        DiagnosticCode::AssignmentMismatch,
+                        format!("assigned value is not assignable to `{}`", var_name),
+                        assign.range,
+                        &mut ctx.diagnostics,
+                    );
                 }
                 ctx.assign_existing(var_name, val_typed.fact());
             }
             TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, assign.range)
         }
 
-        // --- 4. Collections and Product Types ---
-        Expr::ListLiteral(list) => synthesize_list_literal(ctx, list),
-        Expr::SetLiteral(set) => synthesize_set_literal(ctx, set),
-        Expr::MapLiteral(map) => synthesize_map_literal(ctx, map),
-        Expr::TupleLiteral(tup) => synthesize_tuple_literal(ctx, tup),
-        Expr::RecordLiteral(rec) => synthesize_record_literal(ctx, rec),
+        // --- 4. Collections and Product Types (with Bidirectional Propagation) ---
+        Expr::ListLiteral(list) => synthesize_list_literal(ctx, list, expected),
+        Expr::SetLiteral(set) => synthesize_set_literal(ctx, set, expected),
+        Expr::MapLiteral(map) => synthesize_map_literal(ctx, map, expected),
+        Expr::TupleLiteral(tup) => synthesize_tuple_literal(ctx, tup, expected),
+        Expr::RecordLiteral(rec) => synthesize_record_literal(ctx, rec, expected),
 
         // --- 5. Blocks and Control Flow ---
         Expr::Block(block) => {
             ctx.push_scope();
+            let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
+
             let mut params = Vec::new();
-            for p in &block.params.fixed {
-                let p_ty = ctx.store.unit();
+            for (i, p) in block.params.fixed.iter().enumerate() {
+                let p_ty = expected_params.get(i).and_then(|e| e.ty()).unwrap_or_else(|| ctx.store.unit());
                 let p_k = TypeKnowledge::known(p_ty, EvidenceAuthority::ExactSyntax);
                 ctx.bind_local(p.name.clone(), ValueSemanticFact::new(p_k));
                 params.push(crate::types::store::CallableParameterType {
@@ -210,10 +298,10 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
                 if i == len - 1 {
                     match stmt {
                         Statement::Expr { expr, .. } => {
-                            tail_typed = synthesize_typed_expr(ctx, expr);
+                            tail_typed = analyze_expression(ctx, expr, &expected_ret);
                         }
                         Statement::Throw { expr, .. } => {
-                            synthesize_expr(ctx, expr);
+                            analyze_expression(ctx, expr, &ExpectedType::None);
                             tail_typed = TypedExpression::known(ctx.store.never(), EvidenceAuthority::ExactSyntax, block.range);
                         }
                         _ => {
@@ -235,20 +323,30 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
             TypedExpression::known(callable_ty, EvidenceAuthority::ExactSyntax, block.range)
         }
         Expr::IfLet(if_let) => {
-            let val_typed = synthesize_typed_expr(ctx, &if_let.value);
+            let val_typed = analyze_expression(ctx, &if_let.value, &ExpectedType::None);
+            let flow_before = ctx.flow.clone();
+
             ctx.push_scope();
             bind_pattern(ctx, &if_let.pattern, val_typed.fact());
-            let then_typed = synthesize_typed_expr(ctx, &Expr::Block(Box::new(if_let.then_body.clone())));
+            let then_typed = analyze_expression(ctx, &Expr::Block(Box::new(if_let.then_body.clone())), expected);
+            let then_flow = ctx.flow.clone();
             ctx.pop_scope();
 
-            let else_typed = if let Some(ref else_body) = if_let.else_body {
+            let (else_typed, else_flow) = if let Some(ref else_body) = if_let.else_body {
+                ctx.flow = flow_before.clone();
                 ctx.push_scope();
-                let typed = synthesize_typed_expr(ctx, &Expr::Block(Box::new(else_body.clone())));
+                let typed = analyze_expression(ctx, &Expr::Block(Box::new(else_body.clone())), expected);
+                let f = ctx.flow.clone();
                 ctx.pop_scope();
-                typed
+                (typed, f)
             } else {
-                TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, if_let.range)
+                (
+                    TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, if_let.range),
+                    flow_before,
+                )
             };
+
+            ctx.flow = FlowState::join(&[then_flow, else_flow], ctx.store);
 
             let combined_ty = match (then_typed.knowledge.ty(), else_typed.knowledge.ty()) {
                 (Some(t1), Some(t2)) => ctx.store.union(&[t1, t2]),
@@ -265,7 +363,7 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
             res
         }
         Expr::WhileLet(while_let) => {
-            let val_typed = synthesize_typed_expr(ctx, &while_let.value);
+            let val_typed = analyze_expression(ctx, &while_let.value, &ExpectedType::None);
             ctx.push_scope();
             bind_pattern(ctx, &while_let.pattern, val_typed.fact());
             for stmt in &while_let.body {
@@ -275,9 +373,9 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
             TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, while_let.range)
         }
 
-        // --- 6. Message Sends and Invocations ---
-        Expr::MethodCall(call) => synthesize_method_call(ctx, call),
-        Expr::UnqualifiedCall(call) => synthesize_unqualified_call(ctx, call),
+        // --- 6. Message Sends and Invocations (Canonical Resolution E5) ---
+        Expr::MethodCall(call) => synthesize_method_call(ctx, call, expected),
+        Expr::UnqualifiedCall(call) => synthesize_unqualified_call(ctx, call, expected),
         Expr::Binary(binary) => synthesize_binary_expr(ctx, binary),
         Expr::Unary(unary) => synthesize_unary_expr(ctx, unary),
 
@@ -290,7 +388,7 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         // --- 8. Miscellaneous Expressions ---
         Expr::ComparisonChain(chain) => {
             for op in &chain.operands {
-                synthesize_expr(ctx, op);
+                analyze_expression(ctx, op, &ExpectedType::None);
             }
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
                 let ty = ctx.nominal_type_of(&decl);
@@ -300,8 +398,8 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
             }
         }
         Expr::Membership(m) => {
-            synthesize_expr(ctx, &m.left);
-            synthesize_expr(ctx, &m.right);
+            analyze_expression(ctx, &m.left, &ExpectedType::None);
+            analyze_expression(ctx, &m.right, &ExpectedType::None);
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::Proven, m.range)
@@ -310,8 +408,8 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
             }
         }
         Expr::IsMembership(m) => {
-            synthesize_expr(ctx, &m.left);
-            synthesize_expr(ctx, &m.candidates);
+            analyze_expression(ctx, &m.left, &ExpectedType::None);
+            analyze_expression(ctx, &m.candidates, &ExpectedType::None);
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::Proven, m.range)
@@ -321,10 +419,10 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
         }
         Expr::Range(r) => {
             if let Some(ref lower) = r.lower {
-                synthesize_expr(ctx, lower);
+                analyze_expression(ctx, lower, &ExpectedType::None);
             }
             if let Some(ref upper) = r.upper {
-                synthesize_expr(ctx, upper);
+                analyze_expression(ctx, upper, &ExpectedType::None);
             }
             if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Object", &[]) {
                 let ty = ctx.nominal_type_of(&decl);
@@ -354,25 +452,30 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
     }
 }
 
-fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr) -> TypedExpression {
+fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let list_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]);
+    let expected_elem = expected.collection_element_type(ctx.store);
     let mut elem_tys = Vec::new();
 
     for el in &list.elements {
         match el {
             ListLiteralElement::Element { expr, .. } => {
-                let k = synthesize_expr(ctx, expr);
-                if let Some(ty) = k.ty() {
+                let k = analyze_expression(ctx, expr, &expected_elem);
+                if let Some(ty) = k.knowledge.ty() {
                     elem_tys.push(ty);
                 }
             }
             ListLiteralElement::Expansion { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
         }
     }
 
-    let elem_ty = if elem_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&elem_tys) };
+    let elem_ty = if elem_tys.is_empty() {
+        expected_elem.ty().unwrap_or_else(|| ctx.store.never())
+    } else {
+        ctx.store.union(&elem_tys)
+    };
 
     if let Some(decl) = list_decl {
         let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
@@ -387,25 +490,30 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
     }
 }
 
-fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr) -> TypedExpression {
+fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let set_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Set", &[]);
+    let expected_elem = expected.collection_element_type(ctx.store);
     let mut elem_tys = Vec::new();
 
     for el in &set.entries {
         match el {
             SetLiteralEntry::Element { expr, .. } => {
-                let k = synthesize_expr(ctx, expr);
-                if let Some(ty) = k.ty() {
+                let k = analyze_expression(ctx, expr, &expected_elem);
+                if let Some(ty) = k.knowledge.ty() {
                     elem_tys.push(ty);
                 }
             }
             SetLiteralEntry::Expansion { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
         }
     }
 
-    let elem_ty = if elem_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&elem_tys) };
+    let elem_ty = if elem_tys.is_empty() {
+        expected_elem.ty().unwrap_or_else(|| ctx.store.never())
+    } else {
+        ctx.store.union(&elem_tys)
+    };
 
     if let Some(decl) = set_decl {
         let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
@@ -420,9 +528,10 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
     }
 }
 
-fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr) -> TypedExpression {
+fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let map_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Map", &[]);
     let string_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]);
+    let (expected_key, expected_val) = expected.map_key_val_types(ctx.store);
     let mut key_tys = Vec::new();
     let mut val_tys = Vec::new();
 
@@ -431,25 +540,33 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
             MapLiteralEntry::Association { key, value, .. } => {
                 let key_ty = match key {
                     MapLiteralKey::BareSymbol { .. } => string_decl.as_ref().map(|d| ctx.nominal_type_of(d)),
-                    MapLiteralKey::Computed { expr, .. } => synthesize_expr(ctx, expr).ty(),
+                    MapLiteralKey::Computed { expr, .. } => analyze_expression(ctx, expr, &expected_key).knowledge.ty(),
                 };
                 if let Some(kt) = key_ty {
                     key_tys.push(kt);
                 }
-                let val_k = synthesize_expr(ctx, value);
-                if let Some(vt) = val_k.ty() {
+                let val_k = analyze_expression(ctx, value, &expected_val);
+                if let Some(vt) = val_k.knowledge.ty() {
                     val_tys.push(vt);
                 }
             }
             MapLiteralEntry::Expansion { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
         }
     }
 
-    let key_ty = if key_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&key_tys) };
+    let key_ty = if key_tys.is_empty() {
+        expected_key.ty().unwrap_or_else(|| ctx.store.never())
+    } else {
+        ctx.store.union(&key_tys)
+    };
 
-    let val_ty = if val_tys.is_empty() { ctx.store.never() } else { ctx.store.union(&val_tys) };
+    let val_ty = if val_tys.is_empty() {
+        expected_val.ty().unwrap_or_else(|| ctx.store.never())
+    } else {
+        ctx.store.union(&val_tys)
+    };
 
     if let Some(decl) = map_decl {
         let k = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
@@ -464,19 +581,19 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     }
 }
 
-fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::ast::TupleLiteralExpr) -> TypedExpression {
+fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::ast::TupleLiteralExpr, _expected: &ExpectedType) -> TypedExpression {
     let mut elements = Vec::new();
 
     for entry in &tup.entries {
         match entry {
             TupleLiteralEntry::Positional { expr, .. } => {
-                let k = synthesize_expr(ctx, expr);
-                let ty = k.ty().unwrap_or_else(|| ctx.store.unit());
+                let k = analyze_expression(ctx, expr, &ExpectedType::None);
+                let ty = k.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
                 elements.push(TupleTypeElement { label: None, ty });
             }
             TupleLiteralEntry::Labeled { label, value, .. } => {
-                let k = synthesize_expr(ctx, value);
-                let ty = k.ty().unwrap_or_else(|| ctx.store.unit());
+                let k = analyze_expression(ctx, value, &ExpectedType::None);
+                let ty = k.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
                 let label_name = match label {
                     ProductLabel::Static { symbol, .. } => match symbol {
                         SymbolLiteralKind::Name(n) => Some(n.clone().into_boxed_str()),
@@ -488,7 +605,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                 elements.push(TupleTypeElement { label: label_name, ty });
             }
             TupleLiteralEntry::Expand { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
         }
     }
@@ -497,14 +614,14 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
     TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, tup.range)
 }
 
-fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr) -> TypedExpression {
+fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr, _expected: &ExpectedType) -> TypedExpression {
     let mut fields = Vec::new();
 
     for entry in &rec.entries {
         match entry {
             RecordLiteralEntry::Field(f) => {
-                let k = synthesize_expr(ctx, &f.value);
-                let ty = k.ty().unwrap_or_else(|| ctx.store.unit());
+                let k = analyze_expression(ctx, &f.value, &ExpectedType::None);
+                let ty = k.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
                 let name = match &f.label {
                     ProductLabel::Static { symbol, .. } => match symbol {
                         SymbolLiteralKind::Name(n) => n.clone(),
@@ -519,7 +636,7 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                 });
             }
             RecordLiteralEntry::Expansion { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
         }
     }
@@ -529,11 +646,11 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
 }
 
 // ---------------------------------------------------------------------------
-// Message Send and Invocation Synthesis
+// Message Send and Invocation Synthesis (E5)
 // ---------------------------------------------------------------------------
 
-fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) -> TypedExpression {
-    let recv_typed = synthesize_typed_expr(ctx, &call.object);
+fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> TypedExpression {
+    let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
 
     // Build selector from method name + pack items
@@ -560,7 +677,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) 
         let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
         match dispatch_res {
             DispatchResult::Found(sig) => {
-                let ret_k = match_callable_arguments(ctx, &call.args, &sig, call.range);
+                let ret_k = resolve_call(ctx, &sig, &call.args, expected, call.range);
                 return TypedExpression::new(ret_k);
             }
             DispatchResult::Dynamic => {
@@ -577,12 +694,27 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr) 
     }
 }
 
-fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr) -> TypedExpression {
+fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
     // 1. Local callable variable lookup
     if let Some(fact) = ctx.lookup_local(&call.name).cloned() {
         if let Some(ty) = fact.knowledge.ty() {
             if let TypeData::Callable(c) = ctx.store.get(ty).clone() {
-                return TypedExpression::known(c.return_type, EvidenceAuthority::Proven, call.range);
+                let mut params = Vec::new();
+                for p in c.parameters.iter() {
+                    let mut param = CallableParameter::new("p", TypeKnowledge::known(p.ty, EvidenceAuthority::Declared));
+                    if let Some(ref l) = p.label {
+                        param = param.with_label(l.to_string());
+                    }
+                    param = param.with_rest(p.rest);
+                    params.push(param);
+                }
+                let sig = CallableSignature::new(
+                    Selector::method(&call.name, vec![]).unwrap_or_else(|_| Selector::getter(&call.name).unwrap()),
+                    params,
+                    TypeKnowledge::known(c.return_type, EvidenceAuthority::Proven),
+                );
+                let ret_k = resolve_call(ctx, &sig, &call.args, expected, call.range);
+                return TypedExpression::new(ret_k);
             }
         }
         let mut typed = TypedExpression::new(fact.knowledge);
@@ -592,14 +724,14 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
 
     // 2. Dispatch send on `self` if inside a class
     if let Some(ref class_decl) = ctx.current_class.clone() {
-        let (class_ty, _side) = if ctx.current_side == crate::identity::DispatchSide::Class {
+        let class_ty = if ctx.current_side == crate::identity::DispatchSide::Class {
             if let Some(info) = ctx.declarations.get(class_decl) {
-                (info.class_object_type, crate::identity::DispatchSide::Class)
+                info.class_object_type
             } else {
-                (ctx.nominal_type_of(class_decl), crate::identity::DispatchSide::Class)
+                ctx.nominal_type_of(class_decl)
             }
         } else {
-            (ctx.nominal_type_of(class_decl), crate::identity::DispatchSide::Instance)
+            ctx.nominal_type_of(class_decl)
         };
         let mut slots = Vec::new();
         for arg in &call.args {
@@ -618,7 +750,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         if let Ok(sel) = Selector::method(&call.name, slots) {
             let dispatch_res = ctx.resolve_dispatch(class_ty, &sel, crate::dispatch::DispatchLookup::Normal);
             if let DispatchResult::Found(sig) = dispatch_res {
-                let ret_k = match_callable_arguments(ctx, &call.args, &sig, call.range);
+                let ret_k = resolve_call(ctx, &sig, &call.args, expected, call.range);
                 return TypedExpression::new(ret_k);
             }
         }
@@ -633,17 +765,17 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                 for arg in &call.args {
                     match arg {
                         PackItem::Positional { expr, .. } => {
-                            let k = synthesize_expr(ctx, expr);
-                            let t = k.ty().unwrap_or_else(|| ctx.store.never());
+                            let k = analyze_expression(ctx, expr, &ExpectedType::None);
+                            let t = k.knowledge.ty().unwrap_or_else(|| ctx.store.never());
                             arg_tys.push(t);
                         }
                         PackItem::Labeled { value, .. } => {
-                            let k = synthesize_expr(ctx, value);
-                            let t = k.ty().unwrap_or_else(|| ctx.store.never());
+                            let k = analyze_expression(ctx, value, &ExpectedType::None);
+                            let t = k.knowledge.ty().unwrap_or_else(|| ctx.store.never());
                             arg_tys.push(t);
                         }
                         PackItem::Expand { expr, .. } => {
-                            synthesize_expr(ctx, expr);
+                            analyze_expression(ctx, expr, &ExpectedType::None);
                         }
                     }
                 }
@@ -664,9 +796,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
 }
 
 fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) -> TypedExpression {
-    let left_typed = synthesize_typed_expr(ctx, &binary.left);
+    let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
     let left_k = &left_typed.knowledge;
-    let right_k = synthesize_expr(ctx, &binary.right);
+    let right_k = analyze_expression(ctx, &binary.right, &ExpectedType::None).knowledge;
 
     let op_name = match binary.op {
         BinaryOp::Add => "+",
@@ -710,7 +842,7 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
 }
 
 fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> TypedExpression {
-    let operand_typed = synthesize_typed_expr(ctx, &unary.expr);
+    let operand_typed = analyze_expression(ctx, &unary.expr, &ExpectedType::None);
     let operand_k = &operand_typed.knowledge;
 
     let op_name = match unary.op {
@@ -737,7 +869,7 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> Ty
 }
 
 fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr) -> TypedExpression {
-    let recv_typed = synthesize_typed_expr(ctx, &get.object);
+    let recv_typed = analyze_expression(ctx, &get.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
 
     if let Some(recv_ty) = recv_k.ty() {
@@ -774,9 +906,10 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
 }
 
 fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr) -> TypedExpression {
-    let recv_typed = synthesize_typed_expr(ctx, &set.object);
+    let recv_typed = analyze_expression(ctx, &set.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
-    let val_k = synthesize_expr(ctx, &set.value);
+    let val_typed = analyze_expression(ctx, &set.value, &ExpectedType::None);
+    let val_k = val_typed.knowledge;
 
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check field
@@ -792,14 +925,16 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
             _ => None,
         };
         if let Some(field_k) = field_opt {
-            let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, field_k);
-            if let Assignability::Refuted { .. } = assignability {
-                ctx.diagnostics.push(SemanticDiagnostic::error(
-                    DiagnosticCode::FieldMismatch,
-                    format!("assigned value does not match field `{}` type", set.property),
-                    set.range,
-                ));
-            }
+            enforce_assignability(
+                ctx.store,
+                ctx.hierarchy,
+                &val_k,
+                field_k,
+                DiagnosticCode::FieldMismatch,
+                format!("assigned value does not match field `{}` type", set.property),
+                set.range,
+                &mut ctx.diagnostics,
+            );
             return TypedExpression::new(val_k);
         }
 
@@ -808,14 +943,16 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
             let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
                 if let Some(param) = sig.parameters.first() {
-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, &param.ty);
-                    if let Assignability::Refuted { .. } = assignability {
-                        ctx.diagnostics.push(SemanticDiagnostic::error(
-                            DiagnosticCode::AssignmentMismatch,
-                            format!("assigned value does not match setter `{}=` parameter type", set.property),
-                            set.range,
-                        ));
-                    }
+                    enforce_assignability(
+                        ctx.store,
+                        ctx.hierarchy,
+                        &val_k,
+                        &param.ty,
+                        DiagnosticCode::AssignmentMismatch,
+                        format!("assigned value does not match setter `{}=` parameter type", set.property),
+                        set.range,
+                        &mut ctx.diagnostics,
+                    );
                 }
                 return TypedExpression::new(val_k);
             }
@@ -826,19 +963,19 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
 }
 
 fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> TypedExpression {
-    let recv_typed = synthesize_typed_expr(ctx, &idx.object);
+    let recv_typed = analyze_expression(ctx, &idx.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
 
     for arg in &idx.args {
         match arg {
             PackItem::Positional { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
             PackItem::Labeled { value, .. } => {
-                synthesize_expr(ctx, value);
+                analyze_expression(ctx, value, &ExpectedType::None);
             }
             PackItem::Expand { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
         }
     }
@@ -888,20 +1025,21 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
 }
 
 fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexExpr) -> TypedExpression {
-    let recv_typed = synthesize_typed_expr(ctx, &set_idx.object);
+    let recv_typed = analyze_expression(ctx, &set_idx.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
-    let val_k = synthesize_expr(ctx, &set_idx.value);
+    let val_typed = analyze_expression(ctx, &set_idx.value, &ExpectedType::None);
+    let val_k = val_typed.knowledge;
 
     for arg in &set_idx.args {
         match arg {
             PackItem::Positional { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
             PackItem::Labeled { value, .. } => {
-                synthesize_expr(ctx, value);
+                analyze_expression(ctx, value, &ExpectedType::None);
             }
             PackItem::Expand { expr, .. } => {
-                synthesize_expr(ctx, expr);
+                analyze_expression(ctx, expr, &ExpectedType::None);
             }
         }
     }
@@ -911,14 +1049,16 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
             if let Some(list_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]) {
                 if origin == ctx.nominal_type_of(&list_decl) && arguments.len() == 1 {
                     let elem_k = TypeKnowledge::known(arguments[0], EvidenceAuthority::Declared);
-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, &elem_k);
-                    if let Assignability::Refuted { .. } = assignability {
-                        ctx.diagnostics.push(SemanticDiagnostic::error(
-                            DiagnosticCode::AssignmentMismatch,
-                            "value assigned to List index does not match element type",
-                            set_idx.range,
-                        ));
-                    }
+                    enforce_assignability(
+                        ctx.store,
+                        ctx.hierarchy,
+                        &val_k,
+                        &elem_k,
+                        DiagnosticCode::AssignmentMismatch,
+                        "value assigned to List index does not match element type",
+                        set_idx.range,
+                        &mut ctx.diagnostics,
+                    );
                     return TypedExpression::new(val_k);
                 }
             }

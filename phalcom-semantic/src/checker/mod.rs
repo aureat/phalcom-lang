@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod body;
 pub mod call;
 pub mod context;
 pub mod declaration;
@@ -6,16 +7,22 @@ pub mod expected;
 pub mod expression;
 pub mod flow;
 pub mod inference;
+pub mod policy;
 pub mod result;
 pub mod statement;
 pub mod typed_expr;
 
-pub use analysis::{AnalysisStatus, BindingAnalysisIndex, BindingState, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
-pub use call::{check_arguments, match_callable_arguments};
+pub use analysis::{
+    AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis,
+    ExpressionAnalysisIndex, FlowStateSummary,
+};
+pub use body::analyze_callable_body;
+pub use call::{check_arguments, match_callable_arguments, resolve_call};
 pub use context::CheckingContext;
 pub use declaration::{check_class, check_class_bodies, register_class_surface};
 pub use expected::ExpectedType;
-pub use expression::{check_expr, check_typed_expr, synthesize_expr, synthesize_typed_expr};
+pub use expression::{analyze_expression, check_expr, check_typed_expr, synthesize_expr, synthesize_typed_expr};
+pub use policy::{enforce_assignability, handle_relation_outcome};
 
 pub use flow::FlowState;
 pub use inference::{InferenceOutcome, InferenceSession, InferenceTerm};

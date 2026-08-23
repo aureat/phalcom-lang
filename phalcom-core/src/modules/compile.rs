@@ -265,14 +265,6 @@ impl ProgramAnalyzer {
                     generation: 0,
                 });
 
-                if analysis.snapshot.has_errors() {
-                    let mut by_module = BTreeMap::new();
-                    for (m, d) in analysis.snapshot.diagnostics.iter() {
-                        by_module.insert(m.clone(), d.to_vec());
-                    }
-                    return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
-                }
-
                 Ok(AnalyzedProgram {
                     project_universe: universe,
                     linked,
@@ -362,14 +354,6 @@ impl ProgramAnalyzer {
             generation: 0,
         });
 
-        if analysis.snapshot.has_errors() {
-            let mut by_module = BTreeMap::new();
-            for (m, d) in analysis.snapshot.diagnostics.iter() {
-                by_module.insert(m.clone(), d.to_vec());
-            }
-            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
-        }
-
         Ok(AnalyzedProgram {
             project_universe: universe,
             linked,
@@ -442,14 +426,6 @@ impl ProgramAnalyzer {
             generation: 0,
         });
 
-        if analysis.snapshot.has_errors() {
-            let mut by_module = BTreeMap::new();
-            for (m, d) in analysis.snapshot.diagnostics.iter() {
-                by_module.insert(m.clone(), d.to_vec());
-            }
-            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
-        }
-
         Ok(AnalyzedProgram {
             project_universe: universe,
             linked,
@@ -466,6 +442,14 @@ pub struct ProgramCompiler;
 impl ProgramCompiler {
     /// Compiles an analyzed program into a fully linked `CompiledProgram`.
     pub fn compile_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+        if analyzed.semantic.has_errors() {
+            let mut by_module = BTreeMap::new();
+            for (m, d) in analyzed.semantic.diagnostics.iter() {
+                by_module.insert(m.clone(), d.to_vec());
+            }
+            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics { by_module }));
+        }
+
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
             let (source, source_text) = if let Some(parsed_unit) = analyzed.sources.get(id) {

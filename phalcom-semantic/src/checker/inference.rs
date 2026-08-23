@@ -4,7 +4,7 @@
 //! never interned into canonical TypeStore or published in snapshots.
 
 use crate::identity::{CallableId, ExplanationId, ExpressionId, InferVarId};
-use crate::types::id::{KindId, TypeId};
+use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
@@ -142,12 +142,18 @@ impl InferenceOutcome {
     }
 }
 
+use crate::types::parameter::{GenericSignature, TypeTerm};
+
 /// Solver-local inference session.
 #[derive(Clone, Debug, Default)]
 pub struct InferenceSession {
     variables: Vec<InferenceVariable>,
     constraints: Vec<InferenceConstraint>,
     substitutions: HashMap<InferVarId, TypeId>,
+    lower_bounds: HashMap<InferVarId, Vec<TypeId>>,
+    upper_bounds: HashMap<InferVarId, Vec<TypeId>>,
+    var_aliases: HashMap<InferVarId, InferVarId>,
+    var_terms: HashMap<InferVarId, InferenceTerm>,
     next_var_index: u32,
 }
 
@@ -168,38 +174,208 @@ impl InferenceSession {
         var
     }
 
+    /// Finds the canonical representative variable for `v`.
+    pub fn find_var(&self, mut v: InferVarId) -> InferVarId {
+        while let Some(&next) = self.var_aliases.get(&v) {
+            if next == v {
+                break;
+            }
+            v = next;
+        }
+        v
+    }
+
     /// Adds a constraint to the session.
     pub fn add_constraint(&mut self, relation: InferenceRelation, origin: ConstraintOrigin, explanation: Option<ExplanationId>) {
         self.constraints.push(InferenceConstraint { relation, origin, explanation });
     }
 
+    /// Instantiates fresh inference variables for each generic parameter in `generic_sig`.
+    pub fn instantiate_generic_signature(
+        &mut self,
+        generic_sig: &GenericSignature,
+    ) -> HashMap<TypeParameterId, InferenceTerm> {
+        let mut map = HashMap::new();
+        for &param in &generic_sig.parameters {
+            let var = self.fresh_variable(KindId::TYPE);
+            map.insert(param, InferenceTerm::Var(var));
+        }
+        map
+    }
+
+    /// Converts a canonical `TypeId` to an `InferenceTerm`, replacing generic parameters with their instantiated inference terms.
+    pub fn type_id_to_inference(
+        &self,
+        ty: TypeId,
+        subst: &HashMap<TypeParameterId, InferenceTerm>,
+        store: &TypeStore,
+    ) -> InferenceTerm {
+        match store.get(ty) {
+            TypeData::Parameter(p) => {
+                if let Some(t) = subst.get(p) {
+                    t.clone()
+                } else {
+                    InferenceTerm::Canonical(ty)
+                }
+            }
+            TypeData::Applied { origin, arguments } => {
+                let orig_term = self.type_id_to_inference(*origin, subst, store);
+                let arg_terms: Vec<InferenceTerm> = arguments
+                    .iter()
+                    .map(|&a| self.type_id_to_inference(a, subst, store))
+                    .collect();
+                InferenceTerm::Applied {
+                    origin: Box::new(orig_term),
+                    arguments: arg_terms.into_boxed_slice(),
+                }
+            }
+            TypeData::Union(members) => {
+                let member_terms: Vec<InferenceTerm> = members
+                    .iter()
+                    .map(|&m| self.type_id_to_inference(m, subst, store))
+                    .collect();
+                InferenceTerm::Union(member_terms.into_boxed_slice())
+            }
+            TypeData::Tuple(elems) => {
+                let elem_terms: Vec<InferenceTupleElement> = elems
+                    .iter()
+                    .map(|e| InferenceTupleElement {
+                        label: e.label.clone(),
+                        term: self.type_id_to_inference(e.ty, subst, store),
+                    })
+                    .collect();
+                InferenceTerm::Tuple(elem_terms.into_boxed_slice())
+            }
+            TypeData::Callable(c) => {
+                let param_terms: Vec<InferenceCallableParameter> = c
+                    .parameters
+                    .iter()
+                    .map(|p| InferenceCallableParameter {
+                        label: p.label.clone(),
+                        term: self.type_id_to_inference(p.ty, subst, store),
+                        rest: p.rest,
+                    })
+                    .collect();
+                let ret_term = self.type_id_to_inference(c.return_type, subst, store);
+                InferenceTerm::Callable(InferenceCallable {
+                    parameters: param_terms.into_boxed_slice(),
+                    return_type: Box::new(ret_term),
+                })
+            }
+            _ => InferenceTerm::Canonical(ty),
+        }
+    }
+
+    /// Converts a `TypeTerm` to an `InferenceTerm`.
+    pub fn type_term_to_inference(
+        &self,
+        term: &TypeTerm,
+        subst: &HashMap<TypeParameterId, InferenceTerm>,
+        store: &TypeStore,
+    ) -> InferenceTerm {
+        match term {
+            TypeTerm::Canonical(ty) => self.type_id_to_inference(*ty, subst, store),
+            TypeTerm::SelfType(_) => InferenceTerm::Canonical(store.unit()),
+            TypeTerm::Infer(v) => InferenceTerm::Var(*v),
+        }
+    }
+
     /// Solves all accumulated constraints.
     pub fn solve(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) -> InferenceOutcome {
-        for i in 0..self.constraints.len() {
-            let constraint = self.constraints[i].clone();
-            match constraint.relation {
-                InferenceRelation::Equivalent(left, right) => {
-                    if !self.unify_terms(&left, &right, store) {
-                        return InferenceOutcome::Conflicting(InferenceConflict {
-                            var: InferVarId::from_index(0),
-                            reason: InferenceFailureReason::ConflictingBounds {
-                                lower: store.never(),
-                                upper: store.never(),
-                            },
-                        });
+        // Multi-pass iterative constraint solving
+        let max_passes = 16;
+        for _ in 0..max_passes {
+            let mut changed = false;
+            let constraints = self.constraints.clone();
+            for constraint in &constraints {
+                match &constraint.relation {
+                    InferenceRelation::Equivalent(left, right) => {
+                        if !self.unify_terms(left, right, store) {
+                            return InferenceOutcome::Conflicting(InferenceConflict {
+                                var: InferVarId::from_index(0),
+                                reason: InferenceFailureReason::ConflictingBounds {
+                                    lower: store.never(),
+                                    upper: store.never(),
+                                },
+                            });
+                        }
+                    }
+                    InferenceRelation::Subtype(sub, sup) => {
+                        if !self.subtype_terms(sub, sup, store, hierarchy) {
+                            return InferenceOutcome::Conflicting(InferenceConflict {
+                                var: InferVarId::from_index(0),
+                                reason: InferenceFailureReason::ConflictingBounds {
+                                    lower: store.never(),
+                                    upper: store.never(),
+                                },
+                            });
+                        }
                     }
                 }
-                InferenceRelation::Subtype(sub, sup) => {
-                    if !self.subtype_terms(&sub, &sup, store, hierarchy) {
-                        return InferenceOutcome::Conflicting(InferenceConflict {
-                            var: InferVarId::from_index(0),
-                            reason: InferenceFailureReason::ConflictingBounds {
-                                lower: store.never(),
-                                upper: store.never(),
-                            },
-                        });
+            }
+
+            // Try to resolve remaining var_terms
+            let var_terms = self.var_terms.clone();
+            for (var, term) in var_terms {
+                let rep = self.find_var(var);
+                if !self.substitutions.contains_key(&rep) {
+                    if let Ok(ty) = self.materialize(&term, store) {
+                        if self.bind(rep, ty, store) {
+                            changed = true;
+                        }
                     }
                 }
+            }
+
+            // Try to resolve from lower/upper bounds
+            let vars_to_check: Vec<InferVarId> = self.variables.iter().map(|v| self.find_var(v.id)).collect();
+            for rep in vars_to_check {
+                if !self.substitutions.contains_key(&rep) {
+                    if let Some(lowers) = self.lower_bounds.get(&rep).cloned() {
+                        if !lowers.is_empty() {
+                            let candidate = store.union(&lowers);
+                            if let Some(uppers) = self.upper_bounds.get(&rep) {
+                                let mut ok = true;
+                                for &upper in uppers {
+                                    if !is_subtype(store, hierarchy, candidate, upper) {
+                                        ok = false;
+                                        break;
+                                    }
+                                }
+                                if !ok {
+                                    return InferenceOutcome::Conflicting(InferenceConflict {
+                                        var: rep,
+                                        reason: InferenceFailureReason::ConflictingBounds {
+                                            lower: candidate,
+                                            upper: uppers[0],
+                                        },
+                                    });
+                                }
+                            }
+                            if self.bind(rep, candidate, store) {
+                                changed = true;
+                            }
+                        }
+                    } else if let Some(uppers) = self.upper_bounds.get(&rep).cloned() {
+                        if uppers.len() == 1 {
+                            if self.bind(rep, uppers[0], store) {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !changed {
+                break;
+            }
+        }
+
+        // Propagate solutions across alias classes
+        for var in &self.variables {
+            let rep = self.find_var(var.id);
+            if let Some(&ty) = self.substitutions.get(&rep) {
+                self.substitutions.insert(var.id, ty);
             }
         }
 
@@ -222,11 +398,12 @@ impl InferenceSession {
 
     /// Binds an inference variable to a canonical type, with occurs check.
     pub fn bind(&mut self, var: InferVarId, ty: TypeId, store: &TypeStore) -> bool {
-        if self.occurs_in_type(var, ty, store) {
+        let rep = self.find_var(var);
+        if self.occurs_in_type(rep, ty, store) {
             return false;
         }
-        self.substitutions.insert(var, ty);
-        if let Some(v) = self.variables.iter_mut().find(|v| v.id == var) {
+        self.substitutions.insert(rep, ty);
+        if let Some(v) = self.variables.iter_mut().find(|v| v.id == rep) {
             v.state = InferVarState::Solved(ty);
         }
         true
@@ -249,29 +426,55 @@ impl InferenceSession {
 
     /// Checks if `var` occurs in an `InferenceTerm`.
     pub fn occurs_in_term(&self, var: InferVarId, term: &InferenceTerm) -> bool {
+        let rep = self.find_var(var);
         match term {
             InferenceTerm::Canonical(_) => false,
-            InferenceTerm::Var(v) => *v == var,
-            InferenceTerm::Applied { origin, arguments } => self.occurs_in_term(var, origin) || arguments.iter().any(|a| self.occurs_in_term(var, a)),
-            InferenceTerm::Union(members) => members.iter().any(|m| self.occurs_in_term(var, m)),
-            InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.occurs_in_term(var, &e.term)),
-            InferenceTerm::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_term(var, &p.term)) || self.occurs_in_term(var, &c.return_type),
+            InferenceTerm::Var(v) => self.find_var(*v) == rep,
+            InferenceTerm::Applied { origin, arguments } => self.occurs_in_term(rep, origin) || arguments.iter().any(|a| self.occurs_in_term(rep, a)),
+            InferenceTerm::Union(members) => members.iter().any(|m| self.occurs_in_term(rep, m)),
+            InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.occurs_in_term(rep, &e.term)),
+            InferenceTerm::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_term(rep, &p.term)) || self.occurs_in_term(rep, &c.return_type),
         }
     }
 
     fn unify_terms(&mut self, left: &InferenceTerm, right: &InferenceTerm, store: &mut TypeStore) -> bool {
         match (left, right) {
-            (InferenceTerm::Var(v1), InferenceTerm::Var(v2)) if v1 == v2 => true,
+            (InferenceTerm::Var(v1), InferenceTerm::Var(v2)) => {
+                let rep1 = self.find_var(*v1);
+                let rep2 = self.find_var(*v2);
+                if rep1 == rep2 {
+                    return true;
+                }
+                if let Some(ty1) = self.substitutions.get(&rep1).copied() {
+                    let canon = InferenceTerm::Canonical(ty1);
+                    return self.unify_terms(&canon, right, store);
+                }
+                if let Some(ty2) = self.substitutions.get(&rep2).copied() {
+                    let canon = InferenceTerm::Canonical(ty2);
+                    return self.unify_terms(left, &canon, store);
+                }
+                self.var_aliases.insert(rep1, rep2);
+                // Merge bounds
+                if let Some(lowers) = self.lower_bounds.remove(&rep1) {
+                    self.lower_bounds.entry(rep2).or_default().extend(lowers);
+                }
+                if let Some(uppers) = self.upper_bounds.remove(&rep1) {
+                    self.upper_bounds.entry(rep2).or_default().extend(uppers);
+                }
+                true
+            }
             (InferenceTerm::Var(v), term) | (term, InferenceTerm::Var(v)) => {
-                if let Some(ty) = self.substitutions.get(v).copied() {
+                let rep = self.find_var(*v);
+                if let Some(ty) = self.substitutions.get(&rep).copied() {
                     let canon = InferenceTerm::Canonical(ty);
                     self.unify_terms(&canon, term, store)
-                } else if self.occurs_in_term(*v, term) {
+                } else if self.occurs_in_term(rep, term) {
                     false
                 } else if let Ok(ty) = self.materialize(term, store) {
-                    self.bind(*v, ty, store)
+                    self.bind(rep, ty, store)
                 } else {
-                    false
+                    self.var_terms.insert(rep, term.clone());
+                    true
                 }
             }
             (InferenceTerm::Canonical(t1), InferenceTerm::Canonical(t2)) => *t1 == *t2,
@@ -318,23 +521,27 @@ impl InferenceSession {
     fn subtype_terms(&mut self, sub: &InferenceTerm, sup: &InferenceTerm, store: &mut TypeStore, hier: &dyn TypeHierarchy) -> bool {
         match (sub, sup) {
             (InferenceTerm::Var(v), term) => {
-                if let Some(ty) = self.substitutions.get(v).copied() {
+                let rep = self.find_var(*v);
+                if let Some(ty) = self.substitutions.get(&rep).copied() {
                     let canon = InferenceTerm::Canonical(ty);
                     self.subtype_terms(&canon, term, store, hier)
                 } else if let Ok(ty) = self.materialize(term, store) {
-                    self.bind(*v, ty, store)
+                    self.upper_bounds.entry(rep).or_default().push(ty);
+                    true
                 } else {
-                    false
+                    self.unify_terms(sub, sup, store)
                 }
             }
             (term, InferenceTerm::Var(v)) => {
-                if let Some(ty) = self.substitutions.get(v).copied() {
+                let rep = self.find_var(*v);
+                if let Some(ty) = self.substitutions.get(&rep).copied() {
                     let canon = InferenceTerm::Canonical(ty);
                     self.subtype_terms(term, &canon, store, hier)
                 } else if let Ok(ty) = self.materialize(term, store) {
-                    self.bind(*v, ty, store)
+                    self.lower_bounds.entry(rep).or_default().push(ty);
+                    true
                 } else {
-                    false
+                    self.unify_terms(sub, sup, store)
                 }
             }
             (InferenceTerm::Canonical(t1), InferenceTerm::Canonical(t2)) => is_subtype(store, hier, *t1, *t2),
@@ -347,7 +554,8 @@ impl InferenceSession {
         match term {
             InferenceTerm::Canonical(ty) => Ok(*ty),
             InferenceTerm::Var(v) => {
-                if let Some(&ty) = self.substitutions.get(v) {
+                let rep = self.find_var(*v);
+                if let Some(&ty) = self.substitutions.get(&rep) {
                     Ok(ty)
                 } else {
                     Err(UnderconstrainedInference { unsolved_vars: vec![*v] })
@@ -398,3 +606,4 @@ impl InferenceSession {
         }
     }
 }
+

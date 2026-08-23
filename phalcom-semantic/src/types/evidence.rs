@@ -108,6 +108,8 @@ pub enum UnknownReason {
     RecursiveFixpoint,
     UncheckedExpression,
     SyntaxError,
+    UnderconstrainedTypeVariable,
+    SuppressedByInvalidCause,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

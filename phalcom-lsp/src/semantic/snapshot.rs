@@ -247,6 +247,70 @@ impl SemanticSnapshot {
         false
     }
 
+    /// Returns the static module identity for a document URI if analyzed.
+    pub fn formal_static_module(&self, uri: &Url) -> Option<&phalcom_modules::ModuleId> {
+        self.documents.get_by_uri(uri)
+    }
+
+    /// Returns the whole-workspace static semantic snapshot if available.
+    pub fn formal_static_snapshot(&self) -> Option<&Arc<StaticSemanticSnapshot>> {
+        self.static_snapshot.as_ref()
+    }
+
+    /// Returns a formal callable analysis for a callable identity if present.
+    pub fn formal_callable_analysis(
+        &self,
+        callable: &phalcom_semantic::identity::CallableId,
+    ) -> Option<&Arc<phalcom_semantic::checker::CallableAnalysis>> {
+        self.static_snapshot.as_ref()?.callable_analyses.get(callable)
+    }
+
+    /// Looks up formal binding type knowledge covering a given source offset in a document.
+    pub fn formal_binding_type_at(&self, uri: &Url, _name: &str, offset: usize) -> Option<String> {
+        let static_snap = self.static_snapshot.as_ref()?;
+        let static_mod = self.formal_static_module(uri)?;
+
+        for (callable_id, analysis) in static_snap.callable_analyses.iter() {
+            if &callable_id.owner.module == static_mod && analysis.body_range.contains(offset) {
+                for expr in analysis.expressions.values() {
+                    if expr.range.contains(offset) {
+                        let formatted = static_snap.store.format_knowledge(&expr.knowledge);
+                        if formatted != "Unknown" && formatted != "Dynamic" {
+                            return Some(formatted);
+                        }
+                    }
+                }
+                for state in analysis.bindings.values() {
+                    let formatted = static_snap.store.format_knowledge(&state.current);
+                    if formatted != "Unknown" && formatted != "Dynamic" {
+                        return Some(formatted);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Looks up formal expression type at an offset.
+    pub fn formal_expression_type_at(&self, uri: &Url, offset: usize) -> Option<String> {
+        let static_snap = self.static_snapshot.as_ref()?;
+        let static_mod = self.formal_static_module(uri)?;
+
+        for (callable_id, analysis) in static_snap.callable_analyses.iter() {
+            if &callable_id.owner.module == static_mod && analysis.body_range.contains(offset) {
+                for expr in analysis.expressions.values() {
+                    if expr.range.contains(offset) {
+                        let formatted = static_snap.store.format_knowledge(&expr.knowledge);
+                        if formatted != "Unknown" && formatted != "Dynamic" {
+                            return Some(formatted);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Returns a source callable summary from the current semantic generation.
     pub fn callable_summary(&self, id: &CallableId) -> Option<&CallableSummary> {
         self.summaries.get(id).map(Arc::as_ref)

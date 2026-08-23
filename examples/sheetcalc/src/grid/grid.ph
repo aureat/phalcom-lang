@@ -1,7 +1,7 @@
 /// Grid: sparse 2D cell store with bounds tracking and bounds-checked access.
 
-import "../value/cell_value" as Value
-import "./cell" as CellModule
+import sheetcalc.value as Value
+import .cell as CellModule
 
 /// A grid of cells, keyed by Ref (cell address). Maintains bounds (minCol,
 /// maxCol, minRow, maxRow) incrementally. Cells are 1-indexed; col/row must be

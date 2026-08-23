@@ -1,14 +1,14 @@
 /// SheetCalc: a spreadsheet engine in Phalcom.
 /// Phase 1: support layer (L0) + value model (L1)
 
-import "./support/num" as Num
-import "./support/str" as Str
-import "./support/sort" as Sort
-import "./value/cell_value" as Value
+import .support.num as Num
+import .support.str as Str
+import .support.sort as Sort
+import .value.cell_value as Value
 
 class Main {
   @class
-  main {
+  main -> () {
     System.print("SheetCalc phase 1: support + value model")
     System.print("")
 
@@ -32,8 +32,8 @@ class Main {
     System.print("")
 
     /// Test CellValue
-    const n1 = Value.CellNum.of(5)
-    const n2 = Value.CellNum.of(3)
+    const n1: Int = Value.CellNum.of(5)
+    const n2: Value.CellNum = Value.CellNum.of(3)
     System.print("CellNum(5) + CellNum(3) = " + n1.plus(n2).toString)
     System.print("CellNum(5) - CellNum(3) = " + n1.minus(n2).toString)
     System.print("CellNum(5) * CellNum(3) = " + n1.times(n2).toString)
@@ -59,6 +59,8 @@ class Main {
     const divZero = n1.dividedBy(Value.CellNum.of(0))
     System.print("CellNum(5) / CellNum(0) = " + divZero.toString)
     System.print("")
+
+    let n3 = Int.new()
 
     System.print("✓ All smoke tests passed")
   }

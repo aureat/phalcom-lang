@@ -87,33 +87,51 @@ impl BuiltinInterfaceBuilder {
             error: e,
         })?;
 
-        if parsed.id.project == ProjectIdentity::Builtin(BuiltinProject::Universe) && parsed.id.path.is_root() {
-            // Root/prelude bindings are policy data, not source declarations.
-            // Module and class presentation data comes exclusively from the
-            // parsed universe modules above.
-            for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.exported) {
-                let name = binding.name.to_string();
-                let range = SourceRange::default();
-                if !iface.declarations.contains_key(&name) {
-                    iface.declarations.insert(
-                        name.clone(),
-                        DeclarationSurface {
-                            name: name.clone(),
-                            is_const: true,
-                            range,
-                        },
-                    );
+        if parsed.id.project == ProjectIdentity::Builtin(BuiltinProject::Universe) {
+            if parsed.id.path.is_root() {
+                // Root/prelude bindings are policy data, not source declarations.
+                // Module and class presentation data comes exclusively from the
+                // parsed universe modules above.
+                for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.exported) {
+                    let name = binding.name.to_string();
+                    let range = SourceRange::default();
+                    if !iface.declarations.contains_key(&name) {
+                        iface.declarations.insert(
+                            name.clone(),
+                            DeclarationSurface {
+                                name: name.clone(),
+                                is_const: true,
+                                range,
+                            },
+                        );
+                    }
+                    if !iface.exports.contains_key(&name) {
+                        iface.exports.insert(
+                            name.clone(),
+                            ExportSurface {
+                                exported_name: name.clone(),
+                                internal_name: name.clone(),
+                                target: UnlinkedExportTarget::Local(name),
+                                range,
+                            },
+                        );
+                    }
                 }
-                if !iface.exports.contains_key(&name) {
-                    iface.exports.insert(
-                        name.clone(),
-                        ExportSurface {
-                            exported_name: name.clone(),
-                            internal_name: name.clone(),
-                            target: UnlinkedExportTarget::Local(name),
-                            range,
-                        },
-                    );
+            } else {
+                // In non-root canonical universe modules, all declared classes are public exports of that module.
+                let decl_names: Vec<(String, SourceRange)> = iface.declarations.iter().map(|(n, d)| (n.clone(), d.range)).collect();
+                for (name, range) in decl_names {
+                    if !iface.exports.contains_key(&name) {
+                        iface.exports.insert(
+                            name.clone(),
+                            ExportSurface {
+                                exported_name: name.clone(),
+                                internal_name: name.clone(),
+                                target: UnlinkedExportTarget::Local(name),
+                                range,
+                            },
+                        );
+                    }
                 }
             }
         }

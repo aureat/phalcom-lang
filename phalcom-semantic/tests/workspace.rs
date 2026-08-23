@@ -525,3 +525,35 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
         assert_eq!(kind1, kind2);
     }
 }
+
+#[test]
+fn workspace_generic_class_and_callable_signature_publication() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from(
+        "class Container<T> {\n  value(_ v: T) -> T { v }\n}\nclass Box<U> is Container<U> {\n  unbox() -> U { self.value(1) }\n}\n"
+    );
+    let parse_res = phalcom_ast::parse(&source, 0);
+    let program = Arc::new(parse_res.program);
+
+    let analysis = analyze_single_module(module.clone(), source, program);
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
+
+    let container_id = DeclarationId::new(module.clone(), "Container".into());
+    let container_info = analysis.snapshot.declarations.get(&container_id).expect("Container declaration info");
+    assert_ne!(container_info.kind, KindId::TYPE, "generic class Container must have arrow kind");
+    assert!(container_info.generic_signature.is_some(), "Container must have generic signature");
+    let container_sig = container_info.generic_signature.as_ref().unwrap();
+    assert_eq!(container_sig.parameters.len(), 1);
+
+    let box_id = DeclarationId::new(module.clone(), "Box".into());
+    let box_info = analysis.snapshot.declarations.get(&box_id).expect("Box declaration info");
+    assert_ne!(box_info.kind, KindId::TYPE);
+    assert!(box_info.supertype_template.is_some(), "Box must have supertype template");
+
+    let sel = phalcom_common::selector::Selector::method("value", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
+    let callable_id = phalcom_semantic::identity::CallableId::new(container_id, sel, phalcom_semantic::identity::DispatchSide::Instance);
+    let callable_sig = analysis.snapshot.callable_signatures.get(&callable_id).expect("value(_) callable signature published");
+    assert_eq!(callable_sig.parameters.len(), 1);
+}
+
+

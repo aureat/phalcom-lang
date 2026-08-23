@@ -4,7 +4,7 @@ class Num {
   /// Floor of n, rounded down toward negative infinity.
   /// n - (n % 1) truncates toward zero, so negative numbers need correction.
   @class
-  floor(_ n) {
+  floor(_ n: Float) -> Float { 
     const t = n - (n % 1)
     if (n < 0 and (n % 1) != 0) {
       return t - 1
@@ -14,7 +14,7 @@ class Num {
 
   /// Ceiling of n, rounded up toward positive infinity.
   @class
-  ceil(_ n) {
+  ceil(_ n: Float) -> Float {
     const t = n - (n % 1)
     if (n > 0 and (n % 1) != 0) {
       return t + 1
@@ -24,7 +24,7 @@ class Num {
 
   /// Round n to nearest integer, ties away from zero.
   @class
-  round(_ n) {
+  round(_ n: Float) -> Float {
     if (n >= 0) {
       return Num.floor(n + 0.5)
     }
@@ -33,7 +33,7 @@ class Num {
 
   /// Absolute value of n.
   @class
-  abs(_ n) {
+  abs(_ n: Float) -> Float {
     if (n < 0) {
       return n.negated()
     }
@@ -42,7 +42,7 @@ class Num {
 
   /// Minimum of all given numbers.
   @class
-  min(_ nums) {
+  min(_ nums: List<Float>) -> Float {
     if nums.isEmpty {
       return nil
     }
@@ -58,8 +58,8 @@ class Num {
 
   /// Maximum of all given numbers.
   @class
-  max(_ nums) {
-    if nums.isEmpty {
+  max(_ nums: List<Float>) -> Float {
+    if (nums.isEmpty) {
       return nil
     }
 
@@ -75,7 +75,7 @@ class Num {
 
   /// Test whether n is an integer (has no fractional part).
   @class
-  isInt(_ n) {
+  isInt(_ n: Float) -> Bool {
     n == (n - (n % 1))
   }
 }

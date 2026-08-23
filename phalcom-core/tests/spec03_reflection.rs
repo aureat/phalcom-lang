@@ -427,3 +427,50 @@ fn spec03_record_reflection_and_runtime_validation() {
     let constructed = send0(&mut vm, constructed_known, "value");
     assert_eq!(constructed.as_bool(), Some(true));
 }
+
+#[test]
+fn spec03_reflection_relations_and_kinds() {
+    let mut vm = VM::new();
+    let int_class = vm.universe.classes.int_class;
+    let number_class = vm.universe.classes.number_class;
+    let object_class = vm.universe.classes.object_class;
+    let option_class = vm.universe.classes.resolve(phalcom_native_meta::UniverseKey::Option);
+    let some_class = vm.universe.classes.resolve(phalcom_native_meta::UniverseKey::Some);
+
+    // Option.kind and Some.kind must be FunctionKind (Type -> Type)
+    let option_kind = send0(&mut vm, Value::obj(option_class), "kind");
+    let some_kind = send0(&mut vm, Value::obj(some_class), "kind");
+    let option_display = send0(&mut vm, option_kind, "display");
+    let some_display = send0(&mut vm, some_kind, "display");
+    assert_eq!(vm.heap.string(option_display.as_obj().unwrap()).as_str(), "Type -> Type");
+    assert_eq!(vm.heap.string(some_display.as_obj().unwrap()).as_str(), "Type -> Type");
+
+    // Subtyping on behavior: Int <: Number, Int <: Object, but not Number <: Int
+    let int_sub_num = send1(&mut vm, Value::obj(int_class), "subtypeOf(_)", Value::obj(number_class));
+    assert_eq!(int_sub_num.class(&vm), vm.universe.typing_classes.get("RelationSatisfied").unwrap());
+    assert_eq!(send0(&mut vm, int_sub_num, "value").as_bool(), Some(true));
+
+    let int_sub_obj = send1(&mut vm, Value::obj(int_class), "subtypeOf(_)", Value::obj(object_class));
+    assert_eq!(int_sub_obj.class(&vm), vm.universe.typing_classes.get("RelationSatisfied").unwrap());
+
+    let num_sub_int = send1(&mut vm, Value::obj(number_class), "subtypeOf(_)", Value::obj(int_class));
+    assert_eq!(num_sub_int.class(&vm), vm.universe.typing_classes.get("RelationRejected").unwrap());
+
+    // Context subtype, assignable, consistent, conforms
+    let typing_class = vm.universe.typing_classes.get("Typing").expect("Typing class");
+    let debug_sym = Value::symbol(vm.get_or_intern("debug"));
+    let context_known = send1(&mut vm, Value::obj(typing_class), "contextFor(_)", debug_sym);
+    let context = send0(&mut vm, context_known, "value");
+
+    let sub_res = send2(&mut vm, context, "subtype(_,_)", Value::obj(int_class), Value::obj(number_class));
+    assert_eq!(sub_res.class(&vm), vm.universe.typing_classes.get("RelationSatisfied").unwrap());
+
+    let assignable_res = send2(&mut vm, context, "assignable(_,_)", Value::obj(int_class), Value::obj(number_class));
+    assert_eq!(assignable_res.class(&vm), vm.universe.typing_classes.get("TypingUnavailable").unwrap());
+
+    let consistent_res = send2(&mut vm, context, "consistent(_,_)", Value::obj(int_class), Value::obj(number_class));
+    assert_eq!(consistent_res.class(&vm), vm.universe.typing_classes.get("TypingUnavailable").unwrap());
+
+    let conforms_res = send2(&mut vm, context, "conforms(_,_)", Value::obj(int_class), Value::obj(number_class));
+    assert_eq!(conforms_res.class(&vm), vm.universe.typing_classes.get("TypingUnavailable").unwrap());
+}

@@ -10,6 +10,8 @@ pub enum Severity {
     Warning,
     Help,
     Note,
+    Information,
+    Hint,
 }
 
 impl Severity {
@@ -17,7 +19,7 @@ impl Severity {
         match self {
             Severity::Error => Role::SeverityError,
             Severity::Warning => Role::SeverityWarn,
-            Severity::Help | Severity::Note => Role::SeverityHelp,
+            Severity::Help | Severity::Note | Severity::Information | Severity::Hint => Role::SeverityHelp,
         }
     }
 
@@ -27,6 +29,8 @@ impl Severity {
             Severity::Warning => "warning",
             Severity::Help => "help",
             Severity::Note => "note",
+            Severity::Information => "info",
+            Severity::Hint => "hint",
         }
     }
 }

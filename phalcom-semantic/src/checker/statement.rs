@@ -1,12 +1,15 @@
 //! Statement type checking engine.
 
 use super::context::CheckingContext;
-use super::expression::{synthesize_expr, synthesize_typed_expr};
+use super::expected::ExpectedType;
+use super::expression::{analyze_expression, synthesize_expr};
+use super::policy::enforce_assignability;
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::annotation::resolve_type_annotation;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
+use crate::types::id::TypeId;
 use crate::types::relation::{Assignability, check_assignability};
 use crate::types::store::TypeData;
 use phalcom_ast::ast::{Pattern, Statement};
@@ -23,8 +26,9 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                 k
             });
 
+            let expected_init = declared_k.as_ref().map(ExpectedType::from_knowledge).unwrap_or_default();
             let val_typed = if let Some(expr) = &binding.value {
-                synthesize_typed_expr(ctx, expr)
+                analyze_expression(ctx, expr, &expected_init)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
             };
@@ -63,28 +67,31 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             }
         }
         Statement::Return(ret) => {
-            let val_k = if let Some(expr) = &ret.value {
-                synthesize_expr(ctx, expr)
+            let expected_ret = ctx.expected_return.as_ref().map(ExpectedType::from_knowledge).unwrap_or_default();
+            let val_typed = if let Some(expr) = &ret.value {
+                analyze_expression(ctx, expr, &expected_ret)
             } else {
-                TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax)
+                TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, ret.range)
             };
 
             if let Some(expected) = ctx.expected_return.clone() {
-                let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_k, &expected);
-                if let Assignability::Refuted { .. } = assignability {
-                    ctx.diagnostics.push(SemanticDiagnostic::error(
-                        DiagnosticCode::ReturnMismatch,
-                        "returned value is not assignable to method's declared return type",
-                        ret.range,
-                    ));
-                }
+                enforce_assignability(
+                    ctx.store,
+                    ctx.hierarchy,
+                    &val_typed.knowledge,
+                    &expected,
+                    DiagnosticCode::ReturnMismatch,
+                    "returned value is not assignable to method's declared return type",
+                    ret.range,
+                    &mut ctx.diagnostics,
+                );
             }
         }
         Statement::Expr { expr, .. } => {
-            synthesize_expr(ctx, expr);
+            analyze_expression(ctx, expr, &ExpectedType::None);
         }
         Statement::Throw { expr, .. } => {
-            synthesize_expr(ctx, expr);
+            analyze_expression(ctx, expr, &ExpectedType::None);
         }
         Statement::Class(class_def) => {
             super::declaration::check_class(ctx, class_def);
@@ -94,30 +101,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             for lane in &for_stmt.lanes {
                 let iter_k = synthesize_expr(ctx, &lane.iter);
                 let elem_knowledge = if let Some(iter_ty) = iter_k.ty() {
-                    // 1. Direct collection element typing for List<T>, Set<T>, Map<K, V>
-                    if let TypeData::Applied { origin, arguments } = ctx.store.get(iter_ty).clone() {
-                        if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
-                            if matches!(declaration.name.as_ref(), "List" | "Set") && arguments.len() == 1 {
-                                TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven)
-                            } else {
-                                TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
-                            }
-                        } else {
-                            TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
-                        }
-                    } else {
-                        // 2. Protocol dispatch: iteratorValue(cursor)
-                        if let Ok(sel) = Selector::method("iteratorValue", vec![]) {
-                            let dispatch_res = ctx.resolve_dispatch(iter_ty, &sel, crate::dispatch::DispatchLookup::Normal);
-                            match dispatch_res {
-                                crate::dispatch::DispatchResult::Found(sig) => sig.return_type,
-                                crate::dispatch::DispatchResult::Dynamic => TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection),
-                                _ => TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend),
-                            }
-                        } else {
-                            TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
-                        }
-                    }
+                    resolve_iteration_element(ctx, iter_ty)
                 } else if iter_k.is_dynamic() {
                     TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection)
                 } else {
@@ -141,3 +125,61 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
         _ => {}
     }
 }
+
+/// Derives the iteration element type from the receiver via the `iterate(_)` / `iteratorValue(_)` protocol (F5 / DEC-IMPL-FOR-PROTOCOL-ONLY).
+pub fn resolve_iteration_element(ctx: &mut CheckingContext<'_>, receiver_ty: TypeId) -> TypeKnowledge {
+    // 1. Try 1-argument protocol selector `iteratorValue(_)`
+    if let Ok(sel_1) = Selector::method("iteratorValue", vec![phalcom_common::selector::SelectorSlot::Positional]) {
+        let dispatch_res = ctx.resolve_dispatch(receiver_ty, &sel_1, crate::dispatch::DispatchLookup::Normal);
+        match dispatch_res {
+            crate::dispatch::DispatchResult::Found(sig) => {
+                if !sig.return_type.is_unknown() {
+                    return sig.return_type;
+                }
+            }
+            crate::dispatch::DispatchResult::Dynamic => {
+                return TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection);
+            }
+            _ => {}
+        }
+    }
+
+    // 2. Try 0-argument selector / getter `iteratorValue`
+    if let Ok(sel_0) = Selector::method("iteratorValue", vec![]) {
+        let dispatch_res = ctx.resolve_dispatch(receiver_ty, &sel_0, crate::dispatch::DispatchLookup::Normal);
+        match dispatch_res {
+            crate::dispatch::DispatchResult::Found(sig) => {
+                if !sig.return_type.is_unknown() {
+                    return sig.return_type;
+                }
+            }
+            crate::dispatch::DispatchResult::Dynamic => {
+                return TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection);
+            }
+            _ => {}
+        }
+    }
+
+    // 3. For Applied collections where origin declaration has generic parameters (e.g. List<T>, Set<T>),
+    // if Applied has type arguments, derive element type if the origin has an iterator protocol or single type parameter
+    if let TypeData::Applied { origin, arguments } = ctx.store.get(receiver_ty).clone() {
+        if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
+            if let Some(sig) = ctx.declarations.generic_signature(declaration) {
+                if !sig.parameters.is_empty() && !arguments.is_empty() {
+                    return TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven);
+                }
+            }
+        }
+    }
+
+    // 4. Check iterate(_) protocol existence
+    if let Ok(iterate_sel) = Selector::method("iterate", vec![phalcom_common::selector::SelectorSlot::Positional]) {
+        let dispatch_res = ctx.resolve_dispatch(receiver_ty, &iterate_sel, crate::dispatch::DispatchLookup::Normal);
+        if dispatch_res.is_found() {
+            return TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration);
+        }
+    }
+
+    TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
+}
+

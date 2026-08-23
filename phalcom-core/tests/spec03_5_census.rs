@@ -75,15 +75,20 @@ fn canonical_surface_census_is_unique_and_actionable() {
         assert!(Selector::try_decode_exact(selector).is_ok(), "noncanonical census selector {selector}");
     }
 
+    println!("DESCRIPTOR_ONLY ({}) = {:?}", descriptor_only.len(), descriptor_only);
     eprintln!(
-        "native census: legacy={} generated={} descriptors={} generated-only={generated_only:?} descriptor-only={descriptor_only:?} legacy-only={legacy_only:?}",
+        "native census: legacy={} generated={} descriptors={} generated-only={} descriptor-only={} legacy-only={}",
         legacy.len(),
         generated.len(),
         descriptors.len(),
+        generated_only.len(),
+        descriptor_only.len(),
+        legacy_only.len(),
     );
     eprintln!("native census per owner/side: generated={:?}", owner_side_counts(&generated));
-    assert!(!generated.is_empty());
-    assert!(!descriptors.is_empty());
+    println!("DESCRIPTOR_ONLY elements: {:?}", descriptor_only);
+    assert!(!generated.is_empty(), "generated surfaces must not be empty");
+    assert!(!descriptors.is_empty(), "descriptors must not be empty");
 }
 
 #[test]

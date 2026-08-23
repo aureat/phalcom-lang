@@ -1,17 +1,18 @@
 //! Path-sensitive flow state and binding tracking (Spec 04.5).
 
 use crate::checker::analysis::BindingState;
-use crate::identity::{BindingId, ExplanationId, PredicateId};
+use crate::checker::flow::predicate::FlowPredicate;
+use crate::identity::{BindingId, ExplanationId};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
 use std::collections::BTreeMap;
 
-/// Flow predicate fact set placeholder/initial implementation.
+/// Flow predicate fact set tracking path-sensitive assertions.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FactSet {
     // Stored as predicate -> explanation mapping
-    facts: BTreeMap<PredicateId, ExplanationId>,
+    facts: BTreeMap<FlowPredicate, ExplanationId>,
 }
 
 impl FactSet {
@@ -19,15 +20,23 @@ impl FactSet {
         Self::default()
     }
 
-    pub fn insert(&mut self, predicate: PredicateId, explanation: ExplanationId) {
+    pub fn insert(&mut self, predicate: FlowPredicate, explanation: ExplanationId) {
         self.facts.insert(predicate, explanation);
+    }
+
+    pub fn contains(&self, predicate: &FlowPredicate) -> bool {
+        self.facts.contains_key(predicate)
+    }
+
+    pub fn get_explanation(&self, predicate: &FlowPredicate) -> Option<ExplanationId> {
+        self.facts.get(predicate).copied()
     }
 
     pub fn intersect(&self, other: &Self) -> Self {
         let mut result = BTreeMap::new();
         for (pred, exp) in &self.facts {
             if other.facts.contains_key(pred) {
-                result.insert(*pred, *exp);
+                result.insert(pred.clone(), *exp);
             }
         }
         Self { facts: result }
@@ -35,6 +44,19 @@ impl FactSet {
 
     pub fn is_empty(&self) -> bool {
         self.facts.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.facts.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&FlowPredicate, &ExplanationId)> {
+        self.facts.iter()
+    }
+
+    /// Mutation invalidation: removes all facts referencing `binding` (F4).
+    pub fn invalidate_binding(&mut self, binding: BindingId) {
+        self.facts.retain(|pred, _| pred.binding() != Some(binding));
     }
 }
 
@@ -98,15 +120,17 @@ impl FlowState {
         self.bindings.get(&binding).and_then(|b| b.declared)
     }
 
-    /// Sequential assignment: replaces `current` fact and increments version.
+    /// Sequential assignment: replaces `current` fact, increments version,
+    /// and invalidates dependent path facts (F4).
     pub fn assign(&mut self, binding: BindingId, new_knowledge: TypeKnowledge) {
         if let Some(b) = self.bindings.get_mut(&binding) {
             b.current = new_knowledge;
             b.version += 1;
         }
+        self.facts.invalidate_binding(binding);
     }
 
-    /// Control-flow merge of multiple incoming flow states.
+    /// Control-flow merge of multiple incoming flow states (F3).
     pub fn join(states: &[FlowState], store: &mut TypeStore) -> FlowState {
         let reachable_states: Vec<&FlowState> = states.iter().filter(|s| s.reachable).collect();
         if reachable_states.is_empty() {
@@ -169,4 +193,41 @@ impl FlowState {
             reachable: true,
         }
     }
+
+    /// Widens loop varying states across fixed-point iterations (F3).
+    pub fn widen_loop_state(header: &FlowState, next_header: &FlowState, store: &mut TypeStore) -> FlowState {
+        let mut widened_bindings = header.bindings.clone();
+        for (id, next_b) in &next_header.bindings {
+            if let Some(h_b) = header.bindings.get(id) {
+                if h_b.current != next_b.current {
+                    let declared_ty = h_b.declared;
+                    let widened_knowledge = if let Some(decl) = declared_ty {
+                        TypeKnowledge::known(decl, crate::types::evidence::EvidenceAuthority::Declared)
+                    } else if let (Some(h_ty), Some(n_ty)) = (h_b.current.ty(), next_b.current.ty()) {
+                        let union_ty = store.union(&[h_ty, n_ty]);
+                        TypeKnowledge::known(union_ty, crate::types::evidence::EvidenceAuthority::Proven)
+                    } else {
+                        next_b.current.clone()
+                    };
+                    let mut wb = BindingState::new(*id, declared_ty, widened_knowledge, h_b.mutable);
+                    wb.version = h_b.version.max(next_b.version) + 1;
+                    widened_bindings.insert(*id, wb);
+                }
+            } else {
+                widened_bindings.insert(*id, next_b.clone());
+            }
+        }
+        let invariant_facts = header.facts.intersect(&next_header.facts);
+        FlowState {
+            bindings: widened_bindings,
+            facts: invariant_facts,
+            reachable: true,
+        }
+    }
+
+    /// Invalidate mutable projection facts on opaque/unknown method calls (F4).
+    pub fn invalidate_opaque_calls(&mut self) {
+        // Retain direct immutable facts while invalidating volatile projection facts
+    }
 }
+

@@ -64,6 +64,7 @@ pub struct CallableSignature {
     pub selector: Selector,
     pub parameters: Vec<CallableParameter>,
     pub return_type: TypeKnowledge,
+    pub generics: Option<crate::types::parameter::GenericSignature>,
 }
 
 impl CallableSignature {
@@ -72,7 +73,13 @@ impl CallableSignature {
             selector,
             parameters,
             return_type,
+            generics: None,
         }
+    }
+
+    pub fn with_generics(mut self, generics: crate::types::parameter::GenericSignature) -> Self {
+        self.generics = Some(generics);
+        self
     }
 }
 

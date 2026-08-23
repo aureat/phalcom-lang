@@ -1623,6 +1623,32 @@ mod tests {
     }
 
     #[test]
+    fn worker_publishes_callable_analyses_and_formal_types() {
+        let db = Arc::new(SemanticDb::new());
+        let (service, mut events) = AnalysisService::new(db.clone());
+        let file_uri = uri("file:///callable-analysis-test.ph");
+        let source: Arc<str> = Arc::from("class Calculator {\n    compute(_ x: Int) -> Int {\n        let y: Int = x\n        y\n    }\n}\n");
+        let parsed = parse(&source, 0);
+
+        service.enqueue_file_update_with_source(file_uri.clone(), FileRevision(1), source.clone(), parsed.program);
+        loop {
+            if matches!(next_non_status_event(&mut events), AnalysisEvent::Published { .. }) {
+                break;
+            }
+        }
+        service.wait_for_idle();
+
+        let published = db.snapshot();
+        let static_snapshot = published.static_snapshot.as_ref().expect("static snapshot");
+        assert!(!static_snapshot.callable_analyses.is_empty(), "callable analyses must be populated");
+
+        let formal_y = published.formal_binding_type_at(&file_uri, "y", 70);
+        assert_eq!(formal_y, Some("Int".to_string()));
+
+        service.shutdown();
+    }
+
+    #[test]
     fn static_workspace_links_every_catalog_module_and_resolves_relative_imports() {
         let root = std::env::temp_dir().join(format!(
             "phalcom_lsp_static_workspace_{}_{}",

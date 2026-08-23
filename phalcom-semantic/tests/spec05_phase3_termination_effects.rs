@@ -33,8 +33,13 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         body_range: RANGE,
         expressions,
         bindings: BTreeMap::new(),
+        flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
+        entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
+        exits: phalcom_semantic::checker::BodyExitFacts::default(),
         diagnostics: Arc::new([]),
+        explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(dependencies),
+        dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     }
 }

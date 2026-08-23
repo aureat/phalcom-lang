@@ -5,7 +5,8 @@ pub mod predicate;
 pub mod state;
 pub mod transfer;
 
-pub use graph::{FlowEdge, FlowGraph, FlowNode, FlowNodeKind};
-pub use predicate::{FlowPredicate, PredicateEntry};
-pub use state::FlowState;
+pub use graph::{FlowEdge, FlowEdgeKind, FlowGraph, FlowNode, FlowNodeKind};
+pub use predicate::{FlowPredicate, PredicateEntry, extract_predicate};
+pub use state::{FactSet, FlowState};
 pub use transfer::apply_predicate;
+

@@ -1,6 +1,6 @@
 /// Cell references: location addressing, A1 notation, bijective base-26 columns.
 
-import "../support/num" as NumModule
+import .num as NumModule
 
 /// A cell address (column, row). Supports relative and absolute reference forms
 /// ($A$1, $A1, A$1, A1). Identity is address-only (REQ-REF-1): two Refs with

@@ -18,9 +18,32 @@ impl ExplanationArena {
     }
 
     pub fn alloc(&mut self, step: ExplanationStep, authority: EvidenceAuthority, parents: Vec<ExplanationId>) -> ExplanationId {
+        let rule = step.derivation_rule();
+        let evidence = Vec::new();
+        self.alloc_full(step, rule, authority, evidence, parents)
+    }
+
+    pub fn alloc_full(
+        &mut self,
+        step: ExplanationStep,
+        rule: super::node::DerivationRule,
+        authority: EvidenceAuthority,
+        evidence: Vec<super::node::EvidenceRef>,
+        parents: Vec<ExplanationId>,
+    ) -> ExplanationId {
         let id = ExplanationId(self.next_id);
         self.next_id += 1;
-        self.nodes.insert(id, ExplanationNode { id, step, authority, parents });
+        self.nodes.insert(
+            id,
+            ExplanationNode {
+                id,
+                step,
+                rule,
+                authority,
+                evidence,
+                parents,
+            },
+        );
         id
     }
 

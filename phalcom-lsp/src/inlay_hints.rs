@@ -118,6 +118,16 @@ fn collect_file_semantic_hints(
         if !should_render(policy, &value.confidence, &value.shape) || (suppress_obvious && obvious_initializer_text(text, range)) {
             continue;
         }
+        let formal_type = global_snapshot.and_then(|snap| {
+            let uri = snap.documents.uri_for_lsp(&file_snapshot.module)?;
+            snap.formal_binding_type_at(&uri, &binding.name, range.end)
+        });
+        crate::parity::ShadowParityHarness::new().record_inlay_hint_parity(
+            &binding.name,
+            formal_type.as_deref(),
+            Some(&render_shape(&value.shape)),
+        );
+
         let rendered = render_shape(&value.shape);
         hints.push(InlayHint {
             position: line_index.position(range.end),

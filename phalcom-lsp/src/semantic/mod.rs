@@ -762,7 +762,7 @@ class Child is Base { run() { _client } }
         let uri = uri("file:///cell_value.ph");
         let source = format!(
             "{}\nlet x = CellNum.of(10)\nlet y = CellNum.of(5)\nlet z = CellEmpty.new()\nlet result1 = x.minus(y)\nlet result2 = z.minus(x)\n",
-            include_str!("../../../examples/sheetcalc/src/value/cell_value.ph")
+            include_str!("../../../examples/sheetcalc/src/value/cell-value.ph")
         );
         let parsed = parse(&source, 0);
         assert!(parsed.errors.is_empty(), "CellValue fixture parse errors: {:?}", parsed.errors);

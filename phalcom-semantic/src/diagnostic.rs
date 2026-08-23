@@ -106,6 +106,28 @@ impl DiagnosticLabel {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiagnosticFix {
+    pub message: String,
+    pub replacement: Option<(SourceRange, String)>,
+}
+
+impl DiagnosticFix {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            replacement: None,
+        }
+    }
+
+    pub fn replacement(message: impl Into<String>, range: SourceRange, text: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            replacement: Some((range, text.into())),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticDiagnostic {
     pub code: DiagnosticCode,
     pub severity: DiagnosticSeverity,
@@ -116,6 +138,8 @@ pub struct SemanticDiagnostic {
     pub notes: Vec<String>,
     pub helps: Vec<String>,
     pub explanations: Vec<crate::identity::ExplanationId>,
+    pub fixes: Vec<DiagnosticFix>,
+    pub root_cause: Option<crate::identity::DiagnosticCauseId>,
 }
 
 impl SemanticDiagnostic {
@@ -134,6 +158,8 @@ impl SemanticDiagnostic {
             notes: Vec::new(),
             helps: Vec::new(),
             explanations: Vec::new(),
+            fixes: Vec::new(),
+            root_cause: None,
         }
     }
 
@@ -152,6 +178,8 @@ impl SemanticDiagnostic {
             notes: Vec::new(),
             helps: Vec::new(),
             explanations: Vec::new(),
+            fixes: Vec::new(),
+            root_cause: None,
         }
     }
 
@@ -166,6 +194,8 @@ impl SemanticDiagnostic {
             notes: Vec::new(),
             helps: Vec::new(),
             explanations: Vec::new(),
+            fixes: Vec::new(),
+            root_cause: None,
         }
     }
 
@@ -200,6 +230,16 @@ impl SemanticDiagnostic {
 
     pub fn with_explanation(mut self, id: crate::identity::ExplanationId) -> Self {
         self.explanations.push(id);
+        self
+    }
+
+    pub fn with_fix(mut self, fix: DiagnosticFix) -> Self {
+        self.fixes.push(fix);
+        self
+    }
+
+    pub fn with_root_cause(mut self, cause: crate::identity::DiagnosticCauseId) -> Self {
+        self.root_cause = Some(cause);
         self
     }
 

@@ -102,8 +102,13 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         body_range: RANGE,
         expressions: leaf_exprs,
         bindings: BTreeMap::new(),
+        flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
+        entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
+        exits: phalcom_semantic::checker::BodyExitFacts::default(),
         diagnostics: Arc::new([]),
+        explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![]),
+        dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
 
@@ -112,8 +117,13 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         body_range: RANGE,
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
+        flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
+        entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
+        exits: phalcom_semantic::checker::BodyExitFacts::default(),
         diagnostics: Arc::new([]),
+        explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![leaf_id.clone()]),
+        dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
 
@@ -149,8 +159,13 @@ fn test_matrix_3_termination_and_control_facts() {
         body_range: RANGE,
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
+        flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
+        entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
+        exits: phalcom_semantic::checker::BodyExitFacts::default(),
         diagnostics: Arc::new([]),
+        explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![]),
+        dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
 
@@ -217,8 +232,13 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
         body_range: RANGE,
         expressions: exprs,
         bindings: BTreeMap::new(),
+        flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
+        entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
+        exits: phalcom_semantic::checker::BodyExitFacts::default(),
         diagnostics: Arc::new([]),
+        explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![]),
+        dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
     let eff = infer_intraprocedural_effects(&analysis);

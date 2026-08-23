@@ -678,8 +678,13 @@ pub fn render_class_hover(class: &ClassId, superclass: Option<&ClassId>, phaldoc
     sections.join("\n\n---\n\n")
 }
 
-/// Renders one lexical binding or parameter without relying on spelling alone.
-pub fn render_binding_hover(binding: &BindingInfo, value: Option<&InferredValue>, phaldoc: Option<&PhaldocDoc>) -> String {
+/// Renders one lexical binding or parameter with formal type knowledge or advisory value.
+pub fn render_binding_hover_with_formal(
+    binding: &BindingInfo,
+    formal_type: Option<&str>,
+    value: Option<&InferredValue>,
+    phaldoc: Option<&PhaldocDoc>,
+) -> String {
     let kind = match binding.kind {
         SemanticBindingKind::TopLevelLet | SemanticBindingKind::LocalLet => "mutable binding",
         SemanticBindingKind::TopLevelConst | SemanticBindingKind::LocalConst => "constant binding",
@@ -690,7 +695,9 @@ pub fn render_binding_hover(binding: &BindingInfo, value: Option<&InferredValue>
         SemanticBindingKind::Import => "import binding",
     };
     let mut sections = vec![format!("`{}` — {kind}", binding.name)];
-    if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
+    if let Some(formal) = formal_type {
+        sections.push(format!("**Type:** `{formal}`"));
+    } else if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
         sections.push(format!(
             "**Observed type:** `{}`\n\nConfidence: {}",
             crate::semantic::render_value_shape(&value.shape),
@@ -712,6 +719,11 @@ pub fn render_binding_hover(binding: &BindingInfo, value: Option<&InferredValue>
         }
     }
     sections.join("\n\n---\n\n")
+}
+
+/// Renders one lexical binding or parameter without relying on spelling alone.
+pub fn render_binding_hover(binding: &BindingInfo, value: Option<&InferredValue>, phaldoc: Option<&PhaldocDoc>) -> String {
+    render_binding_hover_with_formal(binding, None, value, phaldoc)
 }
 
 /// One place a selector is declared/known, as [`render_selector_hover`]

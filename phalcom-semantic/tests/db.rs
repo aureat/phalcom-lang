@@ -76,3 +76,67 @@ fn stale_revision_cannot_publish_a_ready_product() {
     assert_eq!(error.expected_revision(), current);
     assert!(db.query_state(&key).is_none());
 }
+
+#[test]
+fn test_body_query_execution_and_invalidation() {
+    use phalcom_common::range::SourceRange;
+    use phalcom_common::selector::Selector;
+    use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+    use phalcom_semantic::types::annotation::SimpleTypeResolver;
+    use phalcom_semantic::types::relation::MapTypeHierarchy;
+    use phalcom_semantic::types::store::TypeStore;
+    use phalcom_semantic::declarations::DeclarationTypeTable;
+
+    let mut db = SemanticDb::new();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let resolver = SimpleTypeResolver::new();
+    let decls = DeclarationTypeTable::new();
+    let module = ModuleId::core();
+    let cancel = CancellationToken::new();
+    let budget = QueryBudget::default();
+
+    let cid1 = CallableId::new(DeclarationId::new(module.clone(), "C1".into()), Selector::getter("m1").unwrap(), DispatchSide::Instance);
+    let cid2 = CallableId::new(DeclarationId::new(module.clone(), "C2".into()), Selector::getter("m2").unwrap(), DispatchSide::Instance);
+
+    let outcome1 = phalcom_semantic::db::query_callable_body(
+        &mut db,
+        cid1.clone(),
+        &[],
+        SourceRange { start: 0, end: 10 },
+        &mut store,
+        &hierarchy,
+        &resolver,
+        &decls,
+        module.clone(),
+        budget,
+        &cancel,
+    );
+    assert!(outcome1.is_ready());
+
+    let outcome2 = phalcom_semantic::db::query_callable_body(
+        &mut db,
+        cid2.clone(),
+        &[],
+        SourceRange { start: 0, end: 10 },
+        &mut store,
+        &hierarchy,
+        &resolver,
+        &decls,
+        module,
+        budget,
+        &cancel,
+    );
+    assert!(outcome2.is_ready());
+
+    let key1 = QueryKey::CallableBody(cid1);
+    let key2 = QueryKey::CallableBody(cid2);
+
+    assert!(db.query_state(&key1).unwrap().is_ready());
+    assert!(db.query_state(&key2).unwrap().is_ready());
+
+    // Invalidate key1 only
+    db.invalidate([key1.clone()]);
+    assert!(db.query_state(&key1).is_none());
+    assert!(db.query_state(&key2).unwrap().is_ready());
+}

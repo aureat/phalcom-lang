@@ -5,6 +5,8 @@ pub mod budget;
 pub mod dependency;
 pub mod key;
 pub mod metrics;
+pub mod product;
+pub mod query;
 pub mod scheduler;
 pub mod state;
 
@@ -12,6 +14,8 @@ pub use budget::{BudgetKind, BudgetReport, CancellationToken, QueryBudget};
 pub use dependency::{DependencyEdge, DependencyIndex, DependencyRecorder};
 pub use key::{ProductFingerprint, QueryKey};
 pub use metrics::QueryMetrics;
+pub use product::SemanticProduct;
+pub use query::query_callable_body;
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
 

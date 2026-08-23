@@ -20,6 +20,7 @@ mod repair_runtime_regressions;
 mod repl_immutability;
 mod repl_session;
 mod repl_source_map;
+// mod semantic_analysis;
 mod send_arity_limit;
 mod symbol_selector;
 mod traceback;

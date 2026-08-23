@@ -197,3 +197,32 @@ class DynamicHandler {
     let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
     assert!(!report.has_errors(), "dynamic message sends must not produce false errors");
 }
+
+#[test]
+fn test_for_loop_protocol_custom_iterable() {
+    let (mut store, hier, mut resolver, decls, module) = setup_phase2_env();
+    let stream_decl = DeclarationId::new(module.clone(), "MyCustomStream".into());
+    resolver.insert("MyCustomStream", stream_decl);
+    let source = r#"
+class MyCustomStream {
+  iteratorValue -> String {
+    "item"
+  }
+}
+
+class StreamUser {
+  process(stream: MyCustomStream) {
+    for item in stream {
+      const s: String = item
+    }
+  }
+}
+"#;
+    let program = parse_source(source, 0).expect("valid parse");
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    assert!(
+        !report.has_errors(),
+        "protocol-derived for loop typing should succeed for custom iterable, got: {:?}",
+        report.diagnostics
+    );
+}

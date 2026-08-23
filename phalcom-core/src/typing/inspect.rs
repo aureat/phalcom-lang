@@ -73,11 +73,13 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
 }
 
 fn class_constructor_arity(heap: &Heap, class: ClassId) -> usize {
-    match heap.class(class).name.as_str() {
-        "List" | "Set" => 1,
-        "Map" => 2,
-        _ => 0,
+    let name = heap.class(class).name.as_str();
+    for spec in phalcom_native_meta::universe::UNIVERSE_TYPE_FORMS {
+        if spec.owner.name() == name {
+            return spec.parameters.len();
+        }
     }
+    0
 }
 
 fn base_constructor_arity(
@@ -294,6 +296,40 @@ pub fn equivalent(context: &TypingContextData, registry: &RuntimeTypingRegistry,
         }
         _ => false,
     }
+}
+
+pub fn nominal_class(context: &TypingContextData, registry: &RuntimeTypingRegistry, handle: RuntimeTypeRef) -> Option<ClassId> {
+    match handle {
+        RuntimeTypeRef::Overlay(id) => match context.overlay.type_node(id)? {
+            RuntimeOverlayTypeNode::Nominal { class } => Some(*class),
+            _ => None,
+        },
+        RuntimeTypeRef::Base { pool, node } => {
+            let loaded = registry.get_pool(pool)?;
+            let entry = loaded.bundle.types.get(node.0 as usize)?;
+            if let TypeNode::Nominal { declaration } = &entry.form {
+                registry.resolve_nominal(declaration)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+pub fn subtype(context: &TypingContextData, registry: &RuntimeTypingRegistry, heap: &Heap, left: RuntimeTypeRef, right: RuntimeTypeRef) -> bool {
+    if equivalent(context, registry, left, right) {
+        return true;
+    }
+    if let (Some(left_class), Some(right_class)) = (nominal_class(context, registry, left), nominal_class(context, registry, right)) {
+        let mut current = heap.class(left_class).superclass;
+        while let Some(sup) = current {
+            if sup == right_class {
+                return true;
+            }
+            current = heap.class(sup).superclass;
+        }
+    }
+    false
 }
 
 pub fn nominal_overlay(context: &mut TypingContextData, class: ClassId) -> RuntimeTypeRef {

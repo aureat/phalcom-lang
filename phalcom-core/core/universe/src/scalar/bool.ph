@@ -27,7 +27,8 @@ class Bool is Object {
   // the six original selectors), so adding it does not trip the inliner
   // deopt.
   toString {
-    return self.ifTrue(|| { "true" }, ifFalse: || { "false" })
+    // self.ifTrue { "true" } ifFalse: { "false" }
+    return self.ifTrue(|| "true", ifFalse: || "false")
   }
 }
 

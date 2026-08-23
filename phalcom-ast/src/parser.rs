@@ -157,9 +157,9 @@ fn primary_expected() -> Vec<String> {
         "\"|\"",
         "\"{\"",
     ]
-    .iter()
-    .map(|s| (*s).to_string())
-    .collect()
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect()
 }
 
 /// Converts a slice of `&str` labels into an owned `expected` list.
@@ -1327,10 +1327,7 @@ impl<'source> Parser<'source> {
             // The loop body starts with `{`, which must remain outside the
             // iterable expression. In particular, member-call parsing can
             // otherwise attach it as a trailing closure to `iter`.
-            let trailing_closures_enabled = self.trailing_closures_enabled;
-            self.trailing_closures_enabled = false;
-            let iter = self.parse_expr()?;
-            self.trailing_closures_enabled = trailing_closures_enabled;
+            let iter = self.parse_expr_without_trailing_closures()?;
             lanes.push(ForLane {
                 pattern,
                 index,
@@ -3505,6 +3502,18 @@ impl<'source> Parser<'source> {
         self.parse_assignment()
     }
 
+    /// Parses a control-header expression without allowing a following brace
+    /// to attach as a trailing closure. The brace belongs to the control
+    /// construct's body, even when the condition ends in a member getter or
+    /// method call.
+    fn parse_expr_without_trailing_closures(&mut self) -> ParserResult<Expr> {
+        let previous = self.trailing_closures_enabled;
+        self.trailing_closures_enabled = false;
+        let result = self.parse_expr();
+        self.trailing_closures_enabled = previous;
+        result
+    }
+
     /// Parses assignments and compound assignments (right-associative).
     ///
     /// A simple `=` produces an [`Expr::Assignment`], or an [`Expr::SetProperty`]
@@ -4580,7 +4589,7 @@ impl<'source> Parser<'source> {
         }))
     }
 
-    /// Parses `if (cond) { ... } (else (if ... | { ... }))?` as sacred-selector
+    /// Parses `if condition { ... } (else (if ... | { ... }))?` as sacred-selector
     /// message sends over block literals (control-flow.md §1, §3;
     /// U5-plan.md §4.1, BD-U5-1 Option A): a bare `if` desugars to
     /// `cond.ifTrue(_:)`; an `if`/`else` desugars to the paired
@@ -4603,10 +4612,7 @@ impl<'source> Parser<'source> {
         if self.eat(&Token::Let) {
             let pattern = self.parse_pattern()?;
             self.expect(&Token::Equal, &["\"=\""])?;
-            let trailing_closures_enabled = self.trailing_closures_enabled;
-            self.trailing_closures_enabled = false;
-            let value = self.parse_expr()?;
-            self.trailing_closures_enabled = trailing_closures_enabled;
+            let value = self.parse_expr_without_trailing_closures()?;
             let then_body = match self.parse_brace_block()? {
                 Expr::Block(block) => *block,
                 _ => unreachable!("parse_brace_block must produce a block"),
@@ -4628,7 +4634,7 @@ impl<'source> Parser<'source> {
                 range,
             })));
         }
-        let cond = self.parse_expr()?;
+        let cond = self.parse_expr_without_trailing_closures()?;
         let then_arm = self.parse_brace_block()?;
         let then_range = then_arm.range();
 
@@ -4664,7 +4670,7 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses `while (cond) { body }` as the sacred loop send
+    /// Parses `while condition { body }` as the sacred loop send
     /// `{ cond }.whileTrue { body }` (control-flow.md §1, §3; U5-plan.md
     /// §4.1, BD-U5-1 Option A) — the receiver is itself a literal block
     /// wrapping the condition, re-evaluated each iteration.
@@ -4678,10 +4684,7 @@ impl<'source> Parser<'source> {
         if self.eat(&Token::Let) {
             let pattern = self.parse_pattern()?;
             self.expect(&Token::Equal, &["\"=\""])?;
-            let trailing_closures_enabled = self.trailing_closures_enabled;
-            self.trailing_closures_enabled = false;
-            let value = self.parse_expr()?;
-            self.trailing_closures_enabled = trailing_closures_enabled;
+            let value = self.parse_expr_without_trailing_closures()?;
             let body = match self.parse_brace_block()? {
                 Expr::Block(block) => block.body,
                 _ => unreachable!("parse_brace_block must produce a block"),
@@ -4689,7 +4692,7 @@ impl<'source> Parser<'source> {
             let range = (start..self.prev_end).into();
             return Ok(Expr::WhileLet(Box::new(WhileLetExpr { pattern, value, body, range })));
         }
-        let cond = self.parse_expr()?;
+        let cond = self.parse_expr_without_trailing_closures()?;
         let cond_block = Self::wrap_expr_as_block(cond);
         let body = self.parse_brace_block()?;
         let body_range = body.range();
@@ -5040,10 +5043,10 @@ impl<'source> Parser<'source> {
             Token::QuotedSymbol(_) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::ExplicitSymbol),
             Token::Identifier(name) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::BareName(name.clone())),
             Token::Identifier(name)
-                if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
-            {
-                Some(ProductLabelStart::BareName(format!("{name}?")))
-            }
+            if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
+                {
+                    Some(ProductLabelStart::BareName(format!("{name}?")))
+                }
             Token::Identifier(name) if matches!(self.peek_next(), Token::LParen) && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) => {
                 Some(ProductLabelStart::BareSelector(name.clone()))
             }
@@ -5054,12 +5057,12 @@ impl<'source> Parser<'source> {
                 Some(ProductLabelStart::BareName(Self::bare_product_label_name(token).unwrap().to_string()))
             }
             token
-                if Self::bare_product_label_name(token).is_some()
-                    && matches!(self.peek_next(), Token::LParen)
-                    && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
-            {
-                Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
-            }
+            if Self::bare_product_label_name(token).is_some()
+                && matches!(self.peek_next(), Token::LParen)
+                && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
+                {
+                    Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
+                }
             _ => None,
         }
     }
@@ -6081,8 +6084,10 @@ mod tests {
     fn control_headers_accept_grouped_and_unwrapped_conditions() {
         assert!(parse("if value { value }", 0).errors.is_empty());
         assert!(parse("if (value or other) { value }", 0).errors.is_empty());
+        assert!(parse("if value.isEmpty { value }", 0).errors.is_empty());
         assert!(parse("while value { break }", 0).errors.is_empty());
         assert!(parse("while (value and other) { break }", 0).errors.is_empty());
+        assert!(parse("while value.isEmpty { break }", 0).errors.is_empty());
     }
 
     #[test]

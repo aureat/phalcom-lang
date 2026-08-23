@@ -232,11 +232,7 @@ fn member_visibility(member: &ClassMember) -> &'static str {
 fn bracket_form(labels: &[Option<String>], setter: bool) -> String {
     let inner = labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
     let base = format!("[{inner}]");
-    if setter {
-        format!("{base}=(put)")
-    } else {
-        base
-    }
+    if setter { format!("{base}=(put)") } else { base }
 }
 
 /// Builds the comma-form selector string: `name(_,label,...)`, or `name()`

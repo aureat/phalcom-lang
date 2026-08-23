@@ -1,7 +1,7 @@
 /// RefRange: a rectangle of cell references. Extends Iterable for for/map/where.
 
-import "../support/num" as NumModule
-import "./ref" as RefModule
+import .num as NumModule
+import .ref as RefModule
 
 /// A rectangle of cell references from one corner to another. Normalizes corner
 /// order (B7:A1 == A1:B7). Extends Iterable so it works with for/map/where

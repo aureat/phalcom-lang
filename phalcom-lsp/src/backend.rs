@@ -469,6 +469,14 @@ impl Backend {
             });
         }
         if receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+            if let Some(formal_type) = semantic.formal_binding_type_at(uri, receiver, offset) {
+                if let Some(class) = semantic.class_for_name(uri, &formal_type) {
+                    let formal_resolved = completion::SemanticResolvedReceiver {
+                        alternatives: vec![(class, completion::ReceiverKind::Instance)],
+                    };
+                    return Some(formal_resolved);
+                }
+            }
             if let Some(value) = semantic.binding_at(uri, receiver, offset) {
                 if let Some(resolved) = receiver_from_shape(value.shape) {
                     return Some(resolved);
@@ -480,6 +488,13 @@ impl Backend {
             phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
             _ => None,
         })?;
+        if let Some(formal_expr_type) = semantic.formal_expression_type_at(uri, target.receiver_range.start) {
+            if let Some(class) = semantic.class_for_name(uri, &formal_expr_type) {
+                return Some(completion::SemanticResolvedReceiver {
+                    alternatives: vec![(class, completion::ReceiverKind::Instance)],
+                });
+            }
+        }
         receiver_from_shape(semantic.infer_expression(uri, expression, offset).shape)
     }
 
@@ -714,6 +729,15 @@ impl Backend {
             crate::semantic::SemanticTarget::Binding(binding) => {
                 let info = request.semantic.binding_info(uri, binding)?;
                 let value = request.semantic.binding_at(uri, &info.name, offset);
+                let formal_type = request.semantic.formal_binding_type_at(uri, &info.name, offset);
+
+                let advisory_str = value.as_ref().map(|v| crate::semantic::render_value_shape(&v.shape));
+                crate::parity::ShadowParityHarness::new().record_hover_parity(
+                    &info.name,
+                    formal_type.as_deref(),
+                    advisory_str.as_deref(),
+                );
+
                 let phaldoc = hover::harvest_doc_for_selector(
                     &request.document.text,
                     &request.document.parse.program,
@@ -721,7 +745,7 @@ impl Backend {
                     &info.name,
                 );
                 Some(Hover {
-                    contents: markdown_contents(hover::render_binding_hover(&info, value.as_ref(), phaldoc.as_ref())),
+                    contents: markdown_contents(hover::render_binding_hover_with_formal(&info, formal_type.as_deref(), value.as_ref(), phaldoc.as_ref())),
                     range: Some(span),
                 })
             }

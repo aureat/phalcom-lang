@@ -113,6 +113,21 @@ impl BindingState {
     }
 }
 
+/// Summary of flow state at entry or exit boundary.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FlowStateSummary {
+    pub known_bindings: BTreeMap<BindingId, crate::types::id::TypeId>,
+    pub fact_count: usize,
+}
+
+/// Recorded exit facts across returns, throws, and unreachable points.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct BodyExitFacts {
+    pub returns: Vec<FlowStateSummary>,
+    pub throws: Vec<FlowStateSummary>,
+    pub unreachable: bool,
+}
+
 /// Index of expression analysis products within a body.
 pub type ExpressionAnalysisIndex = BTreeMap<ExpressionId, ExpressionAnalysis>;
 
@@ -136,7 +151,13 @@ pub struct CallableAnalysis {
     pub body_range: SourceRange,
     pub expressions: ExpressionAnalysisIndex,
     pub bindings: BindingAnalysisIndex,
+    pub flow_graph: Arc<crate::checker::flow::graph::FlowGraph>,
+    pub entry_flow: FlowStateSummary,
+    pub exits: BodyExitFacts,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
+    pub explanations: Arc<crate::explain::ExplanationArena>,
     pub dependencies: Arc<[CallableId]>,
+    pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
 }
+
