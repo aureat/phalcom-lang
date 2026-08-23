@@ -1,0 +1,13 @@
+[[mutation]]
+id = "diagnostic.binding_mismatch"
+file = "src/lab/typing.ph"
+anchor = "mutation.binding_mismatch"
+old = "42"
+new = "\"wrong\""
+
+[[mutation]]
+id = "diagnostic.parser_recovery"
+file = "src/lab/recovery.ph"
+anchor = "mutation.parser.expression"
+old = "42"
+new = ""

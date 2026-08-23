@@ -21,90 +21,158 @@
 
 @native
 class Option<T> is Object {
-  @native match(some: Dynamic, none: Dynamic) -> Dynamic
+
+  @native
+  match(some: Dynamic, none: Dynamic) -> Dynamic
+
   // Runs `f` (0-arity) for its side effect when `self` is `None`; passes
   // `Some` through untouched. Never extracts — returns `self` so calls chain
   // (values-and-absence.md §3.3's "Effect" group).
-  ifNone(_ f) {
-    return self.match(some: |v| { self }, none: || { f.call(); self })
+  ifNone(_ f) -> Self {
+    match(
+      some: |v| self, 
+      none: || { 
+        f.call()
+        self 
+      }
+    )
   }
 
   // `Some` passes through unchanged; `None` becomes `f`'s (0-arity) `Option`
   // result (values-and-absence.md §3.3's "Transform" group). This is the
   // `??` operator's target (§3.4: `a ?? b` === `a.orElse || { b }`).
-  orElse(_ f) {
-    return self.match(some: |v| { self }, none: || { f.call() })
+  orElse(_ f) -> Self | Dynamic {
+    match(
+      some: |v| self, 
+      none: || f.call()
+    )
   }
 
-  isSome { self.match(some: |v| { true }, none: || { false }) }
+  isSome -> Bool { 
+    match(
+      some: |v| true, 
+      none: || false
+    ) 
+  }
 
-  isNone { self.match(some: |v| { false }, none: || { true }) }
+  isNone -> Bool { 
+    match(
+      some: |v| false, 
+      none: || true
+    ) 
+  }
 
   // U-STD (values-and-absence.md §3.3's "Transform" group; catalog-delta §2.2):
   // `Some(v)` becomes `Some(f(v))`; `None` passes through untouched. `f` is a
   // 1-arity block over the wrapped value; the result is re-wrapped so the
   // chain stays an `Option`.
-  map(_ f) {
-    return self.match(some: |v| { Some(f.call(v)) }, none: || { self })
+  map(_ f) -> Self | Option<Dynamic> {
+    match(
+      some: |v| Some(f.call(v)), 
+      none: || self 
+    )
   }
 
   // U-STD (values-and-absence.md §3.3's "Transform" group): like `map`, but `f`
   // already returns an `Option`, so its result is used directly rather than
   // re-wrapped — the monadic bind (`>>=`). `None` short-circuits to `self`.
-  flatMap(_ f) {
-    return self.match(some: |v| { f.call(v) }, none: || { self })
+  flatMap(_ f) -> Self | Option<Dynamic> {
+    match(
+      some: |v| f.call(v), 
+      none: || self
+    )
   }
 
   // U-STD (values-and-absence.md §3.3's "Filter" group): `Some(v)` stays `Some(v)`
   // when `pred(v)` is `true`, otherwise collapses to immediate `None`;
   // `None` passes through. `pred` must return a real `Bool` (ADR-0021).
-  filter(_ pred) {
-    return self.match(some: |v| { if (pred.call(v)) { self } else { None } }, none: || { self })
+  filter(_ pred) -> Self | Option<Dynamic> {
+    match(
+      some: |v| { if (pred.call(v)) { self } else { None } }, 
+      none: || { self }
+    )
   }
 
   // U-STD (values-and-absence.md §3.3's "Effect" group; mirror of `ifNone`): runs
   // the 1-arity block `f` for its side effect on the wrapped value when `Some`,
   // then returns `self` so calls chain; a `None` is passed through untouched.
-  ifSome(_ f) {
-    return self.match(some: |v| { f.call(v); self }, none: || { self })
+  ifSome(_ f) -> Self {
+    match(
+      some: |v| { 
+        f.call(v)
+        self 
+      }, 
+      none: || self
+    )
   }
 
   // U-STD (values-and-absence.md §3.3's "Extract" group): unwraps a `Some` to its
   // value, or yields `default` for a `None`. The eager sibling of `orElse`
   // (which takes a block); here `default` is an already-evaluated fallback value.
-  unwrapOr(_ default) {
-    return self.match(some: |v| { v }, none: || { default })
+  unwrapOr<U>(_ default: U) -> U {
+    match(
+      some: |v| v, 
+      none: || default
+    )
   }
 
   // Display (values-and-absence §3, U-CORE-4, R-INV-4.3). Derived over
   // `match`, so a user-overridden `match` is respected (R-INV-2.4) and the
   // inner value is rendered via its OWN `toString` message (so a
   // value-typed payload agrees with the print path, R-INV-4.1).
-  toString { self.match(some: |v| { "Some(" + v.toString + ")" }, none: || { "None" }) }
+  toString -> String { 
+    match(
+      some: |v| "Some(" + v.toString + ")", 
+      none: || "None" 
+    ) 
+  }
 
   // absence -> error bridge (error-handling.md §5, result.md §2, ADR-0007):
   // `Some(v)` already carries a real value, so no reason is needed; `None`
   // has no value, so `err` fills in the failure reason. Round-trips with
   // `Result#ok()` below (`Some(v).okOr(_)` -> `Ok(v)` -> `.ok()` -> `Some(v)`).
-  okOr(_ err) {
-    return self.match(some: |v| { Ok.new(v) }, none: || { Err.new(err) })
-  }
-
-  ==(_ other) {
-    other.is(Option).ifFalse || { return false }
-    return self.match(
-      some: |v| { other.match(some: |ov| { v == ov }, none: || { false }) },
-      none: || { other.isNone }
+  okOr<E>(_ err) -> Result<T, E> {
+    match(
+      some: |v| Ok.new(v), 
+      none: || Err.new(err) 
     )
   }
 
-  hash { self.match(some: |v| { v.hash }, none: || { 0 }) }
+  ==(_ other) -> Bool {
+    other.is(Option).ifFalse { 
+      return false 
+    }
+
+    match(
+      some: |v| { 
+        other.match(
+          some: |ov| v == ov, 
+          none: || false
+        ) 
+      },
+      none: || other.isNone
+    )
+  }
+
+  hash -> Int { 
+    self.match(
+      some: |v| v.hash, 
+      none: || 0 
+    ) 
+  }
 }
 
 @native
 class Some<T> is Option<T> {
-  @class @native call(_ value: Dynamic) -> Some
-  @class @native new(_ value: Dynamic) -> Some
+
+  @class
+  @native
+  call(_ value: Dynamic) -> Some
+
+  @class
+  @native
+  new(_ value: Dynamic) -> Some
+
 }
 
 @native
@@ -112,8 +180,11 @@ class None is Option {}
 
 @native
 class Unit is Object {
-  toString { "()" }
-  hash { 0 }
+
+  toString -> String { "()" }
+
+  hash -> Int { 0 }
+
 }
 
 // `Result`/`Ok`/`Err` (U-ERR, result.md §1-§3; ADR-0008 the error model,

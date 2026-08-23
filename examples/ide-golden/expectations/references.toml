@@ -1,0 +1,5 @@
+[[case]]
+id = "references.parcel"
+file = "src/domain/parcel.ph"
+anchor = "definition.parcel"
+minimum = 3

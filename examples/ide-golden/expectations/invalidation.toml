@@ -1,0 +1,8 @@
+[[case]]
+id = "invalidation.body_only"
+mutation = "diagnostic.binding_mismatch"
+expect = "narrow-recheck"
+
+[[case]]
+id = "invalidation.units.diamond"
+expect = "single-canonical-units-project"

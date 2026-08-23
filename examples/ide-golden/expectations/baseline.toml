@@ -1,0 +1,15 @@
+[workspace]
+root_project = "ide_golden"
+projects = ["ide_golden", "geo", "units"]
+phalcom_sources = 26
+entry = "ide_golden.main"
+steady_phase = "Ready"
+
+[diagnostics]
+parser = 0
+semantic = 0
+module = 0
+
+[compiler]
+check = "success"
+compile = "success"

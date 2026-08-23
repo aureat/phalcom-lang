@@ -52,7 +52,7 @@ use crate::primitive::tuple::{
     tuple_raw_slice,
 };
 use crate::vm::VM;
-use phalcom_native_surface::{NATIVE_MEMBERS, NativeDispatch, NativeMemberKind, NativeVisibility};
+use phalcom_native_surface::{NATIVE_SURFACES, NativeDispatch, NativeMemberKind, NativeVisibility};
 use std::collections::BTreeSet;
 
 use super::Universe;
@@ -734,15 +734,15 @@ impl Universe {
 fn validate_native_surface(vm: &VM) {
     type NativeKey = (String, String, NativeDispatch, NativeMemberKind, NativeVisibility);
 
-    let expected = NATIVE_MEMBERS
+    let expected = NATIVE_SURFACES
         .iter()
-        .map(|member| {
+        .map(|record| {
             (
-                member.class.to_string(),
-                member.selector.to_string(),
-                member.side,
-                member.kind,
-                member.visibility,
+                record.owner().name().to_string(),
+                record.selector().to_string(),
+                record.side(),
+                record.kind,
+                record.visibility(),
             )
         })
         .collect::<BTreeSet<NativeKey>>();

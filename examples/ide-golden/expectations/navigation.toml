@@ -1,0 +1,26 @@
+[[case]]
+id = "navigation.parcel"
+file = "src/lab/navigation.ph"
+anchor = "navigation.parcel.use"
+target_file = "src/domain/parcel.ph"
+target_anchor = "definition.parcel"
+
+[[case]]
+id = "navigation.point.cross_project"
+file = "src/lab/navigation.ph"
+anchor = "navigation.point.cross_project"
+target_file = "deps/geo/src/point.ph"
+target_anchor = "navigation.point.definition"
+
+[[case]]
+id = "navigation.distance.direct"
+file = "src/lab/navigation.ph"
+anchor = "navigation.distance.direct"
+target_file = "deps/units/src/distance.ph"
+target_anchor = "navigation.distance.definition"
+
+[[case]]
+id = "navigation.core.int"
+file = "src/lab/navigation.ph"
+anchor = "navigation.core.int"
+target = "core:Int"

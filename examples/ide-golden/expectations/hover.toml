@@ -1,0 +1,19 @@
+[[case]]
+id = "hover.int"
+file = "src/lab/typing.ph"
+anchor = "hover.int"
+required_text = ["Int"]
+forbidden_text = ["Unknown"]
+
+[[case]]
+id = "hover.point"
+file = "src/lab/typing.ph"
+anchor = "hover.point"
+required_text = ["Point"]
+forbidden_text = ["Unknown"]
+
+[[case]]
+id = "hover.flow.refined"
+file = "src/lab/flow.ph"
+anchor = "hover.flow.refined"
+required_text = ["ExpressShipment"]

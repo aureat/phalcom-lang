@@ -257,8 +257,9 @@ pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     Number,
     "+(_)",
     params = [Number],
-    returns = Number,
-    types = "(Number) -> Number",
+    returns = Self,
+    types = "(Number) -> Self",
+    flow = receiver,
     effects = pure
 )]
 pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -289,8 +290,9 @@ pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     Number,
     "-(_)",
     params = [Number],
-    returns = Number,
-    types = "(Number) -> Number",
+    returns = Self,
+    types = "(Number) -> Self",
+    flow = receiver,
     effects = pure
 )]
 pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -317,7 +319,15 @@ pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Number::*(_)`
-#[phalcom_native_macros::primitive(Number, "*(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "*(_)",
+    params = [Number],
+    returns = Self,
+    types = "(Number) -> Self",
+    flow = receiver,
+    effects = pure
+)]
 pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
         return Ok(vm.semantic_roots.unsupported);
@@ -342,7 +352,14 @@ pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Number::/(_)` — true division.
-#[phalcom_native_macros::primitive(Number, "/(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "/(_)",
+    params = [Number],
+    returns = Float,
+    types = "(Number) -> Float",
+    effects = pure
+)]
 pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
         return Ok(vm.semantic_roots.unsupported);
@@ -356,7 +373,15 @@ pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Number::~/(_)` — floor division.
-#[phalcom_native_macros::primitive(Number, "~/(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "~/(_)",
+    params = [Number],
+    returns = Self,
+    types = "(Number) -> Self",
+    flow = receiver,
+    effects = pure
+)]
 pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
         return Ok(vm.semantic_roots.unsupported);
@@ -398,7 +423,15 @@ pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 }
 
 /// Signature: `Number::%(_)`
-#[phalcom_native_macros::primitive(Number, "%(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "%(_)",
+    params = [Number],
+    returns = Self,
+    types = "(Number) -> Self",
+    flow = receiver,
+    effects = pure
+)]
 pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
         return Ok(vm.semantic_roots.unsupported);
@@ -423,7 +456,15 @@ pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Number::**(_)`
-#[phalcom_native_macros::primitive(Number, "**(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "**(_)",
+    params = [Number],
+    returns = Self,
+    types = "(Number) -> Self",
+    flow = receiver,
+    effects = pure
+)]
 pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let base_val = receiver;
     let exp_val = &args[0];
@@ -490,7 +531,14 @@ pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Number::<(_)`
-#[phalcom_native_macros::primitive(Number, "<(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "<(_)",
+    params = [Number],
+    returns = Bool,
+    types = "(Number) -> Bool",
+    effects = pure
+)]
 pub fn number_lt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
@@ -501,7 +549,14 @@ pub fn number_lt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 }
 
 /// Signature: `Number::<=(_)`
-#[phalcom_native_macros::primitive(Number, "<=(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "<=(_)",
+    params = [Number],
+    returns = Bool,
+    types = "(Number) -> Bool",
+    effects = pure
+)]
 pub fn number_le(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
@@ -512,7 +567,14 @@ pub fn number_le(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 }
 
 /// Signature: `Number::>(_)`
-#[phalcom_native_macros::primitive(Number, ">(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    ">(_)",
+    params = [Number],
+    returns = Bool,
+    types = "(Number) -> Bool",
+    effects = pure
+)]
 pub fn number_gt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
@@ -523,7 +585,14 @@ pub fn number_gt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 }
 
 /// Signature: `Number::>=(_)`
-#[phalcom_native_macros::primitive(Number, ">=(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    ">=(_)",
+    params = [Number],
+    returns = Bool,
+    types = "(Number) -> Bool",
+    effects = pure
+)]
 pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let pair = promote_pair(receiver, &args[0], vm)?;
     match pair {
@@ -565,7 +634,14 @@ fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
 }
 
 /// Signature: `Number::<=> ( _)` — returns the canonical Ordering singleton.
-#[phalcom_native_macros::primitive(Number, "compare(_)")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "compare(_)",
+    params = [Number],
+    returns = Symbol,
+    types = "(Number) -> Symbol",
+    effects = pure
+)]
 pub fn number_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
         return Ok(vm.semantic_roots.unsupported);
@@ -592,7 +668,15 @@ pub fn number_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 ///
 /// Returns the additive inverse of the receiver. Promotes `i64::MIN` to a
 /// `LargeInt` to avoid overflow.
-#[phalcom_native_macros::primitive(Number, "-")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "-",
+    params = [],
+    returns = Self,
+    types = "() -> Self",
+    flow = receiver,
+    effects = pure
+)]
 pub fn number_negate(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Some(n) = receiver.as_int() {
         if let Some(neg) = n.checked_neg() {
@@ -629,7 +713,15 @@ pub fn number_negate(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 ///
 /// Returns the receiver unchanged. Defined so user-defined classes and
 /// numeric subclasses can override the `+` getter when needed.
-#[phalcom_native_macros::primitive(Number, "+")]
+#[phalcom_native_macros::primitive(
+    Number,
+    "+",
+    params = [],
+    returns = Self,
+    types = "() -> Self",
+    flow = receiver,
+    effects = pure
+)]
 pub fn number_unary_plus(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(*receiver)
 }

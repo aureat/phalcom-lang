@@ -1,0 +1,20 @@
+[[case]]
+id = "inlay.value.inferred"
+file = "src/lab/inlays.ph"
+anchor = "inlay.value.inferred"
+label = ": Int"
+present = true
+
+[[case]]
+id = "inlay.value.explicit"
+file = "src/lab/inlays.ph"
+anchor = "inlay.value.explicit"
+label = ": Int"
+present = false
+
+[[case]]
+id = "inlay.parameter.explicit"
+file = "src/lab/inlays.ph"
+anchor = "inlay.parameter.explicit"
+label = ": Int"
+present = false

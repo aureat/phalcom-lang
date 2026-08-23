@@ -116,6 +116,7 @@ pub fn bool_not(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Bool::ifTrue(_)` — sacred one-armed conditional.
+/// Executes block if receiver is true.
 #[phalcom_native_macros::primitive(
     Bool,
     "ifTrue(_)",

@@ -1,48 +1,68 @@
 @native
 class Object {
+
   @native
   name -> Dynamic
+
   @native
   class -> Dynamic
+
   @native
   class=(put value: Dynamic) -> Dynamic
+
   @native
   toString -> String
+
   @native
   hash -> Int
+
   @native
   ==(_ other: Dynamic) -> Bool
+
   @native
   !=(_ other: Dynamic) -> Bool
+
   @native
   ===(_ other: Dynamic) -> Bool
+
   @native
   matches(_ other: Dynamic) -> Bool
+
   @native
   understands(_ selector: Dynamic) -> Bool
+
   @native
   perform(_ selector: Dynamic, ***args: Dynamic) -> Dynamic
+
   @native
   respondsTo(_ selector: Dynamic) -> Bool
+
   @native
   doesNotUnderstand(_ message: Dynamic) -> Dynamic
+
   @native
   methodFor(_ selector: Dynamic) -> Dynamic
+
   @internal
   @native
   _$invariantEnter() -> Dynamic
+
   @internal
   @native
   _$invariantExit() -> Dynamic
+
   @internal
   @native
   _$attributes -> Dynamic
+
   @internal
   @native
   _$attach(_ attribute: Dynamic) -> Dynamic
+
   @internal
   @native
   _$freezeAttributes() -> Dynamic
+
   // Is-kind-of test: true iff `cls` is the receiver's class or an ancestor of
   // it (object-model.md §8, is-tests.md — U-IS). Derived purely over the floor
   // — class/==/superclass — so it needs no native primitive (ADR-0019/0023).
@@ -59,17 +79,19 @@ class Object {
   // `Behavior`, which is not bootstrapped in this codebase (ADR-0003 designs
   // it; core.ph has only `Object`/`Class`/`Metaclass`).
   is(_ cls) {
-    let c = self.class
-    while (c != None) {
-      (c == cls).ifTrue || { return true }
+    let c = class
+    while c != None {
+      if c == cls { 
+        return true 
+      }
       c = c.superclass
     }
-    return false
+    false
   }
 
   // Exact test: true iff `cls` is the receiver's *live, direct* class —
   // no superclass walk. Backs the `x is! T` surface (is-tests.md).
-  is!(_ cls) { self.class == cls }
+  is!(_ cls) { class == cls }
 
   // Default ordering relations are derived from the bilateral compare
   // protocol. Numeric classes retain their specialized primitive methods;
@@ -78,6 +100,7 @@ class Object {
 
   <=(_ other) {
     let order = (self <=> other)
+
     (order.kind === #less) or (order.kind === #equal)
   }
 
@@ -85,6 +108,7 @@ class Object {
 
   >=(_ other) {
     let order = (self <=> other)
+    
     (order.kind === #greater) or (order.kind === #equal)
   }
 }

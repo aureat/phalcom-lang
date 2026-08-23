@@ -1,0 +1,2 @@
+expose .distance
+expose .weight

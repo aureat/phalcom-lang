@@ -1,0 +1,23 @@
+[[case]]
+id = "token.class"
+file = "src/lab/tokens.ph"
+anchor = "token.class"
+token = "class"
+
+[[case]]
+id = "token.method"
+file = "src/lab/tokens.ph"
+anchor = "token.method"
+token = "method"
+
+[[case]]
+id = "token.parameter"
+file = "src/lab/tokens.ph"
+anchor = "token.parameter"
+token = "parameter"
+
+[[case]]
+id = "token.local"
+file = "src/lab/tokens.ph"
+anchor = "token.local"
+token = "variable"

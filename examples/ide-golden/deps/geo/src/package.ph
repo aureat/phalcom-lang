@@ -1,0 +1,2 @@
+expose .point
+expose .route

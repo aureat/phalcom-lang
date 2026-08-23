@@ -1,0 +1,9 @@
+[project]
+name = "phalcom-ide-golden"
+namespace = "ide_golden"
+version = "0.1.0"
+entry = "ide_golden.main"
+
+[dependencies]
+geo = { path = "deps/geo" }
+units = { path = "deps/units" }

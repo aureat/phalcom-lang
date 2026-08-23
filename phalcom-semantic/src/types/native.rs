@@ -73,7 +73,23 @@ pub fn resolve_native_type_form(
         TypeExprSpec::Universe(UniverseKey::Unit) => Ok(store.unit()),
         TypeExprSpec::Universe(key) => {
             let decl = universe_resolver(*key);
-            if let Some(form) = declarations.form(&decl) {
+            if let Some(mut form) = declarations.form(&decl) {
+                while !store.is_proper_type(form) {
+                    let kind_id = store.kind_of(form);
+                    if let crate::types::kind::KindData::Arrow { parameters: ref params, .. } = store.get_kind(kind_id).clone() {
+                        let top = declarations
+                            .form(&universe_resolver(UniverseKey::Object))
+                            .unwrap_or_else(|| store.never());
+                        let args = vec![top; params.len()];
+                        if let Ok(applied) = store.apply_type_form(form, &args) {
+                            form = applied;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
                 Ok(form)
             } else {
                 Err(NativeTypeResolutionError::MissingDeclaration(decl))
@@ -87,7 +103,13 @@ pub fn resolve_native_type_form(
             }
         }
         TypeExprSpec::Applied { origin, arguments } => {
-            let origin_form = resolve_native_type_form(store, declarations, parameters, universe_resolver, origin)?;
+            let origin_form = match origin {
+                TypeExprSpec::Universe(key) => {
+                    let decl = universe_resolver(*key);
+                    declarations.form(&decl).ok_or(NativeTypeResolutionError::MissingDeclaration(decl))?
+                }
+                _ => resolve_native_type_form(store, declarations, parameters, universe_resolver, origin)?,
+            };
             let mut arg_forms = Vec::new();
             for arg in *arguments {
                 arg_forms.push(resolve_native_type_form(store, declarations, parameters, universe_resolver, arg)?);
@@ -183,9 +205,7 @@ pub fn register_native_surfaces(
     use crate::surface::DeclarationSurface;
 
     let universe_resolver = |key: UniverseKey| -> DeclarationId {
-        resolver
-            .resolve_type_name(current_module, key.name(), &[])
-            .unwrap_or_else(|| DeclarationId::new(crate::identity::ModuleId::core(), key.name().into()))
+        DeclarationId::new(crate::identity::ModuleId::core(), key.name().into())
     };
 
     let empty_params = HashMap::new();
@@ -222,7 +242,12 @@ pub fn register_native_surfaces(
         })?;
 
         let declared_arity = record.params().positional.len() + record.params().labeled.len();
-        let selector_arity = selector.slots.len();
+        let selector_arity = match selector.kind {
+            phalcom_common::selector::SelectorKind::Getter => 0,
+            phalcom_common::selector::SelectorKind::Setter => 1,
+            phalcom_common::selector::SelectorKind::Method | phalcom_common::selector::SelectorKind::SubscriptGet => selector.slots.len(),
+            phalcom_common::selector::SelectorKind::SubscriptSet => selector.slots.len() + 1,
+        };
         if declared_arity != selector_arity && record.params().rest.is_none() {
             return Err(NativeSurfaceImportError::SelectorArityMismatch {
                 key: record.surface.key,

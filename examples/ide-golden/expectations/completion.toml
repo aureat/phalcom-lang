@@ -1,0 +1,25 @@
+[[case]]
+id = "completion.parcel.instance"
+file = "src/lab/completion.ph"
+anchor = "completion.parcel"
+cursor = "insertion"
+required = ["id", "destination", "weight"]
+forbidden = ["new(_)"]
+
+[[case]]
+id = "completion.units.path"
+file = "src/lab/modules.ph"
+anchor = "completion.units.path"
+cursor = "insertion"
+required = ["distance", "weight"]
+forbidden = ["internal"]
+comparison = "exact-module-children"
+
+[[case]]
+id = "completion.geo.path"
+file = "src/lab/modules.ph"
+anchor = "completion.geo.path"
+cursor = "insertion"
+required = ["point", "route"]
+forbidden = ["internal"]
+comparison = "exact-module-children"

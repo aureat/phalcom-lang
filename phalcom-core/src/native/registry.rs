@@ -2,8 +2,8 @@
 
 use super::descriptor::PrimitiveDescriptor;
 use linkme::distributed_slice;
-use phalcom_native_meta::{PrimitiveKey, UniverseKey};
-use phalcom_native_surface::NATIVE_MEMBERS;
+use phalcom_native_meta::PrimitiveKey;
+use phalcom_native_surface::NATIVE_SURFACES;
 use std::collections::HashSet;
 
 #[distributed_slice]
@@ -28,20 +28,10 @@ pub fn primitive_keys() -> impl Iterator<Item = PrimitiveKey> {
     PRIMITIVES.iter().map(|descriptor| descriptor.surface.key)
 }
 
-/// Returns whether descriptor installation covers the transitional legacy
-/// member projection. Until this becomes true, descriptor-only startup keeps
-/// the legacy installer as a compatibility floor.
+/// Returns whether descriptor installation covers the canonical native surface
+/// catalog.
 pub fn descriptor_floor_is_complete() -> bool {
     let descriptors = PRIMITIVES.iter().map(|descriptor| descriptor.surface.key).collect::<HashSet<_>>();
-    let legacy = NATIVE_MEMBERS
-        .iter()
-        .filter_map(|member| {
-            Some(PrimitiveKey {
-                owner: UniverseKey::from_name(member.class)?,
-                side: member.side,
-                selector: member.selector,
-            })
-        })
-        .collect::<HashSet<_>>();
-    descriptors == legacy
+    let surfaces = NATIVE_SURFACES.iter().map(|record| record.surface.key).collect::<HashSet<_>>();
+    descriptors == surfaces
 }

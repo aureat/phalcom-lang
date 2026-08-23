@@ -1,0 +1,11 @@
+exit_code = 0
+stdout = """Phalcom IDE Golden
+parcel: PKG-001
+origin: (0, 0)
+destination: (3, 4)
+distance: 7
+weight: 12
+service: standard
+status: planned
+"""
+stderr = ""

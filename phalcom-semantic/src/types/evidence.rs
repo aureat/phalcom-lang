@@ -38,6 +38,14 @@ impl TypeKnowledge {
         }
     }
 
+    #[inline]
+    pub fn authority(&self) -> Option<EvidenceAuthority> {
+        match self {
+            Self::Known(e) => Some(e.authority),
+            _ => None,
+        }
+    }
+
     pub fn known(ty: impl Into<TypeId>, authority: EvidenceAuthority) -> Self {
         Self::Known(TypeEvidence {
             ty: ty.into(),

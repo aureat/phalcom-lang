@@ -4,33 +4,11 @@
 use phalcom_common::selector::Selector;
 use phalcom_core::native::{NativeSourceIndex, PRIMITIVES};
 use phalcom_core::vm::VM;
-use phalcom_native_surface::{NATIVE_MEMBERS, NATIVE_SURFACES};
+use phalcom_native_surface::NATIVE_SURFACES;
 use std::collections::BTreeSet;
 use std::path::Path;
 
 type Key = (phalcom_native_meta::UniverseKey, phalcom_native_meta::NativeDispatch, String);
-
-fn owner_side_counts(keys: &BTreeSet<Key>) -> BTreeSet<(phalcom_native_meta::UniverseKey, phalcom_native_meta::NativeDispatch, usize)> {
-    let mut counts = BTreeSet::new();
-    let mut current = None;
-    let mut count = 0;
-    for (owner, side, _) in keys {
-        let lane = (*owner, *side);
-        if current == Some(lane) {
-            count += 1;
-        } else {
-            if let Some((previous_owner, previous_side)) = current {
-                counts.insert((previous_owner, previous_side, count));
-            }
-            current = Some(lane);
-            count = 1;
-        }
-    }
-    if let Some((owner, side)) = current {
-        counts.insert((owner, side, count));
-    }
-    counts
-}
 
 fn surface_keys() -> BTreeSet<Key> {
     NATIVE_SURFACES
@@ -56,39 +34,30 @@ fn descriptor_keys() -> BTreeSet<Key> {
 fn canonical_surface_census_is_unique_and_actionable() {
     let generated = surface_keys();
     let descriptors = descriptor_keys();
-    let legacy = NATIVE_MEMBERS
-        .iter()
-        .filter_map(|member| {
-            Some((
-                phalcom_native_meta::UniverseKey::from_name(member.class)?,
-                member.side,
-                member.selector.to_owned(),
-            ))
-        })
-        .collect::<BTreeSet<_>>();
 
-    let generated_only = generated.difference(&descriptors).collect::<Vec<_>>();
-    let descriptor_only = descriptors.difference(&generated).collect::<Vec<_>>();
-    let legacy_only = legacy.difference(&descriptors).collect::<Vec<_>>();
-
-    for (_, _, selector) in generated.iter().chain(descriptors.iter()).chain(legacy.iter()) {
+    // Stage 1 & 2: Non-empty and valid selectors
+    assert!(!generated.is_empty(), "generated surfaces must not be empty");
+    assert!(!descriptors.is_empty(), "descriptors must not be empty");
+    for (_, _, selector) in generated.iter().chain(descriptors.iter()) {
         assert!(Selector::try_decode_exact(selector).is_ok(), "noncanonical census selector {selector}");
     }
 
-    println!("DESCRIPTOR_ONLY ({}) = {:?}", descriptor_only.len(), descriptor_only);
-    eprintln!(
-        "native census: legacy={} generated={} descriptors={} generated-only={} descriptor-only={} legacy-only={}",
-        legacy.len(),
-        generated.len(),
-        descriptors.len(),
+    // Stage 3, 4, 5: Exact equality between generated surface records and runtime descriptors
+    let generated_only = generated.difference(&descriptors).collect::<Vec<_>>();
+    let descriptor_only = descriptors.difference(&generated).collect::<Vec<_>>();
+    assert!(
+        generated_only.is_empty(),
+        "generated-only surface keys present ({}) = {:?}",
         generated_only.len(),
-        descriptor_only.len(),
-        legacy_only.len(),
+        generated_only
     );
-    eprintln!("native census per owner/side: generated={:?}", owner_side_counts(&generated));
-    println!("DESCRIPTOR_ONLY elements: {:?}", descriptor_only);
-    assert!(!generated.is_empty(), "generated surfaces must not be empty");
-    assert!(!descriptors.is_empty(), "descriptors must not be empty");
+    assert!(
+        descriptor_only.is_empty(),
+        "descriptor-only keys present ({}) = {:?}",
+        descriptor_only.len(),
+        descriptor_only
+    );
+    assert_eq!(generated, descriptors, "exact canonical surface and descriptor census equality required");
 }
 
 #[test]

@@ -4,6 +4,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::identity::ModuleId;
 use crate::types::native::resolve_native_type_form;
 use crate::types::store::TypeStore;
+use phalcom_native_meta::TypeExprSpec;
 use phalcom_native_surface::NATIVE_SURFACES;
 use std::collections::HashMap;
 
@@ -32,12 +33,21 @@ pub fn validate_native_surface_conformance(
     };
     let empty_params = HashMap::new();
 
+    let resolve_spec = |store: &mut TypeStore, spec: &TypeExprSpec| -> Result<(), String> {
+        if matches!(spec, TypeExprSpec::Unknown | TypeExprSpec::SelfType) {
+            return Ok(());
+        }
+        resolve_native_type_form(store, declarations, &empty_params, &universe_resolver, spec)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    };
+
     for record in NATIVE_SURFACES {
         report.total_surfaces += 1;
         let mut failed = false;
 
         // 1. Resolve return type
-        if let Err(e) = resolve_native_type_form(store, declarations, &empty_params, &universe_resolver, record.returns()) {
+        if let Err(e) = resolve_spec(store, record.returns()) {
             report
                 .failures
                 .push(format!("{:?}.{}: failed to resolve return type: {e}", record.owner(), record.selector()));
@@ -46,7 +56,7 @@ pub fn validate_native_surface_conformance(
 
         // 2. Resolve parameter types
         for (i, p) in record.params().positional.iter().enumerate() {
-            if let Err(e) = resolve_native_type_form(store, declarations, &empty_params, &universe_resolver, p) {
+            if let Err(e) = resolve_spec(store, p) {
                 report
                     .failures
                     .push(format!("{:?}.{}: failed to resolve param {i}: {e}", record.owner(), record.selector()));
@@ -54,7 +64,7 @@ pub fn validate_native_surface_conformance(
             }
         }
         for labeled in record.params().labeled {
-            if let Err(e) = resolve_native_type_form(store, declarations, &empty_params, &universe_resolver, labeled.ty) {
+            if let Err(e) = resolve_spec(store, labeled.ty) {
                 report.failures.push(format!(
                     "{:?}.{}: failed to resolve labeled param {}: {e}",
                     record.owner(),
@@ -65,7 +75,7 @@ pub fn validate_native_surface_conformance(
             }
         }
         if let Some(rest) = record.params().rest.and_then(|rest| rest.ty) {
-            if let Err(e) = resolve_native_type_form(store, declarations, &empty_params, &universe_resolver, rest) {
+            if let Err(e) = resolve_spec(store, rest) {
                 report
                     .failures
                     .push(format!("{:?}.{}: failed to resolve rest param: {e}", record.owner(), record.selector()));

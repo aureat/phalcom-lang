@@ -271,9 +271,15 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             ctx.push_scope();
             let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
 
+            let top = ctx
+                .resolver
+                .resolve_type_name(&ctx.current_module, "Object", &[])
+                .map(|d| ctx.nominal_type_of(&d))
+                .unwrap_or_else(|| ctx.store.unit());
+
             let mut params = Vec::new();
             for (i, p) in block.params.fixed.iter().enumerate() {
-                let p_ty = expected_params.get(i).and_then(|e| e.ty()).unwrap_or_else(|| ctx.store.unit());
+                let p_ty = expected_params.get(i).and_then(|e| e.ty()).unwrap_or(top);
                 let p_k = TypeKnowledge::known(p_ty, EvidenceAuthority::ExactSyntax);
                 ctx.bind_local(p.name.clone(), ValueSemanticFact::new(p_k));
                 params.push(crate::types::store::CallableParameterType {
@@ -283,11 +289,11 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 });
             }
             if let Some(ref rest_p) = block.params.positional_rest {
-                let rest_k = TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax);
+                let rest_k = TypeKnowledge::known(top, EvidenceAuthority::ExactSyntax);
                 ctx.bind_local(rest_p.name.clone(), ValueSemanticFact::new(rest_k));
                 params.push(crate::types::store::CallableParameterType {
                     label: None,
-                    ty: ctx.store.unit(),
+                    ty: top,
                     rest: true,
                 });
             }

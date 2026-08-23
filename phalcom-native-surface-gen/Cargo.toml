@@ -5,7 +5,10 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies]
+phalcom-common = { path = "../phalcom-common" }
 phalcom-native-decl = { path = "../phalcom-native-decl" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
+phalcom-type-syntax = { path = "../phalcom-type-syntax" }
 proc-macro2 = "1.0"
+quote = "1.0"
 syn = { workspace = true, features = ["full", "extra-traits", "parsing", "printing"] }

@@ -153,7 +153,18 @@ impl SurfaceDispatchResolver {
         while let Some(decl) = curr {
             if let Some(surface) = self.surfaces.get(decl) {
                 if let Some(sig) = surface.get_callable(side, selector) {
-                    return DispatchResult::Found(sig.clone());
+                    let mut result_sig = sig.clone();
+                    if decl != start_decl {
+                        if let Some(defining_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == decl { Some(*ty) } else { None }) {
+                            if result_sig.return_type.ty() == Some(defining_form) {
+                                if let Some(start_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == start_decl { Some(*ty) } else { None }) {
+                                    let auth = result_sig.return_type.authority().unwrap_or(crate::types::evidence::EvidenceAuthority::TrustedNative);
+                                    result_sig.return_type = TypeKnowledge::known(start_form, auth);
+                                }
+                            }
+                        }
+                    }
+                    return DispatchResult::Found(result_sig);
                 }
             }
             curr = hierarchy.superclass(decl);

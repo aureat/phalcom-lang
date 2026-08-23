@@ -21,12 +21,14 @@ class Ellipsis {
   call() { Ellipsis.instance }
 
   ==(_ other) { self === other }
+
   hash { #ellipsis.hash }
+
   toString { "..." }
+
   toRepr { "..." }
 }
 
 const ellipsis = Ellipsis.instance
 
-export Ellipsis
-export ellipsis
+export Ellipsis, ellipsis

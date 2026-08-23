@@ -1,0 +1,4 @@
+[project]
+name = "phalcom-ide-golden-units"
+namespace = "units"
+version = "0.1.0"

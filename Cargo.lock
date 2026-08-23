@@ -1156,9 +1156,12 @@ dependencies = [
 name = "phalcom-native-surface-gen"
 version = "0.1.0"
 dependencies = [
+ "phalcom-common",
  "phalcom-native-decl",
  "phalcom-native-meta",
+ "phalcom-type-syntax",
  "proc-macro2",
+ "quote",
  "syn 2.0.104",
 ]
 

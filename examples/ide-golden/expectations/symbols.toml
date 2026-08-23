@@ -1,0 +1,9 @@
+[[case]]
+id = "symbols.parcel"
+query = "Parcel"
+required = ["Parcel"]
+
+[[case]]
+id = "symbols.planner"
+query = "Planner"
+required = ["Planner"]

@@ -2,8 +2,9 @@
 class Class is Behavior {
   @native
   +(_ member: Dynamic) -> Dynamic
-  @internal
-  @native
+
+  @internal @native
   _$new() -> Dynamic
-  new() { self._$new() }
+
+  new() { _$new() }
 }

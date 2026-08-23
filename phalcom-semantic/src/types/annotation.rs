@@ -462,7 +462,24 @@ pub fn resolve_type_annotation(
 ) -> TypeKnowledge {
     let form_res = resolve_type_form(store, declarations, resolver, current_module, annotation, diagnostics);
     match form_res {
-        TypeFormResolution::Known(ty) => {
+        TypeFormResolution::Known(mut ty) => {
+            while store.kind_of(ty) != KindId::TYPE {
+                let kind_id = store.kind_of(ty);
+                if let crate::types::kind::KindData::Arrow { parameters: ref params, .. } = store.get_kind(kind_id).clone() {
+                    let top = declarations
+                        .get(&DeclarationId::new(ModuleId::core(), "Object".into()))
+                        .map(|i| i.form)
+                        .unwrap_or_else(|| store.never());
+                    let args = vec![top; params.len()];
+                    if let Ok(applied) = store.apply_type_form(ty, &args) {
+                        ty = applied;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
             if store.kind_of(ty) != KindId::TYPE {
                 diagnostics.push(SemanticDiagnostic::error(
                     DiagnosticCode::AnnotationUnsaturatedConstructor,

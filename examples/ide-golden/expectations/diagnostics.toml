@@ -1,0 +1,11 @@
+[[case]]
+id = "diagnostic.binding_mismatch"
+mutation = "diagnostic.binding_mismatch"
+code = "type.binding.initializer_mismatch"
+severity = "error"
+
+[[case]]
+id = "diagnostic.parser_recovery"
+mutation = "diagnostic.parser_recovery"
+source = "phalcom"
+severity = "error"
