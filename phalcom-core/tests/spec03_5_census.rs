@@ -186,7 +186,7 @@ fn package_exposures_match_catalog_children() {
             node.path
                 .iter()
                 .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
-                .collect(),
+                .collect::<Vec<_>>(),
         );
         let id = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
         let parsed = provider.load_parsed(&id).expect("canonical package must parse");

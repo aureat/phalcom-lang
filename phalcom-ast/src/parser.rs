@@ -3089,6 +3089,9 @@ impl<'source> Parser<'source> {
             Token::Or => "or".to_string(),
             Token::Not => "not".to_string(),
             Token::Is => "is".to_string(),
+            // `class` is a declaration keyword elsewhere, but is also the
+            // canonical Object class getter/setter selector.
+            Token::Class => "class".to_string(),
             // `from` is a module-syntax keyword, but remains valid as a
             // selector for existing APIs such as `Map.from(...)`.
             Token::From => "from".to_string(),
@@ -5971,6 +5974,17 @@ mod tests {
     fn trailing_newline_is_accepted() {
         // F10: a file ending in a newline must parse cleanly.
         assert!(parse_source("let x = 1\n", 0).is_ok());
+    }
+
+    #[test]
+    fn class_keyword_is_valid_selector_in_class_members() {
+        let source = "@native\nclass Object {\n  @native\n  class -> Dynamic\n  @native\n  class=(put value: Dynamic) -> Dynamic\n}\n";
+        let program = parse_source(source, 0).expect("class selectors must parse");
+        let Statement::Class(class) = program.statements.into_iter().next().expect("class statement") else {
+            panic!("expected class declaration");
+        };
+        assert!(matches!(&class.members[0], ClassMember::Getter(getter) if getter.name == "class"));
+        assert!(matches!(&class.members[1], ClassMember::Setter(setter) if setter.name == "class"));
     }
 
     #[test]
