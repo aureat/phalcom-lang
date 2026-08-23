@@ -6,13 +6,13 @@ use phalcom_semantic::checker::analysis::{AnalysisStatus, CallableAnalysis, Call
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
 use phalcom_semantic::control_summary::ControlFacts;
 use phalcom_semantic::dispatch::DispatchSide;
-use phalcom_semantic::effects::atom::{EffectAtom, EffectSet};
+use phalcom_semantic::effects::atom::EffectSet;
 use phalcom_semantic::effects::infer::infer_intraprocedural_effects;
 use phalcom_semantic::effects::scc::infer_interprocedural_effects_scc;
 use phalcom_semantic::effects::summary::{EffectKnowledge, EffectOpaqueReason};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
 use phalcom_semantic::prover::deterministic::solve_vc_deterministic;
-use phalcom_semantic::prover::ir::{ProofBinaryOp, ProofOpaqueReason, ProofTerm};
+use phalcom_semantic::prover::ir::{ProofOpaqueReason, ProofTerm};
 use phalcom_semantic::prover::vc::{ProofEvidence, ProofObligationKind, VcStatus, VcUnknownReason, VerificationCondition};
 use phalcom_semantic::termination::{TerminationBlockedReason, TerminationEvidence, TerminationKnowledge, analyze_callable_termination};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge};
@@ -86,7 +86,7 @@ fn test_matrix_1_record_row_subtyping_and_unification() {
 
 #[test]
 fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
-    let mut store = TypeStore::new();
+    let store = TypeStore::new();
     let leaf_id = test_callable_id("leaf_fn");
     let caller_id = test_callable_id("caller_fn");
 

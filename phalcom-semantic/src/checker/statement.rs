@@ -58,11 +58,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                 val_typed.fact()
             };
 
-            match &binding.pattern {
-                Pattern::Name { name, .. } => {
-                    ctx.bind_local(name.clone(), effective_fact);
-                }
-                _ => {}
+            if let Pattern::Name { name, .. } = &binding.pattern {
+                ctx.bind_local(name.clone(), effective_fact);
             }
         }
         Statement::Return(ret) => {
@@ -100,9 +97,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                     // 1. Direct collection element typing for List<T>, Set<T>, Map<K, V>
                     if let TypeData::Applied { origin, arguments } = ctx.store.get(iter_ty).clone() {
                         if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
-                            if declaration.name.as_ref() == "List" && arguments.len() == 1 {
-                                TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven)
-                            } else if declaration.name.as_ref() == "Set" && arguments.len() == 1 {
+                            if matches!(declaration.name.as_ref(), "List" | "Set") && arguments.len() == 1 {
                                 TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven)
                             } else {
                                 TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
@@ -134,11 +129,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             }
             ctx.push_scope();
             for (pat, fact) in lane_facts {
-                match pat {
-                    Pattern::Name { name, .. } => {
-                        ctx.bind_local(name.clone(), fact);
-                    }
-                    _ => {}
+                if let Pattern::Name { name, .. } = pat {
+                    ctx.bind_local(name.clone(), fact);
                 }
             }
             for s in &for_stmt.body {

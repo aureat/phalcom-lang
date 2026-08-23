@@ -2,7 +2,6 @@
 
 use crate::dispatch::CallableSignature;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId};
-use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
 use crate::types::evidence::TypeKnowledge;
 use phalcom_common::selector::Selector;
 use std::collections::HashMap;

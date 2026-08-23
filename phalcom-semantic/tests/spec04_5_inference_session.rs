@@ -12,7 +12,7 @@ fn test_decl(name: &str) -> DeclarationId {
 
 #[test]
 fn test_fresh_variable_does_not_grow_type_store() {
-    let mut store = TypeStore::new();
+    let store = TypeStore::new();
     let initial_count = store.type_count();
 
     let mut session = InferenceSession::new();
@@ -92,7 +92,7 @@ fn test_underconstrained_variable_detected() {
     let hier = MapTypeHierarchy::new();
 
     let mut session = InferenceSession::new();
-    let var = session.fresh_variable(KindId::TYPE);
+    let _var = session.fresh_variable(KindId::TYPE);
 
     // No constraints added on var
     let outcome = session.solve(&mut store, &hier);

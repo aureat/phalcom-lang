@@ -49,6 +49,8 @@ impl ProofTerm {
     pub const TRUE: Self = Self::BoolConst(true);
     pub const FALSE: Self = Self::BoolConst(false);
 
+    /// Compatibility helper for callers that prefer method-style proof construction.
+    #[allow(clippy::should_implement_trait)]
     pub fn not(self) -> Self {
         Self::Unary(ProofUnaryOp::Not, Box::new(self))
     }
@@ -67,5 +69,13 @@ impl ProofTerm {
 
     pub fn eq(self, other: Self) -> Self {
         Self::Binary(ProofBinaryOp::Eq, Box::new(self), Box::new(other))
+    }
+}
+
+impl std::ops::Not for ProofTerm {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self::Unary(ProofUnaryOp::Not, Box::new(self))
     }
 }

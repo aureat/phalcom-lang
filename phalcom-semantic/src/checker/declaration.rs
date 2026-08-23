@@ -219,18 +219,23 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
                 }
             }
             ClassMember::Method(m) => {
-                check_callable_body(ctx, &m.params, m.return_annotation.as_ref(), &m.body);
+                check_callable_body(ctx, &m.params, m.return_annotation.as_ref(), m.body.statements().unwrap_or(&[]));
             }
             ClassMember::Getter(g) => {
-                check_callable_body(ctx, &[], g.return_annotation.as_ref(), &g.body);
+                check_callable_body(ctx, &[], g.return_annotation.as_ref(), g.body.statements().unwrap_or(&[]));
             }
             ClassMember::Setter(s) => {
-                check_callable_body(ctx, std::slice::from_ref(&s.param), s.return_annotation.as_ref(), &s.body);
+                check_callable_body(
+                    ctx,
+                    std::slice::from_ref(&s.param),
+                    s.return_annotation.as_ref(),
+                    s.body.statements().unwrap_or(&[]),
+                );
             }
             ClassMember::Index(i) => {
                 let mut params = i.params.clone();
                 if let phalcom_ast::ast::IndexAccessor::Set { put } = &i.accessor {
-                    params.push(put.clone());
+                    params.push((**put).clone());
                 }
                 check_callable_body(ctx, &params, i.return_annotation.as_ref(), &i.body);
             }

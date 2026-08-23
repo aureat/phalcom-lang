@@ -45,7 +45,7 @@ impl ClassPresentation {
                     members.push(MethodPresentation {
                         selector: sel.clone(),
                         side: *side,
-                        display_signature: format!("{sel}"),
+                        display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::NativePrimitive,
                         native_id: Some(n.id()),
                         intrinsic: n.intrinsic(),
@@ -66,7 +66,7 @@ impl ClassPresentation {
                     members.push(MethodPresentation {
                         selector: sel.clone(),
                         side: *side,
-                        display_signature: format!("{sel}"),
+                        display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Generated,
                         native_id: Some(n.id()),
                         intrinsic: n.intrinsic(),
@@ -82,7 +82,7 @@ impl ClassPresentation {
                     members.push(MethodPresentation {
                         selector: sel.clone(),
                         side: *side,
-                        display_signature: format!("{sel}"),
+                        display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Source,
                         native_id: None,
                         intrinsic: None,
@@ -99,7 +99,7 @@ impl ClassPresentation {
                     members.push(MethodPresentation {
                         selector: sel.clone(),
                         side: *side,
-                        display_signature: format!("{sel}"),
+                        display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::NativePrimitive,
                         native_id: Some(native.id()),
                         intrinsic: native.intrinsic(),
@@ -119,7 +119,7 @@ impl ClassPresentation {
                     members.push(MethodPresentation {
                         selector: sel.clone(),
                         side: *side,
-                        display_signature: format!("{sel}"),
+                        display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Source,
                         native_id: Some(native.id()),
                         intrinsic: native.intrinsic(),
@@ -135,7 +135,7 @@ impl ClassPresentation {
                     members.push(MethodPresentation {
                         selector: sel.clone(),
                         side: *side,
-                        display_signature: format!("{sel}"),
+                        display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Source,
                         native_id: Some(native.id()),
                         intrinsic: None,

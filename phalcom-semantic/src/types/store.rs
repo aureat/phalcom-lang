@@ -5,7 +5,7 @@ use super::id::{KindId, ProperTypeId, RecordRowId, TypeId, TypeLambdaId, TypePar
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use super::row::{RecordRowData, RecordRowField, RecordRowTail};
-use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena, TypeLambdaData, TypeLambdaProvenance};
+use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::variance::Variance;
 use crate::identity::DeclarationId;
 use std::collections::HashMap;

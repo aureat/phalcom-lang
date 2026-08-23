@@ -1,9 +1,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::types::id::TypeId;
-use phalcom_semantic::{
-    DiagnosticCode, DiagnosticSeverity, SemanticDiagnostic, SemanticRevision, SemanticSourceSpan, SnapshotId, SnapshotTypeRef, TypeStoreId, WorkspaceId,
-};
+use phalcom_semantic::{DiagnosticCode, DiagnosticSeverity, SemanticDiagnostic, SemanticRevision, SnapshotId, SnapshotTypeRef, TypeStoreId, WorkspaceId};
 
 fn module(name: &str) -> ModuleId {
     ModuleId::resolved(

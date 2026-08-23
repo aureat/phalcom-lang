@@ -1,6 +1,6 @@
 //! Canonical record-row domain and representation.
 
-use super::id::{RecordRowId, TypeId, TypeParameterId};
+use super::id::{TypeId, TypeParameterId};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RecordRowField {

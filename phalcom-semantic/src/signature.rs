@@ -2,9 +2,7 @@
 
 use super::diagnostic::SemanticSourceSpan;
 use super::identity::{CallableId, DeclarationId, DispatchSide, FieldId};
-use super::types::id::{KindId, TypeId, TypeParameterId};
 use super::types::parameter::{GenericSignature, TypeTerm};
-use super::types::store::TypeStore;
 use phalcom_ast::ast::RestMode;
 use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};

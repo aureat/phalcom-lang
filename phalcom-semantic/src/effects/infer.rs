@@ -26,7 +26,7 @@ pub fn adapt_effect_spec(spec: EffectSpec) -> EffectKnowledge {
 
 /// Infers the intraprocedural effect knowledge of a callable from its analysis product.
 pub fn infer_intraprocedural_effects(analysis: &CallableAnalysis) -> EffectKnowledge {
-    let mut current_effects = EffectSet::EMPTY;
+    let current_effects = EffectSet::EMPTY;
 
     for expr in analysis.expressions.values() {
         match &expr.status {

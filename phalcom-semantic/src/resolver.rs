@@ -37,12 +37,10 @@ impl TypeResolver for LinkedTypeResolver {
             // 2. Selective import binding in current_module
             if let Some(linked_mod) = self.linked.modules.get(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {
-                    if let Some(read_spec) = linked_mod.linked_reads.get(import_id.0 as usize) {
-                        if let LinkedReadSpec::Binding(sym) = read_spec {
-                            let decl = DeclarationId::new(sym.module.clone(), sym.name.clone());
-                            if self.known_declarations.contains(&decl) {
-                                return Some(decl);
-                            }
+                    if let Some(LinkedReadSpec::Binding(sym)) = linked_mod.linked_reads.get(import_id.0 as usize) {
+                        let decl = DeclarationId::new(sym.module.clone(), sym.name.clone());
+                        if self.known_declarations.contains(&decl) {
+                            return Some(decl);
                         }
                     }
                 }

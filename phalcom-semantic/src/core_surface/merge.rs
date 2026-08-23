@@ -80,11 +80,11 @@ pub fn merge_surfaces<'a>(source_classes: &'a [SourceClassRecord], native_record
             Some(SurfaceMergeOutcome::SourceOnly(s_mem)) => {
                 let outcome = match s_mem.binding_role {
                     SourceNativeBindingRole::DeclarationImplementation => {
-                        SurfaceMergeOutcome::SourceDeclarationNativeImplementation { source: *s_mem, native: n_rec }
+                        SurfaceMergeOutcome::SourceDeclarationNativeImplementation { source: s_mem, native: n_rec }
                     }
-                    SourceNativeBindingRole::WrapperOverNative => SurfaceMergeOutcome::SourceWrapperOverNative { source: *s_mem, native: n_rec },
+                    SourceNativeBindingRole::WrapperOverNative => SurfaceMergeOutcome::SourceWrapperOverNative { source: s_mem, native: n_rec },
                     SourceNativeBindingRole::None => SurfaceMergeOutcome::Conflict {
-                        source: *s_mem,
+                        source: s_mem,
                         native: n_rec,
                         reason: "source/native collision has no explicit binding role",
                     },

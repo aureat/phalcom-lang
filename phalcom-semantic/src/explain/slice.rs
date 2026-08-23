@@ -6,7 +6,7 @@ use crate::identity::ExplanationId;
 use std::collections::{BTreeSet, VecDeque};
 
 /// Extracts the backward causal slice of an explanation DAG starting from `root`.
-pub fn causal_slice<'a>(arena: &'a ExplanationArena, root: ExplanationId) -> Vec<&'a ExplanationNode> {
+pub fn causal_slice(arena: &ExplanationArena, root: ExplanationId) -> Vec<&ExplanationNode> {
     let mut visited = BTreeSet::new();
     let mut queue = VecDeque::new();
     let mut result = Vec::new();

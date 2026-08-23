@@ -18,7 +18,7 @@ pub trait TypeHierarchy {
     fn is_subclass(&self, sub: &DeclarationId, sup: &DeclarationId) -> bool;
 
     /// Returns the generic supertype template for a class, if registered.
-    fn supertype_template(&self, declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
+    fn supertype_template(&self, _declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
         None
     }
 }
@@ -463,9 +463,10 @@ pub fn check_assignability_bounded(
             let sub_res = check_subtype_bounded(store, hierarchy, act_ev.ty, exp_ev.ty, budget, cancellation);
             if sub_res.is_proven() {
                 RelationOutcome::proven(())
-            } else if sub_res.is_refuted() && act_ev.authority.is_sound_for_rejection() && exp_ev.authority.is_sound_for_rejection() {
-                sub_res
-            } else if sub_res.is_cancelled() || sub_res.is_budget_exceeded() {
+            } else if (sub_res.is_refuted() && act_ev.authority.is_sound_for_rejection() && exp_ev.authority.is_sound_for_rejection())
+                || sub_res.is_cancelled()
+                || sub_res.is_budget_exceeded()
+            {
                 sub_res
             } else {
                 RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
@@ -485,6 +486,8 @@ pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, act
     check_assignability_bounded(store, hierarchy, actual, expected, &mut budget, &cancellation).into()
 }
 
+// Recursive record checking carries shared query state explicitly for budget and cycle control.
+#[allow(clippy::too_many_arguments)]
 pub fn check_record_row_subtype(
     store: &TypeStore,
     hierarchy: &dyn TypeHierarchy,

@@ -47,6 +47,8 @@ pub struct SemanticSnapshot {
 }
 
 impl SemanticSnapshot {
+    // Snapshot construction intentionally mirrors its immutable field layout.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         generation: u64,
         store: Arc<TypeStore>,

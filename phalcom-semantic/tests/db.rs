@@ -1,7 +1,7 @@
 use phalcom_modules::ModuleId;
 use phalcom_semantic::db::{
-    BudgetKind, CancellationToken, DependencyEdge, DependencyIndex, DependencyRecorder, ProductFingerprint, QueryBudget, QueryKey, QueryOutcome,
-    QueryScheduler, QueryValue, SemanticDb,
+    BudgetKind, CancellationToken, DependencyIndex, DependencyRecorder, ProductFingerprint, QueryBudget, QueryKey, QueryOutcome, QueryScheduler, QueryValue,
+    SemanticDb,
 };
 
 fn module() -> ModuleId {
@@ -32,7 +32,7 @@ fn cancellation_and_budget_are_distinct_terminal_outcomes() {
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     assert!(cancellation.is_cancelled());
-    assert!(matches!(cancellation.check(), Err(_)));
+    assert!(cancellation.check().is_err());
     assert!(matches!(QueryOutcome::<()>::cancelled(), QueryOutcome::Cancelled));
 
     let mut budget = QueryBudget::new(1);

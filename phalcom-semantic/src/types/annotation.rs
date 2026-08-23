@@ -384,6 +384,8 @@ pub fn resolve_type_form(
 }
 
 /// Resolves generic parameters and where constraints into a [`GenericSignature`].
+// Each argument is a separate scope/type-resolution input, so grouping them would obscure ownership.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_generic_signature(
     store: &mut TypeStore,
     declarations: &DeclarationTypeTable,

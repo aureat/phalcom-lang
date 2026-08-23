@@ -5,7 +5,7 @@ use phalcom_native_meta::primitive::TerminationSpec;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis};
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
 use phalcom_semantic::dispatch::DispatchSide;
-use phalcom_semantic::effects::atom::{EffectAtom, EffectSet};
+use phalcom_semantic::effects::atom::EffectSet;
 use phalcom_semantic::effects::scc::infer_interprocedural_effects_scc;
 use phalcom_semantic::effects::summary::{EffectKnowledge, EffectOpaqueReason};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
@@ -82,7 +82,7 @@ fn test_interprocedural_effect_propagation() {
 
 #[test]
 fn test_interprocedural_pure_propagation() {
-    let mut store = TypeStore::new();
+    let store = TypeStore::new();
     let leaf_id = make_callable_id("pure_leaf");
     let root_id = make_callable_id("pure_root");
 

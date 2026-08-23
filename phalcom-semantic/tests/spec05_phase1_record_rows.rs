@@ -1,11 +1,11 @@
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::identity::DeclarationId;
-use phalcom_semantic::types::id::{KindId, RecordRowId, TypeParameterId};
+use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
 use phalcom_semantic::types::row::{DuplicateFieldError, RecordRowData, RecordRowField, RecordRowTail};
 use phalcom_semantic::types::row_solver::{RecordRowFailure, RecordRowSolver, RecordRowTerm};
-use phalcom_semantic::types::store::{TypeData, TypeStore};
+use phalcom_semantic::types::store::TypeStore;
 
 fn test_decl(name: &str) -> DeclarationId {
     let module = ModuleId::core();

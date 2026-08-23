@@ -1,22 +1,14 @@
 //! Comprehensive Spec 01.5 verification suite.
 //! Tests Gates 01.5-A through 01.5-H and mathematical property laws in §29.
 
-use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
-use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticSourceSpan};
-use phalcom_semantic::dispatch::{CallableParameter, CallableSignature, DispatchSide};
 use phalcom_semantic::identity::DeclarationId;
-use phalcom_semantic::signature::{CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable};
-use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
-use phalcom_semantic::types::id::{KindId, ProperTypeId, ScopedTypeId, TypeId, TypeParameterId};
-use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
-use phalcom_semantic::types::relation::{Assignability, MapTypeHierarchy, check_assignability, is_subtype};
-use phalcom_semantic::types::store::{RecordTypeField, TupleTypeElement, TypeData, TypeStore};
-use phalcom_semantic::types::substitution::{TypeSubstitution, substitution_for_applied};
+use phalcom_semantic::types::id::KindId;
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
+use phalcom_semantic::types::store::{RecordTypeField, TypeStore};
 use phalcom_semantic::types::type_lambda::{BetaResult, ScopedTypeData, TypeLambdaArena, TypeLambdaProvenance};
 use phalcom_semantic::types::variance::{Variance, VarianceStep, compute_variance_occurrence};
 

@@ -46,6 +46,12 @@ pub struct FlowState {
     pub reachable: bool,
 }
 
+impl Default for FlowState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FlowState {
     pub fn new() -> Self {
         Self {

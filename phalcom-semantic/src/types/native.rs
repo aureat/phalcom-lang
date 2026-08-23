@@ -246,7 +246,7 @@ pub fn register_native_surfaces(
                 .ty
                 .map(|ty| import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, ty))
                 .transpose()?
-                .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::OpaqueNative));
+                .unwrap_or(TypeKnowledge::Unknown(UnknownReason::OpaqueNative));
             params.push(CallableParameter::new("rest", rest_knowledge).with_rest(true));
         }
 

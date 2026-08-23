@@ -67,6 +67,10 @@ pub struct QueryBudget {
     pub pairs_checked: u32,
 }
 
+/// Error returned when a cancellation token observes cancellation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CancellationError;
+
 impl Default for QueryBudget {
     fn default() -> Self {
         Self {
@@ -138,8 +142,8 @@ impl CancellationToken {
         self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn check(&self) -> Result<(), ()> {
-        if self.is_cancelled() { Err(()) } else { Ok(()) }
+    pub fn check(&self) -> Result<(), CancellationError> {
+        if self.is_cancelled() { Err(CancellationError) } else { Ok(()) }
     }
 }
 

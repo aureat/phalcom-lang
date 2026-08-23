@@ -1,5 +1,5 @@
 use phalcom_semantic::identity::{DeclarationId, ModuleId};
-use phalcom_semantic::types::id::{InferVarId, KindId};
+use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
 use phalcom_semantic::{
     CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,

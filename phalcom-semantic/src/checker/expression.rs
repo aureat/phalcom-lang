@@ -929,10 +929,7 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
 }
 
 fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact) {
-    match pattern {
-        Pattern::Name { name, .. } => {
-            ctx.bind_local(name.clone(), fact);
-        }
-        _ => {}
+    if let Pattern::Name { name, .. } = pattern {
+        ctx.bind_local(name.clone(), fact);
     }
 }

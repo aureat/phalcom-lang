@@ -3,19 +3,17 @@
 
 use super::stable_identity::*;
 use crate::declarations::DeclarationTypeTable;
-use crate::diagnostic::SemanticSourceSpan;
-use crate::identity::{CallableId, DeclarationId, FieldId};
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
-use crate::types::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId};
+use crate::types::id::{KindId, ScopedTypeId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
-use crate::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
-use crate::types::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
-use crate::types::type_lambda::{ScopedCallableParameter, ScopedCallableType, ScopedRecordField, ScopedTupleElement, ScopedTypeData, TypeLambdaData};
+use crate::types::parameter::{GenericConstraint, GenericSignature, SelfRole, TypeParameterOwner, TypeTerm};
+use crate::types::store::{TypeData, TypeStore};
+use crate::types::type_lambda::ScopedTypeData;
 use crate::types::variance::Variance;
-use phalcom_type_meta::bundle::{ModuleMetadataRoot, RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
+use phalcom_type_meta::bundle::{RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
 use phalcom_type_meta::declaration::{
-    AliasRecordId, CallableParameterRecord, CallableRecordId, CallableSemanticRecord, DeclarationRecordId, DeclarationTypeFlags, DeclarationTypeRecord,
-    FieldMutabilityRef, FieldRecordId, FieldSemanticRecord, MetadataUnavailableReason, PublishedTypeAuthority, PublishedTypeSlot, RestModeRef, TypeAliasRecord,
+    CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags, DeclarationTypeRecord, FieldMutabilityRef, FieldSemanticRecord,
+    MetadataUnavailableReason, PublishedTypeAuthority, PublishedTypeSlot, RestModeRef,
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{

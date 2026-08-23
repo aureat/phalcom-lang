@@ -1,7 +1,6 @@
 //! Declaration-site variance algebra and occurrence path validation.
 
-use super::id::{KindId, TypeId, TypeParameterId};
-use super::parameter::TypeParameterData;
+use super::id::{TypeId, TypeParameterId};
 use super::store::{TypeData, TypeStore};
 use crate::identity::DeclarationId;
 
@@ -18,8 +17,8 @@ impl Variance {
     /// + ∘ - = -
     /// - ∘ + = -
     /// - ∘ - = +
-    /// 0 ∘ x = 0
-    /// x ∘ 0 = 0
+    ///   0 ∘ x = 0
+    ///   x ∘ 0 = 0
     #[inline]
     pub fn compose(self, other: Self) -> Self {
         match (self, other) {
@@ -46,12 +45,10 @@ impl Variance {
     /// Covariant requires only Covariant occurrences (+).
     /// Contravariant requires only Contravariant occurrences (-).
     pub fn satisfies(self, required: Self) -> bool {
-        match (self, required) {
-            (Self::Covariant, Self::Covariant) => true,
-            (Self::Contravariant, Self::Contravariant) => true,
-            (Self::Invariant, Self::Invariant) => true,
-            _ => false,
-        }
+        matches!(
+            (self, required),
+            (Self::Covariant, Self::Covariant) | (Self::Contravariant, Self::Contravariant) | (Self::Invariant, Self::Invariant)
+        )
     }
 }
 

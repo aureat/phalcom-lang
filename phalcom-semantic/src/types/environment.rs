@@ -4,7 +4,7 @@ use super::id::{TypeId, TypeParameterId};
 use super::row::{RecordRowData, RecordRowField};
 use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
-use crate::identity::{CallableId, DeclarationId};
+use crate::identity::CallableId;
 use std::collections::HashMap;
 
 /// An environment mapping type parameters and `Self` bindings for lazy specialization.
@@ -85,7 +85,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 ty
             }
         }
-        TypeData::SelfType(term) => {
+        TypeData::SelfType(_term) => {
             if let Some(self_ty) = env.get_self() {
                 self_ty
             } else {

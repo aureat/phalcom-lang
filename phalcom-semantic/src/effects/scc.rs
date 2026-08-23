@@ -1,6 +1,5 @@
 //! Interprocedural effect SCC fixpoint inference.
 
-use super::atom::EffectSet;
 use super::infer::infer_intraprocedural_effects;
 use super::summary::EffectKnowledge;
 use crate::checker::analysis::CallableAnalysis;

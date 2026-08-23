@@ -60,7 +60,7 @@ fn test_effect_atom_set_algebra() {
 
 #[test]
 fn test_pure_literal_function_infers_empty_effects() {
-    let mut store = TypeStore::new();
+    let store = TypeStore::new();
     let mut expressions = BTreeMap::new();
     let eid = test_expr_id(1);
     let expr = ExpressionAnalysis::ready(eid, RANGE, TypeKnowledge::known(store.unit(), EvidenceAuthority::ExactSyntax));

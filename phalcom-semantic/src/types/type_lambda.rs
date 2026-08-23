@@ -300,6 +300,7 @@ impl TypeLambdaArena {
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn subst_scoped_partial(&mut self, scoped: ScopedTypeId, depth: u32, args: &[TypeId], store: &mut TypeStore) -> ScopedTypeId {
         match self.get_scoped(scoped).clone() {
             ScopedTypeData::Bound { depth: d, index: idx } => {

@@ -233,6 +233,7 @@ impl InferenceSession {
     }
 
     /// Checks if `var` occurs in `ty`.
+    #[allow(clippy::only_used_in_recursion)]
     pub fn occurs_in_type(&self, var: InferVarId, ty: TypeId, store: &TypeStore) -> bool {
         match store.get(ty) {
             TypeData::Applied { origin, arguments } => {
