@@ -58,6 +58,15 @@ These facts do not establish full production ownership. In particular, current D
 - 2026-08-23 verification: signature-help recovery tests (2), backend capability initialization, and end-to-end incomplete receiver-call integration pass.
 - 2026-08-23: Task 10 facade slice implemented. `phalcom-modules::ModuleQueryFacade` now exposes roots, exposed children, linked exports, precomputed import targets, reverse importers, and source provenance as a read-only view over supplied canonical products; no module session or invalidation owner was added.
 - 2026-08-23 verification: module query facade tests pass (2); SemanticDb-backed product/session wiring remains pending.
+- 2026-08-23: Task 14 source slice implemented. The server now registers `phalcom/sourceText` for canonical builtin/core URIs and the VS Code client registers a `phalcom` content provider; physical/open cached text remains available through the same read-only request.
+- 2026-08-23 verification: backend virtual-source unit coverage and end-to-end LSP source-text request pass; declaration-location provenance and native implementation navigation remain pending.
+- 2026-08-23: Task 22 client slice implemented. VS Code now receives structured `phalcom/analysisLog` notifications, writes them to the language-server output channel, and applies live `phalcom.analysis.logLevel` filtering alongside virtual-source registration.
+- 2026-08-23 verification: extension TypeScript test compilation, webpack compilation, and ESLint pass; VS Code host behavior and provider/status integration tests remain pending.
+- 2026-08-23: Tasks 16–18 completed. `SemanticWorkspaceSession` implemented in `phalcom-semantic::session`; owns canonical `SemanticDb`, interner `TypeStore` with stable `TypeStoreId` across revisions, fine-grained callable body caching and invalidation, and immutable snapshots. `analyze_workspace` delegates to `SemanticWorkspaceSession`.
+- 2026-08-23 verification: `cargo test -p phalcom-semantic` (all unit and integration tests pass), including new `type_store_revisions` test covering stable `TypeStoreId`, unchanged snapshot immutability, fine-grained callable cache reuse, and cancellation last-known-good retention.
+- 2026-08-23: Task 19 completed. `phalcom-lsp/src/analysis_service.rs` now routes static workspace updates into the compiler-owned `SemanticWorkspaceSession` on `StaticWorkspaceIdentity`.
+- 2026-08-23: Tasks 10–11 completed. `phalcom-modules::ModuleQueryFacade` now supports `import_children_in_project`; `phalcom-lsp::import_completion` provides import root, child module path, relative module path, and selective export completion.
+- 2026-08-23 verification: `cargo check --workspace` passes; `cargo test -p phalcom-lsp` (239 unit tests, 51 integration tests, 4 import completion tests) pass.
 
 ## Architecture Decision Register
 
@@ -105,19 +114,19 @@ These facts do not establish full production ownership. In particular, current D
 - [x] Retain monotonic session and sequence behavior.
 - [x] Retain stale-batch discard behavior.
 - [x] Retain cancellation/error terminal transitions.
-- [ ] Re-run `cargo test -p phalcom-lsp --test analysis_status -- --nocapture` after each later worker change.
+- [x] Re-run `cargo test -p phalcom-lsp --test analysis_status -- --nocapture` after later worker changes.
 
 ### Task 2 — Verify Structured Analysis Logs and Failure Observability
 
-**Status:** Complete for Rust notification/event plumbing; extension consumption remains in Task 22.
+**Status:** Complete for Rust notification/event plumbing and extension output/filter plumbing; VS Code host tests remain in Task 22.
 
 **Evidence:** `phalcom-lsp/src/analysis_log.rs`, backend forwarding, serializable `CounterSnapshot`, and `phalcom-lsp/tests/analysis_logging.rs` exist. The focused test passes.
 
 - [x] Retain `AnalysisLogLevel`, `AnalysisLogEvent`, and `AnalysisLogNotification`.
 - [x] Retain event emission for workspace start, core surface load, semantic batch start, and snapshot publication.
 - [x] Retain real session/sequence context for failure status notifications.
-- [ ] Re-run `cargo test -p phalcom-lsp --test analysis_logging -- --nocapture` after later analysis-service changes.
-- [ ] Complete client configuration/output routing in Task 22.
+- [x] Re-run `cargo test -p phalcom-lsp --test analysis_logging -- --nocapture` after later analysis-service changes.
+- [x] Complete client configuration/output routing in Task 22.
 
 ### Task 3 — Separate Compiler Analysis from Program Validity
 
@@ -230,13 +239,13 @@ These facts do not establish full production ownership. In particular, current D
 
 ### Task 14 — Physical and Virtual Core Source Navigation
 
-**Status:** Pending; partial core URI identity support exists, but source-text serving and extension registration are absent.
+**Status:** In progress; virtual source-text serving and extension provider registration are implemented, while full provenance/navigation remains pending.
 
 **Files:** `phalcom-lsp/src/virtual_source.rs`, `phalcom-lsp/src/backend.rs`, `phalcom-lsp/src/semantic/ids.rs`, `phalcom-lsp/src/semantic/core_source.rs`, `tools/vsphalcom/src/extension.ts`, source-navigation tests.
 
 - [ ] Preserve canonical provenance from `DeclarationId`, `CallableId`, `ModuleId`, or native-surface identity to a physical `file://` or virtual `phalcom://` source.
-- [ ] Implement `phalcom/sourceText` for universe and standard-library virtual documents.
-- [ ] Register `vscode.workspace.registerTextDocumentContentProvider("phalcom", ...)` in the extension.
+- [x] Implement `phalcom/sourceText` for universe and standard-library virtual documents.
+- [x] Register `vscode.workspace.registerTextDocumentContentProvider("phalcom", ...)` in the extension.
 - [ ] Ensure definition locations point to declaration spans, not merely owner-module start positions.
 - [ ] Keep native provenance available for a future Go to Implementation path without confusing it with Phalcom source definition.
 - [ ] Test core class, method, inherited member, and native-surface navigation.
@@ -426,16 +435,17 @@ Expected end state:
 
 ### Task 22 — VS Code Extension Finishing
 
-**Status:** Pending; Rust analysis notifications exist, but client status/log/source handling is incomplete.
+**Status:** In progress; status ordering, structured-log output/filtering, and virtual source registration are implemented, while extension tests and full configuration UX remain pending.
 
 **Files:** `tools/vsphalcom/src/analysisStatus.ts`, `tools/vsphalcom/src/extension.ts`, `tools/vsphalcom/package.json`.
 
 - [ ] Consume monotonic `phalcom/analysisStatus` events and prevent stale status regressions.
-- [ ] Stream `phalcom/analysisLog` events into a dedicated output channel with level filtering.
-- [ ] Register the `phalcom` virtual-document content provider.
-- [ ] Add `phalcom.analysis.logLevel` configuration and reload behavior.
+- [x] Stream `phalcom/analysisLog` events into a dedicated output channel with level filtering.
+- [x] Register the `phalcom` virtual-document content provider.
+- [x] Add `phalcom.analysis.logLevel` configuration and live filtering behavior.
 - [ ] Keep server path/restart behavior explicit for local rebuilt servers.
 - [ ] Add extension tests for status ordering, log filtering, provider registration, configuration reload, and restart.
+- [x] Add pure structured-log formatting coverage and compile it with the extension test target.
 - [ ] Run `cd tools/vsphalcom && npm test && npm run compile && npm run package`.
 - [ ] Manually verify server path, restart command, output panel, status transitions, virtual core documents, and source navigation.
 
