@@ -5,7 +5,7 @@ use syn::{Attribute, Expr, Ident, LitStr, Token};
 
 use crate::normalized::{NormalizedPrimitiveDecl, PrimitiveDeclField, PrimitiveDeclKey};
 use crate::{DeclError, validate};
-use phalcom_native_meta::{NativeDispatch, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey};
+use phalcom_native_meta::{NativeAnchorPolicy, NativeDispatch, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey};
 
 struct RawPrimitiveDecl {
     owner: Ident,
@@ -62,6 +62,7 @@ pub fn parse_primitive_attribute(attribute: &Attribute) -> Result<NormalizedPrim
         side: NativeDispatch::Instance,
         visibility: None,
         stability: NativeStability::Unspecified,
+        anchor: NativeAnchorPolicy::Required,
         since: None,
         deprecated_since: None,
         replacement: None,
@@ -98,6 +99,7 @@ pub fn parse_primitive_attribute(attribute: &Attribute) -> Result<NormalizedPrim
             }
             "visibility" => normalized.visibility = Some(parse_visibility(&tokens)?),
             "stability" => normalized.stability = parse_stability(&tokens)?,
+            "anchor" => normalized.anchor = parse_anchor(&tokens)?,
             "since" => normalized.since = Some(parse_string_literal(&tokens)?),
             "deprecated_since" => normalized.deprecated_since = Some(parse_string_literal(&tokens)?),
             "replacement" => normalized.replacement = Some(parse_string_literal(&tokens)?),
@@ -149,6 +151,14 @@ fn parse_visibility(tokens: &TokenStream) -> Result<NativeVisibility, DeclError>
     }
 }
 
+fn parse_anchor(tokens: &TokenStream) -> Result<NativeAnchorPolicy, DeclError> {
+    match parse_ident_string(tokens)?.as_str() {
+        "required" => Ok(NativeAnchorPolicy::Required),
+        "hidden" => Ok(NativeAnchorPolicy::Hidden),
+        other => Err(DeclError::InvalidMetadata(format!("unknown anchor policy `{other}`"))),
+    }
+}
+
 fn parse_stability(tokens: &TokenStream) -> Result<NativeStability, DeclError> {
     match parse_ident_string(tokens)?.as_str() {
         "unspecified" => Ok(NativeStability::Unspecified),
@@ -179,8 +189,21 @@ mod tests {
     use super::parse_primitive_attribute;
 
     #[test]
-    fn explicitly_public_internal_selector_is_valid() {
+    fn internal_selector_requires_internal_visibility() {
         let attribute: syn::Attribute = syn::parse_quote!(
+            #[primitive(
+                Object,
+                "_$attach(_)",
+                params = [Object],
+                returns = Option,
+                types = "(Object) -> Option",
+                visibility = internal
+            )]
+        );
+
+        assert!(parse_primitive_attribute(&attribute).is_ok());
+
+        let invalid: syn::Attribute = syn::parse_quote!(
             #[primitive(
                 Object,
                 "_$attach(_)",
@@ -190,7 +213,6 @@ mod tests {
                 visibility = public
             )]
         );
-
-        assert!(parse_primitive_attribute(&attribute).is_ok());
+        assert!(parse_primitive_attribute(&invalid).is_err());
     }
 }

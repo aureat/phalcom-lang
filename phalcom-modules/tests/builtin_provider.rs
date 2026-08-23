@@ -50,9 +50,9 @@ fn builtin_universe_reflection_children_load() {
         ]);
         let id = ModuleId::builtin(BuiltinProject::Universe, path);
         assert!(provider.contains(&id.path), "module path {id} should exist in provider");
-        let iface = provider.load_interface(&id).expect(&format!("interface for {id} should load"));
+        let iface = provider.load_interface(&id).unwrap_or_else(|_| panic!("interface for {id} should load"));
         assert_eq!(iface.kind, phalcom_modules::ModuleKind::Module);
-        let src = provider.source_text(&id).expect(&format!("source text for {id} should load"));
+        let src = provider.source_text(&id).unwrap_or_else(|_| panic!("source text for {id} should load"));
         assert!(!src.is_empty(), "source for {id} should not be empty");
     }
 }

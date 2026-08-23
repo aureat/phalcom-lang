@@ -9,8 +9,11 @@ use phalcom_common::range::SourceRange;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-static BUILTIN_PARSED_CACHE: OnceLock<Mutex<HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>>> = OnceLock::new();
-static BUILTIN_INTERFACE_CACHE: OnceLock<Mutex<HashMap<ModuleId, Result<UnlinkedModuleInterface, ModuleLoadError>>>> = OnceLock::new();
+type ParsedCache = Mutex<HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>>;
+type InterfaceCache = Mutex<HashMap<ModuleId, Result<UnlinkedModuleInterface, ModuleLoadError>>>;
+
+static BUILTIN_PARSED_CACHE: OnceLock<ParsedCache> = OnceLock::new();
+static BUILTIN_INTERFACE_CACHE: OnceLock<InterfaceCache> = OnceLock::new();
 
 fn parsed_cache() -> &'static Mutex<HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>> {
     BUILTIN_PARSED_CACHE.get_or_init(|| Mutex::new(HashMap::new()))

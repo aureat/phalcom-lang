@@ -79,7 +79,7 @@ fn collect_declarations(
                 for attribute in function
                     .attrs
                     .iter()
-                    .filter(|attribute| attribute.path().segments.last().is_some_and(|segment| segment.ident.to_string() == "primitive"))
+                    .filter(|attribute| attribute.path().segments.last().is_some_and(|segment| segment.ident == "primitive"))
                 {
                     let mut declaration = parse_primitive_attribute(attribute).map_err(|error| format!("{}: {error}", file.display()))?;
                     declaration.docs = docs_from_attributes(&function.attrs);

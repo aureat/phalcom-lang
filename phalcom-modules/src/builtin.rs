@@ -17,12 +17,12 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &[],
         kind: ModuleKind::Package,
-        children: &["object", "scalar", "callable", "option", "collections", "errors", "reflection", "concurrency"],
+        children: &["object", "scalar", "errors", "callable", "option", "concurrency", "collections", "reflection"],
     },
     BuiltinNodeSpec {
         path: &["object"],
         kind: ModuleKind::Package,
-        children: &["object", "behavior", "class", "metaclass"],
+        children: &["object", "behavior", "class", "metaclass", "ellipsis", "ordering"],
     },
     BuiltinNodeSpec {
         path: &["object", "object"],
@@ -41,6 +41,16 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     },
     BuiltinNodeSpec {
         path: &["object", "metaclass"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["object", "ellipsis"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["object", "ordering"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -66,6 +76,41 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     },
     BuiltinNodeSpec {
         path: &["scalar", "symbol"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors"],
+        kind: ModuleKind::Package,
+        children: &["error", "argument", "indexing", "contracts", "unsupported", "unimplemented"],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "error"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "argument"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "indexing"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "contracts"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "unsupported"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["errors", "unimplemented"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -101,6 +146,16 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     },
     BuiltinNodeSpec {
         path: &["option", "option"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["concurrency"],
+        kind: ModuleKind::Package,
+        children: &["fiber"],
+    },
+    BuiltinNodeSpec {
+        path: &["concurrency", "fiber"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -150,41 +205,6 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
         children: &[],
     },
     BuiltinNodeSpec {
-        path: &["errors"],
-        kind: ModuleKind::Package,
-        children: &["error", "argument", "indexing", "contracts", "unsupported", "unimplemented"],
-    },
-    BuiltinNodeSpec {
-        path: &["errors", "error"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    BuiltinNodeSpec {
-        path: &["errors", "argument"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    BuiltinNodeSpec {
-        path: &["errors", "indexing"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    BuiltinNodeSpec {
-        path: &["errors", "contracts"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    BuiltinNodeSpec {
-        path: &["errors", "unsupported"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    BuiltinNodeSpec {
-        path: &["errors", "unimplemented"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    BuiltinNodeSpec {
         path: &["reflection"],
         kind: ModuleKind::Package,
         children: &[
@@ -208,8 +228,14 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
             "selector",
             "message",
             "attribute",
+            "implementation",
             "typing",
         ],
+    },
+    BuiltinNodeSpec {
+        path: &["reflection", "implementation"],
+        kind: ModuleKind::Module,
+        children: &[],
     },
     BuiltinNodeSpec {
         path: &["reflection", "module"],
@@ -371,16 +397,6 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
         kind: ModuleKind::Module,
         children: &[],
     },
-    BuiltinNodeSpec {
-        path: &["concurrency"],
-        kind: ModuleKind::Package,
-        children: &["fiber"],
-    },
-    BuiltinNodeSpec {
-        path: &["concurrency", "fiber"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
 ];
 
 const STD_NODES: &[BuiltinNodeSpec] = &[
@@ -528,6 +544,12 @@ impl BuiltinProjectSourceProvider {
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "metaclass" => {
                 include_str!("../../phalcom-core/core/universe/src/object/metaclass.ph")
             }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "ellipsis" => {
+                include_str!("../../phalcom-core/core/universe/src/object/ellipsis.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "ordering" => {
+                include_str!("../../phalcom-core/core/universe/src/object/ordering.ph")
+            }
             (BuiltinProject::Universe, [c]) if c.as_str() == "scalar" => include_str!("../../phalcom-core/core/universe/src/scalar/package.ph"),
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "number" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/number.ph")
@@ -662,6 +684,9 @@ impl BuiltinProjectSourceProvider {
             }
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "attribute" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/attribute.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "implementation" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/implementation.ph")
             }
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "typing" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/typing/package.ph")

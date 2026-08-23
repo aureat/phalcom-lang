@@ -478,13 +478,12 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     }
                     ScopedRecordTailRef::FreeParameter(param_ref) => {
                         let owner_key = format!("{:?}", param_ref.owner);
-                        let tail_param =
-                            param_map
-                                .get(&(owner_key.clone(), param_ref.index))
-                                .ok_or_else(|| MetadataValidationError::RecordTailParameterMissing {
-                                    owner: owner_key,
-                                    index: param_ref.index,
-                                })?;
+                        let tail_param = param_map
+                            .get(&(owner_key.clone(), param_ref.index))
+                            .ok_or(MetadataValidationError::RecordTailParameterMissing {
+                                owner: owner_key,
+                                index: param_ref.index,
+                            })?;
                         let tail_kind_entry = &bundle.kinds[tail_param.kind.0 as usize];
                         if !matches!(tail_kind_entry.node, KindNode::RecordRow) {
                             return Err(MetadataValidationError::RecordTailKindMismatch {

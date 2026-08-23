@@ -1,4 +1,4 @@
-use phalcom_native_meta::{NativeDispatch, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey};
+use phalcom_native_meta::{NativeAnchorPolicy, NativeDispatch, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PrimitiveDeclKey {
@@ -25,6 +25,7 @@ pub struct NormalizedPrimitiveDecl {
     pub side: NativeDispatch,
     pub visibility: Option<NativeVisibility>,
     pub stability: NativeStability,
+    pub anchor: NativeAnchorPolicy,
     pub since: Option<String>,
     pub deprecated_since: Option<String>,
     pub replacement: Option<String>,

@@ -129,6 +129,7 @@ macro_rules! surface_record {
                 },
                 visibility: NativeVisibility::$vis,
                 stability: NativeStability::Stable,
+                anchor: NativeAnchorPolicy::Required,
                 params: &$params,
                 returns: &$returns,
                 callable: &$callable,

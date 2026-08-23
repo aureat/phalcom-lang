@@ -28,6 +28,7 @@ struct PrimitiveAttrArgs {
     side: Option<String>,
     visibility: Option<String>,
     stability: Option<String>,
+    anchor: Option<String>,
 
     since: Option<String>,
     deprecated_since: Option<String>,
@@ -65,6 +66,7 @@ impl Parse for PrimitiveAttrArgs {
             side: None,
             visibility: None,
             stability: None,
+            anchor: None,
             since: None,
             deprecated_since: None,
             replacement: None,
@@ -147,6 +149,10 @@ impl Parse for PrimitiveAttrArgs {
                 "stability" => {
                     let id: Ident = input.parse()?;
                     args.stability = Some(id.to_string());
+                }
+                "anchor" => {
+                    let id: Ident = input.parse()?;
+                    args.anchor = Some(id.to_string());
                 }
                 "since" => {
                     let lit: LitStr = input.parse()?;
@@ -241,8 +247,21 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
     // 2. Validate visibility and _$ prefix
     let is_internal_sel = args.selector_str.starts_with("_$");
     let visibility = match args.visibility.as_deref() {
-        Some("public") => phalcom_native_meta::NativeVisibility::Public,
-        Some("internal") => phalcom_native_meta::NativeVisibility::Internal,
+        Some("internal") => {
+            if !is_internal_sel {
+                return Err(Error::new(args.selector_span, "visibility = internal requires selector to begin with '_$'"));
+            }
+            phalcom_native_meta::NativeVisibility::Internal
+        }
+        Some("public") => {
+            if is_internal_sel {
+                return Err(Error::new(
+                    args.selector_span,
+                    "internal selector cannot be public (must use visibility = internal)",
+                ));
+            }
+            phalcom_native_meta::NativeVisibility::Public
+        }
         Some(other) => {
             return Err(Error::new(
                 Span::call_site(),
@@ -253,15 +272,23 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
             if is_internal_sel {
                 return Err(Error::new(
                     args.selector_span,
-                    "selector beginning with '_$' requires explicit visibility (visibility = internal | public)",
+                    "selector beginning with '_$' requires explicit visibility = internal",
                 ));
             }
             phalcom_native_meta::NativeVisibility::Public
         }
     };
-    if visibility == phalcom_native_meta::NativeVisibility::Internal && !is_internal_sel {
-        return Err(Error::new(args.selector_span, "visibility = internal requires selector to begin with '_$'"));
-    }
+
+    let anchor = match args.anchor.as_deref() {
+        Some("required") | None => quote!(::phalcom_native_meta::NativeAnchorPolicy::Required),
+        Some("hidden") => quote!(::phalcom_native_meta::NativeAnchorPolicy::Hidden),
+        Some(other) => {
+            return Err(Error::new(
+                Span::call_site(),
+                format!("unknown anchor policy '{other}', expected required or hidden"),
+            ));
+        }
+    };
 
     // 3. Dispatch side
     let side = match args.side.as_deref() {
@@ -552,6 +579,7 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
             },
             visibility: #visibility_tokens,
             stability: #stability_tokens,
+            anchor: #anchor,
             params: #params_spec,
             returns: #returns_spec,
             callable: #callable_spec,

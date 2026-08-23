@@ -58,6 +58,10 @@ impl NativeSurfaceRecord {
         self.surface.stability
     }
 
+    pub const fn anchor(&self) -> NativeAnchorPolicy {
+        self.surface.anchor
+    }
+
     pub const fn params(&self) -> &'static ParameterTupleSpec {
         self.surface.params
     }

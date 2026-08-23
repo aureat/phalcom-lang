@@ -137,11 +137,19 @@ pub enum TerminationSpec {
     MayDiverge,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeAnchorPolicy {
+    #[default]
+    Required,
+    Hidden,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PrimitiveSurfaceSpec {
     pub key: PrimitiveKey,
     pub visibility: NativeVisibility,
     pub stability: NativeStability,
+    pub anchor: NativeAnchorPolicy,
 
     pub params: &'static ParameterTupleSpec,
     pub returns: &'static TypeExprSpec,
