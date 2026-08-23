@@ -4,7 +4,8 @@
 // and the Iterable hookup. `each`/`map`/`filter`/`reduce` are deliberately
 // ABSENT — inherited from `Iterable` so `Fiber.yield` works mid-iteration
 // (law 8); adding native or local overrides is a spec violation.
-class Bytes {
+@native
+class Bytes is Iterable {
   size { self._$size }
 
   first {
@@ -394,7 +395,8 @@ class Path {
 // U-RESOURCE & U-STREAMS
 // ============================================================================
 
-class Resource {
+@native
+class Resource is Object {
   close {
     self._$close()
     return Ok.new(None)
@@ -402,6 +404,7 @@ class Resource {
   isClosed { self._$isClosed }
 }
 
+@native
 class UseAfterCloseError is Error {}
 
 class UnflushedError is Error {}

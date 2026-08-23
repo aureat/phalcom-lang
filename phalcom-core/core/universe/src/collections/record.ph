@@ -1,4 +1,5 @@
-class Record {
+@native
+class Record is Object {
   size { self._$size }
   labelAt(_ index) { self._$labelAt(index) }
 

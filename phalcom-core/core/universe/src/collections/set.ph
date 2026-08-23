@@ -1,4 +1,5 @@
-class Set {
+@native
+class Set is Iterable {
   size { self._$size }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s

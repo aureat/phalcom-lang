@@ -1,4 +1,5 @@
-class Iterable {
+@native
+class Iterable is Object {
   // Generic index-cursor walk over `self.size` (ADR-0048 §1/§3). A subclass whose
   // cursor is not a 0..size index (none in-kernel today) overrides this.
   iterate(_ cursor) {

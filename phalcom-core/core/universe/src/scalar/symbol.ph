@@ -1,1 +1,2 @@
-class Symbol {}
+@native
+class Symbol is Object {}

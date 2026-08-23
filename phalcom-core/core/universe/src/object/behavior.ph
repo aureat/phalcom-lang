@@ -3,7 +3,8 @@
 // native `_attributes` store every class object carries (M-ATTR-ROOT).
 // Method-only reopen (no new fields) — safe on a bootstrap class (a
 // reopen-with-fields would trip read-before-write).
-class Behavior {
+@native
+class Behavior is Object {
   attributes { self._$attributes }
   attributesOfType(_ cls) { self._$attributes.filter |a| { a.is(cls) } }
 }

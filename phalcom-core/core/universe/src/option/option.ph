@@ -26,7 +26,8 @@
 // future unit that needs to add real members to `None` must fix that
 // compiler special case first, not just re-add this skeleton.
 
-class Option {
+@native
+class Option is Object {
   // Runs `f` (0-arity) for its side effect when `self` is `None`; passes
   // `Some` through untouched. Never extracts — returns `self` so calls chain
   // (values-and-absence.md §3.3's "Effect" group).
@@ -106,7 +107,17 @@ class Option {
   hash { self.match(some: |v| { v.hash }, none: || { 0 }) }
 }
 
-class Some {}
+@native
+class Some is Option {}
+
+@native
+class None is Option {}
+
+@native
+class Unit is Object {
+  toString { "()" }
+  hash { 0 }
+}
 
 // `Result`/`Ok`/`Err` (U-ERR, result.md §1-§3; ADR-0008 the error model,
 // ADR-0007 the abstract-root-plus-two-subclasses machinery `Option`/`Some`/

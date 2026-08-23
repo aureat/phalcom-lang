@@ -1,4 +1,5 @@
-class System {
+@native
+class System is Object {
   // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
   // native `write_(_)` and the `toString` message. Additive-only: does not
   // touch the native `print(_)` pathway (pre-existing divergence between
@@ -44,6 +45,9 @@ class System {
     }
   }
 }
+
+@native
+class Fiber is Object {}
 
 // `Future` (concurrency.md §2; ADR-0030 §1): a settle-once state machine over
 // a fulfilled/rejected result. A **plain `InstanceObject`** (concurrency.md §2

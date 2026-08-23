@@ -1,4 +1,5 @@
-class List {
+@native
+class List is Iterable {
   size { self._$length }
 
   first {

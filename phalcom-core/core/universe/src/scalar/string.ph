@@ -1,4 +1,5 @@
-class String {
+@native
+class String is Object {
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
   // representation read, so this is `.ph`-derivable rather than a floor
   // primitive (ADR-0019's derivability test).

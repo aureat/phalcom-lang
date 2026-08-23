@@ -1,3 +1,4 @@
+@native
 class Object {
   // Is-kind-of test: true iff `cls` is the receiver's class or an ancestor of
   // it (object-model.md §8, is-tests.md — U-IS). Derived purely over the floor

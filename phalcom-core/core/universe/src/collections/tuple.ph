@@ -1,14 +1,10 @@
-class Unit {
-  toString { "()" }
-  hash { 0 }
-}
-
 // Kernel Tuple (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a native fixed
 // arity immutable slice — Object::Tuple, mirroring List's shape but with NO
 // mutation selector (immutability is structural, TupleObject's Box<[Value]>).
 // Product literals compile directly to native build bytecodes.
 
-class Tuple {
+@native
+class Tuple is Iterable {
   size { self._$size }
   positionals { self._$positionals }
   labeled { self._$labeled }

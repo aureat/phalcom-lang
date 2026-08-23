@@ -1,6 +1,7 @@
 // Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
 // observations preserve omitted endpoints. Progression, equality, hashing,
 // and traversal are deliberately deferred.
+@native
 class Range is Iterable {
   @class
   new(_ lower, _ upper, _ upperInclusive) {

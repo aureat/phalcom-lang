@@ -57,10 +57,15 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
     BuiltinNodeSpec {
         path: &["scalar"],
         kind: ModuleKind::Package,
-        children: &["number", "string", "bool", "symbol"],
+        children: &["number", "nil", "string", "bool", "symbol"],
     },
     BuiltinNodeSpec {
         path: &["scalar", "number"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
+        path: &["scalar", "nil"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -553,6 +558,9 @@ impl BuiltinProjectSourceProvider {
             (BuiltinProject::Universe, [c]) if c.as_str() == "scalar" => include_str!("../../phalcom-core/core/universe/src/scalar/package.ph"),
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "number" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/number.ph")
+            }
+            (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "nil" => {
+                include_str!("../../phalcom-core/core/universe/src/scalar/nil.ph")
             }
             (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "string" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/string.ph")

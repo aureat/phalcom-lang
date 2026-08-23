@@ -12,7 +12,8 @@
 // subclass a `super.new(msg)` to route through (error-handling.md §1,
 // U-ERR: `throw ArgumentError("age must be >= 0")`-style user `Error`
 // subclasses need this to carry a real `message`).
-class Error {
+@native
+class Error is Object {
   _message // : Option<String>
   _kind // : Option<Symbol>
   _cause // : Option<Error>
@@ -57,6 +58,12 @@ class Error {
 
   displaced=(put value) { _displaced = value }
 }
+
+@native
+class MessageNotUnderstood is Error {}
+
+@native
+class CannotYieldAcrossNativeFrame is Error {}
 
 
 class Result {

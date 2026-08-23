@@ -1,4 +1,5 @@
-class Bool {
+@native
+class Bool is Object {
   // Display (U-CORE-4, R-INV-4.1): derived over the sacred `ifTrue(_,
   // ifFalse)` selector (proven syntax:
   // `control-flow/control_flow_send_equivalence.ph` L9). This `toString` is
@@ -18,6 +19,8 @@ class Bool {
 // so these bodies are intentionally empty. The globals are already bound in Rust
 // (VM::install_core, add_class!) — unlike `None`, they name the class objects,
 // so these reopens re-emit the identical DefineGlobal binding (a harmless no-op).
-class True {}
+@native
+class True is Bool {}
 
-class False {}
+@native
+class False is Bool {}

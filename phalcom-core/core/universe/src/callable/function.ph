@@ -4,7 +4,8 @@
 // `on(_)(_)` (U-ERR, ADR-0038) — no floor cost. Installed on the abstract
 // `Function` root so both `Closure` and (reflectively) `Method` inherit it,
 // mirroring how `call`/`on`/`ensure` are native on both.
-class Function {
+@native
+class Function is Object {
   // Explicit `()` (a method, not a getter — `attempt() { … }` vs `attempt {
   // …`) so the call-site selector encodes as `attempt()`, matching the
   // spec's `{ risky() }.attempt()` call form (error-handling.md §5) exactly.
