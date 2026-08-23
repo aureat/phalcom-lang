@@ -644,7 +644,7 @@ fn worker_loop(
                 let _ = event_tx.send(AnalysisEvent::CoreSourceSelected {
                     uri: selected_core_uri.clone(),
                 });
-                let program = phalcom_ast::parser::parse(core_source.text(), 0).program;
+                let program = core_source.parse().program;
                 let generation = engine.update_core(FileRevision(1), &program);
                 let effects = publish_engine(&db, &engine);
                 core_initialized = true;

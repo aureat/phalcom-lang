@@ -6,8 +6,8 @@
 //! Native members use the same structured surface consumed by completion;
 //! opaque native returns deliberately carry no guessed value shape.
 
-use super::ids::{ClassId, DispatchSide, ModuleId, CORE_MODULE_URI};
-use super::surface::{build_module_surface, ClassSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface};
+use super::ids::{CORE_MODULE_URI, ClassId, DispatchSide, ModuleId};
+use super::surface::{ClassSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, build_module_surface};
 use phalcom_ast::ast::{Program, RestMode};
 use phalcom_ast::parser::Parse;
 
@@ -90,6 +90,19 @@ impl CoreSource {
         }
     }
 
+    /// Parses the selected core source into the single semantic-core view.
+    ///
+    /// The bundled fallback is assembled from many canonical builtin modules.
+    /// Parse those units independently so each module keeps its own preamble;
+    /// concatenating their raw text would make later `@!`, `import`, and
+    /// `expose` declarations invalid in one synthetic module.
+    pub fn parse(&self) -> Parse {
+        match self {
+            Self::Bundled { .. } => bundled_parse(),
+            Self::Configured { text, .. } | Self::Workspace { text, .. } => phalcom_ast::parser::parse(text, 0),
+        }
+    }
+
     /// Returns the physical URI of the on-disk core file if present.
     pub fn physical_uri(&self) -> Option<&Url> {
         match self {
@@ -102,7 +115,24 @@ impl CoreSource {
 
 /// Parses bundled core source.
 pub fn bundled_parse() -> Parse {
-    phalcom_ast::parser::parse(&canonical_universe_source(), 0)
+    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
+    let mut combined = phalcom_ast::parser::parse("", 0);
+    for node in provider.nodes() {
+        let path = phalcom_modules::identity::ModulePath::from_components(
+            node.path
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
+                .collect::<Vec<_>>(),
+        );
+        let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
+        let source = provider
+            .source_text(&module)
+            .unwrap_or_else(|error| panic!("failed to load canonical universe source {module}: {error}"));
+        let parsed = phalcom_ast::parser::parse(&source, 0);
+        combined.program.statements.extend(parsed.program.statements);
+        combined.errors.extend(parsed.errors);
+    }
+    combined
 }
 
 fn canonical_universe_source() -> String {
@@ -127,7 +157,7 @@ fn canonical_universe_source() -> String {
 
 /// Builds the core surface from source and the canonical native declarations.
 pub fn build_core_surface(program: &Program) -> ModuleSurface {
-    use phalcom_native_surface::{NativeDispatch, NativeMemberKind, NativeVisibility, NATIVE_SURFACE_CATALOG};
+    use phalcom_native_surface::{NATIVE_SURFACE_CATALOG, NativeDispatch, NativeMemberKind, NativeVisibility};
     let module = ModuleId::new(CORE_MODULE_URI);
     let mut source = build_module_surface(module.clone(), program);
 
