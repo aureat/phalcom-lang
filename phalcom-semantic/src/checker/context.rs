@@ -1,9 +1,13 @@
-use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex};
+use crate::checker::analysis::{
+    AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency,
+};
 use crate::checker::flow::FlowState;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
-use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
+use crate::identity::{
+    BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
+};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::TypeKnowledge;
@@ -14,7 +18,46 @@ use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+
+/// Storage abstraction for dispatch resolver avoiding per-callable cloning.
+pub enum DispatchAccess<'a> {
+    Owned(SurfaceDispatchResolver),
+    Borrowed(&'a SurfaceDispatchResolver),
+}
+
+impl<'a> DispatchAccess<'a> {
+    pub fn get(&self) -> &SurfaceDispatchResolver {
+        match self {
+            Self::Owned(d) => d,
+            Self::Borrowed(d) => d,
+        }
+    }
+
+    pub fn get_mut(&mut self) -> Option<&mut SurfaceDispatchResolver> {
+        match self {
+            Self::Owned(d) => Some(d),
+            Self::Borrowed(_) => None,
+        }
+    }
+}
+
+impl<'a> std::ops::Deref for DispatchAccess<'a> {
+    type Target = SurfaceDispatchResolver;
+
+    fn deref(&self) -> &Self::Target {
+        self.get()
+    }
+}
+
+impl<'a> std::ops::DerefMut for DispatchAccess<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Owned(d) => d,
+            Self::Borrowed(_) => panic!("Attempted to mutate borrowed dispatch resolver"),
+        }
+    }
+}
 
 /// Metadata for a scoped local variable binding.
 #[derive(Clone, Debug)]
@@ -69,8 +112,9 @@ pub struct CheckingContext<'a> {
     pub explanations: crate::explain::ExplanationArena,
     pub suppressed: std::collections::BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
-    pub dependencies: Vec<CallableId>,
-    pub dispatch: SurfaceDispatchResolver,
+    pub dependencies: BTreeSet<CallableId>,
+    pub semantic_dependencies: BTreeSet<SemanticDependency>,
+    pub dispatch: DispatchAccess<'a>,
     pub diagnostics: Vec<SemanticDiagnostic>,
 }
 
@@ -125,8 +169,44 @@ impl<'a> CheckingContext<'a> {
             explanations: crate::explain::ExplanationArena::new(),
             suppressed: std::collections::BTreeMap::new(),
             flow_graph: None,
-            dependencies: Vec::new(),
-            dispatch,
+            dependencies: BTreeSet::new(),
+            semantic_dependencies: BTreeSet::new(),
+            dispatch: DispatchAccess::Owned(dispatch),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub fn new_with_dispatch_ref(
+        store: &'a mut TypeStore,
+        hierarchy: &'a dyn TypeHierarchy,
+        resolver: &'a dyn TypeResolver,
+        declarations: &'a DeclarationTypeTable,
+        dispatch: &'a SurfaceDispatchResolver,
+        current_module: ModuleId,
+    ) -> Self {
+        Self {
+            store,
+            hierarchy,
+            resolver,
+            declarations,
+            current_module,
+            current_class: None,
+            current_side: DispatchSide::Instance,
+            expected_return: None,
+            local_envs: vec![LocalEnv::new()],
+            scopes: vec![HashMap::new()],
+            flow: FlowState::new(),
+            body_id: BodyId(0),
+            next_local_expr_id: 0,
+            next_binding_id: 0,
+            expressions: ExpressionAnalysisIndex::new(),
+            bindings: BindingAnalysisIndex::new(),
+            explanations: crate::explain::ExplanationArena::new(),
+            suppressed: std::collections::BTreeMap::new(),
+            flow_graph: None,
+            dependencies: BTreeSet::new(),
+            semantic_dependencies: BTreeSet::new(),
+            dispatch: DispatchAccess::Borrowed(dispatch),
             diagnostics: Vec::new(),
         }
     }
@@ -153,7 +233,8 @@ impl<'a> CheckingContext<'a> {
             suppressed: self.suppressed.clone(),
             flow_graph: self.flow_graph.clone(),
             dependencies: self.dependencies.clone(),
-            dispatch: self.dispatch.clone(),
+            semantic_dependencies: self.semantic_dependencies.clone(),
+            dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             diagnostics: Vec::new(),
         }
     }
@@ -283,6 +364,7 @@ impl<'a> CheckingContext<'a> {
     pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
         let (decl, side) = match lookup {
             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
+                self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(defining_class.clone()));
                 if let Some(super_decl) = self.hierarchy.superclass(&defining_class) {
                     (super_decl.clone(), side)
                 } else {
@@ -307,26 +389,77 @@ impl<'a> CheckingContext<'a> {
             },
         };
 
-        let res = self.dispatch.resolve_dispatch_on_owner(self.hierarchy, &decl, side, selector);
-        if let DispatchResult::Found(mut sig) = res {
-            if let Some(subst) = crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver) {
-                for param in &mut sig.parameters {
-                    if let TypeKnowledge::Known(ref mut ev) = param.ty {
+        let res = self.dispatch.get().resolve_dispatch_with_trace(self.hierarchy, &decl, side, selector);
+        match res {
+            crate::dispatch::ResolvedDispatchResult::Found(resolved) => {
+                for owner in resolved.visited_owners.iter() {
+                    self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
+                }
+                self.dependencies.insert(resolved.callable.clone());
+                self.semantic_dependencies.insert(SemanticDependency::CallableSignature(resolved.callable.clone()));
+                let mut sig = resolved.signature;
+                if let Some(subst) = crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver) {
+                    for param in &mut sig.parameters {
+                        if let TypeKnowledge::Known(ref mut ev) = param.ty {
+                            ev.ty = subst.apply(self.store, ev.ty);
+                        }
+                    }
+                    if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
                         ev.ty = subst.apply(self.store, ev.ty);
                     }
                 }
-                if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
-                    ev.ty = subst.apply(self.store, ev.ty);
+                for param in &mut sig.parameters {
+                    if let TypeKnowledge::Known(ref mut ev) = param.ty {
+                        ev.ty = crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ev.ty);
+                    }
                 }
+                if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
+                    ev.ty = crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ev.ty);
+                }
+                DispatchResult::Found(sig)
             }
-            DispatchResult::Found(sig)
-        } else {
-            res
+            crate::dispatch::ResolvedDispatchResult::Ambiguous(amb) => {
+                for rd in &amb {
+                    for owner in rd.visited_owners.iter() {
+                        self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
+                    }
+                }
+                DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect())
+            }
+            crate::dispatch::ResolvedDispatchResult::Missing { visited_owners } => {
+                for owner in visited_owners.iter() {
+                    self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
+                }
+                DispatchResult::Missing
+            }
+            crate::dispatch::ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
         }
     }
 
     pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
-        self.dispatch.register_surface(decl, surface);
+        if let Some(d) = self.dispatch.get_mut() {
+            d.register_surface(decl, surface);
+        } else {
+            panic!("register_surface is only valid for Owned dispatch");
+        }
+    }
+
+    pub fn get_surface(&mut self, decl: &DeclarationId) -> Option<&crate::surface::DeclarationSurface> {
+        self.semantic_dependencies.insert(SemanticDependency::DeclarationSurface(decl.clone()));
+        self.dispatch.get().get_surface(decl)
+    }
+
+    pub fn get_field(&mut self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
+        self.semantic_dependencies.insert(SemanticDependency::DeclarationSurface(decl.clone()));
+        self.dispatch.get().get_surface(decl).and_then(|s| s.get_field(side, name)).cloned()
+    }
+
+    pub fn resolve_type_name(&mut self, name: &str) -> Option<DeclarationId> {
+        let decl = self.resolver.resolve_type_name(&self.current_module, name, &[])?;
+        if decl.module != self.current_module && !matches!(decl.module.project, phalcom_modules::ProjectIdentity::Builtin(_)) && decl.module != phalcom_modules::ModuleId::core() {
+            self.semantic_dependencies.insert(SemanticDependency::LinkedInterface(self.current_module.clone()));
+        }
+        Some(decl)
     }
 
     pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> TypeId {
@@ -393,7 +526,8 @@ impl<'a> CheckingContext<'a> {
             exits,
             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
             explanations: std::sync::Arc::new(self.explanations),
-            dependencies: std::sync::Arc::from(self.dependencies.into_boxed_slice()),
+            dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
+            semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }

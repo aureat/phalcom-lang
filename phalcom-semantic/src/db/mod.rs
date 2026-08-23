@@ -3,6 +3,7 @@
 
 pub mod budget;
 pub mod dependency;
+pub mod fingerprint;
 pub mod key;
 pub mod metrics;
 pub mod product;
@@ -12,7 +13,7 @@ pub mod state;
 
 pub use budget::{BudgetKind, BudgetReport, CancellationToken, QueryBudget};
 pub use dependency::{DependencyEdge, DependencyIndex, DependencyRecorder};
-pub use key::{ProductFingerprint, QueryKey};
+pub use key::{InputFingerprint, ProductFingerprint, QueryKey};
 pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
 pub use query::query_callable_body;
@@ -20,16 +21,14 @@ pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
 
 use crate::identity::{SemanticRevision, WorkspaceId};
-use crate::types::store::TypeStore;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Compiler-owned staged semantic database for incremental analysis.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SemanticDb {
     workspace: WorkspaceId,
     revision: SemanticRevision,
-    store: Arc<TypeStore>,
     query_states: BTreeMap<QueryKey, QueryState>,
     products: BTreeMap<QueryKey, Arc<SemanticProduct>>,
     last_known_good: BTreeMap<QueryKey, Arc<SemanticProduct>>,
@@ -49,7 +48,6 @@ impl SemanticDb {
         Self {
             workspace: WorkspaceId::from_raw(1),
             revision: SemanticRevision::from_raw(1),
-            store: Arc::new(TypeStore::new()),
             query_states: BTreeMap::new(),
             products: BTreeMap::new(),
             last_known_good: BTreeMap::new(),
@@ -63,7 +61,6 @@ impl SemanticDb {
         Self {
             workspace,
             revision: SemanticRevision::from_raw(1),
-            store: Arc::new(TypeStore::new()),
             query_states: BTreeMap::new(),
             products: BTreeMap::new(),
             last_known_good: BTreeMap::new(),
@@ -84,10 +81,6 @@ impl SemanticDb {
     pub fn begin_revision(&mut self) -> SemanticRevision {
         self.revision = self.revision.next();
         self.revision
-    }
-
-    pub fn store(&self) -> &Arc<TypeStore> {
-        &self.store
     }
 
     pub fn index(&self) -> &DependencyIndex {
@@ -133,11 +126,68 @@ impl SemanticDb {
         self.query_states.insert(key, state);
     }
 
+    /// Returns the recorded product fingerprint for a query if it is in the `Ready` state.
+    pub fn ready_product_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
+        self.query_states.get(key).and_then(|s| s.product_fingerprint())
+    }
+
+    /// Validates whether a query result is structurally reusable:
+    /// 1. Query must be in `Ready` state.
+    /// 2. Stored `input_fingerprint` must equal the requested `input_fingerprint`.
+    /// 3. Every recorded dependency edge must currently be in `Ready` state with
+    ///    its current `product_fingerprint` equal to the `observed_fingerprint` when the edge was recorded.
+    pub fn is_reusable(&self, key: &QueryKey, input_fingerprint: InputFingerprint) -> bool {
+        let Some(state) = self.query_states.get(key) else {
+            return false;
+        };
+        let QueryState::Ready {
+            input_fingerprint: stored_input_fp,
+            ..
+        } = state else {
+            return false;
+        };
+        if *stored_input_fp != input_fingerprint {
+            return false;
+        }
+        let Some(deps) = self.index.dependencies_of(key) else {
+            return true;
+        };
+        for edge in deps {
+            let Some(dep_state) = self.query_states.get(&edge.dependency) else {
+                return false;
+            };
+            let QueryState::Ready {
+                product_fingerprint: dep_prod_fp,
+                ..
+            } = dep_state else {
+                return false;
+            };
+            if *dep_prod_fp != edge.observed_fingerprint {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Records a dependency edge using the current `Ready` product fingerprint of the dependency.
+    pub fn record_dependency(
+        &self,
+        recorder: &mut DependencyRecorder,
+        dependency: QueryKey,
+    ) -> Result<(), String> {
+        let Some(fp) = self.ready_product_fingerprint(&dependency) else {
+            return Err(format!("query dependency {:?} is not Ready", dependency));
+        };
+        recorder.record(dependency, fp);
+        Ok(())
+    }
+
     pub fn publish_ready(
         &mut self,
         key: QueryKey,
         revision: SemanticRevision,
-        fingerprint: ProductFingerprint,
+        input_fingerprint: InputFingerprint,
+        product_fingerprint: ProductFingerprint,
         value: QueryValue,
         dependencies: impl IntoIterator<Item = DependencyEdge>,
     ) -> Result<(), PublishError> {
@@ -146,7 +196,15 @@ impl SemanticDb {
         }
 
         self.index.replace_dependencies(key.clone(), dependencies);
-        self.query_states.insert(key.clone(), QueryState::Ready { revision, fingerprint, value });
+        self.query_states.insert(
+            key.clone(),
+            QueryState::Ready {
+                revision,
+                input_fingerprint,
+                product_fingerprint,
+                value,
+            },
+        );
         self.products.remove(&key);
         self.metrics.record_hit();
         Ok(())
@@ -157,13 +215,21 @@ impl SemanticDb {
         &mut self,
         key: QueryKey,
         revision: SemanticRevision,
-        fingerprint: ProductFingerprint,
+        input_fingerprint: InputFingerprint,
+        product_fingerprint: ProductFingerprint,
         product: SemanticProduct,
         dependencies: impl IntoIterator<Item = DependencyEdge>,
     ) -> Result<(), PublishError> {
         let query_value = product.to_query_value();
         let product = Arc::new(product);
-        self.publish_ready(key.clone(), revision, fingerprint, query_value, dependencies)?;
+        self.publish_ready(
+            key.clone(),
+            revision,
+            input_fingerprint,
+            product_fingerprint,
+            query_value,
+            dependencies,
+        )?;
         self.products.insert(key.clone(), product);
         if let Some(product) = self.products.get(&key) {
             self.last_known_good.insert(key, product.clone());

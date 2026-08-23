@@ -1,6 +1,6 @@
 use phalcom_modules::ModuleId;
 use phalcom_semantic::db::{
-    BudgetKind, CancellationToken, DependencyIndex, DependencyRecorder, ProductFingerprint, QueryBudget, QueryKey, QueryOutcome, QueryScheduler, QueryValue,
+    BudgetKind, CancellationToken, DependencyIndex, DependencyRecorder, InputFingerprint, ProductFingerprint, QueryBudget, QueryKey, QueryOutcome, QueryScheduler, QueryValue,
     SemanticDb,
 };
 use std::sync::Arc;
@@ -70,7 +70,14 @@ fn stale_revision_cannot_publish_a_ready_product() {
     let current = db.begin_revision();
 
     let error = db
-        .publish_ready(key.clone(), stale, ProductFingerprint::new(7), QueryValue::from_bytes([1, 2, 3]), [])
+        .publish_ready(
+            key.clone(),
+            stale,
+            InputFingerprint::new(7),
+            ProductFingerprint::new(7),
+            QueryValue::from_bytes([1, 2, 3]),
+            [],
+        )
         .expect_err("old revision must be rejected");
 
     assert!(error.is_stale());
@@ -78,19 +85,7 @@ fn stale_revision_cannot_publish_a_ready_product() {
     assert!(db.query_state(&key).is_none());
 }
 
-#[test]
-fn semantic_db_keeps_type_store_identity_across_revisions() {
-    let mut db = SemanticDb::new();
-    let store_id = db.store().id();
-    let first_revision = db.revision();
 
-    let second_revision = db.begin_revision();
-    assert_ne!(first_revision, second_revision);
-    assert_eq!(db.store().id(), store_id, "one semantic DB epoch keeps one TypeStoreId");
-
-    db.begin_revision();
-    assert_eq!(db.store().id(), store_id, "later revisions reuse the same type store");
-}
 
 #[test]
 fn test_body_query_execution_and_invalidation() {
@@ -161,7 +156,7 @@ fn test_body_query_execution_and_invalidation() {
     assert_eq!(db.query_state(&key1).unwrap().is_ready(), true);
     assert_eq!(db.query_state(&key1).unwrap().revision(), Some(db.revision()));
     assert_eq!(db.query_state(&key1).unwrap().as_ready_value().unwrap().as_bytes(), b"callable-body");
-    let first_input_fingerprint = db.query_state(&key1).unwrap().fingerprint().expect("ready callable has input fingerprint");
+    let first_input_fingerprint = db.query_state(&key1).unwrap().input_fingerprint().expect("ready callable has input fingerprint");
     assert_ne!(first_input_fingerprint.raw(), 0);
     assert!(db.product(&key1).and_then(|product| product.as_callable_body()).is_some());
 
@@ -186,7 +181,7 @@ fn test_body_query_execution_and_invalidation() {
         }
         _ => panic!("expected changed body to produce a ready callable product"),
     }
-    let changed_input_fingerprint = db.query_state(&key1).unwrap().fingerprint().expect("changed body has input fingerprint");
+    let changed_input_fingerprint = db.query_state(&key1).unwrap().input_fingerprint().expect("changed body has input fingerprint");
     assert_ne!(first_input_fingerprint, changed_input_fingerprint);
 
     let failed_body = phalcom_ast::parse_source("2", 0).expect("failed callable body parses");

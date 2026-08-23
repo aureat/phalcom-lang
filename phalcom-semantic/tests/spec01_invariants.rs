@@ -1,5 +1,5 @@
 use phalcom_modules::{DeclarationId, ModuleId};
-use phalcom_semantic::db::{CancellationToken, DependencyRecorder, ProductFingerprint, QueryBudget, QueryKey, QueryValue, SemanticDb};
+use phalcom_semantic::db::{CancellationToken, DependencyRecorder, InputFingerprint, ProductFingerprint, QueryBudget, QueryKey, QueryValue, SemanticDb};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::{KindId, TypeId};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, check_assignability_bounded, check_subtype_bounded};
@@ -130,12 +130,33 @@ fn clean_vs_incremental_differential_equivalence() {
     let mut linked_rec = DependencyRecorder::new(key_linked.clone());
     linked_rec.record(key_unlinked.clone(), ProductFingerprint::new(200));
 
-    db.publish_ready(key_parsed.clone(), rev1, ProductFingerprint::new(100), val_parsed, [])
-        .unwrap();
-    db.publish_ready(key_unlinked.clone(), rev1, ProductFingerprint::new(200), val_unlinked, unlinked_rec.finish())
-        .unwrap();
-    db.publish_ready(key_linked.clone(), rev1, ProductFingerprint::new(300), val_linked, linked_rec.finish())
-        .unwrap();
+    db.publish_ready(
+        key_parsed.clone(),
+        rev1,
+        InputFingerprint::new(100),
+        ProductFingerprint::new(100),
+        val_parsed,
+        [],
+    )
+    .unwrap();
+    db.publish_ready(
+        key_unlinked.clone(),
+        rev1,
+        InputFingerprint::new(200),
+        ProductFingerprint::new(200),
+        val_unlinked,
+        unlinked_rec.finish(),
+    )
+    .unwrap();
+    db.publish_ready(
+        key_linked.clone(),
+        rev1,
+        InputFingerprint::new(300),
+        ProductFingerprint::new(300),
+        val_linked,
+        linked_rec.finish(),
+    )
+    .unwrap();
 
     assert!(db.query_state(&key_parsed).unwrap().is_ready());
     assert!(db.query_state(&key_unlinked).unwrap().is_ready());
@@ -157,11 +178,19 @@ fn clean_vs_incremental_differential_equivalence() {
     let mut unlinked_rec2 = DependencyRecorder::new(key_unlinked.clone());
     unlinked_rec2.record(key_parsed.clone(), ProductFingerprint::new(101));
 
-    db.publish_ready(key_parsed.clone(), rev2, ProductFingerprint::new(101), val_parsed_v2, [])
-        .unwrap();
+    db.publish_ready(
+        key_parsed.clone(),
+        rev2,
+        InputFingerprint::new(101),
+        ProductFingerprint::new(101),
+        val_parsed_v2,
+        [],
+    )
+    .unwrap();
     db.publish_ready(
         key_unlinked.clone(),
         rev2,
+        InputFingerprint::new(201),
         ProductFingerprint::new(201),
         QueryValue::from_bytes(b"unlinked_v2"),
         unlinked_rec2.finish(),

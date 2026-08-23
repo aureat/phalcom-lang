@@ -145,6 +145,17 @@ pub type ExpressionAnalysisIndex = BTreeMap<ExpressionId, ExpressionAnalysis>;
 /// Index of binding states within a body.
 pub type BindingAnalysisIndex = BTreeMap<BindingId, BindingState>;
 
+use crate::identity::{DeclarationId, ModuleId};
+
+/// Semantic dependency representing query-invalidating semantic consumption by a callable body.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SemanticDependency {
+    CallableSignature(CallableId),
+    DeclarationSurface(DeclarationId),
+    HierarchyEdge(DeclarationId),
+    LinkedInterface(ModuleId),
+}
+
 /// Status of callable-body analysis.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CallableAnalysisStatus {
@@ -168,6 +179,7 @@ pub struct CallableAnalysis {
     pub diagnostics: Arc<[SemanticDiagnostic]>,
     pub explanations: Arc<crate::explain::ExplanationArena>,
     pub dependencies: Arc<[CallableId]>,
+    pub semantic_dependencies: Arc<[SemanticDependency]>,
     pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
 }

@@ -643,50 +643,48 @@ fn worker_loop(
             }));
         }
 
-        if core_reselect || !core_initialized {
-            drop(pending);
-            let status = status_tracker.transition(AnalysisPhase::SelectingCore, Some(AnalysisStep::Solving));
-            let _ = event_tx.send(AnalysisEvent::Status(status));
-            let _span = PerfSpan::start_with_context_and_counters(
-                "core_select_analyze",
-                PerfContext {
-                    generation: Some(db.generation().0),
-                    epoch: Some(shared.epoch.load(Ordering::Acquire)),
-                },
-                shared.counters.clone(),
-            );
-            let core_source = crate::semantic::core_source::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
-            selected_core_uri = core_source.physical_uri().cloned();
-            let _ = event_tx.send(AnalysisEvent::CoreSourceSelected {
-                uri: selected_core_uri.clone(),
-            });
-            let program = core_source.parse().program;
-            let generation = engine.update_core_surface_only(FileRevision(1), &program);
-            let effects = publish_engine(&db, &engine);
-            core_initialized = true;
-            status_tracker.set_generation(generation.0);
-            let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
-            let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
-                session: status_tracker.snapshot().session,
-                sequence: status_tracker.snapshot().sequence,
-                level: AnalysisLogLevel::Info,
-                phase: AnalysisPhase::SelectingCore,
-                event: "core.surface.loaded".to_string(),
-                epoch: Some(shared.epoch.load(Ordering::Acquire)),
-                generation: Some(generation.0),
-                uri: selected_core_uri.clone(),
-                revision: Some(1),
-                batch_size: None,
-                duration_ms: None,
-                message: Some("core surface loaded".to_string()),
-                counters: Some(shared.counters.snapshot()),
-            }));
-            continue;
-        }
-
         // Interactive semantic work always wins over one background scan chunk.
         if !has_analysis_work(&pending) {
             drop(pending);
+            if core_reselect || !core_initialized {
+                let status = status_tracker.transition(AnalysisPhase::SelectingCore, Some(AnalysisStep::Solving));
+                let _ = event_tx.send(AnalysisEvent::Status(status));
+                let _span = PerfSpan::start_with_context_and_counters(
+                    "core_select_analyze",
+                    PerfContext {
+                        generation: Some(db.generation().0),
+                        epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                    },
+                    shared.counters.clone(),
+                );
+                let core_source = crate::semantic::core_source::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
+                selected_core_uri = core_source.physical_uri().cloned();
+                let _ = event_tx.send(AnalysisEvent::CoreSourceSelected {
+                    uri: selected_core_uri.clone(),
+                });
+                let program = core_source.parse().program;
+                let generation = engine.update_core_surface_only(FileRevision(1), &program);
+                let effects = publish_engine(&db, &engine);
+                core_initialized = true;
+                status_tracker.set_generation(generation.0);
+                let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
+                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                    session: status_tracker.snapshot().session,
+                    sequence: status_tracker.snapshot().sequence,
+                    level: AnalysisLogLevel::Info,
+                    phase: AnalysisPhase::SelectingCore,
+                    event: "core.surface.loaded".to_string(),
+                    epoch: Some(shared.epoch.load(Ordering::Acquire)),
+                    generation: Some(generation.0),
+                    uri: selected_core_uri.clone(),
+                    revision: Some(1),
+                    batch_size: None,
+                    duration_ms: None,
+                    message: Some("core surface loaded".to_string()),
+                    counters: Some(shared.counters.snapshot()),
+                }));
+                continue;
+            }
             if let Some(scan) = scanner.as_mut() {
                 let status = status_tracker.transition(AnalysisPhase::Indexing, Some(AnalysisStep::Discovering));
                 let _ = event_tx.send(AnalysisEvent::Status(status));

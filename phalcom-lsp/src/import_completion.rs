@@ -3,7 +3,6 @@
 use phalcom_modules::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity};
 use phalcom_modules::interface::LinkedExportTarget;
 use phalcom_modules::query::ModuleQueryFacade;
-use std::collections::BTreeMap;
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Url};
 
 use crate::semantic::SemanticSnapshot;
@@ -148,26 +147,12 @@ pub fn import_completions(
     uri: &Url,
     context: &ImportContext,
 ) -> Vec<CompletionItem> {
-    let Some(_static_snap) = &snapshot.static_snapshot else {
+    let Some(static_snap) = &snapshot.static_snapshot else {
         return Vec::new();
     };
 
     let importer_module = snapshot.documents.by_uri.get(uri);
-
-    // Reconstruct canonical query facade view over compiler-owned static products
-    let dummy_universe = phalcom_modules::ProjectUniverse::new();
-    let unlinked = BTreeMap::new();
-    let linked = BTreeMap::new();
-    let resolved_imports = BTreeMap::new();
-    let sources = BTreeMap::new();
-
-    let facade = ModuleQueryFacade::new(
-        &dummy_universe,
-        &unlinked,
-        &linked,
-        &resolved_imports,
-        &sources,
-    );
+    let facade = static_snap.module_queries();
 
     let default_importer = ModuleId::core();
     let importer = importer_module.unwrap_or(&default_importer);
@@ -175,7 +160,7 @@ pub fn import_completions(
 
     match context {
         ImportContext::ImportRoot { partial } => {
-            let roots = facade.import_roots(importer);
+            let roots = facade.import_root_entries(importer);
             for (comp, _target) in roots {
                 let name = comp.as_str();
                 if partial.is_empty() || name.starts_with(partial) {
@@ -191,20 +176,24 @@ pub fn import_completions(
             }
         }
         ImportContext::ImportChild { root, segments, partial } => {
-            let roots = facade.import_roots(importer);
+            let roots = facade.import_root_entries(importer);
             if let Some(comp) = ModuleComponent::from_identifier(root).ok()
                 && let Some(root_target) = roots.get(&comp)
             {
-                let project = match root_target {
-                    ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(*b),
-                    ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(*r),
+                let project = match root_target.target {
+                    ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(b),
+                    ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(r),
                 };
                 let path_components: Vec<ModuleComponent> = segments
                     .iter()
                     .filter_map(|s| ModuleComponent::from_identifier(s).ok())
                     .collect();
                 let prefix = ModulePath::from_components(path_components);
-                let children = facade.import_children_in_project(project, &prefix);
+                let children = if root_target.is_self {
+                    facade.module_children(project, &prefix)
+                } else {
+                    facade.external_import_children(project, &prefix)
+                };
                 for child in children {
                     if let Some(last) = child.path.components().last() {
                         let name = last.as_str();
@@ -222,13 +211,16 @@ pub fn import_completions(
                 }
             }
         }
-        ImportContext::RelativeChild { segments, partial, .. } => {
+        ImportContext::RelativeChild { parent_dots, segments, partial } => {
             let path_components: Vec<ModuleComponent> = segments
                 .iter()
                 .filter_map(|s| ModuleComponent::from_identifier(s).ok())
                 .collect();
-            let prefix = ModulePath::from_components(path_components);
-            let children = facade.import_children(importer, &prefix);
+            let prefix = match facade.resolve_relative_prefix(importer, *parent_dots, &path_components) {
+                Ok(p) => p,
+                Err(_) => ModulePath::from_components(path_components),
+            };
+            let children = facade.module_children(importer.project, &prefix);
             for child in children {
                 if let Some(last) = child.path.components().last() {
                     let name = last.as_str();
@@ -246,13 +238,13 @@ pub fn import_completions(
             }
         }
         ImportContext::SelectiveExport { root, segments, partial } => {
-            let roots = facade.import_roots(importer);
+            let roots = facade.import_root_entries(importer);
             if let Some(comp) = ModuleComponent::from_identifier(root).ok()
                 && let Some(root_target) = roots.get(&comp)
             {
-                let project = match root_target {
-                    ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(*b),
-                    ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(*r),
+                let project = match root_target.target {
+                    ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(b),
+                    ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(r),
                 };
                 let path_components: Vec<ModuleComponent> = segments
                     .iter()

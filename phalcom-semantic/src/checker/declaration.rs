@@ -89,8 +89,12 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 }
 
                 let (effective_side, ret_k) = if is_constructor {
-                    let class_ty = ctx.nominal_type_of(&decl_id);
-                    (crate::identity::DispatchSide::Class, TypeKnowledge::known(class_ty, EvidenceAuthority::Declared))
+                    let self_type = ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
+                        owner: decl_id.clone(),
+                        side: crate::identity::DispatchSide::Class,
+                        role: crate::types::parameter::SelfRole::InstanceType,
+                    });
+                    (crate::identity::DispatchSide::Class, TypeKnowledge::known(self_type, EvidenceAuthority::Declared))
                 } else {
                     let ret_k = m
                         .return_annotation

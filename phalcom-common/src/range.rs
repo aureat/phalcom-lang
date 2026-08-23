@@ -33,7 +33,7 @@ use std::ops::Range;
 /// assert!(span.contains(5));
 /// assert!(!span.contains(10));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct CopyRange<T> {
     /// The inclusive lower bound of the interval.
     pub start: T,

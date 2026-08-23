@@ -1,19 +1,19 @@
 @native
 class Number is Object {
-  @native +(_ other: Number) -> Number
-  @native -(_ other: Number) -> Number
-  @native *(_ other: Number) -> Number
+  @native +(_ other: Number) -> Self
+  @native -(_ other: Number) -> Self
+  @native *(_ other: Number) -> Self
   @native /(_ other: Number) -> Number
-  @native %(_ other: Number) -> Number
-  @native ~/(_ other: Number) -> Number
-  @native **(_ other: Number) -> Number
+  @native %(_ other: Number) -> Self
+  @native ~/(_ other: Number) -> Self
+  @native **(_ other: Number) -> Self
   @native <(_ other: Number) -> Bool
   @native <=(_ other: Number) -> Bool
   @native >(_ other: Number) -> Bool
   @native >=(_ other: Number) -> Bool
   @native compare(_ other: Number) -> Ordering
-  @native + -> Number
-  @native - -> Number
+  @native + -> Self
+  @native - -> Self
   @native hash -> Int
   @native toString -> String
   @class

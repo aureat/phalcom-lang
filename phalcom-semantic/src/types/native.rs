@@ -177,8 +177,21 @@ fn import_native_type(
     key: PrimitiveKey,
     spec: &TypeExprSpec,
 ) -> Result<TypeKnowledge, NativeSurfaceImportError> {
-    if matches!(spec, TypeExprSpec::Unknown | TypeExprSpec::SelfType) {
-        return Ok(normalize_native_type(store, declarations, parameters, universe_resolver, spec));
+    if matches!(spec, TypeExprSpec::SelfType) {
+        let decl = universe_resolver(key.owner);
+        let side = match key.side {
+            NativeDispatch::Instance => crate::identity::DispatchSide::Instance,
+            NativeDispatch::Class => crate::identity::DispatchSide::Class,
+        };
+        let self_ty = store.self_type(crate::types::parameter::SelfTypeTerm {
+            owner: decl,
+            side,
+            role: crate::types::parameter::SelfRole::InstanceType,
+        });
+        return Ok(TypeKnowledge::known(self_ty, EvidenceAuthority::TrustedNative));
+    }
+    if matches!(spec, TypeExprSpec::Unknown) {
+        return Ok(TypeKnowledge::Unknown(UnknownReason::OpaqueNative));
     }
     let form = resolve_native_type_form(store, declarations, parameters, universe_resolver, spec)
         .map_err(|source| NativeSurfaceImportError::TypeLowering { key, source })?;
@@ -274,14 +287,12 @@ pub fn register_native_surfaces(
         // Lower return type
         let ret_knowledge = match record.flow() {
             ReturnFlowSpec::Receiver => {
-                if let Some(t_self) = declarations.form(&decl) {
-                    TypeKnowledge::known(t_self, EvidenceAuthority::TrustedNative)
-                } else {
-                    return Err(NativeSurfaceImportError::TypeLowering {
-                        key: record.surface.key,
-                        source: NativeTypeResolutionError::MissingDeclaration(decl.clone()),
-                    });
-                }
+                let self_ty = store.self_type(crate::types::parameter::SelfTypeTerm {
+                    owner: decl.clone(),
+                    side,
+                    role: crate::types::parameter::SelfRole::InstanceType,
+                });
+                TypeKnowledge::known(self_ty, EvidenceAuthority::TrustedNative)
             }
             ReturnFlowSpec::Never => TypeKnowledge::known(store.never(), EvidenceAuthority::TrustedNative),
             ReturnFlowSpec::Argument(index) => {

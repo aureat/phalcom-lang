@@ -8,8 +8,56 @@ use crate::surface::DeclarationSurface;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_modules::graph::SemanticGraph;
+use phalcom_modules::identity::SourceLocation;
+use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
+use phalcom_modules::project::ProjectUniverse;
+use phalcom_modules::query::ModuleQueryFacade;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+
+/// Retained module query products for pure read queries over immutable snapshot.
+#[derive(Clone, Debug)]
+pub struct ModuleQueryProducts {
+    pub universe: Arc<ProjectUniverse>,
+    pub unlinked: Arc<BTreeMap<ModuleId, UnlinkedModuleInterface>>,
+    pub linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
+    pub resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
+    pub sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
+}
+
+impl ModuleQueryProducts {
+    pub fn new(
+        universe: Arc<ProjectUniverse>,
+        unlinked: Arc<BTreeMap<ModuleId, UnlinkedModuleInterface>>,
+        linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
+        resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
+        sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
+    ) -> Self {
+        Self {
+            universe,
+            unlinked,
+            linked,
+            resolved_imports,
+            sources,
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            universe: Arc::new(ProjectUniverse::new()),
+            unlinked: Arc::new(BTreeMap::new()),
+            linked: Arc::new(BTreeMap::new()),
+            resolved_imports: Arc::new(BTreeMap::new()),
+            sources: Arc::new(BTreeMap::new()),
+        }
+    }
+}
+
+impl Default for ModuleQueryProducts {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
 
 /// Semantic completeness status of a snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,6 +91,7 @@ pub struct SemanticSnapshot {
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
     pub callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    pub module_products: Arc<ModuleQueryProducts>,
     pub status: SnapshotStatus,
 }
 
@@ -50,6 +99,8 @@ impl SemanticSnapshot {
     // Snapshot construction intentionally mirrors its immutable field layout.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        workspace: WorkspaceId,
+        revision: SemanticRevision,
         generation: u64,
         store: Arc<TypeStore>,
         sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
@@ -62,7 +113,7 @@ impl SemanticSnapshot {
         semantic_graph: Arc<SemanticGraph>,
     ) -> Self {
         let store_id = store.id();
-        let id = SnapshotId::new(WorkspaceId::from_raw(1), SemanticRevision::from_raw(generation), store_id);
+        let id = SnapshotId::new(workspace, revision, store_id);
         Self {
             id,
             generation,
@@ -76,12 +127,15 @@ impl SemanticSnapshot {
             diagnostics,
             semantic_graph,
             callable_analyses: Arc::new(HashMap::new()),
+            module_products: Arc::new(ModuleQueryProducts::empty()),
             status: SnapshotStatus::Complete,
         }
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_callable_analyses(
+        workspace: WorkspaceId,
+        revision: SemanticRevision,
         generation: u64,
         store: Arc<TypeStore>,
         sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
@@ -95,7 +149,7 @@ impl SemanticSnapshot {
         callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
     ) -> Self {
         let store_id = store.id();
-        let id = SnapshotId::new(WorkspaceId::from_raw(1), SemanticRevision::from_raw(generation), store_id);
+        let id = SnapshotId::new(workspace, revision, store_id);
         Self {
             id,
             generation,
@@ -109,6 +163,7 @@ impl SemanticSnapshot {
             diagnostics,
             semantic_graph,
             callable_analyses,
+            module_products: Arc::new(ModuleQueryProducts::empty()),
             status: SnapshotStatus::Complete,
         }
     }
@@ -116,6 +171,21 @@ impl SemanticSnapshot {
     pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
         self.callable_analyses = callable_analyses;
         self
+    }
+
+    pub fn with_module_products(mut self, module_products: Arc<ModuleQueryProducts>) -> Self {
+        self.module_products = module_products;
+        self
+    }
+
+    pub fn module_queries(&self) -> ModuleQueryFacade<'_> {
+        ModuleQueryFacade::new(
+            &self.module_products.universe,
+            &self.module_products.unlinked,
+            &self.module_products.linked,
+            &self.module_products.resolved_imports,
+            &self.module_products.sources,
+        )
     }
 
     pub fn id(&self) -> SnapshotId {

@@ -68,6 +68,94 @@ impl ParsedModuleUnit {
     }
 }
 
+/// An in-memory overlay source artifact for open editor buffers.
+#[derive(Clone, Debug)]
+pub struct SourceOverlay {
+    pub id: ModuleId,
+    pub kind: ModuleKind,
+    pub source: SourceLocation,
+    pub text: Arc<str>,
+}
+
+impl SourceOverlay {
+    pub fn new(id: ModuleId, kind: ModuleKind, source: SourceLocation, text: Arc<str>) -> Self {
+        Self { id, kind, source, text }
+    }
+}
+
+/// Overlay-capable source provider layering in-memory documents over a base provider.
+pub struct OverlaySourceProvider<P> {
+    base: P,
+    overlays_by_module: std::sync::RwLock<std::collections::BTreeMap<ModuleId, SourceOverlay>>,
+    overlays_by_source: std::sync::RwLock<std::collections::BTreeMap<SourceId, ModuleId>>,
+}
+
+impl<P> OverlaySourceProvider<P> {
+    pub fn new(base: P) -> Self {
+        Self {
+            base,
+            overlays_by_module: std::sync::RwLock::new(std::collections::BTreeMap::new()),
+            overlays_by_source: std::sync::RwLock::new(std::collections::BTreeMap::new()),
+        }
+    }
+
+    pub fn set_overlay(&self, overlay: SourceOverlay) {
+        let mut by_mod = self.overlays_by_module.write().unwrap();
+        let mut by_src = self.overlays_by_source.write().unwrap();
+        by_src.insert(overlay.source.source_id.clone(), overlay.id.clone());
+        by_mod.insert(overlay.id.clone(), overlay);
+    }
+
+    pub fn remove_overlay(&self, module: &ModuleId) {
+        let mut by_mod = self.overlays_by_module.write().unwrap();
+        let mut by_src = self.overlays_by_source.write().unwrap();
+        if let Some(overlay) = by_mod.remove(module) {
+            by_src.remove(&overlay.source.source_id);
+        }
+    }
+
+    pub fn clear_overlays(&self) {
+        let mut by_mod = self.overlays_by_module.write().unwrap();
+        let mut by_src = self.overlays_by_source.write().unwrap();
+        by_mod.clear();
+        by_src.clear();
+    }
+
+    pub fn base(&self) -> &P {
+        &self.base
+    }
+}
+
+impl<P: SourceProvider> SourceProvider for OverlaySourceProvider<P> {
+    fn locate(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
+        let candidate_id = ModuleId::resolved(project.id, path.clone());
+        {
+            let by_mod = self.overlays_by_module.read().unwrap();
+            if let Some(overlay) = by_mod.get(&candidate_id) {
+                return Ok(SourceUnit {
+                    id: overlay.id.clone(),
+                    kind: overlay.kind,
+                    source: overlay.source.clone(),
+                });
+            }
+        }
+        self.base.locate(project, path)
+    }
+
+    fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
+        {
+            let by_src = self.overlays_by_source.read().unwrap();
+            if let Some(mod_id) = by_src.get(source) {
+                let by_mod = self.overlays_by_module.read().unwrap();
+                if let Some(overlay) = by_mod.get(mod_id) {
+                    return Ok(overlay.text.clone());
+                }
+            }
+        }
+        self.base.read(source)
+    }
+}
+
 /// Trait abstracting source location and reading.
 pub trait SourceProvider {
     fn locate(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError>;
@@ -374,3 +462,86 @@ impl SourceProvider for FilesystemSourceProvider {
         Ok(arc)
     }
 }
+
+/// Canonical reverse physical-to-logical source path resolution.
+pub fn resolve_source_path(
+    project: &ResolvedProject,
+    path: &Path,
+) -> Result<SourceUnit, ModuleResolutionError> {
+    let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical_source_root = std::fs::canonicalize(&project.source_root).unwrap_or_else(|_| project.source_root.clone());
+
+    let relative = match canonical_path.strip_prefix(&canonical_source_root) {
+        Ok(r) => r,
+        Err(_) => return Err(ModuleResolutionError::ImportOutsideSourceRoot(canonical_path, canonical_source_root)),
+    };
+
+    // Check for nested project.toml boundary between source root and path
+    let mut check_dir = canonical_path.parent();
+    while let Some(dir) = check_dir {
+        if dir == canonical_source_root {
+            break;
+        }
+        if dir.join("project.toml").is_file() {
+            return Err(ModuleResolutionError::NestedProjectBoundary(dir.to_path_buf()));
+        }
+        check_dir = dir.parent();
+    }
+
+    let file_name = relative.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
+        ModuleResolutionError::InvalidModuleLayout(format!("invalid file path {}", path.display()))
+    })?;
+
+    let (kind, components_iter, stem_opt) = if file_name == "package.ph" {
+        (ModuleKind::Package, relative.parent(), None)
+    } else if let Some(stem) = file_name.strip_suffix(".ph") {
+        (ModuleKind::Module, relative.parent(), Some(stem))
+    } else {
+        return Err(ModuleResolutionError::InvalidModuleLayout(format!("source file must end in .ph: {}", path.display())));
+    };
+
+    let mut components = Vec::new();
+    if let Some(parent) = components_iter {
+        for comp in parent.iter() {
+            let s = comp.to_str().ok_or_else(|| {
+                ModuleResolutionError::InvalidModuleLayout(format!("non-utf8 path component in {}", path.display()))
+            })?;
+            if !s.is_empty() {
+                let comp_id = ModuleComponent::from_kebab(s).map_err(|e| ModuleResolutionError::InvalidModuleName(s.to_string(), e))?;
+                if comp_id.as_str() != s && comp_id.to_kebab() != s {
+                    return Err(ModuleResolutionError::NonCanonicalPhysicalName {
+                        path: canonical_path.clone(),
+                        expected: comp_id.to_kebab(),
+                    });
+                }
+                components.push(comp_id);
+            }
+        }
+    }
+
+    if let Some(stem) = stem_opt {
+        let comp_id = ModuleComponent::from_kebab(stem).map_err(|e| ModuleResolutionError::InvalidModuleName(stem.to_string(), e))?;
+        if comp_id.as_str() != stem && comp_id.to_kebab() != stem {
+            return Err(ModuleResolutionError::NonCanonicalPhysicalName {
+                path: canonical_path.clone(),
+                expected: format!("{}.ph", comp_id.to_kebab()),
+            });
+        }
+        components.push(comp_id);
+    }
+
+    let module_path = ModulePath::from_components(components);
+    let module_id = ModuleId::resolved(project.id, module_path);
+    let source_id = SourceId(canonical_path.to_string_lossy().into());
+    let source_location = SourceLocation {
+        source_id,
+        display_path: canonical_path,
+    };
+
+    Ok(SourceUnit {
+        id: module_id,
+        kind,
+        source: source_location,
+    })
+}
+

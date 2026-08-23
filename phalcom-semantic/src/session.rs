@@ -7,7 +7,7 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::query_callable_body;
 use crate::db::state::QueryOutcome;
-use crate::db::{ProductFingerprint, SemanticDb, SemanticProduct};
+use crate::db::{InputFingerprint, ProductFingerprint, SemanticDb, SemanticProduct};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
@@ -16,8 +16,7 @@ use crate::resolver::LinkedTypeResolver;
 use crate::signature::CallableSignatureTable;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax, resolve_type_annotation};
-use crate::types::evidence::TypeKnowledge;
+use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::TypeParameterOwner;
@@ -57,7 +56,7 @@ pub struct SemanticWorkspaceUpdate {
 ///
 /// Owns the canonical `SemanticDb`, interner `TypeStore`, dependency index,
 /// and published immutable snapshots across source revisions.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
     db: SemanticDb,
@@ -87,7 +86,7 @@ impl SemanticWorkspaceSession {
     /// Creates a new workspace session for a specific workspace ID.
     pub fn with_workspace(workspace: WorkspaceId) -> Self {
         let db = SemanticDb::with_workspace(workspace);
-        let mut store = TypeStore::with_id(db.store().id());
+        let mut store = TypeStore::new();
 
         let base_declarations = bootstrap_universe_declarations(&mut store, &|key| {
             DeclarationId::new(ModuleId::core(), key.name().into())
@@ -173,6 +172,8 @@ impl SemanticWorkspaceSession {
             .unwrap_or_else(|_| {
                 let snapshot = self.last_known_good.clone().unwrap_or_else(|| {
                     Arc::new(SemanticSnapshot::new_with_callable_analyses(
+                        self.workspace,
+                        self.db.revision(),
                         generation,
                         Arc::new(self.store.clone()),
                         Arc::new(sources),
@@ -236,6 +237,7 @@ impl SemanticWorkspaceSession {
                 let _ = self.db.publish_product_ready(
                     QueryKey::ParsedModule(module_id.clone()),
                     self.db.revision(),
+                    InputFingerprint::new(fp),
                     ProductFingerprint::new(fp),
                     SemanticProduct::ParsedModule(unit.clone()),
                     Vec::new(),
@@ -245,6 +247,7 @@ impl SemanticWorkspaceSession {
                     let _ = self.db.publish_product_ready(
                         QueryKey::UnlinkedInterface(module_id.clone()),
                         self.db.revision(),
+                        InputFingerprint::new(fp),
                         ProductFingerprint::new(fp),
                         SemanticProduct::UnlinkedInterface(Arc::new(unlinked)),
                         Vec::new(),
@@ -455,10 +458,10 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     let class_decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                    if let Some(super_ref) = class_def.superclass_ref() {
+                    let (super_decl_opt, super_decl_for_insert) = if let Some(super_ref) = class_def.superclass_ref() {
                         let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
                         if let Some(super_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
-                            hierarchy.insert(class_decl, super_decl);
+                            (Some(super_decl.clone()), Some(super_decl))
                         } else {
                             diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                                 module_id.clone(),
@@ -466,15 +469,43 @@ impl SemanticWorkspaceSession {
                                 format!("unresolved superclass `{}`", super_ref.root),
                                 super_ref.range,
                             ));
+                            (None, None)
                         }
                     } else {
                         let obj_decl = DeclarationId::new(ModuleId::core(), "Object".into());
                         if class_decl != obj_decl {
-                            hierarchy.insert(class_decl, obj_decl);
+                            (Some(obj_decl.clone()), Some(obj_decl))
+                        } else {
+                            (None, None)
                         }
+                    };
+                    if let Some(s) = super_decl_for_insert {
+                        hierarchy.insert(class_decl.clone(), s);
                     }
+                    let fp = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl_opt);
+                    let _ = self.db.publish_product_ready(
+                        QueryKey::HierarchyEdge(class_decl.clone()),
+                        self.db.revision(),
+                        InputFingerprint::new(fp.raw()),
+                        fp,
+                        SemanticProduct::HierarchyEdge(Arc::new(crate::hierarchy_product::HierarchyEdgeProduct::new(class_decl, super_decl_opt))),
+                        Vec::new(),
+                    );
                 }
             }
+        }
+
+        // Publish linked interfaces
+        for (module_id, linked_mod) in &input.linked.modules {
+            let fp = crate::db::fingerprint::linked_interface_product_fingerprint(&linked_mod.interface);
+            let _ = self.db.publish_product_ready(
+                QueryKey::LinkedInterface(module_id.clone()),
+                self.db.revision(),
+                InputFingerprint::new(fp.raw()),
+                fp,
+                SemanticProduct::LinkedInterface(Arc::new(linked_mod.interface.clone())),
+                Vec::new(),
+            );
         }
 
         // 6. Collect Declaration Surfaces
@@ -492,6 +523,15 @@ impl SemanticWorkspaceSession {
 
             for (decl_id, surface) in dummy_ctx.dispatch.surfaces() {
                 dispatch.register_surface(decl_id.clone(), surface.clone());
+                let surf_fp = crate::db::fingerprint::declaration_surface_product_fingerprint(surface);
+                let _ = self.db.publish_product_ready(
+                    QueryKey::DeclarationSurface(decl_id.clone()),
+                    self.db.revision(),
+                    InputFingerprint::new(surf_fp.raw()),
+                    surf_fp,
+                    SemanticProduct::DeclarationSurface(Arc::new(surface.clone())),
+                    Vec::new(),
+                );
                 for (side, member_surface) in [
                     (crate::identity::DispatchSide::Instance, &surface.instance),
                     (crate::identity::DispatchSide::Class, &surface.class),
@@ -516,7 +556,7 @@ impl SemanticWorkspaceSession {
                                 })
                                 .collect::<Vec<_>>()
                                 .into_boxed_slice();
-                            callable_signatures.insert(crate::signature::CallableSemanticSignature {
+                            let sem_sig = crate::signature::CallableSemanticSignature {
                                 callable: callable_id.clone(),
                                 owner: decl_id.clone(),
                                 side,
@@ -531,7 +571,17 @@ impl SemanticWorkspaceSession {
                                 raises: phalcom_native_meta::RaisesSpec::Unknown,
                                 flow: phalcom_native_meta::ReturnFlowSpec::Value,
                                 lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
-                            });
+                            };
+                            callable_signatures.insert(sem_sig.clone());
+                            let sig_fp = crate::db::fingerprint::callable_signature_product_fingerprint(&sem_sig);
+                            let _ = self.db.publish_product_ready(
+                                QueryKey::CallableSignature(callable_id.clone()),
+                                self.db.revision(),
+                                InputFingerprint::new(sig_fp.raw()),
+                                sig_fp,
+                                SemanticProduct::CallableSignature(Arc::new(sem_sig)),
+                                Vec::new(),
+                            );
                         }
                     }
                 }
@@ -629,8 +679,14 @@ impl SemanticWorkspaceSession {
                 }
             }
 
-            let mut ctx = CheckingContext::new(&mut self.store, &hierarchy, &resolver, &declarations, module_id.clone());
-            ctx.dispatch = dispatch.clone();
+            let mut ctx = CheckingContext::new_with_dispatch_ref(
+                &mut self.store,
+                &hierarchy,
+                &resolver,
+                &declarations,
+                &dispatch,
+                module_id.clone(),
+            );
 
             for stmt in &parsed_unit.program.statements {
                 match stmt {
@@ -654,7 +710,49 @@ impl SemanticWorkspaceSession {
             diagnostics_map.insert(module_id, Arc::from(diags.into_boxed_slice()));
         }
 
-        let snapshot = Arc::new(SemanticSnapshot::new_with_callable_analyses(
+        let mut unlinked_map = BTreeMap::new();
+        let mut linked_map = BTreeMap::new();
+        let mut resolved_imports_map = BTreeMap::new();
+        let mut sources_loc_map = BTreeMap::new();
+
+        for (mod_id, unit) in &input.sources {
+            if let Ok(unlinked) = InterfaceBuilder::build(mod_id.clone(), unit.kind, &unit.program) {
+                unlinked_map.insert(mod_id.clone(), unlinked);
+            }
+            if let Some(ref loc) = unit.source {
+                sources_loc_map.insert(mod_id.clone(), loc.clone());
+            }
+        }
+
+        for (mod_id, linked_mod) in &input.linked.modules {
+            linked_map.insert(mod_id.clone(), linked_mod.interface.clone());
+            for (name, _) in &linked_mod.bindings.imports {
+                for read_spec in &linked_mod.linked_reads {
+                    match read_spec {
+                        phalcom_modules::linker::LinkedReadSpec::Binding(sym) => {
+                            if sym.name.as_ref() == name.as_ref() {
+                                resolved_imports_map.insert((mod_id.clone(), name.to_string()), sym.module.clone());
+                            }
+                        }
+                        phalcom_modules::linker::LinkedReadSpec::Module(target_mod) => {
+                            resolved_imports_map.insert((mod_id.clone(), name.to_string()), target_mod.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        let module_products = Arc::new(crate::snapshot::ModuleQueryProducts::new(
+            input.linked.universe.clone(),
+            Arc::new(unlinked_map),
+            Arc::new(linked_map),
+            Arc::new(resolved_imports_map),
+            Arc::new(sources_loc_map),
+        ));
+
+        let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
+            self.workspace,
+            self.db.revision(),
             input.generation,
             Arc::new(self.store.clone()),
             Arc::new(input.sources),
@@ -666,7 +764,9 @@ impl SemanticWorkspaceSession {
             Arc::new(diagnostics_map),
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
-        ));
+        );
+        snapshot_obj.module_products = module_products;
+        let snapshot = Arc::new(snapshot_obj);
 
         self.last_snapshot = Some(snapshot.clone());
         self.last_known_good = Some(snapshot.clone());

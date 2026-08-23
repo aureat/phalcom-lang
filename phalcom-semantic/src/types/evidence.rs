@@ -4,7 +4,7 @@ use super::id::TypeId;
 use phalcom_common::range::SourceRange;
 
 /// Epistemic degree of knowledge established for a value or expression.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TypeKnowledge {
     /// Semantic engine has established a concrete type with supporting evidence.
     Known(TypeEvidence),
@@ -71,7 +71,7 @@ impl TypeKnowledge {
 }
 
 /// A proven or declared type accompanied by epistemic authority and provenance.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeEvidence {
     pub ty: TypeId,
     pub authority: EvidenceAuthority,
@@ -101,13 +101,13 @@ impl EvidenceAuthority {
 }
 
 /// Provenance facts explaining where type evidence was synthesized or constrained.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct EvidenceSet {
     pub ranges: Vec<SourceRange>,
     pub descriptions: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum UnknownReason {
     UnannotatedDeclaration,
     UnresolvedName(Box<str>),
@@ -120,7 +120,7 @@ pub enum UnknownReason {
     SuppressedByInvalidCause,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum DynamicReason {
     ExplicitEscape,
     DynamicRestPack,

@@ -89,10 +89,19 @@ impl SemanticEngine {
 
     /// Creates an engine whose semantic passes report into `counters`.
     pub fn new_with_counters(counters: PerfCountersHandle) -> Self {
-        Self {
-            state: SemanticState::default(),
-            counters,
+        let core_surface = crate::semantic::core_source::build_core_surface(
+            &crate::semantic::core_source::CoreSource::select(None, &[]).parse().program,
+        );
+        let mut classes = BTreeMap::new();
+        for (id, surface) in core_surface.classes {
+            classes.insert(id, Arc::new(surface));
         }
+        let state = SemanticState {
+            generation: SemanticGeneration(0),
+            classes: Arc::new(classes),
+            ..Default::default()
+        };
+        Self { state, counters }
     }
 
     /// Creates an engine initialized with zero state.

@@ -12,9 +12,11 @@ pub mod dispatch;
 pub mod effects;
 pub mod explain;
 pub mod export;
+pub mod hierarchy_product;
 pub mod identity;
 pub mod invalidation;
 pub mod metadata;
+pub mod module_product;
 pub mod presentation;
 pub mod prover;
 pub mod resolver;
@@ -27,6 +29,7 @@ pub mod surface;
 pub mod termination;
 pub mod types;
 pub mod workspace;
+pub mod workspace_inputs;
 
 pub use checker::{
     CheckingContext, TypeCheckReport, TypedExpression, check_arguments, check_class, check_class_bodies, check_statement, match_callable_arguments,
@@ -60,11 +63,12 @@ pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use session::{SemanticUpdateStats, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 pub use signature::{CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable};
-pub use snapshot::SemanticSnapshot;
+pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,
     analyze_callable_termination, check_cfg_acyclicity,
 };
+pub use workspace_inputs::*;
 
 pub use source::ParsedSourceUnit;
 pub use surface::DeclarationSurface;

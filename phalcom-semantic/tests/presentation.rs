@@ -91,6 +91,7 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
         diagnostics: Arc::from([]),
         explanations: Arc::new(ExplanationArena::default()),
         dependencies: Arc::from([]),
+        semantic_dependencies: Arc::from([]),
         dependency_fingerprint: ProductFingerprint::new(7),
         status: CallableAnalysisStatus::Complete,
     };
@@ -98,12 +99,12 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
     let presenter = TypePresenter::new(&store);
     let index = SemanticPresentationIndex::from_callable_analysis(module.clone(), &analysis, &presenter);
 
-    let callable_site = index.get(&FormalSiteId::Callable(callable)).expect("callable site");
+    let callable_site = index.get(&FormalSiteId::Callable(callable.clone())).expect("callable site");
     assert_eq!(callable_site.module, module);
     assert_eq!(callable_site.range, SourceRange { start: 0, end: 12 });
     assert_eq!(callable_site.presentation, FormalPresentation::Known("Ready".into()));
 
-    let expression_site = index.get(&FormalSiteId::Expression(expression_id)).expect("expression site");
+    let expression_site = index.get(&FormalSiteId::Expression { callable, expression: expression_id }).expect("expression site");
     assert_eq!(expression_site.presentation, FormalPresentation::Known("Int".into()));
     assert_eq!(expression_site.range, SourceRange { start: 4, end: 7 });
     assert_eq!(index.len(), 2);
@@ -133,7 +134,7 @@ fn presentation_preserves_non_ready_formal_states() {
     );
     let callable = CallableId::new(declaration("Invalid"), Selector::getter("body").unwrap(), DispatchSide::Instance);
     let analysis = CallableAnalysis {
-        callable,
+        callable: callable.clone(),
         body_range: SourceRange { start: 0, end: 3 },
         expressions: BTreeMap::from([(expression.id, expression)]),
         bindings: BTreeMap::new(),
@@ -143,12 +144,13 @@ fn presentation_preserves_non_ready_formal_states() {
         diagnostics: Arc::from([]),
         explanations: Arc::new(ExplanationArena::default()),
         dependencies: Arc::from([]),
+        semantic_dependencies: Arc::from([]),
         dependency_fingerprint: ProductFingerprint::new(8),
         status: CallableAnalysisStatus::Complete,
     };
     let index = SemanticPresentationIndex::from_callable_analysis(module, &analysis, &presenter);
     assert_eq!(
-        index.get(&FormalSiteId::Expression(expression_id_for(&analysis))).unwrap().presentation,
+        index.get(&FormalSiteId::Expression { callable, expression: expression_id_for(&analysis) }).unwrap().presentation,
         FormalPresentation::Invalid
     );
 }

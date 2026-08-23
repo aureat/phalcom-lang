@@ -5,9 +5,16 @@ use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInter
 use crate::project::ProjectUniverse;
 use crate::source::{ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
 use phalcom_ast::ast::{ImportPath, ImportRoot};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Traced import resolution record containing the target source unit and all package interfaces consulted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportResolutionTrace {
+    pub target: SourceUnit,
+    pub package_interfaces: BTreeSet<ModuleId>,
+}
 
 /// Module resolver coordinating `ProjectUniverse` and `SourceProvider`.
 pub struct ModuleResolver<'u, P: SourceProvider> {
@@ -29,6 +36,16 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
     /// Resolves an AST `ImportPath` written inside the context of `importer`.
     pub fn resolve_import(&mut self, importer: &ModuleId, syntax: &ImportPath) -> Result<SourceUnit, ModuleResolutionError> {
+        self.resolve_import_with_trace(importer, syntax).map(|trace| trace.target)
+    }
+
+    /// Resolves an AST `ImportPath` tracking all package exposure interfaces consulted during hierarchical validation.
+    pub fn resolve_import_with_trace(
+        &mut self,
+        importer: &ModuleId,
+        syntax: &ImportPath,
+    ) -> Result<ImportResolutionTrace, ModuleResolutionError> {
+        let mut package_interfaces = BTreeSet::new();
         let importer_project = match importer.project {
             crate::identity::ProjectIdentity::Resolved(pid) => self.universe.get_project(pid),
             _ => None,
@@ -82,13 +99,16 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                         } else {
                             target_path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
                         };
-                        return Ok(SourceUnit {
-                            id: ModuleId::builtin(builtin, target_path.clone()),
-                            kind,
-                            source: SourceLocation {
-                                source_id,
-                                display_path: PathBuf::from(format!("<builtin:{builtin}>/{uri_path}")),
+                        return Ok(ImportResolutionTrace {
+                            target: SourceUnit {
+                                id: ModuleId::builtin(builtin, target_path.clone()),
+                                kind,
+                                source: SourceLocation {
+                                    source_id,
+                                    display_path: PathBuf::from(format!("<builtin:{builtin}>/{uri_path}")),
+                                },
                             },
+                            package_interfaces,
                         });
                     }
                     ImportRootTarget::Resolved(id) => id,
@@ -101,10 +121,14 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
                 // If cross-project import, perform external path exposure check
                 if !is_self {
-                    self.validate_external_path(target_project_id, &target_path)?;
+                    self.validate_external_path_with_trace(target_project_id, &target_path, &mut package_interfaces)?;
                 }
 
-                self.source.locate(target_project, &target_path)
+                let target = self.source.locate(target_project, &target_path)?;
+                Ok(ImportResolutionTrace {
+                    target,
+                    package_interfaces,
+                })
             }
             ImportRoot::Relative { dots, range: _ } => {
                 let dots = *dots as usize;
@@ -147,13 +171,28 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 }
 
                 let target_path = ModulePath::from_components(resolved_components);
-                self.source.locate(importer_project, &target_path)
+                let target = self.source.locate(importer_project, &target_path)?;
+                Ok(ImportResolutionTrace {
+                    target,
+                    package_interfaces,
+                })
             }
         }
     }
 
     /// Validates that an external module path is exposed hierarchically by each intermediate package.
     pub fn validate_external_path(&mut self, target_project_id: ResolvedProjectId, path: &ModulePath) -> Result<(), ModuleResolutionError> {
+        let mut trace = BTreeSet::new();
+        self.validate_external_path_with_trace(target_project_id, path, &mut trace)
+    }
+
+    /// Validates external module path recording all package interfaces consulted.
+    pub fn validate_external_path_with_trace(
+        &mut self,
+        target_project_id: ResolvedProjectId,
+        path: &ModulePath,
+        package_interfaces: &mut BTreeSet<ModuleId>,
+    ) -> Result<(), ModuleResolutionError> {
         let components = path.components();
         // Root package `[]` is always addressable
         if components.is_empty() {
@@ -169,6 +208,11 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         let mut current_pkg_path = ModulePath::root();
 
         for comp in components {
+            let pkg_mod_id = ModuleId {
+                project: target_project_id.into(),
+                path: current_pkg_path.clone(),
+            };
+            package_interfaces.insert(pkg_mod_id);
             let surface = self.load_package_surface(target_project_id, &current_pkg_path)?;
             if !surface.exposed_children.contains(comp) {
                 let exposed_names = surface.exposed_children.iter().map(|c| c.as_str().to_string()).collect();

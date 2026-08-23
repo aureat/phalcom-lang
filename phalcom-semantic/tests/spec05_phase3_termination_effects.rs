@@ -39,6 +39,7 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         diagnostics: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(dependencies),
+        semantic_dependencies: Arc::from([]),
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     }

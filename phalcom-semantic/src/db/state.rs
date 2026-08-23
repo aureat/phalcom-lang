@@ -1,7 +1,7 @@
 //! Query evaluation states, stored values, and outcomes.
 
 use crate::db::budget::BudgetReport;
-use crate::db::key::ProductFingerprint;
+use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::identity::SemanticRevision;
 use crate::types::outcome::BlockReason;
 use std::sync::Arc;
@@ -34,7 +34,8 @@ pub enum QueryState {
     },
     Ready {
         revision: SemanticRevision,
-        fingerprint: ProductFingerprint,
+        input_fingerprint: InputFingerprint,
+        product_fingerprint: ProductFingerprint,
         value: QueryValue,
     },
     BudgetExceeded {
@@ -71,13 +72,18 @@ impl QueryState {
         matches!(self, Self::Ready { .. })
     }
 
-    /// Returns the input/result fingerprint recorded for a ready product.
-    ///
-    /// Non-ready states deliberately have no reusable fingerprint. A caller
-    /// must not treat a cancelled, blocked, or failed query as a cache hit.
-    pub fn fingerprint(&self) -> Option<ProductFingerprint> {
+    /// Returns the direct input fingerprint recorded for a ready query.
+    pub fn input_fingerprint(&self) -> Option<InputFingerprint> {
         match self {
-            Self::Ready { fingerprint, .. } => Some(*fingerprint),
+            Self::Ready { input_fingerprint, .. } => Some(*input_fingerprint),
+            _ => None,
+        }
+    }
+
+    /// Returns the semantic product fingerprint recorded for a ready query.
+    pub fn product_fingerprint(&self) -> Option<ProductFingerprint> {
+        match self {
+            Self::Ready { product_fingerprint, .. } => Some(*product_fingerprint),
             _ => None,
         }
     }

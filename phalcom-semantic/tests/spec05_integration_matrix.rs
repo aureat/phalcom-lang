@@ -108,6 +108,7 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         diagnostics: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![]),
+        semantic_dependencies: Arc::from([]),
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
@@ -123,6 +124,7 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
         diagnostics: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![leaf_id.clone()]),
+        semantic_dependencies: Arc::from([]),
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
@@ -165,6 +167,7 @@ fn test_matrix_3_termination_and_control_facts() {
         diagnostics: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![]),
+        semantic_dependencies: Arc::from([]),
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };
@@ -238,6 +241,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
         diagnostics: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(vec![]),
+        semantic_dependencies: Arc::from([]),
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     };

@@ -3,7 +3,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_modules::identity::ModuleId;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSeverity {
     Error,
     Warning,

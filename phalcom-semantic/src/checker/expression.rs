@@ -157,7 +157,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 let mut typed = TypedExpression::new(fact.knowledge.clone().with_range(*range));
                 typed.denotation = fact.denotation;
                 typed
-            } else if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, value, &[]) {
+            } else if let Some(decl) = ctx.resolve_type_name(value) {
                 if let Some(info) = ctx.declarations.get(&decl) {
                     TypedExpression::known(info.class_object_type, EvidenceAuthority::Declared, *range).with_denotation(SemanticDenotation::TypeForm(info.form))
                 } else {
@@ -211,11 +211,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
         }
         Expr::Field { value, range, .. } => {
-            if let Some(ref class_decl) = ctx.current_class {
-                if let Some(surface) = ctx.dispatch.get_surface(class_decl) {
-                    if let Some(field_k) = surface.get_field(ctx.current_side, value) {
-                        return TypedExpression::new(field_k.clone().with_range(*range));
-                    }
+            if let Some(class_decl) = ctx.current_class.clone() {
+                if let Some(field_k) = ctx.get_field(&class_decl, ctx.current_side, value) {
+                    return TypedExpression::new(field_k.with_range(*range));
                 }
             }
             TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
@@ -879,18 +877,16 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check Field on class surface
         let field_opt = match ctx.store.get(recv_ty).clone() {
-            TypeData::ClassObject { declaration } => ctx
-                .dispatch
-                .get_surface(&declaration)
-                .and_then(|s| s.get_field(crate::identity::DispatchSide::Class, &get.property)),
-            TypeData::Nominal { declaration } => ctx
-                .dispatch
-                .get_surface(&declaration)
-                .and_then(|s| s.get_field(crate::identity::DispatchSide::Instance, &get.property)),
+            TypeData::ClassObject { declaration } => {
+                ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &get.property)
+            }
+            TypeData::Nominal { declaration } => {
+                ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &get.property)
+            }
             _ => None,
         };
         if let Some(field_k) = field_opt {
-            return TypedExpression::new(field_k.clone().with_range(get.range));
+            return TypedExpression::new(field_k.with_range(get.range));
         }
 
         // 2. Check Getter selector
@@ -918,14 +914,12 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check field
         let field_opt = match ctx.store.get(recv_ty).clone() {
-            TypeData::ClassObject { declaration } => ctx
-                .dispatch
-                .get_surface(&declaration)
-                .and_then(|s| s.get_field(crate::identity::DispatchSide::Class, &set.property)),
-            TypeData::Nominal { declaration } => ctx
-                .dispatch
-                .get_surface(&declaration)
-                .and_then(|s| s.get_field(crate::identity::DispatchSide::Instance, &set.property)),
+            TypeData::ClassObject { declaration } => {
+                ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property)
+            }
+            TypeData::Nominal { declaration } => {
+                ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &set.property)
+            }
             _ => None,
         };
         if let Some(field_k) = field_opt {
@@ -933,7 +927,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
                 ctx.store,
                 ctx.hierarchy,
                 &val_k,
-                field_k,
+                &field_k,
                 &ctx.current_module,
                 DiagnosticCode::FieldMismatch,
                 format!("assigned value does not match field `{}` type", set.property),

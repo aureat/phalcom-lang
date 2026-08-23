@@ -101,9 +101,14 @@ impl<'a> TypePresenter<'a> {
 /// Stable identity for a formal type site.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum FormalSiteId {
-    /// An expression inside a callable body.
-    Expression(ExpressionId),
-    /// The callable body boundary itself.
+    Expression {
+        callable: CallableId,
+        expression: ExpressionId,
+    },
+    Binding {
+        callable: CallableId,
+        binding: crate::identity::BindingId,
+    },
     Callable(CallableId),
 }
 
@@ -124,10 +129,12 @@ pub struct FormalTypeSite {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticPresentationIndex {
     sites: BTreeMap<FormalSiteId, FormalTypeSite>,
+    binding_sites: BTreeMap<(ModuleId, SourceRange), FormalSiteId>,
+    expression_sites: BTreeMap<ModuleId, Vec<FormalTypeSite>>,
 }
 
 impl SemanticPresentationIndex {
-    /// Projects expression and callable status products from one analysis.
+    /// Projects expression, binding, and callable status products from one analysis.
     pub fn from_callable_analysis(module: ModuleId, analysis: &CallableAnalysis, presenter: &TypePresenter<'_>) -> Self {
         let mut index = Self::default();
         index.insert_callable(module, analysis, presenter);
@@ -146,12 +153,40 @@ impl SemanticPresentationIndex {
                 presentation: presenter.present_callable_status(analysis.status),
             },
         );
-        self.insert_expressions(module, &analysis.expressions, presenter);
+        self.insert_expressions(module.clone(), &analysis.callable, &analysis.expressions, presenter);
+        self.insert_bindings(module, &analysis.callable, &analysis.bindings, presenter);
     }
 
     /// Returns one projected site by canonical semantic identity.
     pub fn get(&self, site: &FormalSiteId) -> Option<&FormalTypeSite> {
         self.sites.get(site)
+    }
+
+    /// Returns exact formal binding site by module and exact token range.
+    pub fn get_binding_site(&self, module: &ModuleId, range: &SourceRange) -> Option<&FormalTypeSite> {
+        let site_id = self.binding_sites.get(&(module.clone(), *range))?;
+        self.sites.get(site_id)
+    }
+
+    /// Finds the most specific (smallest containing) expression site at the given source offset.
+    pub fn find_expression_at(&self, module: &ModuleId, offset: usize) -> Option<&FormalTypeSite> {
+        let list = self.expression_sites.get(module)?;
+        let mut best: Option<&FormalTypeSite> = None;
+        for site in list {
+            if site.range.contains(offset) {
+                match best {
+                    None => best = Some(site),
+                    Some(curr) => {
+                        if site.range.len() < curr.range.len()
+                            || (site.range.len() == curr.range.len() && site.site < curr.site)
+                        {
+                            best = Some(site);
+                        }
+                    }
+                }
+            }
+        }
+        best
     }
 
     /// Returns number of projected formal sites.
@@ -164,18 +199,37 @@ impl SemanticPresentationIndex {
         self.sites.is_empty()
     }
 
-    fn insert_expressions(&mut self, module: ModuleId, expressions: &ExpressionAnalysisIndex, presenter: &TypePresenter<'_>) {
+    fn insert_expressions(&mut self, module: ModuleId, callable: &CallableId, expressions: &ExpressionAnalysisIndex, presenter: &TypePresenter<'_>) {
         for expression in expressions.values() {
-            let site = FormalSiteId::Expression(expression.id);
-            self.sites.insert(
-                site.clone(),
-                FormalTypeSite {
-                    module: module.clone(),
-                    range: expression.range,
-                    site,
-                    presentation: expression_presentation(expression, presenter),
-                },
-            );
+            let site = FormalSiteId::Expression {
+                callable: callable.clone(),
+                expression: expression.id,
+            };
+            let formal_site = FormalTypeSite {
+                module: module.clone(),
+                range: expression.range,
+                site: site.clone(),
+                presentation: expression_presentation(expression, presenter),
+            };
+            self.sites.insert(site, formal_site.clone());
+            self.expression_sites.entry(module.clone()).or_default().push(formal_site);
+        }
+    }
+
+    fn insert_bindings(&mut self, module: ModuleId, callable: &CallableId, bindings: &crate::checker::analysis::BindingAnalysisIndex, presenter: &TypePresenter<'_>) {
+        for state in bindings.values() {
+            let site = FormalSiteId::Binding {
+                callable: callable.clone(),
+                binding: state.binding,
+            };
+            let formal_site = FormalTypeSite {
+                module: module.clone(),
+                range: state.range,
+                site: site.clone(),
+                presentation: presenter.present_knowledge(&state.current),
+            };
+            self.sites.insert(site.clone(), formal_site);
+            self.binding_sites.insert((module.clone(), state.range), site);
         }
     }
 }

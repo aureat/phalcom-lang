@@ -83,6 +83,25 @@ impl CallableSignature {
     }
 }
 
+/// Complete result of resolving dispatch, capturing visited hierarchy trace.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedDispatch {
+    pub callable: CallableId,
+    pub signature: CallableSignature,
+    pub visited_owners: Box<[DeclarationId]>,
+}
+
+/// Trace-aware result of resolving a message send selector against a receiver.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResolvedDispatchResult {
+    Found(ResolvedDispatch),
+    Ambiguous(Vec<ResolvedDispatch>),
+    Missing {
+        visited_owners: Box<[DeclarationId]>,
+    },
+    Dynamic,
+}
+
 /// The result of resolving a message send selector against a receiver.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DispatchResult {
@@ -142,6 +161,37 @@ impl SurfaceDispatchResolver {
         &self.surfaces
     }
 
+    pub fn resolve_dispatch_with_trace(
+        &self,
+        hierarchy: &dyn TypeHierarchy,
+        start_decl: &DeclarationId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> ResolvedDispatchResult {
+        let mut visited = Vec::new();
+        let mut curr = Some(start_decl);
+        while let Some(decl) = curr {
+            visited.push(decl.clone());
+            if let Some(surface) = self.surfaces.get(decl) {
+                if let Some(sig) = surface.get_callable(side, selector) {
+                    let callable_id = surface
+                        .get_callable_id(side, selector)
+                        .cloned()
+                        .unwrap_or_else(|| CallableId::new(decl.clone(), selector.clone(), side));
+                    return ResolvedDispatchResult::Found(ResolvedDispatch {
+                        callable: callable_id,
+                        signature: sig.clone(),
+                        visited_owners: visited.into_boxed_slice(),
+                    });
+                }
+            }
+            curr = hierarchy.superclass(decl);
+        }
+        ResolvedDispatchResult::Missing {
+            visited_owners: visited.into_boxed_slice(),
+        }
+    }
+
     pub fn resolve_dispatch_on_owner(
         &self,
         hierarchy: &dyn TypeHierarchy,
@@ -149,30 +199,14 @@ impl SurfaceDispatchResolver {
         side: DispatchSide,
         selector: &Selector,
     ) -> DispatchResult {
-        let mut curr = Some(start_decl);
-        while let Some(decl) = curr {
-            if let Some(surface) = self.surfaces.get(decl) {
-                if let Some(sig) = surface.get_callable(side, selector) {
-                    let mut result_sig = sig.clone();
-                    if decl != start_decl {
-                        if let Some(defining_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == decl { Some(*ty) } else { None }) {
-                            if result_sig.return_type.ty() == Some(defining_form) {
-                                if let Some(start_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == start_decl { Some(*ty) } else { None }) {
-                                    let auth = result_sig
-                                        .return_type
-                                        .authority()
-                                        .unwrap_or(crate::types::evidence::EvidenceAuthority::TrustedNative);
-                                    result_sig.return_type = TypeKnowledge::known(start_form, auth);
-                                }
-                            }
-                        }
-                    }
-                    return DispatchResult::Found(result_sig);
-                }
+        match self.resolve_dispatch_with_trace(hierarchy, start_decl, side, selector) {
+            ResolvedDispatchResult::Found(rd) => DispatchResult::Found(rd.signature),
+            ResolvedDispatchResult::Ambiguous(amb) => {
+                DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect())
             }
-            curr = hierarchy.superclass(decl);
+            ResolvedDispatchResult::Missing { .. } => DispatchResult::Missing,
+            ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
         }
-        DispatchResult::Missing
     }
 
     pub fn resolve_callable_id(

@@ -120,12 +120,6 @@ impl TypeStore {
         store
     }
 
-    pub fn with_id(id: TypeStoreId) -> Self {
-        let mut store = Self::new();
-        store.id = id;
-        store
-    }
-
     pub fn id(&self) -> TypeStoreId {
         self.id
     }

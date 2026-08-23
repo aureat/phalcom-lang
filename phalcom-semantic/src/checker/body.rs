@@ -55,16 +55,17 @@ pub fn analyze_callable_body(
     mut budget: QueryBudget,
     cancel: &CancellationToken,
 ) -> CallableAnalysis {
-    let mut ctx = CheckingContext::new_with_dispatch(store, hierarchy, resolver, declarations, dispatch.clone(), module);
+    let mut ctx = CheckingContext::new_with_dispatch_ref(store, hierarchy, resolver, declarations, dispatch, module);
     ctx.current_class = Some(callable.owner.clone());
     ctx.current_side = callable.side;
+    ctx.semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone()));
 
     // 1. Build flow graph for the body statements
     let flow_graph = Arc::new(FlowGraph::from_statements(body));
     ctx.flow_graph = Some(flow_graph);
 
     // Bind parameters and expected return if available from dispatch surface
-    let sig_opt = ctx.dispatch.surfaces().get(&callable.owner).and_then(|surface| {
+    let sig_opt = ctx.dispatch.get().surfaces().get(&callable.owner).and_then(|surface| {
         let member_surface = match callable.side {
             crate::identity::DispatchSide::Instance => &surface.instance,
             crate::identity::DispatchSide::Class => &surface.class,
