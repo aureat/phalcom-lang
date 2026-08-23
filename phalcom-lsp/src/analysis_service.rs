@@ -1290,7 +1290,7 @@ fn module_path_for_source(source_root: &Path, source_path: &Path) -> Option<phal
     Some(phalcom_modules::ModulePath::from_components(components))
 }
 
-fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::ModuleId> {
+pub(crate) fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::ModuleId> {
     if uri.scheme() != "phalcom" {
         return None;
     }

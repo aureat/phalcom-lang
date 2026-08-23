@@ -30,11 +30,13 @@ impl TestLsp {
 
         let counters = Arc::new(Mutex::new(None));
         let counters_for_backend = counters.clone();
-        let (service, socket) = LspService::new(move |client| {
+        let (service, socket) = LspService::build(move |client| {
             let backend = Backend::new(client);
             *counters_for_backend.lock().expect("counter capture lock poisoned") = Some(backend.perf_counters());
             backend
-        });
+        })
+        .custom_method("phalcom/sourceText", Backend::source_text)
+        .finish();
         let server_task = tokio::spawn(async move {
             Server::new(server_read, server_write, socket).serve(service).await;
         });

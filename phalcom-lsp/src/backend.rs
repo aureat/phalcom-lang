@@ -28,9 +28,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest};
+use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri};
 use crate::analysis_status::AnalysisStatusNotification;
 
+use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
@@ -124,6 +125,13 @@ fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticDb, ur
         diagnostics,
         version: document.version,
     })
+}
+
+/// Parameters for the read-only virtual source provider request.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SourceTextParams {
+    /// Virtual or physical source URI requested by the editor.
+    pub uri: Url,
 }
 
 /// Runtime configuration that affects semantic source discovery and hint UI.
@@ -353,6 +361,32 @@ impl Backend {
     /// benchmark harnesses. The counters are owned by this backend's worker.
     pub fn perf_counters(&self) -> PerfCountersHandle {
         self.semantic.perf_counters()
+    }
+
+    /// Serves canonical builtin/core source text to an editor content
+    /// provider without mutating or refreshing semantic state.
+    pub async fn source_text(&self, params: SourceTextParams) -> Result<Option<String>> {
+        if let Some(text) = virtual_source_text(&params.uri) {
+            return Ok(Some(text));
+        }
+
+        if params.uri.as_str() == crate::semantic::CORE_MODULE_URI {
+            let config = self.config.read().expect("server config lock poisoned").clone();
+            let roots = self
+                .workspace_roots
+                .read()
+                .expect("workspace root lock poisoned")
+                .iter()
+                .filter_map(|uri| uri.to_file_path().ok())
+                .collect::<Vec<_>>();
+            let source = crate::semantic::core_source::CoreSource::select(config.sysroot_path.as_deref(), &roots);
+            return Ok(Some(source.text().to_string()));
+        }
+
+        if let Some(document) = self.documents.snapshot(&params.uri) {
+            return Ok(Some(document.text.to_string()));
+        }
+        Ok(self.cached_source(&params.uri).map(|source| source.text.to_string()))
     }
 
     /// Pins open-document data and one published semantic generation before
@@ -1858,6 +1892,15 @@ impl LanguageServer for Backend {
     }
 }
 
+fn virtual_source_text(uri: &Url) -> Option<String> {
+    let module = builtin_module_from_uri(uri)?;
+    let builtin = module.project.as_builtin()?;
+    phalcom_modules::BuiltinProjectSourceProvider::new(builtin)
+        .source_text(&module)
+        .ok()
+        .map(|text| text.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -1885,6 +1928,13 @@ mod tests {
         assert_eq!(config.sysroot_path.as_deref(), Some(std::path::Path::new("/opt/phalcom")));
         assert_eq!(config.inlay_hints, HintPolicy::Stable);
         assert!(!config.suppress_obvious);
+    }
+
+    #[test]
+    fn virtual_source_text_serves_canonical_builtin_module() {
+        let uri = Url::parse("phalcom://universe/object/object").unwrap();
+        let text = super::virtual_source_text(&uri).expect("canonical builtin source must be available");
+        assert!(!text.is_empty());
     }
 
     #[test]
