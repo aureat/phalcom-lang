@@ -49,42 +49,44 @@ Program {
                             ],
                             return_annotation: None,
                             where_clause: None,
-                            body: [
-                                Expr {
-                                    expr: SetProperty(
-                                        SetPropertyExpr {
-                                            object: SelfVar {
+                            body: Block(
+                                [
+                                    Expr {
+                                        expr: SetProperty(
+                                            SetPropertyExpr {
+                                                object: SelfVar {
+                                                    range: CopyRange {
+                                                        start: 69,
+                                                        end: 73,
+                                                    },
+                                                },
+                                                property: "x",
+                                                property_range: Some(
+                                                    CopyRange {
+                                                        start: 74,
+                                                        end: 75,
+                                                    },
+                                                ),
+                                                value: Var {
+                                                    value: "x",
+                                                    range: CopyRange {
+                                                        start: 78,
+                                                        end: 79,
+                                                    },
+                                                },
                                                 range: CopyRange {
                                                     start: 69,
-                                                    end: 73,
-                                                },
-                                            },
-                                            property: "x",
-                                            property_range: Some(
-                                                CopyRange {
-                                                    start: 74,
-                                                    end: 75,
-                                                },
-                                            ),
-                                            value: Var {
-                                                value: "x",
-                                                range: CopyRange {
-                                                    start: 78,
                                                     end: 79,
                                                 },
                                             },
-                                            range: CopyRange {
-                                                start: 69,
-                                                end: 79,
-                                            },
+                                        ),
+                                        range: CopyRange {
+                                            start: 69,
+                                            end: 79,
                                         },
-                                    ),
-                                    range: CopyRange {
-                                        start: 69,
-                                        end: 79,
                                     },
-                                },
-                            ],
+                                ],
+                            ),
                             is_static: false,
                             is_constructor: false,
                             attributes: [

@@ -2926,7 +2926,7 @@ impl<'source> Parser<'source> {
                 range: (start_put..self.prev_end).into(),
             };
             let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
-            let body = self.parse_method_block()?;
+            let body = self.parse_member_body()?;
             let range = (start..self.prev_end).into();
             return Ok(ClassMember::Setter(SetterDef {
                 name,
@@ -2957,7 +2957,7 @@ impl<'source> Parser<'source> {
         } else {
             None
         };
-        let body = self.parse_method_block()?;
+        let body = self.parse_member_body()?;
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
             Ok(ClassMember::Method(MethodDef {
@@ -3030,7 +3030,7 @@ impl<'source> Parser<'source> {
                 annotation,
                 range: (start_put..self.prev_end).into(),
             };
-            IndexAccessor::Set { put }
+            IndexAccessor::Set { put: Box::new(put) }
         } else {
             IndexAccessor::Get
         };
@@ -3367,6 +3367,20 @@ impl<'source> Parser<'source> {
 
     /// Parses a braced method body.
     ///
+    /// Parses a member body, distinguishing between a braced `{ ... }` block and a declaration-only terminator.
+    fn parse_member_body(&mut self) -> ParserResult<crate::ast::MemberBody> {
+        match self.peek() {
+            Token::LBrace => {
+                self.advance();
+                let stmts = self.parse_block_statements()?;
+                self.expect(&Token::RBrace, &["\"}\""])?;
+                Ok(crate::ast::MemberBody::Block(stmts))
+            }
+            Token::Newline | Token::RBrace | Token::Eof => Ok(crate::ast::MemberBody::Declaration),
+            _ => Err(self.error_here(strs(&["\"{\"", "newline or member terminator"]))),
+        }
+    }
+
     /// # Errors
     ///
     /// Returns an error if neither body form is present or the body is

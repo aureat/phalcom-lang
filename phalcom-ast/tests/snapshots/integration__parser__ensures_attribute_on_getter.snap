@@ -26,26 +26,28 @@ Program {
                             params: [],
                             return_annotation: None,
                             where_clause: None,
-                            body: [
-                                Return(
-                                    ReturnStatement {
-                                        value: Some(
-                                            Int {
-                                                digits: "1",
-                                                radix: 10,
-                                                range: CopyRange {
-                                                    start: 67,
-                                                    end: 68,
+                            body: Block(
+                                [
+                                    Return(
+                                        ReturnStatement {
+                                            value: Some(
+                                                Int {
+                                                    digits: "1",
+                                                    radix: 10,
+                                                    range: CopyRange {
+                                                        start: 67,
+                                                        end: 68,
+                                                    },
                                                 },
+                                            ),
+                                            range: CopyRange {
+                                                start: 60,
+                                                end: 68,
                                             },
-                                        ),
-                                        range: CopyRange {
-                                            start: 60,
-                                            end: 68,
                                         },
-                                    },
-                                ),
-                            ],
+                                    ),
+                                ],
+                            ),
                             is_static: false,
                             is_constructor: false,
                             attributes: [

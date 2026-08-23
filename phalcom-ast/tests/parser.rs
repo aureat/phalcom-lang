@@ -19,8 +19,8 @@
 
 use phalcom_ast::{
     ast::{
-        ClassMember, Expr, GenericConstraintSyntax, KindSyntax, RecordLiteralEntry, ReturnStatement, SelectorSpecSyntax, Statement, SymbolLiteralKind,
-        TypeAnnotationExpr, VarianceSyntax,
+        ClassMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement, SelectorSpecSyntax, Statement,
+        SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -482,9 +482,12 @@ fn class_keyword_send_in_method_body_targets_self_class() {
     let ClassMember::Method(method) = &class.members[0] else {
         panic!("expected method declaration");
     };
+    let MemberBody::Block(stmts) = &method.body else {
+        panic!("expected block body");
+    };
     let Statement::Expr {
         expr: Expr::MethodCall(send), ..
-    } = &method.body[0]
+    } = &stmts[0]
     else {
         panic!("expected `class.bump()` send");
     };

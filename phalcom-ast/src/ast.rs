@@ -310,9 +310,31 @@ pub enum BuiltinAttr {
     Private,
     Protected,
     Total,
+    Internal,
 }
 
 impl BuiltinAttr {
+    pub const ALL: &'static [BuiltinAttr] = &[
+        BuiltinAttr::Construct,
+        BuiltinAttr::Constructor,
+        BuiltinAttr::Class,
+        BuiltinAttr::Get,
+        BuiltinAttr::Set,
+        BuiltinAttr::Data,
+        BuiltinAttr::Sealed,
+        BuiltinAttr::Variant,
+        BuiltinAttr::Invariant,
+        BuiltinAttr::Requires,
+        BuiltinAttr::Ensures,
+        BuiltinAttr::On,
+        BuiltinAttr::Native,
+        BuiltinAttr::Ignore,
+        BuiltinAttr::Private,
+        BuiltinAttr::Protected,
+        BuiltinAttr::Total,
+        BuiltinAttr::Internal,
+    ];
+
     pub fn name(&self) -> &'static str {
         match self {
             BuiltinAttr::Construct => "construct",
@@ -332,6 +354,7 @@ impl BuiltinAttr {
             BuiltinAttr::Private => "private",
             BuiltinAttr::Protected => "protected",
             BuiltinAttr::Total => "total",
+            BuiltinAttr::Internal => "internal",
         }
     }
 
@@ -354,6 +377,7 @@ impl BuiltinAttr {
             "private" => Some(BuiltinAttr::Private),
             "protected" => Some(BuiltinAttr::Protected),
             "total" => Some(BuiltinAttr::Total),
+            "internal" => Some(BuiltinAttr::Internal),
             _ => None,
         }
     }
@@ -705,7 +729,7 @@ impl ClassMember {
 #[derive(Debug, Clone)]
 pub enum IndexAccessor {
     Get,
-    Set { put: ParameterDef },
+    Set { put: Box<ParameterDef> },
 }
 
 #[derive(Debug, Clone)]
@@ -860,6 +884,34 @@ pub enum RestMode {
     Complete,
 }
 
+/// Callable body representation preserving the difference between declaration-only
+/// and executable body forms.
+#[derive(Clone, Debug)]
+pub enum MemberBody {
+    Declaration,
+    Block(Vec<Statement>),
+}
+
+impl MemberBody {
+    pub fn is_declaration(&self) -> bool {
+        matches!(self, Self::Declaration)
+    }
+
+    pub fn statements(&self) -> Option<&[Statement]> {
+        match self {
+            Self::Block(statements) => Some(statements),
+            Self::Declaration => None,
+        }
+    }
+
+    pub fn statements_mut(&mut self) -> Option<&mut Vec<Statement>> {
+        match self {
+            Self::Block(statements) => Some(statements),
+            Self::Declaration => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MethodDef {
     pub name: String,
@@ -869,7 +921,7 @@ pub struct MethodDef {
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this method (Spec 04).
     pub where_clause: Option<WhereClauseSyntax>,
-    pub body: Vec<Statement>,
+    pub body: MemberBody,
     pub is_static: bool,
     /// Marks a source constructor before compiler lowering splits it into a
     /// class-side factory and an instance-side initializer.
@@ -891,7 +943,7 @@ pub struct MethodDef {
 pub struct GetterDef {
     pub name: String,
     pub return_annotation: Option<TypeAnnotation>,
-    pub body: Vec<Statement>,
+    pub body: MemberBody,
     pub is_static: bool,
     /// `@name(args…)` attributes attached to this getter, in declaration
     /// order. See [`MethodDef::attributes`].
@@ -909,7 +961,7 @@ pub struct SetterDef {
     pub name: String,
     pub param: ParameterDef,
     pub return_annotation: Option<TypeAnnotation>,
-    pub body: Vec<Statement>,
+    pub body: MemberBody,
     pub is_static: bool,
     /// `@name(args…)` attributes attached to this setter, in declaration
     /// order. See [`MethodDef::attributes`].

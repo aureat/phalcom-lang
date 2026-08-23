@@ -18,7 +18,9 @@ pub mod ast;
 pub mod error;
 pub mod lexer;
 pub mod parser;
+pub mod selector;
 pub mod token;
 pub mod util;
 
 pub use parser::{Parse, ParserResult, parse, parse_source};
+pub use selector::{comma_form, comma_form_from_labels, selector_from_member};
