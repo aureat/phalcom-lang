@@ -119,16 +119,25 @@ fn canonical_source_census_matches_descriptors_and_relations() {
         .collect::<BTreeSet<_>>();
     let descriptors = descriptor_keys();
     assert_eq!(source_keys, descriptors, "source/native selector census drifted");
-    assert!(source.census.members.iter().filter(|member| member.native).all(|member| member.typed), "native source member lacks complete type annotation");
+    assert!(
+        source.census.members.iter().filter(|member| member.native).all(|member| member.typed),
+        "native source member lacks complete type annotation"
+    );
 
     for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
-        let presentation = source.presentations.get(&relation.class).expect("every runtime class needs one source presentation");
+        let presentation = source
+            .presentations
+            .get(&relation.class)
+            .expect("every runtime class needs one source presentation");
         assert!(presentation.native, "{} source class must be @native", relation.class.name());
         let actual = presentation.superclass.as_deref().and_then(phalcom_native_meta::UniverseKey::from_name);
         assert_eq!(actual, relation.superclass, "superclass drift for {}", relation.class.name());
     }
 
-    assert!(source.units.iter().all(|unit| !unit.program.statements.is_empty() || unit.kind.is_package_like()));
+    assert!(source
+        .units
+        .iter()
+        .all(|unit| !unit.program.statements.is_empty() || unit.kind.is_package_like()));
 }
 
 #[test]
@@ -144,7 +153,10 @@ fn physical_universe_corpus_matches_catalog() {
                 continue;
             }
             let relative = path.strip_prefix(root).expect("universe source stays under root");
-            let mut components = relative.components().map(|component| component.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>();
+            let mut components = relative
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
             let file = components.pop().expect("source file has a name");
             if file == "package.ph" {
                 files.insert(components.join("/"));

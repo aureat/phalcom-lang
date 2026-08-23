@@ -1181,8 +1181,7 @@ impl<'vm> Compiler<'vm> {
         // `None` and `Nil` have hidden class rows whose public names denote
         // immediate values (or no value at all). Preserve those bindings while
         // still allowing canonical source presentations to reopen their rows.
-        let is_hidden_value_class = is_core_module
-            && (self.vm.interner.find("None") == Some(name_sym) || self.vm.interner.find("Nil") == Some(name_sym));
+        let is_hidden_value_class = is_core_module && (self.vm.interner.find("None") == Some(name_sym) || self.vm.interner.find("Nil") == Some(name_sym));
         if is_hidden_value_class {
             self.emit(Bytecode::Pop, range);
         } else {

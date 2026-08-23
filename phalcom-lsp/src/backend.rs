@@ -1784,7 +1784,10 @@ mod tests {
 
         let config = ServerConfig::from_json(Some(&settings));
 
-        assert_eq!(config.sysroot_path.as_deref(), Some(std::path::Path::new("/opt/phalcom/phalcom-core/core/universe/src/package.ph")));
+        assert_eq!(
+            config.sysroot_path.as_deref(),
+            Some(std::path::Path::new("/opt/phalcom/phalcom-core/core/universe/src/package.ph"))
+        );
         assert_eq!(config.inlay_hints, HintPolicy::Off);
     }
 

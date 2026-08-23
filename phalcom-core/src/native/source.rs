@@ -260,7 +260,16 @@ impl NativeSourceIndex {
                 let side = if g.is_static { NativeDispatch::Class } else { NativeDispatch::Instance };
                 let selector = phalcom_ast::selector::selector_from_getter(g).encode();
                 let is_declaration = matches!(g.body, MemberBody::Declaration);
-                (is_native, has_internal, is_internal, side, selector, is_declaration, g.return_annotation.is_some(), g.range)
+                (
+                    is_native,
+                    has_internal,
+                    is_internal,
+                    side,
+                    selector,
+                    is_declaration,
+                    g.return_annotation.is_some(),
+                    g.range,
+                )
             }
             ClassMember::Setter(s) => {
                 let is_native = s.attributes.iter().any(|a| a.name == "native");
@@ -269,7 +278,16 @@ impl NativeSourceIndex {
                 let side = if s.is_static { NativeDispatch::Class } else { NativeDispatch::Instance };
                 let selector = phalcom_ast::selector::selector_from_setter(s).encode();
                 let is_declaration = matches!(s.body, MemberBody::Declaration);
-                (is_native, has_internal, is_internal, side, selector, is_declaration, s.param.annotation.is_some() && s.return_annotation.is_some(), s.range)
+                (
+                    is_native,
+                    has_internal,
+                    is_internal,
+                    side,
+                    selector,
+                    is_declaration,
+                    s.param.annotation.is_some() && s.return_annotation.is_some(),
+                    s.range,
+                )
             }
             ClassMember::Field(f) => {
                 let is_native = f.attributes.iter().any(|a| a.name == "native");

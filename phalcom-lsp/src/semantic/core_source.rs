@@ -6,10 +6,10 @@
 //! Native members use the same structured surface consumed by completion;
 //! opaque native returns deliberately carry no guessed value shape.
 
+use super::ids::{ClassId, DispatchSide, ModuleId, CORE_MODULE_URI};
+use super::surface::{build_module_surface, ClassSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface};
 use phalcom_ast::ast::{Program, RestMode};
 use phalcom_ast::parser::Parse;
-use super::ids::{CORE_MODULE_URI, ClassId, DispatchSide, ModuleId};
-use super::surface::{ClassSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, build_module_surface};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -67,7 +67,9 @@ impl CoreSource {
             }
         }
 
-        Self::Bundled { text: Arc::from(canonical_universe_source()) }
+        Self::Bundled {
+            text: Arc::from(canonical_universe_source()),
+        }
     }
 
     fn load_from_path(path: &Path, is_configured: bool) -> Option<Self> {
@@ -117,7 +119,9 @@ fn canonical_universe_source() -> String {
                 .collect(),
         );
         let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
-        let source = provider.source_text(&module).unwrap_or_else(|error| panic!("failed to load canonical universe source {module}: {error}"));
+        let source = provider
+            .source_text(&module)
+            .unwrap_or_else(|error| panic!("failed to load canonical universe source {module}: {error}"));
         combined.push_str(&source);
         combined.push('\n');
     }
@@ -126,7 +130,7 @@ fn canonical_universe_source() -> String {
 
 /// Builds the core surface from source and the canonical native declarations.
 pub fn build_core_surface(program: &Program) -> ModuleSurface {
-    use phalcom_native_surface::{NATIVE_SURFACE_CATALOG, NativeDispatch, NativeMemberKind, NativeVisibility};
+    use phalcom_native_surface::{NativeDispatch, NativeMemberKind, NativeVisibility, NATIVE_SURFACE_CATALOG};
     let module = ModuleId::new(CORE_MODULE_URI);
     let mut source = build_module_surface(module.clone(), program);
 

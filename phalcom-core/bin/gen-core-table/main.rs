@@ -122,70 +122,70 @@ fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) 
         let program = phalcom_ast::parse_source(&source, 0).unwrap_or_else(|e| panic!("failed to parse {module}: {e:?}"));
 
         for stmt in &program.statements {
-        let Statement::Class(class_def) = stmt else { continue };
-        let entries = classes.entry(class_def.name.clone()).or_default();
+            let Statement::Class(class_def) = stmt else { continue };
+            let entries = classes.entry(class_def.name.clone()).or_default();
 
-        for member in &class_def.members {
-            let class_side = member_is_class_side(member);
-            let visibility = member_visibility(member);
-            match member {
-                ClassMember::Method(m) => {
-                    entries.push(SelectorEntry {
-                        selector: comma_form(&m.name, &m.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>()),
-                        kind: if m.is_constructor || m.attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor))) {
-                            "construct"
-                        } else {
-                            "method"
-                        },
-                        class_side,
-                        visibility,
-                        source: "universe",
-                    });
-                }
-                ClassMember::Getter(g) => {
-                    entries.push(SelectorEntry {
-                        selector: g.name.clone(),
-                        kind: "getter",
-                        class_side,
-                        visibility,
-                        source: "universe",
-                    });
-                }
-                ClassMember::Setter(s) => {
-                    entries.push(SelectorEntry {
-                        selector: format!("{}=(put)", s.name),
-                        kind: "setter",
-                        class_side,
-                        visibility,
-                        source: "universe",
-                    });
-                }
-                // A declared field (U-ANNOT-LAYOUT §3.1) has no selector of
-                // its own to harvest — it is not a dispatchable member.
-                ClassMember::Field(_) => {}
-                // A `@variant` arm (U-ANNOT-LAYOUT §3.4) is expanded away at
-                // compile time into a sibling top-level class this raw-AST
-                // harvest never sees — nothing to harvest here either.
-                ClassMember::Variant(_) => {}
-                // A bracket subscript method (U-INDEX, ADR-0060: `[idx] {
-                // ... }` / `[idx, put:] { ... }`) — harvested in the same
-                // bracket-delimited, no-name comma-form spelling
-                // `phalcom-lsp`'s `selectors::index_selector` uses (`[_]`,
-                // `[_,put]`, `[]`, `[put]`).
-                ClassMember::Index(ix) => {
-                    entries.push(SelectorEntry {
-                        selector: bracket_form(
-                            &ix.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>(),
-                            matches!(&ix.accessor, IndexAccessor::Set { .. }),
-                        ),
-                        kind: "method",
-                        class_side,
-                        visibility,
-                        source: "universe",
-                    });
+            for member in &class_def.members {
+                let class_side = member_is_class_side(member);
+                let visibility = member_visibility(member);
+                match member {
+                    ClassMember::Method(m) => {
+                        entries.push(SelectorEntry {
+                            selector: comma_form(&m.name, &m.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>()),
+                            kind: if m.is_constructor || m.attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor))) {
+                                "construct"
+                            } else {
+                                "method"
+                            },
+                            class_side,
+                            visibility,
+                            source: "universe",
+                        });
+                    }
+                    ClassMember::Getter(g) => {
+                        entries.push(SelectorEntry {
+                            selector: g.name.clone(),
+                            kind: "getter",
+                            class_side,
+                            visibility,
+                            source: "universe",
+                        });
+                    }
+                    ClassMember::Setter(s) => {
+                        entries.push(SelectorEntry {
+                            selector: format!("{}=(put)", s.name),
+                            kind: "setter",
+                            class_side,
+                            visibility,
+                            source: "universe",
+                        });
+                    }
+                    // A declared field (U-ANNOT-LAYOUT §3.1) has no selector of
+                    // its own to harvest — it is not a dispatchable member.
+                    ClassMember::Field(_) => {}
+                    // A `@variant` arm (U-ANNOT-LAYOUT §3.4) is expanded away at
+                    // compile time into a sibling top-level class this raw-AST
+                    // harvest never sees — nothing to harvest here either.
+                    ClassMember::Variant(_) => {}
+                    // A bracket subscript method (U-INDEX, ADR-0060: `[idx] {
+                    // ... }` / `[idx, put:] { ... }`) — harvested in the same
+                    // bracket-delimited, no-name comma-form spelling
+                    // `phalcom-lsp`'s `selectors::index_selector` uses (`[_]`,
+                    // `[_,put]`, `[]`, `[put]`).
+                    ClassMember::Index(ix) => {
+                        entries.push(SelectorEntry {
+                            selector: bracket_form(
+                                &ix.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>(),
+                                matches!(&ix.accessor, IndexAccessor::Set { .. }),
+                            ),
+                            kind: "method",
+                            class_side,
+                            visibility,
+                            source: "universe",
+                        });
+                    }
                 }
             }
-        }
         }
     }
 }
@@ -232,7 +232,11 @@ fn member_visibility(member: &ClassMember) -> &'static str {
 fn bracket_form(labels: &[Option<String>], setter: bool) -> String {
     let inner = labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
     let base = format!("[{inner}]");
-    if setter { format!("{base}=(put)") } else { base }
+    if setter {
+        format!("{base}=(put)")
+    } else {
+        base
+    }
 }
 
 /// Builds the comma-form selector string: `name(_,label,...)`, or `name()`
