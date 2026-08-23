@@ -42,7 +42,7 @@ fn bcat_02_reflection_exposed_children_in_nodes() {
         }
     }
 
-    assert_eq!(exposed.len(), 21, "expected 21 expose declarations in reflection/package.ph");
+    assert_eq!(exposed.len(), 22, "expected 22 expose declarations in reflection/package.ph");
 
     for child in &exposed {
         let path = &["reflection", child.as_str()];
