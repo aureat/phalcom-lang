@@ -110,6 +110,12 @@
           "default": [],
           "description": "Workspace path fragments or file patterns excluded from Phalcom source indexing/analysis."
         },
+        "phalcom.analysis.logLevel": {
+          "type": "string",
+          "enum": ["error", "info", "verbose"],
+          "default": "info",
+          "description": "Minimum structured Phalcom analysis-log level written to the language-server output channel."
+        },
         "phalcom.analysis.statusBar": {
           "type": "boolean",
           "default": true,

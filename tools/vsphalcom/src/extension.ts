@@ -1,4 +1,4 @@
-import { commands, ExtensionContext, OutputChannel, window, workspace } from "vscode"
+import { commands, ExtensionContext, OutputChannel, TextDocumentContentProvider, Uri, window, workspace } from "vscode"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { registerRunFile } from "./run"
@@ -115,7 +115,8 @@ function readInitializationOptions() {
             },
             analysis: {
                 mode: config.get<string>("analysis.mode", "local"),
-                exclude: config.get<string[]>("analysis.exclude", [])
+                exclude: config.get<string[]>("analysis.exclude", []),
+                logLevel: config.get<string>("analysis.logLevel", "info")
             },
             inlayHints: {
                 types: config.get<string>("inlayHints.types", "stable"),
@@ -151,6 +152,12 @@ function startLspClient(context: ExtensionContext): LanguageClient {
 
     const client = new LanguageClient("phalcomLsp", "Phalcom Language Server", serverOptions, clientOptions)
 
+    client.onNotification("phalcom/analysisLog", (event: AnalysisLogEvent) => {
+        if (shouldShowAnalysisLog(event.level)) {
+            lspOutput?.appendLine(formatAnalysisLog(event))
+        }
+    })
+
     if (statusBarController) {
         statusBarController.attach(client)
     }
@@ -158,6 +165,34 @@ function startLspClient(context: ExtensionContext): LanguageClient {
     void client.start()
 
     return client
+}
+
+export type AnalysisLogLevel = "error" | "info" | "verbose"
+
+export interface AnalysisLogEvent {
+    session: number
+    sequence: number
+    level: AnalysisLogLevel
+    phase: string
+    event: string
+    message?: string
+    durationMs?: number
+    generation?: number
+}
+
+function shouldShowAnalysisLog(level: AnalysisLogLevel): boolean {
+    const configured = workspace.getConfiguration("phalcom").get<AnalysisLogLevel>("analysis.logLevel", "info")
+    const rank: Record<AnalysisLogLevel, number> = { error: 0, info: 1, verbose: 2 }
+    return rank[level] <= rank[configured]
+}
+
+export function formatAnalysisLog(event: AnalysisLogEvent): string {
+    const details = [
+        event.message,
+        event.durationMs === undefined ? undefined : `${event.durationMs}ms`,
+        event.generation === undefined ? undefined : `generation=${event.generation}`
+    ].filter(Boolean).join(" · ")
+    return `[${event.level}] ${event.event} (session=${event.session}, sequence=${event.sequence}, phase=${event.phase})${details ? ` — ${details}` : ""}`
 }
 
 function ensureLspClientLifecycle(context: ExtensionContext): LspClientLifecycle<LanguageClient> {
@@ -186,6 +221,21 @@ export function activate(context: ExtensionContext) {
 
     lspOutput = window.createOutputChannel("Phalcom Language Server")
     context.subscriptions.push(lspOutput)
+
+    const virtualSourceProvider: TextDocumentContentProvider = {
+        provideTextDocumentContent: async (uri: Uri): Promise<string> => {
+            if (!lspClient) {
+                return ""
+            }
+            try {
+                return await lspClient.sendRequest<string | null>("phalcom/sourceText", { uri: uri.toString() }) ?? ""
+            } catch (error) {
+                lspOutput?.appendLine(`Virtual source request failed: ${String(error)}`)
+                return ""
+            }
+        }
+    }
+    context.subscriptions.push(workspace.registerTextDocumentContentProvider("phalcom", virtualSourceProvider))
 
     statusBarController = new AnalysisStatusBarController()
     context.subscriptions.push(statusBarController)
