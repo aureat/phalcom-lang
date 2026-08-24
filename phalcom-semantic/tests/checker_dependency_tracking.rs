@@ -49,7 +49,7 @@ fn tracked_resolver_records_current_linked_interface_for_non_local_type() {
 
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::LinkedInterface(current)));
-    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(external)));
+    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationShell(external)));
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn builtin_seed_reads_do_not_create_query_dependencies() {
 }
 
 #[test]
-fn declaration_metadata_read_records_declaration_surface_dependency() {
+fn declaration_metadata_read_records_declaration_shell_dependency() {
     let module = user_module(1, "main");
     let target = DeclarationId::new(module.clone(), "Target".into());
     let owner = DeclarationId::new(module.clone(), "Client".into());
@@ -153,7 +153,7 @@ fn declaration_metadata_read_records_declaration_surface_dependency() {
     let ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, module);
     let _ = ctx.declaration_generic_signature(&target);
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
-    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(target)));
+    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationShell(target)));
 }
 
 #[test]

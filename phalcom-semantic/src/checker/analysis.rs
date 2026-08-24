@@ -150,6 +150,7 @@ use crate::identity::{DeclarationId, ModuleId};
 /// Semantic dependency representing query-invalidating semantic consumption by a callable body.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SemanticDependency {
+    DeclarationShell(DeclarationId),
     CallableSignature(CallableId),
     DeclarationSurface(DeclarationId),
     HierarchyEdge(DeclarationId),

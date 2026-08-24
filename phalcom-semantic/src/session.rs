@@ -6,7 +6,7 @@ use crate::checker::statement::check_statement;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
-    query_callable_body, query_callable_signature, query_declaration_surface, query_hierarchy_edge,
+    query_callable_body, query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge,
     query_linked_interface, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
@@ -440,6 +440,29 @@ impl SemanticWorkspaceSession {
                             generic_signature,
                             supertype_template,
                         });
+                    }
+                }
+            }
+        }
+
+        // Publish declaration type metadata as explicit DB products before any
+        // formal surface, signature, or body query can consume it.
+        let mut published_shells = BTreeSet::new();
+        for (module_id, parsed_unit) in &input.sources {
+            for statement in &parsed_unit.program.statements {
+                if let Statement::Class(class_def) = statement {
+                    let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                    if published_shells.insert(declaration.clone()) {
+                        let Some(info) = declarations.get(&declaration).cloned() else {
+                            return Err(QueryOutcome::Failed(format!("missing declaration metadata for {declaration:?}")));
+                        };
+                        match query_declaration_shell(&mut self.db, Arc::new(info)) {
+                            QueryOutcome::Ready(_) => {}
+                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                        }
                     }
                 }
             }

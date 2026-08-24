@@ -7,7 +7,7 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::{InputFingerprint, ProductFingerprint, QueryKey};
 use crate::db::product::DeclarationSurfaceProduct;
 use crate::db::state::{QueryOutcome, QueryState};
-use crate::declarations::DeclarationTypeTable;
+use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{CallableSignature as SurfaceCallableSignature, SurfaceDispatchResolver};
 use crate::hierarchy_product::HierarchyEdgeProduct;
@@ -454,6 +454,38 @@ pub fn query_hierarchy_edge(
     QueryOutcome::Ready(product)
 }
 
+/// Evaluates or retrieves canonical declaration type metadata for one declaration.
+pub fn query_declaration_shell(
+    db: &mut SemanticDb,
+    info: Arc<DeclarationTypeInfo>,
+) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
+    let key = QueryKey::DeclarationShell(info.declaration.clone());
+    let input_fingerprint = crate::db::fingerprint::declaration_shell_input_fingerprint(&info);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(product) = db.product(&key).and_then(|product| product.as_declaration_shell()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(product.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let product_fingerprint = crate::db::fingerprint::declaration_shell_product_fingerprint(&info);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::DeclarationShell(info.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(info)
+}
+
 /// Evaluates or computes the source member surface for one declaration.
 pub fn query_declaration_surface(
     db: &mut SemanticDb,
@@ -787,6 +819,9 @@ pub fn query_callable_body(
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
                 let dependency = match sem_dep {
+                    crate::checker::analysis::SemanticDependency::DeclarationShell(did) => {
+                        QueryKey::DeclarationShell(did.clone())
+                    }
                     crate::checker::analysis::SemanticDependency::CallableSignature(cid) => {
                         QueryKey::CallableSignature(cid.clone())
                     }

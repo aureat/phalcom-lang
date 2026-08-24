@@ -2,6 +2,7 @@
 
 use crate::checker::analysis::CallableAnalysis;
 use crate::db::state::QueryValue;
+use crate::declarations::DeclarationTypeInfo;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::hierarchy_product::HierarchyEdgeProduct;
 use crate::module_product::ResolvedImportsProduct;
@@ -39,6 +40,7 @@ pub enum SemanticProduct {
     UnlinkedInterface(Arc<UnlinkedModuleInterface>),
     ResolvedImports(Arc<ResolvedImportsProduct>),
     LinkedInterface(Arc<LinkedModuleInterface>),
+    DeclarationShell(Arc<DeclarationTypeInfo>),
     DeclarationSurface(Arc<DeclarationSurfaceProduct>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
@@ -72,6 +74,14 @@ impl SemanticProduct {
     pub fn as_linked_interface(&self) -> Option<&Arc<LinkedModuleInterface>> {
         match self {
             Self::LinkedInterface(interface) => Some(interface),
+            _ => None,
+        }
+    }
+
+    /// Returns canonical declaration type metadata published as a shell product.
+    pub fn as_declaration_shell(&self) -> Option<&Arc<DeclarationTypeInfo>> {
+        match self {
+            Self::DeclarationShell(info) => Some(info),
             _ => None,
         }
     }
@@ -133,6 +143,7 @@ impl SemanticProduct {
             Self::UnlinkedInterface(_) => b"unlinked-interface".as_slice(),
             Self::ResolvedImports(_) => b"resolved-imports".as_slice(),
             Self::LinkedInterface(_) => b"linked-interface".as_slice(),
+            Self::DeclarationShell(_) => b"declaration-shell".as_slice(),
             Self::DeclarationSurface(_) => b"declaration-surface".as_slice(),
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),

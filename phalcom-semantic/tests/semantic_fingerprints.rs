@@ -12,11 +12,13 @@ use phalcom_semantic::checker::analysis::{
 use phalcom_semantic::checker::flow::graph::FlowGraph;
 use phalcom_semantic::db::fingerprint::{
     callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint,
-    declaration_surface_input_fingerprint, declaration_surface_product_fingerprint, linked_interface_input_fingerprint,
+    declaration_shell_input_fingerprint, declaration_shell_product_fingerprint, declaration_surface_input_fingerprint,
+    declaration_surface_product_fingerprint, linked_interface_input_fingerprint,
     linked_interface_product_fingerprint, module_diagnostics_product_fingerprint, semantic_component_product_fingerprint,
     unlinked_interface_input_fingerprint, unlinked_interface_product_fingerprint,
 };
 use phalcom_semantic::db::ProductFingerprint;
+use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use phalcom_semantic::dispatch::{CallableSignature, DispatchSide};
 use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
@@ -25,7 +27,7 @@ use phalcom_semantic::signature::CallableSemanticSignature;
 use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::denotation::SemanticDenotation;
 use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
-use phalcom_semantic::types::id::{TypeId, TypeParameterId};
+use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -39,6 +41,17 @@ fn module(name: &str) -> ModuleId {
 
 fn declaration(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::core(), name.into())
+}
+
+fn declaration_shell() -> DeclarationTypeInfo {
+    DeclarationTypeInfo {
+        declaration: declaration("Shell"),
+        form: TypeId(1),
+        class_object_type: TypeId(2),
+        kind: KindId::TYPE,
+        generic_signature: None,
+        supertype_template: None,
+    }
 }
 
 fn build_interface(id: ModuleId, source: &str) -> UnlinkedModuleInterface {
@@ -155,6 +168,48 @@ fn linked_interface_product_includes_metadata_semantics() {
         linked_interface_product_fingerprint(&linked_one.modules[&id].interface),
         linked_interface_product_fingerprint(&linked_two.modules[&id].interface)
     );
+}
+
+#[test]
+fn declaration_shell_product_changes_when_kind_changes() {
+    let left = declaration_shell();
+    let mut right = left.clone();
+    right.kind = KindId::RECORD_ROW;
+
+    assert_ne!(declaration_shell_input_fingerprint(&left), declaration_shell_input_fingerprint(&right));
+    assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
+}
+
+#[test]
+fn declaration_shell_product_changes_when_generic_parameter_version_changes() {
+    let mut left = declaration_shell();
+    left.generic_signature = Some(GenericSignature::new(
+        TypeParameterOwner::Declaration(left.declaration.clone()),
+        Box::new([TypeParameterId(1)]),
+    ));
+    let mut right = left.clone();
+    right.generic_signature = Some(GenericSignature::new(
+        TypeParameterOwner::Declaration(right.declaration.clone()),
+        Box::new([TypeParameterId(2)]),
+    ));
+
+    assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
+}
+
+#[test]
+fn declaration_shell_product_changes_when_supertype_template_changes() {
+    let mut left = declaration_shell();
+    left.supertype_template = Some(GenericSupertypeTemplate {
+        declaration: left.declaration.clone(),
+        supertype: TypeId(3),
+    });
+    let mut right = left.clone();
+    right.supertype_template = Some(GenericSupertypeTemplate {
+        declaration: right.declaration.clone(),
+        supertype: TypeId(4),
+    });
+
+    assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
 }
 
 #[test]

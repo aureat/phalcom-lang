@@ -63,6 +63,37 @@ fn scheduler_pops_unique_keys_in_canonical_order() {
 }
 
 #[test]
+fn declaration_shell_query_publishes_typed_product_and_reuses_it() {
+    use phalcom_semantic::declarations::DeclarationTypeInfo;
+    use phalcom_semantic::types::id::{KindId, TypeId};
+
+    let declaration = phalcom_semantic::DeclarationId::new(module(), "Shell".into());
+    let info = Arc::new(DeclarationTypeInfo {
+        declaration: declaration.clone(),
+        form: TypeId(1),
+        class_object_type: TypeId(2),
+        kind: KindId::TYPE,
+        generic_signature: None,
+        supertype_template: None,
+    });
+    let mut db = SemanticDb::new();
+
+    let first = phalcom_semantic::db::query_declaration_shell(&mut db, info.clone());
+    let first_product = match first {
+        QueryOutcome::Ready(product) => product,
+        other => panic!("expected shell product, got {other:?}"),
+    };
+    let key = QueryKey::DeclarationShell(declaration.clone());
+    assert!(db.product(&key).and_then(|product| product.as_declaration_shell()).is_some());
+
+    let second = phalcom_semantic::db::query_declaration_shell(&mut db, info);
+    match second {
+        QueryOutcome::Ready(product) => assert!(Arc::ptr_eq(&first_product, &product)),
+        other => panic!("expected cached shell product, got {other:?}"),
+    }
+}
+
+#[test]
 fn stale_revision_cannot_publish_a_ready_product() {
     let mut db = SemanticDb::new();
     let key = QueryKey::ParsedModule(module());

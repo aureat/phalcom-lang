@@ -11,6 +11,7 @@ use crate::checker::analysis::{
 };
 use crate::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
+use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
 use crate::explain::{DerivationRule, EvidenceRef, ExplanationArena, ExplanationStep, PredicateKind};
 use crate::identity::{CallableId, DeclarationId, ExplanationId, ModuleId};
@@ -304,6 +305,32 @@ fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher
     signature.owner.hash(hasher);
     signature.parameters.hash(hasher);
     signature.constraints.hash(hasher);
+}
+
+fn hash_generic_supertype_template(template: &GenericSupertypeTemplate, hasher: &mut impl Hasher) {
+    template.declaration.hash(hasher);
+    template.supertype.hash(hasher);
+}
+
+fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hasher) {
+    info.declaration.hash(hasher);
+    info.form.hash(hasher);
+    info.class_object_type.hash(hasher);
+    info.kind.hash(hasher);
+    match &info.generic_signature {
+        Some(signature) => {
+            1u8.hash(hasher);
+            hash_generic_signature(signature, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
+    match &info.supertype_template {
+        Some(template) => {
+            1u8.hash(hasher);
+            hash_generic_supertype_template(template, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
 }
 
 fn hash_dispatch_callable_signature(
@@ -963,6 +990,20 @@ pub fn linked_interface_input_fingerprint(interface: &LinkedModuleInterface) -> 
 pub fn linked_interface_product_fingerprint(interface: &LinkedModuleInterface) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     hash_linked_interface(interface, false, &mut hasher);
+    finish_product(hasher)
+}
+
+/// Computes the direct semantic input identity of declaration type metadata.
+pub fn declaration_shell_input_fingerprint(info: &DeclarationTypeInfo) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_declaration_type_info(info, &mut hasher);
+    finish_input(hasher)
+}
+
+/// Computes the semantic product identity of declaration type metadata.
+pub fn declaration_shell_product_fingerprint(info: &DeclarationTypeInfo) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_declaration_type_info(info, &mut hasher);
     finish_product(hasher)
 }
 

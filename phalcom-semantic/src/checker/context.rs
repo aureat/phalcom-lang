@@ -92,6 +92,12 @@ fn record_declaration_surface_dependency(dependencies: &SharedSemanticDependenci
     }
 }
 
+fn record_declaration_shell_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
+    if is_query_owned_module(&declaration.module) {
+        record_query_dependency(dependencies, SemanticDependency::DeclarationShell(declaration.clone()));
+    }
+}
+
 fn record_hierarchy_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
     if is_query_owned_module(&declaration.module) {
         record_query_dependency(dependencies, SemanticDependency::HierarchyEdge(declaration.clone()));
@@ -124,7 +130,7 @@ impl TypeResolver for TrackingTypeResolver<'_> {
             return None;
         };
 
-        record_declaration_surface_dependency(&self.dependencies, &declaration);
+        record_declaration_shell_dependency(&self.dependencies, &declaration);
         if &declaration.module != current_module
             && is_query_owned_module(current_module)
             && is_query_owned_module(&declaration.module)
@@ -525,19 +531,47 @@ impl<'a> CheckingContext<'a> {
         self.dispatch.get()
     }
 
-    /// Reads declaration metadata while recording the declaration-surface dependency.
+    /// Reads declaration metadata while recording the declaration-shell dependency.
     pub fn declaration_info(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
-        record_declaration_surface_dependency(&self.semantic_dependencies, declaration);
+        record_declaration_shell_dependency(&self.semantic_dependencies, declaration);
         self.declarations.get(declaration)
     }
 
-    /// Reads a declaration generic signature while recording the declaration-surface dependency.
+    /// Reads a declaration generic signature while recording the declaration-shell dependency.
     pub fn declaration_generic_signature(
         &self,
         declaration: &DeclarationId,
     ) -> Option<crate::types::parameter::GenericSignature> {
-        record_declaration_surface_dependency(&self.semantic_dependencies, declaration);
+        record_declaration_shell_dependency(&self.semantic_dependencies, declaration);
         self.declarations.generic_signature(declaration).cloned()
+    }
+
+    fn receiver_declaration(&self, receiver: TypeId) -> Option<DeclarationId> {
+        let mut current = receiver;
+        loop {
+            match self.store.get(current) {
+                TypeData::Applied { origin, .. } => current = *origin,
+                TypeData::Nominal { declaration } | TypeData::ClassObject { declaration } => return Some(declaration.clone()),
+                _ => return None,
+            }
+        }
+    }
+
+    fn substitution_for_applied_receiver(&self, receiver: TypeId) -> Option<crate::types::substitution::TypeSubstitution> {
+        if let Some(origin) = self.receiver_declaration(receiver) {
+            record_declaration_shell_dependency(&self.semantic_dependencies, &origin);
+        }
+        crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver)
+    }
+
+    fn specialize_self_type(&mut self, receiver: TypeId, ty: TypeId) -> TypeId {
+        if let Some(origin) = self.receiver_declaration(receiver) {
+            record_declaration_shell_dependency(&self.semantic_dependencies, &origin);
+        }
+        if let Some(owner) = self.current_class.as_ref() {
+            record_declaration_shell_dependency(&self.semantic_dependencies, owner);
+        }
+        crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ty)
     }
 
     pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
@@ -576,7 +610,7 @@ impl<'a> CheckingContext<'a> {
                 self.dependencies.insert(resolved.callable.clone());
                 self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
                 let mut sig = resolved.signature;
-                if let Some(subst) = crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver) {
+                if let Some(subst) = self.substitution_for_applied_receiver(receiver) {
                     for param in &mut sig.parameters {
                         if let TypeKnowledge::Known(ref mut ev) = param.ty {
                             ev.ty = subst.apply(self.store, ev.ty);
@@ -588,11 +622,11 @@ impl<'a> CheckingContext<'a> {
                 }
                 for param in &mut sig.parameters {
                     if let TypeKnowledge::Known(ref mut ev) = param.ty {
-                        ev.ty = crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ev.ty);
+                        ev.ty = self.specialize_self_type(receiver, ev.ty);
                     }
                 }
                 if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
-                    ev.ty = crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ev.ty);
+                    ev.ty = self.specialize_self_type(receiver, ev.ty);
                 }
                 DispatchResult::Found(sig)
             }
@@ -634,7 +668,7 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> TypeId {
-        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
+        record_declaration_shell_dependency(&self.semantic_dependencies, decl);
         if let Some(form) = self.declarations.form(decl) {
             form
         } else {

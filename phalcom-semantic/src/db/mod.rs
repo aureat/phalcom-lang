@@ -16,7 +16,7 @@ pub use dependency::{DependencyEdge, DependencyIndex, DependencyRecorder};
 pub use key::{InputFingerprint, ProductFingerprint, QueryKey};
 pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
-pub use query::{query_callable_body, query_callable_signature, query_declaration_surface, query_hierarchy_edge};
+pub use query::{query_callable_body, query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge};
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
 
