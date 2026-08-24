@@ -181,6 +181,9 @@ pub struct CallableAnalysis {
     pub explanations: Arc<crate::explain::ExplanationArena>,
     pub dependencies: Arc<[CallableId]>,
     pub semantic_dependencies: Arc<[SemanticDependency]>,
+    /// Semantic result fingerprint used to decide whether downstream queries
+    /// must propagate a body refresh. Despite its legacy field name, this is
+    /// not a hash of dependency-edge metadata.
     pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
 }

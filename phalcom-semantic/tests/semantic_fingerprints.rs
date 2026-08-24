@@ -9,7 +9,7 @@ use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, R
 use phalcom_semantic::checker::analysis::{
     AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary,
 };
-use phalcom_semantic::checker::flow::graph::FlowGraph;
+use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
 use phalcom_semantic::db::fingerprint::{
     callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint,
     declaration_shell_input_fingerprint, declaration_shell_product_fingerprint, declaration_surface_input_fingerprint,
@@ -416,7 +416,7 @@ fn callable_body_product_includes_flow_exit_and_callable_status() {
 }
 
 #[test]
-fn callable_body_product_includes_referenced_explanation_content() {
+fn callable_body_product_ignores_explanation_presentation() {
     let expression_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
     let mut left = callable_analysis();
     let mut left_arena = ExplanationArena::new();
@@ -460,11 +460,11 @@ fn callable_body_product_includes_referenced_explanation_content() {
         .with_explanation(right_explanation),
     );
 
-    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+    assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
 }
 
 #[test]
-fn callable_body_product_includes_diagnostic_details() {
+fn callable_body_product_ignores_diagnostic_details() {
     let mut left = callable_analysis();
     left.diagnostics = Arc::from(
         vec![SemanticDiagnostic::error_in(
@@ -488,7 +488,40 @@ fn callable_body_product_includes_diagnostic_details() {
         .into_boxed_slice(),
     );
 
-    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+    assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_ignores_source_ranges_and_type_provenance() {
+    let expression_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
+    let mut left = callable_analysis();
+    left.body_range = SourceRange { start: 1, end: 4 };
+    left.expressions.insert(
+        expression_id,
+        ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 1, end: 4 },
+            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven).with_range(SourceRange { start: 1, end: 4 }),
+        ),
+    );
+    let mut right = left.clone();
+    right.body_range = SourceRange { start: 101, end: 104 };
+    right.expressions.get_mut(&expression_id).expect("expression").range = SourceRange { start: 101, end: 104 };
+    right.expressions.get_mut(&expression_id).expect("expression").knowledge =
+        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven).with_range(SourceRange { start: 101, end: 104 });
+
+    assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_ignores_flow_source_ranges() {
+    let mut left = callable_analysis();
+    let node = Arc::make_mut(&mut left.flow_graph).add_node(FlowNodeKind::Entry, SourceRange { start: 1, end: 4 });
+    Arc::make_mut(&mut left.flow_graph).entry = Some(node);
+    let mut right = left.clone();
+    Arc::make_mut(&mut right.flow_graph).nodes.get_mut(&node).expect("flow node").range = SourceRange { start: 101, end: 104 };
+
+    assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
 }
 
 #[test]

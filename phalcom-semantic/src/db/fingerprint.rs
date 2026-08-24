@@ -13,8 +13,7 @@ use crate::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
-use crate::explain::{DerivationRule, EvidenceRef, ExplanationArena, ExplanationStep, PredicateKind};
-use crate::identity::{CallableId, DeclarationId, ExplanationId, ModuleId};
+use crate::identity::{CallableId, DeclarationId, ModuleId};
 use crate::signature::CallableSemanticSignature;
 use crate::surface::DeclarationSurface;
 use crate::types::denotation::SemanticDenotation;
@@ -35,7 +34,6 @@ use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
 use phalcom_modules::metadata::{MetadataTarget, ModuleMetadata};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
-use std::collections::BTreeSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -672,13 +670,12 @@ fn hash_flow_edge_kind(kind: FlowEdgeKind, hasher: &mut impl Hasher) {
     }
 }
 
-fn hash_flow_graph(graph: &FlowGraph, hasher: &mut impl Hasher) {
+fn hash_flow_graph_semantics(graph: &FlowGraph, hasher: &mut impl Hasher) {
     graph.nodes.len().hash(hasher);
     for (id, node) in &graph.nodes {
         id.hash(hasher);
         node.id.hash(hasher);
         hash_flow_node_kind(&node.kind, hasher);
-        hash_range(node.range, hasher);
         node.predecessors.hash(hasher);
         node.successors.hash(hasher);
     }
@@ -714,156 +711,6 @@ fn hash_exit_facts(exits: &BodyExitFacts, hasher: &mut impl Hasher) {
         hash_flow_summary(summary, hasher);
     }
     exits.unreachable.hash(hasher);
-}
-
-fn hash_predicate_kind(kind: &PredicateKind, hasher: &mut impl Hasher) {
-    match kind {
-        PredicateKind::IsInstance => 0u8.hash(hasher),
-        PredicateKind::IsNotInstance => 1u8.hash(hasher),
-        PredicateKind::IsNil => 2u8.hash(hasher),
-        PredicateKind::NotNil => 3u8.hash(hasher),
-        PredicateKind::EqualLiteral => 4u8.hash(hasher),
-        PredicateKind::NotEqualLiteral => 5u8.hash(hasher),
-        PredicateKind::Ordered => 6u8.hash(hasher),
-        PredicateKind::Truthy => 7u8.hash(hasher),
-        PredicateKind::Falsy => 8u8.hash(hasher),
-    }
-}
-
-fn hash_derivation_rule(rule: &DerivationRule, hasher: &mut impl Hasher) {
-    match rule {
-        DerivationRule::LiteralSynthesis => 0u8.hash(hasher),
-        DerivationRule::AnnotationConstraint => 1u8.hash(hasher),
-        DerivationRule::MethodCallReturn { selector } => {
-            2u8.hash(hasher);
-            selector.hash(hasher);
-        }
-        DerivationRule::GenericInstantiation { type_args } => {
-            3u8.hash(hasher);
-            type_args.hash(hasher);
-        }
-        DerivationRule::FlowRefinement { predicate_kind } => {
-            4u8.hash(hasher);
-            hash_predicate_kind(predicate_kind, hasher);
-        }
-        DerivationRule::BranchJoin { branch_count } => {
-            5u8.hash(hasher);
-            branch_count.hash(hasher);
-        }
-        DerivationRule::PolicyEnforcement { code } => {
-            6u8.hash(hasher);
-            code.hash(hasher);
-        }
-        DerivationRule::IterationElementResolution => 7u8.hash(hasher),
-        DerivationRule::AssignmentPropagation => 8u8.hash(hasher),
-        DerivationRule::ReturnTypeCheck => 9u8.hash(hasher),
-        DerivationRule::InternalBlocked { reason } => {
-            10u8.hash(hasher);
-            reason.hash(hasher);
-        }
-    }
-}
-
-fn hash_evidence_ref(evidence: &EvidenceRef, hasher: &mut impl Hasher) {
-    match evidence {
-        EvidenceRef::SourceSpan(range) => {
-            0u8.hash(hasher);
-            hash_range(*range, hasher);
-        }
-        EvidenceRef::TypeId(ty) => {
-            1u8.hash(hasher);
-            ty.hash(hasher);
-        }
-        EvidenceRef::CallResolution(call) => {
-            2u8.hash(hasher);
-            call.hash(hasher);
-        }
-        EvidenceRef::BindingVersion { binding, version } => {
-            3u8.hash(hasher);
-            binding.hash(hasher);
-            version.hash(hasher);
-        }
-        EvidenceRef::Suppressed { cause } => {
-            4u8.hash(hasher);
-            cause.hash(hasher);
-        }
-    }
-}
-
-fn hash_explanation_step(step: &ExplanationStep, hasher: &mut impl Hasher) {
-    match step {
-        ExplanationStep::Literal { expression, ty } => {
-            0u8.hash(hasher);
-            expression.hash(hasher);
-            ty.hash(hasher);
-        }
-        ExplanationStep::Declared { binding, range, ty } => {
-            1u8.hash(hasher);
-            binding.hash(hasher);
-            hash_range(*range, hasher);
-            ty.hash(hasher);
-        }
-        ExplanationStep::MethodCall { call, callable, return_ty } => {
-            2u8.hash(hasher);
-            call.hash(hasher);
-            callable.hash(hasher);
-            return_ty.hash(hasher);
-        }
-        ExplanationStep::FlowRefinement { binding, prior, refined } => {
-            3u8.hash(hasher);
-            binding.hash(hasher);
-            hash_type_knowledge(prior, true, hasher);
-            hash_type_knowledge(refined, true, hasher);
-        }
-        ExplanationStep::BranchJoin { binding, branches, joined } => {
-            4u8.hash(hasher);
-            binding.hash(hasher);
-            branches.len().hash(hasher);
-            for branch in branches {
-                hash_type_knowledge(branch, true, hasher);
-            }
-            hash_type_knowledge(joined, true, hasher);
-        }
-        ExplanationStep::Subtyping { actual, expected, proven } => {
-            5u8.hash(hasher);
-            actual.hash(hasher);
-            expected.hash(hasher);
-            proven.hash(hasher);
-        }
-    }
-}
-
-fn hash_explanation_arena(arena: &ExplanationArena, roots: impl IntoIterator<Item = ExplanationId>, hasher: &mut impl Hasher) {
-    let mut reachable = BTreeSet::new();
-    let mut pending = roots.into_iter().collect::<Vec<_>>();
-    while let Some(id) = pending.pop() {
-        if !reachable.insert(id) {
-            continue;
-        }
-        if let Some(node) = arena.get(id) {
-            pending.extend(node.parents.iter().copied());
-        }
-    }
-
-    reachable.len().hash(hasher);
-    for id in reachable {
-        id.hash(hasher);
-        match arena.get(id) {
-            Some(node) => {
-                true.hash(hasher);
-                node.id.hash(hasher);
-                hash_explanation_step(&node.step, hasher);
-                hash_derivation_rule(&node.rule, hasher);
-                node.authority.hash(hasher);
-                node.evidence.len().hash(hasher);
-                for evidence in &node.evidence {
-                    hash_evidence_ref(evidence, hasher);
-                }
-                node.parents.hash(hasher);
-            }
-            None => false.hash(hasher),
-        }
-    }
 }
 
 fn hash_diagnostic_fix(fix: &DiagnosticFix, hasher: &mut impl Hasher) {
@@ -1238,52 +1085,29 @@ pub fn callable_body_input_fingerprint(
 pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     analysis.callable.hash(&mut hasher);
-    hash_range(analysis.body_range, &mut hasher);
 
     analysis.expressions.len().hash(&mut hasher);
     for (expression_id, expression) in &analysis.expressions {
         expression_id.hash(&mut hasher);
-        expression.id.hash(&mut hasher);
-        hash_range(expression.range, &mut hasher);
-        hash_type_knowledge(&expression.knowledge, true, &mut hasher);
+        hash_type_knowledge(&expression.knowledge, false, &mut hasher);
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &mut hasher);
-        expression.explanation.hash(&mut hasher);
-        expression.call.hash(&mut hasher);
     }
 
     analysis.bindings.len().hash(&mut hasher);
     for (binding_id, binding) in &analysis.bindings {
         binding_id.hash(&mut hasher);
-        binding.binding.hash(&mut hasher);
-        binding.name.hash(&mut hasher);
-        hash_range(binding.range, &mut hasher);
         binding.declared.hash(&mut hasher);
-        hash_type_knowledge(&binding.current, true, &mut hasher);
+        hash_type_knowledge(&binding.current, false, &mut hasher);
         binding.mutable.hash(&mut hasher);
         binding.version.hash(&mut hasher);
-        binding.explanation.hash(&mut hasher);
     }
 
-    hash_flow_graph(&analysis.flow_graph, &mut hasher);
+    hash_flow_graph_semantics(&analysis.flow_graph, &mut hasher);
     hash_flow_summary(&analysis.entry_flow, &mut hasher);
     hash_exit_facts(&analysis.exits, &mut hasher);
 
-    analysis.diagnostics.len().hash(&mut hasher);
-    for diagnostic in analysis.diagnostics.iter() {
-        hash_semantic_diagnostic(diagnostic, &mut hasher);
-    }
-
-    let explanation_roots = analysis
-        .expressions
-        .values()
-        .filter_map(|expression| expression.explanation)
-        .chain(analysis.bindings.values().filter_map(|binding| binding.explanation))
-        .chain(analysis.diagnostics.iter().flat_map(|diagnostic| diagnostic.explanations.iter().copied()));
-    hash_explanation_arena(&analysis.explanations, explanation_roots, &mut hasher);
-
     analysis.dependencies.hash(&mut hasher);
-    analysis.semantic_dependencies.hash(&mut hasher);
     hash_callable_analysis_status(analysis.status, &mut hasher);
     // `dependency_fingerprint` is assigned from this fingerprint after
     // computation. Hashing it would make the product definition recursive.
