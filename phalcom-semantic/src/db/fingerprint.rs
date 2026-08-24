@@ -706,6 +706,10 @@ fn hash_exit_facts(exits: &BodyExitFacts, hasher: &mut impl Hasher) {
     for summary in &exits.returns {
         hash_flow_summary(summary, hasher);
     }
+    exits.normal_return_values.len().hash(hasher);
+    for value in &exits.normal_return_values {
+        hash_type_knowledge(value, false, hasher);
+    }
     exits.throws.len().hash(hasher);
     for summary in &exits.throws {
         hash_flow_summary(summary, hasher);

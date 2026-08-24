@@ -43,6 +43,7 @@ use crate::heap::ClosureObject;
 use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
 use crate::modules::CompileBindings;
+use crate::value::Value;
 use crate::vm::{ClassKey, VM};
 use phalcom_ast::ast::{BindingKind, ClosureParameters, Expr, MethodCallExpr, Pattern, Program, Statement};
 use phalcom_common::range::{EmptySourceRange, SourceRange};
@@ -284,10 +285,11 @@ impl<'vm> Compiler<'vm> {
     /// Compiles a block or method body into a heap-allocated closure.
     ///
     /// Slot 0 holds the receiver (`self` for a method, the block object
-    /// otherwise). A body whose last statement leaves a value on the operand
-    /// stack ([`Statement::Expr`], [`Statement::Let`], or [`Statement::Return`])
-    /// returns that value. A **value-less** body — an empty body, or one ending
-    /// in a [`Statement::Class`] or any other statement that leaves nothing
+    /// otherwise). A body whose last statement is an expression or explicit
+    /// return returns its value. A tail [`Statement::Let`] binds its
+    /// initializer, then returns `Unit`; the initializer is never the block's
+    /// result. A **value-less** body — an empty body, or one ending in a
+    /// [`Statement::Class`] or any other statement that leaves nothing
     /// behind — yields `None`: a [`Bytecode::Nil`] placeholder is pushed before
     /// the fallback [`Bytecode::Return`] so that falling off the end surfaces
     /// absence (U6-plan.md §4) rather than the receiver sitting in slot 0. This
@@ -350,20 +352,25 @@ impl<'vm> Compiler<'vm> {
         let len = statements.len();
         let mut last_is_return = false;
         // Track whether the last statement leaves a value on the operand stack.
-        // `Expr`, `Let`, and `Return` do; an empty body or a trailing `Class`
-        // (or any other value-less statement) does not. This mirrors
+        // `Expr` and `Return` do. A tail `Let` gets an explicit Unit below;
+        // its initializer must not become the block result. This mirrors
         // `compile_inline_block_body` so the fast (inlined) and fallback paths
         // agree on the fall-off-end result.
         let mut leaves_value = false;
         for (i, statement) in statements.into_iter().enumerate() {
             let is_last = i == len - 1;
+            let tail_let = is_last && matches!(&statement, Statement::Let(_));
             if is_last {
                 if let Statement::Return(_) = statement {
                     last_is_return = true;
                 }
-                leaves_value = matches!(statement, Statement::Expr { .. } | Statement::Let(_) | Statement::Return(_));
+                leaves_value = matches!(&statement, Statement::Expr { .. } | Statement::Let(_) | Statement::Return(_));
             }
             self.compile_statement_with_pop_control(statement, !is_last)?;
+            if tail_let && !is_constructor {
+                let unit_idx = self.add_constant(Value::unit());
+                self.emit(Bytecode::Constant(unit_idx), EmptySourceRange);
+            }
         }
 
         let max_slots = self.functions.last().unwrap().max_slots;

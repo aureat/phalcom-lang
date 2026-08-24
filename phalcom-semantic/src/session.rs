@@ -1,12 +1,14 @@
 //! Compiler-owned incremental workspace session (Spec 04.5 / Wave 5 / Tasks 16-18).
 
 use crate::checker::context::CheckingContext;
+use crate::checker::analysis::normal_return_summary;
+use crate::checker::body::analyze_callable_body;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
-    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
+    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, semantic_signature_from_surface,
     query_hierarchy_edge, query_linked_interface, query_unlinked_interface, FormalQueryInputs,
 };
 use crate::db::state::QueryOutcome;
@@ -718,6 +720,24 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        // Source return annotations are published before bodies are checked,
+        // so an unannotated callable initially has an unknown return surface.
+        // Publish body-derived normal-return summaries into the local dispatch
+        // view, then recheck callers until that view reaches a fixed point.
+        refresh_inferred_callable_results(
+            &input.sources,
+            &mut self.store,
+            &hierarchy,
+            &resolver,
+            &declarations,
+            &mut dispatch,
+            &mut callable_signatures,
+            &mut callable_analyses,
+            &mut diags_by_module,
+            budget,
+            cancel,
+        )?;
+
         // 8. Freeze and Publish Immutable Snapshot
         let mut diagnostics_map = BTreeMap::new();
         for (module_id, diags) in diags_by_module {
@@ -799,4 +819,167 @@ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     unit.id.hash(&mut hasher);
     unit.text.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Propagates body-derived return summaries through source dispatch. Source
+/// declaration surfaces are intentionally built before body checking, so this
+/// small fixed-point pass is required for calls such as `Probe.run ->
+/// Factory.of -> CellNum.new`.
+fn refresh_inferred_callable_results(
+    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    store: &mut TypeStore,
+    hierarchy: &MapTypeHierarchy,
+    resolver: &LinkedTypeResolver,
+    declarations: &DeclarationTypeTable,
+    dispatch: &mut SurfaceDispatchResolver,
+    callable_signatures: &mut CallableSignatureTable,
+    callable_analyses: &mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+    budget: QueryBudget,
+    cancel: &CancellationToken,
+) -> Result<(), QueryOutcome<()>> {
+    let max_iterations = callable_analyses.len().saturating_add(1).max(1);
+
+    for _ in 0..max_iterations {
+        if cancel.is_cancelled() {
+            return Err(QueryOutcome::Cancelled);
+        }
+
+        let candidates = callable_analyses
+            .iter()
+            .filter_map(|(callable, analysis)| {
+                let surface = dispatch.surfaces().get(&callable.owner)?;
+                let signature = surface
+                    .get_callable(callable.side, &callable.selector)
+                    .or_else(|| {
+                        (callable.side == crate::identity::DispatchSide::Instance)
+                            .then(|| surface.get_callable(crate::identity::DispatchSide::Class, &callable.selector))
+                            .flatten()
+                    })?;
+                if !signature.return_type.is_unknown() {
+                    return None;
+                }
+                Some((callable.clone(), analysis.exits.normal_return_values.clone()))
+            })
+            .collect::<Vec<_>>();
+
+        let mut changed_callables = HashSet::new();
+        for (callable, values) in candidates {
+            let summary = normal_return_summary(store, &values);
+            if !summary.is_known() {
+                continue;
+            }
+            if !dispatch.update_callable_return_type(&callable, summary) {
+                continue;
+            }
+            changed_callables.insert(callable.clone());
+
+            if let Some(surface) = dispatch.surfaces().get(&callable.owner)
+                && let Some(signature) = surface.get_callable(callable.side, &callable.selector)
+                && let Some(semantic_signature) = semantic_signature_from_surface(&callable, signature)
+            {
+                callable_signatures.insert(semantic_signature);
+            }
+        }
+
+        if changed_callables.is_empty() {
+            break;
+        }
+
+        // Recheck only bodies that consume a newly published return contract.
+        // This deliberately bypasses the source-surface query cache: that
+        // cache owns the pre-inference unknown contract, while this pass is
+        // producing the current revision's inferred contract. Unrelated
+        // callable products remain pointer-stable for incremental reuse.
+        for (module_id, parsed_unit) in sources {
+            for stmt in &parsed_unit.program.statements {
+                let Statement::Class(class_def) = stmt else {
+                    continue;
+                };
+                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let type_params_map = if let Some(sig) = declarations.generic_signature(&decl_id) {
+                    let mut map = std::collections::HashMap::new();
+                    for &param_id in sig.parameters.iter() {
+                        let name = store.type_parameter(param_id).name.to_string();
+                        let param_form = store.parameter_form(param_id);
+                        map.insert(name, param_form);
+                    }
+                    map
+                } else {
+                    std::collections::HashMap::new()
+                };
+                let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+                    parent: resolver,
+                    type_parameters: type_params_map,
+                };
+
+                for member in &class_def.members {
+                    let side = match member {
+                        ClassMember::Method(m) if m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor") => {
+                            crate::identity::DispatchSide::Instance
+                        }
+                        _ => crate::checker::declaration::member_side(member),
+                    };
+                    let (selector_opt, body_opt, range_opt) = match member {
+                        ClassMember::Method(m) => {
+                            let slots = m
+                                .params
+                                .iter()
+                                .map(|p| {
+                                    if let Some(ref label) = p.label {
+                                        phalcom_common::selector::SelectorSlot::Label(label.clone())
+                                    } else {
+                                        phalcom_common::selector::SelectorSlot::Positional
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+                            (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
+                        }
+                        ClassMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
+                        ClassMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
+                        _ => (None, None, None),
+                    };
+
+                    let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) else {
+                        continue;
+                    };
+                    let callable = crate::identity::CallableId::new(decl_id.clone(), selector, side);
+                    let affected = callable_analyses
+                        .get(&callable)
+                        .is_some_and(|analysis| {
+                            changed_callables.contains(&callable)
+                                || analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency))
+                        });
+                    if !affected {
+                        continue;
+                    }
+                    let mut analysis = analyze_callable_body(
+                        callable.clone(),
+                        body,
+                        range,
+                        store,
+                        hierarchy,
+                        &scoped_resolver,
+                        declarations,
+                        dispatch,
+                        module_id.clone(),
+                        budget,
+                        cancel,
+                    );
+                    analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
+                    if !analysis.diagnostics.is_empty() {
+                        let module_diagnostics = diagnostics.entry(module_id.clone()).or_default();
+                        for diagnostic in analysis.diagnostics.iter() {
+                            if !module_diagnostics.contains(diagnostic) {
+                                module_diagnostics.push(diagnostic.clone());
+                            }
+                        }
+                    }
+                    callable_analyses.insert(callable, Arc::new(analysis));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

@@ -238,5 +238,13 @@ pub fn resolve_call(
         }
     }
 
-    signature.return_type.clone().with_range(call_range)
+    // Successful non-generic dispatch establishes that this call reached a
+    // concrete callable contract. Keep the contract's type, but upgrade the
+    // call-site evidence to `Proven`; the declaration remains `Declared` in
+    // the published surface and can still be checked independently against
+    // the body.
+    match &signature.return_type {
+        TypeKnowledge::Known(evidence) => TypeKnowledge::known(evidence.ty, EvidenceAuthority::Proven).with_range(call_range),
+        other => other.clone().with_range(call_range),
+    }
 }

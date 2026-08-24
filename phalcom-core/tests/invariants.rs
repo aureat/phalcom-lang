@@ -200,6 +200,41 @@ fn expression_result_absence_surfaces_to_none() {
 }
 
 #[test]
+fn tail_let_and_const_blocks_return_unit_not_initializer_value() {
+    use phalcom_core::primitive::block::block_call;
+
+    let mut vm = VM::new();
+    let module = vm.create_module("tail_bindings", "tail_let_and_const_blocks_return_unit_not_initializer_value");
+    vm.interpret_source(
+        module,
+        "let let_block = || { let x = 42 }\nlet const_block = || { const x = 42 }\n",
+    )
+    .expect("tail let/const blocks should compile");
+
+    for name in ["let_block", "const_block"] {
+        let symbol = vm.interner.intern(name);
+        let block = vm.heap.module(module).get(symbol).expect("block global must exist");
+        assert_eq!(block_call(&mut vm, &block, &[]).expect("block call"), Value::unit(), "{name} must return Unit");
+    }
+}
+
+#[test]
+fn inlined_tail_let_produces_unit_for_consumers() {
+    use phalcom_core::primitive::block::block_call;
+
+    let mut vm = VM::new();
+    let module = vm.create_module("inline_tail_binding", "inlined_tail_let_produces_unit_for_consumers");
+    vm.interpret_source(
+        module,
+        "let probe = || { (true.ifTrue || { let x = 42 }).match(some: |value| { value }, none: || { 99 }) }\n",
+    )
+    .expect("inlined tail let should compile");
+    let symbol = vm.interner.intern("probe");
+    let probe = vm.heap.module(module).get(symbol).expect("probe global must exist");
+    assert_eq!(block_call(&mut vm, &probe, &[]).expect("probe call"), Value::unit());
+}
+
+#[test]
 fn some_construction_never_wraps_the_sentinel() {
     let mut vm = VM::new();
     let some_class = Value::obj(vm.universe.classes.some_class);

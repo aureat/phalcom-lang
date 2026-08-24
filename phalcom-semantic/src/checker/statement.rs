@@ -15,8 +15,10 @@ use crate::types::store::TypeData;
 use phalcom_ast::ast::{Pattern, Statement};
 use phalcom_common::selector::Selector;
 
-/// Checks a single statement, updating context bindings and recording diagnostics.
-pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
+/// Checks a single statement, updating context bindings and recording
+/// diagnostics. A direct `return` reports its typed normal-return value to
+/// callable-body analysis; all other statement forms return `None`.
+pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> Option<TypeKnowledge> {
     match statement {
         Statement::Let(binding) => {
             let declared_k = binding.annotation.as_ref().map(|ann| {
@@ -56,16 +58,33 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                 }
             }
 
+            // An annotation is a constraint, not a replacement for stronger
+            // initializer evidence. Preserve any known or dynamic initializer
+            // fact, including a refuted value; use the annotation only when
+            // the initializer contributes no knowledge of its own.
+            let declared_ty = declared_k.as_ref().and_then(TypeKnowledge::ty);
             let effective_fact = if let Some(decl_k) = declared_k {
-                let denotation = if is_assignable { val_typed.denotation } else { None };
-                ValueSemanticFact { knowledge: decl_k, denotation }
+                if val_typed.knowledge.is_unknown() {
+                    let denotation = if is_assignable { val_typed.denotation } else { None };
+                    ValueSemanticFact { knowledge: decl_k, denotation }
+                } else {
+                    val_typed.fact()
+                }
             } else {
                 val_typed.fact()
             };
 
             if let Pattern::Name { name, .. } = &binding.pattern {
-                ctx.bind_local(name.clone(), effective_fact, binding.range);
+                ctx.bind_local_var(
+                    name.clone(),
+                    declared_ty,
+                    effective_fact.knowledge,
+                    true,
+                    effective_fact.denotation,
+                    binding.range,
+                );
             }
+            None
         }
         Statement::Return(ret) => {
             let expected_ret = ctx.expected_return.as_ref().map(ExpectedType::from_knowledge).unwrap_or_default();
@@ -88,15 +107,19 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                     &mut ctx.diagnostics,
                 );
             }
+            Some(val_typed.knowledge)
         }
         Statement::Expr { expr, .. } => {
             analyze_expression(ctx, expr, &ExpectedType::None);
+            None
         }
         Statement::Throw { expr, .. } => {
             analyze_expression(ctx, expr, &ExpectedType::None);
+            None
         }
         Statement::Class(class_def) => {
             super::declaration::check_class(ctx, class_def);
+            None
         }
         Statement::For(for_stmt) => {
             let mut lane_facts = Vec::new();
@@ -123,8 +146,9 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
                 check_statement(ctx, s);
             }
             ctx.pop_scope();
+            None
         }
-        _ => {}
+        _ => None,
     }
 }
 

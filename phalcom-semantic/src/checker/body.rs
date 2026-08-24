@@ -10,7 +10,7 @@ use crate::identity::{CallableId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{Expr, Statement};
+use phalcom_ast::ast::Statement;
 use phalcom_common::range::SourceRange;
 use std::sync::Arc;
 
@@ -101,6 +101,13 @@ pub fn analyze_callable_body(
     // Constructor bodies are represented as instance-side bodies, while their public constructor
     // signatures live on the class side; record the class-side identity in that fallback case.
     let sig_opt = signature_consumed_by_body(ctx.dispatch_ref(), &callable);
+    let constructor_body = sig_opt.as_ref().is_some_and(|(signature_id, _)| {
+        callable.side == crate::identity::DispatchSide::Instance && signature_id.side == crate::identity::DispatchSide::Class
+    });
+    let setter_body = matches!(
+        callable.selector.kind,
+        phalcom_common::selector::SelectorKind::Setter | phalcom_common::selector::SelectorKind::SubscriptSet
+    );
 
     if let Some((signature_id, sig)) = sig_opt {
         ctx.record_consumed_callable_signature(&signature_id, &sig);
@@ -119,6 +126,8 @@ pub fn analyze_callable_body(
 
     // 2. Check each statement while charging budget and checking cancellation
     let mut status = CallableAnalysisStatus::Complete;
+    let mut normal_return_values = Vec::new();
+    let mut can_fall_through = true;
 
     for (statement_index, stmt) in body.iter().enumerate() {
         if cancel.is_cancelled() {
@@ -140,13 +149,13 @@ pub fn analyze_callable_body(
         let is_tail = statement_index + 1 == body.len();
         if is_tail {
             if let Statement::Expr { expr, range } = stmt {
-                if !matches!(expr, Expr::Assignment(_) | Expr::SetProperty(_) | Expr::SetIndex(_)) {
-                    let expected = ctx
-                        .expected_return
-                        .as_ref()
-                        .map(crate::checker::expected::ExpectedType::from_knowledge)
-                        .unwrap_or_default();
-                    let typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
+                let expected = ctx
+                    .expected_return
+                    .as_ref()
+                    .map(crate::checker::expected::ExpectedType::from_knowledge)
+                    .unwrap_or_default();
+                let typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
+                if !constructor_body && !setter_body {
                     if let Some(expected_return) = ctx.expected_return.clone() {
                         crate::checker::policy::enforce_assignability(
                             ctx.store,
@@ -160,13 +169,88 @@ pub fn analyze_callable_body(
                             &mut ctx.diagnostics,
                         );
                     }
-                    continue;
                 }
+                if can_fall_through {
+                    if typed.knowledge.ty() != Some(ctx.store.never()) {
+                        normal_return_values.push(typed.knowledge);
+                    }
+                }
+                can_fall_through = false;
+                continue;
             }
         }
 
-        check_statement(&mut ctx, stmt);
+        let returned = check_statement(&mut ctx, stmt);
+        if can_fall_through {
+            if let Some(value) = returned {
+                if value.ty() != Some(ctx.store.never()) {
+                    normal_return_values.push(value);
+                }
+                can_fall_through = false;
+            } else if matches!(stmt, Statement::Throw { .. } | Statement::Break { .. } | Statement::Continue { .. }) {
+                can_fall_through = false;
+            } else if is_tail {
+                // `let`/`const` and declaration-like statements complete with
+                // Unit. Their initializer is checked for diagnostics and
+                // binding facts above, but never becomes the callable result.
+                let initializer_never = if let Statement::Let(binding) = stmt {
+                    binding.value.as_ref().is_some_and(|expr| {
+                        ctx.expressions
+                            .values()
+                            .any(|analysis| analysis.range == expr.range() && analysis.knowledge.ty() == Some(ctx.store.never()))
+                    })
+                } else {
+                    false
+                };
+                if !initializer_never {
+                    let unit = crate::types::evidence::TypeKnowledge::known(
+                        ctx.store.unit(),
+                        crate::types::evidence::EvidenceAuthority::Proven,
+                    );
+                    if !constructor_body && !setter_body {
+                        if let Some(expected_return) = ctx.expected_return.clone() {
+                            crate::checker::policy::enforce_assignability(
+                                ctx.store,
+                                &ctx.hierarchy,
+                                &unit,
+                                &expected_return,
+                                &ctx.current_module,
+                                crate::diagnostic::DiagnosticCode::ReturnMismatch,
+                                "tail statement completes with Unit, which is not assignable to method's declared return type",
+                                stmt_range(stmt),
+                                &mut ctx.diagnostics,
+                            );
+                        }
+                    }
+                    normal_return_values.push(unit);
+                }
+                can_fall_through = false;
+            }
+        }
     }
 
-    ctx.finalize(callable, body_range, status)
+    if body.is_empty() && can_fall_through {
+        let unit = crate::types::evidence::TypeKnowledge::known(
+            ctx.store.unit(),
+            crate::types::evidence::EvidenceAuthority::Proven,
+        );
+        if !constructor_body && !setter_body {
+            if let Some(expected_return) = ctx.expected_return.clone() {
+                crate::checker::policy::enforce_assignability(
+                    ctx.store,
+                    &ctx.hierarchy,
+                    &unit,
+                    &expected_return,
+                    &ctx.current_module,
+                    crate::diagnostic::DiagnosticCode::ReturnMismatch,
+                    "empty callable body completes with Unit, which is not assignable to method's declared return type",
+                    body_range,
+                    &mut ctx.diagnostics,
+                );
+            }
+        }
+        normal_return_values.push(unit);
+    }
+
+    ctx.finalize_with_normal_returns(callable, body_range, status, normal_return_values)
 }

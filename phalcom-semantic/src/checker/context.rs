@@ -705,6 +705,16 @@ impl<'a> CheckingContext<'a> {
         body_range: SourceRange,
         status: crate::checker::analysis::CallableAnalysisStatus,
     ) -> crate::checker::analysis::CallableAnalysis {
+        self.finalize_with_normal_returns(callable, body_range, status, Vec::new())
+    }
+
+    pub fn finalize_with_normal_returns(
+        self,
+        callable: CallableId,
+        body_range: SourceRange,
+        status: crate::checker::analysis::CallableAnalysisStatus,
+        normal_return_values: Vec<crate::types::evidence::TypeKnowledge>,
+    ) -> crate::checker::analysis::CallableAnalysis {
         let flow_graph = self
             .flow_graph
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
@@ -721,7 +731,12 @@ impl<'a> CheckingContext<'a> {
         };
 
         let exits = crate::checker::analysis::BodyExitFacts {
-            returns: vec![entry_flow.clone()],
+            returns: if normal_return_values.is_empty() {
+                Vec::new()
+            } else {
+                vec![entry_flow.clone()]
+            },
+            normal_return_values,
             throws: Vec::new(),
             unreachable: false,
         };

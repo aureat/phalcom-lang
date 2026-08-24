@@ -168,6 +168,26 @@ impl SurfaceDispatchResolver {
         self.surfaces.get_mut(decl)
     }
 
+    /// Replaces an inferred return type on an existing source callable while
+    /// retaining its parameters, selector, and declaration identity.
+    pub fn update_callable_return_type(&mut self, callable: &CallableId, return_type: TypeKnowledge) -> bool {
+        let Some(surface) = self.surfaces.get_mut(&callable.owner) else {
+            return false;
+        };
+        let member_surface = surface.surface_mut(callable.side);
+        let Some(signature) = member_surface.callable_signatures.get_mut(&callable.selector) else {
+            return false;
+        };
+        if signature.return_type == return_type {
+            return false;
+        }
+        signature.return_type = return_type.clone();
+        if let Some(id) = member_surface.callables_by_selector.get(&callable.selector).cloned() {
+            member_surface.callables.insert(id, return_type);
+        }
+        true
+    }
+
     pub fn surfaces(&self) -> &HashMap<DeclarationId, DeclarationSurface> {
         &self.surfaces
     }

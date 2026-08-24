@@ -426,6 +426,22 @@ fn check_callable_body(
                         &mut ctx.diagnostics,
                     );
                 }
+            } else if let Statement::Let(binding) = stmt {
+                let unit = TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Proven);
+                if let Some(expected) = &expected_return {
+                    crate::checker::policy::enforce_assignability(
+                        ctx.store,
+                        &ctx.hierarchy,
+                        &unit,
+                        expected,
+                        &ctx.current_module,
+                        DiagnosticCode::ReturnMismatch,
+                        "tail let/const completes with Unit, which is not assignable to method's declared return type",
+                        binding.range,
+                        &mut ctx.diagnostics,
+                    );
+                }
+                check_statement(ctx, stmt);
             } else {
                 check_statement(ctx, stmt);
             }

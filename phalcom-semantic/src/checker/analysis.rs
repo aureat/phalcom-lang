@@ -135,8 +135,42 @@ pub struct FlowStateSummary {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BodyExitFacts {
     pub returns: Vec<FlowStateSummary>,
+    /// Type knowledge produced by normal callable exits. An empty vector
+    /// means no normal return path exists (`Never`); abrupt exits are not
+    /// values and therefore do not participate in this collection.
+    pub normal_return_values: Vec<TypeKnowledge>,
     pub throws: Vec<FlowStateSummary>,
     pub unreachable: bool,
+}
+
+/// Joins values from all normal callable exits into one published return
+/// knowledge fact. Abrupt-only bodies produce `Never`; incomplete knowledge
+/// keeps the summary incomplete instead of inventing a return type.
+pub fn normal_return_summary(
+    store: &mut crate::types::store::TypeStore,
+    values: &[TypeKnowledge],
+) -> TypeKnowledge {
+    use crate::types::evidence::{DynamicReason, EvidenceAuthority, UnknownReason};
+
+    if values.is_empty() {
+        return TypeKnowledge::known(store.never(), EvidenceAuthority::Proven);
+    }
+
+    if let Some(reason) = values.iter().find_map(|value| match value {
+        TypeKnowledge::Unknown(reason) => Some(reason.clone()),
+        _ => None,
+    }) {
+        return TypeKnowledge::Unknown(reason);
+    }
+    if values.iter().any(TypeKnowledge::is_dynamic) {
+        return TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection);
+    }
+
+    let types = values.iter().filter_map(TypeKnowledge::ty).collect::<Vec<_>>();
+    if types.is_empty() {
+        return TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
+    }
+    TypeKnowledge::known(store.union(&types), EvidenceAuthority::Proven)
 }
 
 /// Index of expression analysis products within a body.

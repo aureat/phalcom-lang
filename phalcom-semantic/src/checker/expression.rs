@@ -264,6 +264,12 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 
         // --- 5. Blocks and Control Flow ---
         Expr::Block(block) => {
+            // A block literal owns its own callable body analysis. In
+            // particular, a non-local `return` inside an escaping block is
+            // checked at runtime against its frame token; it must not be
+            // rechecked against an inferred outer callable return merely
+            // because the block expression appears in that callable.
+            let outer_expected_return = ctx.expected_return.take();
             ctx.push_scope();
             let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
 
@@ -321,6 +327,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 parameters: params.into_boxed_slice(),
                 return_type,
             });
+            ctx.expected_return = outer_expected_return;
             TypedExpression::known(callable_ty, EvidenceAuthority::ExactSyntax, block.range)
         }
         Expr::IfLet(if_let) => {

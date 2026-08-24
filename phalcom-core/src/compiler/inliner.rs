@@ -269,12 +269,12 @@ impl<'vm> Compiler<'vm> {
     ///
     /// Guarantees exactly **one** value is left on the operand stack when
     /// control falls off the end normally (never after a `return`, which
-    /// exits the frame instead): the last statement's expression value if it
-    /// is an [`Statement::Expr`] or a *local* [`Statement::Let`] (always
-    /// local here — this method opens its own scope first), or a pushed
-    /// [`Bytecode::Nil`] placeholder otherwise (an empty body, or a body
-    /// ending in a [`Statement::Class`], which — like every class
-    /// declaration — always binds a global and leaves nothing behind).
+    /// exits the frame instead): the last statement's expression value, a
+    /// `Unit` value after a local [`Statement::Let`] (always local here — this
+    /// method opens its own scope first), or a pushed [`Bytecode::Nil`]
+    /// placeholder otherwise (an empty body, or a body ending in a
+    /// [`Statement::Class`], which — like every class declaration — always
+    /// binds a global and leaves nothing behind).
     /// Every inlined arm relies on this exact contract to keep the stack
     /// depth identical across the guard's fast and fallback paths.
     ///
@@ -288,11 +288,16 @@ impl<'vm> Compiler<'vm> {
         let mut leaves_value = false;
         for (i, statement) in block.body.into_iter().enumerate() {
             let is_last = i == len - 1;
+            let tail_let = is_last && matches!(&statement, Statement::Let(_));
             if is_last {
-                leaves_value = matches!(statement, Statement::Expr { .. } | Statement::Let(_) | Statement::Return(_));
+                leaves_value = matches!(&statement, Statement::Expr { .. } | Statement::Let(_) | Statement::Return(_));
             }
             let emit_pop = !(is_last && leaves_value);
             self.compile_statement_with_pop_control(statement, emit_pop)?;
+            if tail_let {
+                let unit_idx = self.add_constant(crate::value::Value::unit());
+                self.emit(Bytecode::Constant(unit_idx), range);
+            }
         }
         if !leaves_value {
             self.emit(Bytecode::Nil, range);

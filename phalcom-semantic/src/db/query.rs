@@ -101,7 +101,7 @@ fn superclass_source<'a>(unit: &'a ParsedModuleUnit, class_def: &ClassDef) -> Op
     unit.text.get(range.start..range.end)
 }
 
-fn semantic_signature_from_surface(
+pub(crate) fn semantic_signature_from_surface(
     callable: &CallableId,
     signature: &SurfaceCallableSignature,
 ) -> Option<CallableSemanticSignature> {
