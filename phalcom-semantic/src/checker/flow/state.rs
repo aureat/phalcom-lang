@@ -1,7 +1,7 @@
 //! Path-sensitive flow state and binding tracking (Spec 04.5).
 
 use crate::checker::analysis::BindingState;
-use crate::checker::binding::{BindingConsistency, BindingContract, BindingContractOrigin};
+use crate::checker::binding::{BindingConsistency, BindingContract, BindingContractOrigin, BindingSeed, BindingWriteResult};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::predicate::FlowPredicate;
 use crate::identity::{BindingId, ExplanationId};
@@ -137,6 +137,11 @@ impl FlowState {
         self.bindings.insert(binding, state);
     }
 
+    pub fn declare_seed(&mut self, binding: BindingId, seed: BindingSeed, current: TypeKnowledge, consistency: BindingConsistency) {
+        let state = BindingState::from_seed(binding, seed, current, consistency);
+        self.bindings.insert(binding, state);
+    }
+
     pub fn get_binding(&self, binding: BindingId) -> Option<&BindingState> {
         self.bindings.get(&binding)
     }
@@ -159,8 +164,44 @@ impl FlowState {
         self.facts.invalidate_binding(binding);
     }
 
+    /// Applies a write only after declaration mutability and contract
+    /// reconciliation have been checked by the semantic transfer layer.
+    pub fn write(
+        &mut self,
+        binding: BindingId,
+        new_knowledge: TypeKnowledge,
+        denotation: Option<crate::types::denotation::SemanticDenotation>,
+        consistency: BindingConsistency,
+        causal_invalidity: CausalInvalidity,
+    ) -> BindingWriteResult {
+        let Some(state) = self.bindings.get_mut(&binding) else {
+            return BindingWriteResult::Missing;
+        };
+        if !state.mutable {
+            return BindingWriteResult::Immutable;
+        }
+        state.current = new_knowledge;
+        state.denotation = denotation;
+        state.consistency = consistency;
+        state.causal_invalidity = causal_invalidity;
+        state.version += 1;
+        self.facts.invalidate_binding(binding);
+        BindingWriteResult::Applied
+    }
+
     /// Control-flow merge of multiple incoming flow states (F3).
     pub fn join(states: &[FlowState], store: &mut TypeStore) -> FlowState {
+        Self::join_impl(states, store, None)
+    }
+
+    /// Control-flow merge with contract reconciliation against the canonical
+    /// hierarchy. The compatibility `join` entry point remains available for
+    /// low-level tests that do not have a hierarchy product.
+    pub fn join_with_hierarchy(states: &[FlowState], store: &mut TypeStore, hierarchy: &dyn crate::types::relation::TypeHierarchy) -> FlowState {
+        Self::join_impl(states, store, Some(hierarchy))
+    }
+
+    fn join_impl(states: &[FlowState], store: &mut TypeStore, hierarchy: Option<&dyn crate::types::relation::TypeHierarchy>) -> FlowState {
         let reachable_states: Vec<&FlowState> = states.iter().filter(|s| s.reachable).collect();
         if reachable_states.is_empty() {
             return FlowState::unreachable();
@@ -183,8 +224,13 @@ impl FlowState {
                 continue;
             };
             if reachable_states.iter().all(|state| state.bindings.contains_key(&id)) {
-                let declared = sample_binding.declared;
-                let mutable = sample_binding.mutable;
+                let contracts_match = reachable_states
+                    .iter()
+                    .all(|state| state.bindings.get(&id).and_then(|binding| binding.contract.as_ref()) == sample_binding.contract.as_ref());
+                let contract = if contracts_match { sample_binding.contract.clone() } else { None };
+                let mutable = reachable_states
+                    .iter()
+                    .all(|state| state.bindings.get(&id).is_some_and(|binding| binding.mutable));
                 let max_version = reachable_states
                     .iter()
                     .filter_map(|s| s.bindings.get(&id))
@@ -200,22 +246,40 @@ impl FlowState {
                 );
 
                 let mut b = sample_binding.clone();
-                b.declared = declared;
+                b.contract = contract.clone();
+                b.declared = contract.as_ref().map(|contract| contract.ty);
                 b.current = joined_knowledge;
                 b.mutable = mutable;
-                if reachable_states
+                b.denotation = {
+                    let first_denotation = sample_binding.denotation;
+                    if reachable_states
+                        .iter()
+                        .all(|state| state.bindings.get(&id).and_then(|binding| binding.denotation) == first_denotation)
+                    {
+                        first_denotation
+                    } else {
+                        None
+                    }
+                };
+                b.causal_invalidity = reachable_states
+                    .iter()
+                    .filter_map(|state| state.bindings.get(&id).map(|binding| binding.causal_invalidity))
+                    .fold(CausalInvalidity::Clean, CausalInvalidity::join);
+                if let Some(hierarchy) = hierarchy {
+                    if let Some(contract) = b.contract.as_ref() {
+                        let reconciliation = crate::checker::binding::reconcile_binding_contract(store, hierarchy, Some(contract), &b.current);
+                        b.current = reconciliation.current;
+                        b.consistency = reconciliation.consistency;
+                    } else if contracts_match {
+                        b.consistency = BindingConsistency::Unconstrained;
+                    } else {
+                        b.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
+                    }
+                } else if reachable_states
                     .iter()
                     .any(|state| state.bindings.get(&id).is_some_and(|binding| binding.consistency != sample_binding.consistency))
                 {
                     b.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
-                }
-                if reachable_states.iter().any(|state| {
-                    state
-                        .bindings
-                        .get(&id)
-                        .is_some_and(|binding| binding.causal_invalidity != sample_binding.causal_invalidity)
-                }) {
-                    b.causal_invalidity = CausalInvalidity::Multiple;
                 }
                 b.version = max_version + 1;
                 joined_bindings.insert(id, b);
@@ -241,16 +305,17 @@ impl FlowState {
         for (id, next_b) in &next_header.bindings {
             if let Some(h_b) = header.bindings.get(id) {
                 if h_b.current != next_b.current {
-                    let declared_ty = h_b.declared;
                     let widened_knowledge = join_type_knowledge(store, [h_b.current.clone(), next_b.current.clone()]);
                     let mut wb = h_b.clone();
-                    wb.declared = declared_ty;
                     wb.current = widened_knowledge;
+                    wb.denotation = if h_b.denotation == next_b.denotation { h_b.denotation } else { None };
+                    wb.causal_invalidity = h_b.causal_invalidity.join(next_b.causal_invalidity);
+                    if h_b.consistency != next_b.consistency {
+                        wb.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
+                    }
                     wb.version = h_b.version.max(next_b.version) + 1;
                     widened_bindings.insert(*id, wb);
                 }
-            } else {
-                widened_bindings.insert(*id, next_b.clone());
             }
         }
         let invariant_facts = header.facts.intersect(&next_header.facts);

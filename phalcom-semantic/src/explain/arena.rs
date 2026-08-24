@@ -2,7 +2,7 @@
 
 use super::node::{ExplanationNode, ExplanationStep};
 use crate::identity::ExplanationId;
-use crate::types::evidence::EvidenceAuthority;
+use crate::types::evidence::{EvidenceOrigin, EvidenceStatus};
 use std::collections::BTreeMap;
 
 /// Arena holding explanation DAG nodes for a callable body analysis.
@@ -17,17 +17,18 @@ impl ExplanationArena {
         Self::default()
     }
 
-    pub fn alloc(&mut self, step: ExplanationStep, authority: EvidenceAuthority, parents: Vec<ExplanationId>) -> ExplanationId {
+    pub fn alloc(&mut self, step: ExplanationStep, status: EvidenceStatus, origin: EvidenceOrigin, parents: Vec<ExplanationId>) -> ExplanationId {
         let rule = step.derivation_rule();
         let evidence = Vec::new();
-        self.alloc_full(step, rule, authority, evidence, parents)
+        self.alloc_full(step, rule, status, origin, evidence, parents)
     }
 
     pub fn alloc_full(
         &mut self,
         step: ExplanationStep,
         rule: super::node::DerivationRule,
-        authority: EvidenceAuthority,
+        status: EvidenceStatus,
+        origin: EvidenceOrigin,
         evidence: Vec<super::node::EvidenceRef>,
         parents: Vec<ExplanationId>,
     ) -> ExplanationId {
@@ -39,7 +40,8 @@ impl ExplanationArena {
                 id,
                 step,
                 rule,
-                authority,
+                status,
+                origin,
                 evidence,
                 parents,
             },

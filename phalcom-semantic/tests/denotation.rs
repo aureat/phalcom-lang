@@ -180,17 +180,17 @@ fn flow_join_preserves_only_identical_denotation() {
 
     let int_form = declarations.form(&int_decl).unwrap();
 
-    let fact_int1 = ValueSemanticFact::new(TypeKnowledge::known(
+    let fact_int1 = ValueSemanticFact::new(TypeKnowledge::established(
         declarations.class_object_type(&int_decl).unwrap(),
-        phalcom_semantic::types::evidence::EvidenceAuthority::Declared,
+        phalcom_semantic::types::evidence::EvidenceOrigin::DeveloperAnnotation,
     ))
     .with_denotation(SemanticDenotation::TypeForm(int_form));
 
     let fact_int2 = fact_int1.clone();
 
-    let fact_string = ValueSemanticFact::new(TypeKnowledge::known(
+    let fact_string = ValueSemanticFact::new(TypeKnowledge::established(
         declarations.class_object_type(&string_decl).unwrap(),
-        phalcom_semantic::types::evidence::EvidenceAuthority::Declared,
+        phalcom_semantic::types::evidence::EvidenceOrigin::DeveloperAnnotation,
     ))
     .with_denotation(SemanticDenotation::TypeForm(declarations.form(&string_decl).unwrap()));
 

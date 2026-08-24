@@ -1,18 +1,16 @@
 //! Statement type checking engine.
 
+use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_contract};
 use super::context::CheckingContext;
-use super::expected::ExpectedType;
+use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::{analyze_expression, synthesize_expr};
-use super::policy::enforce_assignability;
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::annotation::resolve_type_annotation;
 use crate::types::denotation::ValueSemanticFact;
-use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
-use crate::types::relation::{Assignability, check_assignability};
-use crate::types::store::TypeData;
-use phalcom_ast::ast::{Pattern, Statement};
+use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 use phalcom_common::selector::Selector;
 
 /// Checks a single statement, updating context bindings and recording
@@ -28,83 +26,90 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 k
             });
 
-            let expected_init = declared_k.as_ref().map(ExpectedType::from_knowledge).unwrap_or_default();
+            let expected_init = declared_k
+                .as_ref()
+                .and_then(TypeKnowledge::ty)
+                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract))
+                .unwrap_or_default();
             let val_typed = if let Some(expr) = &binding.value {
                 analyze_expression(ctx, expr, &expected_init)
             } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+                if binding.kind == BindingKind::Const {
+                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ConstWithoutInitializer,
+                        "const binding requires an initializer",
+                        binding.range,
+                    ));
+                }
+                TypedExpression::unknown(UnknownReason::MissingInitializer)
             };
 
-            let mut is_assignable = true;
-            if let Some(ref decl_k) = declared_k {
-                if binding.value.is_some() {
-                    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &val_typed.knowledge, decl_k);
-                    if let Assignability::Refuted { .. } = assignability {
-                        is_assignable = false;
-                        let mut diag = SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::BindingInitializerMismatch,
-                            "initializer expression is not assignable to declared type",
-                            binding.range,
-                        );
-                        if let Some(ann) = &binding.annotation {
-                            diag = diag.with_label(ann.range, "declared type");
-                        }
-                        if let Some(val) = &binding.value {
-                            diag = diag.with_label(val.range(), "inferred type");
-                        }
-                        ctx.diagnostics.push(diag);
-                    }
-                }
-            }
-
-            // An annotation is a constraint, not a replacement for stronger
-            // initializer evidence. Preserve any known or dynamic initializer
-            // fact, including a refuted value; use the annotation only when
-            // the initializer contributes no knowledge of its own.
-            let declared_ty = declared_k.as_ref().and_then(TypeKnowledge::ty);
-            let effective_fact = if let Some(decl_k) = declared_k {
-                if val_typed.knowledge.is_unknown() {
-                    let denotation = if is_assignable { val_typed.denotation } else { None };
-                    ValueSemanticFact { knowledge: decl_k, denotation }
-                } else {
-                    val_typed.fact()
-                }
+            let contract = if let Some(declared_k) = declared_k.as_ref().and_then(TypeKnowledge::ty) {
+                Some(BindingContract {
+                    ty: declared_k,
+                    origin: BindingContractOrigin::SourceAnnotation,
+                    source: binding.annotation.as_ref().map(|annotation| annotation.range),
+                })
             } else {
-                val_typed.fact()
+                val_typed.knowledge.ty().map(|ty| BindingContract {
+                    ty,
+                    origin: BindingContractOrigin::InferredInitializer,
+                    source: binding.value.as_ref().map(|value| value.range()),
+                })
             };
-
-            if let Pattern::Name { name, .. } = &binding.pattern {
-                ctx.bind_local_var(
-                    name.clone(),
-                    declared_ty,
-                    effective_fact.knowledge,
-                    true,
-                    effective_fact.denotation,
+            let reconciliation = reconcile_binding_contract(ctx.store, &ctx.hierarchy, contract.as_ref(), &val_typed.knowledge);
+            let mut causal_invalidity = val_typed.causal_invalidity;
+            if matches!(reconciliation.consistency, crate::checker::binding::BindingConsistency::Refuted { .. }) {
+                let mut diag = SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::BindingInitializerMismatch,
+                    "initializer expression is not assignable to declared type",
                     binding.range,
                 );
+                if let Some(ann) = &binding.annotation {
+                    diag = diag.with_label(ann.range, "declared type");
+                }
+                if let Some(val) = &binding.value {
+                    diag = diag.with_label(val.range(), "inferred type");
+                }
+                let cause = ctx.emit_diagnostic(diag).expect("error diagnostic has cause");
+                causal_invalidity = causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
+            }
+
+            if let Pattern::Name { name, .. } = &binding.pattern {
+                ctx.declare_binding(BindingSeed {
+                    name: name.clone(),
+                    range: binding.range,
+                    contract,
+                    current: reconciliation.current,
+                    denotation: val_typed.denotation,
+                    causal_invalidity,
+                    mutable: binding.kind == BindingKind::Let,
+                });
             }
             None
         }
         Statement::Return(ret) => {
-            let expected_ret = ctx.expected_return.as_ref().map(ExpectedType::from_knowledge).unwrap_or_default();
+            let expected_ret = ctx
+                .expected_return
+                .as_ref()
+                .and_then(TypeKnowledge::ty)
+                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::ReturnContract))
+                .unwrap_or_default();
             let val_typed = if let Some(expr) = &ret.value {
                 analyze_expression(ctx, expr, &expected_ret)
             } else {
-                TypedExpression::known(ctx.store.unit(), EvidenceAuthority::ExactSyntax, ret.range)
+                TypedExpression::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics, ret.range)
             };
 
             if let Some(expected) = ctx.expected_return.clone() {
-                enforce_assignability(
-                    ctx.store,
-                    &ctx.hierarchy,
+                ctx.enforce_assignability(
                     &val_typed.knowledge,
                     &expected,
-                    &ctx.current_module,
                     DiagnosticCode::ReturnMismatch,
                     "returned value is not assignable to method's declared return type",
                     ret.range,
-                    &mut ctx.diagnostics,
                 );
             }
             Some(val_typed.knowledge)
@@ -139,7 +144,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             ctx.push_scope();
             for (pat, fact) in lane_facts {
                 if let Pattern::Name { name, range, .. } = pat {
-                    ctx.bind_local(name.clone(), fact, *range);
+                    ctx.bind_pattern_binding(name.clone(), fact, *range);
                 }
             }
             for s in &for_stmt.body {
@@ -186,19 +191,8 @@ pub fn resolve_iteration_element(ctx: &mut CheckingContext<'_>, receiver_ty: Typ
         }
     }
 
-    // 3. For Applied collections where origin declaration has generic parameters (e.g. List<T>, Set<T>),
-    // if Applied has type arguments, derive element type if the origin has an iterator protocol or single type parameter
-    if let TypeData::Applied { origin, arguments } = ctx.store.get(receiver_ty).clone() {
-        if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
-            if let Some(sig) = ctx.declaration_generic_signature(declaration) {
-                if !sig.parameters.is_empty() && !arguments.is_empty() {
-                    return TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven);
-                }
-            }
-        }
-    }
-
-    // 4. Check iterate(_) protocol existence
+    // 3. Check iterate(_) protocol existence. Presence without a resolved
+    // element result is not enough to invent one from generic arguments.
     if let Ok(iterate_sel) = Selector::method("iterate", vec![phalcom_common::selector::SelectorSlot::Positional]) {
         let dispatch_res = ctx.resolve_dispatch(receiver_ty, &iterate_sel, crate::dispatch::DispatchLookup::Normal);
         if dispatch_res.is_found() {

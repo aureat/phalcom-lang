@@ -21,12 +21,12 @@ use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTempla
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use phalcom_semantic::dispatch::{CallableSignature, DispatchSide};
 use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
-use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
+use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, LocalExpressionId};
 use phalcom_semantic::signature::CallableSemanticSignature;
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::denotation::SemanticDenotation;
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
 use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
 use std::collections::BTreeMap;
@@ -286,13 +286,13 @@ fn declaration_surface_product_ignores_type_evidence_provenance_but_input_tracks
     left.add_field(
         DispatchSide::Instance,
         "value",
-        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared).with_range(SourceRange { start: 1, end: 2 }),
+        TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation).with_range(SourceRange { start: 1, end: 2 }),
     );
     let mut right = DeclarationSurface::new(Some(owner));
     right.add_field(
         DispatchSide::Instance,
         "value",
-        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared).with_range(SourceRange { start: 101, end: 102 }),
+        TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation).with_range(SourceRange { start: 101, end: 102 }),
     );
 
     assert_eq!(declaration_surface_product_fingerprint(&left), declaration_surface_product_fingerprint(&right));
@@ -304,7 +304,11 @@ fn declaration_surface_product_includes_callable_generic_contract() {
     let owner = declaration("GenericSurface");
     let selector = Selector::getter("value").expect("selector");
     let mut left = DeclarationSurface::new(Some(owner.clone()));
-    let mut left_signature = CallableSignature::new(selector.clone(), Vec::new(), TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared));
+    let mut left_signature = CallableSignature::new(
+        selector.clone(),
+        Vec::new(),
+        TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation),
+    );
     left_signature.generics = Some(GenericSignature::new(
         TypeParameterOwner::Declaration(owner.clone()),
         Box::new([TypeParameterId(1)]),
@@ -312,7 +316,7 @@ fn declaration_surface_product_includes_callable_generic_contract() {
     left.add_callable(DispatchSide::Instance, left_signature);
 
     let mut right = DeclarationSurface::new(Some(owner.clone()));
-    let mut right_signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared));
+    let mut right_signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation));
     right_signature.generics = Some(GenericSignature::new(TypeParameterOwner::Declaration(owner), Box::new([TypeParameterId(2)])));
     right.add_callable(DispatchSide::Instance, right_signature);
 
@@ -371,12 +375,12 @@ fn callable_body_product_includes_binding_state() {
             "value",
             SourceRange { start: 1, end: 6 },
             None,
-            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
             false,
         ),
     );
     let mut right = left.clone();
-    right.bindings.get_mut(&binding).expect("binding").current = TypeKnowledge::known(TypeId(2), EvidenceAuthority::Proven);
+    right.bindings.get_mut(&binding).expect("binding").current = TypeKnowledge::established(TypeId(2), EvidenceOrigin::Flow);
 
     assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
 }
@@ -390,7 +394,7 @@ fn callable_body_product_includes_expression_denotation_and_status() {
         ExpressionAnalysis::ready(
             expression_id,
             SourceRange { start: 1, end: 4 },
-            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
         ),
     );
     let mut right = left.clone();
@@ -399,6 +403,47 @@ fn callable_body_product_includes_expression_denotation_and_status() {
     expression.status = AnalysisStatus::DynamicBoundary(phalcom_semantic::DynamicReason::RuntimeReflection);
 
     assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_resolved_callable_identity() {
+    let expression_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
+    let mut left = callable_analysis();
+    left.expressions.insert(
+        expression_id,
+        ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 1, end: 4 },
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::CallableSignature),
+        ),
+    );
+    let mut right = left.clone();
+    right.expressions.get_mut(&expression_id).expect("expression").callable = Some(semantic_signature().callable);
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_ignores_diagnostic_cause_renumbering() {
+    let expression_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
+    let mut left = callable_analysis();
+    left.expressions.insert(
+        expression_id,
+        ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 1, end: 4 },
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+        )
+        .with_status(AnalysisStatus::Invalid(DiagnosticCauseId(1))),
+    );
+    left.expressions.get_mut(&expression_id).expect("expression").causal_invalidity =
+        phalcom_semantic::checker::causal::CausalInvalidity::One(DiagnosticCauseId(1));
+
+    let mut right = left.clone();
+    right.expressions.get_mut(&expression_id).expect("expression").status = AnalysisStatus::Invalid(DiagnosticCauseId(99));
+    right.expressions.get_mut(&expression_id).expect("expression").causal_invalidity =
+        phalcom_semantic::checker::causal::CausalInvalidity::One(DiagnosticCauseId(99));
+
+    assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
 }
 
 #[test]
@@ -422,7 +467,8 @@ fn callable_body_product_ignores_explanation_presentation() {
             expression: expression_id,
             ty: TypeId(1),
         },
-        EvidenceAuthority::ExactSyntax,
+        EvidenceStatus::Established,
+        EvidenceOrigin::Syntax,
         Vec::new(),
     );
     left.explanations = Arc::new(left_arena);
@@ -431,7 +477,7 @@ fn callable_body_product_ignores_explanation_presentation() {
         ExpressionAnalysis::ready(
             expression_id,
             SourceRange { start: 1, end: 4 },
-            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
         )
         .with_explanation(left_explanation),
     );
@@ -443,7 +489,8 @@ fn callable_body_product_ignores_explanation_presentation() {
             expression: expression_id,
             ty: TypeId(2),
         },
-        EvidenceAuthority::ExactSyntax,
+        EvidenceStatus::Established,
+        EvidenceOrigin::Syntax,
         Vec::new(),
     );
     right.explanations = Arc::new(right_arena);
@@ -452,7 +499,7 @@ fn callable_body_product_ignores_explanation_presentation() {
         ExpressionAnalysis::ready(
             expression_id,
             SourceRange { start: 1, end: 4 },
-            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
         )
         .with_explanation(right_explanation),
     );
@@ -491,14 +538,14 @@ fn callable_body_product_ignores_source_ranges_and_type_provenance() {
         ExpressionAnalysis::ready(
             expression_id,
             SourceRange { start: 1, end: 4 },
-            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven).with_range(SourceRange { start: 1, end: 4 }),
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow).with_range(SourceRange { start: 1, end: 4 }),
         ),
     );
     let mut right = left.clone();
     right.body_range = SourceRange { start: 101, end: 104 };
     right.expressions.get_mut(&expression_id).expect("expression").range = SourceRange { start: 101, end: 104 };
     right.expressions.get_mut(&expression_id).expect("expression").knowledge =
-        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven).with_range(SourceRange { start: 101, end: 104 });
+        TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow).with_range(SourceRange { start: 101, end: 104 });
 
     assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
 }

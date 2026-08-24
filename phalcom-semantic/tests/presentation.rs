@@ -6,7 +6,7 @@ use phalcom_semantic::checker::flow::graph::FlowGraph;
 use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::explain::ExplanationArena;
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, LocalExpressionId, ModuleId};
-use phalcom_semantic::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_semantic::{DispatchSide, FormalPresentation, FormalSiteId, SemanticPresentationIndex, TypePresenter, TypeStore};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -30,7 +30,7 @@ fn type_presenter_formats_canonical_formal_shapes() {
     assert_eq!(presenter.present_type(list_int), "List<Int>");
     assert_eq!(presenter.present_type(union), "Int | String");
     assert_eq!(
-        presenter.present_knowledge(&TypeKnowledge::known(int, EvidenceAuthority::Proven)),
+        presenter.present_knowledge(&TypeKnowledge::established(int, EvidenceOrigin::Flow)),
         FormalPresentation::Known("Int".into())
     );
     assert_eq!(
@@ -44,7 +44,7 @@ fn type_presenter_formats_canonical_formal_shapes() {
     let blocked = ExpressionAnalysis::ready(
         ExpressionId::new(BodyId(1), LocalExpressionId(2)),
         SourceRange { start: 8, end: 9 },
-        TypeKnowledge::known(int, EvidenceAuthority::Proven),
+        TypeKnowledge::established(int, EvidenceOrigin::Flow),
     )
     .with_status(AnalysisStatus::Blocked(BlockReason::RecursiveFixpoint));
     assert_eq!(presenter.present_expression(&blocked), FormalPresentation::Blocked);
@@ -78,7 +78,7 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
     let expression = ExpressionAnalysis::ready(
         expression_id,
         SourceRange { start: 4, end: 7 },
-        TypeKnowledge::known(int, EvidenceAuthority::Proven),
+        TypeKnowledge::established(int, EvidenceOrigin::Flow),
     );
     let analysis = CallableAnalysis {
         callable: callable.clone(),

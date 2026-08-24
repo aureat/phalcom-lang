@@ -333,6 +333,7 @@ impl InferenceSession {
     pub fn solve(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) -> InferenceOutcome {
         // Multi-pass iterative constraint solving
         let max_passes = 16;
+        let mut converged = false;
         for _ in 0..max_passes {
             let mut changed = false;
             let constraints = self.constraints.clone();
@@ -435,8 +436,13 @@ impl InferenceSession {
             }
 
             if !changed {
+                converged = true;
                 break;
             }
+        }
+
+        if !converged {
+            return InferenceOutcome::Blocked(BlockReason::RecursiveFixpoint);
         }
 
         // Propagate solutions across alias classes

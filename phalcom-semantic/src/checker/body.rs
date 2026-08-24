@@ -104,13 +104,12 @@ pub fn analyze_callable_body(
         ctx.record_consumed_callable_signature(&signature_id, &sig);
         ctx.push_scope();
         for param in &sig.parameters {
-            let ty_opt = param.ty.ty();
-            ctx.bind_local_var(param.local_name.clone(), ty_opt, param.ty.clone(), false, None, body_range);
+            ctx.bind_callable_parameter(param.local_name.clone(), param.ty.clone(), body_range);
         }
         if let Some(ret_ty) = sig.return_type.ty() {
-            ctx.expected_return = Some(crate::types::evidence::TypeKnowledge::known(
+            ctx.expected_return = Some(crate::types::evidence::TypeKnowledge::assumed(
                 ret_ty,
-                crate::types::evidence::EvidenceAuthority::Declared,
+                crate::types::evidence::EvidenceOrigin::CallableSignature,
             ));
         }
     }
@@ -143,21 +142,18 @@ pub fn analyze_callable_body(
                 let expected = ctx
                     .expected_return
                     .as_ref()
-                    .map(crate::checker::expected::ExpectedType::from_knowledge)
+                    .and_then(crate::types::evidence::TypeKnowledge::ty)
+                    .map(|ty| crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::ReturnContract))
                     .unwrap_or_default();
                 let typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
                 if !constructor_body && !setter_body {
                     if let Some(expected_return) = ctx.expected_return.clone() {
-                        crate::checker::policy::enforce_assignability(
-                            ctx.store,
-                            &ctx.hierarchy,
+                        ctx.enforce_assignability(
                             &typed.knowledge,
                             &expected_return,
-                            &ctx.current_module,
                             crate::diagnostic::DiagnosticCode::ReturnMismatch,
                             "tail expression result is not assignable to method's declared return type",
                             *range,
-                            &mut ctx.diagnostics,
                         );
                     }
                 }
@@ -194,19 +190,15 @@ pub fn analyze_callable_body(
                     false
                 };
                 if !initializer_never {
-                    let unit = crate::types::evidence::TypeKnowledge::known(ctx.store.unit(), crate::types::evidence::EvidenceAuthority::Proven);
+                    let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
                     if !constructor_body && !setter_body {
                         if let Some(expected_return) = ctx.expected_return.clone() {
-                            crate::checker::policy::enforce_assignability(
-                                ctx.store,
-                                &ctx.hierarchy,
+                            ctx.enforce_assignability(
                                 &unit,
                                 &expected_return,
-                                &ctx.current_module,
                                 crate::diagnostic::DiagnosticCode::ReturnMismatch,
                                 "tail statement completes with Unit, which is not assignable to method's declared return type",
                                 stmt_range(stmt),
-                                &mut ctx.diagnostics,
                             );
                         }
                     }
@@ -218,19 +210,15 @@ pub fn analyze_callable_body(
     }
 
     if body.is_empty() && can_fall_through {
-        let unit = crate::types::evidence::TypeKnowledge::known(ctx.store.unit(), crate::types::evidence::EvidenceAuthority::Proven);
+        let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
         if !constructor_body && !setter_body {
             if let Some(expected_return) = ctx.expected_return.clone() {
-                crate::checker::policy::enforce_assignability(
-                    ctx.store,
-                    &ctx.hierarchy,
+                ctx.enforce_assignability(
                     &unit,
                     &expected_return,
-                    &ctx.current_module,
                     crate::diagnostic::DiagnosticCode::ReturnMismatch,
                     "empty callable body completes with Unit, which is not assignable to method's declared return type",
                     body_range,
-                    &mut ctx.diagnostics,
                 );
             }
         }

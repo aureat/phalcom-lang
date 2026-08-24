@@ -55,3 +55,15 @@ fn flow_join_is_fail_closed_and_preserves_epistemic_status() {
         TypeKnowledge::Dynamic(_)
     ));
 }
+
+#[test]
+fn normal_return_summary_preserves_assumed_exit_evidence() {
+    let mut store = TypeStore::new();
+    let int = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
+
+    let summary = phalcom_semantic::checker::analysis::normal_return_summary(&mut store, &[TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature)]);
+
+    assert_eq!(summary.ty(), Some(int));
+    assert_eq!(summary.status(), Some(EvidenceStatus::Assumed));
+    assert_eq!(summary.origin(), Some(EvidenceOrigin::CallableSignature));
+}

@@ -66,31 +66,12 @@ impl TypeKnowledge {
         self.status() == Some(EvidenceStatus::Assumed)
     }
 
-    #[inline]
-    pub fn authority(&self) -> Option<EvidenceAuthority> {
-        match self {
-            Self::Known(e) => Some(e.authority),
-            _ => None,
-        }
-    }
-
-    pub fn known(ty: impl Into<TypeId>, authority: EvidenceAuthority) -> Self {
-        Self::from_legacy_authority(ty.into(), authority)
-    }
-
-    pub fn known_proper(ty: super::id::ProperTypeId, authority: EvidenceAuthority) -> Self {
-        Self::known(ty.raw(), authority)
-    }
-
     /// Constructs formal knowledge established by a semantic derivation.
     pub fn established(ty: impl Into<TypeId>, origin: EvidenceOrigin) -> Self {
         Self::Known(TypeEvidence {
             ty: ty.into(),
             status: EvidenceStatus::Established,
             origin,
-            // Kept only as a source-compatibility projection until Task 2
-            // migrates all production callers away from EvidenceAuthority.
-            authority: origin.legacy_authority(EvidenceStatus::Established),
             provenance: EvidenceSet::default(),
         })
     }
@@ -101,7 +82,6 @@ impl TypeKnowledge {
             ty: ty.into(),
             status: EvidenceStatus::Assumed,
             origin,
-            authority: origin.legacy_authority(EvidenceStatus::Assumed),
             provenance: EvidenceSet::default(),
         })
     }
@@ -113,23 +93,11 @@ impl TypeKnowledge {
                 ty: transform(evidence.ty),
                 status: evidence.status,
                 origin: evidence.origin,
-                authority: evidence.authority,
                 provenance: evidence.provenance.clone(),
             }),
             Self::Unknown(reason) => Self::Unknown(reason.clone()),
             Self::Dynamic(reason) => Self::Dynamic(reason.clone()),
         }
-    }
-
-    fn from_legacy_authority(ty: TypeId, authority: EvidenceAuthority) -> Self {
-        let (status, origin) = authority.formal_components();
-        Self::Known(TypeEvidence {
-            ty,
-            status,
-            origin,
-            authority,
-            provenance: EvidenceSet::default(),
-        })
     }
 
     pub fn proper_ty(&self, store: &super::store::TypeStore) -> Option<super::id::ProperTypeId> {
@@ -206,9 +174,6 @@ pub struct TypeEvidence {
     pub ty: TypeId,
     pub status: EvidenceStatus,
     pub origin: EvidenceOrigin,
-    /// Transitional projection for callers not yet migrated to status/origin.
-    /// New code must use [`TypeKnowledge::established`] or [`TypeKnowledge::assumed`].
-    pub authority: EvidenceAuthority,
     pub provenance: EvidenceSet,
 }
 
@@ -235,54 +200,6 @@ pub enum EvidenceOrigin {
     PatternDecomposition,
 }
 
-impl EvidenceOrigin {
-    fn legacy_authority(self, status: EvidenceStatus) -> EvidenceAuthority {
-        match (status, self) {
-            (EvidenceStatus::Assumed, EvidenceOrigin::DeveloperAnnotation | EvidenceOrigin::CallableSignature) => EvidenceAuthority::Declared,
-            (_, EvidenceOrigin::Syntax) => EvidenceAuthority::ExactSyntax,
-            (_, EvidenceOrigin::NativeSignature) => EvidenceAuthority::TrustedNative,
-            (_, EvidenceOrigin::DeclarationSemantics) => EvidenceAuthority::Declared,
-            _ => EvidenceAuthority::Proven,
-        }
-    }
-}
-
-/// The epistemic authority under which a type claim is made.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum EvidenceAuthority {
-    /// Developer-authored explicit type declaration.
-    Declared,
-    /// Proven soundly by the type checker or static solver.
-    Proven,
-    /// Exact syntax literal or constructor expression fact.
-    ExactSyntax,
-    /// Normalized signature from trusted native universe metadata.
-    TrustedNative,
-    /// Advisory shape inference (LSP level, not hard compile contradiction authority alone).
-    Advisory,
-}
-
-impl EvidenceAuthority {
-    fn formal_components(self) -> (EvidenceStatus, EvidenceOrigin) {
-        match self {
-            Self::Declared => (EvidenceStatus::Assumed, EvidenceOrigin::DeveloperAnnotation),
-            Self::Proven => (EvidenceStatus::Established, EvidenceOrigin::Flow),
-            Self::ExactSyntax => (EvidenceStatus::Established, EvidenceOrigin::Syntax),
-            Self::TrustedNative => (EvidenceStatus::Established, EvidenceOrigin::NativeSignature),
-            // This compatibility path is intentionally not an advisory formal
-            // channel. Part 2 removes advisory callers from this type entirely.
-            Self::Advisory => (EvidenceStatus::Assumed, EvidenceOrigin::ContextualDerivation),
-        }
-    }
-}
-
-impl EvidenceAuthority {
-    /// Whether this authority is sound for rejecting code at compile time.
-    pub fn is_sound_for_rejection(self) -> bool {
-        matches!(self, Self::Declared | Self::Proven | Self::ExactSyntax | Self::TrustedNative)
-    }
-}
-
 /// Provenance facts explaining where type evidence was synthesized or constrained.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct EvidenceSet {
@@ -295,6 +212,7 @@ pub enum UnknownReason {
     /// No value evidence exists, and a valid binding contract may supply a
     /// usable static assumption.
     NoTypeEvidence,
+    MissingInitializer,
     UnannotatedDeclaration,
     UnresolvedName(Box<str>),
     DynamicMessageSend,

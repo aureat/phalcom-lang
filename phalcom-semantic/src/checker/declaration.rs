@@ -9,8 +9,7 @@ use crate::dispatch::{CallableParameter, CallableSignature};
 use crate::identity::DeclarationId;
 use crate::surface::DeclarationSurface;
 use crate::types::annotation::resolve_type_annotation;
-use crate::types::denotation::ValueSemanticFact;
-use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::relation::{Assignability, check_assignability};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -77,7 +76,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                             ctx.diagnostics.extend(diags);
                             k
                         })
-                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                     let mut param = CallableParameter::new(p.name.clone(), p_k).with_rest(p.is_rest());
                     if let Some(ref l) = p.label {
@@ -97,7 +96,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     });
                     (
                         crate::identity::DispatchSide::Class,
-                        TypeKnowledge::known(self_type, EvidenceAuthority::Declared),
+                        TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics),
                     )
                 } else {
                     let ret_k = m
@@ -165,7 +164,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
 
                 if let Ok(sel) = Selector::setter(&s.name) {
                     let param = CallableParameter::new(s.param.name.clone(), param_k);
-                    let ret_k = TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Declared);
+                    let ret_k = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
                     surface.add_callable(side, CallableSignature::new(sel, vec![param], ret_k));
                 }
             }
@@ -182,7 +181,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                             ctx.diagnostics.extend(diags);
                             k
                         })
-                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                     let mut param = CallableParameter::new(p.name.clone(), p_k).with_rest(p.is_rest());
                     if let Some(ref l) = p.label {
@@ -205,7 +204,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                                 ctx.diagnostics.extend(diags);
                                 k
                             })
-                            .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                            .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                         if let Ok(sel) = Selector::subscript_get(slots) {
                             surface.add_callable(side, CallableSignature::new(sel, params, ret_k));
@@ -221,7 +220,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                                 ctx.diagnostics.extend(diags);
                                 k
                             })
-                            .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                            .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                         params.push(CallableParameter::new(put.name.clone(), put_k.clone()));
                         if let Ok(sel) = Selector::subscript_set(slots) {
@@ -244,7 +243,7 @@ fn check_field_initializer_against_declared(ctx: &mut CheckingContext<'_>, field
     let initializer = synthesize_expr(ctx, default_expr);
     let assignability = check_assignability(ctx.store, &ctx.hierarchy, &initializer, declared);
     if let Assignability::Refuted { .. } = assignability {
-        ctx.diagnostics.push(SemanticDiagnostic::error_in(
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::FieldMismatch,
             format!("default value for field `{}` does not match declared type", field.name),
@@ -377,9 +376,9 @@ fn check_callable_body(
             ctx.diagnostics.extend(diags);
             k
         } else {
-            TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
         };
-        ctx.bind_local(param.name.clone(), ValueSemanticFact::new(param_k), param.range);
+        ctx.bind_callable_parameter(param.name.clone(), param_k, param.range);
     }
 
     // Resolve return annotation
@@ -398,35 +397,28 @@ fn check_callable_body(
             if let Statement::Expr { expr, range } = stmt {
                 let expected_ret_type = expected_return
                     .as_ref()
-                    .map(crate::checker::expected::ExpectedType::from_knowledge)
+                    .and_then(crate::types::evidence::TypeKnowledge::ty)
+                    .map(|ty| crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::ReturnContract))
                     .unwrap_or_default();
                 let tail_typed = crate::checker::expression::analyze_expression(ctx, expr, &expected_ret_type);
                 if let Some(expected) = &expected_return {
-                    crate::checker::policy::enforce_assignability(
-                        ctx.store,
-                        &ctx.hierarchy,
+                    ctx.enforce_assignability(
                         &tail_typed.knowledge,
                         expected,
-                        &ctx.current_module,
                         DiagnosticCode::ReturnMismatch,
                         "tail expression result is not assignable to method's declared return type",
                         *range,
-                        &mut ctx.diagnostics,
                     );
                 }
             } else if let Statement::Let(binding) = stmt {
-                let unit = TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Proven);
+                let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow);
                 if let Some(expected) = &expected_return {
-                    crate::checker::policy::enforce_assignability(
-                        ctx.store,
-                        &ctx.hierarchy,
+                    ctx.enforce_assignability(
                         &unit,
                         expected,
-                        &ctx.current_module,
                         DiagnosticCode::ReturnMismatch,
                         "tail let/const completes with Unit, which is not assignable to method's declared return type",
                         binding.range,
-                        &mut ctx.diagnostics,
                     );
                 }
                 check_statement(ctx, stmt);

@@ -11,7 +11,9 @@ use phalcom_semantic::checker::statement::resolve_iteration_element;
 use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::identity::BindingId;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::denotation::SemanticDenotation;
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
@@ -133,14 +135,14 @@ fn test_predicate_extraction_from_ast() {
     let (mut store, hier, resolver, decls, module) = setup_test_env();
     let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(&mut store, &hier, &resolver, &decls, module);
 
-    let b1 = ctx.bind_local_var(
+    let b1 = match ctx.bind_pattern_binding(
         "x",
-        None,
-        TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Declared),
-        true,
-        None,
+        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::assumed(ctx.store.unit(), EvidenceOrigin::DeveloperAnnotation)),
         phalcom_common::range::SourceRange::default(),
-    );
+    ) {
+        phalcom_semantic::checker::binding::BindingDeclarationResult::Inserted(binding) => binding,
+        phalcom_semantic::checker::binding::BindingDeclarationResult::Redeclared(binding) => binding,
+    };
 
     // 1. is test
     let is_expr = parse_expr_helper("x.is(Int)");
@@ -176,7 +178,7 @@ fn test_predicate_refinement_and_inversion() {
         "b1",
         SourceRange::default(),
         None,
-        TypeKnowledge::known(union_ty, EvidenceAuthority::ExactSyntax),
+        TypeKnowledge::established(union_ty, EvidenceOrigin::Syntax),
         true,
     );
 
@@ -197,12 +199,71 @@ fn test_predicate_refinement_and_inversion() {
         "b1",
         SourceRange::default(),
         None,
-        TypeKnowledge::known(union_ty, EvidenceAuthority::ExactSyntax),
+        TypeKnowledge::established(union_ty, EvidenceOrigin::Syntax),
         true,
     );
     apply_predicate(&mut state2, &inv, &mut store);
     assert_eq!(state2.get_current_type(b1).and_then(|k| k.ty()), Some(str_ty));
     assert!(state2.facts.contains(&inv));
+}
+
+#[test]
+fn test_flow_join_is_epistemically_conservative_and_deterministic() {
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
+    let string_ty = store.nominal(DeclarationId::new(ModuleId::core(), "String".into()));
+    let binding = BindingId(7);
+
+    let mut established = FlowState::new();
+    established.declare(
+        binding,
+        "value",
+        SourceRange::default(),
+        None,
+        TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+        true,
+    );
+    established.bindings.get_mut(&binding).unwrap().denotation = Some(SemanticDenotation::Kind(KindId::TYPE));
+    established.bindings.get_mut(&binding).unwrap().causal_invalidity =
+        phalcom_semantic::checker::causal::CausalInvalidity::One(phalcom_semantic::identity::DiagnosticCauseId(1));
+
+    let mut assumed = established.clone();
+    assumed.bindings.get_mut(&binding).unwrap().current = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
+    assumed.bindings.get_mut(&binding).unwrap().denotation = Some(SemanticDenotation::Kind(KindId::RECORD_ROW));
+    assumed.bindings.get_mut(&binding).unwrap().causal_invalidity =
+        phalcom_semantic::checker::causal::CausalInvalidity::One(phalcom_semantic::identity::DiagnosticCauseId(2));
+
+    let joined = FlowState::join(&[established.clone(), assumed], &mut store);
+    let joined_binding = joined.get_binding(binding).expect("binding survives reachable join");
+    assert_eq!(joined_binding.current.ty(), Some(int_ty));
+    assert_eq!(joined_binding.current.status(), Some(EvidenceStatus::Assumed));
+    assert_eq!(joined_binding.denotation, None, "disagreeing denotations must not survive join");
+    assert!(matches!(
+        joined_binding.causal_invalidity,
+        phalcom_semantic::checker::causal::CausalInvalidity::Multiple
+    ));
+
+    let mut unknown = established.clone();
+    unknown.bindings.get_mut(&binding).unwrap().current = TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence);
+    let unknown_join = FlowState::join(&[established.clone(), unknown], &mut store);
+    assert!(matches!(
+        unknown_join.get_current_type(binding),
+        Some(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+    ));
+
+    let mut dynamic = established.clone();
+    dynamic.bindings.get_mut(&binding).unwrap().current = TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape);
+    let dynamic_join = FlowState::join(&[established.clone(), dynamic], &mut store);
+    assert!(matches!(
+        dynamic_join.get_current_type(binding),
+        Some(TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape))
+    ));
+
+    let mut divergent = established;
+    divergent.bindings.get_mut(&binding).unwrap().current = TypeKnowledge::established(string_ty, EvidenceOrigin::Syntax);
+    let divergent_join = FlowState::join(&[divergent, joined], &mut store);
+    assert!(matches!(divergent_join.get_current_type(binding), Some(TypeKnowledge::Known(_))));
+    assert_ne!(divergent_join.get_current_type(binding).and_then(TypeKnowledge::ty), Some(string_ty));
 }
 
 #[test]
@@ -224,7 +285,7 @@ fn test_mutation_invalidation_kills_dependent_facts() {
         "b_x",
         SourceRange::default(),
         None,
-        TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax),
+        TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
         true,
     );
     state.declare(
@@ -232,7 +293,7 @@ fn test_mutation_invalidation_kills_dependent_facts() {
         "b_y",
         SourceRange::default(),
         None,
-        TypeKnowledge::known(str_ty, EvidenceAuthority::ExactSyntax),
+        TypeKnowledge::established(str_ty, EvidenceOrigin::Syntax),
         true,
     );
 
@@ -252,7 +313,7 @@ fn test_mutation_invalidation_kills_dependent_facts() {
     assert!(state.facts.contains(&pred_y));
 
     // Mutate b_x: assign new knowledge
-    state.assign(b_x, TypeKnowledge::known(int_ty, EvidenceAuthority::Proven));
+    state.assign(b_x, TypeKnowledge::established(int_ty, EvidenceOrigin::Flow));
 
     // b_x facts must be invalidated, b_y facts must survive
     assert!(!state.facts.contains(&pred_x), "assigning b_x must invalidate facts about b_x");
@@ -277,7 +338,7 @@ fn test_flow_state_conservative_join_and_loop_widening() {
         "b1",
         SourceRange::default(),
         None,
-        TypeKnowledge::known(int_ty, EvidenceAuthority::Proven),
+        TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
         true,
     );
     let fact_shared = FlowPredicate::OrderedPredicate {
@@ -298,7 +359,7 @@ fn test_flow_state_conservative_join_and_loop_widening() {
         "b1",
         SourceRange::default(),
         None,
-        TypeKnowledge::known(str_ty, EvidenceAuthority::Proven),
+        TypeKnowledge::established(str_ty, EvidenceOrigin::Flow),
         true,
     );
     apply_predicate(&mut branch_b, &fact_shared, &mut store);
@@ -316,7 +377,7 @@ fn test_flow_state_conservative_join_and_loop_widening() {
 
     // Loop widening
     let mut next_header = joined.clone();
-    next_header.assign(b1, TypeKnowledge::known(int_ty, EvidenceAuthority::Proven));
+    next_header.assign(b1, TypeKnowledge::established(int_ty, EvidenceOrigin::Flow));
     let widened = FlowState::widen_loop_state(&joined, &next_header, &mut store);
     assert!(widened.is_reachable());
 }
@@ -335,10 +396,9 @@ fn test_protocol_derived_iteration_typing_no_name_matching() {
     let mut ctx = phalcom_semantic::checker::context::CheckingContext::new(&mut store, &hier, &resolver, &decls, module.clone());
 
     let elem_k = resolve_iteration_element(&mut ctx, list_int);
-    assert_eq!(
-        elem_k.ty(),
-        Some(int_ty),
-        "List<Int> iteration element must resolve to Int without nominal name check"
+    assert!(
+        elem_k.is_unknown(),
+        "generic argument alone must not masquerade as iteration protocol evidence: {elem_k:?}"
     );
 
     // 2. Program with for loop over List<String>
@@ -355,7 +415,7 @@ class IterationSubject {
     let report = check_program(ctx.store, &hier, &resolver, &decls, module, &program);
     assert!(
         !report.has_errors(),
-        "protocol-derived for loop typing should succeed for List<String>, got: {:?}",
+        "unknown iteration element must fail closed without inventing a mismatch: {:?}",
         report.diagnostics
     );
 }

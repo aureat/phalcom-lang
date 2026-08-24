@@ -214,6 +214,7 @@ pub fn resolve_type_form(
                         TypeApplicationError::NotAConstructor { .. } => DiagnosticCode::ApplicationNotConstructor,
                         TypeApplicationError::TooManyArguments { .. } => DiagnosticCode::ApplicationTooManyArguments,
                         TypeApplicationError::ArgumentKindMismatch { .. } => DiagnosticCode::ApplicationArgumentKindMismatch,
+                        TypeApplicationError::MalformedLambda => DiagnosticCode::ApplicationNotConstructor,
                     };
                     diagnostics.push(SemanticDiagnostic::error_in(current_module.clone(), code, format!("{err}"), annotation.range));
                     TypeFormResolution::Unknown(UnknownReason::UnannotatedDeclaration)
@@ -494,7 +495,6 @@ pub fn resolve_type_annotation(
                     ty,
                     status: EvidenceStatus::Assumed,
                     origin: EvidenceOrigin::DeveloperAnnotation,
-                    authority: super::evidence::EvidenceAuthority::Declared,
                     provenance: Default::default(),
                 })
                 .with_range(annotation.range)

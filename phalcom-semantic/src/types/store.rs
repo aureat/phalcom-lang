@@ -383,6 +383,8 @@ impl TypeStore {
                         actual,
                     });
                 }
+                Err(BetaReductionError::UnboundVariable { .. }) => return Err(TypeApplicationError::MalformedLambda),
+                Err(BetaReductionError::Application(error)) => return Err(error),
             }
         }
 

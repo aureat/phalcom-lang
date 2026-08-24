@@ -1,10 +1,8 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_semantic::explain::{DerivationRule, EvidenceRef, ExplanationArena, ExplanationStep, PredicateKind, causal_slice};
-use phalcom_semantic::identity::{
-    BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExplanationId, ExpressionId, LocalExpressionId, ModuleId, TypeId,
-};
-use phalcom_semantic::types::evidence::EvidenceAuthority;
+use phalcom_semantic::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId, TypeId};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus};
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 10 };
 
@@ -20,7 +18,8 @@ fn test_explanation_graph_derivation_rules() {
     let n1 = arena.alloc_full(
         lit_step.clone(),
         DerivationRule::LiteralSynthesis,
-        EvidenceAuthority::ExactSyntax,
+        EvidenceStatus::Established,
+        EvidenceOrigin::Syntax,
         vec![EvidenceRef::SourceSpan(RANGE), EvidenceRef::TypeId(TypeId(1))],
         Vec::new(),
     );
@@ -37,22 +36,24 @@ fn test_explanation_graph_derivation_rules() {
     let n2 = arena.alloc_full(
         call_step,
         DerivationRule::MethodCallReturn { selector: "plus".into() },
-        EvidenceAuthority::Proven,
+        EvidenceStatus::Established,
+        EvidenceOrigin::Flow,
         vec![EvidenceRef::TypeId(TypeId(2))],
         vec![n1],
     );
 
     let flow_step = ExplanationStep::FlowRefinement {
         binding: BindingId(1),
-        prior: phalcom_semantic::types::evidence::TypeKnowledge::known(TypeId(2), EvidenceAuthority::ExactSyntax),
-        refined: phalcom_semantic::types::evidence::TypeKnowledge::known(TypeId(2), EvidenceAuthority::Proven),
+        prior: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(2), EvidenceOrigin::Syntax),
+        refined: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(2), EvidenceOrigin::Flow),
     };
     let n3 = arena.alloc_full(
         flow_step,
         DerivationRule::FlowRefinement {
             predicate_kind: PredicateKind::IsInstance,
         },
-        EvidenceAuthority::Proven,
+        EvidenceStatus::Established,
+        EvidenceOrigin::Flow,
         vec![EvidenceRef::BindingVersion {
             binding: BindingId(1),
             version: 1,

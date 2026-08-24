@@ -1,34 +1,51 @@
 //! Message send and callable argument verification (Spec 04.5 / E5).
 
 use super::context::CheckingContext;
-use super::expected::ExpectedType;
+use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
-use crate::checker::policy::enforce_assignability;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::CallableSignature;
-use crate::identity::{BodyId, ExpressionId, LocalExpressionId};
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
+use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{Expr, PackItem, PackLabel};
 use phalcom_common::range::SourceRange;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallCheckResult {
+    pub knowledge: TypeKnowledge,
+    pub causal_invalidity: crate::checker::causal::CausalInvalidity,
+    pub explanation_parents: Vec<crate::identity::ExplanationId>,
+    pub callable: Option<crate::identity::CallableId>,
+}
+
+/// Promotes a complete callable return contract to call-site knowledge.
+/// Unknown and dynamic contracts remain unknown/dynamic; only a concrete
+/// exact-dispatch return receives established call-site status.
+pub(crate) fn promote_exact_return(return_type: &TypeKnowledge, range: SourceRange) -> TypeKnowledge {
+    match return_type {
+        TypeKnowledge::Known(evidence) => TypeKnowledge::established(evidence.ty, EvidenceOrigin::CallableSignature).with_range(range),
+        other => other.clone().with_range(range),
+    }
+}
+
 /// Checks arguments passed to a callable against expected parameter type knowledge.
 pub fn check_arguments(ctx: &mut CheckingContext<'_>, args: &[Expr], param_types: &[TypeKnowledge], call_range: SourceRange) {
     for (i, arg) in args.iter().enumerate() {
-        let expected = param_types.get(i).map(ExpectedType::from_knowledge).unwrap_or_default();
+        let expected = param_types
+            .get(i)
+            .and_then(TypeKnowledge::ty)
+            .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
+            .unwrap_or_default();
         let arg_typed = analyze_expression(ctx, arg, &expected);
         if let Some(param_k) = param_types.get(i) {
-            enforce_assignability(
-                ctx.store,
-                &ctx.hierarchy,
+            ctx.enforce_assignability(
                 &arg_typed.knowledge,
                 param_k,
-                &ctx.current_module,
                 DiagnosticCode::ArgumentMismatch,
                 format!("argument at position {} does not match expected parameter type", i + 1),
                 call_range,
-                &mut ctx.diagnostics,
             );
         }
     }
@@ -36,11 +53,29 @@ pub fn check_arguments(ctx: &mut CheckingContext<'_>, args: &[Expr], param_types
 
 /// Matches call argument pack items against a callable signature, validating labels and types.
 pub fn match_callable_arguments(ctx: &mut CheckingContext<'_>, args: &[PackItem], signature: &CallableSignature, call_range: SourceRange) -> TypeKnowledge {
-    resolve_call(ctx, signature, args, &ExpectedType::None, call_range)
+    resolve_call(ctx, signature, args, &ExpectedType::None, call_range).knowledge
 }
 
 /// Canonical call resolution with generic method inference and bidirectional parameter propagation.
 pub fn resolve_call(
+    ctx: &mut CheckingContext<'_>,
+    signature: &CallableSignature,
+    args: &[PackItem],
+    expected: &ExpectedType,
+    call_range: SourceRange,
+) -> CallCheckResult {
+    ctx.begin_call_causal_capture();
+    let knowledge = resolve_call_inner(ctx, signature, args, expected, call_range);
+    let (causal_invalidity, explanation_parents) = ctx.end_call_causal_capture();
+    CallCheckResult {
+        knowledge,
+        causal_invalidity,
+        explanation_parents,
+        callable: ctx.resolved_callable_for_current_expression(),
+    }
+}
+
+fn resolve_call_inner(
     ctx: &mut CheckingContext<'_>,
     signature: &CallableSignature,
     args: &[PackItem],
@@ -53,76 +88,125 @@ pub fn resolve_call(
             let mut session = InferenceSession::new();
             let var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
 
-            let dummy_call_id = ExpressionId::new(BodyId(0), LocalExpressionId(0));
+            let Some(call_id) = ctx.current_expression_id() else {
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            };
+            let generic_callable = match &generic_sig.owner {
+                TypeParameterOwner::Callable(callable) => callable.clone(),
+                TypeParameterOwner::Declaration(declaration) => {
+                    crate::identity::CallableId::new(declaration.clone(), signature.selector.clone(), ctx.current_side)
+                }
+            };
+            for (constraint_index, constraint) in generic_sig.constraints.iter().enumerate() {
+                let relation = match constraint {
+                    GenericConstraint::Subtype { lower, upper } => {
+                        let lower = session.type_term_to_inference(lower, &var_map, ctx.store);
+                        let upper = session.type_term_to_inference(upper, &var_map, ctx.store);
+                        match (lower, upper) {
+                            (Ok(lower), Ok(upper)) => InferenceRelation::Subtype(lower, upper),
+                            _ => return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
+                        }
+                    }
+                    GenericConstraint::Equivalent { left, right } => {
+                        let left = session.type_term_to_inference(left, &var_map, ctx.store);
+                        let right = session.type_term_to_inference(right, &var_map, ctx.store);
+                        match (left, right) {
+                            (Ok(left), Ok(right)) => InferenceRelation::Equivalent(left, right),
+                            _ => return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
+                        }
+                    }
+                };
+                session.add_constraint(
+                    relation,
+                    ConstraintOrigin::GenericWhere {
+                        callable: generic_callable.clone(),
+                        constraint_index: constraint_index as u16,
+                    },
+                    None,
+                );
+            }
             let mut positional_idx = 0;
 
-            for (arg_idx, arg) in args.iter().enumerate() {
-                let dummy_arg_id = ExpressionId::new(BodyId(0), LocalExpressionId(arg_idx as u32));
+            for arg in args.iter() {
                 match arg {
                     PackItem::Positional { expr, .. } => {
+                        let mut matched = false;
                         while positional_idx < signature.parameters.len() {
                             let param = &signature.parameters[positional_idx];
                             positional_idx += 1;
                             if param.external_label.is_none() {
-                                let param_term = if let Some(pty) = param.ty.ty() {
-                                    session.type_id_to_inference(pty, &var_map, ctx.store)
-                                } else {
-                                    InferenceTerm::Canonical(ctx.store.unit())
+                                let Some(pty) = param.ty.ty() else {
+                                    return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
                                 };
-                                let arg_expected = ExpectedType::Inference(param_term.clone());
+                                let param_term = session.type_id_to_inference(pty, &var_map, ctx.store);
+                                let arg_expected = ExpectedType::inference_from(param_term.clone(), ExpectationOrigin::GenericArgument);
                                 let arg_typed = analyze_expression(ctx, expr, &arg_expected);
                                 if let Some(arg_ty) = arg_typed.knowledge.ty() {
                                     if let Some(support) = inference_support(&arg_typed.knowledge) {
+                                        let explanation = arg_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
                                         session.add_constraint_with_support(
                                             InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), param_term),
                                             ConstraintOrigin::Argument {
-                                                call: dummy_call_id,
-                                                argument: dummy_arg_id,
+                                                call: call_id,
+                                                argument: arg_typed.expression_id.expect("analyzed argument has expression identity"),
                                                 parameter_index: (positional_idx - 1) as u16,
                                             },
-                                            None,
+                                            explanation,
                                             support,
                                         );
                                     }
                                 }
+                                matched = true;
                                 break;
                             }
+                        }
+                        if !matched {
+                            analyze_expression(ctx, expr, &ExpectedType::None);
                         }
                     }
                     PackItem::Labeled { label, value, .. } => {
                         if let PackLabel::Static { text, .. } = label {
+                            let mut matched = false;
                             for (p_idx, param) in signature.parameters.iter().enumerate() {
                                 if let Some(ref ext_label) = param.external_label {
                                     if ext_label == text {
-                                        let param_term = if let Some(pty) = param.ty.ty() {
-                                            session.type_id_to_inference(pty, &var_map, ctx.store)
-                                        } else {
-                                            InferenceTerm::Canonical(ctx.store.unit())
+                                        let Some(pty) = param.ty.ty() else {
+                                            return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
                                         };
-                                        let arg_expected = ExpectedType::Inference(param_term.clone());
+                                        let param_term = session.type_id_to_inference(pty, &var_map, ctx.store);
+                                        let arg_expected = ExpectedType::inference_from(param_term.clone(), ExpectationOrigin::GenericArgument);
                                         let arg_typed = analyze_expression(ctx, value, &arg_expected);
                                         if let Some(arg_ty) = arg_typed.knowledge.ty() {
                                             if let Some(support) = inference_support(&arg_typed.knowledge) {
+                                                let explanation = arg_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
                                                 session.add_constraint_with_support(
                                                     InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), param_term),
                                                     ConstraintOrigin::Argument {
-                                                        call: dummy_call_id,
-                                                        argument: dummy_arg_id,
+                                                        call: call_id,
+                                                        argument: arg_typed.expression_id.expect("analyzed argument has expression identity"),
                                                         parameter_index: p_idx as u16,
                                                     },
-                                                    None,
+                                                    explanation,
                                                     support,
                                                 );
                                             }
                                         }
+                                        matched = true;
                                         break;
                                     }
                                 }
                             }
+                            if !matched {
+                                analyze_expression(ctx, value, &ExpectedType::None);
+                            }
+                        } else {
+                            analyze_expression(ctx, value, &ExpectedType::None);
+                            return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
                         }
                     }
                     PackItem::Expand { expr, .. } => {
                         analyze_expression(ctx, expr, &ExpectedType::None);
+                        return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
                     }
                 }
             }
@@ -137,13 +221,13 @@ pub fn resolve_call(
                 if let Some(exp_ty) = expected.ty() {
                     session.add_constraint(
                         InferenceRelation::Subtype(ret_term.clone(), InferenceTerm::Canonical(exp_ty)),
-                        ConstraintOrigin::ExpectedResult { expression: dummy_call_id },
+                        ConstraintOrigin::ExpectedResult { expression: call_id },
                         None,
                     );
-                } else if let ExpectedType::Inference(exp_term) = expected {
+                } else if let ExpectedType::Inference { term: exp_term, .. } = expected {
                     session.add_constraint(
                         InferenceRelation::Subtype(ret_term.clone(), exp_term.clone()),
-                        ConstraintOrigin::ExpectedResult { expression: dummy_call_id },
+                        ConstraintOrigin::ExpectedResult { expression: call_id },
                         None,
                     );
                 }
@@ -154,10 +238,7 @@ pub fn resolve_call(
                 if session.term_has_variables(term) {
                     None
                 } else {
-                    signature
-                        .return_type
-                        .ty()
-                        .map(|ty| TypeKnowledge::established(ty, EvidenceOrigin::CallableSignature).with_range(call_range))
+                    Some(promote_exact_return(&signature.return_type, call_range))
                 }
             });
             return match outcome {
@@ -184,14 +265,14 @@ pub fn resolve_call(
                             (false, _) => fixed_return.expect("fixed generic return must be available"),
                         }
                     } else {
-                        signature.return_type.clone().with_range(call_range)
+                        promote_exact_return(&signature.return_type, call_range)
                     }
                 }
                 crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
                     fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable))
                 }
                 crate::checker::inference::InferenceOutcome::Conflicting(_) => {
-                    ctx.diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::ArgumentMismatch,
                         "generic argument does not satisfy type constraints",
@@ -222,19 +303,18 @@ pub fn resolve_call(
                         break;
                     }
                 }
-                let expected_arg = matched_param.map(|p| ExpectedType::from_knowledge(&p.ty)).unwrap_or_default();
+                let expected_arg = matched_param
+                    .and_then(|p| p.ty.ty())
+                    .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
+                    .unwrap_or_default();
                 let arg_typed = analyze_expression(ctx, expr, &expected_arg);
                 if let Some(param) = matched_param {
-                    enforce_assignability(
-                        ctx.store,
-                        &ctx.hierarchy,
+                    ctx.enforce_assignability(
                         &arg_typed.knowledge,
                         &param.ty,
-                        &ctx.current_module,
                         DiagnosticCode::ArgumentMismatch,
                         format!("positional argument `{}` does not match expected parameter type", param.local_name),
                         *range,
-                        &mut ctx.diagnostics,
                     );
                 }
             }
@@ -249,27 +329,28 @@ pub fn resolve_call(
                             }
                         }
                     }
-                    let expected_arg = matched_param.map(|p| ExpectedType::from_knowledge(&p.ty)).unwrap_or_default();
+                    let expected_arg = matched_param
+                        .and_then(|p| p.ty.ty())
+                        .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
+                        .unwrap_or_default();
                     let arg_typed = analyze_expression(ctx, value, &expected_arg);
                     if let Some(param) = matched_param {
-                        enforce_assignability(
-                            ctx.store,
-                            &ctx.hierarchy,
+                        ctx.enforce_assignability(
                             &arg_typed.knowledge,
                             &param.ty,
-                            &ctx.current_module,
                             DiagnosticCode::ArgumentMismatch,
                             format!("argument for label `{}:` does not match expected parameter type", text),
                             *range,
-                            &mut ctx.diagnostics,
                         );
                     }
                 } else {
                     analyze_expression(ctx, value, &ExpectedType::None);
+                    return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
                 }
             }
             PackItem::Expand { expr, .. } => {
                 analyze_expression(ctx, expr, &ExpectedType::None);
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
             }
         }
     }
@@ -279,10 +360,7 @@ pub fn resolve_call(
     // call-site evidence to `Proven`; the declaration remains `Declared` in
     // the published surface and can still be checked independently against
     // the body.
-    match &signature.return_type {
-        TypeKnowledge::Known(evidence) => TypeKnowledge::established(evidence.ty, EvidenceOrigin::CallableSignature).with_range(call_range),
-        other => other.clone().with_range(call_range),
-    }
+    promote_exact_return(&signature.return_type, call_range)
 }
 
 fn inference_support(knowledge: &TypeKnowledge) -> Option<InferenceSupport> {

@@ -6,7 +6,7 @@ use phalcom_semantic::dispatch::{CallableSignature, DispatchLookup, SurfaceDispa
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, TypeHierarchy};
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::{CheckingContext, DeclarationTypeTable};
@@ -109,7 +109,11 @@ fn builtin_seed_reads_do_not_create_query_dependencies() {
     let mut int_surface = DeclarationSurface::new(Some(int_decl.clone()));
     int_surface.add_callable(
         DispatchSide::Instance,
-        CallableSignature::new(selector.clone(), Vec::new(), TypeKnowledge::known(int_ty, EvidenceAuthority::Declared)),
+        CallableSignature::new(
+            selector.clone(),
+            Vec::new(),
+            TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation),
+        ),
     );
     dispatch.register_surface(int_decl.clone(), int_surface);
 
@@ -155,7 +159,11 @@ fn dispatch_lookup_records_surfaces_for_every_owner_inspected() {
     let mut base_surface = DeclarationSurface::new(Some(base.clone()));
     base_surface.add_callable(
         DispatchSide::Instance,
-        CallableSignature::new(selector.clone(), Vec::new(), TypeKnowledge::known(child_ty, EvidenceAuthority::Declared)),
+        CallableSignature::new(
+            selector.clone(),
+            Vec::new(),
+            TypeKnowledge::assumed(child_ty, EvidenceOrigin::DeveloperAnnotation),
+        ),
     );
     dispatch.register_surface(base.clone(), base_surface);
 

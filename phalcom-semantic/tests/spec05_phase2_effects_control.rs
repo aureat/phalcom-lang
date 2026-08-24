@@ -10,7 +10,7 @@ use phalcom_semantic::effects::atom::{EffectAtom, EffectSet};
 use phalcom_semantic::effects::infer::{adapt_effect_spec, infer_intraprocedural_effects};
 use phalcom_semantic::effects::summary::{EffectKnowledge, EffectOpaqueReason};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
-use phalcom_semantic::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge};
 use phalcom_semantic::types::store::TypeStore;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -69,7 +69,7 @@ fn test_pure_literal_function_infers_empty_effects() {
     let store = TypeStore::new();
     let mut expressions = BTreeMap::new();
     let eid = test_expr_id(1);
-    let expr = ExpressionAnalysis::ready(eid, RANGE, TypeKnowledge::known(store.unit(), EvidenceAuthority::ExactSyntax));
+    let expr = ExpressionAnalysis::ready(eid, RANGE, TypeKnowledge::established(store.unit(), EvidenceOrigin::Syntax));
     expressions.insert(eid, expr);
 
     let analysis = mock_callable(expressions);
@@ -101,6 +101,7 @@ fn test_dynamic_dispatch_produces_opaque_effects() {
         id: eid,
         range: RANGE,
         knowledge: TypeKnowledge::Dynamic(DynamicReason::DynamicRestPack),
+        callable: None,
         denotation: None,
         status: AnalysisStatus::DynamicBoundary(DynamicReason::DynamicRestPack),
         causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
@@ -123,6 +124,7 @@ fn test_reflective_perform_produces_opaque_effects() {
         id: eid,
         range: RANGE,
         knowledge: TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection),
+        callable: None,
         denotation: None,
         status: AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection),
         causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,

@@ -1,7 +1,7 @@
 use crate::integration::checker::setup_test_env;
 use phalcom_ast::ast::Statement;
 use phalcom_ast::parse_source;
-use phalcom_semantic::{CheckingContext, EvidenceAuthority, TypeKnowledge, TypeResolver, synthesize_typed_expr};
+use phalcom_semantic::{CheckingContext, EvidenceOrigin, TypeKnowledge, TypeResolver, synthesize_typed_expr};
 
 #[test]
 fn integer_literal_synthesizes_int() {
@@ -30,7 +30,8 @@ fn integer_literal_synthesizes_int() {
     let int_ty = decls.form(&int_decl).expect("Int should exist in bootstraped universe declarations");
 
     assert_eq!(evidence.ty, int_ty);
-    assert_eq!(evidence.authority, EvidenceAuthority::ExactSyntax);
+    assert_eq!(evidence.status, phalcom_semantic::EvidenceStatus::Established);
+    assert_eq!(evidence.origin, EvidenceOrigin::Syntax);
     assert_eq!(evidence.provenance.ranges.len(), 1);
     assert_eq!(evidence.provenance.ranges.as_slice(), &[expr.range()]);
     assert!(

@@ -1149,6 +1149,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     for (expression_id, expression) in &analysis.expressions {
         expression_id.hash(&mut hasher);
         hash_type_knowledge(&expression.knowledge, false, &mut hasher);
+        expression.callable.hash(&mut hasher);
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);

@@ -25,8 +25,7 @@ pub use constraint::{ConstraintSet, TypeConstraint};
 pub use denotation::{SemanticDenotation, ValueSemanticFact};
 pub use environment::{SpecializedCallableView, SpecializedMemberView, TypeEnvironment, TypeView};
 pub use evidence::{
-    ContractAssumptionEligibility, DynamicReason, EvidenceAuthority, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason,
-    join_type_knowledge,
+    ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason, join_type_knowledge,
 };
 pub use id::{InferVarId, KindId, ProperTypeId, RecordRowId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
 pub use kind::{KindApplicationError, KindData};

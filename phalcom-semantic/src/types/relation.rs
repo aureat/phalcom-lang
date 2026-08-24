@@ -130,36 +130,6 @@ impl Assignability {
     }
 }
 
-impl From<RelationOutcome> for Assignability {
-    fn from(outcome: RelationOutcome) -> Self {
-        match outcome {
-            RelationOutcome::Proven { .. } => Self::Assignable,
-            RelationOutcome::Refuted(failure) => match failure {
-                RelationFailure::IncompatibleNominal { actual: _, expected: _ } => Self::Refuted {
-                    actual: TypeId::DUMMY,
-                    expected: TypeId::DUMMY,
-                    reason: RefutationReason::IncompatibleNominal,
-                },
-                RelationFailure::UnionMemberMismatch { actual, expected } => Self::Refuted {
-                    actual,
-                    expected,
-                    reason: RefutationReason::UnionMemberMismatch,
-                },
-                _ => Self::Refuted {
-                    actual: TypeId::DUMMY,
-                    expected: TypeId::DUMMY,
-                    reason: RefutationReason::TypeMismatch,
-                },
-            },
-            RelationOutcome::DynamicBoundary(_) => Self::DynamicBoundary,
-            RelationOutcome::Blocked(reason) => Self::Blocked(reason),
-            RelationOutcome::Cancelled => Self::Cancelled,
-            RelationOutcome::BudgetExceeded(report) => Self::BudgetExceeded(report),
-            RelationOutcome::InternalFailure(msg) => Self::InternalFailure(msg),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RefutationReason {
     IncompatibleNominal,
@@ -519,11 +489,10 @@ fn relation_to_assignability(outcome: RelationOutcome, actual: Option<TypeId>, e
                 RelationFailure::CycleDetected { sub, sup } => (Some(sub), Some(sup), RefutationReason::TypeMismatch),
                 RelationFailure::DepthExceeded | RelationFailure::Custom(_) => (actual, expected, RefutationReason::TypeMismatch),
             };
-            Assignability::Refuted {
-                actual: failure_actual.unwrap_or(TypeId::DUMMY),
-                expected: failure_expected.unwrap_or(TypeId::DUMMY),
-                reason,
-            }
+            let (Some(actual), Some(expected)) = (failure_actual, failure_expected) else {
+                return Assignability::Blocked(BlockReason::RecursiveFixpoint);
+            };
+            Assignability::Refuted { actual, expected, reason }
         }
         RelationOutcome::DynamicBoundary(_) => Assignability::DynamicBoundary,
         RelationOutcome::Blocked(reason) => Assignability::Blocked(reason),
@@ -537,7 +506,8 @@ fn relation_to_assignability(outcome: RelationOutcome, actual: Option<TypeId>, e
 pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, actual: &TypeKnowledge, expected: &TypeKnowledge) -> Assignability {
     let mut budget = QueryBudget::default();
     let cancellation = CancellationToken::new();
-    check_assignability_bounded(store, hierarchy, actual, expected, &mut budget, &cancellation).into()
+    let outcome = check_assignability_bounded(store, hierarchy, actual, expected, &mut budget, &cancellation);
+    relation_to_assignability(outcome, actual.ty(), expected.ty())
 }
 
 // Recursive record checking carries shared query state explicitly for budget and cycle control.
@@ -641,7 +611,7 @@ pub fn check_record_row_subtype(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::evidence::EvidenceAuthority;
+    use crate::types::evidence::EvidenceOrigin;
     use phalcom_modules::identity::ModuleId;
 
     fn test_decl(name: &str) -> DeclarationId {
@@ -696,8 +666,8 @@ mod tests {
         let t_int = store.nominal(test_decl("Int"));
         let t_str = store.nominal(test_decl("String"));
 
-        let actual = TypeKnowledge::known(t_int, EvidenceAuthority::ExactSyntax);
-        let expected = TypeKnowledge::known(t_str, EvidenceAuthority::Declared);
+        let actual = TypeKnowledge::established(t_int, EvidenceOrigin::Syntax);
+        let expected = TypeKnowledge::assumed(t_str, EvidenceOrigin::DeveloperAnnotation);
 
         let res = check_assignability(&store, &hier, &actual, &expected);
         assert!(res.is_refuted());

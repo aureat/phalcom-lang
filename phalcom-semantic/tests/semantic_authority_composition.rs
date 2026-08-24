@@ -5,7 +5,7 @@ use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, Expres
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use phalcom_semantic::explain::{EvidenceRef, ExplanationStep};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use phalcom_semantic::{Assignability, TypeId, analyze_single_module, check_assignability, is_subtype};
 use std::sync::Arc;
 
@@ -102,7 +102,8 @@ fn assert_method_call_evidence(analysis: &CallableAnalysis, expression: &Express
         ExplanationStep::MethodCall { return_ty, .. } => assert_eq!(*return_ty, expected_type),
         other => panic!("expected method-call explanation, got {other:?}"),
     }
-    assert_eq!(node.authority, EvidenceAuthority::Proven);
+    assert_eq!(node.status, EvidenceStatus::Established);
+    assert_eq!(node.origin, EvidenceOrigin::CallableSignature);
     assert!(
         node.evidence
             .iter()
@@ -140,7 +141,8 @@ class Probe {
     assert_method_call_evidence(run, expression(run, &source, "CellNum.new()"), cell_num);
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
 
-    assert_eq!(binding(run, "x").current.authority(), Some(EvidenceAuthority::Proven));
+    assert_eq!(binding(run, "x").current.status(), Some(EvidenceStatus::Established));
+    assert_eq!(binding(run, "x").current.origin(), Some(EvidenceOrigin::CallableSignature));
 
     assert!(run.dependencies.contains(&new_id));
     assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
@@ -215,7 +217,8 @@ class Probe {
         Some(cell_num),
         "refuted developer annotation must not replace proven checker knowledge"
     );
-    assert_eq!(x.current.authority(), Some(EvidenceAuthority::Proven));
+    assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
+    assert_eq!(x.current.origin(), Some(EvidenceOrigin::CallableSignature));
 
     let mismatch = diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch);
     assert_eq!(mismatch.len(), 1, "expected one contradiction: {mismatch:#?}");
@@ -256,8 +259,8 @@ class Probe {
         check_assignability(
             &analysis.snapshot.store,
             analysis.snapshot.hierarchy.as_ref(),
-            &TypeKnowledge::known(derived, EvidenceAuthority::Proven),
-            &TypeKnowledge::known(base, EvidenceAuthority::Declared),
+            &TypeKnowledge::established(derived, EvidenceOrigin::Flow),
+            &TypeKnowledge::assumed(base, EvidenceOrigin::DeveloperAnnotation),
         ),
         Assignability::Assignable
     );
@@ -274,7 +277,8 @@ class Probe {
         Some(derived),
         "a compatible annotation is a constraint, not permission to erase stronger proof"
     );
-    assert_eq!(x.current.authority(), Some(EvidenceAuthority::Proven));
+    assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
+    assert_eq!(x.current.origin(), Some(EvidenceOrigin::CallableSignature));
     assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
 
     assert_method_call_evidence(run, expression(run, &source, "x.derivedOnly()"), int_ty);
@@ -306,7 +310,8 @@ class Probe {
     let x = binding(run, "x");
     assert_eq!(x.declared, Some(int_ty));
     assert_eq!(x.current.ty(), Some(int_ty));
-    assert_eq!(x.current.authority(), Some(EvidenceAuthority::Declared));
+    assert_eq!(x.current.status(), Some(EvidenceStatus::Assumed));
+    assert_eq!(x.current.origin(), Some(EvidenceOrigin::DeveloperAnnotation));
     assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
 }
 
@@ -341,13 +346,30 @@ class Probe {
         check_assignability(
             &analysis.snapshot.store,
             analysis.snapshot.hierarchy.as_ref(),
-            &TypeKnowledge::known(string_ty, EvidenceAuthority::ExactSyntax),
-            &TypeKnowledge::known(int_ty, EvidenceAuthority::Declared),
+            &TypeKnowledge::established(string_ty, EvidenceOrigin::Syntax),
+            &TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation),
         ),
         Assignability::Refuted { .. }
     ));
 
     assert_method_call_evidence(run, expression(run, &source, "CellNum.fromInt(\"bad\")"), cell_num);
+    let invalid_call = expression(run, &source, "CellNum.fromInt(\"bad\")");
+    assert!(
+        invalid_call.status.is_invalid(),
+        "argument mismatch must own call invalidity: {invalid_call:#?}"
+    );
+    assert!(!matches!(
+        invalid_call.causal_invalidity,
+        phalcom_semantic::checker::causal::CausalInvalidity::Clean
+    ));
+    let invalid_explanation = run
+        .explanations
+        .get(invalid_call.explanation.expect("invalid call explanation"))
+        .expect("call explanation");
+    assert!(
+        !invalid_explanation.parents.is_empty(),
+        "call explanation must retain argument derivation parents"
+    );
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
     assert!(run.dependencies.contains(&from_int_id));
 
@@ -422,8 +444,8 @@ class Probe {
         check_assignability(
             &analysis.snapshot.store,
             analysis.snapshot.hierarchy.as_ref(),
-            &TypeKnowledge::known(derived, EvidenceAuthority::Proven),
-            &TypeKnowledge::known(string_ty, EvidenceAuthority::Declared),
+            &TypeKnowledge::established(derived, EvidenceOrigin::Flow),
+            &TypeKnowledge::assumed(string_ty, EvidenceOrigin::DeveloperAnnotation),
         ),
         Assignability::Refuted { .. }
     ));
@@ -477,6 +499,91 @@ class Probe {
 }
 
 #[test]
+fn binding_kind_controls_mutability_and_immutable_write_preserves_state() {
+    let source_text = r#"
+class Probe {
+  @class
+  run() {
+    let mutable = 1
+    mutable = 2
+    const constant = 1
+    constant = 2
+  }
+}
+"#;
+    let (module, source, analysis) = analyze(source_text);
+    let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
+    let run = callable_analysis(&analysis, &run_id);
+
+    let mutable = binding(run, "mutable");
+    assert!(mutable.mutable);
+    assert_eq!(mutable.current.ty(), Some(ty(&analysis, &module, "Int")));
+
+    let constant = binding(run, "constant");
+    assert!(!constant.mutable);
+    assert_eq!(constant.current.ty(), Some(ty(&analysis, &module, "Int")));
+    assert_eq!(constant.version, 0, "rejected immutable write must not advance recovery state");
+    assert_eq!(diagnostics(&analysis, DiagnosticCode::AssignmentToImmutable).len(), 1);
+    assert!(run.expressions.values().any(|expression| expression.range
+        == (source.find("constant = 2").unwrap()..source.find("constant = 2").unwrap() + "constant = 2".len()).into()
+        && expression.status.is_invalid()));
+}
+
+#[test]
+fn same_scope_redeclaration_preserves_first_binding_identity_and_fact() {
+    let source_text = r#"
+class Probe {
+  @class
+  run() {
+    let value = 1
+    let value = "shadow attempt"
+    let copy = value
+  }
+}
+"#;
+    let (module, _source, analysis) = analyze(source_text);
+    let int_ty = ty(&analysis, &module, "Int");
+    let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
+    let run = callable_analysis(&analysis, &run_id);
+
+    let value = binding(run, "value");
+    assert_eq!(value.current.ty(), Some(int_ty));
+    assert_eq!(binding(run, "copy").current.ty(), Some(int_ty));
+    assert_eq!(diagnostics(&analysis, DiagnosticCode::BindingRedeclared).len(), 1);
+}
+
+#[test]
+fn missing_initializer_stays_ineligible_instead_of_laundering_annotation() {
+    let source_text = r#"
+class Probe {
+  @class
+  run() {
+    const constant: Int
+    let annotated: Int
+    let plain
+  }
+}
+"#;
+    let (module, _source, analysis) = analyze(source_text);
+    let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
+    let run = callable_analysis(&analysis, &run_id);
+
+    assert!(matches!(
+        binding(run, "constant").current,
+        TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
+    ));
+    assert!(matches!(
+        binding(run, "annotated").current,
+        TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
+    ));
+    assert!(matches!(
+        binding(run, "plain").current,
+        TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
+    ));
+    assert_eq!(diagnostics(&analysis, DiagnosticCode::ConstWithoutInitializer).len(), 1);
+}
+
+#[test]
 fn exact_literal_proof_refutes_annotation_and_remains_current_binding_knowledge() {
     let source_text = r#"
 class Probe {
@@ -494,7 +601,8 @@ class Probe {
 
     let literal = expression(run, &source, "42");
     assert_eq!(literal.knowledge.ty(), Some(int_ty));
-    assert_eq!(literal.knowledge.authority(), Some(EvidenceAuthority::ExactSyntax));
+    assert_eq!(literal.knowledge.status(), Some(EvidenceStatus::Established));
+    assert_eq!(literal.knowledge.origin(), Some(EvidenceOrigin::Syntax));
     let explanation = run
         .explanations
         .get(literal.explanation.expect("literal explanation"))
@@ -508,7 +616,7 @@ class Probe {
             &analysis.snapshot.store,
             analysis.snapshot.hierarchy.as_ref(),
             &literal.knowledge,
-            &TypeKnowledge::known(string_ty, EvidenceAuthority::Declared),
+            &TypeKnowledge::assumed(string_ty, EvidenceOrigin::DeveloperAnnotation),
         ),
         Assignability::Refuted { .. }
     ));
@@ -520,7 +628,8 @@ class Probe {
         Some(int_ty),
         "exact checker proof must outrank contradictory developer annotation"
     );
-    assert_eq!(x.current.authority(), Some(EvidenceAuthority::ExactSyntax));
+    assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
+    assert_eq!(x.current.origin(), Some(EvidenceOrigin::Syntax));
     assert_eq!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).len(), 1);
 }
 
@@ -543,19 +652,21 @@ class Probe {
 
     let literal = expression(run, &source, "42");
     assert_eq!(literal.knowledge.ty(), Some(int_ty));
-    assert_eq!(literal.knowledge.authority(), Some(EvidenceAuthority::ExactSyntax));
+    assert_eq!(literal.knowledge.status(), Some(EvidenceStatus::Established));
+    assert_eq!(literal.knowledge.origin(), Some(EvidenceOrigin::Syntax));
 
     let x = binding(run, "x");
     assert_eq!(x.declared, Some(number_ty));
     assert_eq!(x.current.ty(), Some(int_ty));
-    assert_eq!(x.current.authority(), Some(EvidenceAuthority::ExactSyntax));
+    assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
+    assert_eq!(x.current.origin(), Some(EvidenceOrigin::Syntax));
 
     assert!(matches!(
         check_assignability(
             &analysis.snapshot.store,
             analysis.snapshot.hierarchy.as_ref(),
             &literal.knowledge,
-            &TypeKnowledge::known(number_ty, EvidenceAuthority::Declared),
+            &TypeKnowledge::assumed(number_ty, EvidenceOrigin::DeveloperAnnotation),
         ),
         Assignability::Assignable
     ));

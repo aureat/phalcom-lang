@@ -39,6 +39,7 @@ pub struct ExpressionAnalysis {
     pub id: ExpressionId,
     pub range: SourceRange,
     pub knowledge: TypeKnowledge,
+    pub callable: Option<CallableId>,
     pub denotation: Option<SemanticDenotation>,
     pub status: AnalysisStatus,
     pub causal_invalidity: CausalInvalidity,
@@ -52,6 +53,7 @@ impl ExpressionAnalysis {
             id,
             range,
             knowledge,
+            callable: None,
             denotation: None,
             status: AnalysisStatus::Ready,
             causal_invalidity: CausalInvalidity::Clean,
@@ -65,6 +67,7 @@ impl ExpressionAnalysis {
             id,
             range,
             knowledge: TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SyntaxError),
+            callable: None,
             denotation: None,
             status: AnalysisStatus::Invalid(cause),
             causal_invalidity: CausalInvalidity::One(cause),
@@ -112,6 +115,24 @@ pub struct BindingState {
 }
 
 impl BindingState {
+    pub fn from_seed(binding: BindingId, seed: super::binding::BindingSeed, current: TypeKnowledge, consistency: super::binding::BindingConsistency) -> Self {
+        let declared = seed.contract.as_ref().map(|contract| contract.ty);
+        Self {
+            binding,
+            name: seed.name,
+            range: seed.range,
+            declared,
+            contract: seed.contract,
+            current,
+            denotation: seed.denotation,
+            consistency,
+            causal_invalidity: seed.causal_invalidity,
+            mutable: seed.mutable,
+            version: 0,
+            explanation: None,
+        }
+    }
+
     pub fn new(
         binding: BindingId,
         name: impl Into<String>,
@@ -178,27 +199,18 @@ pub struct BodyExitFacts {
 /// knowledge fact. Abrupt-only bodies produce `Never`; incomplete knowledge
 /// keeps the summary incomplete instead of inventing a return type.
 pub fn normal_return_summary(store: &mut crate::types::store::TypeStore, values: &[TypeKnowledge]) -> TypeKnowledge {
-    use crate::types::evidence::{DynamicReason, EvidenceAuthority, UnknownReason};
+    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason, join_type_knowledge};
 
     if values.is_empty() {
-        return TypeKnowledge::known(store.never(), EvidenceAuthority::Proven);
+        return TypeKnowledge::established(store.never(), EvidenceOrigin::Flow);
     }
 
-    if let Some(reason) = values.iter().find_map(|value| match value {
-        TypeKnowledge::Unknown(reason) => Some(reason.clone()),
-        _ => None,
-    }) {
-        return TypeKnowledge::Unknown(reason);
+    let joined = join_type_knowledge(store, values.iter().cloned());
+    if joined.ty().is_none() {
+        TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
+    } else {
+        joined
     }
-    if values.iter().any(TypeKnowledge::is_dynamic) {
-        return TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection);
-    }
-
-    let types = values.iter().filter_map(TypeKnowledge::ty).collect::<Vec<_>>();
-    if types.is_empty() {
-        return TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
-    }
-    TypeKnowledge::known(store.union(&types), EvidenceAuthority::Proven)
 }
 
 /// Index of expression analysis products within a body.

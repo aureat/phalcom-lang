@@ -4,7 +4,7 @@ use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use phalcom_semantic::dispatch::{CallableParameter, CallableSignature, DispatchLookup, DispatchResult, DispatchSide};
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::surface::DeclarationSurface;
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
@@ -163,7 +163,7 @@ fn applied_member_views_on_box_int() {
     let get_sel = Selector::getter("get").unwrap();
     surface.add_callable(
         DispatchSide::Instance,
-        CallableSignature::new(get_sel.clone(), Vec::new(), TypeKnowledge::known(t_ty, EvidenceAuthority::Declared)),
+        CallableSignature::new(get_sel.clone(), Vec::new(), TypeKnowledge::assumed(t_ty, EvidenceOrigin::DeveloperAnnotation)),
     );
     // def put(value: T) -> Unit
     let put_sel = Selector::method("put", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
@@ -171,8 +171,11 @@ fn applied_member_views_on_box_int() {
         DispatchSide::Instance,
         CallableSignature::new(
             put_sel.clone(),
-            vec![CallableParameter::new("value", TypeKnowledge::known(t_ty, EvidenceAuthority::Declared))],
-            TypeKnowledge::known(ctx.store.unit(), EvidenceAuthority::Declared),
+            vec![CallableParameter::new(
+                "value",
+                TypeKnowledge::assumed(t_ty, EvidenceOrigin::DeveloperAnnotation),
+            )],
+            TypeKnowledge::assumed(ctx.store.unit(), EvidenceOrigin::DeveloperAnnotation),
         ),
     );
     ctx.register_surface(decl_box, surface);

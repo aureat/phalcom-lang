@@ -2,7 +2,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, ExpressionAnalysis};
 use phalcom_semantic::checker::flow::FlowState;
 use phalcom_semantic::identity::{BindingId, BodyId, DiagnosticCauseId, ExpressionId, LocalExpressionId, TypeId};
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use phalcom_semantic::types::store::TypeStore;
 
 #[test]
@@ -10,7 +10,7 @@ fn test_expression_analysis_ready_and_invalid() {
     let expr_id = ExpressionId::new(BodyId(1), LocalExpressionId(0));
     let range = SourceRange { start: 0, end: 5 };
     let ty = TypeId(10);
-    let knowledge = TypeKnowledge::known(ty, EvidenceAuthority::ExactSyntax);
+    let knowledge = TypeKnowledge::established(ty, EvidenceOrigin::Syntax);
 
     let ready_analysis = ExpressionAnalysis::ready(expr_id, range, knowledge);
     assert!(ready_analysis.status.is_ready());
@@ -43,7 +43,7 @@ fn test_binding_state_and_flow_state_operations() {
         "b1",
         SourceRange::default(),
         Some(num_ty),
-        TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax),
+        TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
         true,
     );
 
@@ -51,7 +51,7 @@ fn test_binding_state_and_flow_state_operations() {
     assert_eq!(state.get_current_type(b1).and_then(|k| k.ty()), Some(int_ty));
 
     // Sequential assignment replaces current fact
-    state.assign(b1, TypeKnowledge::known(float_ty, EvidenceAuthority::ExactSyntax));
+    state.assign(b1, TypeKnowledge::established(float_ty, EvidenceOrigin::Syntax));
     assert_eq!(state.get_current_type(b1).and_then(|k| k.ty()), Some(float_ty));
     assert_eq!(state.get_declared_type(b1), Some(num_ty));
     assert_eq!(state.get_binding(b1).unwrap().version, 1);
@@ -60,8 +60,8 @@ fn test_binding_state_and_flow_state_operations() {
     let mut branch1 = state.fork();
     let mut branch2 = state.fork();
 
-    branch1.assign(b1, TypeKnowledge::known(int_ty, EvidenceAuthority::Proven));
-    branch2.assign(b1, TypeKnowledge::known(float_ty, EvidenceAuthority::Proven));
+    branch1.assign(b1, TypeKnowledge::established(int_ty, EvidenceOrigin::Flow));
+    branch2.assign(b1, TypeKnowledge::established(float_ty, EvidenceOrigin::Flow));
 
     let joined = FlowState::join(&[branch1, branch2], &mut store);
     assert!(joined.is_reachable());

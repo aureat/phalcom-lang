@@ -225,7 +225,7 @@ impl TypeLambdaArena {
         }
 
         if args.len() == lambda.parameter_kinds.len() {
-            let substituted = self.subst_scoped_to_canonical(lambda.body, 0, args, store);
+            let substituted = self.subst_scoped_to_canonical(lambda.body, 0, args, store)?;
             Ok(BetaResult::Canonical(substituted))
         } else {
             let residual_kinds = lambda.parameter_kinds[args.len()..].to_vec().into_boxed_slice();
@@ -235,67 +235,79 @@ impl TypeLambdaArena {
         }
     }
 
-    fn subst_scoped_to_canonical(&self, scoped: ScopedTypeId, depth: u32, args: &[TypeId], store: &mut TypeStore) -> TypeId {
+    fn subst_scoped_to_canonical(&self, scoped: ScopedTypeId, depth: u32, args: &[TypeId], store: &mut TypeStore) -> Result<TypeId, BetaReductionError> {
         match self.get_scoped(scoped).clone() {
             ScopedTypeData::Bound { depth: d, index: idx } => {
                 if d == depth && (idx as usize) < args.len() {
-                    args[idx as usize]
+                    Ok(args[idx as usize])
                 } else {
-                    store.never()
+                    Err(BetaReductionError::UnboundVariable { depth: d, index: idx })
                 }
             }
-            ScopedTypeData::Free(ty) => ty,
+            ScopedTypeData::Free(ty) => Ok(ty),
             ScopedTypeData::Applied { origin, arguments } => {
-                let can_origin = self.subst_scoped_to_canonical(origin, depth, args, store);
-                let can_args: Vec<TypeId> = arguments.iter().map(|&a| self.subst_scoped_to_canonical(a, depth, args, store)).collect();
-                store.apply_type_form(can_origin, &can_args).unwrap_or(store.never())
+                let can_origin = self.subst_scoped_to_canonical(origin, depth, args, store)?;
+                let can_args: Vec<TypeId> = arguments
+                    .iter()
+                    .map(|&a| self.subst_scoped_to_canonical(a, depth, args, store))
+                    .collect::<Result<_, _>>()?;
+                store.apply_type_form(can_origin, &can_args).map_err(BetaReductionError::Application)
             }
             ScopedTypeData::Union(members) => {
-                let can_members: Vec<TypeId> = members.iter().map(|&m| self.subst_scoped_to_canonical(m, depth, args, store)).collect();
-                store.union(&can_members)
+                let can_members: Vec<TypeId> = members
+                    .iter()
+                    .map(|&m| self.subst_scoped_to_canonical(m, depth, args, store))
+                    .collect::<Result<_, _>>()?;
+                Ok(store.union(&can_members))
             }
             ScopedTypeData::Tuple(elems) => {
                 let can_elems: Vec<super::store::TupleTypeElement> = elems
                     .iter()
-                    .map(|e| super::store::TupleTypeElement {
-                        label: e.label.clone(),
-                        ty: self.subst_scoped_to_canonical(e.ty, depth, args, store),
+                    .map(|e| {
+                        Ok(super::store::TupleTypeElement {
+                            label: e.label.clone(),
+                            ty: self.subst_scoped_to_canonical(e.ty, depth, args, store)?,
+                        })
                     })
-                    .collect();
-                store.tuple(can_elems.into_boxed_slice())
+                    .collect::<Result<_, BetaReductionError>>()?;
+                Ok(store.tuple(can_elems.into_boxed_slice()))
             }
             ScopedTypeData::Record(fields) => {
                 let can_fields: Vec<super::store::RecordTypeField> = fields
                     .iter()
-                    .map(|f| super::store::RecordTypeField {
-                        name: f.name.clone(),
-                        ty: self.subst_scoped_to_canonical(f.ty, depth, args, store),
+                    .map(|f| {
+                        Ok(super::store::RecordTypeField {
+                            name: f.name.clone(),
+                            ty: self.subst_scoped_to_canonical(f.ty, depth, args, store)?,
+                        })
                     })
-                    .collect();
-                store.record(can_fields.into_boxed_slice())
+                    .collect::<Result<_, BetaReductionError>>()?;
+                Ok(store.record(can_fields.into_boxed_slice()))
             }
             ScopedTypeData::Callable(call) => {
                 let can_params: Vec<super::store::CallableParameterType> = call
                     .parameters
                     .iter()
-                    .map(|p| super::store::CallableParameterType {
-                        label: p.label.clone(),
-                        ty: self.subst_scoped_to_canonical(p.ty, depth, args, store),
-                        rest: p.rest,
+                    .map(|p| {
+                        Ok(super::store::CallableParameterType {
+                            label: p.label.clone(),
+                            ty: self.subst_scoped_to_canonical(p.ty, depth, args, store)?,
+                            rest: p.rest,
+                        })
                     })
-                    .collect();
-                let can_ret = self.subst_scoped_to_canonical(call.return_type, depth, args, store);
-                store.callable(super::store::CallableType {
+                    .collect::<Result<_, BetaReductionError>>()?;
+                let can_ret = self.subst_scoped_to_canonical(call.return_type, depth, args, store)?;
+                Ok(store.callable(super::store::CallableType {
                     parameters: can_params.into_boxed_slice(),
                     return_type: can_ret,
-                })
+                }))
             }
             ScopedTypeData::Lambda(lid) => {
                 let nested = self.get_lambda(lid).clone();
-                let nested_body = self.subst_scoped_to_canonical(nested.body, depth + 1, args, store);
+                let nested_body = self.subst_scoped_to_canonical(nested.body, depth + 1, args, store)?;
                 let scoped_body = store.arena_mut().intern_scoped(ScopedTypeData::Free(nested_body));
                 let new_lid = store.arena_mut().intern_lambda(nested.parameter_kinds, scoped_body, nested.result_kind, None);
-                store.type_lambda(new_lid)
+                Ok(store.type_lambda(new_lid))
             }
         }
     }
@@ -382,8 +394,14 @@ pub enum BetaResult {
     ResidualLambda(TypeLambdaId),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum BetaReductionError {
+    #[error("too many type-lambda arguments: supplied {actual}, expected at most {expected}")]
     TooManyArguments { expected: usize, actual: usize },
+    #[error("type-lambda argument kind mismatch at parameter {parameter_index}")]
     KindMismatch { parameter_index: u32, expected: KindId, actual: KindId },
+    #[error("type-lambda body contains an unbound variable at depth {depth}, index {index}")]
+    UnboundVariable { depth: u32, index: u32 },
+    #[error(transparent)]
+    Application(#[from] super::application::TypeApplicationError),
 }

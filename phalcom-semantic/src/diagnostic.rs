@@ -14,6 +14,9 @@ pub enum DiagnosticSeverity {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum DiagnosticCode {
     BindingInitializerMismatch,
+    BindingRedeclared,
+    ConstWithoutInitializer,
+    AssignmentToImmutable,
     AssignmentMismatch,
     ReturnMismatch,
     ArgumentMismatch,
@@ -42,6 +45,9 @@ impl DiagnosticCode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::BindingInitializerMismatch => "type.binding.initializer_mismatch",
+            Self::BindingRedeclared => "binding.redeclared",
+            Self::ConstWithoutInitializer => "binding.const_requires_initializer",
+            Self::AssignmentToImmutable => "binding.assign_to_immutable",
             Self::AssignmentMismatch => "type.assignment.mismatch",
             Self::ReturnMismatch => "type.return.mismatch",
             Self::ArgumentMismatch => "type.call.argument_mismatch",

@@ -18,13 +18,16 @@ pub use analysis::{
     AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex,
     FlowStateSummary,
 };
-pub use binding::{AssumptionBasis, BindingConsistency, BindingContract, BindingContractOrigin, BindingReconciliation, reconcile_binding_contract};
+pub use binding::{
+    AssumptionBasis, BindingConsistency, BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingReconciliation, BindingSeed,
+    BindingWriteResult, reconcile_binding_contract,
+};
 pub use body::analyze_callable_body;
-pub use call::{check_arguments, match_callable_arguments, resolve_call};
+pub use call::{CallCheckResult, check_arguments, match_callable_arguments, resolve_call};
 pub use causal::{CausalInvalidity, SuppressionCause};
 pub use context::CheckingContext;
 pub use declaration::{check_class, check_class_bodies, register_class_surface};
-pub use expected::ExpectedType;
+pub use expected::{ExpectationOrigin, ExpectedType};
 pub use expression::{analyze_expression, check_expr, check_typed_expr, synthesize_expr, synthesize_typed_expr};
 pub use policy::{enforce_assignability, handle_relation_outcome};
 

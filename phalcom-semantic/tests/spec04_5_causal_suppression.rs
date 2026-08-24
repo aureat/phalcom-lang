@@ -13,7 +13,7 @@ use phalcom_ast::ast::Expr;
 use phalcom_semantic::types::store::TypeStore;
 
 #[test]
-fn test_causal_suppression_and_marking() {
+fn test_preexisting_diagnostic_does_not_claim_expression_ownership() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
     let resolver = SimpleTypeResolver::new();
@@ -28,8 +28,9 @@ fn test_causal_suppression_and_marking() {
         range,
     };
 
-    // Push an error diagnostic for this expression range
-    ctx.diagnostics.push(SemanticDiagnostic::error_in(
+    // A diagnostic emitted before this expression is not owned by it. Range
+    // coincidence must not turn an otherwise analyzable expression invalid.
+    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
         ctx.current_module.clone(),
         DiagnosticCode::TypeMismatch,
         "root error",
@@ -39,12 +40,8 @@ fn test_causal_suppression_and_marking() {
     let typed = analyze_expression(&mut ctx, &expr, &ExpectedType::None);
     assert!(typed.knowledge.is_unknown());
 
-    // Verify expression has Invalid status with a cause ID
+    // Verify expression status is independent of pre-existing diagnostics.
     let expr_analysis = ctx.expressions.values().last().unwrap();
-    assert!(expr_analysis.status.is_invalid());
-    if let AnalysisStatus::Invalid(cause) = expr_analysis.status {
-        assert_eq!(ctx.suppression_cause(expr_analysis.id), Some(cause));
-    } else {
-        panic!("expected Invalid status");
-    }
+    assert_eq!(expr_analysis.status, AnalysisStatus::Ready);
+    assert!(ctx.suppression_cause(expr_analysis.id).is_none());
 }

@@ -283,7 +283,7 @@ fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()
     use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
     use phalcom_semantic::surface::DeclarationSurface;
     use phalcom_semantic::types::annotation::SimpleTypeResolver;
-    use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+    use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge};
     use phalcom_semantic::types::relation::MapTypeHierarchy;
     use phalcom_semantic::types::store::TypeStore;
 
@@ -300,7 +300,7 @@ fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()
     let selector = Selector::getter("value").unwrap();
     let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
 
-    let signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::known(store.unit(), EvidenceAuthority::Declared));
+    let signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::assumed(store.unit(), EvidenceOrigin::DeveloperAnnotation));
     let mut surface = DeclarationSurface::new(Some(owner.clone()));
     surface.add_callable(DispatchSide::Instance, signature);
     let mut dispatch = SurfaceDispatchResolver::new();

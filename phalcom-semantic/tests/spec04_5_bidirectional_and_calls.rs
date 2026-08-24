@@ -9,7 +9,7 @@ use phalcom_semantic::checker::statement::check_statement;
 use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId};
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
-use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
@@ -65,8 +65,32 @@ fn test_bidirectional_empty_collections() {
         _ => panic!("expected expr"),
     };
 
-    let typed = analyze_expression(&mut ctx, expr, &ExpectedType::Proper(expected_list_int));
-    assert_eq!(typed.ty(), Some(expected_list_int));
+    let typed = analyze_expression(
+        &mut ctx,
+        expr,
+        &ExpectedType::proper_from(expected_list_int, phalcom_semantic::checker::expected::ExpectationOrigin::ExplicitCheck),
+    );
+    assert_eq!(typed.knowledge, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+
+    // Contextual checking validates a concrete literal without replacing its
+    // established syntax knowledge with the expected supertype.
+    let object_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Object", &[]).unwrap();
+    let object_ty = ctx.nominal_type_of(&object_decl);
+    let literal_program = parse_source("1", 0).unwrap();
+    let literal = match &literal_program.statements[0] {
+        phalcom_ast::ast::Statement::Expr { expr, .. } => expr,
+        _ => panic!("expected literal expression"),
+    };
+    let literal_typed = analyze_expression(
+        &mut ctx,
+        literal,
+        &ExpectedType::proper_from(object_ty, phalcom_semantic::checker::expected::ExpectationOrigin::ExplicitCheck),
+    );
+    assert_eq!(literal_typed.ty(), Some(int_ty));
+    assert_eq!(
+        literal_typed.knowledge.status(),
+        Some(phalcom_semantic::types::evidence::EvidenceStatus::Established)
+    );
 
     // 2. Let binding with annotation: let xs: List<Int> = []
     let let_prog = parse_source("let xs: List<Int> = []", 0).unwrap();
@@ -74,6 +98,7 @@ fn test_bidirectional_empty_collections() {
 
     let fact = ctx.lookup_local("xs").expect("xs should be bound");
     assert_eq!(fact.knowledge.ty(), Some(expected_list_int));
+    assert_eq!(fact.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
 }
 
 #[test]
@@ -133,11 +158,11 @@ fn test_generic_method_call_inference() {
         Box::new([param_t]),
     );
 
-    let param = phalcom_semantic::dispatch::CallableParameter::new("x", TypeKnowledge::known(t_ty, EvidenceAuthority::Declared));
+    let param = phalcom_semantic::dispatch::CallableParameter::new("x", TypeKnowledge::assumed(t_ty, EvidenceOrigin::DeveloperAnnotation));
     let callable_sig = phalcom_semantic::dispatch::CallableSignature::new(
         callable_id.selector.clone(),
         vec![param],
-        TypeKnowledge::known(t_ty, EvidenceAuthority::Declared),
+        TypeKnowledge::assumed(t_ty, EvidenceOrigin::DeveloperAnnotation),
     )
     .with_generics(generic_sig);
 
@@ -146,9 +171,9 @@ fn test_generic_method_call_inference() {
 
     // Bind `b` as instance of IdBox
     let box_ty = ctx.nominal_type_of(&box_decl);
-    ctx.bind_local(
+    ctx.bind_pattern_binding(
         "b",
-        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::known(box_ty, EvidenceAuthority::Declared)),
+        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::assumed(box_ty, EvidenceOrigin::DeveloperAnnotation)),
         phalcom_common::range::SourceRange::default(),
     );
 
@@ -174,20 +199,22 @@ fn test_flow_state_mutation_and_if_let_join() {
     let str_ty = ctx.nominal_type_of(&string_decl);
 
     // Bind mutable local `x` with initial Int
-    let x_binding = ctx.bind_local_var(
+    let x_binding = match ctx.bind_pattern_binding(
         "x",
-        None,
-        TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax),
-        true,
-        None,
+        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax)),
         phalcom_common::range::SourceRange::default(),
-    );
+    ) {
+        phalcom_semantic::checker::binding::BindingDeclarationResult::Inserted(binding) => binding,
+        phalcom_semantic::checker::binding::BindingDeclarationResult::Redeclared(binding) => binding,
+    };
     assert_eq!(ctx.flow.get_current_type(x_binding).and_then(|k| k.ty()), Some(int_ty));
 
     // Reassign x = "hello"
-    ctx.assign_existing(
+    ctx.write_existing(
         "x",
-        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::known(str_ty, EvidenceAuthority::ExactSyntax)),
+        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::established(str_ty, EvidenceOrigin::Syntax)),
+        phalcom_semantic::checker::binding::BindingConsistency::Unconstrained,
+        phalcom_semantic::checker::causal::CausalInvalidity::Clean,
     );
     assert_eq!(ctx.flow.get_current_type(x_binding).and_then(|k| k.ty()), Some(str_ty));
     assert_eq!(ctx.flow.get_binding(x_binding).unwrap().version, 1);

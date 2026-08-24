@@ -2,7 +2,7 @@
 
 use crate::diagnostic::DiagnosticCode;
 use crate::identity::{BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
-use crate::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
 use crate::types::id::TypeId;
 use phalcom_common::range::SourceRange;
 
@@ -63,6 +63,9 @@ pub enum ExplanationStep {
         callable: CallableId,
         return_ty: TypeId,
     },
+    /// A known call result whose callable identity was unavailable; this is a
+    /// blocked explanation rather than a fabricated callable edge.
+    UnresolvedCall { call: ExpressionId, return_ty: TypeId },
     /// Flow path refinement.
     FlowRefinement {
         binding: BindingId,
@@ -87,6 +90,9 @@ impl ExplanationStep {
             Self::MethodCall { callable, .. } => DerivationRule::MethodCallReturn {
                 selector: format!("{}", callable.selector),
             },
+            Self::UnresolvedCall { .. } => DerivationRule::InternalBlocked {
+                reason: "callable identity unavailable".into(),
+            },
             Self::FlowRefinement { .. } => DerivationRule::FlowRefinement {
                 predicate_kind: PredicateKind::IsInstance,
             },
@@ -104,7 +110,8 @@ pub struct ExplanationNode {
     pub id: ExplanationId,
     pub step: ExplanationStep,
     pub rule: DerivationRule,
-    pub authority: EvidenceAuthority,
+    pub status: EvidenceStatus,
+    pub origin: EvidenceOrigin,
     pub evidence: Vec<EvidenceRef>,
     pub parents: Vec<ExplanationId>,
 }

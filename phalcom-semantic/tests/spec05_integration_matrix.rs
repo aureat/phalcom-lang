@@ -15,7 +15,7 @@ use phalcom_semantic::prover::deterministic::solve_vc_deterministic;
 use phalcom_semantic::prover::ir::{ProofOpaqueReason, ProofTerm};
 use phalcom_semantic::prover::vc::{ProofEvidence, ProofObligationKind, VcStatus, VcUnknownReason, VerificationCondition};
 use phalcom_semantic::termination::{TerminationBlockedReason, TerminationEvidence, TerminationKnowledge, analyze_callable_termination};
-use phalcom_semantic::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
 use phalcom_semantic::types::row::{RecordRowData, RecordRowField, RecordRowTail};
 use phalcom_semantic::types::row_solver::{RecordRowSolver, RecordRowTerm};
@@ -94,7 +94,7 @@ fn test_matrix_2_effects_pipeline_intra_and_interprocedural() {
     let mut leaf_exprs = BTreeMap::new();
     leaf_exprs.insert(
         eid,
-        ExpressionAnalysis::ready(eid, RANGE, TypeKnowledge::known(store.unit(), EvidenceAuthority::ExactSyntax)),
+        ExpressionAnalysis::ready(eid, RANGE, TypeKnowledge::established(store.unit(), EvidenceOrigin::Syntax)),
     );
 
     let leaf_analysis = CallableAnalysis {
@@ -224,6 +224,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
             id: eid,
             range: RANGE,
             knowledge: TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape),
+            callable: None,
             denotation: None,
             status: AnalysisStatus::DynamicBoundary(DynamicReason::ExplicitEscape),
             causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,

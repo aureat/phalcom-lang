@@ -12,4 +12,7 @@ pub enum TypeApplicationError {
 
     #[error("type argument kind mismatch at index {index}")]
     ArgumentKindMismatch { index: usize, expected: KindId, actual: KindId },
+
+    #[error("type lambda contains an unbound or invalid application")]
+    MalformedLambda,
 }

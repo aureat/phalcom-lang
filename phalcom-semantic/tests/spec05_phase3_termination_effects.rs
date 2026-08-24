@@ -10,7 +10,7 @@ use phalcom_semantic::effects::scc::infer_interprocedural_effects_scc;
 use phalcom_semantic::effects::summary::{EffectKnowledge, EffectOpaqueReason};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
 use phalcom_semantic::termination::{TerminationBlockedReason, TerminationEvidence, TerminationKnowledge, analyze_callable_termination, check_cfg_acyclicity};
-use phalcom_semantic::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge};
 use phalcom_semantic::types::store::TypeStore;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -60,6 +60,7 @@ fn test_interprocedural_effect_propagation() {
             id: eid,
             range: RANGE,
             knowledge: TypeKnowledge::Dynamic(DynamicReason::DynamicRestPack),
+            callable: None,
             denotation: None,
             status: AnalysisStatus::DynamicBoundary(DynamicReason::DynamicRestPack),
             causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
@@ -97,7 +98,7 @@ fn test_interprocedural_pure_propagation() {
     let eid = test_expr_id(1);
     leaf_exprs.insert(
         eid,
-        ExpressionAnalysis::ready(eid, RANGE, TypeKnowledge::known(store.unit(), EvidenceAuthority::ExactSyntax)),
+        ExpressionAnalysis::ready(eid, RANGE, TypeKnowledge::established(store.unit(), EvidenceOrigin::Syntax)),
     );
     let leaf = mock_callable(leaf_id.clone(), leaf_exprs, vec![]);
     let root = mock_callable(root_id.clone(), BTreeMap::new(), vec![leaf_id.clone()]);

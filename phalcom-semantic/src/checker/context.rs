@@ -1,5 +1,5 @@
 use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
-use crate::checker::binding::{BindingContract, BindingContractOrigin, reconcile_binding_contract};
+use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingSeed, BindingWriteResult, reconcile_binding_contract};
 use crate::checker::flow::FlowState;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
@@ -7,16 +7,16 @@ use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
 use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
-use crate::types::evidence::TypeKnowledge;
+use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
-use crate::types::relation::TypeHierarchy;
+use crate::types::relation::{Assignability, TypeHierarchy, check_assignability};
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 /// Storage abstraction for dispatch resolver avoiding per-callable cloning.
@@ -193,6 +193,12 @@ pub struct LocalBindingInfo {
     pub denotation: Option<SemanticDenotation>,
 }
 
+#[derive(Clone, Default)]
+struct CallDependencyFrame {
+    causal_invalidity: crate::checker::causal::CausalInvalidity,
+    explanations: Vec<crate::identity::ExplanationId>,
+}
+
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
     pub store: &'a mut TypeStore,
@@ -213,6 +219,10 @@ pub struct CheckingContext<'a> {
     pub bindings: BindingAnalysisIndex,
     pub explanations: crate::explain::ExplanationArena,
     pub suppressed: std::collections::BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
+    expression_owners: Vec<ExpressionId>,
+    expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
+    resolved_callables: BTreeMap<ExpressionId, CallableId>,
+    call_dependency_frames: Vec<CallDependencyFrame>,
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
     semantic_dependencies: SharedSemanticDependencies,
@@ -271,6 +281,10 @@ impl<'a> CheckingContext<'a> {
             bindings: BindingAnalysisIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             suppressed: std::collections::BTreeMap::new(),
+            expression_owners: Vec::new(),
+            expression_owned_causes: BTreeMap::new(),
+            resolved_callables: BTreeMap::new(),
+            call_dependency_frames: Vec::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
             semantic_dependencies,
@@ -307,6 +321,10 @@ impl<'a> CheckingContext<'a> {
             bindings: BindingAnalysisIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             suppressed: std::collections::BTreeMap::new(),
+            expression_owners: Vec::new(),
+            expression_owned_causes: BTreeMap::new(),
+            resolved_callables: BTreeMap::new(),
+            call_dependency_frames: Vec::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
             semantic_dependencies,
@@ -335,6 +353,10 @@ impl<'a> CheckingContext<'a> {
             bindings: self.bindings.clone(),
             explanations: self.explanations.clone(),
             suppressed: self.suppressed.clone(),
+            expression_owners: self.expression_owners.clone(),
+            expression_owned_causes: self.expression_owned_causes.clone(),
+            resolved_callables: self.resolved_callables.clone(),
+            call_dependency_frames: self.call_dependency_frames.clone(),
             flow_graph: self.flow_graph.clone(),
             dependencies: self.dependencies.clone(),
             semantic_dependencies: self.semantic_dependencies.clone(),
@@ -362,15 +384,137 @@ impl<'a> CheckingContext<'a> {
         cause
     }
 
+    pub fn push_expression_owner(&mut self, id: ExpressionId) {
+        self.expression_owners.push(id);
+    }
+
+    pub fn current_expression_id(&self) -> Option<ExpressionId> {
+        self.expression_owners.last().copied()
+    }
+
+    pub fn resolved_callable_for_current_expression(&self) -> Option<CallableId> {
+        self.current_expression_id().and_then(|id| self.resolved_callables.get(&id).cloned())
+    }
+
+    pub(crate) fn begin_call_causal_capture(&mut self) {
+        self.call_dependency_frames.push(CallDependencyFrame::default());
+    }
+
+    pub(crate) fn record_call_dependency(
+        &mut self,
+        causal_invalidity: crate::checker::causal::CausalInvalidity,
+        explanation: Option<crate::identity::ExplanationId>,
+    ) {
+        if let Some(frame) = self.call_dependency_frames.last_mut() {
+            frame.causal_invalidity = frame.causal_invalidity.join(causal_invalidity);
+            if let Some(explanation) = explanation {
+                if !frame.explanations.contains(&explanation) {
+                    frame.explanations.push(explanation);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn end_call_causal_capture(&mut self) -> (crate::checker::causal::CausalInvalidity, Vec<crate::identity::ExplanationId>) {
+        let frame = self.call_dependency_frames.pop().unwrap_or_default();
+        (frame.causal_invalidity, frame.explanations)
+    }
+
+    pub(crate) fn explanation_for_expression(&self, id: ExpressionId) -> Option<crate::identity::ExplanationId> {
+        self.expressions.get(&id).and_then(|analysis| analysis.explanation)
+    }
+
+    pub fn pop_expression_owner(&mut self, id: ExpressionId) -> Option<crate::identity::DiagnosticCauseId> {
+        debug_assert_eq!(self.expression_owners.pop(), Some(id));
+        self.expression_owned_causes.remove(&id)
+    }
+
+    /// Emits one diagnostic and records its owning expression without using
+    /// source ranges as a proxy for semantic ownership.
+    pub fn emit_diagnostic(&mut self, mut diagnostic: SemanticDiagnostic) -> Option<crate::identity::DiagnosticCauseId> {
+        if diagnostic.severity != crate::diagnostic::DiagnosticSeverity::Error {
+            self.diagnostics.push(diagnostic);
+            return None;
+        }
+        let cause = diagnostic.root_cause.unwrap_or_else(|| self.alloc_diagnostic_cause());
+        diagnostic.root_cause = Some(cause);
+        if let Some(owner) = self.expression_owners.last().copied() {
+            self.expression_owned_causes.entry(owner).or_insert(cause);
+        }
+        self.diagnostics.push(diagnostic);
+        Some(cause)
+    }
+
+    pub fn enforce_assignability(
+        &mut self,
+        actual: &TypeKnowledge,
+        expected: &TypeKnowledge,
+        code: crate::diagnostic::DiagnosticCode,
+        message: impl Into<String>,
+        range: SourceRange,
+    ) -> bool {
+        match check_assignability(self.store, &self.hierarchy, actual, expected) {
+            Assignability::Refuted { .. } => {
+                self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range));
+                false
+            }
+            _ => true,
+        }
+    }
+
+    pub fn enforce_knowledge_against_type(
+        &mut self,
+        actual: &TypeKnowledge,
+        expected: TypeId,
+        code: crate::diagnostic::DiagnosticCode,
+        message: impl Into<String>,
+        range: SourceRange,
+    ) -> bool {
+        match crate::types::relation::check_knowledge_against_type(self.store, &self.hierarchy, actual, expected) {
+            Assignability::Refuted { .. } => {
+                self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range));
+                false
+            }
+            _ => true,
+        }
+    }
+
+    pub fn enforce_knowledge_against_type_owned(
+        &mut self,
+        actual: &TypeKnowledge,
+        expected: TypeId,
+        code: crate::diagnostic::DiagnosticCode,
+        message: impl Into<String>,
+        range: SourceRange,
+        owner: ExpressionId,
+    ) -> bool {
+        match crate::types::relation::check_knowledge_against_type(self.store, &self.hierarchy, actual, expected) {
+            Assignability::Refuted { .. } => {
+                let cause = self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range));
+                if let Some(cause) = cause {
+                    self.expression_owned_causes.entry(owner).or_insert(cause);
+                    if let Some(analysis) = self.expressions.get_mut(&owner) {
+                        analysis.status = AnalysisStatus::Invalid(cause);
+                        analysis.causal_invalidity = analysis.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
+                    }
+                }
+                false
+            }
+            _ => true,
+        }
+    }
+
     pub fn record_expression(
         &mut self,
         id: ExpressionId,
         range: SourceRange,
         knowledge: TypeKnowledge,
+        callable: Option<CallableId>,
         denotation: Option<SemanticDenotation>,
         status: AnalysisStatus,
     ) -> ExpressionAnalysis {
         let mut analysis = ExpressionAnalysis::ready(id, range, knowledge);
+        analysis.callable = callable;
         analysis.denotation = denotation;
         analysis.status = status;
         self.expressions.insert(id, analysis.clone());
@@ -385,41 +529,38 @@ impl<'a> CheckingContext<'a> {
         self.scopes.pop();
     }
 
-    pub fn bind_local_var(
-        &mut self,
-        name: impl Into<String>,
-        declared: Option<TypeId>,
-        initial: TypeKnowledge,
-        mutable: bool,
-        denotation: Option<SemanticDenotation>,
-        range: SourceRange,
-    ) -> BindingId {
-        let name_str = name.into();
-        let binding_id = self.alloc_binding();
-        let contract = declared.map(|ty| BindingContract {
-            ty,
-            origin: match initial.origin() {
-                Some(crate::types::evidence::EvidenceOrigin::CallableSignature) => BindingContractOrigin::CallableParameter,
-                Some(crate::types::evidence::EvidenceOrigin::ContextualDerivation) => BindingContractOrigin::ContextualBlockParameter,
-                Some(crate::types::evidence::EvidenceOrigin::DeveloperAnnotation) => BindingContractOrigin::SourceAnnotation,
-                _ => BindingContractOrigin::InferredInitializer,
-            },
-            source: Some(range),
-        });
-        self.flow
-            .declare_with_contract(binding_id, name_str.clone(), range, declared, contract, initial.clone(), mutable);
-        if let Some(state) = self.flow.bindings.get_mut(&binding_id) {
-            let reconciliation = reconcile_binding_contract(self.store, &self.hierarchy, state.contract.as_ref(), &state.current);
-            state.current = reconciliation.current;
-            state.consistency = reconciliation.consistency;
-            state.denotation = denotation;
+    /// Inserts one explicit binding seed, retaining first declaration identity
+    /// when same-scope redeclaration is attempted.
+    pub fn declare_binding(&mut self, seed: BindingSeed) -> BindingDeclarationResult {
+        let Some(scope) = self.scopes.last() else {
+            return BindingDeclarationResult::Redeclared(BindingId(u32::MAX));
+        };
+        if let Some(existing) = scope.get(&seed.name).cloned() {
+            let mut diagnostic = SemanticDiagnostic::error_in(
+                self.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::BindingRedeclared,
+                format!("binding `{}` is already declared in this scope", seed.name),
+                seed.range,
+            );
+            if let Some(previous) = self.flow.get_binding(existing.id) {
+                diagnostic = diagnostic.with_label(previous.range, "first declaration");
+            }
+            self.emit_diagnostic(diagnostic);
+            return BindingDeclarationResult::Redeclared(existing.id);
         }
+
+        let binding_id = self.alloc_binding();
+        let reconciliation = reconcile_binding_contract(self.store, &self.hierarchy, seed.contract.as_ref(), &seed.current);
+        let declared = seed.contract.as_ref().map(|contract| contract.ty);
+        let denotation = seed.denotation;
+        let name = seed.name.clone();
+        self.flow.declare_seed(binding_id, seed, reconciliation.current, reconciliation.consistency);
         if let Some(state) = self.flow.get_binding(binding_id) {
             self.bindings.insert(binding_id, state.clone());
         }
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
-                name_str.clone(),
+                name,
                 LocalBindingInfo {
                     id: binding_id,
                     declared,
@@ -427,12 +568,69 @@ impl<'a> CheckingContext<'a> {
                 },
             );
         }
-        binding_id
+        BindingDeclarationResult::Inserted(binding_id)
     }
 
-    pub fn bind_local(&mut self, name: impl Into<String>, fact: ValueSemanticFact, range: SourceRange) {
-        let declared = fact.knowledge.ty();
-        self.bind_local_var(name, declared, fact.knowledge, true, fact.denotation, range);
+    pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
+        let contract = current.ty().map(|ty| BindingContract {
+            ty,
+            origin: BindingContractOrigin::CallableParameter,
+            source: Some(range),
+        });
+        self.declare_binding(BindingSeed {
+            name: name.into(),
+            range,
+            contract,
+            current,
+            denotation: None,
+            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            mutable: false,
+        })
+    }
+
+    pub fn bind_contextual_block_parameter(&mut self, name: impl Into<String>, ty: TypeId, range: SourceRange) -> BindingDeclarationResult {
+        self.declare_binding(BindingSeed {
+            name: name.into(),
+            range,
+            contract: Some(BindingContract {
+                ty,
+                origin: BindingContractOrigin::ContextualBlockParameter,
+                source: Some(range),
+            }),
+            current: TypeKnowledge::assumed(ty, EvidenceOrigin::ContextualDerivation),
+            denotation: None,
+            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            mutable: false,
+        })
+    }
+
+    pub fn bind_untyped_block_parameter(&mut self, name: impl Into<String>, range: SourceRange) -> BindingDeclarationResult {
+        self.declare_binding(BindingSeed {
+            name: name.into(),
+            range,
+            contract: None,
+            current: TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+            denotation: None,
+            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            mutable: false,
+        })
+    }
+
+    pub fn bind_pattern_binding(&mut self, name: impl Into<String>, fact: ValueSemanticFact, range: SourceRange) -> BindingDeclarationResult {
+        let contract = fact.knowledge.ty().map(|ty| BindingContract {
+            ty,
+            origin: BindingContractOrigin::PatternBinding,
+            source: Some(range),
+        });
+        self.declare_binding(BindingSeed {
+            name: name.into(),
+            range,
+            contract,
+            current: fact.knowledge,
+            denotation: fact.denotation,
+            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            mutable: true,
+        })
     }
 
     pub fn lookup_binding_info(&self, name: &str) -> Option<&LocalBindingInfo> {
@@ -462,20 +660,23 @@ impl<'a> CheckingContext<'a> {
         self.lookup_local(name).map(|f| f.knowledge)
     }
 
-    pub fn assign_existing(&mut self, name: &str, fact: ValueSemanticFact) -> bool {
-        let mut found = false;
-        if let Some(info) = self.lookup_binding_info(name).cloned() {
-            self.flow.assign(info.id, fact.knowledge.clone());
-            if let Some(state) = self.flow.bindings.get_mut(&info.id) {
-                state.denotation = fact.denotation;
-                let reconciliation = reconcile_binding_contract(self.store, &self.hierarchy, state.contract.as_ref(), &state.current);
-                state.current = reconciliation.current;
-                state.consistency = reconciliation.consistency;
+    pub fn write_existing(
+        &mut self,
+        name: &str,
+        fact: ValueSemanticFact,
+        consistency: crate::checker::binding::BindingConsistency,
+        causal_invalidity: crate::checker::causal::CausalInvalidity,
+    ) -> BindingWriteResult {
+        let Some(info) = self.lookup_binding_info(name).cloned() else {
+            return BindingWriteResult::Missing;
+        };
+        let result = self.flow.write(info.id, fact.knowledge, fact.denotation, consistency, causal_invalidity);
+        if matches!(result, BindingWriteResult::Applied) {
+            if let Some(state) = self.flow.get_binding(info.id) {
                 self.bindings.insert(info.id, state.clone());
             }
-            found = true;
         }
-        found
+        result
     }
 
     /// Records an explicitly consumed semantic dependency.
@@ -578,6 +779,9 @@ impl<'a> CheckingContext<'a> {
         let res = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
         match res {
             crate::dispatch::ResolvedDispatchResult::Found(resolved) => {
+                if let Some(expression) = self.current_expression_id() {
+                    self.resolved_callables.insert(expression, resolved.callable.clone());
+                }
                 for owner in resolved.visited_owners.iter() {
                     record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                 }
@@ -654,11 +858,12 @@ impl<'a> CheckingContext<'a> {
         &mut self,
         step: crate::explain::ExplanationStep,
         rule: crate::explain::DerivationRule,
-        authority: crate::types::evidence::EvidenceAuthority,
+        status: crate::types::evidence::EvidenceStatus,
+        origin: crate::types::evidence::EvidenceOrigin,
         evidence: Vec<crate::explain::EvidenceRef>,
         parents: Vec<crate::identity::ExplanationId>,
     ) -> crate::identity::ExplanationId {
-        self.explanations.alloc_full(step, rule, authority, evidence, parents)
+        self.explanations.alloc_full(step, rule, status, origin, evidence, parents)
     }
 
     pub fn suppression_cause(&self, id: ExpressionId) -> Option<crate::identity::DiagnosticCauseId> {

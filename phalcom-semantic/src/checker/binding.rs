@@ -1,11 +1,41 @@
 //! Pure binding-contract reconciliation.
 
+use crate::identity::BindingId;
+use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
 use crate::types::outcome::{BlockReason, DynamicBoundaryObligation};
 use crate::types::relation::{Assignability, RefutationReason, TypeHierarchy, check_knowledge_against_type};
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
+
+/// Explicit declaration input. Current value knowledge never replaces its
+/// persistent contract; both are retained in the resulting binding state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BindingSeed {
+    pub name: String,
+    pub range: SourceRange,
+    pub contract: Option<BindingContract>,
+    pub current: TypeKnowledge,
+    pub denotation: Option<SemanticDenotation>,
+    pub causal_invalidity: crate::checker::causal::CausalInvalidity,
+    pub mutable: bool,
+}
+
+/// Result of inserting a declaration into its current lexical scope.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BindingDeclarationResult {
+    Inserted(BindingId),
+    Redeclared(BindingId),
+}
+
+/// Result of attempting a write against an existing binding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BindingWriteResult {
+    Applied,
+    Immutable,
+    Missing,
+}
 
 /// Source of a persistent binding contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

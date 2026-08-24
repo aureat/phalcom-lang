@@ -1,6 +1,6 @@
 use phalcom_modules::{DeclarationId, ModuleId};
 use phalcom_semantic::db::{CancellationToken, DependencyRecorder, InputFingerprint, ProductFingerprint, QueryBudget, QueryKey, QueryValue, SemanticDb};
-use phalcom_semantic::types::evidence::{DynamicReason, EvidenceAuthority, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::{KindId, TypeId};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, check_assignability_bounded, check_subtype_bounded};
 use phalcom_semantic::types::store::TypeStore;
@@ -26,10 +26,26 @@ fn proper_type_enforcement_and_kinds() {
     assert_eq!(err, list_arrow);
 
     // ProperTypeId in TypeKnowledge
-    let knowledge = TypeKnowledge::known(proper_int, EvidenceAuthority::ExactSyntax);
+    let knowledge = TypeKnowledge::established(proper_int, EvidenceOrigin::Syntax);
     assert!(knowledge.is_known());
     assert_eq!(knowledge.ty(), Some(int_id));
     assert_eq!(knowledge.proper_ty(&store), Some(proper_int));
+}
+
+#[test]
+fn formal_knowledge_keeps_status_and_origin_independent() {
+    let established = TypeKnowledge::established(TypeId(7), EvidenceOrigin::ConstructorSemantics);
+    assert_eq!(established.status(), Some(EvidenceStatus::Established));
+    assert_eq!(established.origin(), Some(EvidenceOrigin::ConstructorSemantics));
+
+    let assumed = TypeKnowledge::assumed(TypeId(7), EvidenceOrigin::DeveloperAnnotation);
+    assert_eq!(assumed.status(), Some(EvidenceStatus::Assumed));
+    assert_eq!(assumed.origin(), Some(EvidenceOrigin::DeveloperAnnotation));
+
+    let mapped = established.map_type(|ty| TypeId(ty.0 + 1));
+    assert_eq!(mapped.ty(), Some(TypeId(8)));
+    assert_eq!(mapped.status(), Some(EvidenceStatus::Established));
+    assert_eq!(mapped.origin(), Some(EvidenceOrigin::ConstructorSemantics));
 }
 
 #[test]
@@ -75,7 +91,7 @@ fn relation_outcomes_distinguish_terminal_states() {
 
     // 5. DynamicBoundary
     let dyn_k = TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape);
-    let known_k = TypeKnowledge::known(store.proper_type(int_ty).unwrap(), EvidenceAuthority::Declared);
+    let known_k = TypeKnowledge::assumed(store.proper_type(int_ty).unwrap(), EvidenceOrigin::DeveloperAnnotation);
     let dyn_res = check_assignability_bounded(&store, &hier, &dyn_k, &known_k, &mut budget, &token);
     assert!(dyn_res.is_dynamic_boundary());
 

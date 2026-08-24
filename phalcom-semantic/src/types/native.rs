@@ -1,7 +1,7 @@
 //! Normalization of rich native metadata specifications into canonical semantic types.
 
 use super::application::TypeApplicationError;
-use super::evidence::{EvidenceAuthority, EvidenceOrigin, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason};
+use super::evidence::{EvidenceOrigin, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason};
 use super::id::TypeId;
 use super::store::{TupleTypeElement, TypeStore};
 use crate::declarations::DeclarationTypeTable;
@@ -77,7 +77,10 @@ pub fn resolve_native_type_form(
                 while !store.is_proper_type(form) {
                     let kind_id = store.kind_of(form);
                     if let crate::types::kind::KindData::Arrow { parameters: ref params, .. } = store.get_kind(kind_id).clone() {
-                        let top = declarations.form(&universe_resolver(UniverseKey::Object)).unwrap_or_else(|| store.never());
+                        let object_decl = universe_resolver(UniverseKey::Object);
+                        let Some(top) = declarations.form(&object_decl) else {
+                            return Err(NativeTypeResolutionError::MissingDeclaration(object_decl));
+                        };
                         let args = vec![top; params.len()];
                         if let Ok(applied) = store.apply_type_form(form, &args) {
                             form = applied;
@@ -164,7 +167,6 @@ pub fn normalize_native_type(
             ty: form,
             status: EvidenceStatus::Established,
             origin: EvidenceOrigin::NativeSignature,
-            authority: EvidenceAuthority::TrustedNative,
             provenance: Default::default(),
         }),
         _ => TypeKnowledge::Unknown(UnknownReason::OpaqueNative),
@@ -190,7 +192,7 @@ fn import_native_type(
             side,
             role: crate::types::parameter::SelfRole::InstanceType,
         });
-        return Ok(TypeKnowledge::known(self_ty, EvidenceAuthority::TrustedNative));
+        return Ok(TypeKnowledge::established(self_ty, EvidenceOrigin::NativeSignature));
     }
     if matches!(spec, TypeExprSpec::Unknown) {
         return Ok(TypeKnowledge::Unknown(UnknownReason::OpaqueNative));
@@ -203,7 +205,7 @@ fn import_native_type(
             source: NativeTypeResolutionError::Unsupported,
         });
     }
-    Ok(TypeKnowledge::known(form, EvidenceAuthority::TrustedNative))
+    Ok(TypeKnowledge::established(form, EvidenceOrigin::NativeSignature))
 }
 
 /// Registers declaration surfaces and dispatch signatures dynamically from the canonical native surface catalog.
@@ -294,9 +296,9 @@ pub fn register_native_surfaces(
                     side,
                     role: crate::types::parameter::SelfRole::InstanceType,
                 });
-                TypeKnowledge::known(self_ty, EvidenceAuthority::TrustedNative)
+                TypeKnowledge::established(self_ty, EvidenceOrigin::NativeSignature)
             }
-            ReturnFlowSpec::Never => TypeKnowledge::known(store.never(), EvidenceAuthority::TrustedNative),
+            ReturnFlowSpec::Never => TypeKnowledge::established(store.never(), EvidenceOrigin::NativeSignature),
             ReturnFlowSpec::Argument(index) => {
                 params
                     .get(index)

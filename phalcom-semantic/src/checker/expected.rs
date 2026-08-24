@@ -3,6 +3,22 @@
 use crate::checker::inference::InferenceTerm;
 use crate::types::id::TypeId;
 
+/// Why a checker expectation is being propagated downward. This is
+/// contextual control information, never value evidence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExpectationOrigin {
+    DeclarationContract,
+    ReturnContract,
+    CallableSignature,
+    AssignmentContract,
+    ContextualBlockParameter,
+    GenericArgument,
+    GenericResult,
+    CollectionElement,
+    ProductComponent,
+    ExplicitCheck,
+}
+
 /// Contextual type expectation propagated downward into an expression during bidirectional checking.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum ExpectedType {
@@ -10,9 +26,9 @@ pub enum ExpectedType {
     #[default]
     None,
     /// A known canonical proper type expectation (checking mode).
-    Proper(TypeId),
+    Proper { ty: TypeId, origin: ExpectationOrigin },
     /// A solver-local inference term expectation.
-    Inference(InferenceTerm),
+    Inference { term: InferenceTerm, origin: ExpectationOrigin },
 }
 
 impl ExpectedType {
@@ -21,11 +37,25 @@ impl ExpectedType {
     }
 
     pub fn proper(ty: TypeId) -> Self {
-        Self::Proper(ty)
+        Self::Proper {
+            ty,
+            origin: ExpectationOrigin::ExplicitCheck,
+        }
+    }
+
+    pub fn proper_from(ty: TypeId, origin: ExpectationOrigin) -> Self {
+        Self::Proper { ty, origin }
     }
 
     pub fn inference(term: InferenceTerm) -> Self {
-        Self::Inference(term)
+        Self::Inference {
+            term,
+            origin: ExpectationOrigin::GenericArgument,
+        }
+    }
+
+    pub fn inference_from(term: InferenceTerm, origin: ExpectationOrigin) -> Self {
+        Self::Inference { term, origin }
     }
 
     pub fn is_none(&self) -> bool {
@@ -34,26 +64,36 @@ impl ExpectedType {
 
     pub fn ty(&self) -> Option<TypeId> {
         match self {
-            Self::Proper(ty) => Some(*ty),
-            Self::Inference(InferenceTerm::Canonical(ty)) => Some(*ty),
+            Self::Proper { ty, .. } => Some(*ty),
+            Self::Inference {
+                term: InferenceTerm::Canonical(ty),
+                ..
+            } => Some(*ty),
             _ => None,
         }
     }
 
-    pub fn from_knowledge(k: &crate::types::evidence::TypeKnowledge) -> Self {
-        if let Some(ty) = k.ty() { Self::Proper(ty) } else { Self::None }
+    pub fn origin(&self) -> Option<ExpectationOrigin> {
+        match self {
+            Self::None => None,
+            Self::Proper { origin, .. } | Self::Inference { origin, .. } => Some(*origin),
+        }
     }
 
     pub fn collection_element_type(&self, store: &crate::types::store::TypeStore) -> ExpectedType {
         if let Some(ty) = self.ty() {
             if let crate::types::store::TypeData::Applied { arguments, .. } = store.get(ty) {
                 if let Some(&first) = arguments.first() {
-                    return ExpectedType::Proper(first);
+                    return ExpectedType::proper_from(first, ExpectationOrigin::CollectionElement);
                 }
             }
-        } else if let Self::Inference(InferenceTerm::Applied { arguments, .. }) = self {
+        } else if let Self::Inference {
+            term: InferenceTerm::Applied { arguments, .. },
+            ..
+        } = self
+        {
             if let Some(first) = arguments.first() {
-                return ExpectedType::Inference(first.clone());
+                return ExpectedType::inference_from(first.clone(), ExpectationOrigin::CollectionElement);
             }
         }
         ExpectedType::None
@@ -63,12 +103,22 @@ impl ExpectedType {
         if let Some(ty) = self.ty() {
             if let crate::types::store::TypeData::Applied { arguments, .. } = store.get(ty) {
                 if arguments.len() >= 2 {
-                    return (ExpectedType::Proper(arguments[0]), ExpectedType::Proper(arguments[1]));
+                    return (
+                        ExpectedType::proper_from(arguments[0], ExpectationOrigin::ProductComponent),
+                        ExpectedType::proper_from(arguments[1], ExpectationOrigin::ProductComponent),
+                    );
                 }
             }
-        } else if let Self::Inference(InferenceTerm::Applied { arguments, .. }) = self {
+        } else if let Self::Inference {
+            term: InferenceTerm::Applied { arguments, .. },
+            ..
+        } = self
+        {
             if arguments.len() >= 2 {
-                return (ExpectedType::Inference(arguments[0].clone()), ExpectedType::Inference(arguments[1].clone()));
+                return (
+                    ExpectedType::inference_from(arguments[0].clone(), ExpectationOrigin::ProductComponent),
+                    ExpectedType::inference_from(arguments[1].clone(), ExpectationOrigin::ProductComponent),
+                );
             }
         }
         (ExpectedType::None, ExpectedType::None)
@@ -77,13 +127,25 @@ impl ExpectedType {
     pub fn callable_signature(&self, store: &crate::types::store::TypeStore) -> Option<(Vec<ExpectedType>, ExpectedType)> {
         if let Some(ty) = self.ty() {
             if let crate::types::store::TypeData::Callable(c) = store.get(ty) {
-                let params = c.parameters.iter().map(|p| ExpectedType::Proper(p.ty)).collect();
-                let ret = ExpectedType::Proper(c.return_type);
+                let params = c
+                    .parameters
+                    .iter()
+                    .map(|p| ExpectedType::proper_from(p.ty, ExpectationOrigin::CallableSignature))
+                    .collect();
+                let ret = ExpectedType::proper_from(c.return_type, ExpectationOrigin::CallableSignature);
                 return Some((params, ret));
             }
-        } else if let Self::Inference(InferenceTerm::Callable(c)) = self {
-            let params = c.parameters.iter().map(|p| ExpectedType::Inference(p.term.clone())).collect();
-            let ret = ExpectedType::Inference((*c.return_type).clone());
+        } else if let Self::Inference {
+            term: InferenceTerm::Callable(c),
+            ..
+        } = self
+        {
+            let params = c
+                .parameters
+                .iter()
+                .map(|p| ExpectedType::inference_from(p.term.clone(), ExpectationOrigin::CallableSignature))
+                .collect();
+            let ret = ExpectedType::inference_from((*c.return_type).clone(), ExpectationOrigin::CallableSignature);
             return Some((params, ret));
         }
         None
