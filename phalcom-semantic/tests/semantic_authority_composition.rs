@@ -1,47 +1,73 @@
 use phalcom_ast::parse;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::checker::analysis::{CallableAnalysis, ExpressionAnalysis};
+use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use phalcom_semantic::explain::{EvidenceRef, ExplanationStep};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
-use phalcom_semantic::{Assignability, TypeId, analyze_single_module, check_assignability, is_subtype};
+use phalcom_semantic::{
+    Assignability, TypeId, analyze_single_module, check_assignability, is_subtype,
+};
 use std::sync::Arc;
 
-fn analyze(source_text: &str) -> (ModuleId, Arc<str>, phalcom_semantic::workspace::SemanticAnalysis) {
+type Analysis = phalcom_semantic::workspace::SemanticAnalysis;
+
+fn analyze(source_text: &str) -> (ModuleId, Arc<str>, Analysis) {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(source_text);
     let parsed = parse(&source, 0);
-    assert!(parsed.diagnostics.is_empty(), "parse diagnostics: {:?}", parsed.diagnostics);
+    assert!(
+        parsed.errors.is_empty(),
+        "parse errors: {:?}",
+        parsed.errors
+    );
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
     (module, source, analysis)
 }
 
-fn declaration(module: &ModuleId, name: &str) -> DeclarationId {
+fn decl(module: &ModuleId, name: &str) -> DeclarationId {
     DeclarationId::new(module.clone(), name.into())
 }
 
-fn method_callable(module: &ModuleId, owner: &str, name: &str, side: DispatchSide) -> CallableId {
+fn ty(analysis: &Analysis, module: &ModuleId, name: &str) -> TypeId {
+    analysis
+        .snapshot
+        .declarations
+        .form(&decl(module, name))
+        .unwrap_or_else(|| panic!("missing type form for {name}"))
+}
+
+fn callable(module: &ModuleId, owner: &str, name: &str, side: DispatchSide) -> CallableId {
     CallableId::new(
-        declaration(module, owner),
+        decl(module, owner),
         Selector::method(name, vec![]).unwrap(),
         side,
     )
 }
 
-fn callable_analysis<'a>(
-    analysis: &'a phalcom_semantic::workspace::SemanticAnalysis,
-    callable: &CallableId,
-) -> &'a CallableAnalysis {
+fn unary_callable(
+    module: &ModuleId,
+    owner: &str,
+    name: &str,
+    side: DispatchSide,
+) -> CallableId {
+    CallableId::new(
+        decl(module, owner),
+        Selector::method(name, vec![SelectorSlot::Positional]).unwrap(),
+        side,
+    )
+}
+
+fn callable_analysis<'a>(analysis: &'a Analysis, id: &CallableId) -> &'a CallableAnalysis {
     analysis
         .snapshot
         .callable_analyses
-        .get(callable)
-        .unwrap_or_else(|| panic!("missing callable analysis for {callable:?}"))
+        .get(id)
+        .unwrap_or_else(|| panic!("missing callable analysis for {id:?}"))
 }
 
-fn binding<'a>(analysis: &'a CallableAnalysis, name: &str) -> &'a phalcom_semantic::checker::analysis::BindingState {
+fn binding<'a>(analysis: &'a CallableAnalysis, name: &str) -> &'a BindingState {
     analysis
         .bindings
         .values()
@@ -49,16 +75,20 @@ fn binding<'a>(analysis: &'a CallableAnalysis, name: &str) -> &'a phalcom_semant
         .unwrap_or_else(|| panic!("missing binding `{name}`; bindings={:#?}", analysis.bindings))
 }
 
-fn expression_with_text<'a>(analysis: &'a CallableAnalysis, source: &str, text: &str) -> &'a ExpressionAnalysis {
+fn expression<'a>(
+    analysis: &'a CallableAnalysis,
+    source: &str,
+    expected_text: &str,
+) -> &'a ExpressionAnalysis {
     let matches = analysis
         .expressions
         .values()
-        .filter(|expr| source.get(expr.range.start..expr.range.end) == Some(text))
+        .filter(|expr| source.get(expr.range.start..expr.range.end) == Some(expected_text))
         .collect::<Vec<_>>();
     assert_eq!(
         matches.len(),
         1,
-        "expected one expression `{text}` in {:?}, found {}: {:#?}",
+        "expected one `{expected_text}` expression in {:?}, found {}: {:#?}",
         analysis.callable,
         matches.len(),
         matches
@@ -66,10 +96,7 @@ fn expression_with_text<'a>(analysis: &'a CallableAnalysis, source: &str, text: 
     matches[0]
 }
 
-fn diagnostics<'a>(
-    analysis: &'a phalcom_semantic::workspace::SemanticAnalysis,
-    code: DiagnosticCode,
-) -> Vec<&'a SemanticDiagnostic> {
+fn diagnostics(analysis: &Analysis, code: DiagnosticCode) -> Vec<&SemanticDiagnostic> {
     analysis
         .snapshot
         .all_diagnostics()
@@ -77,32 +104,36 @@ fn diagnostics<'a>(
         .collect()
 }
 
-fn assert_method_call_evidence(analysis: &CallableAnalysis, expression: &ExpressionAnalysis, expected_type: TypeId) {
+fn assert_method_call_evidence(
+    analysis: &CallableAnalysis,
+    expression: &ExpressionAnalysis,
+    expected_type: TypeId,
+) {
     assert_eq!(expression.knowledge.ty(), Some(expected_type));
     let explanation_id = expression
         .explanation
-        .expect("known method-call expression must retain an explanation");
+        .expect("known method call must retain explanation evidence");
     let node = analysis
         .explanations
         .get(explanation_id)
-        .unwrap_or_else(|| panic!("missing explanation node {explanation_id:?}"));
+        .unwrap_or_else(|| panic!("missing explanation {explanation_id:?}"));
 
     match &node.step {
         ExplanationStep::MethodCall { return_ty, .. } => assert_eq!(*return_ty, expected_type),
-        other => panic!("expected method-call derivation, got {other:?}"),
+        other => panic!("expected method-call explanation, got {other:?}"),
     }
     assert_eq!(node.authority, EvidenceAuthority::Proven);
     assert!(
         node.evidence
             .iter()
             .any(|evidence| matches!(evidence, EvidenceRef::SourceSpan(range) if *range == expression.range)),
-        "method-call explanation must retain source evidence: {node:#?}"
+        "method-call explanation must retain source span: {node:#?}"
     );
     assert!(
         node.evidence
             .iter()
             .any(|evidence| matches!(evidence, EvidenceRef::TypeId(ty) if *ty == expected_type)),
-        "method-call explanation must retain resulting type evidence: {node:#?}"
+        "method-call explanation must retain result type: {node:#?}"
     );
 }
 
@@ -113,7 +144,6 @@ class CellNum {
   @constructor
   new() {}
 }
-
 class Probe {
   @class
   run() {
@@ -122,17 +152,21 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let cell_num = analysis.snapshot.declarations.form(&declaration(&module, "CellNum")).unwrap();
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
-    let new_id = method_callable(&module, "CellNum", "new", DispatchSide::Class);
+    let cell_num = ty(&analysis, &module, "CellNum");
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
+    let new_id = callable(&module, "CellNum", "new", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    let call = expression_with_text(run, &source, "CellNum.new()");
-    assert_method_call_evidence(run, call, cell_num);
+    assert_method_call_evidence(run, expression(run, &source, "CellNum.new()"), cell_num);
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
-    assert_eq!(binding(run, "x").current.authority(), Some(EvidenceAuthority::Proven));
-    assert!(run.dependencies.contains(&new_id), "constructor dispatch path missing: {:?}", run.dependencies);
-    assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
+    assert_eq!(
+        binding(run, "x").current.authority(),
+        Some(EvidenceAuthority::Proven)
+    );
+    assert!(run.dependencies.contains(&new_id));
+    assert!(
+        diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty()
+    );
 }
 
 #[test]
@@ -147,7 +181,6 @@ class CellNum {
     CellNum.new()
   }
 }
-
 class Probe {
   @class
   run() {
@@ -156,20 +189,22 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let cell_num = analysis.snapshot.declarations.form(&declaration(&module, "CellNum")).unwrap();
-    let of_id = method_callable(&module, "CellNum", "of", DispatchSide::Class);
-    let new_id = method_callable(&module, "CellNum", "new", DispatchSide::Class);
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
+    let cell_num = ty(&analysis, &module, "CellNum");
+    let new_id = callable(&module, "CellNum", "new", DispatchSide::Class);
+    let of_id = callable(&module, "CellNum", "of", DispatchSide::Class);
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
 
     let factory = callable_analysis(&analysis, &of_id);
-    let factory_tail = expression_with_text(factory, &source, "CellNum.new()");
-    assert_method_call_evidence(factory, factory_tail, cell_num);
-    assert!(factory.dependencies.contains(&new_id), "factory must depend on constructor: {:?}", factory.dependencies);
+    assert_method_call_evidence(
+        factory,
+        expression(factory, &source, "CellNum.new()"),
+        cell_num,
+    );
+    assert!(factory.dependencies.contains(&new_id));
 
     let run = callable_analysis(&analysis, &run_id);
-    let callsite = expression_with_text(run, &source, "CellNum.of()");
-    assert_method_call_evidence(run, callsite, cell_num);
-    assert!(run.dependencies.contains(&of_id), "callsite must depend on factory: {:?}", run.dependencies);
+    assert_method_call_evidence(run, expression(run, &source, "CellNum.of()"), cell_num);
+    assert!(run.dependencies.contains(&of_id));
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
 }
 
@@ -180,11 +215,8 @@ class CellNum {
   @constructor
   new() {}
 
-  cellOnly() -> Int {
-    1
-  }
+  cellOnly() -> Int { 1 }
 }
-
 class Probe {
   @class
   run() {
@@ -194,46 +226,54 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let cell_num = analysis.snapshot.declarations.form(&declaration(&module, "CellNum")).unwrap();
-    let int_ty = analysis.snapshot.declarations.form(&declaration(&module, "Int")).unwrap();
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
-    let new_id = method_callable(&module, "CellNum", "new", DispatchSide::Class);
-    let cell_only_id = method_callable(&module, "CellNum", "cellOnly", DispatchSide::Instance);
+    let cell_num = ty(&analysis, &module, "CellNum");
+    let int_ty = ty(&analysis, &module, "Int");
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
+    let new_id = callable(&module, "CellNum", "new", DispatchSide::Class);
+    let cell_only_id = callable(&module, "CellNum", "cellOnly", DispatchSide::Instance);
     let run = callable_analysis(&analysis, &run_id);
 
-    let initializer = expression_with_text(run, &source, "CellNum.new()");
-    assert_method_call_evidence(run, initializer, cell_num);
+    assert_method_call_evidence(run, expression(run, &source, "CellNum.new()"), cell_num);
     let x = binding(run, "x");
-    assert_eq!(x.declared, Some(int_ty), "developer annotation must remain a declared constraint");
-    assert_eq!(x.current.ty(), Some(cell_num), "refuted annotation must not replace proven value knowledge");
+    assert_eq!(x.declared, Some(int_ty));
+    assert_eq!(
+        x.current.ty(),
+        Some(cell_num),
+        "refuted developer annotation must not replace proven checker knowledge"
+    );
     assert_eq!(x.current.authority(), Some(EvidenceAuthority::Proven));
 
     let mismatch = diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch);
-    assert_eq!(mismatch.len(), 1, "expected exactly one annotation contradiction: {mismatch:#?}");
-    assert!(mismatch[0].labels.iter().any(|label| label.message == "declared type"));
-    assert!(mismatch[0].labels.iter().any(|label| label.message == "inferred type"));
+    assert_eq!(mismatch.len(), 1, "expected one contradiction: {mismatch:#?}");
+    assert!(
+        mismatch[0]
+            .labels
+            .iter()
+            .any(|label| label.message == "declared type")
+    );
+    assert!(
+        mismatch[0]
+            .labels
+            .iter()
+            .any(|label| label.message == "inferred type")
+    );
 
-    let downstream = expression_with_text(run, &source, "x.cellOnly()");
-    assert_method_call_evidence(run, downstream, int_ty);
+    assert_method_call_evidence(run, expression(run, &source, "x.cellOnly()"), int_ty);
     assert_eq!(binding(run, "y").current.ty(), Some(int_ty));
     assert!(run.dependencies.contains(&new_id));
-    assert!(run.dependencies.contains(&cell_only_id), "downstream dispatch must use proven CellNum receiver");
+    assert!(run.dependencies.contains(&cell_only_id));
 }
 
 #[test]
 fn compatible_supertype_annotation_is_proven_but_narrow_value_knowledge_is_preserved() {
     let source_text = r#"
 class Base {}
-
 class Derived is Base {
   @constructor
   new() {}
 
-  derivedOnly() -> Int {
-    1
-  }
+  derivedOnly() -> Int { 1 }
 }
-
 class Probe {
   @class
   run() {
@@ -243,32 +283,44 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let base = analysis.snapshot.declarations.form(&declaration(&module, "Base")).unwrap();
-    let derived = analysis.snapshot.declarations.form(&declaration(&module, "Derived")).unwrap();
-    let int_ty = analysis.snapshot.declarations.form(&declaration(&module, "Int")).unwrap();
-    assert!(is_subtype(&analysis.snapshot.store, &analysis.snapshot.hierarchy, derived, base));
+    let base = ty(&analysis, &module, "Base");
+    let derived = ty(&analysis, &module, "Derived");
+    let int_ty = ty(&analysis, &module, "Int");
+
+    assert!(is_subtype(
+        &analysis.snapshot.store,
+        analysis.snapshot.hierarchy.as_ref(),
+        derived,
+        base
+    ));
     assert_eq!(
         check_assignability(
             &analysis.snapshot.store,
-            &analysis.snapshot.hierarchy,
+            analysis.snapshot.hierarchy.as_ref(),
             &TypeKnowledge::known(derived, EvidenceAuthority::Proven),
             &TypeKnowledge::known(base, EvidenceAuthority::Declared),
         ),
         Assignability::Assignable
     );
 
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
-    let derived_only_id = method_callable(&module, "Derived", "derivedOnly", DispatchSide::Instance);
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
+    let derived_only_id = callable(&module, "Derived", "derivedOnly", DispatchSide::Instance);
     let run = callable_analysis(&analysis, &run_id);
-    assert_method_call_evidence(run, expression_with_text(run, &source, "Derived.new()"), derived);
+    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived);
 
     let x = binding(run, "x");
     assert_eq!(x.declared, Some(base));
-    assert_eq!(x.current.ty(), Some(derived), "successful supertype constraint must not erase stronger proven knowledge");
+    assert_eq!(
+        x.current.ty(),
+        Some(derived),
+        "a compatible annotation is a constraint, not permission to erase stronger proof"
+    );
     assert_eq!(x.current.authority(), Some(EvidenceAuthority::Proven));
-    assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
+    assert!(
+        diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty()
+    );
 
-    assert_method_call_evidence(run, expression_with_text(run, &source, "x.derivedOnly()"), int_ty);
+    assert_method_call_evidence(run, expression(run, &source, "x.derivedOnly()"), int_ty);
     assert_eq!(binding(run, "y").current.ty(), Some(int_ty));
     assert!(run.dependencies.contains(&derived_only_id));
 }
@@ -284,22 +336,23 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let int_ty = analysis.snapshot.declarations.form(&declaration(&module, "Int")).unwrap();
-    let run_id = CallableId::new(
-        declaration(&module, "Probe"),
-        Selector::method("run", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
-        DispatchSide::Class,
-    );
+    let int_ty = ty(&analysis, &module, "Int");
+    let run_id = unary_callable(&module, "Probe", "run", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    let parameter_use = expression_with_text(run, &source, "value");
-    assert!(parameter_use.knowledge.is_unknown(), "unannotated parameter should be unknown evidence: {parameter_use:#?}");
+    let parameter_use = expression(run, &source, "value");
+    assert!(
+        parameter_use.knowledge.is_unknown(),
+        "unannotated parameter should remain unknown evidence: {parameter_use:#?}"
+    );
 
     let x = binding(run, "x");
     assert_eq!(x.declared, Some(int_ty));
     assert_eq!(x.current.ty(), Some(int_ty));
     assert_eq!(x.current.authority(), Some(EvidenceAuthority::Declared));
-    assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
+    assert!(
+        diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty()
+    );
 }
 
 #[test]
@@ -314,7 +367,6 @@ class CellNum {
     CellNum.new()
   }
 }
-
 class Probe {
   @class
   run() {
@@ -323,27 +375,27 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let cell_num = analysis.snapshot.declarations.form(&declaration(&module, "CellNum")).unwrap();
-    let string_ty = analysis.snapshot.declarations.form(&declaration(&module, "String")).unwrap();
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
-    let from_int_id = CallableId::new(
-        declaration(&module, "CellNum"),
-        Selector::method("fromInt", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
-        DispatchSide::Class,
-    );
+    let cell_num = ty(&analysis, &module, "CellNum");
+    let string_ty = ty(&analysis, &module, "String");
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
+    let from_int_id = unary_callable(&module, "CellNum", "fromInt", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    let argument = expression_with_text(run, &source, "\"bad\"");
+    let argument = expression(run, &source, "\"bad\"");
     assert_eq!(argument.knowledge.ty(), Some(string_ty));
-    assert_eq!(argument.knowledge.authority(), Some(EvidenceAuthority::ExactSyntax));
+    assert_eq!(
+        argument.knowledge.authority(),
+        Some(EvidenceAuthority::ExactSyntax)
+    );
 
-    let call = expression_with_text(run, &source, "CellNum.fromInt(\"bad\")");
-    assert_method_call_evidence(run, call, cell_num);
+    assert_method_call_evidence(
+        run,
+        expression(run, &source, "CellNum.fromInt(\"bad\")"),
+        cell_num,
+    );
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
     assert!(run.dependencies.contains(&from_int_id));
-
-    let argument_mismatches = diagnostics(&analysis, DiagnosticCode::ArgumentMismatch);
-    assert_eq!(argument_mismatches.len(), 1, "argument contradiction must be diagnosed without losing return fact: {argument_mismatches:#?}");
+    assert_eq!(diagnostics(&analysis, DiagnosticCode::ArgumentMismatch).len(), 1);
 }
 
 #[test]
@@ -353,7 +405,6 @@ class CellNum {
   @constructor
   new() {}
 }
-
 class Factory {
   @class
   make() -> Int {
@@ -362,24 +413,32 @@ class Factory {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let cell_num = analysis.snapshot.declarations.form(&declaration(&module, "CellNum")).unwrap();
-    let int_ty = analysis.snapshot.declarations.form(&declaration(&module, "Int")).unwrap();
-    let make_id = method_callable(&module, "Factory", "make", DispatchSide::Class);
-    let new_id = method_callable(&module, "CellNum", "new", DispatchSide::Class);
+    let cell_num = ty(&analysis, &module, "CellNum");
+    let int_ty = ty(&analysis, &module, "Int");
+    let make_id = callable(&module, "Factory", "make", DispatchSide::Class);
+    let new_id = callable(&module, "CellNum", "new", DispatchSide::Class);
     let make = callable_analysis(&analysis, &make_id);
 
-    let tail = expression_with_text(make, &source, "CellNum.new()");
-    assert_method_call_evidence(make, tail, cell_num);
+    assert_method_call_evidence(make, expression(make, &source, "CellNum.new()"), cell_num);
     assert!(make.dependencies.contains(&new_id));
+    assert_eq!(diagnostics(&analysis, DiagnosticCode::ReturnMismatch).len(), 1);
 
-    let return_mismatches = diagnostics(&analysis, DiagnosticCode::ReturnMismatch);
-    assert_eq!(return_mismatches.len(), 1, "return contradiction must be retained: {return_mismatches:#?}");
-
-    let surface = analysis.snapshot.surfaces.get(&declaration(&module, "Factory")).unwrap();
-    let signature = surface
-        .get_callable(DispatchSide::Class, &Selector::method("make", vec![]).unwrap())
+    let surface = analysis
+        .snapshot
+        .surfaces
+        .get(&decl(&module, "Factory"))
         .unwrap();
-    assert_eq!(signature.return_type.ty(), Some(int_ty), "declared contract remains Int while body proof remains CellNum");
+    let signature = surface
+        .get_callable(
+            DispatchSide::Class,
+            &Selector::method("make", vec![]).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        signature.return_type.ty(),
+        Some(int_ty),
+        "declared public contract stays Int while body evidence independently proves CellNum"
+    );
 }
 
 #[test]
@@ -389,9 +448,7 @@ class Base {
   @constructor
   new() {}
 }
-
 class Derived is Base {}
-
 class Probe {
   @class
   run() {
@@ -400,30 +457,31 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let derived = analysis.snapshot.declarations.form(&declaration(&module, "Derived")).unwrap();
-    let string_ty = analysis.snapshot.declarations.form(&declaration(&module, "String")).unwrap();
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
-    let inherited_new_id = method_callable(&module, "Base", "new", DispatchSide::Class);
+    let derived = ty(&analysis, &module, "Derived");
+    let string_ty = ty(&analysis, &module, "String");
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
+    let inherited_new_id = callable(&module, "Base", "new", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    let constructor_call = expression_with_text(run, &source, "Derived.new()");
-    assert_method_call_evidence(run, constructor_call, derived);
-    assert!(run.dependencies.contains(&inherited_new_id), "dispatch evidence must point through inherited Base constructor");
+    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived);
+    assert!(run.dependencies.contains(&inherited_new_id));
 
     let x = binding(run, "x");
     assert_eq!(x.declared, Some(string_ty));
-    assert_eq!(x.current.ty(), Some(derived), "specialized Self proof must outrank contradictory annotation");
-
+    assert_eq!(x.current.ty(), Some(derived));
     assert!(matches!(
         check_assignability(
             &analysis.snapshot.store,
-            &analysis.snapshot.hierarchy,
+            analysis.snapshot.hierarchy.as_ref(),
             &TypeKnowledge::known(derived, EvidenceAuthority::Proven),
             &TypeKnowledge::known(string_ty, EvidenceAuthority::Declared),
         ),
         Assignability::Refuted { .. }
     ));
-    assert_eq!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).len(), 1);
+    assert_eq!(
+        diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).len(),
+        1
+    );
 }
 
 #[test]
@@ -438,9 +496,7 @@ class Base {
     Base.new()
   }
 }
-
 class Derived is Base {}
-
 class Probe {
   @class
   run() {
@@ -450,20 +506,20 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let base = analysis.snapshot.declarations.form(&declaration(&module, "Base")).unwrap();
-    let derived = analysis.snapshot.declarations.form(&declaration(&module, "Derived")).unwrap();
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
-    let inherited_new_id = method_callable(&module, "Base", "new", DispatchSide::Class);
-    let ordinary_id = method_callable(&module, "Base", "ordinary", DispatchSide::Class);
+    let base = ty(&analysis, &module, "Base");
+    let derived = ty(&analysis, &module, "Derived");
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
+    let inherited_new_id = callable(&module, "Base", "new", DispatchSide::Class);
+    let ordinary_id = callable(&module, "Base", "ordinary", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    assert_method_call_evidence(run, expression_with_text(run, &source, "Derived.new()"), derived);
-    assert_method_call_evidence(run, expression_with_text(run, &source, "Derived.ordinary()"), base);
+    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived);
+    assert_method_call_evidence(run, expression(run, &source, "Derived.ordinary()"), base);
     assert_eq!(binding(run, "constructed").current.ty(), Some(derived));
     assert_eq!(binding(run, "ordinary").current.ty(), Some(base));
     assert!(run.dependencies.contains(&inherited_new_id));
     assert!(run.dependencies.contains(&ordinary_id));
-    assert!(!analysis.snapshot.has_errors(), "unexpected diagnostics: {:#?}", analysis.snapshot.diagnostics);
+    assert!(!analysis.snapshot.has_errors(), "{:#?}", analysis.snapshot.diagnostics);
 }
 
 #[test]
@@ -477,22 +533,29 @@ class Probe {
 }
 "#;
     let (module, source, analysis) = analyze(source_text);
-    let int_ty = analysis.snapshot.declarations.form(&declaration(&module, "Int")).unwrap();
-    let string_ty = analysis.snapshot.declarations.form(&declaration(&module, "String")).unwrap();
-    let run_id = method_callable(&module, "Probe", "run", DispatchSide::Class);
+    let int_ty = ty(&analysis, &module, "Int");
+    let string_ty = ty(&analysis, &module, "String");
+    let run_id = callable(&module, "Probe", "run", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    let literal = expression_with_text(run, &source, "42");
+    let literal = expression(run, &source, "42");
     assert_eq!(literal.knowledge.ty(), Some(int_ty));
-    assert_eq!(literal.knowledge.authority(), Some(EvidenceAuthority::ExactSyntax));
-    let explanation_id = literal.explanation.expect("literal must have explanation");
-    let explanation = run.explanations.get(explanation_id).expect("literal explanation node");
-    assert!(matches!(explanation.step, ExplanationStep::Literal { ty, .. } if ty == int_ty));
-
+    assert_eq!(
+        literal.knowledge.authority(),
+        Some(EvidenceAuthority::ExactSyntax)
+    );
+    let explanation = run
+        .explanations
+        .get(literal.explanation.expect("literal explanation"))
+        .expect("literal explanation node");
+    assert!(matches!(
+        explanation.step,
+        ExplanationStep::Literal { ty, .. } if ty == int_ty
+    ));
     assert!(matches!(
         check_assignability(
             &analysis.snapshot.store,
-            &analysis.snapshot.hierarchy,
+            analysis.snapshot.hierarchy.as_ref(),
             &literal.knowledge,
             &TypeKnowledge::known(string_ty, EvidenceAuthority::Declared),
         ),
@@ -501,7 +564,14 @@ class Probe {
 
     let x = binding(run, "x");
     assert_eq!(x.declared, Some(string_ty));
-    assert_eq!(x.current.ty(), Some(int_ty), "exact syntax proof must outrank refuted developer annotation");
+    assert_eq!(
+        x.current.ty(),
+        Some(int_ty),
+        "exact checker proof must outrank contradictory developer annotation"
+    );
     assert_eq!(x.current.authority(), Some(EvidenceAuthority::ExactSyntax));
-    assert_eq!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).len(), 1);
+    assert_eq!(
+        diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).len(),
+        1
+    );
 }
