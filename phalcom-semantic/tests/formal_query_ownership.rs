@@ -129,6 +129,11 @@ class Child is Base {
         "declaration syntax is a direct query input so body-only parse changes do not invalidate the surface"
     );
     assert!(surface_dependencies.contains(&QueryKey::LinkedInterface(module)));
+    assert!(surface_dependencies.contains(&QueryKey::DeclarationShell(child)));
+    assert!(
+        !surface_dependencies.contains(&surface_key),
+        "declaration surface must never record itself as a dependency"
+    );
 
     let signature = session
         .db()

@@ -27,6 +27,26 @@ use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface, Unlink
 use phalcom_modules::linker::LinkedProgram;
 use std::sync::Arc;
 
+fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
+    match dependency {
+        crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => {
+            QueryKey::DeclarationShell(declaration.clone())
+        }
+        crate::checker::analysis::SemanticDependency::CallableSignature(callable) => {
+            QueryKey::CallableSignature(callable.clone())
+        }
+        crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
+            QueryKey::DeclarationSurface(declaration.clone())
+        }
+        crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
+            QueryKey::HierarchyEdge(declaration.clone())
+        }
+        crate::checker::analysis::SemanticDependency::LinkedInterface(module) => {
+            QueryKey::LinkedInterface(module.clone())
+        }
+    }
+}
+
 fn query_failure<T>(db: &mut SemanticDb, key: QueryKey, failure: impl Into<String>) -> QueryOutcome<T> {
     let failure = failure.into();
     let revision = db.revision();
@@ -506,6 +526,15 @@ pub fn query_declaration_surface(
         );
     }
 
+    let Some(class_def) = class_definition_for(&unit, &decl_id) else {
+        return query_failure(db, key, format!("source declaration {decl_id:?} was not found in its parsed module"));
+    };
+
+    let Some(declaration_info) = declarations.get(&decl_id).cloned() else {
+        return query_failure(db, key, format!("declaration metadata was not found for {decl_id:?}"));
+    };
+    let input_fingerprint = crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def);
+
     match query_linked_interface(db, linked_interface.module.clone(), linked_interface) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
@@ -514,36 +543,13 @@ pub fn query_declaration_surface(
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
-    let Some(class_def) = class_definition_for(&unit, &decl_id) else {
-        return query_failure(db, key, format!("source declaration {decl_id:?} was not found in its parsed module"));
-    };
-
-    // Surface construction is query-owned. We currently compute a candidate
-    // surface before reuse validation because resolved type IDs and provenance
-    // participate in its direct input identity. Crucially, the whole ParsedModule
-    // is not a dependency: body-only parse changes can therefore retain the old
-    // surface product when this declaration's own contract is unchanged.
-    let (computed_surface, computed_diagnostics) = {
-        let mut context = crate::checker::context::CheckingContext::new(
-            store,
-            hierarchy,
-            resolver,
-            declarations,
-            decl_id.module.clone(),
-        );
-        crate::checker::declaration::register_class_surface(&mut context, class_def);
-        (
-            context.dispatch_ref().get_surface(&decl_id).cloned(),
-            Arc::<[crate::diagnostic::SemanticDiagnostic]>::from(context.diagnostics.into_boxed_slice()),
-        )
-    };
-    let Some(computed_surface) = computed_surface else {
-        return query_failure(db, key, format!("declaration-surface query did not publish {decl_id:?}"));
-    };
-    let input_fingerprint = crate::db::fingerprint::declaration_surface_query_input_fingerprint(
-        &computed_surface,
-        &computed_diagnostics,
-    );
+    match query_declaration_shell(db, Arc::new(declaration_info)) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
 
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_declaration_surface()) {
@@ -556,12 +562,38 @@ pub fn query_declaration_surface(
     }
     db.metrics().record_miss();
 
+    // Semantic resolution is query-owned and only runs after the source-contract
+    // cache lookup misses. Body-only source edits therefore avoid this branch.
+    let (computed_surface, computed_diagnostics, captured_dependencies) = {
+        let mut context = crate::checker::context::CheckingContext::new(
+            store,
+            hierarchy,
+            resolver,
+            declarations,
+            decl_id.module.clone(),
+        );
+        crate::checker::declaration::register_class_surface(&mut context, class_def);
+        let computed_surface = context.dispatch_ref().get_surface(&decl_id).cloned();
+        let captured_dependencies = context.semantic_dependencies_snapshot();
+        let diagnostics = Arc::<[crate::diagnostic::SemanticDiagnostic]>::from(context.diagnostics.into_boxed_slice());
+        (computed_surface, diagnostics, captured_dependencies)
+    };
+    let Some(computed_surface) = computed_surface else {
+        return query_failure(db, key, format!("declaration-surface query did not publish {decl_id:?}"));
+    };
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-    if let Err(error) = db.record_dependency(
-        &mut recorder,
-        QueryKey::LinkedInterface(decl_id.module.clone()),
-    ) {
-        return query_failure(db, key, error);
+    let mut semantic_dependencies = std::collections::BTreeSet::new();
+    semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::DeclarationShell(decl_id.clone()));
+    semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::LinkedInterface(decl_id.module.clone()));
+    semantic_dependencies.extend(captured_dependencies);
+    for dependency in semantic_dependencies {
+        let dependency_key = semantic_dependency_query_key(&dependency);
+        if dependency_key == key {
+            return query_failure(db, key, "declaration surface captured a self-surface dependency");
+        }
+        if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
+            return query_failure(db, key, error);
+        }
     }
 
     let surface = Arc::new(computed_surface);
@@ -818,23 +850,7 @@ pub fn query_callable_body(
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
-                let dependency = match sem_dep {
-                    crate::checker::analysis::SemanticDependency::DeclarationShell(did) => {
-                        QueryKey::DeclarationShell(did.clone())
-                    }
-                    crate::checker::analysis::SemanticDependency::CallableSignature(cid) => {
-                        QueryKey::CallableSignature(cid.clone())
-                    }
-                    crate::checker::analysis::SemanticDependency::DeclarationSurface(did) => {
-                        QueryKey::DeclarationSurface(did.clone())
-                    }
-                    crate::checker::analysis::SemanticDependency::HierarchyEdge(did) => {
-                        QueryKey::HierarchyEdge(did.clone())
-                    }
-                    crate::checker::analysis::SemanticDependency::LinkedInterface(mid) => {
-                        QueryKey::LinkedInterface(mid.clone())
-                    }
-                };
+                let dependency = semantic_dependency_query_key(sem_dep);
                 if let Err(error) = db.record_dependency(&mut recorder, dependency) {
                     return query_failure(db, key, error);
                 }

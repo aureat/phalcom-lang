@@ -22,7 +22,9 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::parameter::GenericSignature;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{ImportPath, ImportRoot, MetadataLiteral, RestMode, Statement};
+use phalcom_ast::ast::{
+    ClassMember, ImportPath, ImportRoot, IndexAccessor, MetadataLiteral, ParameterDef, RestMode, Statement,
+};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::graph::{ReferenceKind, RuntimeDependencyReason, SemanticEdgeKind};
 use phalcom_modules::interface::{
@@ -64,6 +66,137 @@ fn hash_rest_mode(rest: RestMode, hasher: &mut impl Hasher) {
         RestMode::Labeled => 2u8.hash(hasher),
         RestMode::Complete => 3u8.hash(hasher),
     }
+}
+
+fn hash_source_region(source: &str, range: SourceRange, hasher: &mut impl Hasher) {
+    hash_range(range, hasher);
+    match source.get(range.start..range.end) {
+        Some(region) => {
+            0u8.hash(hasher);
+            region.as_bytes().hash(hasher);
+        }
+        None => {
+            1u8.hash(hasher);
+            0xBAD0u32.hash(hasher);
+        }
+    }
+}
+
+fn hash_optional_source_region(source: &str, range: Option<SourceRange>, hasher: &mut impl Hasher) {
+    match range {
+        Some(range) => {
+            1u8.hash(hasher);
+            hash_source_region(source, range, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
+}
+
+fn hash_dispatch_side(side: crate::identity::DispatchSide, hasher: &mut impl Hasher) {
+    match side {
+        crate::identity::DispatchSide::Instance => 0u8.hash(hasher),
+        crate::identity::DispatchSide::Class => 1u8.hash(hasher),
+    }
+}
+
+fn hash_parameter_source(source: &str, parameter: &ParameterDef, hasher: &mut impl Hasher) {
+    parameter.name.hash(hasher);
+    parameter.label.hash(hasher);
+    hash_rest_mode(parameter.rest_mode, hasher);
+    hash_optional_source_region(source, parameter.annotation.as_ref().map(|annotation| annotation.range), hasher);
+}
+
+fn hash_member_attribute_presence(member: &ClassMember, hasher: &mut impl Hasher) {
+    member.attributes().iter().any(|attribute| attribute.name == "class").hash(hasher);
+    member.attributes().iter().any(|attribute| attribute.name == "constructor").hash(hasher);
+}
+
+fn hash_generic_contract_source(source: &str, parameters: &[phalcom_ast::ast::GenericParameterSyntax], where_clause: Option<&phalcom_ast::ast::WhereClauseSyntax>, hasher: &mut impl Hasher) {
+    parameters.len().hash(hasher);
+    for parameter in parameters {
+        hash_source_region(source, parameter.range, hasher);
+    }
+    match where_clause {
+        Some(where_clause) => {
+            1u8.hash(hasher);
+            hash_source_region(source, where_clause.range, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
+}
+
+/// Computes the cheap, source-contract input identity for a declaration surface.
+///
+/// This deliberately excludes member bodies, defaults, whole declaration ranges,
+/// and unrelated attributes so it can run before semantic resolution.
+pub fn declaration_surface_source_input_fingerprint(
+    unit: &phalcom_modules::source::ParsedModuleUnit,
+    declaration: &DeclarationId,
+    class_def: &phalcom_ast::ast::ClassDef,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    declaration.hash(&mut hasher);
+    class_def.members.len().hash(&mut hasher);
+
+    for member in &class_def.members {
+        let side = crate::checker::declaration::member_side(member);
+        match member {
+            ClassMember::Field(field) => {
+                0u8.hash(&mut hasher);
+                hash_dispatch_side(side, &mut hasher);
+                field.name.hash(&mut hasher);
+                hash_optional_source_region(&unit.text, field.annotation.as_ref().map(|annotation| annotation.range), &mut hasher);
+            }
+            ClassMember::Method(method) => {
+                1u8.hash(&mut hasher);
+                hash_dispatch_side(side, &mut hasher);
+                method.name.hash(&mut hasher);
+                (method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"))
+                    .hash(&mut hasher);
+                hash_member_attribute_presence(member, &mut hasher);
+                method.params.len().hash(&mut hasher);
+                for parameter in &method.params {
+                    hash_parameter_source(&unit.text, parameter, &mut hasher);
+                }
+                hash_optional_source_region(&unit.text, method.return_annotation.as_ref().map(|annotation| annotation.range), &mut hasher);
+                hash_generic_contract_source(&unit.text, &method.generic_parameters, method.where_clause.as_ref(), &mut hasher);
+            }
+            ClassMember::Getter(getter) => {
+                2u8.hash(&mut hasher);
+                hash_dispatch_side(side, &mut hasher);
+                getter.name.hash(&mut hasher);
+                hash_optional_source_region(&unit.text, getter.return_annotation.as_ref().map(|annotation| annotation.range), &mut hasher);
+            }
+            ClassMember::Setter(setter) => {
+                3u8.hash(&mut hasher);
+                hash_dispatch_side(side, &mut hasher);
+                setter.name.hash(&mut hasher);
+                hash_parameter_source(&unit.text, &setter.param, &mut hasher);
+            }
+            ClassMember::Index(index) => {
+                4u8.hash(&mut hasher);
+                hash_dispatch_side(side, &mut hasher);
+                match &index.accessor {
+                    IndexAccessor::Get => 0u8.hash(&mut hasher),
+                    IndexAccessor::Set { put } => {
+                        1u8.hash(&mut hasher);
+                        hash_parameter_source(&unit.text, put, &mut hasher);
+                    }
+                }
+                index.params.len().hash(&mut hasher);
+                for parameter in &index.params {
+                    hash_parameter_source(&unit.text, parameter, &mut hasher);
+                }
+                if matches!(index.accessor, IndexAccessor::Get) {
+                    hash_optional_source_region(&unit.text, index.return_annotation.as_ref().map(|annotation| annotation.range), &mut hasher);
+                }
+            }
+            ClassMember::Variant(_) => {
+                5u8.hash(&mut hasher);
+            }
+        }
+    }
+    finish_input(hasher)
 }
 
 fn hash_import_path(path: &ImportPath, include_ranges: bool, hasher: &mut impl Hasher) {

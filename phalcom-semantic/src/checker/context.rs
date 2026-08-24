@@ -506,6 +506,10 @@ impl<'a> CheckingContext<'a> {
         record_query_dependency(&self.semantic_dependencies, dependency);
     }
 
+    pub(crate) fn semantic_dependencies_snapshot(&self) -> BTreeSet<SemanticDependency> {
+        self.semantic_dependencies.borrow().clone()
+    }
+
     /// Records the canonical dependency for a callable signature consumed from a declaration surface.
     ///
     /// Source callables with any unknown parameter or return type cannot yet be

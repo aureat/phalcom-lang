@@ -13,6 +13,7 @@ use phalcom_semantic::checker::flow::graph::FlowGraph;
 use phalcom_semantic::db::fingerprint::{
     callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint,
     declaration_shell_input_fingerprint, declaration_shell_product_fingerprint, declaration_surface_input_fingerprint,
+    declaration_surface_source_input_fingerprint,
     declaration_surface_product_fingerprint, linked_interface_input_fingerprint,
     linked_interface_product_fingerprint, module_diagnostics_product_fingerprint, semantic_component_product_fingerprint,
     unlinked_interface_input_fingerprint, unlinked_interface_product_fingerprint,
@@ -25,6 +26,7 @@ use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
 use phalcom_semantic::signature::CallableSemanticSignature;
 use phalcom_semantic::surface::DeclarationSurface;
+use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::types::denotation::SemanticDenotation;
 use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
 use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
@@ -58,6 +60,31 @@ fn build_interface(id: ModuleId, source: &str) -> UnlinkedModuleInterface {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
     InterfaceBuilder::build(id, ModuleKind::Module, &parsed.program).expect("interface builds")
+}
+
+fn source_surface_fingerprint(source: &str) -> phalcom_semantic::db::InputFingerprint {
+    let module = module("surface_input");
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let program = Arc::new(parsed.program);
+    let declaration = DeclarationId::new(module.clone(), "Api".into());
+    let unit = ParsedModuleUnit::new(
+        module,
+        ModuleKind::Module,
+        None,
+        Arc::from(source),
+        program,
+    );
+    let class_def = unit
+        .program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            phalcom_ast::ast::Statement::Class(class_def) => Some(class_def),
+            _ => None,
+        })
+        .expect("class declaration");
+    declaration_surface_source_input_fingerprint(&unit, &declaration, class_def)
 }
 
 fn semantic_signature() -> CallableSemanticSignature {
@@ -210,6 +237,48 @@ fn declaration_shell_product_changes_when_supertype_template_changes() {
     });
 
     assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
+}
+
+#[test]
+fn declaration_surface_source_input_ignores_bodies_and_field_defaults() {
+    let body_one = source_surface_fingerprint(
+        r#"
+class Api {
+  _value: Int = 1
+  @class read() -> Int { 1 }
+}
+"#,
+    );
+    let body_two = source_surface_fingerprint(
+        r#"
+class Api {
+  _value: Int = 2
+  @class read() -> Int { 2 }
+}
+"#,
+    );
+
+    assert_eq!(body_one, body_two);
+}
+
+#[test]
+fn declaration_surface_source_input_tracks_contract_annotations() {
+    let int_surface = source_surface_fingerprint(
+        r#"
+class Api {
+  @class read(_ value: Int) -> Int { value }
+}
+"#,
+    );
+    let string_surface = source_surface_fingerprint(
+        r#"
+class Api {
+  @class read(_ value: String) -> Int { value }
+}
+"#,
+    );
+
+    assert_ne!(int_surface, string_surface);
 }
 
 #[test]
