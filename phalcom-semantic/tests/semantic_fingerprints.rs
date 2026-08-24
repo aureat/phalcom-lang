@@ -1,0 +1,416 @@
+use phalcom_ast::parse;
+use phalcom_common::range::SourceRange;
+use phalcom_common::selector::Selector;
+use phalcom_modules::{
+    InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId,
+    UnlinkedModuleInterface,
+};
+use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_semantic::checker::analysis::{
+    AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary,
+};
+use phalcom_semantic::checker::flow::graph::FlowGraph;
+use phalcom_semantic::db::fingerprint::{
+    callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint,
+    declaration_surface_input_fingerprint, declaration_surface_product_fingerprint, linked_interface_input_fingerprint,
+    linked_interface_product_fingerprint, module_diagnostics_product_fingerprint, semantic_component_product_fingerprint,
+    unlinked_interface_input_fingerprint, unlinked_interface_product_fingerprint,
+};
+use phalcom_semantic::db::ProductFingerprint;
+use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
+use phalcom_semantic::dispatch::{CallableSignature, DispatchSide};
+use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
+use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
+use phalcom_semantic::signature::CallableSemanticSignature;
+use phalcom_semantic::surface::DeclarationSurface;
+use phalcom_semantic::types::denotation::SemanticDenotation;
+use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+use phalcom_semantic::types::id::{TypeId, TypeParameterId};
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+fn module(name: &str) -> ModuleId {
+    ModuleId {
+        project: ResolvedProjectId::from_raw(1).into(),
+        path: ModulePath::from_components(vec![ModuleComponent::from_identifier(name).expect("valid module component")]),
+    }
+}
+
+fn declaration(name: &str) -> DeclarationId {
+    DeclarationId::new(ModuleId::core(), name.into())
+}
+
+fn build_interface(id: ModuleId, source: &str) -> UnlinkedModuleInterface {
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    InterfaceBuilder::build(id, ModuleKind::Module, &parsed.program).expect("interface builds")
+}
+
+fn semantic_signature() -> CallableSemanticSignature {
+    let owner = declaration("Owner");
+    let selector = Selector::method("value", vec![]).expect("selector");
+    let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+    CallableSemanticSignature {
+        callable,
+        owner,
+        side: DispatchSide::Instance,
+        selector,
+        generics: None,
+        parameters: Box::new([]),
+        return_type: TypeTerm::Canonical(TypeId(1)),
+        source: Some(SemanticSourceSpan::new(ModuleId::core(), SourceRange { start: 10, end: 20 })),
+        implementation: ImplementationKind::Source,
+        native_id: None,
+        effects: EffectSpec::Unknown,
+        raises: RaisesSpec::Unknown,
+        flow: ReturnFlowSpec::Value,
+        lifecycle: NativeLifecycleSpec::UNKNOWN,
+    }
+}
+
+fn callable_analysis() -> CallableAnalysis {
+    let callable = CallableId::new(declaration("Owner"), Selector::getter("value").expect("selector"), DispatchSide::Instance);
+    CallableAnalysis {
+        callable,
+        body_range: SourceRange { start: 0, end: 20 },
+        expressions: BTreeMap::new(),
+        bindings: BTreeMap::new(),
+        flow_graph: Arc::new(FlowGraph::default()),
+        entry_flow: FlowStateSummary::default(),
+        exits: BodyExitFacts::default(),
+        diagnostics: Arc::from([]),
+        explanations: Arc::new(ExplanationArena::default()),
+        dependencies: Arc::from([]),
+        semantic_dependencies: Arc::from([]),
+        dependency_fingerprint: ProductFingerprint::new(0),
+        status: CallableAnalysisStatus::Complete,
+    }
+}
+
+#[test]
+fn unlinked_interface_product_changes_when_local_declarations_change() {
+    let id = module("surface");
+    let foo = build_interface(id.clone(), "class Foo {}\n");
+    let bar = build_interface(id, "class Bar {}\n");
+
+    assert_ne!(unlinked_interface_product_fingerprint(&foo), unlinked_interface_product_fingerprint(&bar));
+}
+
+#[test]
+fn unlinked_interface_product_changes_when_metadata_value_changes() {
+    let id = module("metadata");
+    let one = build_interface(id.clone(), "@!doc(\"one\")\nclass Foo {}\n");
+    let two = build_interface(id, "@!doc(\"two\")\nclass Foo {}\n");
+
+    assert_ne!(unlinked_interface_product_fingerprint(&one), unlinked_interface_product_fingerprint(&two));
+}
+
+#[test]
+fn unlinked_interface_product_ignores_range_only_source_movement() {
+    let id = module("ranges");
+    let compact = build_interface(id.clone(), "import dep\nclass Foo {}\nexport Foo\n");
+    let shifted = build_interface(id, "\n\nimport dep\n\nclass Foo {}\nexport Foo\n");
+
+    assert_eq!(unlinked_interface_product_fingerprint(&compact), unlinked_interface_product_fingerprint(&shifted));
+    assert_ne!(unlinked_interface_input_fingerprint(&compact), unlinked_interface_input_fingerprint(&shifted));
+}
+
+#[test]
+fn linked_interface_product_ignores_range_only_source_movement_but_input_tracks_it() {
+    let id = module("linked_ranges");
+    let compact = build_interface(id.clone(), "class Foo {}\nexport Foo\n");
+    let shifted = build_interface(id.clone(), "\n\nclass Foo {}\n\nexport Foo\n");
+    let universe = Arc::new(ProjectUniverse::new());
+    let linked_compact = ModuleLinker::new(universe.clone(), BTreeMap::from([(id.clone(), compact)]))
+        .link(id.clone(), &BTreeMap::new())
+        .expect("compact link");
+    let linked_shifted = ModuleLinker::new(universe, BTreeMap::from([(id.clone(), shifted)]))
+        .link(id.clone(), &BTreeMap::new())
+        .expect("shifted link");
+    let compact_interface = &linked_compact.modules[&id].interface;
+    let shifted_interface = &linked_shifted.modules[&id].interface;
+
+    assert_eq!(
+        linked_interface_product_fingerprint(compact_interface),
+        linked_interface_product_fingerprint(shifted_interface)
+    );
+    assert_ne!(linked_interface_input_fingerprint(compact_interface), linked_interface_input_fingerprint(shifted_interface));
+}
+
+#[test]
+fn linked_interface_product_includes_metadata_semantics() {
+    let id = module("linked_metadata");
+    let one = build_interface(id.clone(), "@!doc(\"one\")\nclass Foo {}\nexport Foo\n");
+    let two = build_interface(id.clone(), "@!doc(\"two\")\nclass Foo {}\nexport Foo\n");
+    let universe = Arc::new(ProjectUniverse::new());
+    let linked_one = ModuleLinker::new(universe.clone(), BTreeMap::from([(id.clone(), one)]))
+        .link(id.clone(), &BTreeMap::new())
+        .expect("first link");
+    let linked_two = ModuleLinker::new(universe, BTreeMap::from([(id.clone(), two)]))
+        .link(id.clone(), &BTreeMap::new())
+        .expect("second link");
+
+    assert_ne!(
+        linked_interface_product_fingerprint(&linked_one.modules[&id].interface),
+        linked_interface_product_fingerprint(&linked_two.modules[&id].interface)
+    );
+}
+
+#[test]
+fn declaration_surface_product_ignores_type_evidence_provenance_but_input_tracks_it() {
+    let owner = declaration("Surface");
+    let mut left = DeclarationSurface::new(Some(owner.clone()));
+    left.add_field(
+        DispatchSide::Instance,
+        "value",
+        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared).with_range(SourceRange { start: 1, end: 2 }),
+    );
+    let mut right = DeclarationSurface::new(Some(owner));
+    right.add_field(
+        DispatchSide::Instance,
+        "value",
+        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared).with_range(SourceRange { start: 101, end: 102 }),
+    );
+
+    assert_eq!(declaration_surface_product_fingerprint(&left), declaration_surface_product_fingerprint(&right));
+    assert_ne!(declaration_surface_input_fingerprint(&left), declaration_surface_input_fingerprint(&right));
+}
+
+#[test]
+fn declaration_surface_product_includes_callable_generic_contract() {
+    let owner = declaration("GenericSurface");
+    let selector = Selector::getter("value").expect("selector");
+    let mut left = DeclarationSurface::new(Some(owner.clone()));
+    let mut left_signature = CallableSignature::new(
+        selector.clone(),
+        Vec::new(),
+        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared),
+    );
+    left_signature.generics = Some(GenericSignature::new(
+        TypeParameterOwner::Declaration(owner.clone()),
+        Box::new([TypeParameterId(1)]),
+    ));
+    left.add_callable(DispatchSide::Instance, left_signature);
+
+    let mut right = DeclarationSurface::new(Some(owner.clone()));
+    let mut right_signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared));
+    right_signature.generics = Some(GenericSignature::new(TypeParameterOwner::Declaration(owner), Box::new([TypeParameterId(2)])));
+    right.add_callable(DispatchSide::Instance, right_signature);
+
+    assert_ne!(declaration_surface_product_fingerprint(&left), declaration_surface_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_signature_product_includes_generics_effects_and_lifecycle() {
+    let base = semantic_signature();
+
+    let mut generic = base.clone();
+    generic.generics = Some(GenericSignature::with_constraints(
+        TypeParameterOwner::Callable(generic.callable.clone()),
+        Box::new([TypeParameterId(1)]),
+        Box::new([GenericConstraint::Subtype {
+            lower: TypeTerm::Canonical(TypeId(2)),
+            upper: TypeTerm::Canonical(TypeId(3)),
+        }]),
+    ));
+    assert_ne!(callable_signature_product_fingerprint(&base), callable_signature_product_fingerprint(&generic));
+
+    let mut effects = base.clone();
+    effects.effects = EffectSpec::Pure;
+    assert_ne!(callable_signature_product_fingerprint(&base), callable_signature_product_fingerprint(&effects));
+
+    let mut lifecycle = base.clone();
+    lifecycle.lifecycle = NativeLifecycleSpec {
+        since: Some("0.2"),
+        deprecated_since: None,
+        replacement: None,
+    };
+    assert_ne!(callable_signature_product_fingerprint(&base), callable_signature_product_fingerprint(&lifecycle));
+}
+
+#[test]
+fn callable_signature_product_ignores_source_movement_but_input_tracks_it() {
+    let left = semantic_signature();
+    let mut right = left.clone();
+    right.source = Some(SemanticSourceSpan::new(ModuleId::core(), SourceRange { start: 110, end: 120 }));
+
+    assert_eq!(callable_signature_product_fingerprint(&left), callable_signature_product_fingerprint(&right));
+    assert_ne!(callable_signature_input_fingerprint(&left), callable_signature_input_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_binding_state() {
+    let mut left = callable_analysis();
+    let binding = phalcom_semantic::BindingId(1);
+    left.bindings.insert(
+        binding,
+        BindingState::new(
+            binding,
+            "value",
+            SourceRange { start: 1, end: 6 },
+            None,
+            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+            false,
+        ),
+    );
+    let mut right = left.clone();
+    right.bindings.get_mut(&binding).expect("binding").current = TypeKnowledge::known(TypeId(2), EvidenceAuthority::Proven);
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_expression_denotation_and_status() {
+    let expression_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
+    let mut left = callable_analysis();
+    left.expressions.insert(
+        expression_id,
+        ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 1, end: 4 },
+            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+        ),
+    );
+    let mut right = left.clone();
+    let expression = right.expressions.get_mut(&expression_id).expect("expression");
+    expression.denotation = Some(SemanticDenotation::TypeForm(TypeId(3)));
+    expression.status = AnalysisStatus::DynamicBoundary(phalcom_semantic::DynamicReason::RuntimeReflection);
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_flow_exit_and_callable_status() {
+    let left = callable_analysis();
+    let mut right = left.clone();
+    right.entry_flow.fact_count = 1;
+    right.exits.unreachable = true;
+    right.status = CallableAnalysisStatus::Partial;
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_referenced_explanation_content() {
+    let expression_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
+    let mut left = callable_analysis();
+    let mut left_arena = ExplanationArena::new();
+    let left_explanation = left_arena.alloc(
+        ExplanationStep::Literal {
+            expression: expression_id,
+            ty: TypeId(1),
+        },
+        EvidenceAuthority::ExactSyntax,
+        Vec::new(),
+    );
+    left.explanations = Arc::new(left_arena);
+    left.expressions.insert(
+        expression_id,
+        ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 1, end: 4 },
+            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+        )
+        .with_explanation(left_explanation),
+    );
+
+    let mut right = callable_analysis();
+    let mut right_arena = ExplanationArena::new();
+    let right_explanation = right_arena.alloc(
+        ExplanationStep::Literal {
+            expression: expression_id,
+            ty: TypeId(2),
+        },
+        EvidenceAuthority::ExactSyntax,
+        Vec::new(),
+    );
+    right.explanations = Arc::new(right_arena);
+    right.expressions.insert(
+        expression_id,
+        ExpressionAnalysis::ready(
+            expression_id,
+            SourceRange { start: 1, end: 4 },
+            TypeKnowledge::known(TypeId(1), EvidenceAuthority::Proven),
+        )
+        .with_explanation(right_explanation),
+    );
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn callable_body_product_includes_diagnostic_details() {
+    let mut left = callable_analysis();
+    left.diagnostics = Arc::from(
+        vec![SemanticDiagnostic::error_in(
+            ModuleId::core(),
+            DiagnosticCode::TypeMismatch,
+            "mismatch",
+            SourceRange { start: 1, end: 2 },
+        )
+        .with_note("first note")]
+        .into_boxed_slice(),
+    );
+    let mut right = left.clone();
+    right.diagnostics = Arc::from(
+        vec![SemanticDiagnostic::error_in(
+            ModuleId::core(),
+            DiagnosticCode::TypeMismatch,
+            "mismatch",
+            SourceRange { start: 1, end: 2 },
+        )
+        .with_note("different note")]
+        .into_boxed_slice(),
+    );
+
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+}
+
+#[test]
+fn module_diagnostics_product_includes_secondary_details() {
+    let module = ModuleId::core();
+    let left = SemanticDiagnostic::error_in(
+        module.clone(),
+        DiagnosticCode::TypeMismatch,
+        "mismatch",
+        SourceRange { start: 1, end: 2 },
+    )
+    .with_note("first note");
+    let right = SemanticDiagnostic::error_in(
+        module.clone(),
+        DiagnosticCode::TypeMismatch,
+        "mismatch",
+        SourceRange { start: 1, end: 2 },
+    )
+    .with_note("different note");
+
+    assert_ne!(module_diagnostics_product_fingerprint(&module, &[left]), module_diagnostics_product_fingerprint(&module, &[right]));
+}
+
+#[test]
+fn semantic_component_product_changes_when_resolved_target_changes() {
+    let exporter_a = module("exporter_a");
+    let exporter_b = module("exporter_b");
+    let importer = module("importer");
+    let interfaces = BTreeMap::from([
+        (exporter_a.clone(), build_interface(exporter_a.clone(), "class Foo {}\nexport Foo\n")),
+        (exporter_b.clone(), build_interface(exporter_b.clone(), "class Foo {}\nexport Foo\n")),
+        (importer.clone(), build_interface(importer.clone(), "from .target import Foo\n")),
+    ]);
+    let universe = Arc::new(ProjectUniverse::new());
+    let linked_a = ModuleLinker::new(universe.clone(), interfaces.clone())
+        .link(
+            importer.clone(),
+            &BTreeMap::from([((importer.clone(), ".target".to_string()), exporter_a)]),
+        )
+        .expect("link to exporter A");
+    let linked_b = ModuleLinker::new(universe, interfaces)
+        .link(
+            importer.clone(),
+            &BTreeMap::from([((importer, ".target".to_string()), exporter_b)]),
+        )
+        .expect("link to exporter B");
+
+    assert_ne!(semantic_component_product_fingerprint(&linked_a), semantic_component_product_fingerprint(&linked_b));
+}

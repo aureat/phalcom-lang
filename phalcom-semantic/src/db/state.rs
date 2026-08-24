@@ -34,6 +34,7 @@ pub enum QueryState {
     },
     Ready {
         revision: SemanticRevision,
+        validated_revision: SemanticRevision,
         input_fingerprint: InputFingerprint,
         product_fingerprint: ProductFingerprint,
         value: QueryValue,
@@ -70,6 +71,18 @@ impl QueryState {
 
     pub fn is_ready(&self) -> bool {
         matches!(self, Self::Ready { .. })
+    }
+
+    /// Returns the newest semantic revision in which a ready query was validated.
+    ///
+    /// This is distinct from [`Self::revision`], which reports the revision that
+    /// actually computed and published the stored product. Reusing an unchanged
+    /// product advances validation without pretending that the product recomputed.
+    pub fn validated_revision(&self) -> Option<SemanticRevision> {
+        match self {
+            Self::Ready { validated_revision, .. } => Some(*validated_revision),
+            _ => None,
+        }
     }
 
     /// Returns the direct input fingerprint recorded for a ready query.

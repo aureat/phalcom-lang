@@ -10,7 +10,7 @@ use crate::identity::{CallableId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::Statement;
+use phalcom_ast::ast::{Expr, Statement};
 use phalcom_common::range::SourceRange;
 use std::sync::Arc;
 
@@ -29,7 +29,41 @@ fn stmt_range(stmt: &Statement) -> SourceRange {
     }
 }
 
-use crate::dispatch::SurfaceDispatchResolver;
+use crate::dispatch::{CallableSignature, SurfaceDispatchResolver};
+
+/// Returns the declaration signature consumed by a body, including the class-side
+/// fallback used for constructor bodies represented on the instance side.
+pub(crate) fn signature_consumed_by_body(
+    dispatch: &SurfaceDispatchResolver,
+    callable: &CallableId,
+) -> Option<(CallableId, CallableSignature)> {
+    let surface = dispatch.surfaces().get(&callable.owner)?;
+
+    if let Some(signature) = surface.get_callable(callable.side, &callable.selector) {
+        let signature_id = surface
+            .get_callable_id(callable.side, &callable.selector)
+            .cloned()
+            .unwrap_or_else(|| callable.clone());
+        return Some((signature_id, signature.clone()));
+    }
+
+    if callable.side == crate::identity::DispatchSide::Instance {
+        let signature = surface.get_callable(crate::identity::DispatchSide::Class, &callable.selector)?;
+        let signature_id = surface
+            .get_callable_id(crate::identity::DispatchSide::Class, &callable.selector)
+            .cloned()
+            .unwrap_or_else(|| {
+                CallableId::new(
+                    callable.owner.clone(),
+                    callable.selector.clone(),
+                    crate::identity::DispatchSide::Class,
+                )
+            });
+        return Some((signature_id, signature.clone()));
+    }
+
+    None
+}
 
 /// Context holding canonical published semantic inputs for callable body checking.
 pub struct BodyAnalysisContext<'a> {
@@ -58,26 +92,18 @@ pub fn analyze_callable_body(
     let mut ctx = CheckingContext::new_with_dispatch_ref(store, hierarchy, resolver, declarations, dispatch, module);
     ctx.current_class = Some(callable.owner.clone());
     ctx.current_side = callable.side;
-    ctx.semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone()));
 
     // 1. Build flow graph for the body statements
     let flow_graph = Arc::new(FlowGraph::from_statements(body));
     ctx.flow_graph = Some(flow_graph);
 
-    // Bind parameters and expected return if available from dispatch surface
-    let sig_opt = ctx.dispatch.get().surfaces().get(&callable.owner).and_then(|surface| {
-        let member_surface = match callable.side {
-            crate::identity::DispatchSide::Instance => &surface.instance,
-            crate::identity::DispatchSide::Class => &surface.class,
-        };
-        member_surface
-            .callable_signatures
-            .get(&callable.selector)
-            .cloned()
-            .or_else(|| surface.class.callable_signatures.get(&callable.selector).cloned())
-    });
+    // Bind parameters and expected return from the exact published signature consumed by this body.
+    // Constructor bodies are represented as instance-side bodies, while their public constructor
+    // signatures live on the class side; record the class-side identity in that fallback case.
+    let sig_opt = signature_consumed_by_body(ctx.dispatch_ref(), &callable);
 
-    if let Some(sig) = sig_opt {
+    if let Some((signature_id, sig)) = sig_opt {
+        ctx.record_consumed_callable_signature(&signature_id, &sig);
         ctx.push_scope();
         for param in &sig.parameters {
             let ty_opt = param.ty.ty();
@@ -94,7 +120,7 @@ pub fn analyze_callable_body(
     // 2. Check each statement while charging budget and checking cancellation
     let mut status = CallableAnalysisStatus::Complete;
 
-    for stmt in body {
+    for (statement_index, stmt) in body.iter().enumerate() {
         if cancel.is_cancelled() {
             status = CallableAnalysisStatus::Cancelled;
             break;
@@ -109,6 +135,34 @@ pub fn analyze_callable_body(
             ));
             status = CallableAnalysisStatus::BudgetExceeded;
             break;
+        }
+
+        let is_tail = statement_index + 1 == body.len();
+        if is_tail {
+            if let Statement::Expr { expr, range } = stmt {
+                if !matches!(expr, Expr::Assignment(_) | Expr::SetProperty(_) | Expr::SetIndex(_)) {
+                    let expected = ctx
+                        .expected_return
+                        .as_ref()
+                        .map(crate::checker::expected::ExpectedType::from_knowledge)
+                        .unwrap_or_default();
+                    let typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
+                    if let Some(expected_return) = ctx.expected_return.clone() {
+                        crate::checker::policy::enforce_assignability(
+                            ctx.store,
+                            &ctx.hierarchy,
+                            &typed.knowledge,
+                            &expected_return,
+                            &ctx.current_module,
+                            crate::diagnostic::DiagnosticCode::ReturnMismatch,
+                            "tail expression result is not assignable to method's declared return type",
+                            *range,
+                            &mut ctx.diagnostics,
+                        );
+                    }
+                    continue;
+                }
+            }
         }
 
         check_statement(&mut ctx, stmt);

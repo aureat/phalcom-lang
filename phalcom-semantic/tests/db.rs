@@ -240,3 +240,65 @@ fn test_body_query_execution_and_invalidation() {
     assert!(db.query_state(&key1).is_none());
     assert!(db.query_state(&key2).unwrap().is_ready());
 }
+
+#[test]
+fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing() {
+    use phalcom_common::range::SourceRange;
+    use phalcom_common::selector::Selector;
+    use phalcom_semantic::declarations::DeclarationTypeTable;
+    use phalcom_semantic::dispatch::{CallableSignature, SurfaceDispatchResolver};
+    use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+    use phalcom_semantic::surface::DeclarationSurface;
+    use phalcom_semantic::types::annotation::SimpleTypeResolver;
+    use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
+    use phalcom_semantic::types::relation::MapTypeHierarchy;
+    use phalcom_semantic::types::store::TypeStore;
+
+    let mut db = SemanticDb::new();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let resolver = SimpleTypeResolver::new();
+    let declarations = DeclarationTypeTable::new();
+    let module = ModuleId::core();
+    let cancel = CancellationToken::new();
+    let budget = QueryBudget::default();
+
+    let owner = DeclarationId::new(module.clone(), "Owner".into());
+    let selector = Selector::getter("value").unwrap();
+    let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+
+    let signature = CallableSignature::new(
+        selector,
+        Vec::new(),
+        TypeKnowledge::known(store.unit(), EvidenceAuthority::Declared),
+    );
+    let mut surface = DeclarationSurface::new(Some(owner.clone()));
+    surface.add_callable(DispatchSide::Instance, signature);
+    let mut dispatch = SurfaceDispatchResolver::new();
+    dispatch.register_surface(owner, surface);
+
+    let outcome = phalcom_semantic::db::query_callable_body(
+        &mut db,
+        callable.clone(),
+        &[],
+        SourceRange { start: 0, end: 10 },
+        &mut store,
+        &hierarchy,
+        &resolver,
+        &declarations,
+        &dispatch,
+        module,
+        budget,
+        &cancel,
+    );
+
+    match outcome {
+        QueryOutcome::Failed(message) => {
+            assert!(message.contains("CallableSignature"), "failure identifies missing signature dependency: {message}");
+        }
+        other => panic!("missing required signature product must fail closed, got {other:?}"),
+    }
+
+    let body_key = QueryKey::CallableBody(callable);
+    assert!(db.product(&body_key).is_none(), "failed dependency recording must not publish CallableBody");
+}

@@ -91,7 +91,7 @@ pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &E
         let expected_k = TypeKnowledge::known(expected_ty, EvidenceAuthority::Declared);
         let _ = enforce_assignability(
             ctx.store,
-            ctx.hierarchy,
+            &ctx.hierarchy,
             &typed.knowledge,
             &expected_k,
             &ctx.current_module,
@@ -118,7 +118,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
     match expr {
         // --- 1. Primitive Literals ---
         Expr::Int { range, .. } => {
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Int", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("Int") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
@@ -126,7 +126,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
         }
         Expr::Float { range, .. } => {
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Float", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("Float") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
@@ -134,7 +134,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
         }
         Expr::String { range, .. } => {
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("String") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
@@ -142,7 +142,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
         }
         Expr::Boolean { range, .. } => {
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("Bool") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
             } else {
@@ -158,7 +158,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 typed.denotation = fact.denotation;
                 typed
             } else if let Some(decl) = ctx.resolve_type_name(value) {
-                if let Some(info) = ctx.declarations.get(&decl) {
+                if let Some(info) = ctx.declaration_info(&decl) {
                     TypedExpression::known(info.class_object_type, EvidenceAuthority::Declared, *range).with_denotation(SemanticDenotation::TypeForm(info.form))
                 } else {
                     let ty = ctx.nominal_type_of(&decl);
@@ -171,7 +171,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         Expr::SelfVar { range } => {
             if let Some(class_decl) = ctx.current_class.clone() {
                 if ctx.current_side == crate::identity::DispatchSide::Class {
-                    if let Some(info) = ctx.declarations.get(&class_decl) {
+                    if let Some(info) = ctx.declaration_info(&class_decl) {
                         TypedExpression::known(info.class_object_type, EvidenceAuthority::Proven, *range)
                             .with_denotation(SemanticDenotation::TypeForm(info.form))
                     } else {
@@ -194,7 +194,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                     side,
                 };
                 if side == crate::identity::DispatchSide::Class {
-                    if let Some(info) = ctx.declarations.get(&class_decl) {
+                    if let Some(info) = ctx.declaration_info(&class_decl) {
                         TypedExpression::known(info.class_object_type, EvidenceAuthority::Proven, *range)
                             .with_denotation(SemanticDenotation::TypeForm(info.form))
                             .with_dispatch_lookup(lookup)
@@ -240,7 +240,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 if let Some(target_fact) = ctx.lookup_local(var_name).cloned() {
                     enforce_assignability(
                         ctx.store,
-                        ctx.hierarchy,
+                        &ctx.hierarchy,
                         val_k,
                         &target_fact.knowledge,
                         &ctx.current_module,
@@ -268,8 +268,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
 
             let top = ctx
-                .resolver
-                .resolve_type_name(&ctx.current_module, "Object", &[])
+                .resolve_type_name("Object")
                 .map(|d| ctx.nominal_type_of(&d))
                 .unwrap_or_else(|| ctx.store.unit());
 
@@ -392,7 +391,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             for op in &chain.operands {
                 analyze_expression(ctx, op, &ExpectedType::None);
             }
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("Bool") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::Proven, chain.range)
             } else {
@@ -402,7 +401,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         Expr::Membership(m) => {
             analyze_expression(ctx, &m.left, &ExpectedType::None);
             analyze_expression(ctx, &m.right, &ExpectedType::None);
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("Bool") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::Proven, m.range)
             } else {
@@ -412,7 +411,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         Expr::IsMembership(m) => {
             analyze_expression(ctx, &m.left, &ExpectedType::None);
             analyze_expression(ctx, &m.candidates, &ExpectedType::None);
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("Bool") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::Proven, m.range)
             } else {
@@ -426,7 +425,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Some(ref upper) = r.upper {
                 analyze_expression(ctx, upper, &ExpectedType::None);
             }
-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Object", &[]) {
+            if let Some(decl) = ctx.resolve_type_name("Object") {
                 let ty = ctx.nominal_type_of(&decl);
                 TypedExpression::known(ty, EvidenceAuthority::Proven, r.range)
             } else {
@@ -443,10 +442,10 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 // ---------------------------------------------------------------------------
 
 fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> TypedExpression {
-    if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Symbol", &[]) {
+    if let Some(decl) = ctx.resolve_type_name("Symbol") {
         let ty = ctx.nominal_type_of(&decl);
         TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, s.range)
-    } else if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]) {
+    } else if let Some(decl) = ctx.resolve_type_name("String") {
         let ty = ctx.nominal_type_of(&decl);
         TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, s.range)
     } else {
@@ -455,7 +454,7 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
 }
 
 fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let list_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]);
+    let list_decl = ctx.resolve_type_name("List");
     let expected_elem = expected.collection_element_type(ctx.store);
     let mut elem_tys = Vec::new();
 
@@ -493,7 +492,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
 }
 
 fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let set_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Set", &[]);
+    let set_decl = ctx.resolve_type_name("Set");
     let expected_elem = expected.collection_element_type(ctx.store);
     let mut elem_tys = Vec::new();
 
@@ -531,8 +530,8 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
 }
 
 fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let map_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Map", &[]);
-    let string_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]);
+    let map_decl = ctx.resolve_type_name("Map");
+    let string_decl = ctx.resolve_type_name("String");
     let (expected_key, expected_val) = expected.map_key_val_types(ctx.store);
     let mut key_tys = Vec::new();
     let mut val_tys = Vec::new();
@@ -727,7 +726,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
     // 2. Dispatch send on `self` if inside a class
     if let Some(ref class_decl) = ctx.current_class.clone() {
         let class_ty = if ctx.current_side == crate::identity::DispatchSide::Class {
-            if let Some(info) = ctx.declarations.get(class_decl) {
+            if let Some(info) = ctx.declaration_info(class_decl) {
                 info.class_object_type
             } else {
                 ctx.nominal_type_of(class_decl)
@@ -759,9 +758,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
     }
 
     // 3. Constructor or nominal reference
-    if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, &call.name, &[]) {
+    if let Some(decl) = ctx.resolve_type_name(&call.name) {
         let ty = ctx.nominal_type_of(&decl);
-        if let Some(sig) = ctx.declarations.generic_signature(&decl).cloned() {
+        if let Some(sig) = ctx.declaration_generic_signature(&decl) {
             if !sig.parameters.is_empty() {
                 let mut arg_tys = Vec::new();
                 for arg in &call.args {
@@ -925,7 +924,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
         if let Some(field_k) = field_opt {
             enforce_assignability(
                 ctx.store,
-                ctx.hierarchy,
+                &ctx.hierarchy,
                 &val_k,
                 &field_k,
                 &ctx.current_module,
@@ -944,7 +943,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
                 if let Some(param) = sig.parameters.first() {
                     enforce_assignability(
                         ctx.store,
-                        ctx.hierarchy,
+                        &ctx.hierarchy,
                         &val_k,
                         &param.ty,
                         &ctx.current_module,
@@ -1046,12 +1045,12 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
 
     if let Some(recv_ty) = recv_k.ty() {
         if let TypeData::Applied { origin, arguments } = ctx.store.get(recv_ty).clone() {
-            if let Some(list_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]) {
+            if let Some(list_decl) = ctx.resolve_type_name("List") {
                 if origin == ctx.nominal_type_of(&list_decl) && arguments.len() == 1 {
                     let elem_k = TypeKnowledge::known(arguments[0], EvidenceAuthority::Declared);
                     enforce_assignability(
                         ctx.store,
-                        ctx.hierarchy,
+                        &ctx.hierarchy,
                         &val_k,
                         &elem_k,
                         &ctx.current_module,

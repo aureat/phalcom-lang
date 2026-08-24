@@ -188,9 +188,6 @@ fn one_session_has_one_type_store_identity_across_revisions() {
 
 #[test]
 fn retained_old_snapshot_preserves_type_denotation_after_later_revisions() {
-    use phalcom_semantic::types::TypeData;
-    use phalcom_semantic::types::id::KindId;
-
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(1),
         ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
@@ -208,14 +205,11 @@ class Point {
     let snapshot1 = update1.snapshot.clone();
     let store_id = snapshot1.store.id();
 
-    // Intern a test type directly into the session's store to get a known TypeId and TypeData
-    let point_name_ty = session.store_mut().intern_with_kind(
-        TypeData::Nominal {
-            declaration: phalcom_semantic::identity::DeclarationId::new(module.clone(), "Point".into()),
-        },
-        KindId::TYPE,
-    );
-    let original_data = session.store().get(point_name_ty).clone();
+    // Capture a type that already exists in revision 1. This proves the retained
+    // snapshot itself owns a denotation for the old TypeId before later interning.
+    let point_decl = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Point".into());
+    let point_name_ty = snapshot1.declarations.form(&point_decl).expect("Point form exists in revision-1 snapshot");
+    let original_data = snapshot1.store.get(point_name_ty).clone();
 
     // Perform revisions 2 and 3 that intern unrelated types
     let src2 = "class Other { _v: String = \"\" }";
@@ -231,7 +225,8 @@ class Point {
     assert_eq!(update2.snapshot.store.id(), store_id);
     assert_eq!(update3.snapshot.store.id(), store_id);
 
-    // Later session store also preserves the original type data
+    // The retained snapshot and later live store both preserve the exact old denotation.
+    assert_eq!(snapshot1.store.get(point_name_ty), &original_data);
     assert_eq!(session.store().get(point_name_ty), &original_data);
 }
 
@@ -259,3 +254,105 @@ fn distinct_workspace_sessions_have_distinct_snapshot_workspace_ids() {
     assert_ne!(update1.snapshot.id.workspace(), update2.snapshot.id.workspace());
 }
 
+#[test]
+fn generic_parameter_semantic_edits_version_ids_and_preserve_old_denotations() {
+    use phalcom_semantic::diagnostic::SemanticSourceSpan;
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::{KindId, TypeStore};
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(91),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("types").unwrap()]),
+    );
+    let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Functor".into());
+    let owner = TypeParameterOwner::Declaration(declaration);
+    let mut store = TypeStore::new();
+
+    let first = store.intern_type_parameter(
+        TypeParameterData::new(owner.clone(), 0, "F", KindId::TYPE)
+            .with_source(SemanticSourceSpan::new(module.clone(), phalcom_common::range::SourceRange::new(10, 11))),
+    );
+    let first_form = store.parameter_form(first);
+    let retained = store.clone();
+
+    let constructor_kind = store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+    let second = store.intern_type_parameter(
+        TypeParameterData::new(owner.clone(), 0, "F", constructor_kind)
+            .with_source(SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::new(20, 21))),
+    );
+    let second_form = store.parameter_form(second);
+
+    assert_ne!(first, second, "semantic binder changes require a new TypeParameterId version");
+    assert_ne!(first_form, second_form, "different parameter kinds require distinct canonical TypeIds");
+    assert_eq!(store.find_type_parameter_id(&owner, 0), Some(second));
+    assert_eq!(retained.kind_of(first_form), KindId::TYPE);
+    assert_eq!(store.kind_of(first_form), KindId::TYPE, "old live-store forms must keep their original kind");
+    assert_eq!(store.kind_of(second_form), constructor_kind);
+}
+
+#[test]
+fn generic_parameter_source_moves_refresh_provenance_without_changing_semantic_identity() {
+    use phalcom_semantic::diagnostic::SemanticSourceSpan;
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::{KindId, TypeStore};
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(92),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("provenance").unwrap()]),
+    );
+    let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Box".into());
+    let owner = TypeParameterOwner::Declaration(declaration);
+    let mut store = TypeStore::new();
+
+    let first = store.intern_type_parameter(
+        TypeParameterData::new(owner.clone(), 0, "T", KindId::TYPE)
+            .with_source(SemanticSourceSpan::new(module.clone(), phalcom_common::range::SourceRange::new(1, 2))),
+    );
+    let retained = store.clone();
+    let second = store.intern_type_parameter(
+        TypeParameterData::new(owner, 0, "T", KindId::TYPE)
+            .with_source(SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::new(50, 51))),
+    );
+
+    assert_eq!(first, second, "source-only movement must not perturb semantic type identity");
+    assert_eq!(retained.type_parameter(first).source.as_ref().unwrap().range, phalcom_common::range::SourceRange::new(1, 2));
+    assert_eq!(store.type_parameter(second).source.as_ref().unwrap().range, phalcom_common::range::SourceRange::new(50, 51));
+}
+
+#[test]
+fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
+    use phalcom_semantic::KindId;
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(93),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("generic_kind").unwrap()]),
+    );
+    let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Holder".into());
+    let mut session = SemanticWorkspaceSession::new();
+
+    let update1 = session.update(build_input(module.clone(), "class Holder<F: Type -> Type> {}", 1));
+    assert!(!update1.snapshot.has_errors());
+    let signature1 = update1.snapshot.declarations.generic_signature(&declaration).expect("revision-1 generic signature");
+    let parameter1 = signature1.parameters[0];
+    let mut snapshot_store1 = (*update1.snapshot.store).clone();
+    let parameter_form1 = snapshot_store1.parameter_form(parameter1);
+    let declaration_form1 = update1.snapshot.declarations.form(&declaration).expect("revision-1 declaration form");
+    let parameter_kind1 = update1.snapshot.store.type_parameter(parameter1).kind;
+    assert_ne!(parameter_kind1, KindId::TYPE);
+
+    let update2 = session.update(build_input(module, "class Holder<F> {}", 2));
+    assert!(!update2.snapshot.has_errors());
+    let signature2 = update2.snapshot.declarations.generic_signature(&declaration).expect("revision-2 generic signature");
+    let parameter2 = signature2.parameters[0];
+    let mut snapshot_store2 = (*update2.snapshot.store).clone();
+    let parameter_form2 = snapshot_store2.parameter_form(parameter2);
+    let declaration_form2 = update2.snapshot.declarations.form(&declaration).expect("revision-2 declaration form");
+
+    assert_ne!(parameter1, parameter2, "kind edit must version the generic parameter identity");
+    assert_ne!(parameter_form1, parameter_form2, "kind edit must version the parameter TypeId");
+    assert_ne!(declaration_form1, declaration_form2, "declaration forms with different kinds must not alias in the TypeStore");
+    assert_eq!(update1.snapshot.store.type_parameter(parameter1).kind, parameter_kind1);
+    assert_eq!(update1.snapshot.store.kind_of(parameter_form1), parameter_kind1);
+    assert_eq!(update2.snapshot.store.type_parameter(parameter2).kind, KindId::TYPE);
+    assert_eq!(update2.snapshot.store.kind_of(parameter_form2), KindId::TYPE);
+}

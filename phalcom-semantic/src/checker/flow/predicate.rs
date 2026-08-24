@@ -118,7 +118,7 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                 let target_ty = match call.args.first()? {
                     PackItem::Positional { expr: target_expr, .. } => match target_expr {
                         Expr::Var { value: type_name, .. } => {
-                            let decl = ctx.resolver.resolve_type_name(&ctx.current_module, type_name, &[])?;
+                            let decl = ctx.resolve_type_name(type_name)?;
                             ctx.nominal_type_of(&decl)
                         }
                         _ => return None,

@@ -3,11 +3,12 @@
 use super::context::CheckingContext;
 use super::expression::synthesize_expr;
 use super::statement::check_statement;
+use crate::TypeResolver;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSignature};
 use crate::identity::DeclarationId;
 use crate::surface::DeclarationSurface;
-use crate::types::annotation::{TypeResolver, resolve_type_annotation};
+use crate::types::annotation::resolve_type_annotation;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
 use crate::types::relation::{Assignability, check_assignability};
@@ -27,9 +28,9 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
     let mut surface = DeclarationSurface::new(Some(decl_id.clone()));
     let class_ty = ctx.nominal_type_of(&decl_id);
-    ctx.dispatch.register_type(class_ty, decl_id.clone());
+    ctx.dispatch.make_mut().register_type(class_ty, decl_id.clone());
 
-    let type_params_map = if let Some(sig) = ctx.declarations.generic_signature(&decl_id) {
+    let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
         let mut map = std::collections::HashMap::new();
         for &param_id in sig.parameters.iter() {
             let name = ctx.store.type_parameter(param_id).name.to_string();
@@ -41,7 +42,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
         std::collections::HashMap::new()
     };
     let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
-        parent: ctx.resolver,
+        parent: &ctx.resolver,
         type_parameters: type_params_map,
     };
     let resolver = &scoped_resolver;
@@ -233,10 +234,79 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     ctx.register_surface(decl_id, surface);
 }
 
+fn check_field_initializer_against_declared(
+    ctx: &mut CheckingContext<'_>,
+    field: &phalcom_ast::ast::FieldDef,
+    declared: &TypeKnowledge,
+) {
+    let Some(default_expr) = &field.default else {
+        return;
+    };
+    let initializer = synthesize_expr(ctx, default_expr);
+    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &initializer, declared);
+    if let Assignability::Refuted { .. } = assignability {
+        ctx.diagnostics.push(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::FieldMismatch,
+            format!("default value for field `{}` does not match declared type", field.name),
+            field.range,
+        ));
+    }
+}
+
+fn check_field_initializer(
+    ctx: &mut CheckingContext<'_>,
+    resolver: &dyn crate::types::annotation::TypeResolver,
+    field: &phalcom_ast::ast::FieldDef,
+) {
+    let declared_k = field.annotation.as_ref().map(|annotation| {
+        let mut diagnostics = Vec::new();
+        let knowledge = resolve_type_annotation(
+            ctx.store,
+            ctx.declarations,
+            resolver,
+            &ctx.current_module,
+            annotation,
+            &mut diagnostics,
+        );
+        ctx.diagnostics.extend(diagnostics);
+        knowledge
+    });
+
+    if let Some(declared) = declared_k {
+        check_field_initializer_against_declared(ctx, field, &declared);
+    }
+}
+
+/// Checks only field initializer expressions for an already-registered class.
+///
+/// Workspace-session callable bodies are analyzed by `CallableBody` DB queries.
+/// This narrower pass keeps non-callable field initialization diagnostics without
+/// re-running every method/getter/setter/index body after query evaluation.
+pub fn check_class_field_initializers(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+    let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
+    let old_class = ctx.current_class.replace(decl_id.clone());
+
+    for member in &class_def.members {
+        let ClassMember::Field(field) = member else {
+            continue;
+        };
+        let side = member_side(member);
+        let old_side = ctx.current_side;
+        ctx.current_side = side;
+        if let Some(declared) = ctx.get_field(&decl_id, side, &field.name) {
+            check_field_initializer_against_declared(ctx, field, &declared);
+        }
+        ctx.current_side = old_side;
+    }
+
+    ctx.current_class = old_class;
+}
+
 /// Checks the member bodies of an already-registered class declaration.
 pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
-    let type_params_map = if let Some(sig) = ctx.declarations.generic_signature(&decl_id) {
+    let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
         let mut map = std::collections::HashMap::new();
         for &param_id in sig.parameters.iter() {
             let name = ctx.store.type_parameter(param_id).name.to_string();
@@ -247,8 +317,12 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     } else {
         std::collections::HashMap::new()
     };
+    // Keep resolver ownership independent from `ctx` while checking bodies. The
+    // body checker mutably borrows the full context, so a scoped resolver that
+    // directly borrows `ctx.resolver` would create an overlapping borrow.
+    let parent_resolver = ctx.resolver.clone();
     let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
-        parent: ctx.resolver,
+        parent: &parent_resolver,
         type_parameters: type_params_map,
     };
     let resolver = &scoped_resolver;
@@ -260,25 +334,7 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
         ctx.current_side = side;
         match member {
             ClassMember::Field(f) => {
-                let declared_k = f.annotation.as_ref().map(|ann| {
-                    let mut diags = Vec::new();
-                    let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                    ctx.diagnostics.extend(diags);
-                    k
-                });
-
-                if let (Some(decl_k), Some(default_expr)) = (declared_k, &f.default) {
-                    let init_k = synthesize_expr(ctx, default_expr);
-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &init_k, &decl_k);
-                    if let Assignability::Refuted { .. } = assignability {
-                        ctx.diagnostics.push(SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::FieldMismatch,
-                            format!("default value for field `{}` does not match declared type", f.name),
-                            f.range,
-                        ));
-                    }
-                }
+                check_field_initializer(ctx, resolver, f);
             }
             ClassMember::Method(m) => {
                 check_callable_body(ctx, resolver, &m.params, m.return_annotation.as_ref(), m.body.statements().unwrap_or(&[]));
@@ -360,7 +416,7 @@ fn check_callable_body(
                 if let Some(expected) = &expected_return {
                     crate::checker::policy::enforce_assignability(
                         ctx.store,
-                        ctx.hierarchy,
+                        &ctx.hierarchy,
                         &tail_typed.knowledge,
                         expected,
                         &ctx.current_module,

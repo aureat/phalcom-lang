@@ -2,7 +2,7 @@ use crate::checker::analysis::{
     AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency,
 };
 use crate::checker::flow::FlowState;
-use crate::declarations::DeclarationTypeTable;
+use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
 use crate::identity::{
@@ -18,15 +18,25 @@ use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
+use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
+use std::rc::Rc;
 
 /// Storage abstraction for dispatch resolver avoiding per-callable cloning.
+///
+/// Borrowed workspace dispatch remains read-only until a checker operation needs
+/// to register a local/nested declaration. At that point [`Self::make_mut`]
+/// lazily detaches by cloning once, preserving the no-clone fast path for normal
+/// callable analysis.
 pub enum DispatchAccess<'a> {
+    /// Context owns its dispatch table and may mutate it directly.
     Owned(SurfaceDispatchResolver),
+    /// Context borrows the immutable workspace dispatch table.
     Borrowed(&'a SurfaceDispatchResolver),
 }
 
 impl<'a> DispatchAccess<'a> {
+    /// Returns the current dispatch resolver for read-only queries.
     pub fn get(&self) -> &SurfaceDispatchResolver {
         match self {
             Self::Owned(d) => d,
@@ -34,10 +44,18 @@ impl<'a> DispatchAccess<'a> {
         }
     }
 
-    pub fn get_mut(&mut self) -> Option<&mut SurfaceDispatchResolver> {
+    /// Returns a mutable resolver, lazily detaching a borrowed resolver on first mutation.
+    pub fn make_mut(&mut self) -> &mut SurfaceDispatchResolver {
+        let detached = match self {
+            Self::Borrowed(dispatch) => Some((**dispatch).clone()),
+            Self::Owned(_) => None,
+        };
+        if let Some(detached) = detached {
+            *self = Self::Owned(detached);
+        }
         match self {
-            Self::Owned(d) => Some(d),
-            Self::Borrowed(_) => None,
+            Self::Owned(dispatch) => dispatch,
+            Self::Borrowed(_) => unreachable!("borrowed dispatch was detached above"),
         }
     }
 }
@@ -50,12 +68,126 @@ impl<'a> std::ops::Deref for DispatchAccess<'a> {
     }
 }
 
-impl<'a> std::ops::DerefMut for DispatchAccess<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Owned(d) => d,
-            Self::Borrowed(_) => panic!("Attempted to mutate borrowed dispatch resolver"),
+type SharedSemanticDependencies = Rc<RefCell<BTreeSet<SemanticDependency>>>;
+
+/// The compatibility `core` surface is bootstrapped as an immutable session seed
+/// and currently has no corresponding staged DB products. All other module
+/// identities are query-owned and must participate in dependency tracking.
+fn is_query_owned_module(module: &ModuleId) -> bool {
+    let components = module.path.components();
+    !(matches!(
+        module.project,
+        phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::BuiltinProject::Universe)
+    ) && components.len() == 1
+        && components[0].as_str() == "core")
+}
+
+fn record_query_dependency(dependencies: &SharedSemanticDependencies, dependency: SemanticDependency) {
+    dependencies.borrow_mut().insert(dependency);
+}
+
+fn record_declaration_surface_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
+    if is_query_owned_module(&declaration.module) {
+        record_query_dependency(dependencies, SemanticDependency::DeclarationSurface(declaration.clone()));
+    }
+}
+
+fn record_hierarchy_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
+    if is_query_owned_module(&declaration.module) {
+        record_query_dependency(dependencies, SemanticDependency::HierarchyEdge(declaration.clone()));
+    }
+}
+
+/// Type resolver wrapper that records declaration and linked-interface reads during body checking.
+#[derive(Clone)]
+pub struct TrackingTypeResolver<'a> {
+    inner: &'a dyn TypeResolver,
+    dependencies: SharedSemanticDependencies,
+}
+
+impl<'a> TrackingTypeResolver<'a> {
+    fn new(inner: &'a dyn TypeResolver, dependencies: SharedSemanticDependencies) -> Self {
+        Self { inner, dependencies }
+    }
+}
+
+impl TypeResolver for TrackingTypeResolver<'_> {
+    fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        let declaration = self.inner.resolve_type_name(current_module, root, members);
+        let Some(declaration) = declaration else {
+            if is_query_owned_module(current_module) {
+                record_query_dependency(
+                    &self.dependencies,
+                    SemanticDependency::LinkedInterface(current_module.clone()),
+                );
+            }
+            return None;
+        };
+
+        record_declaration_surface_dependency(&self.dependencies, &declaration);
+        if &declaration.module != current_module
+            && is_query_owned_module(current_module)
+            && is_query_owned_module(&declaration.module)
+        {
+            record_query_dependency(
+                &self.dependencies,
+                SemanticDependency::LinkedInterface(current_module.clone()),
+            );
         }
+        Some(declaration)
+    }
+
+    fn resolve_type_parameter(&self, name: &str) -> Option<TypeId> {
+        self.inner.resolve_type_parameter(name)
+    }
+
+    fn current_declaration(&self) -> Option<DeclarationId> {
+        self.inner.current_declaration()
+    }
+}
+
+/// Hierarchy wrapper that records each mutable direct edge consumed by body checking.
+#[derive(Clone)]
+pub struct TrackingTypeHierarchy<'a> {
+    inner: &'a dyn TypeHierarchy,
+    dependencies: SharedSemanticDependencies,
+}
+
+impl<'a> TrackingTypeHierarchy<'a> {
+    fn new(inner: &'a dyn TypeHierarchy, dependencies: SharedSemanticDependencies) -> Self {
+        Self { inner, dependencies }
+    }
+}
+
+impl TypeHierarchy for TrackingTypeHierarchy<'_> {
+    fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {
+        record_hierarchy_dependency(&self.dependencies, declaration);
+        self.inner.superclass(declaration)
+    }
+
+    fn is_subclass(&self, sub: &DeclarationId, sup: &DeclarationId) -> bool {
+        if sub == sup {
+            return true;
+        }
+
+        let mut current = sub;
+        let mut visited = BTreeSet::new();
+        while visited.insert(current.clone()) {
+            record_hierarchy_dependency(&self.dependencies, current);
+            let Some(parent) = self.inner.superclass(current) else {
+                return false;
+            };
+            if parent == sup {
+                return true;
+            }
+            current = parent;
+        }
+        false
+    }
+
+    fn supertype_template(&self, declaration: &DeclarationId) -> Option<&crate::declarations::GenericSupertypeTemplate> {
+        record_hierarchy_dependency(&self.dependencies, declaration);
+        self.inner.supertype_template(declaration)
     }
 }
 
@@ -94,8 +226,8 @@ impl LocalEnv {
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
     pub store: &'a mut TypeStore,
-    pub hierarchy: &'a dyn TypeHierarchy,
-    pub resolver: &'a dyn TypeResolver,
+    pub hierarchy: TrackingTypeHierarchy<'a>,
+    pub resolver: TrackingTypeResolver<'a>,
     pub declarations: &'a DeclarationTypeTable,
     pub current_module: ModuleId,
     pub current_class: Option<DeclarationId>,
@@ -113,7 +245,7 @@ pub struct CheckingContext<'a> {
     pub suppressed: std::collections::BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
-    pub semantic_dependencies: BTreeSet<SemanticDependency>,
+    semantic_dependencies: SharedSemanticDependencies,
     pub dispatch: DispatchAccess<'a>,
     pub diagnostics: Vec<SemanticDiagnostic>,
 }
@@ -149,10 +281,11 @@ impl<'a> CheckingContext<'a> {
         dispatch: SurfaceDispatchResolver,
         current_module: ModuleId,
     ) -> Self {
+        let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
         Self {
             store,
-            hierarchy,
-            resolver,
+            hierarchy: TrackingTypeHierarchy::new(hierarchy, semantic_dependencies.clone()),
+            resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
             declarations,
             current_module,
             current_class: None,
@@ -170,7 +303,7 @@ impl<'a> CheckingContext<'a> {
             suppressed: std::collections::BTreeMap::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
-            semantic_dependencies: BTreeSet::new(),
+            semantic_dependencies,
             dispatch: DispatchAccess::Owned(dispatch),
             diagnostics: Vec::new(),
         }
@@ -184,10 +317,11 @@ impl<'a> CheckingContext<'a> {
         dispatch: &'a SurfaceDispatchResolver,
         current_module: ModuleId,
     ) -> Self {
+        let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
         Self {
             store,
-            hierarchy,
-            resolver,
+            hierarchy: TrackingTypeHierarchy::new(hierarchy, semantic_dependencies.clone()),
+            resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
             declarations,
             current_module,
             current_class: None,
@@ -205,7 +339,7 @@ impl<'a> CheckingContext<'a> {
             suppressed: std::collections::BTreeMap::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
-            semantic_dependencies: BTreeSet::new(),
+            semantic_dependencies,
             dispatch: DispatchAccess::Borrowed(dispatch),
             diagnostics: Vec::new(),
         }
@@ -214,8 +348,8 @@ impl<'a> CheckingContext<'a> {
     pub fn with_resolver<'b>(&'b mut self, resolver: &'b dyn TypeResolver) -> CheckingContext<'b> {
         CheckingContext {
             store: self.store,
-            hierarchy: self.hierarchy,
-            resolver,
+            hierarchy: TrackingTypeHierarchy::new(self.hierarchy.inner, self.semantic_dependencies.clone()),
+            resolver: TrackingTypeResolver::new(resolver, self.semantic_dependencies.clone()),
             declarations: self.declarations,
             current_module: self.current_module.clone(),
             current_class: self.current_class.clone(),
@@ -361,10 +495,54 @@ impl<'a> CheckingContext<'a> {
         found
     }
 
+    /// Records an explicitly consumed semantic dependency.
+    pub(crate) fn record_semantic_dependency(&self, dependency: SemanticDependency) {
+        record_query_dependency(&self.semantic_dependencies, dependency);
+    }
+
+    /// Records the canonical dependency for a callable signature consumed from a declaration surface.
+    ///
+    /// Source callables with any unknown parameter or return type cannot yet be
+    /// represented by the canonical `CallableSemanticSignature` product. Their
+    /// declaration surface therefore remains the fail-closed dependency until
+    /// inference establishes a complete canonical contract.
+    pub(crate) fn record_consumed_callable_signature(
+        &self,
+        callable: &CallableId,
+        signature: &crate::dispatch::CallableSignature,
+    ) {
+        if !is_query_owned_module(&callable.owner.module) {
+            return;
+        }
+        record_declaration_surface_dependency(&self.semantic_dependencies, &callable.owner);
+        if signature.has_complete_types() {
+            self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
+        }
+    }
+
+    /// Returns the dispatch resolver currently visible to this context.
+    pub fn dispatch_ref(&self) -> &SurfaceDispatchResolver {
+        self.dispatch.get()
+    }
+
+    /// Reads declaration metadata while recording the declaration-surface dependency.
+    pub fn declaration_info(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, declaration);
+        self.declarations.get(declaration)
+    }
+
+    /// Reads a declaration generic signature while recording the declaration-surface dependency.
+    pub fn declaration_generic_signature(
+        &self,
+        declaration: &DeclarationId,
+    ) -> Option<crate::types::parameter::GenericSignature> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, declaration);
+        self.declarations.generic_signature(declaration).cloned()
+    }
+
     pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
         let (decl, side) = match lookup {
             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
-                self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(defining_class.clone()));
                 if let Some(super_decl) = self.hierarchy.superclass(&defining_class) {
                     (super_decl.clone(), side)
                 } else {
@@ -389,14 +567,14 @@ impl<'a> CheckingContext<'a> {
             },
         };
 
-        let res = self.dispatch.get().resolve_dispatch_with_trace(self.hierarchy, &decl, side, selector);
+        let res = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
         match res {
             crate::dispatch::ResolvedDispatchResult::Found(resolved) => {
                 for owner in resolved.visited_owners.iter() {
-                    self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
+                    record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                 }
                 self.dependencies.insert(resolved.callable.clone());
-                self.semantic_dependencies.insert(SemanticDependency::CallableSignature(resolved.callable.clone()));
+                self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
                 let mut sig = resolved.signature;
                 if let Some(subst) = crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver) {
                     for param in &mut sig.parameters {
@@ -421,14 +599,15 @@ impl<'a> CheckingContext<'a> {
             crate::dispatch::ResolvedDispatchResult::Ambiguous(amb) => {
                 for rd in &amb {
                     for owner in rd.visited_owners.iter() {
-                        self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
+                        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                     }
+                    self.record_consumed_callable_signature(&rd.callable, &rd.signature);
                 }
                 DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect())
             }
             crate::dispatch::ResolvedDispatchResult::Missing { visited_owners } => {
                 for owner in visited_owners.iter() {
-                    self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
+                    record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                 }
                 DispatchResult::Missing
             }
@@ -437,32 +616,25 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
-        if let Some(d) = self.dispatch.get_mut() {
-            d.register_surface(decl, surface);
-        } else {
-            panic!("register_surface is only valid for Owned dispatch");
-        }
+        self.dispatch.make_mut().register_surface(decl, surface);
     }
 
-    pub fn get_surface(&mut self, decl: &DeclarationId) -> Option<&crate::surface::DeclarationSurface> {
-        self.semantic_dependencies.insert(SemanticDependency::DeclarationSurface(decl.clone()));
+    pub fn get_surface(&self, decl: &DeclarationId) -> Option<&crate::surface::DeclarationSurface> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
         self.dispatch.get().get_surface(decl)
     }
 
-    pub fn get_field(&mut self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
-        self.semantic_dependencies.insert(SemanticDependency::DeclarationSurface(decl.clone()));
+    pub fn get_field(&self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
         self.dispatch.get().get_surface(decl).and_then(|s| s.get_field(side, name)).cloned()
     }
 
-    pub fn resolve_type_name(&mut self, name: &str) -> Option<DeclarationId> {
-        let decl = self.resolver.resolve_type_name(&self.current_module, name, &[])?;
-        if decl.module != self.current_module && !matches!(decl.module.project, phalcom_modules::ProjectIdentity::Builtin(_)) && decl.module != phalcom_modules::ModuleId::core() {
-            self.semantic_dependencies.insert(SemanticDependency::LinkedInterface(self.current_module.clone()));
-        }
-        Some(decl)
+    pub fn resolve_type_name(&self, name: &str) -> Option<DeclarationId> {
+        self.resolver.resolve_type_name(&self.current_module, name, &[])
     }
 
     pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> TypeId {
+        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
         if let Some(form) = self.declarations.form(decl) {
             form
         } else {
@@ -527,7 +699,14 @@ impl<'a> CheckingContext<'a> {
             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
             explanations: std::sync::Arc::new(self.explanations),
             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
-            semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
+            semantic_dependencies: std::sync::Arc::from(
+                self.semantic_dependencies
+                    .borrow()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }

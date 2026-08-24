@@ -1,13 +1,16 @@
 //! Compiler-owned incremental workspace session (Spec 04.5 / Wave 5 / Tasks 16-18).
 
 use crate::checker::context::CheckingContext;
-use crate::checker::declaration::{check_class_bodies, register_class_surface};
+use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
-use crate::db::query::query_callable_body;
+use crate::db::query::{
+    query_callable_body, query_callable_signature, query_declaration_surface, query_hierarchy_edge,
+    query_linked_interface, query_unlinked_interface,
+};
 use crate::db::state::QueryOutcome;
-use crate::db::{InputFingerprint, ProductFingerprint, SemanticDb, SemanticProduct};
+use crate::db::SemanticDb;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
@@ -212,50 +215,39 @@ impl SemanticWorkspaceSession {
         let mut invalidated_keys = BTreeSet::new();
         let mut recomputed_keys = Vec::new();
 
-        // 1. Detect changed/removed/new source modules
+        // 1. Refresh source-owned staged products without eager reverse invalidation.
+        //
+        // A source edit changes ParsedModule input identity. Query-local recomputation
+        // preserves downstream cached products, and their dependency fingerprints decide
+        // lazily whether semantic propagation stops or continues. UnlinkedInterface is
+        // evaluated for every source so an unchanged unlinked semantic product can become
+        // current and allow linked/formal/body products to remain reusable.
         let mut new_fingerprints = BTreeMap::new();
         for (module_id, unit) in &input.sources {
             let fp = compute_module_fingerprint(unit);
             new_fingerprints.insert(module_id.clone(), fp);
 
-            let changed = match self.source_fingerprints.get(module_id) {
-                Some(&old_fp) => old_fp != fp,
-                None => true,
-            };
+            let existed = self.source_fingerprints.contains_key(module_id);
+            let changed = self.source_fingerprints.get(module_id).copied() != Some(fp);
 
             if changed {
                 stats.modules_recomputed += 1;
-                let parsed_key = QueryKey::ParsedModule(module_id.clone());
-                let unlinked_key = QueryKey::UnlinkedInterface(module_id.clone());
-                let linked_key = QueryKey::LinkedInterface(module_id.clone());
-                let diags_key = QueryKey::ModuleDiagnostics(module_id.clone());
-
-                let closure = self.db.invalidate([parsed_key, unlinked_key, linked_key, diags_key]);
-                invalidated_keys.extend(closure);
-
-                // Publish parsed module and unlinked interface into DB
-                let _ = self.db.publish_product_ready(
-                    QueryKey::ParsedModule(module_id.clone()),
-                    self.db.revision(),
-                    InputFingerprint::new(fp),
-                    ProductFingerprint::new(fp),
-                    SemanticProduct::ParsedModule(unit.clone()),
-                    Vec::new(),
-                );
-
-                if let Ok(unlinked) = InterfaceBuilder::build(module_id.clone(), unit.kind, &unit.program) {
-                    let _ = self.db.publish_product_ready(
-                        QueryKey::UnlinkedInterface(module_id.clone()),
-                        self.db.revision(),
-                        InputFingerprint::new(fp),
-                        ProductFingerprint::new(fp),
-                        SemanticProduct::UnlinkedInterface(Arc::new(unlinked)),
-                        Vec::new(),
-                    );
+                if existed {
+                    invalidated_keys.insert(QueryKey::ParsedModule(module_id.clone()));
                 }
+            }
+
+            match query_unlinked_interface(&mut self.db, module_id.clone(), unit.clone()) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
             }
         }
 
+        // Removal is different from recomputation: the product has no replacement whose
+        // fingerprint could prove semantic stability, so its full reverse closure must die.
         for old_module_id in self.sources.keys() {
             if !input.sources.contains_key(old_module_id) {
                 let parsed_key = QueryKey::ParsedModule(old_module_id.clone());
@@ -453,140 +445,125 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        // Build hierarchy
+        // Publish/validate linked-interface prerequisites before declaration queries.
+        for (module_id, linked_mod) in &input.linked.modules {
+            match query_linked_interface(
+                &mut self.db,
+                module_id.clone(),
+                Arc::new(linked_mod.interface.clone()),
+            ) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
+
+        // Build the compatibility hierarchy exclusively from DB-owned hierarchy-edge queries.
         for (module_id, parsed_unit) in &input.sources {
+            let Some(linked_module) = input.linked.modules.get(module_id) else {
+                return Err(QueryOutcome::Failed(format!(
+                    "linked module prerequisite is missing for semantic source {module_id:?}"
+                )));
+            };
+            let linked_interface = Arc::new(linked_module.interface.clone());
+
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     let class_decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                    let (super_decl_opt, super_decl_for_insert) = if let Some(super_ref) = class_def.superclass_ref() {
-                        let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
-                        if let Some(super_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
-                            (Some(super_decl.clone()), Some(super_decl))
-                        } else {
-                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
-                                module_id.clone(),
-                                DiagnosticCode::AnnotationUnresolved,
-                                format!("unresolved superclass `{}`", super_ref.root),
-                                super_ref.range,
-                            ));
-                            (None, None)
-                        }
-                    } else {
-                        let obj_decl = DeclarationId::new(ModuleId::core(), "Object".into());
-                        if class_decl != obj_decl {
-                            (Some(obj_decl.clone()), Some(obj_decl))
-                        } else {
-                            (None, None)
-                        }
+                    let edge = match query_hierarchy_edge(
+                        &mut self.db,
+                        class_decl.clone(),
+                        parsed_unit.clone(),
+                        linked_interface.clone(),
+                        &resolver,
+                    ) {
+                        QueryOutcome::Ready(edge) => edge,
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     };
-                    if let Some(s) = super_decl_for_insert {
-                        hierarchy.insert(class_decl.clone(), s);
+
+                    if let Some(super_decl) = &edge.super_decl {
+                        hierarchy.insert(class_decl.clone(), super_decl.clone());
+                    } else if let Some(super_ref) = class_def.superclass_ref() {
+                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                            module_id.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("unresolved superclass `{}`", super_ref.root),
+                            super_ref.range,
+                        ));
                     }
-                    let fp = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl_opt);
-                    let _ = self.db.publish_product_ready(
-                        QueryKey::HierarchyEdge(class_decl.clone()),
-                        self.db.revision(),
-                        InputFingerprint::new(fp.raw()),
-                        fp,
-                        SemanticProduct::HierarchyEdge(Arc::new(crate::hierarchy_product::HierarchyEdgeProduct::new(class_decl, super_decl_opt))),
-                        Vec::new(),
-                    );
                 }
             }
         }
 
-        // Publish linked interfaces
-        for (module_id, linked_mod) in &input.linked.modules {
-            let fp = crate::db::fingerprint::linked_interface_product_fingerprint(&linked_mod.interface);
-            let _ = self.db.publish_product_ready(
-                QueryKey::LinkedInterface(module_id.clone()),
-                self.db.revision(),
-                InputFingerprint::new(fp.raw()),
-                fp,
-                SemanticProduct::LinkedInterface(Arc::new(linked_mod.interface.clone())),
-                Vec::new(),
-            );
-        }
-
-        // 6. Collect Declaration Surfaces
+        // 6. Materialize compatibility dispatch/signature tables from DB-owned formal products.
         let mut dispatch = self.base_dispatch.clone();
         let mut callable_signatures = self.base_callable_signatures.clone();
 
         for (module_id, parsed_unit) in &input.sources {
-            let mut dummy_ctx = CheckingContext::new(&mut self.store, &hierarchy, &resolver, &declarations, module_id.clone());
+            let Some(linked_module) = input.linked.modules.get(module_id) else {
+                return Err(QueryOutcome::Failed(format!(
+                    "linked module prerequisite is missing for semantic source {module_id:?}"
+                )));
+            };
+            let linked_interface = Arc::new(linked_module.interface.clone());
 
             for stmt in &parsed_unit.program.statements {
-                if let Statement::Class(class_def) = stmt {
-                    register_class_surface(&mut dummy_ctx, class_def);
+                let Statement::Class(class_def) = stmt else {
+                    continue;
+                };
+                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let surface = match query_declaration_surface(
+                    &mut self.db,
+                    decl_id.clone(),
+                    parsed_unit.clone(),
+                    linked_interface.clone(),
+                    &mut self.store,
+                    &hierarchy,
+                    &resolver,
+                    &declarations,
+                ) {
+                    QueryOutcome::Ready(surface) => surface,
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                };
+                if let Some(diagnostics) = self
+                    .db
+                    .product(&QueryKey::DeclarationSurface(decl_id.clone()))
+                    .and_then(|product| product.as_declaration_surface_diagnostics())
+                {
+                    diags_by_module
+                        .entry(module_id.clone())
+                        .or_default()
+                        .extend(diagnostics.iter().cloned());
                 }
-            }
 
-            for (decl_id, surface) in dummy_ctx.dispatch.surfaces() {
-                dispatch.register_surface(decl_id.clone(), surface.clone());
-                let surf_fp = crate::db::fingerprint::declaration_surface_product_fingerprint(surface);
-                let _ = self.db.publish_product_ready(
-                    QueryKey::DeclarationSurface(decl_id.clone()),
-                    self.db.revision(),
-                    InputFingerprint::new(surf_fp.raw()),
-                    surf_fp,
-                    SemanticProduct::DeclarationSurface(Arc::new(surface.clone())),
-                    Vec::new(),
-                );
+                dispatch.register_surface(decl_id.clone(), (*surface).clone());
+                if let Some(ty) = declarations.form(&decl_id) {
+                    dispatch.register_type(ty, decl_id.clone());
+                }
+
                 for (side, member_surface) in [
                     (crate::identity::DispatchSide::Instance, &surface.instance),
                     (crate::identity::DispatchSide::Class, &surface.class),
                 ] {
-                    for (sel, sig) in &member_surface.callable_signatures {
-                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel.clone(), side);
-                        if let Some(return_type) = sig.return_type.ty() {
-                            let parameters = sig
-                                .parameters
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(index, parameter)| {
-                                    let ty = parameter.ty.ty()?;
-                                    let mut p = crate::signature::CallableParameterSemantic::new(index as u32, parameter.local_name.clone(), ty.into());
-                                    if let Some(ref l) = parameter.external_label {
-                                        p = p.with_label(l.clone());
-                                    }
-                                    if parameter.rest {
-                                        p = p.with_rest(phalcom_ast::ast::RestMode::Positional);
-                                    }
-                                    Some(p)
-                                })
-                                .collect::<Vec<_>>()
-                                .into_boxed_slice();
-                            let sem_sig = crate::signature::CallableSemanticSignature {
-                                callable: callable_id.clone(),
-                                owner: decl_id.clone(),
-                                side,
-                                selector: sel.clone(),
-                                generics: None,
-                                parameters,
-                                return_type: return_type.into(),
-                                source: None,
-                                implementation: phalcom_native_meta::ImplementationKind::Source,
-                                native_id: None,
-                                effects: phalcom_native_meta::EffectSpec::Unknown,
-                                raises: phalcom_native_meta::RaisesSpec::Unknown,
-                                flow: phalcom_native_meta::ReturnFlowSpec::Value,
-                                lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
-                            };
-                            callable_signatures.insert(sem_sig.clone());
-                            let sig_fp = crate::db::fingerprint::callable_signature_product_fingerprint(&sem_sig);
-                            let _ = self.db.publish_product_ready(
-                                QueryKey::CallableSignature(callable_id.clone()),
-                                self.db.revision(),
-                                InputFingerprint::new(sig_fp.raw()),
-                                sig_fp,
-                                SemanticProduct::CallableSignature(Arc::new(sem_sig)),
-                                Vec::new(),
-                            );
+                    for selector in member_surface.callable_signatures.keys() {
+                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector.clone(), side);
+                        match query_callable_signature(&mut self.db, callable_id) {
+                            QueryOutcome::Ready(signature) => callable_signatures.insert((*signature).clone()),
+                            QueryOutcome::Blocked(crate::types::BlockReason::UnknownType(_)) => {}
+                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                         }
                     }
-                }
-                if let Some(ty) = declarations.form(decl_id) {
-                    dispatch.register_type(ty, decl_id.clone());
                 }
             }
         }
@@ -667,6 +644,12 @@ impl SemanticWorkspaceSession {
                                     } else {
                                         stats.callables_reused += 1;
                                     }
+                                    if !analysis.diagnostics.is_empty() {
+                                        diags_by_module
+                                            .entry(module_id.clone())
+                                            .or_default()
+                                            .extend(analysis.diagnostics.iter().cloned());
+                                    }
                                     callable_analyses.insert(callable_id, analysis);
                                 }
                                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -691,7 +674,7 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 match stmt {
                     Statement::Class(class_def) => {
-                        check_class_bodies(&mut ctx, class_def);
+                        check_class_field_initializers(&mut ctx, class_def);
                     }
                     _ => {
                         check_statement(&mut ctx, stmt);

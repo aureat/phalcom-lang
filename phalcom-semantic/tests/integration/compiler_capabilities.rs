@@ -1,7 +1,7 @@
 use crate::integration::checker::setup_test_env;
 use phalcom_ast::ast::Statement;
 use phalcom_ast::parse_source;
-use phalcom_semantic::{CheckingContext, EvidenceAuthority, TypeKnowledge, synthesize_typed_expr};
+use phalcom_semantic::{synthesize_typed_expr, CheckingContext, EvidenceAuthority, TypeKnowledge, TypeResolver};
 
 #[test]
 fn integer_literal_synthesizes_int() {

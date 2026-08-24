@@ -21,7 +21,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
         Statement::Let(binding) => {
             let declared_k = binding.annotation.as_ref().map(|ann| {
                 let mut diags = Vec::new();
-                let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
+                let k = resolve_type_annotation(ctx.store, ctx.declarations, &ctx.resolver, &ctx.current_module, ann, &mut diags);
                 ctx.diagnostics.extend(diags);
                 k
             });
@@ -36,7 +36,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             let mut is_assignable = true;
             if let Some(ref decl_k) = declared_k {
                 if binding.value.is_some() {
-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_typed.knowledge, decl_k);
+                    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &val_typed.knowledge, decl_k);
                     if let Assignability::Refuted { .. } = assignability {
                         is_assignable = false;
                         let mut diag = SemanticDiagnostic::error_in(
@@ -78,7 +78,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
             if let Some(expected) = ctx.expected_return.clone() {
                 enforce_assignability(
                     ctx.store,
-                    ctx.hierarchy,
+                    &ctx.hierarchy,
                     &val_typed.knowledge,
                     &expected,
                     &ctx.current_module,
@@ -166,7 +166,7 @@ pub fn resolve_iteration_element(ctx: &mut CheckingContext<'_>, receiver_ty: Typ
     // if Applied has type arguments, derive element type if the origin has an iterator protocol or single type parameter
     if let TypeData::Applied { origin, arguments } = ctx.store.get(receiver_ty).clone() {
         if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
-            if let Some(sig) = ctx.declarations.generic_signature(declaration) {
+            if let Some(sig) = ctx.declaration_generic_signature(declaration) {
                 if !sig.parameters.is_empty() && !arguments.is_empty() {
                     return TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven);
                 }

@@ -1,0 +1,1122 @@
+diff --git a/phalcom-semantic/src/checker/body.rs b/phalcom-semantic/src/checker/body.rs
+index 579d5b1..e8e8f5a 100644
+--- a/phalcom-semantic/src/checker/body.rs
++++ b/phalcom-semantic/src/checker/body.rs
+@@ -98,11 +98,10 @@ pub fn analyze_callable_body(
+     // Bind parameters and expected return from the exact published signature consumed by this body.
+     // Constructor bodies are represented as instance-side bodies, while their public constructor
+     // signatures live on the class side; record the class-side identity in that fallback case.
+-    let sig_opt = signature_consumed_by_body(ctx.dispatch.get(), &callable);
++    let sig_opt = signature_consumed_by_body(ctx.dispatch_ref(), &callable);
+ 
+     if let Some((signature_id, sig)) = sig_opt {
+-        ctx.semantic_dependencies
+-            .insert(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id));
++        ctx.record_consumed_callable_signature(&signature_id, &sig);
+         ctx.push_scope();
+         for param in &sig.parameters {
+             let ty_opt = param.ty.ty();
+diff --git a/phalcom-semantic/src/checker/call.rs b/phalcom-semantic/src/checker/call.rs
+index 3aadcff..9adb92d 100644
+--- a/phalcom-semantic/src/checker/call.rs
++++ b/phalcom-semantic/src/checker/call.rs
+@@ -21,7 +21,7 @@ pub fn check_arguments(ctx: &mut CheckingContext<'_>, args: &[Expr], param_types
+         if let Some(param_k) = param_types.get(i) {
+             enforce_assignability(
+                 ctx.store,
+-                ctx.hierarchy,
++                &ctx.hierarchy,
+                 &arg_typed.knowledge,
+                 param_k,
+                 &ctx.current_module,
+@@ -139,7 +139,7 @@ pub fn resolve_call(
+                 }
+             }
+ 
+-            let outcome = session.solve(ctx.store, ctx.hierarchy);
++            let outcome = session.solve(ctx.store, &ctx.hierarchy);
+             return match outcome {
+                 crate::checker::inference::InferenceOutcome::Solved(solution) => {
+                     if let Some(ret_ty) = signature.return_type.ty() {
+@@ -191,7 +191,7 @@ pub fn resolve_call(
+                 if let Some(param) = matched_param {
+                     enforce_assignability(
+                         ctx.store,
+-                        ctx.hierarchy,
++                        &ctx.hierarchy,
+                         &arg_typed.knowledge,
+                         &param.ty,
+                         &ctx.current_module,
+@@ -218,7 +218,7 @@ pub fn resolve_call(
+                     if let Some(param) = matched_param {
+                         enforce_assignability(
+                             ctx.store,
+-                            ctx.hierarchy,
++                            &ctx.hierarchy,
+                             &arg_typed.knowledge,
+                             &param.ty,
+                             &ctx.current_module,
+diff --git a/phalcom-semantic/src/checker/context.rs b/phalcom-semantic/src/checker/context.rs
+index 7347a30..f5edf7c 100644
+--- a/phalcom-semantic/src/checker/context.rs
++++ b/phalcom-semantic/src/checker/context.rs
+@@ -2,7 +2,7 @@ use crate::checker::analysis::{
+     AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency,
+ };
+ use crate::checker::flow::FlowState;
+-use crate::declarations::DeclarationTypeTable;
++use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
+ use crate::diagnostic::SemanticDiagnostic;
+ use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
+ use crate::identity::{
+@@ -18,15 +18,25 @@ use crate::types::store::{TypeData, TypeStore};
+ use phalcom_common::range::SourceRange;
+ use phalcom_common::selector::Selector;
+ use phalcom_native_surface::NATIVE_SURFACES;
++use std::cell::RefCell;
+ use std::collections::{BTreeSet, HashMap};
++use std::rc::Rc;
+ 
+ /// Storage abstraction for dispatch resolver avoiding per-callable cloning.
++///
++/// Borrowed workspace dispatch remains read-only until a checker operation needs
++/// to register a local/nested declaration. At that point [`Self::make_mut`]
++/// lazily detaches by cloning once, preserving the no-clone fast path for normal
++/// callable analysis.
+ pub enum DispatchAccess<'a> {
++    /// Context owns its dispatch table and may mutate it directly.
+     Owned(SurfaceDispatchResolver),
++    /// Context borrows the immutable workspace dispatch table.
+     Borrowed(&'a SurfaceDispatchResolver),
+ }
+ 
+ impl<'a> DispatchAccess<'a> {
++    /// Returns the current dispatch resolver for read-only queries.
+     pub fn get(&self) -> &SurfaceDispatchResolver {
+         match self {
+             Self::Owned(d) => d,
+@@ -34,10 +44,18 @@ impl<'a> DispatchAccess<'a> {
+         }
+     }
+ 
+-    pub fn get_mut(&mut self) -> Option<&mut SurfaceDispatchResolver> {
++    /// Returns a mutable resolver, lazily detaching a borrowed resolver on first mutation.
++    pub fn make_mut(&mut self) -> &mut SurfaceDispatchResolver {
++        let detached = match self {
++            Self::Borrowed(dispatch) => Some((**dispatch).clone()),
++            Self::Owned(_) => None,
++        };
++        if let Some(detached) = detached {
++            *self = Self::Owned(detached);
++        }
+         match self {
+-            Self::Owned(d) => Some(d),
+-            Self::Borrowed(_) => None,
++            Self::Owned(dispatch) => dispatch,
++            Self::Borrowed(_) => unreachable!("borrowed dispatch was detached above"),
+         }
+     }
+ }
+@@ -50,12 +68,126 @@ impl<'a> std::ops::Deref for DispatchAccess<'a> {
+     }
+ }
+ 
+-impl<'a> std::ops::DerefMut for DispatchAccess<'a> {
+-    fn deref_mut(&mut self) -> &mut Self::Target {
+-        match self {
+-            Self::Owned(d) => d,
+-            Self::Borrowed(_) => panic!("Attempted to mutate borrowed dispatch resolver"),
++type SharedSemanticDependencies = Rc<RefCell<BTreeSet<SemanticDependency>>>;
++
++/// The compatibility `core` surface is bootstrapped as an immutable session seed
++/// and currently has no corresponding staged DB products. All other module
++/// identities are query-owned and must participate in dependency tracking.
++fn is_query_owned_module(module: &ModuleId) -> bool {
++    let components = module.path.components();
++    !(matches!(
++        module.project,
++        phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::BuiltinProject::Universe)
++    ) && components.len() == 1
++        && components[0].as_str() == "core")
++}
++
++fn record_query_dependency(dependencies: &SharedSemanticDependencies, dependency: SemanticDependency) {
++    dependencies.borrow_mut().insert(dependency);
++}
++
++fn record_declaration_surface_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
++    if is_query_owned_module(&declaration.module) {
++        record_query_dependency(dependencies, SemanticDependency::DeclarationSurface(declaration.clone()));
++    }
++}
++
++fn record_hierarchy_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
++    if is_query_owned_module(&declaration.module) {
++        record_query_dependency(dependencies, SemanticDependency::HierarchyEdge(declaration.clone()));
++    }
++}
++
++/// Type resolver wrapper that records declaration and linked-interface reads during body checking.
++#[derive(Clone)]
++pub struct TrackingTypeResolver<'a> {
++    inner: &'a dyn TypeResolver,
++    dependencies: SharedSemanticDependencies,
++}
++
++impl<'a> TrackingTypeResolver<'a> {
++    fn new(inner: &'a dyn TypeResolver, dependencies: SharedSemanticDependencies) -> Self {
++        Self { inner, dependencies }
++    }
++}
++
++impl TypeResolver for TrackingTypeResolver<'_> {
++    fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
++        let declaration = self.inner.resolve_type_name(current_module, root, members);
++        let Some(declaration) = declaration else {
++            if is_query_owned_module(current_module) {
++                record_query_dependency(
++                    &self.dependencies,
++                    SemanticDependency::LinkedInterface(current_module.clone()),
++                );
++            }
++            return None;
++        };
++
++        record_declaration_surface_dependency(&self.dependencies, &declaration);
++        if &declaration.module != current_module
++            && is_query_owned_module(current_module)
++            && is_query_owned_module(&declaration.module)
++        {
++            record_query_dependency(
++                &self.dependencies,
++                SemanticDependency::LinkedInterface(current_module.clone()),
++            );
+         }
++        Some(declaration)
++    }
++
++    fn resolve_type_parameter(&self, name: &str) -> Option<TypeId> {
++        self.inner.resolve_type_parameter(name)
++    }
++
++    fn current_declaration(&self) -> Option<DeclarationId> {
++        self.inner.current_declaration()
++    }
++}
++
++/// Hierarchy wrapper that records each mutable direct edge consumed by body checking.
++#[derive(Clone)]
++pub struct TrackingTypeHierarchy<'a> {
++    inner: &'a dyn TypeHierarchy,
++    dependencies: SharedSemanticDependencies,
++}
++
++impl<'a> TrackingTypeHierarchy<'a> {
++    fn new(inner: &'a dyn TypeHierarchy, dependencies: SharedSemanticDependencies) -> Self {
++        Self { inner, dependencies }
++    }
++}
++
++impl TypeHierarchy for TrackingTypeHierarchy<'_> {
++    fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {
++        record_hierarchy_dependency(&self.dependencies, declaration);
++        self.inner.superclass(declaration)
++    }
++
++    fn is_subclass(&self, sub: &DeclarationId, sup: &DeclarationId) -> bool {
++        if sub == sup {
++            return true;
++        }
++
++        let mut current = sub;
++        let mut visited = BTreeSet::new();
++        while visited.insert(current.clone()) {
++            record_hierarchy_dependency(&self.dependencies, current);
++            let Some(parent) = self.inner.superclass(current) else {
++                return false;
++            };
++            if parent == sup {
++                return true;
++            }
++            current = parent;
++        }
++        false
++    }
++
++    fn supertype_template(&self, declaration: &DeclarationId) -> Option<&crate::declarations::GenericSupertypeTemplate> {
++        record_hierarchy_dependency(&self.dependencies, declaration);
++        self.inner.supertype_template(declaration)
+     }
+ }
+ 
+@@ -94,8 +226,8 @@ impl LocalEnv {
+ /// The active context during semantic type checking.
+ pub struct CheckingContext<'a> {
+     pub store: &'a mut TypeStore,
+-    pub hierarchy: &'a dyn TypeHierarchy,
+-    pub resolver: &'a dyn TypeResolver,
++    pub hierarchy: TrackingTypeHierarchy<'a>,
++    pub resolver: TrackingTypeResolver<'a>,
+     pub declarations: &'a DeclarationTypeTable,
+     pub current_module: ModuleId,
+     pub current_class: Option<DeclarationId>,
+@@ -113,7 +245,7 @@ pub struct CheckingContext<'a> {
+     pub suppressed: std::collections::BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
+     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
+     pub dependencies: BTreeSet<CallableId>,
+-    pub semantic_dependencies: BTreeSet<SemanticDependency>,
++    semantic_dependencies: SharedSemanticDependencies,
+     pub dispatch: DispatchAccess<'a>,
+     pub diagnostics: Vec<SemanticDiagnostic>,
+ }
+@@ -149,10 +281,11 @@ impl<'a> CheckingContext<'a> {
+         dispatch: SurfaceDispatchResolver,
+         current_module: ModuleId,
+     ) -> Self {
++        let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
+         Self {
+             store,
+-            hierarchy,
+-            resolver,
++            hierarchy: TrackingTypeHierarchy::new(hierarchy, semantic_dependencies.clone()),
++            resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
+             declarations,
+             current_module,
+             current_class: None,
+@@ -170,7 +303,7 @@ impl<'a> CheckingContext<'a> {
+             suppressed: std::collections::BTreeMap::new(),
+             flow_graph: None,
+             dependencies: BTreeSet::new(),
+-            semantic_dependencies: BTreeSet::new(),
++            semantic_dependencies,
+             dispatch: DispatchAccess::Owned(dispatch),
+             diagnostics: Vec::new(),
+         }
+@@ -184,10 +317,11 @@ impl<'a> CheckingContext<'a> {
+         dispatch: &'a SurfaceDispatchResolver,
+         current_module: ModuleId,
+     ) -> Self {
++        let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
+         Self {
+             store,
+-            hierarchy,
+-            resolver,
++            hierarchy: TrackingTypeHierarchy::new(hierarchy, semantic_dependencies.clone()),
++            resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
+             declarations,
+             current_module,
+             current_class: None,
+@@ -205,7 +339,7 @@ impl<'a> CheckingContext<'a> {
+             suppressed: std::collections::BTreeMap::new(),
+             flow_graph: None,
+             dependencies: BTreeSet::new(),
+-            semantic_dependencies: BTreeSet::new(),
++            semantic_dependencies,
+             dispatch: DispatchAccess::Borrowed(dispatch),
+             diagnostics: Vec::new(),
+         }
+@@ -214,8 +348,8 @@ impl<'a> CheckingContext<'a> {
+     pub fn with_resolver<'b>(&'b mut self, resolver: &'b dyn TypeResolver) -> CheckingContext<'b> {
+         CheckingContext {
+             store: self.store,
+-            hierarchy: self.hierarchy,
+-            resolver,
++            hierarchy: TrackingTypeHierarchy::new(self.hierarchy.inner, self.semantic_dependencies.clone()),
++            resolver: TrackingTypeResolver::new(resolver, self.semantic_dependencies.clone()),
+             declarations: self.declarations,
+             current_module: self.current_module.clone(),
+             current_class: self.current_class.clone(),
+@@ -361,10 +495,54 @@ impl<'a> CheckingContext<'a> {
+         found
+     }
+ 
++    /// Records an explicitly consumed semantic dependency.
++    pub(crate) fn record_semantic_dependency(&self, dependency: SemanticDependency) {
++        record_query_dependency(&self.semantic_dependencies, dependency);
++    }
++
++    /// Records the canonical dependency for a callable signature consumed from a declaration surface.
++    ///
++    /// Source callables whose return type is still unknown do not yet have a
++    /// `CallableSignature` query product in the transitional session pipeline.
++    /// Their declaration surface is therefore the fail-closed dependency until
++    /// staged signature queries own partial signatures in Step 4.
++    pub(crate) fn record_consumed_callable_signature(
++        &self,
++        callable: &CallableId,
++        signature: &crate::dispatch::CallableSignature,
++    ) {
++        if !is_query_owned_module(&callable.owner.module) {
++            return;
++        }
++        record_declaration_surface_dependency(&self.semantic_dependencies, &callable.owner);
++        if signature.return_type.ty().is_some() {
++            self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
++        }
++    }
++
++    /// Returns the dispatch resolver currently visible to this context.
++    pub fn dispatch_ref(&self) -> &SurfaceDispatchResolver {
++        self.dispatch.get()
++    }
++
++    /// Reads declaration metadata while recording the declaration-surface dependency.
++    pub fn declaration_info(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
++        record_declaration_surface_dependency(&self.semantic_dependencies, declaration);
++        self.declarations.get(declaration)
++    }
++
++    /// Reads a declaration generic signature while recording the declaration-surface dependency.
++    pub fn declaration_generic_signature(
++        &self,
++        declaration: &DeclarationId,
++    ) -> Option<crate::types::parameter::GenericSignature> {
++        record_declaration_surface_dependency(&self.semantic_dependencies, declaration);
++        self.declarations.generic_signature(declaration).cloned()
++    }
++
+     pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
+         let (decl, side) = match lookup {
+             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
+-                self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(defining_class.clone()));
+                 if let Some(super_decl) = self.hierarchy.superclass(&defining_class) {
+                     (super_decl.clone(), side)
+                 } else {
+@@ -389,14 +567,14 @@ impl<'a> CheckingContext<'a> {
+             },
+         };
+ 
+-        let res = self.dispatch.get().resolve_dispatch_with_trace(self.hierarchy, &decl, side, selector);
++        let res = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
+         match res {
+             crate::dispatch::ResolvedDispatchResult::Found(resolved) => {
+                 for owner in resolved.visited_owners.iter() {
+-                    self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
++                    record_declaration_surface_dependency(&self.semantic_dependencies, owner);
+                 }
+                 self.dependencies.insert(resolved.callable.clone());
+-                self.semantic_dependencies.insert(SemanticDependency::CallableSignature(resolved.callable.clone()));
++                self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
+                 let mut sig = resolved.signature;
+                 if let Some(subst) = crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver) {
+                     for param in &mut sig.parameters {
+@@ -421,14 +599,15 @@ impl<'a> CheckingContext<'a> {
+             crate::dispatch::ResolvedDispatchResult::Ambiguous(amb) => {
+                 for rd in &amb {
+                     for owner in rd.visited_owners.iter() {
+-                        self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
++                        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
+                     }
++                    self.record_consumed_callable_signature(&rd.callable, &rd.signature);
+                 }
+                 DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect())
+             }
+             crate::dispatch::ResolvedDispatchResult::Missing { visited_owners } => {
+                 for owner in visited_owners.iter() {
+-                    self.semantic_dependencies.insert(SemanticDependency::HierarchyEdge(owner.clone()));
++                    record_declaration_surface_dependency(&self.semantic_dependencies, owner);
+                 }
+                 DispatchResult::Missing
+             }
+@@ -437,32 +616,25 @@ impl<'a> CheckingContext<'a> {
+     }
+ 
+     pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
+-        if let Some(d) = self.dispatch.get_mut() {
+-            d.register_surface(decl, surface);
+-        } else {
+-            panic!("register_surface is only valid for Owned dispatch");
+-        }
++        self.dispatch.make_mut().register_surface(decl, surface);
+     }
+ 
+-    pub fn get_surface(&mut self, decl: &DeclarationId) -> Option<&crate::surface::DeclarationSurface> {
+-        self.semantic_dependencies.insert(SemanticDependency::DeclarationSurface(decl.clone()));
++    pub fn get_surface(&self, decl: &DeclarationId) -> Option<&crate::surface::DeclarationSurface> {
++        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
+         self.dispatch.get().get_surface(decl)
+     }
+ 
+-    pub fn get_field(&mut self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
+-        self.semantic_dependencies.insert(SemanticDependency::DeclarationSurface(decl.clone()));
++    pub fn get_field(&self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
++        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
+         self.dispatch.get().get_surface(decl).and_then(|s| s.get_field(side, name)).cloned()
+     }
+ 
+-    pub fn resolve_type_name(&mut self, name: &str) -> Option<DeclarationId> {
+-        let decl = self.resolver.resolve_type_name(&self.current_module, name, &[])?;
+-        if decl.module != self.current_module && !matches!(decl.module.project, phalcom_modules::ProjectIdentity::Builtin(_)) && decl.module != phalcom_modules::ModuleId::core() {
+-            self.semantic_dependencies.insert(SemanticDependency::LinkedInterface(self.current_module.clone()));
+-        }
+-        Some(decl)
++    pub fn resolve_type_name(&self, name: &str) -> Option<DeclarationId> {
++        self.resolver.resolve_type_name(&self.current_module, name, &[])
+     }
+ 
+     pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> TypeId {
++        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
+         if let Some(form) = self.declarations.form(decl) {
+             form
+         } else {
+@@ -527,7 +699,14 @@ impl<'a> CheckingContext<'a> {
+             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
+             explanations: std::sync::Arc::new(self.explanations),
+             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
+-            semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
++            semantic_dependencies: std::sync::Arc::from(
++                self.semantic_dependencies
++                    .borrow()
++                    .iter()
++                    .cloned()
++                    .collect::<Vec<_>>()
++                    .into_boxed_slice(),
++            ),
+             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
+             status,
+         }
+diff --git a/phalcom-semantic/src/checker/declaration.rs b/phalcom-semantic/src/checker/declaration.rs
+index 5039eb0..a6abfe5 100644
+--- a/phalcom-semantic/src/checker/declaration.rs
++++ b/phalcom-semantic/src/checker/declaration.rs
+@@ -7,7 +7,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
+ use crate::dispatch::{CallableParameter, CallableSignature};
+ use crate::identity::DeclarationId;
+ use crate::surface::DeclarationSurface;
+-use crate::types::annotation::{TypeResolver, resolve_type_annotation};
++use crate::types::annotation::resolve_type_annotation;
+ use crate::types::denotation::ValueSemanticFact;
+ use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
+ use crate::types::relation::{Assignability, check_assignability};
+@@ -27,9 +27,9 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
+     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
+     let mut surface = DeclarationSurface::new(Some(decl_id.clone()));
+     let class_ty = ctx.nominal_type_of(&decl_id);
+-    ctx.dispatch.register_type(class_ty, decl_id.clone());
++    ctx.dispatch.make_mut().register_type(class_ty, decl_id.clone());
+ 
+-    let type_params_map = if let Some(sig) = ctx.declarations.generic_signature(&decl_id) {
++    let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
+         let mut map = std::collections::HashMap::new();
+         for &param_id in sig.parameters.iter() {
+             let name = ctx.store.type_parameter(param_id).name.to_string();
+@@ -41,7 +41,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
+         std::collections::HashMap::new()
+     };
+     let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+-        parent: ctx.resolver,
++        parent: &ctx.resolver,
+         type_parameters: type_params_map,
+     };
+     let resolver = &scoped_resolver;
+@@ -236,7 +236,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
+ /// Checks the member bodies of an already-registered class declaration.
+ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
+-    let type_params_map = if let Some(sig) = ctx.declarations.generic_signature(&decl_id) {
++    let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
+         let mut map = std::collections::HashMap::new();
+         for &param_id in sig.parameters.iter() {
+             let name = ctx.store.type_parameter(param_id).name.to_string();
+@@ -248,7 +248,7 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+         std::collections::HashMap::new()
+     };
+     let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+-        parent: ctx.resolver,
++        parent: &ctx.resolver,
+         type_parameters: type_params_map,
+     };
+     let resolver = &scoped_resolver;
+@@ -269,7 +269,7 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+ 
+                 if let (Some(decl_k), Some(default_expr)) = (declared_k, &f.default) {
+                     let init_k = synthesize_expr(ctx, default_expr);
+-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &init_k, &decl_k);
++                    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &init_k, &decl_k);
+                     if let Assignability::Refuted { .. } = assignability {
+                         ctx.diagnostics.push(SemanticDiagnostic::error_in(
+                             ctx.current_module.clone(),
+@@ -360,7 +360,7 @@ fn check_callable_body(
+                 if let Some(expected) = &expected_return {
+                     crate::checker::policy::enforce_assignability(
+                         ctx.store,
+-                        ctx.hierarchy,
++                        &ctx.hierarchy,
+                         &tail_typed.knowledge,
+                         expected,
+                         &ctx.current_module,
+diff --git a/phalcom-semantic/src/checker/expression.rs b/phalcom-semantic/src/checker/expression.rs
+index 632a54b..0644da2 100644
+--- a/phalcom-semantic/src/checker/expression.rs
++++ b/phalcom-semantic/src/checker/expression.rs
+@@ -91,7 +91,7 @@ pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &E
+         let expected_k = TypeKnowledge::known(expected_ty, EvidenceAuthority::Declared);
+         let _ = enforce_assignability(
+             ctx.store,
+-            ctx.hierarchy,
++            &ctx.hierarchy,
+             &typed.knowledge,
+             &expected_k,
+             &ctx.current_module,
+@@ -118,7 +118,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+     match expr {
+         // --- 1. Primitive Literals ---
+         Expr::Int { range, .. } => {
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Int", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("Int") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
+             } else {
+@@ -126,7 +126,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+             }
+         }
+         Expr::Float { range, .. } => {
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Float", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("Float") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
+             } else {
+@@ -134,7 +134,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+             }
+         }
+         Expr::String { range, .. } => {
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("String") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
+             } else {
+@@ -142,7 +142,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+             }
+         }
+         Expr::Boolean { range, .. } => {
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("Bool") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, *range)
+             } else {
+@@ -158,7 +158,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+                 typed.denotation = fact.denotation;
+                 typed
+             } else if let Some(decl) = ctx.resolve_type_name(value) {
+-                if let Some(info) = ctx.declarations.get(&decl) {
++                if let Some(info) = ctx.declaration_info(&decl) {
+                     TypedExpression::known(info.class_object_type, EvidenceAuthority::Declared, *range).with_denotation(SemanticDenotation::TypeForm(info.form))
+                 } else {
+                     let ty = ctx.nominal_type_of(&decl);
+@@ -171,7 +171,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+         Expr::SelfVar { range } => {
+             if let Some(class_decl) = ctx.current_class.clone() {
+                 if ctx.current_side == crate::identity::DispatchSide::Class {
+-                    if let Some(info) = ctx.declarations.get(&class_decl) {
++                    if let Some(info) = ctx.declaration_info(&class_decl) {
+                         TypedExpression::known(info.class_object_type, EvidenceAuthority::Proven, *range)
+                             .with_denotation(SemanticDenotation::TypeForm(info.form))
+                     } else {
+@@ -194,7 +194,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+                     side,
+                 };
+                 if side == crate::identity::DispatchSide::Class {
+-                    if let Some(info) = ctx.declarations.get(&class_decl) {
++                    if let Some(info) = ctx.declaration_info(&class_decl) {
+                         TypedExpression::known(info.class_object_type, EvidenceAuthority::Proven, *range)
+                             .with_denotation(SemanticDenotation::TypeForm(info.form))
+                             .with_dispatch_lookup(lookup)
+@@ -240,7 +240,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+                 if let Some(target_fact) = ctx.lookup_local(var_name).cloned() {
+                     enforce_assignability(
+                         ctx.store,
+-                        ctx.hierarchy,
++                        &ctx.hierarchy,
+                         val_k,
+                         &target_fact.knowledge,
+                         &ctx.current_module,
+@@ -268,8 +268,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+             let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
+ 
+             let top = ctx
+-                .resolver
+-                .resolve_type_name(&ctx.current_module, "Object", &[])
++                .resolve_type_name("Object")
+                 .map(|d| ctx.nominal_type_of(&d))
+                 .unwrap_or_else(|| ctx.store.unit());
+ 
+@@ -392,7 +391,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+             for op in &chain.operands {
+                 analyze_expression(ctx, op, &ExpectedType::None);
+             }
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("Bool") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::Proven, chain.range)
+             } else {
+@@ -402,7 +401,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+         Expr::Membership(m) => {
+             analyze_expression(ctx, &m.left, &ExpectedType::None);
+             analyze_expression(ctx, &m.right, &ExpectedType::None);
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("Bool") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::Proven, m.range)
+             } else {
+@@ -412,7 +411,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+         Expr::IsMembership(m) => {
+             analyze_expression(ctx, &m.left, &ExpectedType::None);
+             analyze_expression(ctx, &m.candidates, &ExpectedType::None);
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Bool", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("Bool") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::Proven, m.range)
+             } else {
+@@ -426,7 +425,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+             if let Some(ref upper) = r.upper {
+                 analyze_expression(ctx, upper, &ExpectedType::None);
+             }
+-            if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Object", &[]) {
++            if let Some(decl) = ctx.resolve_type_name("Object") {
+                 let ty = ctx.nominal_type_of(&decl);
+                 TypedExpression::known(ty, EvidenceAuthority::Proven, r.range)
+             } else {
+@@ -443,10 +442,10 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
+ // ---------------------------------------------------------------------------
+ 
+ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> TypedExpression {
+-    if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "Symbol", &[]) {
++    if let Some(decl) = ctx.resolve_type_name("Symbol") {
+         let ty = ctx.nominal_type_of(&decl);
+         TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, s.range)
+-    } else if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]) {
++    } else if let Some(decl) = ctx.resolve_type_name("String") {
+         let ty = ctx.nominal_type_of(&decl);
+         TypedExpression::known(ty, EvidenceAuthority::ExactSyntax, s.range)
+     } else {
+@@ -455,7 +454,7 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
+ }
+ 
+ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr, expected: &ExpectedType) -> TypedExpression {
+-    let list_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]);
++    let list_decl = ctx.resolve_type_name("List");
+     let expected_elem = expected.collection_element_type(ctx.store);
+     let mut elem_tys = Vec::new();
+ 
+@@ -493,7 +492,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
+ }
+ 
+ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr, expected: &ExpectedType) -> TypedExpression {
+-    let set_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Set", &[]);
++    let set_decl = ctx.resolve_type_name("Set");
+     let expected_elem = expected.collection_element_type(ctx.store);
+     let mut elem_tys = Vec::new();
+ 
+@@ -531,8 +530,8 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
+ }
+ 
+ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr, expected: &ExpectedType) -> TypedExpression {
+-    let map_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Map", &[]);
+-    let string_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]);
++    let map_decl = ctx.resolve_type_name("Map");
++    let string_decl = ctx.resolve_type_name("String");
+     let (expected_key, expected_val) = expected.map_key_val_types(ctx.store);
+     let mut key_tys = Vec::new();
+     let mut val_tys = Vec::new();
+@@ -727,7 +726,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
+     // 2. Dispatch send on `self` if inside a class
+     if let Some(ref class_decl) = ctx.current_class.clone() {
+         let class_ty = if ctx.current_side == crate::identity::DispatchSide::Class {
+-            if let Some(info) = ctx.declarations.get(class_decl) {
++            if let Some(info) = ctx.declaration_info(class_decl) {
+                 info.class_object_type
+             } else {
+                 ctx.nominal_type_of(class_decl)
+@@ -759,9 +758,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
+     }
+ 
+     // 3. Constructor or nominal reference
+-    if let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, &call.name, &[]) {
++    if let Some(decl) = ctx.resolve_type_name(&call.name) {
+         let ty = ctx.nominal_type_of(&decl);
+-        if let Some(sig) = ctx.declarations.generic_signature(&decl).cloned() {
++        if let Some(sig) = ctx.declaration_generic_signature(&decl) {
+             if !sig.parameters.is_empty() {
+                 let mut arg_tys = Vec::new();
+                 for arg in &call.args {
+@@ -925,7 +924,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
+         if let Some(field_k) = field_opt {
+             enforce_assignability(
+                 ctx.store,
+-                ctx.hierarchy,
++                &ctx.hierarchy,
+                 &val_k,
+                 &field_k,
+                 &ctx.current_module,
+@@ -944,7 +943,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
+                 if let Some(param) = sig.parameters.first() {
+                     enforce_assignability(
+                         ctx.store,
+-                        ctx.hierarchy,
++                        &ctx.hierarchy,
+                         &val_k,
+                         &param.ty,
+                         &ctx.current_module,
+@@ -1046,12 +1045,12 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
+ 
+     if let Some(recv_ty) = recv_k.ty() {
+         if let TypeData::Applied { origin, arguments } = ctx.store.get(recv_ty).clone() {
+-            if let Some(list_decl) = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]) {
++            if let Some(list_decl) = ctx.resolve_type_name("List") {
+                 if origin == ctx.nominal_type_of(&list_decl) && arguments.len() == 1 {
+                     let elem_k = TypeKnowledge::known(arguments[0], EvidenceAuthority::Declared);
+                     enforce_assignability(
+                         ctx.store,
+-                        ctx.hierarchy,
++                        &ctx.hierarchy,
+                         &val_k,
+                         &elem_k,
+                         &ctx.current_module,
+diff --git a/phalcom-semantic/src/checker/flow/predicate.rs b/phalcom-semantic/src/checker/flow/predicate.rs
+index c593f99..4246639 100644
+--- a/phalcom-semantic/src/checker/flow/predicate.rs
++++ b/phalcom-semantic/src/checker/flow/predicate.rs
+@@ -118,7 +118,7 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
+                 let target_ty = match call.args.first()? {
+                     PackItem::Positional { expr: target_expr, .. } => match target_expr {
+                         Expr::Var { value: type_name, .. } => {
+-                            let decl = ctx.resolver.resolve_type_name(&ctx.current_module, type_name, &[])?;
++                            let decl = ctx.resolve_type_name(type_name)?;
+                             ctx.nominal_type_of(&decl)
+                         }
+                         _ => return None,
+diff --git a/phalcom-semantic/src/checker/statement.rs b/phalcom-semantic/src/checker/statement.rs
+index 9e7710a..bb852e1 100644
+--- a/phalcom-semantic/src/checker/statement.rs
++++ b/phalcom-semantic/src/checker/statement.rs
+@@ -21,7 +21,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
+         Statement::Let(binding) => {
+             let declared_k = binding.annotation.as_ref().map(|ann| {
+                 let mut diags = Vec::new();
+-                let k = resolve_type_annotation(ctx.store, ctx.declarations, ctx.resolver, &ctx.current_module, ann, &mut diags);
++                let k = resolve_type_annotation(ctx.store, ctx.declarations, &ctx.resolver, &ctx.current_module, ann, &mut diags);
+                 ctx.diagnostics.extend(diags);
+                 k
+             });
+@@ -36,7 +36,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
+             let mut is_assignable = true;
+             if let Some(ref decl_k) = declared_k {
+                 if binding.value.is_some() {
+-                    let assignability = check_assignability(ctx.store, ctx.hierarchy, &val_typed.knowledge, decl_k);
++                    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &val_typed.knowledge, decl_k);
+                     if let Assignability::Refuted { .. } = assignability {
+                         is_assignable = false;
+                         let mut diag = SemanticDiagnostic::error_in(
+@@ -78,7 +78,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) {
+             if let Some(expected) = ctx.expected_return.clone() {
+                 enforce_assignability(
+                     ctx.store,
+-                    ctx.hierarchy,
++                    &ctx.hierarchy,
+                     &val_typed.knowledge,
+                     &expected,
+                     &ctx.current_module,
+@@ -166,7 +166,7 @@ pub fn resolve_iteration_element(ctx: &mut CheckingContext<'_>, receiver_ty: Typ
+     // if Applied has type arguments, derive element type if the origin has an iterator protocol or single type parameter
+     if let TypeData::Applied { origin, arguments } = ctx.store.get(receiver_ty).clone() {
+         if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
+-            if let Some(sig) = ctx.declarations.generic_signature(declaration) {
++            if let Some(sig) = ctx.declaration_generic_signature(declaration) {
+                 if !sig.parameters.is_empty() && !arguments.is_empty() {
+                     return TypeKnowledge::known(arguments[0], EvidenceAuthority::Proven);
+                 }
+diff --git a/phalcom-semantic/tests/callable_dependency_invalidation.rs b/phalcom-semantic/tests/callable_dependency_invalidation.rs
+index 697387f..14a12f5 100644
+--- a/phalcom-semantic/tests/callable_dependency_invalidation.rs
++++ b/phalcom-semantic/tests/callable_dependency_invalidation.rs
+@@ -468,3 +468,53 @@ class Base {
+         "constructor body must not record the synthetic instance-side body identity as its signature dependency"
+     );
+ }
++
++#[test]
++fn case_h_builtin_seed_dispatch_does_not_require_unpublished_db_products() {
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(1),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++    let source = r#"
++class Main {
++  @class value() -> Int { 1 + 2 }
++}
++"#;
++
++    let update = session.update(single_module_input(module.clone(), source, 1));
++    let owner = DeclarationId::new(module, "Main".into());
++    let callable = CallableId::new(owner, Selector::method("value", []).unwrap(), DispatchSide::Class);
++    assert!(
++        update.snapshot.callable_analyses.contains_key(&callable),
++        "builtin dispatch must not fail closed on legacy core surfaces that have no DB query products"
++    );
++}
++
++#[test]
++fn case_i_unannotated_callable_uses_surface_dependency_without_missing_signature_product() {
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(1),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++    let source = r#"
++class Untyped {
++  value() { 1 }
++}
++"#;
++
++    let update = session.update(single_module_input(module.clone(), source, 1));
++    let owner = DeclarationId::new(module, "Untyped".into());
++    let callable = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
++    let body_key = QueryKey::CallableBody(callable.clone());
++
++    assert!(update.snapshot.callable_analyses.contains_key(&callable));
++    let dependencies = session
++        .db()
++        .index()
++        .dependencies_of(&body_key)
++        .expect("unannotated callable body must retain its declaration-surface dependency");
++    assert!(dependencies.iter().any(|edge| edge.dependency == QueryKey::DeclarationSurface(owner)));
++    assert!(dependencies.iter().all(|edge| edge.dependency != QueryKey::CallableSignature(callable)));
++}
+diff --git a/phalcom-semantic/tests/checker_dependency_tracking.rs b/phalcom-semantic/tests/checker_dependency_tracking.rs
+new file mode 100644
+index 0000000..e7ffc09
+--- /dev/null
++++ b/phalcom-semantic/tests/checker_dependency_tracking.rs
+@@ -0,0 +1,231 @@
++use phalcom_common::range::SourceRange;
++use phalcom_common::selector::Selector;
++use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
++use phalcom_semantic::checker::analysis::{CallableAnalysisStatus, SemanticDependency};
++use phalcom_semantic::dispatch::{CallableSignature, DispatchLookup, SurfaceDispatchResolver};
++use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
++use phalcom_semantic::surface::DeclarationSurface;
++use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
++use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
++use phalcom_semantic::types::relation::{MapTypeHierarchy, TypeHierarchy};
++use phalcom_semantic::types::store::TypeStore;
++use phalcom_semantic::{CheckingContext, DeclarationTypeTable};
++
++fn user_module(project: u32, name: &str) -> ModuleId {
++    ModuleId::resolved(
++        ResolvedProjectId::from_raw(project),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
++    )
++}
++
++fn callable(owner: DeclarationId) -> CallableId {
++    CallableId::new(owner, Selector::method("test", vec![]).unwrap(), DispatchSide::Instance)
++}
++
++#[test]
++fn tracked_resolver_records_current_linked_interface_for_non_local_type() {
++    let current = user_module(1, "client");
++    let external_module = user_module(2, "external");
++    let external = DeclarationId::new(external_module, "External".into());
++    let owner = DeclarationId::new(current.clone(), "Client".into());
++
++    let mut store = TypeStore::new();
++    let hierarchy = MapTypeHierarchy::new();
++    let mut resolver = SimpleTypeResolver::new();
++    resolver.insert("External", external.clone());
++    let declarations = DeclarationTypeTable::new();
++    let dispatch = SurfaceDispatchResolver::new();
++
++    let ctx = CheckingContext::new_with_dispatch_ref(
++        &mut store,
++        &hierarchy,
++        &resolver,
++        &declarations,
++        &dispatch,
++        current.clone(),
++    );
++
++    assert_eq!(ctx.resolver.resolve_type_name(&current, "External", &[]), Some(external.clone()));
++
++    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::LinkedInterface(current)));
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(external)));
++}
++
++#[test]
++fn unresolved_type_lookup_records_negative_linked_interface_dependency() {
++    let current = user_module(1, "client");
++    let owner = DeclarationId::new(current.clone(), "Client".into());
++    let mut store = TypeStore::new();
++    let hierarchy = MapTypeHierarchy::new();
++    let resolver = SimpleTypeResolver::new();
++    let declarations = DeclarationTypeTable::new();
++    let dispatch = SurfaceDispatchResolver::new();
++
++    let ctx = CheckingContext::new_with_dispatch_ref(
++        &mut store,
++        &hierarchy,
++        &resolver,
++        &declarations,
++        &dispatch,
++        current.clone(),
++    );
++
++    assert_eq!(ctx.resolver.resolve_type_name(&current, "Missing", &[]), None);
++    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::LinkedInterface(current)));
++}
++
++#[test]
++fn tracked_hierarchy_records_every_mutable_edge_traversed() {
++    let module = user_module(1, "main");
++    let a = DeclarationId::new(module.clone(), "A".into());
++    let b = DeclarationId::new(module.clone(), "B".into());
++    let c = DeclarationId::new(module.clone(), "C".into());
++    let missing = DeclarationId::new(module.clone(), "Missing".into());
++    let owner = DeclarationId::new(module.clone(), "Client".into());
++    let mut store = TypeStore::new();
++    let mut hierarchy = MapTypeHierarchy::new();
++    hierarchy.insert(a.clone(), b.clone());
++    hierarchy.insert(b.clone(), c.clone());
++    let resolver = SimpleTypeResolver::new();
++    let declarations = DeclarationTypeTable::new();
++    let dispatch = SurfaceDispatchResolver::new();
++
++    let ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, module);
++    assert!(ctx.hierarchy.is_subclass(&a, &c));
++    assert!(!ctx.hierarchy.is_subclass(&a, &missing));
++    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::HierarchyEdge(a)));
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::HierarchyEdge(b)));
++    assert!(
++        analysis.semantic_dependencies.contains(&SemanticDependency::HierarchyEdge(c)),
++        "the missing terminal edge is a negative hierarchy read that must invalidate if a superclass is later added"
++    );
++}
++
++#[test]
++fn builtin_seed_reads_do_not_create_query_dependencies() {
++    let current = user_module(1, "client");
++    let core = ModuleId::core();
++    let int_decl = DeclarationId::new(core.clone(), "Int".into());
++    let object_decl = DeclarationId::new(core, "Object".into());
++    let owner = DeclarationId::new(current.clone(), "Client".into());
++    let mut store = TypeStore::new();
++    let int_ty = store.nominal_type(int_decl.clone());
++    let mut hierarchy = MapTypeHierarchy::new();
++    hierarchy.insert(int_decl.clone(), object_decl.clone());
++    let mut resolver = SimpleTypeResolver::new();
++    resolver.insert("Int", int_decl.clone());
++    let declarations = DeclarationTypeTable::new();
++    let selector = Selector::method("value", vec![]).unwrap();
++    let mut dispatch = SurfaceDispatchResolver::new();
++    let mut int_surface = DeclarationSurface::new(Some(int_decl.clone()));
++    int_surface.add_callable(
++        DispatchSide::Instance,
++        CallableSignature::new(
++            selector.clone(),
++            Vec::new(),
++            TypeKnowledge::known(int_ty, EvidenceAuthority::Declared),
++        ),
++    );
++    dispatch.register_surface(int_decl.clone(), int_surface);
++
++    let mut ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, current.clone());
++    assert_eq!(ctx.resolver.resolve_type_name(&current, "Int", &[]), Some(int_decl.clone()));
++    assert!(ctx.hierarchy.is_subclass(&int_decl, &object_decl));
++    assert!(ctx.resolve_dispatch(int_ty, &selector, DispatchLookup::Normal).is_found());
++    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
++    assert!(analysis.semantic_dependencies.is_empty(), "legacy core reads have no staged DB products");
++}
++
++#[test]
++fn declaration_metadata_read_records_declaration_surface_dependency() {
++    let module = user_module(1, "main");
++    let target = DeclarationId::new(module.clone(), "Target".into());
++    let owner = DeclarationId::new(module.clone(), "Client".into());
++    let mut store = TypeStore::new();
++    let hierarchy = MapTypeHierarchy::new();
++    let resolver = SimpleTypeResolver::new();
++    let declarations = DeclarationTypeTable::new();
++    let dispatch = SurfaceDispatchResolver::new();
++
++    let ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, module);
++    let _ = ctx.declaration_generic_signature(&target);
++    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(target)));
++}
++
++#[test]
++fn dispatch_lookup_records_surfaces_for_every_owner_inspected() {
++    let module = user_module(1, "main");
++    let base = DeclarationId::new(module.clone(), "Base".into());
++    let child = DeclarationId::new(module.clone(), "Child".into());
++    let owner = DeclarationId::new(module.clone(), "Client".into());
++    let selector = Selector::method("value", vec![]).unwrap();
++    let mut store = TypeStore::new();
++    let child_ty = store.nominal_type(child.clone());
++    let mut hierarchy = MapTypeHierarchy::new();
++    hierarchy.insert(child.clone(), base.clone());
++    let resolver = SimpleTypeResolver::new();
++    let declarations = DeclarationTypeTable::new();
++    let mut dispatch = SurfaceDispatchResolver::new();
++    let mut base_surface = DeclarationSurface::new(Some(base.clone()));
++    base_surface.add_callable(
++        DispatchSide::Instance,
++        CallableSignature::new(
++            selector.clone(),
++            Vec::new(),
++            TypeKnowledge::known(child_ty, EvidenceAuthority::Declared),
++        ),
++    );
++    dispatch.register_surface(base.clone(), base_surface);
++
++    let mut ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, module);
++    assert!(ctx.resolve_dispatch(child_ty, &selector, DispatchLookup::Normal).is_found());
++    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(child)));
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(base.clone())));
++    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::CallableSignature(CallableId::new(
++        base,
++        selector,
++        DispatchSide::Instance,
++    ))));
++}
++
++#[test]
++fn borrowed_dispatch_detaches_lazily_instead_of_panicking_on_mutation() {
++    let module = user_module(1, "main");
++    let owner = DeclarationId::new(module.clone(), "Owner".into());
++    let nested = DeclarationId::new(module.clone(), "Nested".into());
++    let mut store = TypeStore::new();
++    let hierarchy = MapTypeHierarchy::new();
++    let resolver = SimpleTypeResolver::new();
++    let declarations = DeclarationTypeTable::new();
++    let shared_dispatch = SurfaceDispatchResolver::new();
++
++    let mut ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &shared_dispatch, module);
++    ctx.register_surface(nested.clone(), DeclarationSurface::new(Some(nested.clone())));
++    assert!(shared_dispatch.get_surface(&nested).is_none());
++    assert!(ctx.get_surface(&nested).is_some());
++    let _ = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
++}
++
++#[test]
++fn checker_body_sources_do_not_bypass_tracked_resolver_or_declaration_helpers() {
++    let expression = include_str!("../src/checker/expression.rs");
++    let statement = include_str!("../src/checker/statement.rs");
++    let predicate = include_str!("../src/checker/flow/predicate.rs");
++
++    for (name, source) in [("expression.rs", expression), ("statement.rs", statement), ("flow/predicate.rs", predicate)] {
++        let compact = source.split_whitespace().collect::<String>();
++        assert!(
++            !compact.contains("ctx.resolver.resolve_type_name"),
++            "{name} must route type-name reads through the tracked resolver API"
++        );
++        assert!(
++            !compact.contains("ctx.declarations.get") && !compact.contains("ctx.declarations.generic_signature"),
++            "{name} must route declaration-table reads through CheckingContext helpers"
++        );
++    }
++}

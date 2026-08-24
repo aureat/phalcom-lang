@@ -12,6 +12,26 @@ use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface}
 use phalcom_modules::linker::LinkedProgram;
 use std::sync::Arc;
 
+/// Declaration-surface query payload.
+///
+/// The semantic surface is the dependency-visible product. Diagnostics are retained
+/// alongside it so the query that resolves member annotations also owns the resulting
+/// user-facing errors without making diagnostic-only changes invalidate body consumers.
+#[derive(Clone, Debug)]
+pub struct DeclarationSurfaceProduct {
+    /// Canonical member surface consumed by dispatch and callable queries.
+    pub surface: Arc<DeclarationSurface>,
+    /// Annotation diagnostics produced while resolving the surface.
+    pub diagnostics: Arc<[SemanticDiagnostic]>,
+}
+
+impl DeclarationSurfaceProduct {
+    /// Creates a declaration-surface query product from its semantic surface and diagnostics.
+    pub fn new(surface: Arc<DeclarationSurface>, diagnostics: Arc<[SemanticDiagnostic]>) -> Self {
+        Self { surface, diagnostics }
+    }
+}
+
 /// Strongly-typed wrapper around semantic database product variants.
 #[derive(Clone, Debug)]
 pub enum SemanticProduct {
@@ -19,7 +39,7 @@ pub enum SemanticProduct {
     UnlinkedInterface(Arc<UnlinkedModuleInterface>),
     ResolvedImports(Arc<ResolvedImportsProduct>),
     LinkedInterface(Arc<LinkedModuleInterface>),
-    DeclarationSurface(Arc<DeclarationSurface>),
+    DeclarationSurface(Arc<DeclarationSurfaceProduct>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
     CallableBody(Arc<CallableAnalysis>),
@@ -58,7 +78,15 @@ impl SemanticProduct {
 
     pub fn as_declaration_surface(&self) -> Option<&Arc<DeclarationSurface>> {
         match self {
-            Self::DeclarationSurface(surface) => Some(surface),
+            Self::DeclarationSurface(product) => Some(&product.surface),
+            _ => None,
+        }
+    }
+
+    /// Returns declaration-surface diagnostics retained by the query product.
+    pub fn as_declaration_surface_diagnostics(&self) -> Option<&Arc<[SemanticDiagnostic]>> {
+        match self {
+            Self::DeclarationSurface(product) => Some(&product.diagnostics),
             _ => None,
         }
     }

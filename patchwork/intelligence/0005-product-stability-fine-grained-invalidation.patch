@@ -1,0 +1,1414 @@
+diff --git a/phalcom-semantic/src/checker/body.rs b/phalcom-semantic/src/checker/body.rs
+index e8e8f5a..5077152 100644
+--- a/phalcom-semantic/src/checker/body.rs
++++ b/phalcom-semantic/src/checker/body.rs
+@@ -118,7 +118,7 @@ pub fn analyze_callable_body(
+     // 2. Check each statement while charging budget and checking cancellation
+     let mut status = CallableAnalysisStatus::Complete;
+ 
+-    for stmt in body {
++    for (statement_index, stmt) in body.iter().enumerate() {
+         if cancel.is_cancelled() {
+             status = CallableAnalysisStatus::Cancelled;
+             break;
+@@ -135,6 +135,32 @@ pub fn analyze_callable_body(
+             break;
+         }
+ 
++        let is_tail = statement_index + 1 == body.len();
++        if is_tail {
++            if let Statement::Expr { expr, range } = stmt {
++                let expected = ctx
++                    .expected_return
++                    .as_ref()
++                    .map(crate::checker::expected::ExpectedType::from_knowledge)
++                    .unwrap_or_default();
++                let typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
++                if let Some(expected_return) = ctx.expected_return.clone() {
++                    crate::checker::policy::enforce_assignability(
++                        ctx.store,
++                        &ctx.hierarchy,
++                        &typed.knowledge,
++                        &expected_return,
++                        &ctx.current_module,
++                        crate::diagnostic::DiagnosticCode::ReturnMismatch,
++                        "tail expression result is not assignable to method's declared return type",
++                        *range,
++                        &mut ctx.diagnostics,
++                    );
++                }
++                continue;
++            }
++        }
++
+         check_statement(&mut ctx, stmt);
+     }
+ 
+diff --git a/phalcom-semantic/src/checker/declaration.rs b/phalcom-semantic/src/checker/declaration.rs
+index a6abfe5..708d1de 100644
+--- a/phalcom-semantic/src/checker/declaration.rs
++++ b/phalcom-semantic/src/checker/declaration.rs
+@@ -233,6 +233,75 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
+     ctx.register_surface(decl_id, surface);
+ }
+ 
++fn check_field_initializer_against_declared(
++    ctx: &mut CheckingContext<'_>,
++    field: &phalcom_ast::ast::FieldDef,
++    declared: &TypeKnowledge,
++) {
++    let Some(default_expr) = &field.default else {
++        return;
++    };
++    let initializer = synthesize_expr(ctx, default_expr);
++    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &initializer, declared);
++    if let Assignability::Refuted { .. } = assignability {
++        ctx.diagnostics.push(SemanticDiagnostic::error_in(
++            ctx.current_module.clone(),
++            DiagnosticCode::FieldMismatch,
++            format!("default value for field `{}` does not match declared type", field.name),
++            field.range,
++        ));
++    }
++}
++
++fn check_field_initializer(
++    ctx: &mut CheckingContext<'_>,
++    resolver: &dyn crate::types::annotation::TypeResolver,
++    field: &phalcom_ast::ast::FieldDef,
++) {
++    let declared_k = field.annotation.as_ref().map(|annotation| {
++        let mut diagnostics = Vec::new();
++        let knowledge = resolve_type_annotation(
++            ctx.store,
++            ctx.declarations,
++            resolver,
++            &ctx.current_module,
++            annotation,
++            &mut diagnostics,
++        );
++        ctx.diagnostics.extend(diagnostics);
++        knowledge
++    });
++
++    if let Some(declared) = declared_k {
++        check_field_initializer_against_declared(ctx, field, &declared);
++    }
++}
++
++/// Checks only field initializer expressions for an already-registered class.
++///
++/// Workspace-session callable bodies are analyzed by `CallableBody` DB queries.
++/// This narrower pass keeps non-callable field initialization diagnostics without
++/// re-running every method/getter/setter/index body after query evaluation.
++pub fn check_class_field_initializers(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
++    let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
++    let old_class = ctx.current_class.replace(decl_id.clone());
++
++    for member in &class_def.members {
++        let ClassMember::Field(field) = member else {
++            continue;
++        };
++        let side = member_side(member);
++        let old_side = ctx.current_side;
++        ctx.current_side = side;
++        if let Some(declared) = ctx.get_field(&decl_id, side, &field.name) {
++            check_field_initializer_against_declared(ctx, field, &declared);
++        }
++        ctx.current_side = old_side;
++    }
++
++    ctx.current_class = old_class;
++}
++
+ /// Checks the member bodies of an already-registered class declaration.
+ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
+@@ -260,25 +329,7 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+         ctx.current_side = side;
+         match member {
+             ClassMember::Field(f) => {
+-                let declared_k = f.annotation.as_ref().map(|ann| {
+-                    let mut diags = Vec::new();
+-                    let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
+-                    ctx.diagnostics.extend(diags);
+-                    k
+-                });
+-
+-                if let (Some(decl_k), Some(default_expr)) = (declared_k, &f.default) {
+-                    let init_k = synthesize_expr(ctx, default_expr);
+-                    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &init_k, &decl_k);
+-                    if let Assignability::Refuted { .. } = assignability {
+-                        ctx.diagnostics.push(SemanticDiagnostic::error_in(
+-                            ctx.current_module.clone(),
+-                            DiagnosticCode::FieldMismatch,
+-                            format!("default value for field `{}` does not match declared type", f.name),
+-                            f.range,
+-                        ));
+-                    }
+-                }
++                check_field_initializer(ctx, resolver, f);
+             }
+             ClassMember::Method(m) => {
+                 check_callable_body(ctx, resolver, &m.params, m.return_annotation.as_ref(), m.body.statements().unwrap_or(&[]));
+diff --git a/phalcom-semantic/src/db/fingerprint.rs b/phalcom-semantic/src/db/fingerprint.rs
+index 456f480..958a11d 100644
+--- a/phalcom-semantic/src/db/fingerprint.rs
++++ b/phalcom-semantic/src/db/fingerprint.rs
+@@ -973,6 +973,25 @@ pub fn declaration_surface_input_fingerprint(surface: &DeclarationSurface) -> In
+     finish_input(hasher)
+ }
+ 
++/// Computes the complete source-sensitive input identity for a declaration-surface query.
++///
++/// Diagnostics participate in query input identity because unresolved annotations may keep
++/// the same semantic `Unknown` surface while their source ranges or explanatory details move.
++/// They deliberately do not participate in the declaration-surface product fingerprint, so
++/// diagnostic-only refreshes do not invalidate semantic consumers.
++pub fn declaration_surface_query_input_fingerprint(
++    surface: &DeclarationSurface,
++    diagnostics: &[SemanticDiagnostic],
++) -> InputFingerprint {
++    let mut hasher = DefaultHasher::new();
++    hash_declaration_surface(surface, true, &mut hasher);
++    diagnostics.len().hash(&mut hasher);
++    for diagnostic in diagnostics {
++        hash_semantic_diagnostic(diagnostic, &mut hasher);
++    }
++    finish_input(hasher)
++}
++
+ /// Computes semantic product fingerprint for a declaration surface.
+ pub fn declaration_surface_product_fingerprint(surface: &DeclarationSurface) -> ProductFingerprint {
+     let mut hasher = DefaultHasher::new();
+diff --git a/phalcom-semantic/src/db/mod.rs b/phalcom-semantic/src/db/mod.rs
+index 9cd5612..22833ea 100644
+--- a/phalcom-semantic/src/db/mod.rs
++++ b/phalcom-semantic/src/db/mod.rs
+@@ -251,6 +251,28 @@ impl SemanticDb {
+         Ok(())
+     }
+ 
++    /// Discards one query so it can be recomputed without eagerly deleting dependents.
++    ///
++    /// Incoming reverse-dependency edges are intentionally preserved. Dependents retain
++    /// their previous ready products until they are queried, at which point generic
++    /// dependency-fingerprint validation decides whether they can be revalidated or
++    /// must recompute. This is the product-stability propagation primitive: if this
++    /// query republishes the same product fingerprint, downstream queries can reuse
++    /// their existing products even though this query was recomputed in a newer revision.
++    ///
++    /// The last-known-good product is also preserved for cancellation/failure fallback.
++    pub fn discard_for_recompute(&mut self, key: &QueryKey) -> bool {
++        let had_state = self.query_states.remove(key).is_some();
++        let had_product = self.products.remove(key).is_some();
++        self.index.remove_dependencies(key);
++        if had_state || had_product {
++            self.metrics.record_invalidation();
++            true
++        } else {
++            false
++        }
++    }
++
+     /// Publishes a lossless typed product alongside its query state.
+     pub fn publish_product_ready(
+         &mut self,
+diff --git a/phalcom-semantic/src/db/product.rs b/phalcom-semantic/src/db/product.rs
+index 738aaa6..7c37f5b 100644
+--- a/phalcom-semantic/src/db/product.rs
++++ b/phalcom-semantic/src/db/product.rs
+@@ -12,6 +12,26 @@ use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface}
+ use phalcom_modules::linker::LinkedProgram;
+ use std::sync::Arc;
+ 
++/// Declaration-surface query payload.
++///
++/// The semantic surface is the dependency-visible product. Diagnostics are retained
++/// alongside it so the query that resolves member annotations also owns the resulting
++/// user-facing errors without making diagnostic-only changes invalidate body consumers.
++#[derive(Clone, Debug)]
++pub struct DeclarationSurfaceProduct {
++    /// Canonical member surface consumed by dispatch and callable queries.
++    pub surface: Arc<DeclarationSurface>,
++    /// Annotation diagnostics produced while resolving the surface.
++    pub diagnostics: Arc<[SemanticDiagnostic]>,
++}
++
++impl DeclarationSurfaceProduct {
++    /// Creates a declaration-surface query product from its semantic surface and diagnostics.
++    pub fn new(surface: Arc<DeclarationSurface>, diagnostics: Arc<[SemanticDiagnostic]>) -> Self {
++        Self { surface, diagnostics }
++    }
++}
++
+ /// Strongly-typed wrapper around semantic database product variants.
+ #[derive(Clone, Debug)]
+ pub enum SemanticProduct {
+@@ -19,7 +39,7 @@ pub enum SemanticProduct {
+     UnlinkedInterface(Arc<UnlinkedModuleInterface>),
+     ResolvedImports(Arc<ResolvedImportsProduct>),
+     LinkedInterface(Arc<LinkedModuleInterface>),
+-    DeclarationSurface(Arc<DeclarationSurface>),
++    DeclarationSurface(Arc<DeclarationSurfaceProduct>),
+     HierarchyEdge(Arc<HierarchyEdgeProduct>),
+     CallableSignature(Arc<CallableSemanticSignature>),
+     CallableBody(Arc<CallableAnalysis>),
+@@ -58,7 +78,15 @@ impl SemanticProduct {
+ 
+     pub fn as_declaration_surface(&self) -> Option<&Arc<DeclarationSurface>> {
+         match self {
+-            Self::DeclarationSurface(surface) => Some(surface),
++            Self::DeclarationSurface(product) => Some(&product.surface),
++            _ => None,
++        }
++    }
++
++    /// Returns declaration-surface diagnostics retained by the query product.
++    pub fn as_declaration_surface_diagnostics(&self) -> Option<&Arc<[SemanticDiagnostic]>> {
++        match self {
++            Self::DeclarationSurface(product) => Some(&product.diagnostics),
+             _ => None,
+         }
+     }
+diff --git a/phalcom-semantic/src/db/query.rs b/phalcom-semantic/src/db/query.rs
+index df7bd06..1467f0c 100644
+--- a/phalcom-semantic/src/db/query.rs
++++ b/phalcom-semantic/src/db/query.rs
+@@ -5,6 +5,7 @@ use crate::checker::body::analyze_callable_body;
+ use crate::db::{DependencyEdge, SemanticDb, SemanticProduct};
+ use crate::db::budget::{CancellationToken, QueryBudget};
+ use crate::db::key::{InputFingerprint, ProductFingerprint, QueryKey};
++use crate::db::product::DeclarationSurfaceProduct;
+ use crate::db::state::{QueryOutcome, QueryState};
+ use crate::declarations::DeclarationTypeTable;
+ use crate::diagnostic::SemanticDiagnostic;
+@@ -159,7 +160,7 @@ pub fn query_parsed_module(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+     let product_fingerprint = ProductFingerprint::new(input_fingerprint.raw());
+@@ -202,7 +203,7 @@ pub fn query_unlinked_interface(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+@@ -252,7 +253,7 @@ pub fn query_resolved_imports<P: phalcom_modules::source::SourceProvider>(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+@@ -319,7 +320,7 @@ pub fn query_semantic_component(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+@@ -393,13 +394,6 @@ pub fn query_hierarchy_edge(
+         );
+     }
+ 
+-    match query_parsed_module(db, unit.id.clone(), unit.clone()) {
+-        QueryOutcome::Ready(_) => {}
+-        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+-        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+-        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+-    }
+     match query_linked_interface(db, linked_interface.module.clone(), linked_interface) {
+         QueryOutcome::Ready(_) => {}
+         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+@@ -431,18 +425,16 @@ pub fn query_hierarchy_edge(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+-    for dependency in [
+-        QueryKey::ParsedModule(class_decl.module.clone()),
++    if let Err(error) = db.record_dependency(
++        &mut recorder,
+         QueryKey::LinkedInterface(class_decl.module.clone()),
+-    ] {
+-        if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+-            return query_failure(db, key, error);
+-        }
++    ) {
++        return query_failure(db, key, error);
+     }
+ 
+     let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl));
+@@ -482,13 +474,6 @@ pub fn query_declaration_surface(
+         );
+     }
+ 
+-    match query_parsed_module(db, unit.id.clone(), unit.clone()) {
+-        QueryOutcome::Ready(_) => {}
+-        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+-        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+-        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+-    }
+     match query_linked_interface(db, linked_interface.module.clone(), linked_interface) {
+         QueryOutcome::Ready(_) => {}
+         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+@@ -501,11 +486,12 @@ pub fn query_declaration_surface(
+         return query_failure(db, key, format!("source declaration {decl_id:?} was not found in its parsed module"));
+     };
+ 
+-    // Surface construction is query-owned. The current implementation computes
+-    // the surface before reuse validation because resolved type IDs participate
+-    // in the direct input identity; Step 5 can narrow this to signature syntax
+-    // without changing product ownership.
+-    let computed_surface = {
++    // Surface construction is query-owned. We currently compute a candidate
++    // surface before reuse validation because resolved type IDs and provenance
++    // participate in its direct input identity. Crucially, the whole ParsedModule
++    // is not a dependency: body-only parse changes can therefore retain the old
++    // surface product when this declaration's own contract is unchanged.
++    let (computed_surface, computed_diagnostics) = {
+         let mut context = crate::checker::context::CheckingContext::new(
+             store,
+             hierarchy,
+@@ -514,12 +500,18 @@ pub fn query_declaration_surface(
+             decl_id.module.clone(),
+         );
+         crate::checker::declaration::register_class_surface(&mut context, class_def);
+-        context.dispatch_ref().get_surface(&decl_id).cloned()
++        (
++            context.dispatch_ref().get_surface(&decl_id).cloned(),
++            Arc::<[crate::diagnostic::SemanticDiagnostic]>::from(context.diagnostics.into_boxed_slice()),
++        )
+     };
+     let Some(computed_surface) = computed_surface else {
+         return query_failure(db, key, format!("declaration-surface query did not publish {decl_id:?}"));
+     };
+-    let input_fingerprint = crate::db::fingerprint::declaration_surface_input_fingerprint(&computed_surface);
++    let input_fingerprint = crate::db::fingerprint::declaration_surface_query_input_fingerprint(
++        &computed_surface,
++        &computed_diagnostics,
++    );
+ 
+     if db.validate_reuse(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|product| product.as_declaration_surface()) {
+@@ -528,34 +520,33 @@ pub fn query_declaration_surface(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+-    for dependency in [
+-        QueryKey::ParsedModule(decl_id.module.clone()),
++    if let Err(error) = db.record_dependency(
++        &mut recorder,
+         QueryKey::LinkedInterface(decl_id.module.clone()),
+-    ] {
+-        if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+-            return query_failure(db, key, error);
+-        }
++    ) {
++        return query_failure(db, key, error);
+     }
+ 
+-    let product = Arc::new(computed_surface);
+-    let product_fingerprint = crate::db::fingerprint::declaration_surface_product_fingerprint(&product);
++    let surface = Arc::new(computed_surface);
++    let product_fingerprint = crate::db::fingerprint::declaration_surface_product_fingerprint(&surface);
++    let product = Arc::new(DeclarationSurfaceProduct::new(surface.clone(), computed_diagnostics));
+     let dependencies = recorder.finish();
+     if let Err(error) = publish_current_product(
+         db,
+         key.clone(),
+         input_fingerprint,
+         product_fingerprint,
+-        SemanticProduct::DeclarationSurface(product.clone()),
++        SemanticProduct::DeclarationSurface(product),
+         dependencies,
+     ) {
+         return query_failure(db, key, error);
+     }
+-    QueryOutcome::Ready(product)
++    QueryOutcome::Ready(surface)
+ }
+ 
+ /// Evaluates or projects the canonical semantic signature for one callable.
+@@ -582,13 +573,13 @@ pub fn query_callable_signature(
+     };
+     let Some(source_signature) = surface.get_callable(callable.side, &callable.selector) else {
+         if db.query_state(&key).is_some() {
+-            db.invalidate([key.clone()]);
++            db.discard_for_recompute(&key);
+         }
+         return query_failure(db, key, format!("callable {:?} is absent from its declaration surface", callable));
+     };
+     let Some(signature) = semantic_signature_from_surface(&callable, source_signature) else {
+         if db.query_state(&key).is_some() {
+-            db.invalidate([key.clone()]);
++            db.discard_for_recompute(&key);
+         }
+         return query_blocked(
+             db,
+@@ -606,7 +597,7 @@ pub fn query_callable_signature(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+@@ -646,7 +637,7 @@ pub fn query_linked_interface(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+@@ -679,7 +670,7 @@ pub fn query_module_diagnostics(
+         }
+     }
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+@@ -724,11 +715,11 @@ pub fn query_callable_body(
+     }
+ 
+     // A ready product with a different input, or a non-ready state from an
+-    // earlier attempt, cannot remain in the dependency index while this
+-    // generation recomputes it. Invalidation also clears dependents that
+-    // consumed the old callable result.
++    // earlier attempt, cannot remain current while this generation recomputes
++    // it. Preserve incoming dependents: their observed product fingerprints
++    // decide lazily whether they can revalidate after this body republishes.
+     if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++        db.discard_for_recompute(&key);
+     }
+     db.metrics().record_miss();
+ 
+diff --git a/phalcom-semantic/src/session.rs b/phalcom-semantic/src/session.rs
+index 6fbd632..94fd266 100644
+--- a/phalcom-semantic/src/session.rs
++++ b/phalcom-semantic/src/session.rs
+@@ -1,16 +1,16 @@
+ //! Compiler-owned incremental workspace session (Spec 04.5 / Wave 5 / Tasks 16-18).
+ 
+ use crate::checker::context::CheckingContext;
+-use crate::checker::declaration::check_class_bodies;
++use crate::checker::declaration::check_class_field_initializers;
+ use crate::checker::statement::check_statement;
+ use crate::db::budget::{CancellationToken, QueryBudget};
+ use crate::db::key::QueryKey;
+ use crate::db::query::{
+     query_callable_body, query_callable_signature, query_declaration_surface, query_hierarchy_edge,
+-    query_linked_interface,
++    query_linked_interface, query_unlinked_interface,
+ };
+ use crate::db::state::QueryOutcome;
+-use crate::db::{InputFingerprint, ProductFingerprint, SemanticDb, SemanticProduct};
++use crate::db::SemanticDb;
+ use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
+ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
+ use crate::dispatch::SurfaceDispatchResolver;
+@@ -215,50 +215,38 @@ impl SemanticWorkspaceSession {
+         let mut invalidated_keys = BTreeSet::new();
+         let mut recomputed_keys = Vec::new();
+ 
+-        // 1. Detect changed/removed/new source modules
++        // 1. Refresh source-owned staged products without eager reverse invalidation.
++        //
++        // A source edit changes ParsedModule input identity. Query-local recomputation
++        // preserves downstream cached products, and their dependency fingerprints decide
++        // lazily whether semantic propagation stops or continues. UnlinkedInterface is
++        // evaluated for every source so an unchanged interface product can become current
++        // and allow linked/formal/body products to remain reusable.
+         let mut new_fingerprints = BTreeMap::new();
+         for (module_id, unit) in &input.sources {
+             let fp = compute_module_fingerprint(unit);
+             new_fingerprints.insert(module_id.clone(), fp);
+ 
+-            let changed = match self.source_fingerprints.get(module_id) {
+-                Some(&old_fp) => old_fp != fp,
+-                None => true,
+-            };
+-
++            let existed = self.source_fingerprints.contains_key(module_id);
++            let changed = self.source_fingerprints.get(module_id).copied() != Some(fp);
+             if changed {
+                 stats.modules_recomputed += 1;
+-                let parsed_key = QueryKey::ParsedModule(module_id.clone());
+-                let unlinked_key = QueryKey::UnlinkedInterface(module_id.clone());
+-                let linked_key = QueryKey::LinkedInterface(module_id.clone());
+-                let diags_key = QueryKey::ModuleDiagnostics(module_id.clone());
+-
+-                let closure = self.db.invalidate([parsed_key, unlinked_key, linked_key, diags_key]);
+-                invalidated_keys.extend(closure);
+-
+-                // Publish parsed module and unlinked interface into DB
+-                let _ = self.db.publish_product_ready(
+-                    QueryKey::ParsedModule(module_id.clone()),
+-                    self.db.revision(),
+-                    InputFingerprint::new(fp),
+-                    ProductFingerprint::new(fp),
+-                    SemanticProduct::ParsedModule(unit.clone()),
+-                    Vec::new(),
+-                );
+-
+-                if let Ok(unlinked) = InterfaceBuilder::build(module_id.clone(), unit.kind, &unit.program) {
+-                    let _ = self.db.publish_product_ready(
+-                        QueryKey::UnlinkedInterface(module_id.clone()),
+-                        self.db.revision(),
+-                        InputFingerprint::new(fp),
+-                        ProductFingerprint::new(fp),
+-                        SemanticProduct::UnlinkedInterface(Arc::new(unlinked)),
+-                        Vec::new(),
+-                    );
++                if existed {
++                    invalidated_keys.insert(QueryKey::ParsedModule(module_id.clone()));
+                 }
+             }
++
++            match query_unlinked_interface(&mut self.db, module_id.clone(), unit.clone()) {
++                QueryOutcome::Ready(_) => {}
++                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
++                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
++                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
++                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
++            }
+         }
+ 
++        // Removal is different from recomputation: the product has no replacement whose
++        // fingerprint could prove semantic stability, so its full reverse closure must die.
+         for old_module_id in self.sources.keys() {
+             if !input.sources.contains_key(old_module_id) {
+                 let parsed_key = QueryKey::ParsedModule(old_module_id.clone());
+@@ -544,6 +532,16 @@ impl SemanticWorkspaceSession {
+                     QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                     QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                 };
++                if let Some(diagnostics) = self
++                    .db
++                    .product(&QueryKey::DeclarationSurface(decl_id.clone()))
++                    .and_then(|product| product.as_declaration_surface_diagnostics())
++                {
++                    diags_by_module
++                        .entry(module_id.clone())
++                        .or_default()
++                        .extend(diagnostics.iter().cloned());
++                }
+ 
+                 dispatch.register_surface(decl_id.clone(), (*surface).clone());
+                 if let Some(ty) = declarations.form(&decl_id) {
+@@ -645,6 +643,12 @@ impl SemanticWorkspaceSession {
+                                     } else {
+                                         stats.callables_reused += 1;
+                                     }
++                                    if !analysis.diagnostics.is_empty() {
++                                        diags_by_module
++                                            .entry(module_id.clone())
++                                            .or_default()
++                                            .extend(analysis.diagnostics.iter().cloned());
++                                    }
+                                     callable_analyses.insert(callable_id, analysis);
+                                 }
+                                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+@@ -669,7 +673,7 @@ impl SemanticWorkspaceSession {
+             for stmt in &parsed_unit.program.statements {
+                 match stmt {
+                     Statement::Class(class_def) => {
+-                        check_class_bodies(&mut ctx, class_def);
++                        check_class_field_initializers(&mut ctx, class_def);
+                     }
+                     _ => {
+                         check_statement(&mut ctx, stmt);
+diff --git a/phalcom-semantic/src/types/store.rs b/phalcom-semantic/src/types/store.rs
+index 0fd074f..d437dfc 100644
+--- a/phalcom-semantic/src/types/store.rs
++++ b/phalcom-semantic/src/types/store.rs
+@@ -68,7 +68,7 @@ pub enum TypeData {
+ pub struct TypeStore {
+     id: TypeStoreId,
+     types: Vec<TypeData>,
+-    type_to_id: HashMap<TypeData, TypeId>,
++    type_to_id: HashMap<(TypeData, KindId), TypeId>,
+     kinds: Vec<KindData>,
+     kind_to_id: HashMap<KindData, KindId>,
+     type_kinds: Vec<KindId>,
+@@ -135,13 +135,29 @@ impl TypeStore {
+ 
+     pub fn intern_type_parameter(&mut self, data: TypeParameterData) -> TypeParameterId {
+         let key = (data.owner.clone(), data.index);
+-        let variance = data.variance;
+         if let TypeParameterOwner::Declaration(ref decl) = data.owner {
+-            self.parameter_variances.insert((decl.clone(), data.index), variance);
++            self.parameter_variances.insert((decl.clone(), data.index), data.variance);
+         }
++
+         if let Some(&id) = self.parameter_to_id.get(&key) {
+-            return id;
++            let existing = &self.type_parameters[id.index()];
++            let same_semantics = existing.name == data.name
++                && existing.kind == data.kind
++                && existing.variance == data.variance;
++
++            if same_semantics {
++                // Source provenance is revision-local presentation data, not semantic
++                // identity. Refresh it in the live store while retained snapshot clones
++                // continue to preserve the provenance from their own revision.
++                self.type_parameters[id.index()].source = data.source;
++                return id;
++            }
+         }
++
++        // `(owner, index)` identifies the current binder slot, not an eternal arena
++        // object. If the slot's semantic meaning changes, allocate a new parameter
++        // version rather than mutating the old one. Cached products and retained
++        // snapshots may still reference the previous ID and must keep its denotation.
+         let id = TypeParameterId(self.type_parameters.len() as u32);
+         self.type_parameters.push(data);
+         self.parameter_to_id.insert(key, id);
+@@ -287,15 +303,19 @@ impl TypeStore {
+     }
+ 
+     pub fn intern_with_kind(&mut self, data: TypeData, kind: KindId) -> TypeId {
+-        if let Some(&id) = self.type_to_id.get(&data) {
+-            debug_assert_eq!(self.type_kinds[id.index()], kind);
++        // Kind is part of a canonical type form's identity. This matters for a
++        // persistent store: the same declaration or parameter payload can acquire a
++        // different kind in a later semantic revision, and the old TypeId must retain
++        // its original denotation for cached products and retained snapshots.
++        let key = (data.clone(), kind);
++        if let Some(&id) = self.type_to_id.get(&key) {
+             return id;
+         }
+ 
+         let id = TypeId(self.types.len() as u32);
+-        self.types.push(data.clone());
++        self.types.push(data);
+         self.type_kinds.push(kind);
+-        self.type_to_id.insert(data, id);
++        self.type_to_id.insert(key, id);
+         debug_assert_eq!(self.types.len(), self.type_kinds.len());
+         id
+     }
+diff --git a/phalcom-semantic/tests/formal_query_ownership.rs b/phalcom-semantic/tests/formal_query_ownership.rs
+index ba025c5..e048397 100644
+--- a/phalcom-semantic/tests/formal_query_ownership.rs
++++ b/phalcom-semantic/tests/formal_query_ownership.rs
+@@ -110,7 +110,10 @@ class Child is Base {
+     assert_eq!(hierarchy.super_decl.as_ref().map(|decl| decl.name.as_ref()), Some("Base"));
+ 
+     let hierarchy_dependencies = dependency_keys(&session, &hierarchy_key);
+-    assert!(hierarchy_dependencies.contains(&QueryKey::ParsedModule(module.clone())));
++    assert!(
++        !hierarchy_dependencies.contains(&QueryKey::ParsedModule(module.clone())),
++        "hierarchy source syntax is a direct query input, not a whole-module product dependency"
++    );
+     assert!(hierarchy_dependencies.contains(&QueryKey::LinkedInterface(module.clone())));
+ 
+     let surface = session
+@@ -121,7 +124,10 @@ class Child is Base {
+     assert!(surface.get_callable(DispatchSide::Class, &callable.selector).is_some());
+ 
+     let surface_dependencies = dependency_keys(&session, &surface_key);
+-    assert!(surface_dependencies.contains(&QueryKey::ParsedModule(module.clone())));
++    assert!(
++        !surface_dependencies.contains(&QueryKey::ParsedModule(module.clone())),
++        "declaration syntax is a direct query input so body-only parse changes do not invalidate the surface"
++    );
+     assert!(surface_dependencies.contains(&QueryKey::LinkedInterface(module)));
+ 
+     let signature = session
+diff --git a/phalcom-semantic/tests/product_stability_invalidation.rs b/phalcom-semantic/tests/product_stability_invalidation.rs
+new file mode 100644
+index 0000000..e793fa9
+--- /dev/null
++++ b/phalcom-semantic/tests/product_stability_invalidation.rs
+@@ -0,0 +1,438 @@
++use phalcom_common::selector::Selector;
++use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
++use phalcom_modules::interface::LinkedModuleInterface;
++use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
++use phalcom_modules::metadata::ModuleMetadata;
++use phalcom_modules::source::ModuleKind;
++use phalcom_semantic::db::QueryKey;
++use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
++use phalcom_semantic::session::SemanticWorkspaceSession;
++use phalcom_semantic::source::ParsedModuleUnit;
++use phalcom_semantic::workspace::SemanticWorkspaceInput;
++use std::collections::BTreeMap;
++use std::sync::Arc;
++
++fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceInput {
++    let parsed = phalcom_ast::parse(source, 0);
++    let program = Arc::new(parsed.program);
++    let linked_module = LinkedModule {
++        interface: LinkedModuleInterface {
++            module: module.clone(),
++            kind: ModuleKind::Module,
++            exports: BTreeMap::new(),
++            metadata: ModuleMetadata::default(),
++        },
++        bindings: ModuleBindingLayout::default(),
++        linked_reads: Vec::new(),
++        runtime_dependencies: Vec::new(),
++    };
++    let linked = Arc::new(LinkedProgram {
++        universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
++        modules: BTreeMap::from([(module.clone(), linked_module)]),
++        graphs: phalcom_modules::graph::ModuleGraphs::default(),
++        entry: module.clone(),
++        initialization_order: vec![module.clone()],
++    });
++    let unit = Arc::new(ParsedModuleUnit::new(
++        module.clone(),
++        ModuleKind::Module,
++        None,
++        Arc::from(source),
++        program,
++    ));
++
++    SemanticWorkspaceInput {
++        linked,
++        sources: BTreeMap::from([(module, unit)]),
++        generation,
++    }
++}
++
++#[test]
++fn body_only_edit_stops_at_stable_semantic_products() {
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(1),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++
++    let source_v1 = r#"
++class Api {
++  @class value() -> Int { 1 }
++}
++
++class Consumer {
++  @class read() -> Int { Api.value() }
++}
++"#;
++    let update1 = session.update(input(module.clone(), source_v1, 1));
++    assert!(!update1.snapshot.has_errors());
++    let rev1 = update1.snapshot.id.revision();
++
++    let api = DeclarationId::new(module.clone(), "Api".into());
++    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
++    let selector = Selector::method("value", []).unwrap();
++    let api_value = CallableId::new(api.clone(), selector, DispatchSide::Class);
++    let consumer_read = CallableId::new(
++        consumer,
++        Selector::method("read", []).unwrap(),
++        DispatchSide::Class,
++    );
++
++    let stable_keys = [
++        QueryKey::LinkedInterface(module.clone()),
++        QueryKey::HierarchyEdge(api.clone()),
++        QueryKey::DeclarationSurface(api.clone()),
++        QueryKey::CallableSignature(api_value.clone()),
++        QueryKey::CallableBody(consumer_read.clone()),
++    ];
++    for key in &stable_keys {
++        assert_eq!(session.db().query_state(key).unwrap().revision(), Some(rev1));
++    }
++    let consumer_v1 = update1.snapshot.callable_analyses.get(&consumer_read).unwrap().clone();
++
++    let source_v2 = r#"
++class Api {
++  @class value() -> Int { 2 }
++}
++
++class Consumer {
++  @class read() -> Int { Api.value() }
++}
++"#;
++    let update2 = session.update(input(module.clone(), source_v2, 2));
++    assert!(!update2.snapshot.has_errors());
++    let rev2 = update2.snapshot.id.revision();
++    assert_ne!(rev1, rev2);
++
++    assert_eq!(
++        session.db().query_state(&QueryKey::ParsedModule(module.clone())).unwrap().revision(),
++        Some(rev2),
++        "exact source bytes changed, so ParsedModule recomputes"
++    );
++    assert_eq!(
++        session.db().query_state(&QueryKey::UnlinkedInterface(module.clone())).unwrap().revision(),
++        Some(rev2),
++        "UnlinkedInterface reevaluates from the changed parse even when its semantic product stays stable"
++    );
++    assert_eq!(
++        session.db().query_state(&QueryKey::CallableBody(api_value)).unwrap().revision(),
++        Some(rev2),
++        "edited callable body recomputes"
++    );
++
++    for key in &stable_keys {
++        let state = session.db().query_state(key).unwrap();
++        assert_eq!(state.revision(), Some(rev1), "{key:?} must retain its original product computation");
++        assert_eq!(
++            state.validated_revision(),
++            Some(rev2),
++            "{key:?} must be revalidated for the current revision without recomputation"
++        );
++    }
++
++    assert_eq!(update2.stats.callables_recomputed, 1);
++    assert_eq!(update2.stats.callables_reused, 1);
++    assert!(Arc::ptr_eq(
++        &consumer_v1,
++        update2.snapshot.callable_analyses.get(&consumer_read).unwrap()
++    ));
++}
++
++#[test]
++fn callable_body_product_owns_tail_return_diagnostics() {
++    use phalcom_semantic::diagnostic::DiagnosticCode;
++
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(2),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("diagnostics").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++    let source = r#"
++class Port {
++  @class number() -> Int { "8080" }
++}
++"#;
++
++    let update = session.update(input(module.clone(), source, 1));
++    let callable = CallableId::new(
++        DeclarationId::new(module, "Port".into()),
++        Selector::method("number", []).unwrap(),
++        DispatchSide::Class,
++    );
++    let body = session
++        .db()
++        .product(&QueryKey::CallableBody(callable))
++        .and_then(|product| product.as_callable_body())
++        .expect("callable body product");
++
++    assert!(
++        body.diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch),
++        "tail-return mismatch must be owned by the DB callable-body product, not a second legacy class-body pass"
++    );
++    assert!(
++        update
++            .snapshot
++            .diagnostics
++            .values()
++            .flatten()
++            .any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch),
++        "snapshot diagnostics must aggregate callable-body query diagnostics"
++    );
++}
++
++#[test]
++fn field_initializer_diagnostics_remain_after_callable_recheck_is_removed() {
++    use phalcom_semantic::diagnostic::DiagnosticCode;
++
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(3),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("fields").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++    let source = r#"
++class Config {
++  _port: Int = "invalid"
++}
++"#;
++
++    let update = session.update(input(module, source, 1));
++    assert!(
++        update
++            .snapshot
++            .diagnostics
++            .values()
++            .flatten()
++            .any(|diagnostic| diagnostic.code == DiagnosticCode::FieldMismatch),
++        "field initializer checking remains a non-callable class responsibility"
++    );
++}
++
++#[test]
++fn declaration_surface_query_owns_member_annotation_diagnostics() {
++    use phalcom_semantic::diagnostic::DiagnosticCode;
++
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(4),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("surface_diagnostics").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++    let source = r#"
++class Handler {
++  @class run(_ value: MissingType) -> Int { 1 }
++}
++"#;
++
++    let update = session.update(input(module, source, 1));
++    assert!(
++        update
++            .snapshot
++            .diagnostics
++            .values()
++            .flatten()
++            .any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved),
++        "declaration-surface annotation diagnostics must survive removal of the duplicate legacy callable-body pass"
++    );
++}
++
++#[test]
++fn signature_edit_recomputes_exact_callers_and_reuses_unrelated_bodies() {
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(5),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("signature_edit").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++
++    let source_v1 = r#"
++class Api {
++  @class value() -> Int { 1 }
++}
++
++class Consumer {
++  @class read() { Api.value() }
++}
++
++class Unrelated {
++  @class stable() -> Int { 7 }
++}
++"#;
++    let update1 = session.update(input(module.clone(), source_v1, 1));
++    assert!(!update1.snapshot.has_errors());
++    let rev1 = update1.snapshot.id.revision();
++
++    let api = DeclarationId::new(module.clone(), "Api".into());
++    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
++    let unrelated = DeclarationId::new(module.clone(), "Unrelated".into());
++    let api_value = CallableId::new(
++        api.clone(),
++        Selector::method("value", []).unwrap(),
++        DispatchSide::Class,
++    );
++    let consumer_read = CallableId::new(
++        consumer,
++        Selector::method("read", []).unwrap(),
++        DispatchSide::Class,
++    );
++    let unrelated_stable = CallableId::new(
++        unrelated,
++        Selector::method("stable", []).unwrap(),
++        DispatchSide::Class,
++    );
++    let unrelated_v1 = update1
++        .snapshot
++        .callable_analyses
++        .get(&unrelated_stable)
++        .expect("revision-1 unrelated analysis")
++        .clone();
++
++    let source_v2 = r#"
++class Api {
++  @class value() -> String { "one" }
++}
++
++class Consumer {
++  @class read() { Api.value() }
++}
++
++class Unrelated {
++  @class stable() -> Int { 7 }
++}
++"#;
++    let update2 = session.update(input(module.clone(), source_v2, 2));
++    assert!(!update2.snapshot.has_errors());
++    let rev2 = update2.snapshot.id.revision();
++
++    assert_eq!(
++        session
++            .db()
++            .query_state(&QueryKey::DeclarationSurface(api.clone()))
++            .unwrap()
++            .revision(),
++        Some(rev2),
++        "public member contract change must recompute the owning declaration surface"
++    );
++    assert_eq!(
++        session
++            .db()
++            .query_state(&QueryKey::CallableSignature(api_value.clone()))
++            .unwrap()
++            .revision(),
++        Some(rev2),
++        "callable signature product must change with the declared return type"
++    );
++    assert_eq!(
++        session
++            .db()
++            .query_state(&QueryKey::CallableBody(consumer_read))
++            .unwrap()
++            .revision(),
++        Some(rev2),
++        "unchanged caller body must recompute because its consumed callable contract changed"
++    );
++
++    let unrelated_state = session
++        .db()
++        .query_state(&QueryKey::CallableBody(unrelated_stable.clone()))
++        .expect("unrelated body query");
++    assert_eq!(unrelated_state.revision(), Some(rev1));
++    assert_eq!(unrelated_state.validated_revision(), Some(rev2));
++    assert!(Arc::ptr_eq(
++        &unrelated_v1,
++        update2.snapshot.callable_analyses.get(&unrelated_stable).unwrap()
++    ));
++}
++
++#[test]
++fn superclass_edit_recomputes_hierarchy_consumers_without_touching_unrelated_bodies() {
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(6),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("superclass_edit").unwrap()]),
++    );
++    let mut session = SemanticWorkspaceSession::new();
++
++    let source_v1 = r#"
++class BaseA {
++  value() -> Int { 1 }
++}
++class BaseB {
++  value() -> String { "b" }
++}
++class Child is BaseA {}
++class Consumer {
++  @class read(_ child: Child) { child.value() }
++}
++class Unrelated {
++  @class stable() -> Int { 9 }
++}
++"#;
++    let update1 = session.update(input(module.clone(), source_v1, 1));
++    assert!(!update1.snapshot.has_errors());
++    let rev1 = update1.snapshot.id.revision();
++
++    let child = DeclarationId::new(module.clone(), "Child".into());
++    let consumer_read = CallableId::new(
++        DeclarationId::new(module.clone(), "Consumer".into()),
++        Selector::method("read", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
++        DispatchSide::Class,
++    );
++    let unrelated_stable = CallableId::new(
++        DeclarationId::new(module.clone(), "Unrelated".into()),
++        Selector::method("stable", []).unwrap(),
++        DispatchSide::Class,
++    );
++    let unrelated_v1 = update1
++        .snapshot
++        .callable_analyses
++        .get(&unrelated_stable)
++        .expect("revision-1 unrelated analysis")
++        .clone();
++
++    let source_v2 = r#"
++class BaseA {
++  value() -> Int { 1 }
++}
++class BaseB {
++  value() -> String { "b" }
++}
++class Child is BaseB {}
++class Consumer {
++  @class read(_ child: Child) { child.value() }
++}
++class Unrelated {
++  @class stable() -> Int { 9 }
++}
++"#;
++    let update2 = session.update(input(module, source_v2, 2));
++    assert!(!update2.snapshot.has_errors());
++    let rev2 = update2.snapshot.id.revision();
++
++    assert_eq!(
++        session
++            .db()
++            .query_state(&QueryKey::HierarchyEdge(child))
++            .unwrap()
++            .revision(),
++        Some(rev2),
++        "changed direct superclass must recompute exactly that hierarchy edge"
++    );
++    assert_eq!(
++        session
++            .db()
++            .query_state(&QueryKey::CallableBody(consumer_read))
++            .unwrap()
++            .revision(),
++        Some(rev2),
++        "dispatch consumer must recompute when its visited hierarchy path changes"
++    );
++
++    let unrelated_state = session
++        .db()
++        .query_state(&QueryKey::CallableBody(unrelated_stable.clone()))
++        .expect("unrelated body query");
++    assert_eq!(unrelated_state.revision(), Some(rev1));
++    assert_eq!(unrelated_state.validated_revision(), Some(rev2));
++    assert!(Arc::ptr_eq(
++        &unrelated_v1,
++        update2.snapshot.callable_analyses.get(&unrelated_stable).unwrap()
++    ));
++}
+diff --git a/phalcom-semantic/tests/semantic_db_incremental.rs b/phalcom-semantic/tests/semantic_db_incremental.rs
+index e9b5d82..fca6f5a 100644
+--- a/phalcom-semantic/tests/semantic_db_incremental.rs
++++ b/phalcom-semantic/tests/semantic_db_incremental.rs
+@@ -170,3 +170,106 @@ fn record_dependency_rejects_ready_but_unvalidated_dependency() {
+         .expect("current-validated Ready dependency can be recorded");
+     assert_eq!(recorder.finish().len(), 1);
+ }
++
++#[test]
++fn local_recompute_preserves_dependents_and_stable_products_stop_propagation() {
++    let mut db = SemanticDb::new();
++    let leaf = QueryKey::ParsedModule(mod_a());
++    let dependent = QueryKey::UnlinkedInterface(mod_a());
++    let rev1 = db.revision();
++
++    db.publish_ready(
++        leaf.clone(),
++        rev1,
++        InputFingerprint::new(1),
++        ProductFingerprint::new(10),
++        QueryValue::from_bytes(b"leaf-v1"),
++        [],
++    )
++    .unwrap();
++
++    let mut recorder = DependencyRecorder::new(dependent.clone());
++    db.record_dependency(&mut recorder, leaf.clone()).unwrap();
++    db.publish_ready(
++        dependent.clone(),
++        rev1,
++        InputFingerprint::new(2),
++        ProductFingerprint::new(20),
++        QueryValue::from_bytes(b"dependent-v1"),
++        recorder.finish(),
++    )
++    .unwrap();
++
++    let rev2 = db.begin_revision();
++    assert!(db.discard_for_recompute(&leaf));
++
++    assert!(
++        db.query_state(&dependent).is_some_and(QueryState::is_ready),
++        "preparing a dependency for recompute must not eagerly delete its dependents"
++    );
++    assert_eq!(db.query_state(&dependent).unwrap().revision(), Some(rev1));
++
++    db.publish_ready(
++        leaf.clone(),
++        rev2,
++        InputFingerprint::new(3),
++        ProductFingerprint::new(10),
++        QueryValue::from_bytes(b"leaf-v2-same-semantics"),
++        [],
++    )
++    .unwrap();
++
++    assert!(
++        db.validate_reuse(&dependent, InputFingerprint::new(2)),
++        "unchanged dependency product fingerprint must stop invalidation propagation"
++    );
++    assert_eq!(db.query_state(&dependent).unwrap().revision(), Some(rev1));
++    assert_eq!(db.query_state(&dependent).unwrap().validated_revision(), Some(rev2));
++}
++
++#[test]
++fn local_recompute_with_changed_product_keeps_dependent_cached_but_not_reusable() {
++    let mut db = SemanticDb::new();
++    let leaf = QueryKey::ParsedModule(mod_a());
++    let dependent = QueryKey::UnlinkedInterface(mod_a());
++    let rev1 = db.revision();
++
++    db.publish_ready(
++        leaf.clone(),
++        rev1,
++        InputFingerprint::new(1),
++        ProductFingerprint::new(10),
++        QueryValue::from_bytes(b"leaf-v1"),
++        [],
++    )
++    .unwrap();
++    let mut recorder = DependencyRecorder::new(dependent.clone());
++    db.record_dependency(&mut recorder, leaf.clone()).unwrap();
++    db.publish_ready(
++        dependent.clone(),
++        rev1,
++        InputFingerprint::new(2),
++        ProductFingerprint::new(20),
++        QueryValue::from_bytes(b"dependent-v1"),
++        recorder.finish(),
++    )
++    .unwrap();
++
++    let rev2 = db.begin_revision();
++    assert!(db.discard_for_recompute(&leaf));
++    db.publish_ready(
++        leaf,
++        rev2,
++        InputFingerprint::new(3),
++        ProductFingerprint::new(11),
++        QueryValue::from_bytes(b"leaf-v2-changed-semantics"),
++        [],
++    )
++    .unwrap();
++
++    assert!(db.query_state(&dependent).is_some_and(QueryState::is_ready));
++    assert!(
++        !db.validate_reuse(&dependent, InputFingerprint::new(2)),
++        "changed dependency product fingerprint must force dependent recomputation when queried"
++    );
++}
+diff --git a/phalcom-semantic/tests/type_store_revisions.rs b/phalcom-semantic/tests/type_store_revisions.rs
+index bc8173e..6dc1587 100644
+--- a/phalcom-semantic/tests/type_store_revisions.rs
++++ b/phalcom-semantic/tests/type_store_revisions.rs
+@@ -254,3 +254,105 @@ fn distinct_workspace_sessions_have_distinct_snapshot_workspace_ids() {
+     assert_ne!(update1.snapshot.id.workspace(), update2.snapshot.id.workspace());
+ }
+ 
++#[test]
++fn generic_parameter_semantic_edits_version_ids_and_preserve_old_denotations() {
++    use phalcom_semantic::diagnostic::SemanticSourceSpan;
++    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
++    use phalcom_semantic::{KindId, TypeStore};
++
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(91),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("types").unwrap()]),
++    );
++    let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Functor".into());
++    let owner = TypeParameterOwner::Declaration(declaration);
++    let mut store = TypeStore::new();
++
++    let first = store.intern_type_parameter(
++        TypeParameterData::new(owner.clone(), 0, "F", KindId::TYPE)
++            .with_source(SemanticSourceSpan::new(module.clone(), phalcom_common::range::SourceRange::new(10, 11))),
++    );
++    let first_form = store.parameter_form(first);
++    let retained = store.clone();
++
++    let constructor_kind = store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
++    let second = store.intern_type_parameter(
++        TypeParameterData::new(owner.clone(), 0, "F", constructor_kind)
++            .with_source(SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::new(20, 21))),
++    );
++    let second_form = store.parameter_form(second);
++
++    assert_ne!(first, second, "semantic binder changes require a new TypeParameterId version");
++    assert_ne!(first_form, second_form, "different parameter kinds require distinct canonical TypeIds");
++    assert_eq!(store.find_type_parameter_id(&owner, 0), Some(second));
++    assert_eq!(retained.kind_of(first_form), KindId::TYPE);
++    assert_eq!(store.kind_of(first_form), KindId::TYPE, "old live-store forms must keep their original kind");
++    assert_eq!(store.kind_of(second_form), constructor_kind);
++}
++
++#[test]
++fn generic_parameter_source_moves_refresh_provenance_without_changing_semantic_identity() {
++    use phalcom_semantic::diagnostic::SemanticSourceSpan;
++    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
++    use phalcom_semantic::{KindId, TypeStore};
++
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(92),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("provenance").unwrap()]),
++    );
++    let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Box".into());
++    let owner = TypeParameterOwner::Declaration(declaration);
++    let mut store = TypeStore::new();
++
++    let first = store.intern_type_parameter(
++        TypeParameterData::new(owner.clone(), 0, "T", KindId::TYPE)
++            .with_source(SemanticSourceSpan::new(module.clone(), phalcom_common::range::SourceRange::new(1, 2))),
++    );
++    let retained = store.clone();
++    let second = store.intern_type_parameter(
++        TypeParameterData::new(owner, 0, "T", KindId::TYPE)
++            .with_source(SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::new(50, 51))),
++    );
++
++    assert_eq!(first, second, "source-only movement must not perturb semantic type identity");
++    assert_eq!(retained.type_parameter(first).source.as_ref().unwrap().range, phalcom_common::range::SourceRange::new(1, 2));
++    assert_eq!(store.type_parameter(second).source.as_ref().unwrap().range, phalcom_common::range::SourceRange::new(50, 51));
++}
++
++#[test]
++fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
++    use phalcom_semantic::KindId;
++
++    let module = ModuleId::resolved(
++        ResolvedProjectId::from_raw(93),
++        ModulePath::from_components(vec![ModuleComponent::from_identifier("generic_kind").unwrap()]),
++    );
++    let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Holder".into());
++    let mut session = SemanticWorkspaceSession::new();
++
++    let update1 = session.update(build_input(module.clone(), "class Holder<F: Type -> Type> {}", 1));
++    assert!(!update1.snapshot.has_errors());
++    let signature1 = update1.snapshot.declarations.generic_signature(&declaration).expect("revision-1 generic signature");
++    let parameter1 = signature1.parameters[0];
++    let mut snapshot_store1 = (*update1.snapshot.store).clone();
++    let parameter_form1 = snapshot_store1.parameter_form(parameter1);
++    let declaration_form1 = update1.snapshot.declarations.form(&declaration).expect("revision-1 declaration form");
++    let parameter_kind1 = update1.snapshot.store.type_parameter(parameter1).kind;
++    assert_ne!(parameter_kind1, KindId::TYPE);
++
++    let update2 = session.update(build_input(module, "class Holder<F> {}", 2));
++    assert!(!update2.snapshot.has_errors());
++    let signature2 = update2.snapshot.declarations.generic_signature(&declaration).expect("revision-2 generic signature");
++    let parameter2 = signature2.parameters[0];
++    let mut snapshot_store2 = (*update2.snapshot.store).clone();
++    let parameter_form2 = snapshot_store2.parameter_form(parameter2);
++    let declaration_form2 = update2.snapshot.declarations.form(&declaration).expect("revision-2 declaration form");
++
++    assert_ne!(parameter1, parameter2, "kind edit must version the generic parameter identity");
++    assert_ne!(parameter_form1, parameter_form2, "kind edit must version the parameter TypeId");
++    assert_ne!(declaration_form1, declaration_form2, "declaration forms with different kinds must not alias in the TypeStore");
++    assert_eq!(update1.snapshot.store.type_parameter(parameter1).kind, parameter_kind1);
++    assert_eq!(update1.snapshot.store.kind_of(parameter_form1), parameter_kind1);
++    assert_eq!(update2.snapshot.store.type_parameter(parameter2).kind, KindId::TYPE);
++    assert_eq!(update2.snapshot.store.kind_of(parameter_form2), KindId::TYPE);
++}

@@ -1,0 +1,3390 @@
+--- a/phalcom-modules/src/lib.rs
++++ b/phalcom-modules/src/lib.rs
+@@ -49,5 +49,7 @@
+ pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
+ pub use query::ModuleQueryFacade;
+ pub use resolver::ModuleResolver;
+-pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
++pub use source::{
++    EntryOwnership, FilesystemSourceProvider, ModuleKind, OverlaySourceProvider, ParsedModuleUnit, SourceOverlay, SourceProvider, SourceUnit,
++};
+ pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};
+--- a/phalcom-modules/src/source.rs
++++ b/phalcom-modules/src/source.rs
+@@ -83,44 +83,63 @@
+     }
+ }
+ 
++/// In-memory overlay indexes kept under one lock so module/source mappings are
++/// updated atomically and readers can never observe mismatched halves.
++#[derive(Debug, Default)]
++struct OverlayState {
++    by_module: std::collections::BTreeMap<ModuleId, SourceOverlay>,
++    by_source: std::collections::BTreeMap<SourceId, ModuleId>,
++}
++
+ /// Overlay-capable source provider layering in-memory documents over a base provider.
++///
++/// Open editor buffers replace base-provider contents at the canonical
++/// [`SourceProvider`] boundary. Consequently parsing, interface extraction,
++/// resolution, linking, and semantic analysis all observe one source revision.
+ pub struct OverlaySourceProvider<P> {
+     base: P,
+-    overlays_by_module: std::sync::RwLock<std::collections::BTreeMap<ModuleId, SourceOverlay>>,
+-    overlays_by_source: std::sync::RwLock<std::collections::BTreeMap<SourceId, ModuleId>>,
++    state: std::sync::RwLock<OverlayState>,
+ }
+ 
+ impl<P> OverlaySourceProvider<P> {
++    /// Creates an overlay provider over `base` with no active in-memory documents.
+     pub fn new(base: P) -> Self {
+         Self {
+             base,
+-            overlays_by_module: std::sync::RwLock::new(std::collections::BTreeMap::new()),
+-            overlays_by_source: std::sync::RwLock::new(std::collections::BTreeMap::new()),
+-        }
+-    }
+-
++            state: std::sync::RwLock::new(OverlayState::default()),
++        }
++    }
++
++    /// Installs or replaces the overlay for one canonical module.
++    ///
++    /// Replacing an overlay also removes the previous reverse source mapping so
++    /// reads through an old `SourceId` correctly fall through to the base provider.
+     pub fn set_overlay(&self, overlay: SourceOverlay) {
+-        let mut by_mod = self.overlays_by_module.write().unwrap();
+-        let mut by_src = self.overlays_by_source.write().unwrap();
+-        by_src.insert(overlay.source.source_id.clone(), overlay.id.clone());
+-        by_mod.insert(overlay.id.clone(), overlay);
+-    }
+-
++        let mut state = self.state.write().unwrap();
++        if let Some(previous) = state.by_module.insert(overlay.id.clone(), overlay.clone()) {
++            state.by_source.remove(&previous.source.source_id);
++        }
++        state
++            .by_source
++            .insert(overlay.source.source_id.clone(), overlay.id.clone());
++    }
++
++    /// Removes the in-memory overlay for `module`, restoring base-provider reads.
+     pub fn remove_overlay(&self, module: &ModuleId) {
+-        let mut by_mod = self.overlays_by_module.write().unwrap();
+-        let mut by_src = self.overlays_by_source.write().unwrap();
+-        if let Some(overlay) = by_mod.remove(module) {
+-            by_src.remove(&overlay.source.source_id);
+-        }
+-    }
+-
++        let mut state = self.state.write().unwrap();
++        if let Some(overlay) = state.by_module.remove(module) {
++            state.by_source.remove(&overlay.source.source_id);
++        }
++    }
++
++    /// Removes every active in-memory overlay.
+     pub fn clear_overlays(&self) {
+-        let mut by_mod = self.overlays_by_module.write().unwrap();
+-        let mut by_src = self.overlays_by_source.write().unwrap();
+-        by_mod.clear();
+-        by_src.clear();
+-    }
+-
++        let mut state = self.state.write().unwrap();
++        state.by_module.clear();
++        state.by_source.clear();
++    }
++
++    /// Returns the immutable provider used when no overlay owns a source.
+     pub fn base(&self) -> &P {
+         &self.base
+     }
+@@ -129,29 +148,26 @@
+ impl<P: SourceProvider> SourceProvider for OverlaySourceProvider<P> {
+     fn locate(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
+         let candidate_id = ModuleId::resolved(project.id, path.clone());
++        let state = self.state.read().unwrap();
++        if let Some(overlay) = state.by_module.get(&candidate_id) {
++            return Ok(SourceUnit {
++                id: overlay.id.clone(),
++                kind: overlay.kind,
++                source: overlay.source.clone(),
++            });
++        }
++        drop(state);
++        self.base.locate(project, path)
++    }
++
++    fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
++        let state = self.state.read().unwrap();
++        if let Some(module) = state.by_source.get(source)
++            && let Some(overlay) = state.by_module.get(module)
+         {
+-            let by_mod = self.overlays_by_module.read().unwrap();
+-            if let Some(overlay) = by_mod.get(&candidate_id) {
+-                return Ok(SourceUnit {
+-                    id: overlay.id.clone(),
+-                    kind: overlay.kind,
+-                    source: overlay.source.clone(),
+-                });
+-            }
+-        }
+-        self.base.locate(project, path)
+-    }
+-
+-    fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
+-        {
+-            let by_src = self.overlays_by_source.read().unwrap();
+-            if let Some(mod_id) = by_src.get(source) {
+-                let by_mod = self.overlays_by_module.read().unwrap();
+-                if let Some(overlay) = by_mod.get(mod_id) {
+-                    return Ok(overlay.text.clone());
+-                }
+-            }
+-        }
++            return Ok(overlay.text.clone());
++        }
++        drop(state);
+         self.base.read(source)
+     }
+ }
+--- a/phalcom-modules/tests/overlay_source_provider.rs
++++ b/phalcom-modules/tests/overlay_source_provider.rs
+@@ -0,0 +1,84 @@
++use phalcom_modules::source::{OverlaySourceProvider, SourceOverlay};
++use phalcom_modules::{
++    ModuleId, ModuleKind, ModulePath, ModuleResolutionError, ResolvedProject, SourceError,
++    SourceId, SourceLocation, SourceProvider, SourceUnit, SyntheticProjectIdAllocator,
++};
++use std::collections::BTreeMap;
++use std::sync::Arc;
++
++#[derive(Default)]
++struct MemoryProvider {
++    sources: BTreeMap<SourceId, Arc<str>>,
++}
++
++impl SourceProvider for MemoryProvider {
++    fn locate(
++        &self,
++        _project: &ResolvedProject,
++        _path: &ModulePath,
++    ) -> Result<SourceUnit, ModuleResolutionError> {
++        Err(ModuleResolutionError::ModuleNotFound("memory provider".into()))
++    }
++
++    fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
++        self.sources
++            .get(source)
++            .cloned()
++            .ok_or_else(|| SourceError::NotFound(source.to_string()))
++    }
++}
++
++fn module() -> ModuleId {
++    let mut ids = SyntheticProjectIdAllocator::default();
++    ModuleId::synthetic(ids.allocate(), ModulePath::root())
++}
++
++fn overlay(module: ModuleId, source: SourceId, text: &str) -> SourceOverlay {
++    SourceOverlay::new(
++        module,
++        ModuleKind::Module,
++        SourceLocation {
++            source_id: source,
++            display_path: "memory.ph".into(),
++        },
++        Arc::from(text),
++    )
++}
++
++#[test]
++fn replacing_overlay_removes_previous_source_reverse_mapping() {
++    let module = module();
++    let old_source = SourceId("memory://old".into());
++    let new_source = SourceId("memory://new".into());
++    let mut base = MemoryProvider::default();
++    base.sources.insert(old_source.clone(), Arc::from("disk old"));
++    base.sources.insert(new_source.clone(), Arc::from("disk new"));
++    let provider = OverlaySourceProvider::new(base);
++
++    provider.set_overlay(overlay(module.clone(), old_source.clone(), "overlay old"));
++    assert_eq!(provider.read(&old_source).unwrap().as_ref(), "overlay old");
++
++    provider.set_overlay(overlay(module, new_source.clone(), "overlay new"));
++
++    assert_eq!(
++        provider.read(&old_source).unwrap().as_ref(),
++        "disk old",
++        "the replaced source id must fall through to the base provider",
++    );
++    assert_eq!(provider.read(&new_source).unwrap().as_ref(), "overlay new");
++}
++
++#[test]
++fn removing_overlay_restores_base_source() {
++    let module = module();
++    let source = SourceId("memory://module".into());
++    let mut base = MemoryProvider::default();
++    base.sources.insert(source.clone(), Arc::from("disk"));
++    let provider = OverlaySourceProvider::new(base);
++
++    provider.set_overlay(overlay(module.clone(), source.clone(), "overlay"));
++    assert_eq!(provider.read(&source).unwrap().as_ref(), "overlay");
++
++    provider.remove_overlay(&module);
++    assert_eq!(provider.read(&source).unwrap().as_ref(), "disk");
++}
+--- a/phalcom-semantic/src/callable_signature_product.rs
++++ b/phalcom-semantic/src/callable_signature_product.rs
+@@ -0,0 +1,27 @@
++//! Query-owned callable signature products used for dependency invalidation.
++//!
++//! Formal declaration surfaces may contain `Known`, `Unknown`, or `Dynamic`
++//! type knowledge. The semantic database must preserve that complete state so
++//! unannotated callables still have a dependency-trackable signature product.
++//! Reflection-oriented [`crate::signature::CallableSemanticSignature`] values
++//! are a stricter projection and therefore are not used as the database's
++//! invalidation payload.
++
++use crate::dispatch::CallableSignature;
++use crate::identity::CallableId;
++
++/// Canonical query product for one callable's declaration-time signature.
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct CallableSignatureProduct {
++    /// Canonical callable identity.
++    pub callable: CallableId,
++    /// Declaration-time signature preserving `Known`/`Unknown`/`Dynamic` type knowledge.
++    pub signature: CallableSignature,
++}
++
++impl CallableSignatureProduct {
++    /// Creates a signature product from its canonical callable identity and surface contract.
++    pub fn new(callable: CallableId, signature: CallableSignature) -> Self {
++        Self { callable, signature }
++    }
++}
+--- a/phalcom-semantic/src/checker/context.rs
++++ b/phalcom-semantic/src/checker/context.rs
+@@ -50,14 +50,6 @@
+     }
+ }
+ 
+-impl<'a> std::ops::DerefMut for DispatchAccess<'a> {
+-    fn deref_mut(&mut self) -> &mut Self::Target {
+-        match self {
+-            Self::Owned(d) => d,
+-            Self::Borrowed(_) => panic!("Attempted to mutate borrowed dispatch resolver"),
+-        }
+-    }
+-}
+ 
+ /// Metadata for a scoped local variable binding.
+ #[derive(Clone, Debug)]
+@@ -408,6 +400,24 @@
+                         ev.ty = subst.apply(self.store, ev.ty);
+                     }
+                 }
++                for param in &mut sig.parameters {
++                    if let TypeKnowledge::Known(ref mut ev) = param.ty {
++                        ev.ty = crate::types::substitution::specialize_self_type(
++                            self.store,
++                            self.declarations,
++                            receiver,
++                            ev.ty,
++                        );
++                    }
++                }
++                if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
++                    ev.ty = crate::types::substitution::specialize_self_type(
++                        self.store,
++                        self.declarations,
++                        receiver,
++                        ev.ty,
++                    );
++                }
+                 DispatchResult::Found(sig)
+             }
+             crate::dispatch::ResolvedDispatchResult::Ambiguous(amb) => {
+@@ -428,12 +438,18 @@
+         }
+     }
+ 
++    pub fn register_type(&mut self, ty: TypeId, decl: DeclarationId) {
++        self.dispatch
++            .get_mut()
++            .expect("register_type is only valid for an owned dispatch resolver")
++            .register_type(ty, decl);
++    }
++
+     pub fn register_surface(&mut self, decl: DeclarationId, surface: crate::surface::DeclarationSurface) {
+-        if let Some(d) = self.dispatch.get_mut() {
+-            d.register_surface(decl, surface);
+-        } else {
+-            panic!("register_surface is only valid for Owned dispatch");
+-        }
++        self.dispatch
++            .get_mut()
++            .expect("register_surface is only valid for an owned dispatch resolver")
++            .register_surface(decl, surface);
+     }
+ 
+     pub fn get_surface(&mut self, decl: &DeclarationId) -> Option<&crate::surface::DeclarationSurface> {
+--- a/phalcom-semantic/src/checker/declaration.rs
++++ b/phalcom-semantic/src/checker/declaration.rs
+@@ -11,7 +11,7 @@
+ use crate::types::denotation::ValueSemanticFact;
+ use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
+ use crate::types::relation::{Assignability, check_assignability};
+-use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
++use phalcom_ast::ast::{ClassDef, ClassMember, MethodDef, ParameterDef, Statement};
+ use phalcom_common::selector::{Selector, SelectorSlot};
+ 
+ pub(crate) fn member_side(member: &ClassMember) -> crate::identity::DispatchSide {
+@@ -22,12 +22,46 @@
+     }
+ }
+ 
++/// Returns the canonical callable identity used to analyze a source method body.
++///
++/// Constructors have two semantic identities: the source-visible class-side
++/// factory keeps the written selector, while its body belongs to the hidden
++/// instance-side initializer emitted by compiler lowering (`init <name>`).
++pub(crate) fn method_body_callable_id(
++    owner: &DeclarationId,
++    method: &MethodDef,
++) -> Option<crate::identity::CallableId> {
++    let slots = method
++        .params
++        .iter()
++        .map(|parameter| {
++            parameter
++                .label
++                .as_ref()
++                .map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone()))
++        })
++        .collect::<Vec<_>>();
++    let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
++    let (name, side) = if is_constructor {
++        (format!("init {}", method.name), crate::identity::DispatchSide::Instance)
++    } else {
++        let side = if method.is_static || method.attributes.iter().any(|attribute| attribute.name == "class") {
++            crate::identity::DispatchSide::Class
++        } else {
++            crate::identity::DispatchSide::Instance
++        };
++        (method.name.clone(), side)
++    };
++    let selector = Selector::method(name, slots).ok()?;
++    Some(crate::identity::CallableId::new(owner.clone(), selector, side))
++}
++
+ /// Pre-registers a class surface and its callable signatures in the context's dispatch table.
+ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
+     let mut surface = DeclarationSurface::new(Some(decl_id.clone()));
+     let class_ty = ctx.nominal_type_of(&decl_id);
+-    ctx.dispatch.register_type(class_ty, decl_id.clone());
++    ctx.register_type(class_ty, decl_id.clone());
+ 
+     let type_params_map = if let Some(sig) = ctx.declarations.generic_signature(&decl_id) {
+         let mut map = std::collections::HashMap::new();
+@@ -88,28 +122,106 @@
+                     params.push(param);
+                 }
+ 
+-                let (effective_side, ret_k) = if is_constructor {
+-                    let class_ty = ctx.nominal_type_of(&decl_id);
+-                    (crate::identity::DispatchSide::Class, TypeKnowledge::known(class_ty, EvidenceAuthority::Declared))
+-                } else {
+-                    let ret_k = m
+-                        .return_annotation
+-                        .as_ref()
+-                        .map(|ann| {
++                if is_constructor {
++                    // A source constructor denotes two compiler-owned semantic roles:
++                    // the public class-side factory and the hidden instance-side
++                    // initializer body produced by compiler lowering. Only the
++                    // factory participates in source dispatch under the written
++                    // selector; its result is receiver-relative `Self`.
++                    let public_selector = match Selector::method(&m.name, slots.clone()) {
++                        Ok(selector) => selector,
++                        Err(_) => continue,
++                    };
++                    let public_self = ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
++                        owner: decl_id.clone(),
++                        side: crate::identity::DispatchSide::Class,
++                        role: crate::types::parameter::SelfRole::InstanceType,
++                    });
++                    let mut public_signature = CallableSignature::new(
++                        public_selector.clone(),
++                        params.clone(),
++                        TypeKnowledge::known(public_self, EvidenceAuthority::Declared),
++                    );
++                    if !m.generic_parameters.is_empty() {
++                        let mut diags = Vec::new();
++                        let callable_id = crate::identity::CallableId::new(
++                            decl_id.clone(),
++                            public_selector.clone(),
++                            crate::identity::DispatchSide::Class,
++                        );
++                        let generic_signature = crate::types::annotation::resolve_generic_signature(
++                            ctx.store,
++                            ctx.declarations,
++                            resolver,
++                            &ctx.current_module,
++                            crate::types::parameter::TypeParameterOwner::Callable(callable_id),
++                            &m.generic_parameters,
++                            m.where_clause.as_ref(),
++                            &mut diags,
++                        );
++                        ctx.diagnostics.extend(diags);
++                        public_signature = public_signature.with_generics(generic_signature);
++                    }
++                    surface.add_callable(crate::identity::DispatchSide::Class, public_signature);
++
++                    // The hidden initializer name is intentionally unspellable in
++                    // source and matches `phalcom-core` constructor lowering.
++                    // Publishing it gives the source body its own canonical
++                    // CallableId/signature dependency instead of inventing an
++                    // instance-side `new(...)` callable that does not exist.
++                    let hidden_name = format!("init {}", m.name);
++                    if let Ok(hidden_selector) = Selector::method(hidden_name, slots) {
++                        let initializer_self = ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
++                            owner: decl_id.clone(),
++                            side: crate::identity::DispatchSide::Instance,
++                            role: crate::types::parameter::SelfRole::ReceiverValue,
++                        });
++                        let mut initializer_signature = CallableSignature::new(
++                            hidden_selector.clone(),
++                            params,
++                            TypeKnowledge::known(initializer_self, EvidenceAuthority::Declared),
++                        );
++                        if !m.generic_parameters.is_empty() {
+                             let mut diags = Vec::new();
+-                            let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
++                            let callable_id = crate::identity::CallableId::new(
++                                decl_id.clone(),
++                                hidden_selector,
++                                crate::identity::DispatchSide::Instance,
++                            );
++                            let generic_signature = crate::types::annotation::resolve_generic_signature(
++                                ctx.store,
++                                ctx.declarations,
++                                resolver,
++                                &ctx.current_module,
++                                crate::types::parameter::TypeParameterOwner::Callable(callable_id),
++                                &m.generic_parameters,
++                                m.where_clause.as_ref(),
++                                &mut diags,
++                            );
+                             ctx.diagnostics.extend(diags);
+-                            k
+-                        })
+-                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+-                    (side, ret_k)
+-                };
++                            initializer_signature = initializer_signature.with_generics(generic_signature);
++                        }
++                        surface.add_callable(crate::identity::DispatchSide::Instance, initializer_signature);
++                    }
++                    continue;
++                }
++
++                let ret_k = m
++                    .return_annotation
++                    .as_ref()
++                    .map(|ann| {
++                        let mut diags = Vec::new();
++                        let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
++                        ctx.diagnostics.extend(diags);
++                        k
++                    })
++                    .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+ 
+                 if let Ok(sel) = Selector::method(&m.name, slots) {
+                     let mut callable_sig = CallableSignature::new(sel.clone(), params, ret_k);
+                     if !m.generic_parameters.is_empty() {
+                         let mut diags = Vec::new();
+-                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel, effective_side);
++                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel, side);
+                         let sig = crate::types::annotation::resolve_generic_signature(
+                             ctx.store,
+                             ctx.declarations,
+@@ -123,7 +235,7 @@
+                         ctx.diagnostics.extend(diags);
+                         callable_sig = callable_sig.with_generics(sig);
+                     }
+-                    surface.add_callable(effective_side, callable_sig);
++                    surface.add_callable(side, callable_sig);
+                 }
+             }
+             ClassMember::Getter(g) => {
+--- a/phalcom-semantic/src/db/fingerprint.rs
++++ b/phalcom-semantic/src/db/fingerprint.rs
+@@ -1,166 +1,288 @@
+ //! Deterministic semantic input and product fingerprint hashing (Spec 04.5 / Wave 5).
+-
+-use crate::checker::analysis::CallableAnalysis;
++//!
++//! Input fingerprints describe direct, non-query inputs. Product fingerprints
++//! describe the semantic meaning of successfully computed products. Source
++//! provenance (for example declaration ranges attached to otherwise identical
++//! type evidence) is deliberately excluded from semantic contract hashes unless
++//! that range is itself part of the observable product, such as a diagnostic or
++//! body presentation site.
++
++use crate::callable_signature_product::CallableSignatureProduct;
++use crate::checker::analysis::{AnalysisStatus, BodyExitFacts, CallableAnalysis, FlowStateSummary};
+ use crate::db::key::{InputFingerprint, ProductFingerprint};
++use crate::diagnostic::{DiagnosticFix, DiagnosticLabel, SemanticDiagnostic};
+ use crate::identity::{CallableId, DeclarationId, ModuleId};
+ use crate::signature::CallableSemanticSignature;
+ use crate::surface::DeclarationSurface;
++use crate::types::denotation::SemanticDenotation;
++use crate::types::evidence::TypeKnowledge;
++use crate::types::outcome::BlockReason;
++use crate::types::parameter::{GenericSignature, TypeTerm};
+ use crate::types::store::TypeStore;
+-use phalcom_ast::ast::Statement;
++use phalcom_ast::ast::{
++    ImportPath, ImportRoot, MetadataLiteral, RestMode, Statement,
++};
+ use phalcom_common::range::SourceRange;
+-use phalcom_modules::interface::{ImportSurface, LinkedExportTarget, LinkedModuleInterface, UnlinkedModuleInterface};
++use phalcom_modules::graph::{
++    ReferenceKind, RuntimeDependencyReason, SemanticEdgeKind, SemanticNodeId,
++};
++use phalcom_modules::interface::{
++    ImportSurface, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget,
++    UnlinkedModuleInterface,
++};
++use phalcom_modules::project::ProjectUniverse;
+ use phalcom_modules::source::ModuleKind;
++use phalcom_modules::{LinkedProgram, MetadataTarget, ModuleMetadata};
+ use std::collections::hash_map::DefaultHasher;
+ use std::hash::{Hash, Hasher};
+ 
+-/// Computes input fingerprint for a parsed module query.
+-pub fn parsed_module_input_fingerprint(module: &ModuleId, kind: ModuleKind, source: &str) -> InputFingerprint {
++/// Computes the direct input fingerprint for a parsed module query.
++pub fn parsed_module_input_fingerprint(
++    module: &ModuleId,
++    kind: ModuleKind,
++    source: &str,
++) -> InputFingerprint {
+     let mut hasher = DefaultHasher::new();
+     module.hash(&mut hasher);
+-    format!("{kind:?}").hash(&mut hasher);
++    hash_module_kind(kind, &mut hasher);
+     source.as_bytes().hash(&mut hasher);
+     InputFingerprint::new(hasher.finish())
+ }
+ 
+-/// Computes product fingerprint for an unlinked module interface.
+-pub fn unlinked_interface_product_fingerprint(interface: &UnlinkedModuleInterface) -> ProductFingerprint {
++/// Computes the product fingerprint for an unlinked module interface.
++///
++/// Source ranges are excluded: moving an otherwise identical declaration,
++/// import, export, or metadata attribute does not change the module contract.
++pub fn unlinked_interface_product_fingerprint(
++    interface: &UnlinkedModuleInterface,
++) -> ProductFingerprint {
+     let mut hasher = DefaultHasher::new();
+     interface.id.hash(&mut hasher);
+-    format!("{:?}", interface.kind).hash(&mut hasher);
++    hash_module_kind(interface.kind, &mut hasher);
++
++    for (name, declaration) in &interface.declarations {
++        name.hash(&mut hasher);
++        declaration.name.hash(&mut hasher);
++        declaration.is_const.hash(&mut hasher);
++    }
++
+     for import in &interface.imports {
+-        match import {
+-            ImportSurface::Module(m) => {
+-                0u8.hash(&mut hasher);
+-                format!("{:?}", m.path).hash(&mut hasher);
+-                format!("{:?}", m.alias).hash(&mut hasher);
+-            }
+-            ImportSurface::Selective(s) => {
+-                1u8.hash(&mut hasher);
+-                format!("{:?}", s.path).hash(&mut hasher);
+-                for item in &s.items {
+-                    item.name.hash(&mut hasher);
+-                    format!("{:?}", item.alias).hash(&mut hasher);
+-                }
+-            }
+-            ImportSurface::ReExport(r) => {
+-                2u8.hash(&mut hasher);
+-                format!("{:?}", r.path).hash(&mut hasher);
+-                for item in &r.items {
+-                    item.local_or_remote_name.hash(&mut hasher);
+-                    format!("{:?}", item.alias).hash(&mut hasher);
+-                }
+-            }
+-        }
+-    }
++        hash_import_surface(import, &mut hasher);
++    }
++
+     for (name, export) in &interface.exports {
+         name.hash(&mut hasher);
+         export.exported_name.hash(&mut hasher);
+         export.internal_name.hash(&mut hasher);
+-    }
++        match &export.target {
++            UnlinkedExportTarget::Local(local) => {
++                0u8.hash(&mut hasher);
++                local.hash(&mut hasher);
++            }
++            UnlinkedExportTarget::ReExport { path, remote } => {
++                1u8.hash(&mut hasher);
++                hash_import_path(path, &mut hasher);
++                remote.hash(&mut hasher);
++            }
++        }
++    }
++
+     for child in &interface.exposed_children {
+         child.hash(&mut hasher);
+     }
+-    ProductFingerprint::new(hasher.finish())
+-}
+-
+-/// Computes product fingerprint for a linked module interface.
+-pub fn linked_interface_product_fingerprint(interface: &LinkedModuleInterface) -> ProductFingerprint {
++    hash_module_metadata(&interface.metadata, &mut hasher);
++
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the product fingerprint for a linked module interface.
++pub fn linked_interface_product_fingerprint(
++    interface: &LinkedModuleInterface,
++) -> ProductFingerprint {
+     let mut hasher = DefaultHasher::new();
+     interface.module.hash(&mut hasher);
+-    format!("{:?}", interface.kind).hash(&mut hasher);
++    hash_module_kind(interface.kind, &mut hasher);
+     for (name, export) in &interface.exports {
+         name.hash(&mut hasher);
+         export.public_name.hash(&mut hasher);
+         match &export.target {
+-            LinkedExportTarget::Binding(sym) => {
++            LinkedExportTarget::Binding(symbol) => {
+                 0u8.hash(&mut hasher);
+-                sym.module.hash(&mut hasher);
+-                sym.name.hash(&mut hasher);
+-            }
+-            LinkedExportTarget::Module(mod_id) => {
++                symbol.module.hash(&mut hasher);
++                symbol.name.hash(&mut hasher);
++            }
++            LinkedExportTarget::Module(module) => {
+                 1u8.hash(&mut hasher);
+-                mod_id.hash(&mut hasher);
+-            }
+-        }
+-    }
+-    ProductFingerprint::new(hasher.finish())
+-}
+-
+-/// Computes product fingerprint for a declaration surface.
+-pub fn declaration_surface_product_fingerprint(surface: &DeclarationSurface) -> ProductFingerprint {
++                module.hash(&mut hasher);
++            }
++        }
++    }
++    hash_module_metadata(&interface.metadata, &mut hasher);
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the direct input fingerprint for canonical import resolution.
++///
++/// The unlinked interface is a query dependency and therefore is deliberately
++/// not folded into this direct input hash. Project/import-root topology is the
++/// only non-query input consumed by resolution.
++pub fn resolved_imports_input_fingerprint(
++    module: &ModuleId,
++    universe: &ProjectUniverse,
++) -> InputFingerprint {
++    let mut hasher = DefaultHasher::new();
++    module.hash(&mut hasher);
++    hash_project_universe(universe, &mut hasher);
++    InputFingerprint::new(hasher.finish())
++}
++
++/// Computes the product fingerprint for resolved imports.
++pub fn resolved_imports_product_fingerprint(
++    product: &crate::module_product::ResolvedImportsProduct,
++) -> ProductFingerprint {
++    let mut hasher = DefaultHasher::new();
++    product.module.hash(&mut hasher);
++    for (path, target) in &product.imports {
++        path.hash(&mut hasher);
++        target.hash(&mut hasher);
++    }
++    for (message, range) in &product.unresolved_diagnostics {
++        message.hash(&mut hasher);
++        hash_range(*range, &mut hasher);
++    }
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the direct input fingerprint for a linked semantic component.
++///
++/// Individual unlinked interfaces and resolved-import products are recorded as
++/// query dependencies rather than duplicated into this input hash.
++pub fn semantic_component_input_fingerprint(
++    entry: &ModuleId,
++    universe: &ProjectUniverse,
++) -> InputFingerprint {
++    let mut hasher = DefaultHasher::new();
++    entry.hash(&mut hasher);
++    hash_project_universe(universe, &mut hasher);
++    InputFingerprint::new(hasher.finish())
++}
++
++/// Computes the semantic product fingerprint for a fully linked component.
++pub fn semantic_component_product_fingerprint(program: &LinkedProgram) -> ProductFingerprint {
++    let mut hasher = DefaultHasher::new();
++    hash_project_universe(&program.universe, &mut hasher);
++    program.entry.hash(&mut hasher);
++    program.initialization_order.hash(&mut hasher);
++
++    for (module_id, module) in &program.modules {
++        module_id.hash(&mut hasher);
++        linked_interface_product_fingerprint(&module.interface).hash(&mut hasher);
++
++        for (name, id) in &module.bindings.local_globals {
++            name.hash(&mut hasher);
++            id.0.hash(&mut hasher);
++        }
++        for (name, id) in &module.bindings.imports {
++            name.hash(&mut hasher);
++            id.0.hash(&mut hasher);
++        }
++        for read in &module.linked_reads {
++            match read {
++                phalcom_modules::LinkedReadSpec::Module(target) => {
++                    0u8.hash(&mut hasher);
++                    target.hash(&mut hasher);
++                }
++                phalcom_modules::LinkedReadSpec::Binding(symbol) => {
++                    1u8.hash(&mut hasher);
++                    symbol.module.hash(&mut hasher);
++                    symbol.name.hash(&mut hasher);
++                }
++            }
++        }
++        let mut runtime_dependencies = module.runtime_dependencies.clone();
++        runtime_dependencies.sort();
++        runtime_dependencies.dedup();
++        runtime_dependencies.hash(&mut hasher);
++    }
++
++    hash_module_graphs(program, &mut hasher);
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the product fingerprint for a declaration surface.
++pub fn declaration_surface_product_fingerprint(
++    surface: &DeclarationSurface,
++) -> ProductFingerprint {
+     let mut hasher = DefaultHasher::new();
+     surface.id.hash(&mut hasher);
+-    // Instance fields
+-    let mut inst_fields: Vec<_> = surface.instance.fields.iter().collect();
+-    inst_fields.sort_by_key(|(name, _)| *name);
+-    for (name, ty) in inst_fields {
+-        name.hash(&mut hasher);
+-        ty.hash(&mut hasher);
+-    }
+-    // Class fields
+-    let mut class_fields: Vec<_> = surface.class.fields.iter().collect();
+-    class_fields.sort_by_key(|(name, _)| *name);
+-    for (name, ty) in class_fields {
+-        name.hash(&mut hasher);
+-        ty.hash(&mut hasher);
+-    }
+-    // Instance callable signatures
+-    let mut inst_callables: Vec<_> = surface.instance.callable_signatures.iter().collect();
+-    inst_callables.sort_by_key(|(sel, _)| (*sel).clone());
+-    for (sel, sig) in inst_callables {
+-        sel.hash(&mut hasher);
+-        sig.return_type.hash(&mut hasher);
+-        for p in &sig.parameters {
+-            p.local_name.hash(&mut hasher);
+-            p.external_label.hash(&mut hasher);
+-            format!("{:?}", p.rest).hash(&mut hasher);
+-            p.ty.hash(&mut hasher);
+-        }
+-    }
+-    // Class callable signatures
+-    let mut class_callables: Vec<_> = surface.class.callable_signatures.iter().collect();
+-    class_callables.sort_by_key(|(sel, _)| (*sel).clone());
+-    for (sel, sig) in class_callables {
+-        sel.hash(&mut hasher);
+-        sig.return_type.hash(&mut hasher);
+-        for p in &sig.parameters {
+-            p.local_name.hash(&mut hasher);
+-            p.external_label.hash(&mut hasher);
+-            format!("{:?}", p.rest).hash(&mut hasher);
+-            p.ty.hash(&mut hasher);
+-        }
+-    }
+-    ProductFingerprint::new(hasher.finish())
+-}
+-
+-/// Computes product fingerprint for a callable semantic signature.
+-pub fn callable_signature_product_fingerprint(sig: &CallableSemanticSignature) -> ProductFingerprint {
+-    let mut hasher = DefaultHasher::new();
+-    sig.callable.hash(&mut hasher);
+-    sig.owner.hash(&mut hasher);
+-    sig.side.hash(&mut hasher);
+-    sig.selector.hash(&mut hasher);
+-    sig.return_type.hash(&mut hasher);
+-    for p in sig.parameters.iter() {
+-        p.index.hash(&mut hasher);
+-        p.local_name.hash(&mut hasher);
+-        p.external_label.hash(&mut hasher);
+-        format!("{:?}", p.rest).hash(&mut hasher);
+-        p.ty.hash(&mut hasher);
+-    }
+-    format!("{:?}", sig.implementation).hash(&mut hasher);
+-    ProductFingerprint::new(hasher.finish())
+-}
+-
+-/// Computes product fingerprint for a hierarchy edge.
+-pub fn hierarchy_edge_product_fingerprint(class_decl: &DeclarationId, super_decl: &Option<DeclarationId>) -> ProductFingerprint {
++    hash_member_surface(&surface.instance, &mut hasher);
++    hash_member_surface(&surface.class, &mut hasher);
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the database product fingerprint for a declaration-time callable signature.
++///
++/// Unlike [`CallableSemanticSignature`], this product preserves `Unknown` and
++/// `Dynamic` knowledge, so unannotated callables still participate in exact
++/// invalidation. Source provenance carried by type evidence is excluded by the
++/// semantic type-knowledge hasher.
++pub fn callable_signature_query_product_fingerprint(
++    product: &CallableSignatureProduct,
++) -> ProductFingerprint {
++    let mut hasher = DefaultHasher::new();
++    product.callable.hash(&mut hasher);
++    hash_legacy_callable_signature(&product.signature, &mut hasher);
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the product fingerprint for a callable semantic signature.
++///
++/// Source spans are provenance and are excluded. All callable contract fields
++/// that can affect checking, reflection, or editor presentation are included.
++pub fn callable_signature_product_fingerprint(
++    signature: &CallableSemanticSignature,
++) -> ProductFingerprint {
++    let mut hasher = DefaultHasher::new();
++    signature.callable.hash(&mut hasher);
++    signature.owner.hash(&mut hasher);
++    signature.side.hash(&mut hasher);
++    signature.selector.hash(&mut hasher);
++    hash_generic_signature(signature.generics.as_ref(), &mut hasher);
++    for parameter in signature.parameters.iter() {
++        parameter.index.hash(&mut hasher);
++        parameter.local_name.hash(&mut hasher);
++        parameter.external_label.hash(&mut hasher);
++        hash_rest_mode(parameter.rest, &mut hasher);
++        hash_type_term(&parameter.ty, &mut hasher);
++    }
++    hash_type_term(&signature.return_type, &mut hasher);
++    signature.implementation.hash(&mut hasher);
++    signature.native_id.hash(&mut hasher);
++    signature.effects.hash(&mut hasher);
++    signature.raises.hash(&mut hasher);
++    signature.flow.hash(&mut hasher);
++    signature.lifecycle.hash(&mut hasher);
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the product fingerprint for one direct hierarchy edge.
++pub fn hierarchy_edge_product_fingerprint(
++    class_decl: &DeclarationId,
++    super_decl: &Option<DeclarationId>,
++) -> ProductFingerprint {
+     let mut hasher = DefaultHasher::new();
+     class_decl.hash(&mut hasher);
+     super_decl.hash(&mut hasher);
+     ProductFingerprint::new(hasher.finish())
+ }
+ 
+-/// Computes input fingerprint for a callable body query.
++/// Computes the direct input fingerprint for a callable body query.
++///
++/// `TypeStoreId` is included because all `TypeId` values in the resulting
++/// product are store-local. The AST debug representation remains a temporary
++/// exact structural encoding until the AST crate exposes a source-range-free
++/// stable hashing projection; it is used only for direct input invalidation,
++/// never as a semantic product fingerprint.
+ pub fn callable_body_input_fingerprint(
+     callable: &CallableId,
+     body: &[Statement],
+@@ -169,8 +291,7 @@
+ ) -> InputFingerprint {
+     let mut hasher = DefaultHasher::new();
+     callable.hash(&mut hasher);
+-    body_range.start.hash(&mut hasher);
+-    body_range.end.hash(&mut hasher);
++    hash_range(body_range, &mut hasher);
+     store.id().hash(&mut hasher);
+     for statement in body {
+         format!("{statement:?}").hash(&mut hasher);
+@@ -178,59 +299,454 @@
+     InputFingerprint::new(hasher.finish())
+ }
+ 
+-/// Computes product fingerprint for a callable body analysis result.
++/// Computes the product fingerprint for a callable body analysis result.
+ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> ProductFingerprint {
+     let mut hasher = DefaultHasher::new();
+     analysis.callable.hash(&mut hasher);
+-    analysis.body_range.start.hash(&mut hasher);
+-    analysis.body_range.end.hash(&mut hasher);
+-    for (expr_id, expr) in &analysis.expressions {
+-        expr_id.hash(&mut hasher);
+-        expr.range.start.hash(&mut hasher);
+-        expr.range.end.hash(&mut hasher);
+-        expr.knowledge.hash(&mut hasher);
+-    }
+-    for (bind_id, _bind) in &analysis.bindings {
+-        bind_id.hash(&mut hasher);
+-    }
+-    for d in analysis.diagnostics.iter() {
+-        d.code.hash(&mut hasher);
+-        d.severity.hash(&mut hasher);
+-        d.primary_range.start.hash(&mut hasher);
+-        d.primary_range.end.hash(&mut hasher);
+-    }
+-    for dep in analysis.semantic_dependencies.iter() {
+-        dep.hash(&mut hasher);
+-    }
+-    ProductFingerprint::new(hasher.finish())
+-}
+-
+-/// Computes product fingerprint for resolved imports.
+-pub fn resolved_imports_product_fingerprint(product: &crate::module_product::ResolvedImportsProduct) -> ProductFingerprint {
+-    let mut hasher = DefaultHasher::new();
+-    product.module.hash(&mut hasher);
+-    for (path, target) in &product.imports {
+-        path.hash(&mut hasher);
+-        target.hash(&mut hasher);
+-    }
+-    for (err, range) in &product.unresolved_diagnostics {
+-        err.hash(&mut hasher);
+-        range.start.hash(&mut hasher);
+-        range.end.hash(&mut hasher);
+-    }
+-    ProductFingerprint::new(hasher.finish())
+-}
+-
+-/// Computes product fingerprint for module diagnostics.
+-pub fn module_diagnostics_product_fingerprint(module: &ModuleId, diagnostics: &[crate::diagnostic::SemanticDiagnostic]) -> ProductFingerprint {
++    hash_range(analysis.body_range, &mut hasher);
++    analysis.status.hash(&mut hasher);
++
++    for (expression_id, expression) in &analysis.expressions {
++        expression_id.hash(&mut hasher);
++        hash_range(expression.range, &mut hasher);
++        hash_type_knowledge(&expression.knowledge, &mut hasher);
++        hash_denotation(expression.denotation, &mut hasher);
++        hash_analysis_status(&expression.status, &mut hasher);
++        expression.explanation.hash(&mut hasher);
++        expression.call.hash(&mut hasher);
++    }
++
++    for (binding_id, binding) in &analysis.bindings {
++        binding_id.hash(&mut hasher);
++        binding.binding.hash(&mut hasher);
++        binding.name.hash(&mut hasher);
++        hash_range(binding.range, &mut hasher);
++        binding.declared.hash(&mut hasher);
++        hash_type_knowledge(&binding.current, &mut hasher);
++        binding.mutable.hash(&mut hasher);
++        binding.version.hash(&mut hasher);
++        binding.explanation.hash(&mut hasher);
++    }
++
++    hash_flow_summary(&analysis.entry_flow, &mut hasher);
++    hash_body_exit_facts(&analysis.exits, &mut hasher);
++
++    for diagnostic in analysis.diagnostics.iter() {
++        hash_semantic_diagnostic(diagnostic, &mut hasher);
++    }
++    analysis.dependencies.hash(&mut hasher);
++    analysis.semantic_dependencies.hash(&mut hasher);
++
++    ProductFingerprint::new(hasher.finish())
++}
++
++/// Computes the product fingerprint for module diagnostics.
++pub fn module_diagnostics_product_fingerprint(
++    module: &ModuleId,
++    diagnostics: &[SemanticDiagnostic],
++) -> ProductFingerprint {
+     let mut hasher = DefaultHasher::new();
+     module.hash(&mut hasher);
+-    for d in diagnostics {
+-        d.code.hash(&mut hasher);
+-        d.severity.hash(&mut hasher);
+-        d.primary_range.start.hash(&mut hasher);
+-        d.primary_range.end.hash(&mut hasher);
+-        d.message.hash(&mut hasher);
+-    }
+-    ProductFingerprint::new(hasher.finish())
+-}
++    for diagnostic in diagnostics {
++        hash_semantic_diagnostic(diagnostic, &mut hasher);
++    }
++    ProductFingerprint::new(hasher.finish())
++}
++
++fn hash_module_kind(kind: ModuleKind, hasher: &mut impl Hasher) {
++    match kind {
++        ModuleKind::Module => 0u8.hash(hasher),
++        ModuleKind::Package => 1u8.hash(hasher),
++    }
++}
++
++fn hash_import_surface(import: &ImportSurface, hasher: &mut impl Hasher) {
++    match import {
++        ImportSurface::Module(import) => {
++            0u8.hash(hasher);
++            hash_import_path(&import.path, hasher);
++            import.alias.as_ref().map(|alias| alias.name.as_str()).hash(hasher);
++        }
++        ImportSurface::Selective(import) => {
++            1u8.hash(hasher);
++            hash_import_path(&import.path, hasher);
++            for item in &import.items {
++                item.name.hash(hasher);
++                item.alias.as_ref().map(|alias| alias.name.as_str()).hash(hasher);
++            }
++        }
++        ImportSurface::ReExport(import) => {
++            2u8.hash(hasher);
++            hash_import_path(&import.path, hasher);
++            for item in &import.items {
++                item.local_or_remote_name.hash(hasher);
++                item.alias.as_ref().map(|alias| alias.name.as_str()).hash(hasher);
++            }
++        }
++    }
++}
++
++fn hash_import_path(path: &ImportPath, hasher: &mut impl Hasher) {
++    match &path.root {
++        ImportRoot::Absolute(segment) => {
++            0u8.hash(hasher);
++            segment.name.hash(hasher);
++        }
++        ImportRoot::Relative { dots, .. } => {
++            1u8.hash(hasher);
++            dots.hash(hasher);
++        }
++    }
++    for segment in &path.segments {
++        segment.name.hash(hasher);
++    }
++}
++
++fn hash_module_metadata(metadata: &ModuleMetadata, hasher: &mut impl Hasher) {
++    for attribute in &metadata.attributes {
++        match attribute.target {
++            MetadataTarget::Module => 0u8.hash(hasher),
++            MetadataTarget::Package => 1u8.hash(hasher),
++            MetadataTarget::Project => 2u8.hash(hasher),
++        }
++        attribute.name.hash(hasher);
++        for argument in &attribute.arguments {
++            hash_metadata_literal(argument, hasher);
++        }
++    }
++}
++
++fn hash_metadata_literal(literal: &MetadataLiteral, hasher: &mut impl Hasher) {
++    match literal {
++        MetadataLiteral::Unit => 0u8.hash(hasher),
++        MetadataLiteral::Bool(value) => {
++            1u8.hash(hasher);
++            value.hash(hasher);
++        }
++        MetadataLiteral::Int(value) => {
++            2u8.hash(hasher);
++            value.hash(hasher);
++        }
++        MetadataLiteral::Float(value) => {
++            3u8.hash(hasher);
++            value.to_bits().hash(hasher);
++        }
++        MetadataLiteral::String(value) => {
++            4u8.hash(hasher);
++            value.hash(hasher);
++        }
++        MetadataLiteral::Symbol(value) => {
++            5u8.hash(hasher);
++            value.hash(hasher);
++        }
++        MetadataLiteral::Tuple(values) => {
++            6u8.hash(hasher);
++            values.len().hash(hasher);
++            for value in values {
++                hash_metadata_literal(value, hasher);
++            }
++        }
++        MetadataLiteral::Record(fields) => {
++            7u8.hash(hasher);
++            fields.len().hash(hasher);
++            for (name, value) in fields {
++                name.hash(hasher);
++                hash_metadata_literal(value, hasher);
++            }
++        }
++    }
++}
++
++fn hash_project_universe(universe: &ProjectUniverse, hasher: &mut impl Hasher) {
++    for project in universe.projects() {
++        project.id.hash(hasher);
++        project.namespace.hash(hasher);
++        project.root_dir.hash(hasher);
++        project.source_root.hash(hasher);
++        project.entry.hash(hasher);
++        project.persistent_project.hash(hasher);
++        for (alias, dependency) in &project.dependencies {
++            alias.hash(hasher);
++            dependency.hash(hasher);
++        }
++        for (root, (target, is_self)) in &project.import_roots {
++            root.hash(hasher);
++            target.hash(hasher);
++            is_self.hash(hasher);
++        }
++    }
++}
++
++fn hash_module_graphs(program: &LinkedProgram, hasher: &mut impl Hasher) {
++    for node in program.graphs.references.nodes() {
++        node.hash(hasher);
++        for edge in program.graphs.references.edges_from(&node) {
++            edge.to.hash(hasher);
++            match edge.kind {
++                ReferenceKind::WholeModuleImport => 0u8.hash(hasher),
++                ReferenceKind::SelectiveImport => 1u8.hash(hasher),
++                ReferenceKind::ReExport => 2u8.hash(hasher),
++                ReferenceKind::InterfaceOnly => 3u8.hash(hasher),
++            }
++        }
++    }
++
++    for node in program.graphs.semantics.nodes() {
++        hash_semantic_node(&node, hasher);
++        for edge in program.graphs.semantics.edges_from(&node) {
++            hash_semantic_node(&edge.to, hasher);
++            match edge.kind {
++                SemanticEdgeKind::ModuleInterface => 0u8.hash(hasher),
++                SemanticEdgeKind::TypeReference => 1u8.hash(hasher),
++                SemanticEdgeKind::Superclass => 2u8.hash(hasher),
++                SemanticEdgeKind::ProtocolReference => 3u8.hash(hasher),
++                SemanticEdgeKind::ConstraintReference => 4u8.hash(hasher),
++                SemanticEdgeKind::CallbackSignature => 5u8.hash(hasher),
++                SemanticEdgeKind::AdtReference => 6u8.hash(hasher),
++            }
++        }
++    }
++
++    for node in program.graphs.runtime.nodes() {
++        node.hash(hasher);
++        let mut edges = program.graphs.runtime.edges_from(&node).to_vec();
++        edges.sort_by(|left, right| {
++            left.dependency
++                .cmp(&right.dependency)
++                .then(left.reason.cmp(&right.reason))
++        });
++        for edge in edges {
++            edge.dependency.hash(hasher);
++            match edge.reason {
++                RuntimeDependencyReason::WholeModuleImport => 0u8.hash(hasher),
++                RuntimeDependencyReason::SelectiveValueImport => 1u8.hash(hasher),
++                RuntimeDependencyReason::ReExport => 2u8.hash(hasher),
++                RuntimeDependencyReason::RuntimeDeclarationReference => 3u8.hash(hasher),
++            }
++        }
++    }
++}
++
++fn hash_semantic_node(node: &SemanticNodeId, hasher: &mut impl Hasher) {
++    match node {
++        SemanticNodeId::Module(module) => {
++            0u8.hash(hasher);
++            module.hash(hasher);
++        }
++        SemanticNodeId::Declaration { module, name } => {
++            1u8.hash(hasher);
++            module.hash(hasher);
++            name.hash(hasher);
++        }
++    }
++}
++
++fn hash_member_surface(surface: &crate::surface::MemberSurface, hasher: &mut impl Hasher) {
++    let mut fields = surface.fields.iter().collect::<Vec<_>>();
++    fields.sort_by(|(left, _), (right, _)| left.cmp(right));
++    for (name, knowledge) in fields {
++        name.hash(hasher);
++        hash_type_knowledge(knowledge, hasher);
++    }
++
++    let mut callables = surface.callable_signatures.iter().collect::<Vec<_>>();
++    callables.sort_by(|(left, _), (right, _)| left.cmp(right));
++    for (selector, signature) in callables {
++        selector.hash(hasher);
++        hash_legacy_callable_signature(signature, hasher);
++    }
++}
++
++fn hash_legacy_callable_signature(
++    signature: &crate::dispatch::CallableSignature,
++    hasher: &mut impl Hasher,
++) {
++    signature.selector.hash(hasher);
++    for parameter in &signature.parameters {
++        parameter.local_name.hash(hasher);
++        parameter.external_label.hash(hasher);
++        parameter.rest.hash(hasher);
++        hash_type_knowledge(&parameter.ty, hasher);
++    }
++    hash_type_knowledge(&signature.return_type, hasher);
++    hash_generic_signature(signature.generics.as_ref(), hasher);
++}
++
++fn hash_generic_signature(signature: Option<&GenericSignature>, hasher: &mut impl Hasher) {
++    match signature {
++        None => 0u8.hash(hasher),
++        Some(signature) => {
++            1u8.hash(hasher);
++            signature.owner.hash(hasher);
++            signature.parameters.hash(hasher);
++            signature.constraints.hash(hasher);
++        }
++    }
++}
++
++fn hash_type_term(term: &TypeTerm, hasher: &mut impl Hasher) {
++    term.hash(hasher);
++}
++
++fn hash_rest_mode(mode: RestMode, hasher: &mut impl Hasher) {
++    match mode {
++        RestMode::None => 0u8.hash(hasher),
++        RestMode::Positional => 1u8.hash(hasher),
++        RestMode::Labeled => 2u8.hash(hasher),
++        RestMode::Complete => 3u8.hash(hasher),
++    }
++}
++
++fn hash_type_knowledge(knowledge: &TypeKnowledge, hasher: &mut impl Hasher) {
++    match knowledge {
++        TypeKnowledge::Known(evidence) => {
++            0u8.hash(hasher);
++            evidence.ty.hash(hasher);
++            evidence.authority.hash(hasher);
++        }
++        TypeKnowledge::Unknown(reason) => {
++            1u8.hash(hasher);
++            reason.hash(hasher);
++        }
++        TypeKnowledge::Dynamic(reason) => {
++            2u8.hash(hasher);
++            reason.hash(hasher);
++        }
++    }
++}
++
++fn hash_denotation(denotation: Option<SemanticDenotation>, hasher: &mut impl Hasher) {
++    match denotation {
++        None => 0u8.hash(hasher),
++        Some(SemanticDenotation::TypeForm(ty)) => {
++            1u8.hash(hasher);
++            ty.hash(hasher);
++        }
++        Some(SemanticDenotation::Kind(kind)) => {
++            2u8.hash(hasher);
++            kind.hash(hasher);
++        }
++    }
++}
++
++fn hash_analysis_status(status: &AnalysisStatus, hasher: &mut impl Hasher) {
++    match status {
++        AnalysisStatus::Ready => 0u8.hash(hasher),
++        AnalysisStatus::Invalid(cause) => {
++            1u8.hash(hasher);
++            cause.hash(hasher);
++        }
++        AnalysisStatus::Blocked(reason) => {
++            2u8.hash(hasher);
++            hash_block_reason(reason, hasher);
++        }
++        AnalysisStatus::DynamicBoundary(reason) => {
++            3u8.hash(hasher);
++            reason.hash(hasher);
++        }
++        AnalysisStatus::Cancelled => 4u8.hash(hasher),
++        AnalysisStatus::BudgetExceeded(report) => {
++            5u8.hash(hasher);
++            report.kind.hash(hasher);
++            report.limit.hash(hasher);
++            report.used.hash(hasher);
++        }
++        AnalysisStatus::InternalFailure(incident) => {
++            6u8.hash(hasher);
++            incident.hash(hasher);
++        }
++    }
++}
++
++fn hash_block_reason(reason: &BlockReason, hasher: &mut impl Hasher) {
++    match reason {
++        BlockReason::UnknownType(reason) => {
++            0u8.hash(hasher);
++            reason.hash(hasher);
++        }
++        BlockReason::UnresolvedDependency(module) => {
++            1u8.hash(hasher);
++            module.hash(hasher);
++        }
++        BlockReason::InvalidAnnotation(code) => {
++            2u8.hash(hasher);
++            code.hash(hasher);
++        }
++        BlockReason::RecursiveFixpoint => 3u8.hash(hasher),
++        BlockReason::OpaqueNative(name) => {
++            4u8.hash(hasher);
++            name.hash(hasher);
++        }
++        BlockReason::ReflectionBoundary => 5u8.hash(hasher),
++        BlockReason::BudgetExceeded(report) => {
++            6u8.hash(hasher);
++            report.kind.hash(hasher);
++            report.limit.hash(hasher);
++            report.used.hash(hasher);
++        }
++        BlockReason::SuppressedDependency => 7u8.hash(hasher),
++    }
++}
++
++fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
++    for (binding, ty) in &summary.known_bindings {
++        binding.hash(hasher);
++        ty.hash(hasher);
++    }
++    summary.fact_count.hash(hasher);
++}
++
++fn hash_body_exit_facts(exits: &BodyExitFacts, hasher: &mut impl Hasher) {
++    exits.returns.len().hash(hasher);
++    for state in &exits.returns {
++        hash_flow_summary(state, hasher);
++    }
++    exits.throws.len().hash(hasher);
++    for state in &exits.throws {
++        hash_flow_summary(state, hasher);
++    }
++    exits.unreachable.hash(hasher);
++}
++
++fn hash_semantic_diagnostic(diagnostic: &SemanticDiagnostic, hasher: &mut impl Hasher) {
++    diagnostic.code.hash(hasher);
++    diagnostic.severity.hash(hasher);
++    diagnostic.message.hash(hasher);
++    diagnostic.primary.module.hash(hasher);
++    hash_range(diagnostic.primary.range, hasher);
++    hash_range(diagnostic.primary_range, hasher);
++    for label in &diagnostic.labels {
++        hash_diagnostic_label(label, hasher);
++    }
++    diagnostic.notes.hash(hasher);
++    diagnostic.helps.hash(hasher);
++    diagnostic.explanations.hash(hasher);
++    for fix in &diagnostic.fixes {
++        hash_diagnostic_fix(fix, hasher);
++    }
++    diagnostic.root_cause.hash(hasher);
++}
++
++fn hash_diagnostic_label(label: &DiagnosticLabel, hasher: &mut impl Hasher) {
++    label.span.module.hash(hasher);
++    hash_range(label.span.range, hasher);
++    hash_range(label.range, hasher);
++    label.message.hash(hasher);
++}
++
++fn hash_diagnostic_fix(fix: &DiagnosticFix, hasher: &mut impl Hasher) {
++    fix.message.hash(hasher);
++    match &fix.replacement {
++        None => 0u8.hash(hasher),
++        Some((range, replacement)) => {
++            1u8.hash(hasher);
++            hash_range(*range, hasher);
++            replacement.hash(hasher);
++        }
++    }
++}
++
++fn hash_range(range: SourceRange, hasher: &mut impl Hasher) {
++    range.start.hash(hasher);
++    range.end.hash(hasher);
++}
+--- a/phalcom-semantic/src/db/mod.rs
++++ b/phalcom-semantic/src/db/mod.rs
+@@ -131,12 +131,23 @@
+         self.query_states.get(key).and_then(|s| s.product_fingerprint())
+     }
+ 
+-    /// Validates whether a query result is structurally reusable:
+-    /// 1. Query must be in `Ready` state.
+-    /// 2. Stored `input_fingerprint` must equal the requested `input_fingerprint`.
+-    /// 3. Every recorded dependency edge must currently be in `Ready` state with
+-    ///    its current `product_fingerprint` equal to the `observed_fingerprint` when the edge was recorded.
++    /// Validates whether a query result is structurally reusable.
++    ///
++    /// Reuse is transitive: matching the product fingerprint stored on an
++    /// immediate dependency edge is not sufficient when that dependency is
++    /// itself stale with respect to one of its own dependencies. This method
++    /// therefore validates the complete recorded dependency DAG.
+     pub fn is_reusable(&self, key: &QueryKey, input_fingerprint: InputFingerprint) -> bool {
++        let mut visiting = BTreeSet::new();
++        self.is_reusable_inner(key, input_fingerprint, &mut visiting)
++    }
++
++    fn is_reusable_inner(
++        &self,
++        key: &QueryKey,
++        input_fingerprint: InputFingerprint,
++        visiting: &mut BTreeSet<QueryKey>,
++    ) -> bool {
+         let Some(state) = self.query_states.get(key) else {
+             return false;
+         };
+@@ -149,36 +160,62 @@
+         if *stored_input_fp != input_fingerprint {
+             return false;
+         }
+-        let Some(deps) = self.index.dependencies_of(key) else {
+-            return true;
+-        };
+-        for edge in deps {
+-            let Some(dep_state) = self.query_states.get(&edge.dependency) else {
+-                return false;
+-            };
+-            let QueryState::Ready {
+-                product_fingerprint: dep_prod_fp,
+-                ..
+-            } = dep_state else {
+-                return false;
+-            };
+-            if *dep_prod_fp != edge.observed_fingerprint {
+-                return false;
+-            }
+-        }
+-        true
+-    }
+-
+-    /// Records a dependency edge using the current `Ready` product fingerprint of the dependency.
++
++        // Query products are required to form a DAG. Treat an accidental cycle
++        // as non-reusable rather than accepting a partially validated product.
++        if !visiting.insert(key.clone()) {
++            return false;
++        }
++
++        let reusable = self
++            .index
++            .dependencies_of(key)
++            .map(|deps| {
++                deps.iter().all(|edge| {
++                    let Some(dep_state) = self.query_states.get(&edge.dependency) else {
++                        return false;
++                    };
++                    let QueryState::Ready {
++                        input_fingerprint: dep_input_fp,
++                        product_fingerprint: dep_product_fp,
++                        ..
++                    } = dep_state else {
++                        return false;
++                    };
++
++                    *dep_product_fp == edge.observed_fingerprint
++                        && self.is_reusable_inner(&edge.dependency, *dep_input_fp, visiting)
++                })
++            })
++            .unwrap_or(true);
++
++        visiting.remove(key);
++        reusable
++    }
++
++    /// Records a dependency edge to a structurally current `Ready` product.
++    ///
++    /// A stored `Ready` state can still be stale transitively when one of its
++    /// own dependencies has changed. New queries must never observe such a
++    /// product as if it were current.
+     pub fn record_dependency(
+         &self,
+         recorder: &mut DependencyRecorder,
+         dependency: QueryKey,
+     ) -> Result<(), String> {
+-        let Some(fp) = self.ready_product_fingerprint(&dependency) else {
++        let Some(state) = self.query_states.get(&dependency) else {
+             return Err(format!("query dependency {:?} is not Ready", dependency));
+         };
+-        recorder.record(dependency, fp);
++        let Some(input_fingerprint) = state.input_fingerprint() else {
++            return Err(format!("query dependency {:?} is not Ready", dependency));
++        };
++        let Some(product_fingerprint) = state.product_fingerprint() else {
++            return Err(format!("query dependency {:?} is not Ready", dependency));
++        };
++        if !self.is_reusable(&dependency, input_fingerprint) {
++            return Err(format!("query dependency {:?} is stale", dependency));
++        }
++        recorder.record(dependency, product_fingerprint);
+         Ok(())
+     }
+ 
+@@ -237,6 +274,31 @@
+         Ok(())
+     }
+ 
++    /// Invalidates only the supplied query keys while retaining dependent
++    /// products and their reverse dependency edges.
++    ///
++    /// This is the normal invalidation operation for changed direct inputs.
++    /// Dependents remain stored and become non-reusable through transitive
++    /// dependency validation. If the recomputed dependency produces the same
++    /// product fingerprint, those dependents become reusable again without
++    /// being recomputed.
++    pub fn invalidate_exact(&mut self, seeds: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
++        let invalidated: BTreeSet<QueryKey> = seeds.into_iter().collect();
++        for key in &invalidated {
++            self.query_states.remove(key);
++            self.products.remove(key);
++            self.index.remove_dependencies(key);
++            self.metrics.record_invalidation();
++        }
++        invalidated
++    }
++
++    /// Invalidates the deterministic reverse dependency closure of `seeds`.
++    ///
++    /// Use this only when a semantic product is removed permanently or when a
++    /// caller deliberately requires eager destructive invalidation. Ordinary
++    /// source edits should prefer [`Self::invalidate_exact`] so unchanged
++    /// semantic products can preserve downstream reuse.
+     pub fn invalidate(&mut self, seeds: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
+         let closure = self.index.reverse_closure(seeds);
+         for key in &closure {
+--- a/phalcom-semantic/src/db/product.rs
++++ b/phalcom-semantic/src/db/product.rs
+@@ -5,7 +5,7 @@
+ use crate::diagnostic::SemanticDiagnostic;
+ use crate::hierarchy_product::HierarchyEdgeProduct;
+ use crate::module_product::ResolvedImportsProduct;
+-use crate::signature::CallableSemanticSignature;
++use crate::callable_signature_product::CallableSignatureProduct;
+ use crate::source::ParsedModuleUnit;
+ use crate::surface::DeclarationSurface;
+ use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
+@@ -21,7 +21,7 @@
+     LinkedInterface(Arc<LinkedModuleInterface>),
+     DeclarationSurface(Arc<DeclarationSurface>),
+     HierarchyEdge(Arc<HierarchyEdgeProduct>),
+-    CallableSignature(Arc<CallableSemanticSignature>),
++    CallableSignature(Arc<CallableSignatureProduct>),
+     CallableBody(Arc<CallableAnalysis>),
+     ModuleDiagnostics(Arc<[SemanticDiagnostic]>),
+     SemanticComponent(Arc<LinkedProgram>),
+@@ -70,7 +70,7 @@
+         }
+     }
+ 
+-    pub fn as_callable_signature(&self) -> Option<&Arc<CallableSemanticSignature>> {
++    pub fn as_callable_signature(&self) -> Option<&Arc<CallableSignatureProduct>> {
+         match self {
+             Self::CallableSignature(sig) => Some(sig),
+             _ => None,
+--- a/phalcom-semantic/src/db/query.rs
++++ b/phalcom-semantic/src/db/query.rs
+@@ -1,5 +1,6 @@
+ //! Semantic database high-level query execution and caching (Spec 04.5 / Wave 5).
+ 
++use crate::callable_signature_product::CallableSignatureProduct;
+ use crate::checker::analysis::{CallableAnalysis, CallableAnalysisStatus};
+ use crate::checker::body::analyze_callable_body;
+ use crate::db::SemanticDb;
+@@ -13,7 +14,6 @@
+ use crate::hierarchy_product::HierarchyEdgeProduct;
+ use crate::identity::{CallableId, DeclarationId, ModuleId};
+ use crate::module_product::ResolvedImportsProduct;
+-use crate::signature::CallableSemanticSignature;
+ use crate::source::ParsedModuleUnit;
+ use crate::surface::DeclarationSurface;
+ use crate::types::annotation::TypeResolver;
+@@ -25,6 +25,57 @@
+ use phalcom_modules::linker::LinkedProgram;
+ use std::sync::Arc;
+ 
++fn fail_query<T>(db: &mut SemanticDb, key: &QueryKey, failure: impl Into<String>) -> QueryOutcome<T> {
++    let failure = failure.into();
++    db.set_state(
++        key.clone(),
++        QueryState::Failed {
++            revision: db.revision(),
++            failure: failure.clone(),
++        },
++    );
++    QueryOutcome::Failed(failure)
++}
++
++fn record_required_dependency(
++    db: &SemanticDb,
++    recorder: &mut crate::db::DependencyRecorder,
++    dependent: &QueryKey,
++    dependency: QueryKey,
++) -> Result<(), String> {
++    db.record_dependency(recorder, dependency.clone()).map_err(|failure| {
++        format!(
++            "required dependency {dependency:?} for query {dependent:?} is unavailable: {failure}"
++        )
++    })
++}
++
++fn publish_product(
++    db: &mut SemanticDb,
++    key: &QueryKey,
++    input_fingerprint: InputFingerprint,
++    product_fingerprint: ProductFingerprint,
++    product: SemanticProduct,
++    dependencies: impl IntoIterator<Item = crate::db::DependencyEdge>,
++) -> Result<(), String> {
++    let revision = db.revision();
++    db.publish_product_ready(
++        key.clone(),
++        revision,
++        input_fingerprint,
++        product_fingerprint,
++        product,
++        dependencies,
++    )
++    .map_err(|error| {
++        format!(
++            "stale publication for query {key:?}: expected revision {:?}, attempted revision {:?}",
++            error.expected_revision(),
++            error.actual_revision()
++        )
++    })
++}
++
+ /// Evaluates or retrieves the cached `ParsedModuleUnit` for a given module.
+ pub fn query_parsed_module(
+     db: &mut SemanticDb,
+@@ -39,20 +90,27 @@
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
+-    }
+-    db.metrics().record_miss();
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
++    }
++    db.metrics().record_miss();
++
++    // Parsed source is the direct semantic input root for downstream module
++    // queries, so its product fingerprint intentionally equals its exact source
++    // input fingerprint. Downstream interface products hash only semantic
++    // interface meaning and can therefore remain stable across body-only edits.
+     let product_fingerprint = ProductFingerprint::new(input_fingerprint.raw());
+-    let rev = db.revision();
+-    let _ = db.publish_product_ready(
+-        key,
+-        rev,
++    if let Err(failure) = publish_product(
++        db,
++        &key,
+         input_fingerprint,
+         product_fingerprint,
+         SemanticProduct::ParsedModule(unit.clone()),
+         Vec::new(),
+-    );
++    ) {
++        return fail_query(db, &key, failure);
++    }
+     QueryOutcome::Ready(unit)
+ }
+ 
+@@ -63,6 +121,18 @@
+     unit: Arc<ParsedModuleUnit>,
+ ) -> QueryOutcome<Arc<UnlinkedModuleInterface>> {
+     let key = QueryKey::UnlinkedInterface(module.clone());
++
++    // Always bring the parsed dependency current before asking whether this
++    // interface product is reusable. Otherwise a stored interface could appear
++    // current while its parsed source input has already changed.
++    match query_parsed_module(db, module.clone(), unit.clone()) {
++        QueryOutcome::Ready(_) => {}
++        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
++        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
++        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
++        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
++    }
++
+     let input_fingerprint = crate::db::fingerprint::parsed_module_input_fingerprint(&unit.id, unit.kind, &unit.text);
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_unlinked_interface()) {
+@@ -70,46 +140,39 @@
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
+-    }
+-    db.metrics().record_miss();
+-    let parsed_outcome = query_parsed_module(db, module.clone(), unit.clone());
+-    let _ = match parsed_outcome {
+-        QueryOutcome::Ready(p) => p,
+-        other => return match other {
+-            QueryOutcome::Cancelled => QueryOutcome::Cancelled,
+-            QueryOutcome::BudgetExceeded(r) => QueryOutcome::BudgetExceeded(r),
+-            QueryOutcome::Blocked(b) => QueryOutcome::Blocked(b),
+-            QueryOutcome::Failed(f) => QueryOutcome::Failed(f),
+-            _ => unreachable!(),
+-        },
+-    };
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
++    }
++    db.metrics().record_miss();
+ 
+     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+-    let _ = db.record_dependency(&mut recorder, QueryKey::ParsedModule(module.clone()));
+-
+-    match InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
++    if let Err(failure) = record_required_dependency(
++        db,
++        &mut recorder,
++        &key,
++        QueryKey::ParsedModule(module.clone()),
++    ) {
++        return fail_query(db, &key, failure);
++    }
++
++    match InterfaceBuilder::build(module, unit.kind, &unit.program) {
+         Ok(unlinked) => {
+-            let unlinked_arc = Arc::new(unlinked);
+-            let product_fingerprint = crate::db::fingerprint::unlinked_interface_product_fingerprint(&unlinked_arc);
+-            let rev = db.revision();
+-            let deps = recorder.finish();
+-            let _ = db.publish_product_ready(
+-                key,
+-                rev,
++            let unlinked = Arc::new(unlinked);
++            let product_fingerprint = crate::db::fingerprint::unlinked_interface_product_fingerprint(&unlinked);
++            if let Err(failure) = publish_product(
++                db,
++                &key,
+                 input_fingerprint,
+                 product_fingerprint,
+-                SemanticProduct::UnlinkedInterface(unlinked_arc.clone()),
+-                deps,
+-            );
+-            QueryOutcome::Ready(unlinked_arc)
+-        }
+-        Err(err) => {
+-            let query_err = format!("failed to build unlinked interface: {err:?}");
+-            db.set_state(key, QueryState::Failed { revision: db.revision(), failure: query_err.clone() });
+-            QueryOutcome::Failed(query_err)
+-        }
++                SemanticProduct::UnlinkedInterface(unlinked.clone()),
++                recorder.finish(),
++            ) {
++                return fail_query(db, &key, failure);
++            }
++            QueryOutcome::Ready(unlinked)
++        }
++        Err(error) => fail_query(db, &key, format!("failed to build unlinked interface: {error:?}")),
+     }
+ }
+ 
+@@ -121,56 +184,78 @@
+     resolver: &mut phalcom_modules::resolver::ModuleResolver<'_, P>,
+ ) -> QueryOutcome<Arc<ResolvedImportsProduct>> {
+     let key = QueryKey::ResolvedImports(module.clone());
+-    let input_fingerprint = InputFingerprint::new(crate::db::fingerprint::unlinked_interface_product_fingerprint(&unlinked).raw());
++    let input_fingerprint = crate::db::fingerprint::resolved_imports_input_fingerprint(
++        &module,
++        resolver.universe,
++    );
++
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_resolved_imports()) {
+             db.metrics().record_hit();
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
+     }
+     db.metrics().record_miss();
+ 
+     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+-    let _ = db.record_dependency(&mut recorder, QueryKey::UnlinkedInterface(module.clone()));
++    if let Err(failure) = record_required_dependency(
++        db,
++        &mut recorder,
++        &key,
++        QueryKey::UnlinkedInterface(module.clone()),
++    ) {
++        return fail_query(db, &key, failure);
++    }
+ 
+     let mut imports = std::collections::BTreeMap::new();
+     let mut unresolved_diagnostics = Vec::new();
+ 
+     for import_surface in &unlinked.imports {
+         let import_path = match import_surface {
+-            phalcom_modules::interface::ImportSurface::Module(m) => &m.path,
+-            phalcom_modules::interface::ImportSurface::Selective(s) => &s.path,
+-            phalcom_modules::interface::ImportSurface::ReExport(r) => &r.path,
++            phalcom_modules::interface::ImportSurface::Module(import) => &import.path,
++            phalcom_modules::interface::ImportSurface::Selective(import) => &import.path,
++            phalcom_modules::interface::ImportSurface::ReExport(import) => &import.path,
+         };
+-        let path_str = import_path.to_string();
++        let path = import_path.to_string();
+         match resolver.resolve_import_with_trace(&module, import_path) {
+             Ok(trace) => {
+-                for pkg_mod in trace.package_interfaces {
+-                    let _ = db.record_dependency(&mut recorder, QueryKey::UnlinkedInterface(pkg_mod));
++                for package_module in trace.package_interfaces {
++                    if let Err(failure) = record_required_dependency(
++                        db,
++                        &mut recorder,
++                        &key,
++                        QueryKey::UnlinkedInterface(package_module),
++                    ) {
++                        return fail_query(db, &key, failure);
++                    }
+                 }
+-                imports.insert(path_str, trace.target.id);
++                imports.insert(path, trace.target.id);
+             }
+-            Err(err) => {
+-                unresolved_diagnostics.push((format!("unresolved import `{path_str}`: {err:?}"), import_path.range));
++            Err(error) => {
++                unresolved_diagnostics.push((
++                    format!("unresolved import `{path}`: {error:?}"),
++                    import_path.range,
++                ));
+             }
+         }
+     }
+ 
+     let product = Arc::new(ResolvedImportsProduct::new(module, imports, unresolved_diagnostics));
+     let product_fingerprint = crate::db::fingerprint::resolved_imports_product_fingerprint(&product);
+-    let rev = db.revision();
+-    let deps = recorder.finish();
+-    let _ = db.publish_product_ready(
+-        key,
+-        rev,
++    if let Err(failure) = publish_product(
++        db,
++        &key,
+         input_fingerprint,
+         product_fingerprint,
+         SemanticProduct::ResolvedImports(product.clone()),
+-        deps,
+-    );
++        recorder.finish(),
++    ) {
++        return fail_query(db, &key, failure);
++    }
+     QueryOutcome::Ready(product)
+ }
+ 
+@@ -183,65 +268,91 @@
+     resolved: &std::collections::BTreeMap<(ModuleId, String), ModuleId>,
+ ) -> QueryOutcome<Arc<LinkedProgram>> {
+     let key = QueryKey::SemanticComponent(entry.clone());
+-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+-    std::hash::Hash::hash(&entry, &mut hasher);
+-    for (mod_id, iface) in &interfaces {
+-        std::hash::Hash::hash(mod_id, &mut hasher);
+-        std::hash::Hash::hash(&crate::db::fingerprint::unlinked_interface_product_fingerprint(iface).raw(), &mut hasher);
+-    }
+-    let input_fingerprint = InputFingerprint::new(std::hash::Hasher::finish(&hasher));
++    let input_fingerprint = crate::db::fingerprint::semantic_component_input_fingerprint(
++        &entry,
++        &universe,
++    );
++
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_semantic_component()) {
+             db.metrics().record_hit();
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
+     }
+     db.metrics().record_miss();
+ 
+     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+-    for mod_id in interfaces.keys() {
+-        let _ = db.record_dependency(&mut recorder, QueryKey::UnlinkedInterface(mod_id.clone()));
+-        let _ = db.record_dependency(&mut recorder, QueryKey::ResolvedImports(mod_id.clone()));
++    for module in interfaces.keys() {
++        for dependency in [
++            QueryKey::UnlinkedInterface(module.clone()),
++            QueryKey::ResolvedImports(module.clone()),
++        ] {
++            if let Err(failure) = record_required_dependency(db, &mut recorder, &key, dependency) {
++                return fail_query(db, &key, failure);
++            }
++        }
+     }
+ 
+     let linker = phalcom_modules::linker::ModuleLinker::new(universe, interfaces);
+-    match linker.link(entry, resolved) {
+-        Ok(linked_program) => {
+-            let linked_arc = Arc::new(linked_program);
+-            let rev = db.revision();
+-            let deps = recorder.finish();
+-            let prod_fp = ProductFingerprint::new(input_fingerprint.raw());
+-            let _ = db.publish_product_ready(
+-                key,
+-                rev,
+-                input_fingerprint,
+-                prod_fp,
+-                SemanticProduct::SemanticComponent(linked_arc.clone()),
+-                deps,
+-            );
+-            for (mod_id, linked_mod) in &linked_arc.modules {
+-                let mod_iface_arc = Arc::new(linked_mod.interface.clone());
+-                let mod_fp = crate::db::fingerprint::linked_interface_product_fingerprint(&mod_iface_arc);
+-                let _ = db.publish_product_ready(
+-                    QueryKey::LinkedInterface(mod_id.clone()),
+-                    rev,
+-                    InputFingerprint::new(mod_fp.raw()),
+-                    mod_fp,
+-                    SemanticProduct::LinkedInterface(mod_iface_arc),
+-                    Vec::new(),
+-                );
+-            }
+-            QueryOutcome::Ready(linked_arc)
+-        }
+-        Err(err) => {
+-            let query_err = format!("linker error: {err:?}");
+-            db.set_state(key, QueryState::Failed { revision: db.revision(), failure: query_err.clone() });
+-            QueryOutcome::Failed(query_err)
+-        }
+-    }
++    let linked_program = match linker.link(entry.clone(), resolved) {
++        Ok(program) => Arc::new(program),
++        Err(error) => return fail_query(db, &key, format!("linker error: {error:?}")),
++    };
++
++    let product_fingerprint = crate::db::fingerprint::semantic_component_product_fingerprint(&linked_program);
++    if let Err(failure) = publish_product(
++        db,
++        &key,
++        input_fingerprint,
++        product_fingerprint,
++        SemanticProduct::SemanticComponent(linked_program.clone()),
++        recorder.finish(),
++    ) {
++        return fail_query(db, &key, failure);
++    }
++
++    // Linked interfaces are separate products because downstream type checking
++    // should depend on the exact module interface it consumes, not the entire
++    // linked semantic component. Re-evaluating a component may therefore leave
++    // an individual linked-interface product fingerprint unchanged.
++    for (module, linked_module) in &linked_program.modules {
++        let interface = Arc::new(linked_module.interface.clone());
++        let interface_key = QueryKey::LinkedInterface(module.clone());
++        let interface_product_fingerprint = crate::db::fingerprint::linked_interface_product_fingerprint(&interface);
++        let interface_input_fingerprint = InputFingerprint::new(interface_product_fingerprint.raw());
++
++        if db.is_reusable(&interface_key, interface_input_fingerprint) {
++            continue;
++        }
++        if db.query_state(&interface_key).is_some() {
++            db.invalidate_exact([interface_key.clone()]);
++        }
++        let mut interface_recorder = crate::db::DependencyRecorder::new(interface_key.clone());
++        if let Err(failure) = record_required_dependency(
++            db,
++            &mut interface_recorder,
++            &interface_key,
++            key.clone(),
++        ) {
++            return fail_query(db, &interface_key, failure);
++        }
++        if let Err(failure) = publish_product(
++            db,
++            &interface_key,
++            interface_input_fingerprint,
++            interface_product_fingerprint,
++            SemanticProduct::LinkedInterface(interface),
++            interface_recorder.finish(),
++        ) {
++            return fail_query(db, &interface_key, failure);
++        }
++    }
++
++    QueryOutcome::Ready(linked_program)
+ }
+ 
+ /// Evaluates or retrieves the cached `HierarchyEdgeProduct` for a declaration.
+@@ -251,29 +362,31 @@
+     super_decl: Option<DeclarationId>,
+ ) -> QueryOutcome<Arc<HierarchyEdgeProduct>> {
+     let key = QueryKey::HierarchyEdge(class_decl.clone());
+-    let prod_fp = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl);
+-    let input_fingerprint = InputFingerprint::new(prod_fp.raw());
++    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl);
++    let input_fingerprint = InputFingerprint::new(product_fingerprint.raw());
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_hierarchy_edge()) {
+             db.metrics().record_hit();
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
+     }
+     db.metrics().record_miss();
+ 
+     let product = Arc::new(HierarchyEdgeProduct::new(class_decl, super_decl));
+-    let rev = db.revision();
+-    let _ = db.publish_product_ready(
+-        key,
+-        rev,
+-        input_fingerprint,
+-        prod_fp,
++    if let Err(failure) = publish_product(
++        db,
++        &key,
++        input_fingerprint,
++        product_fingerprint,
+         SemanticProduct::HierarchyEdge(product.clone()),
+         Vec::new(),
+-    );
++    ) {
++        return fail_query(db, &key, failure);
++    }
+     QueryOutcome::Ready(product)
+ }
+ 
+@@ -283,62 +396,89 @@
+     decl_id: DeclarationId,
+     surface: Arc<DeclarationSurface>,
+ ) -> QueryOutcome<Arc<DeclarationSurface>> {
+-    let key = QueryKey::DeclarationSurface(decl_id);
+-    let prod_fp = crate::db::fingerprint::declaration_surface_product_fingerprint(&surface);
+-    let input_fingerprint = InputFingerprint::new(prod_fp.raw());
++    let key = QueryKey::DeclarationSurface(decl_id.clone());
++    let product_fingerprint = crate::db::fingerprint::declaration_surface_product_fingerprint(&surface);
++    let input_fingerprint = InputFingerprint::new(product_fingerprint.raw());
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_declaration_surface()) {
+             db.metrics().record_hit();
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
+-    }
+-    db.metrics().record_miss();
+-
+-    let rev = db.revision();
+-    let _ = db.publish_product_ready(
+-        key,
+-        rev,
+-        input_fingerprint,
+-        prod_fp,
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
++    }
++    db.metrics().record_miss();
++
++    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
++    if !matches!(decl_id.module.project, phalcom_modules::ProjectIdentity::Builtin(_)) {
++        if let Err(failure) = record_required_dependency(
++            db,
++            &mut recorder,
++            &key,
++            QueryKey::LinkedInterface(decl_id.module.clone()),
++        ) {
++            return fail_query(db, &key, failure);
++        }
++    }
++
++    if let Err(failure) = publish_product(
++        db,
++        &key,
++        input_fingerprint,
++        product_fingerprint,
+         SemanticProduct::DeclarationSurface(surface.clone()),
+-        Vec::new(),
+-    );
++        recorder.finish(),
++    ) {
++        return fail_query(db, &key, failure);
++    }
+     QueryOutcome::Ready(surface)
+ }
+ 
+-/// Evaluates or retrieves the cached `CallableSemanticSignature` for a callable.
++/// Evaluates or retrieves the cached declaration-time signature for a callable.
+ pub fn query_callable_signature(
+     db: &mut SemanticDb,
+-    callable: CallableId,
+-    signature: Arc<CallableSemanticSignature>,
+-) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+-    let key = QueryKey::CallableSignature(callable);
+-    let prod_fp = crate::db::fingerprint::callable_signature_product_fingerprint(&signature);
+-    let input_fingerprint = InputFingerprint::new(prod_fp.raw());
++    product: Arc<CallableSignatureProduct>,
++) -> QueryOutcome<Arc<CallableSignatureProduct>> {
++    let callable = product.callable.clone();
++    let key = QueryKey::CallableSignature(callable.clone());
++    let product_fingerprint =
++        crate::db::fingerprint::callable_signature_query_product_fingerprint(&product);
++    let input_fingerprint = InputFingerprint::new(product_fingerprint.raw());
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_callable_signature()) {
+             db.metrics().record_hit();
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
+-    }
+-    db.metrics().record_miss();
+-
+-    let rev = db.revision();
+-    let _ = db.publish_product_ready(
+-        key,
+-        rev,
+-        input_fingerprint,
+-        prod_fp,
+-        SemanticProduct::CallableSignature(signature.clone()),
+-        Vec::new(),
+-    );
+-    QueryOutcome::Ready(signature)
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
++    }
++    db.metrics().record_miss();
++
++    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
++    if let Err(failure) = record_required_dependency(
++        db,
++        &mut recorder,
++        &key,
++        QueryKey::DeclarationSurface(callable.owner.clone()),
++    ) {
++        return fail_query(db, &key, failure);
++    }
++
++    if let Err(failure) = publish_product(
++        db,
++        &key,
++        input_fingerprint,
++        product_fingerprint,
++        SemanticProduct::CallableSignature(product.clone()),
++        recorder.finish(),
++    ) {
++        return fail_query(db, &key, failure);
++    }
++    QueryOutcome::Ready(product)
+ }
+ 
+ /// Evaluates or retrieves the cached `LinkedModuleInterface` for a module.
+@@ -348,63 +488,66 @@
+     linked_interface: Arc<LinkedModuleInterface>,
+ ) -> QueryOutcome<Arc<LinkedModuleInterface>> {
+     let key = QueryKey::LinkedInterface(module);
+-    let prod_fp = crate::db::fingerprint::linked_interface_product_fingerprint(&linked_interface);
+-    let input_fingerprint = InputFingerprint::new(prod_fp.raw());
++    let product_fingerprint = crate::db::fingerprint::linked_interface_product_fingerprint(&linked_interface);
++    let input_fingerprint = InputFingerprint::new(product_fingerprint.raw());
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_linked_interface()) {
+             db.metrics().record_hit();
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
+-    }
+-    db.metrics().record_miss();
+-
+-    let rev = db.revision();
+-    let _ = db.publish_product_ready(
+-        key,
+-        rev,
+-        input_fingerprint,
+-        prod_fp,
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
++    }
++    db.metrics().record_miss();
++
++    if let Err(failure) = publish_product(
++        db,
++        &key,
++        input_fingerprint,
++        product_fingerprint,
+         SemanticProduct::LinkedInterface(linked_interface.clone()),
+         Vec::new(),
+-    );
++    ) {
++        return fail_query(db, &key, failure);
++    }
+     QueryOutcome::Ready(linked_interface)
+ }
+ 
+-/// Evaluates or retrieves the cached `ModuleDiagnostics` for a module.
++/// Evaluates or retrieves cached semantic diagnostics for a module.
+ pub fn query_module_diagnostics(
+     db: &mut SemanticDb,
+     module: ModuleId,
+     diagnostics: Arc<[SemanticDiagnostic]>,
+ ) -> QueryOutcome<Arc<[SemanticDiagnostic]>> {
+     let key = QueryKey::ModuleDiagnostics(module.clone());
+-    let prod_fp = crate::db::fingerprint::module_diagnostics_product_fingerprint(&module, &diagnostics);
+-    let input_fingerprint = InputFingerprint::new(prod_fp.raw());
++    let product_fingerprint = crate::db::fingerprint::module_diagnostics_product_fingerprint(&module, &diagnostics);
++    let input_fingerprint = InputFingerprint::new(product_fingerprint.raw());
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|p| p.as_module_diagnostics()) {
+             db.metrics().record_hit();
+             return QueryOutcome::Ready(product.clone());
+         }
+     }
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
+-    }
+-    db.metrics().record_miss();
+-
+-    let rev = db.revision();
+-    let _ = db.publish_product_ready(
+-        key,
+-        rev,
+-        input_fingerprint,
+-        prod_fp,
++
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
++    }
++    db.metrics().record_miss();
++
++    if let Err(failure) = publish_product(
++        db,
++        &key,
++        input_fingerprint,
++        product_fingerprint,
+         SemanticProduct::ModuleDiagnostics(diagnostics.clone()),
+         Vec::new(),
+-    );
++    ) {
++        return fail_query(db, &key, failure);
++    }
+     QueryOutcome::Ready(diagnostics)
+ }
+-
+ 
+ /// Evaluates or retrieves the cached `CallableAnalysis` for a given callable body.
+ pub fn query_callable_body(
+@@ -422,10 +565,8 @@
+     cancel: &CancellationToken,
+ ) -> QueryOutcome<Arc<CallableAnalysis>> {
+     let key = QueryKey::CallableBody(callable.clone());
+-
+     let input_fingerprint = crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store);
+ 
+-    // 1. Check if already computed and ready for the same callable input and dependency products.
+     if db.is_reusable(&key, input_fingerprint) {
+         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_body()) {
+             db.metrics().record_hit();
+@@ -433,31 +574,40 @@
+         }
+     }
+ 
+-    // A ready product with a different input, or a non-ready state from an
+-    // earlier attempt, cannot remain in the dependency index while this
+-    // generation recomputes it. Invalidation also clears dependents that
+-    // consumed the old callable result.
+-    if db.query_state(&key).is_some() {
+-        db.invalidate([key.clone()]);
+-    }
+-    db.metrics().record_miss();
+-
+-    // 2. Perform analysis
+-    let analysis = analyze_callable_body(callable, body, body_range, store, hierarchy, resolver, declarations, dispatch, module, budget, cancel);
+-
+-    let mut analysis = analysis;
++    if db.query_state(&key).is_some() {
++        db.invalidate_exact([key.clone()]);
++    }
++    db.metrics().record_miss();
++
++    let mut analysis = analyze_callable_body(
++        callable,
++        body,
++        body_range,
++        store,
++        hierarchy,
++        resolver,
++        declarations,
++        dispatch,
++        module,
++        budget,
++        cancel,
++    );
+     let product_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
+     analysis.dependency_fingerprint = product_fingerprint;
+-    let arc_analysis = Arc::new(analysis);
+-
+-    match arc_analysis.status {
++    let analysis = Arc::new(analysis);
++
++    match analysis.status {
+         CallableAnalysisStatus::Cancelled => {
+             db.metrics().record_cancellation();
+             db.set_state(key, QueryState::Cancelled { revision: db.revision() });
+             QueryOutcome::Cancelled
+         }
+         CallableAnalysisStatus::BudgetExceeded => {
+-            let report = crate::db::budget::BudgetReport::new(crate::db::budget::BudgetKind::Steps, budget.max_steps, budget.max_steps);
++            let report = crate::db::budget::BudgetReport::new(
++                crate::db::budget::BudgetKind::Steps,
++                budget.max_steps,
++                budget.max_steps,
++            );
+             db.metrics().record_budget_exhaustion();
+             db.set_state(
+                 key,
+@@ -480,35 +630,43 @@
+             QueryOutcome::Blocked(reason)
+         }
+         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial => {
+-            let rev = db.revision();
+             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+-            for sem_dep in arc_analysis.semantic_dependencies.iter() {
+-                let qk = match sem_dep {
+-                    crate::checker::analysis::SemanticDependency::CallableSignature(cid) => {
+-                        QueryKey::CallableSignature(cid.clone())
++            for semantic_dependency in analysis.semantic_dependencies.iter() {
++                let dependency = match semantic_dependency {
++                    crate::checker::analysis::SemanticDependency::CallableSignature(callable) => {
++                        QueryKey::CallableSignature(callable.clone())
+                     }
+-                    crate::checker::analysis::SemanticDependency::DeclarationSurface(did) => {
+-                        QueryKey::DeclarationSurface(did.clone())
++                    crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
++                        QueryKey::DeclarationSurface(declaration.clone())
+                     }
+-                    crate::checker::analysis::SemanticDependency::HierarchyEdge(did) => {
+-                        QueryKey::HierarchyEdge(did.clone())
++                    crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
++                        QueryKey::HierarchyEdge(declaration.clone())
+                     }
+-                    crate::checker::analysis::SemanticDependency::LinkedInterface(mid) => {
+-                        QueryKey::LinkedInterface(mid.clone())
++                    crate::checker::analysis::SemanticDependency::LinkedInterface(module) => {
++                        QueryKey::LinkedInterface(module.clone())
+                     }
+                 };
+-                let _ = db.record_dependency(&mut recorder, qk);
++                if let Err(failure) = record_required_dependency(
++                    db,
++                    &mut recorder,
++                    &key,
++                    dependency,
++                ) {
++                    return fail_query(db, &key, failure);
++                }
+             }
+-            let deps = recorder.finish();
+-            let _ = db.publish_product_ready(
+-                key,
+-                rev,
++
++            if let Err(failure) = publish_product(
++                db,
++                &key,
+                 input_fingerprint,
+                 product_fingerprint,
+-                SemanticProduct::CallableBody(arc_analysis.clone()),
+-                deps,
+-            );
+-            QueryOutcome::Ready(arc_analysis)
+-        }
+-    }
+-}
++                SemanticProduct::CallableBody(analysis.clone()),
++                recorder.finish(),
++            ) {
++                return fail_query(db, &key, failure);
++            }
++            QueryOutcome::Ready(analysis)
++        }
++    }
++}
+--- a/phalcom-semantic/src/dispatch.rs
++++ b/phalcom-semantic/src/dispatch.rs
+@@ -4,7 +4,6 @@
+ 
+ pub use crate::identity::DispatchSide;
+ use crate::surface::DeclarationSurface;
+-use crate::types::evidence::TypeKnowledge;
+ use crate::types::id::TypeId;
+ use crate::types::relation::TypeHierarchy;
+ use phalcom_common::selector::Selector;
+@@ -178,23 +177,9 @@
+                         .get_callable_id(side, selector)
+                         .cloned()
+                         .unwrap_or_else(|| CallableId::new(decl.clone(), selector.clone(), side));
+-                    let mut result_sig = sig.clone();
+-                    if decl != start_decl {
+-                        if let Some(defining_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == decl { Some(*ty) } else { None }) {
+-                            if result_sig.return_type.ty() == Some(defining_form) {
+-                                if let Some(start_form) = self.type_declarations.iter().find_map(|(ty, d)| if d == start_decl { Some(*ty) } else { None }) {
+-                                    let auth = result_sig
+-                                        .return_type
+-                                        .authority()
+-                                        .unwrap_or(crate::types::evidence::EvidenceAuthority::TrustedNative);
+-                                    result_sig.return_type = TypeKnowledge::known(start_form, auth);
+-                                }
+-                            }
+-                        }
+-                    }
+                     return ResolvedDispatchResult::Found(ResolvedDispatch {
+                         callable: callable_id,
+-                        signature: result_sig,
++                        signature: sig.clone(),
+                         visited_owners: visited.into_boxed_slice(),
+                     });
+                 }
+--- a/phalcom-semantic/src/lib.rs
++++ b/phalcom-semantic/src/lib.rs
+@@ -2,6 +2,7 @@
+ //! and verification engine for Phalcom.
+ 
+ pub mod checker;
++pub mod callable_signature_product;
+ pub mod contracts;
+ pub mod control_summary;
+ pub mod core_surface;
+@@ -31,6 +32,7 @@
+ pub mod workspace;
+ pub mod workspace_inputs;
+ 
++pub use callable_signature_product::CallableSignatureProduct;
+ pub use checker::{
+     CheckingContext, TypeCheckReport, TypedExpression, check_arguments, check_class, check_class_bodies, check_statement, match_callable_arguments,
+     register_class_surface, synthesize_expr, synthesize_typed_expr,
+--- a/phalcom-semantic/src/session.rs
++++ b/phalcom-semantic/src/session.rs
+@@ -5,9 +5,13 @@
+ use crate::checker::statement::check_statement;
+ use crate::db::budget::{CancellationToken, QueryBudget};
+ use crate::db::key::QueryKey;
+-use crate::db::query::query_callable_body;
++use crate::db::query::{
++    query_callable_body, query_callable_signature, query_declaration_surface,
++    query_hierarchy_edge, query_linked_interface, query_module_diagnostics,
++    query_unlinked_interface,
++};
+ use crate::db::state::QueryOutcome;
+-use crate::db::{InputFingerprint, ProductFingerprint, SemanticDb, SemanticProduct};
++use crate::db::SemanticDb;
+ use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
+ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
+ use crate::dispatch::SurfaceDispatchResolver;
+@@ -28,7 +32,6 @@
+ use phalcom_common::selector::Selector;
+ use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
+ use phalcom_modules::graph::{SemanticEdge, SemanticEdgeKind, SemanticNodeId};
+-use phalcom_modules::interface::InterfaceBuilder;
+ use phalcom_modules::linker::LinkedProgram;
+ use std::collections::hash_map::DefaultHasher;
+ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+@@ -212,58 +215,49 @@
+         let mut invalidated_keys = BTreeSet::new();
+         let mut recomputed_keys = Vec::new();
+ 
+-        // 1. Detect changed/removed/new source modules
++        // 1. Bring parsed-module and unlinked-interface products current.
++        //
++        // A source edit invalidates only the direct parsed input. Downstream
++        // products remain stored and become non-reusable through dependency
++        // validation. If interface meaning is unchanged, its product
++        // fingerprint remains stable and dependents can be reused.
+         let mut new_fingerprints = BTreeMap::new();
+         for (module_id, unit) in &input.sources {
+             let fp = compute_module_fingerprint(unit);
+             new_fingerprints.insert(module_id.clone(), fp);
+ 
+-            let changed = match self.source_fingerprints.get(module_id) {
+-                Some(&old_fp) => old_fp != fp,
+-                None => true,
+-            };
+-
++            let changed = self
++                .source_fingerprints
++                .get(module_id)
++                .is_none_or(|old_fp| *old_fp != fp);
+             if changed {
+                 stats.modules_recomputed += 1;
+-                let parsed_key = QueryKey::ParsedModule(module_id.clone());
+-                let unlinked_key = QueryKey::UnlinkedInterface(module_id.clone());
+-                let linked_key = QueryKey::LinkedInterface(module_id.clone());
+-                let diags_key = QueryKey::ModuleDiagnostics(module_id.clone());
+-
+-                let closure = self.db.invalidate([parsed_key, unlinked_key, linked_key, diags_key]);
+-                invalidated_keys.extend(closure);
+-
+-                // Publish parsed module and unlinked interface into DB
+-                let _ = self.db.publish_product_ready(
+-                    QueryKey::ParsedModule(module_id.clone()),
+-                    self.db.revision(),
+-                    InputFingerprint::new(fp),
+-                    ProductFingerprint::new(fp),
+-                    SemanticProduct::ParsedModule(unit.clone()),
+-                    Vec::new(),
++                invalidated_keys.extend(
++                    self.db
++                        .invalidate_exact([QueryKey::ParsedModule(module_id.clone())]),
+                 );
+-
+-                if let Ok(unlinked) = InterfaceBuilder::build(module_id.clone(), unit.kind, &unit.program) {
+-                    let _ = self.db.publish_product_ready(
+-                        QueryKey::UnlinkedInterface(module_id.clone()),
+-                        self.db.revision(),
+-                        InputFingerprint::new(fp),
+-                        ProductFingerprint::new(fp),
+-                        SemanticProduct::UnlinkedInterface(Arc::new(unlinked)),
+-                        Vec::new(),
+-                    );
+-                }
+-            }
+-        }
+-
++            }
++
++            match query_unlinked_interface(&mut self.db, module_id.clone(), unit.clone()) {
++                QueryOutcome::Ready(_) => {}
++                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
++                QueryOutcome::BudgetExceeded(report) => {
++                    return Err(QueryOutcome::BudgetExceeded(report));
++                }
++                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
++                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
++            }
++        }
++
++        // Removed source roots are permanent removals for this revision. Eagerly
++        // invalidate their reverse closure because no replacement product will
++        // be published that could make retained dependents reusable again.
+         for old_module_id in self.sources.keys() {
+             if !input.sources.contains_key(old_module_id) {
+-                let parsed_key = QueryKey::ParsedModule(old_module_id.clone());
+-                let unlinked_key = QueryKey::UnlinkedInterface(old_module_id.clone());
+-                let linked_key = QueryKey::LinkedInterface(old_module_id.clone());
+-                let diags_key = QueryKey::ModuleDiagnostics(old_module_id.clone());
+-                let closure = self.db.invalidate([parsed_key, unlinked_key, linked_key, diags_key]);
+-                invalidated_keys.extend(closure);
++                invalidated_keys.extend(
++                    self.db
++                        .invalidate([QueryKey::ParsedModule(old_module_id.clone())]),
++                );
+             }
+         }
+ 
+@@ -482,30 +476,37 @@
+                     if let Some(s) = super_decl_for_insert {
+                         hierarchy.insert(class_decl.clone(), s);
+                     }
+-                    let fp = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl_opt);
+-                    let _ = self.db.publish_product_ready(
+-                        QueryKey::HierarchyEdge(class_decl.clone()),
+-                        self.db.revision(),
+-                        InputFingerprint::new(fp.raw()),
+-                        fp,
+-                        SemanticProduct::HierarchyEdge(Arc::new(crate::hierarchy_product::HierarchyEdgeProduct::new(class_decl, super_decl_opt))),
+-                        Vec::new(),
+-                    );
+-                }
+-            }
+-        }
+-
+-        // Publish linked interfaces
++                    match query_hierarchy_edge(&mut self.db, class_decl, super_decl_opt) {
++                        QueryOutcome::Ready(_) => {}
++                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
++                        QueryOutcome::BudgetExceeded(report) => {
++                            return Err(QueryOutcome::BudgetExceeded(report));
++                        }
++                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
++                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
++                    }
++                }
++            }
++        }
++
++        // Bring linked-interface products current. The current compatibility
++        // input still supplies a pre-linked program; once module lifecycle moves
++        // into this session, these products will be emitted by the semantic
++        // component query instead of supplied by the caller.
+         for (module_id, linked_mod) in &input.linked.modules {
+-            let fp = crate::db::fingerprint::linked_interface_product_fingerprint(&linked_mod.interface);
+-            let _ = self.db.publish_product_ready(
+-                QueryKey::LinkedInterface(module_id.clone()),
+-                self.db.revision(),
+-                InputFingerprint::new(fp.raw()),
+-                fp,
+-                SemanticProduct::LinkedInterface(Arc::new(linked_mod.interface.clone())),
+-                Vec::new(),
+-            );
++            match query_linked_interface(
++                &mut self.db,
++                module_id.clone(),
++                Arc::new(linked_mod.interface.clone()),
++            ) {
++                QueryOutcome::Ready(_) => {}
++                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
++                QueryOutcome::BudgetExceeded(report) => {
++                    return Err(QueryOutcome::BudgetExceeded(report));
++                }
++                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
++                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
++            }
+         }
+ 
+         // 6. Collect Declaration Surfaces
+@@ -522,66 +523,74 @@
+             }
+ 
+             for (decl_id, surface) in dummy_ctx.dispatch.surfaces() {
+-                dispatch.register_surface(decl_id.clone(), surface.clone());
+-                let surf_fp = crate::db::fingerprint::declaration_surface_product_fingerprint(surface);
+-                let _ = self.db.publish_product_ready(
+-                    QueryKey::DeclarationSurface(decl_id.clone()),
+-                    self.db.revision(),
+-                    InputFingerprint::new(surf_fp.raw()),
+-                    surf_fp,
+-                    SemanticProduct::DeclarationSurface(Arc::new(surface.clone())),
+-                    Vec::new(),
+-                );
++                // `CheckingContext::new` also installs immutable native/core
++                // surfaces. Source-module publication owns only declarations
++                // physically belonging to this module; core seeds remain owned
++                // by the session bootstrap state.
++                if &decl_id.module != module_id {
++                    continue;
++                }
++
++                let published_surface = match query_declaration_surface(
++                    &mut self.db,
++                    decl_id.clone(),
++                    Arc::new(surface.clone()),
++                ) {
++                    QueryOutcome::Ready(surface) => surface,
++                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
++                    QueryOutcome::BudgetExceeded(report) => {
++                        return Err(QueryOutcome::BudgetExceeded(report));
++                    }
++                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
++                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
++                };
++                dispatch.register_surface(decl_id.clone(), (*published_surface).clone());
++
+                 for (side, member_surface) in [
+-                    (crate::identity::DispatchSide::Instance, &surface.instance),
+-                    (crate::identity::DispatchSide::Class, &surface.class),
++                    (crate::identity::DispatchSide::Instance, &published_surface.instance),
++                    (crate::identity::DispatchSide::Class, &published_surface.class),
+                 ] {
+-                    for (sel, sig) in &member_surface.callable_signatures {
+-                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel.clone(), side);
+-                        if let Some(return_type) = sig.return_type.ty() {
+-                            let parameters = sig
+-                                .parameters
+-                                .iter()
+-                                .enumerate()
+-                                .filter_map(|(index, parameter)| {
+-                                    let ty = parameter.ty.ty()?;
+-                                    let mut p = crate::signature::CallableParameterSemantic::new(index as u32, parameter.local_name.clone(), ty.into());
+-                                    if let Some(ref l) = parameter.external_label {
+-                                        p = p.with_label(l.clone());
+-                                    }
+-                                    if parameter.rest {
+-                                        p = p.with_rest(phalcom_ast::ast::RestMode::Positional);
+-                                    }
+-                                    Some(p)
+-                                })
+-                                .collect::<Vec<_>>()
+-                                .into_boxed_slice();
+-                            let sem_sig = crate::signature::CallableSemanticSignature {
+-                                callable: callable_id.clone(),
+-                                owner: decl_id.clone(),
+-                                side,
+-                                selector: sel.clone(),
+-                                generics: None,
+-                                parameters,
+-                                return_type: return_type.into(),
+-                                source: None,
+-                                implementation: phalcom_native_meta::ImplementationKind::Source,
+-                                native_id: None,
+-                                effects: phalcom_native_meta::EffectSpec::Unknown,
+-                                raises: phalcom_native_meta::RaisesSpec::Unknown,
+-                                flow: phalcom_native_meta::ReturnFlowSpec::Value,
+-                                lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+-                            };
+-                            callable_signatures.insert(sem_sig.clone());
+-                            let sig_fp = crate::db::fingerprint::callable_signature_product_fingerprint(&sem_sig);
+-                            let _ = self.db.publish_product_ready(
+-                                QueryKey::CallableSignature(callable_id.clone()),
+-                                self.db.revision(),
+-                                InputFingerprint::new(sig_fp.raw()),
+-                                sig_fp,
+-                                SemanticProduct::CallableSignature(Arc::new(sem_sig)),
+-                                Vec::new(),
+-                            );
++                    for (selector, signature) in &member_surface.callable_signatures {
++                        let callable_id = crate::identity::CallableId::new(
++                            decl_id.clone(),
++                            selector.clone(),
++                            side,
++                        );
++                        let signature_product = Arc::new(
++                            crate::callable_signature_product::CallableSignatureProduct::new(
++                                callable_id.clone(),
++                                signature.clone(),
++                            ),
++                        );
++                        let published_signature = match query_callable_signature(
++                            &mut self.db,
++                            signature_product,
++                        ) {
++                            QueryOutcome::Ready(signature) => signature,
++                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
++                            QueryOutcome::BudgetExceeded(report) => {
++                                return Err(QueryOutcome::BudgetExceeded(report));
++                            }
++                            QueryOutcome::Blocked(reason) => {
++                                return Err(QueryOutcome::Blocked(reason));
++                            }
++                            QueryOutcome::Failed(error) => {
++                                return Err(QueryOutcome::Failed(error));
++                            }
++                        };
++
++                        // Reflection/LSP's canonical semantic signature table is
++                        // stricter than the invalidation product: it can only
++                        // represent known type terms. Keep unknown/dynamic
++                        // declaration signatures in the DB product while
++                        // projecting fully-known signatures here.
++                        if let Some(semantic_signature) = semantic_signature_from_surface(
++                            &self.store,
++                            decl_id,
++                            &published_signature.callable,
++                            &published_signature.signature,
++                        ) {
++                            callable_signatures.insert(semantic_signature);
+                         }
+                     }
+                 }
+@@ -590,6 +599,7 @@
+                 }
+             }
+         }
++
+ 
+         // 7. Check Callable Bodies with DB caching and reuse
+         let mut callable_analyses = HashMap::new();
+@@ -780,6 +790,62 @@
+     }
+ }
+ 
++fn semantic_signature_from_surface(
++    store: &TypeStore,
++    owner: &DeclarationId,
++    callable: &crate::identity::CallableId,
++    signature: &crate::dispatch::CallableSignature,
++) -> Option<crate::signature::CallableSemanticSignature> {
++    let parameters = signature
++        .parameters
++        .iter()
++        .enumerate()
++        .map(|(index, parameter)| {
++            let ty = parameter.ty.ty()?;
++            let mut semantic = crate::signature::CallableParameterSemantic::new(
++                index as u32,
++                parameter.local_name.clone(),
++                semantic_type_term(store, ty),
++            );
++            if let Some(label) = &parameter.external_label {
++                semantic = semantic.with_label(label.clone());
++            }
++            if parameter.rest {
++                semantic = semantic.with_rest(phalcom_ast::ast::RestMode::Positional);
++            }
++            Some(semantic)
++        })
++        .collect::<Option<Vec<_>>>()?
++        .into_boxed_slice();
++    let return_type = semantic_type_term(store, signature.return_type.ty()?);
++
++    Some(crate::signature::CallableSemanticSignature {
++        callable: callable.clone(),
++        owner: owner.clone(),
++        side: callable.side,
++        selector: callable.selector.clone(),
++        generics: signature.generics.clone(),
++        parameters,
++        return_type,
++        source: None,
++        implementation: phalcom_native_meta::ImplementationKind::Source,
++        native_id: None,
++        effects: phalcom_native_meta::EffectSpec::Unknown,
++        raises: phalcom_native_meta::RaisesSpec::Unknown,
++        flow: phalcom_native_meta::ReturnFlowSpec::Value,
++        lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
++    })
++}
++
++fn semantic_type_term(store: &TypeStore, ty: crate::types::id::TypeId) -> crate::types::parameter::TypeTerm {
++    match store.get(ty) {
++        crate::types::store::TypeData::SelfType(term) => {
++            crate::types::parameter::TypeTerm::SelfType(term.clone())
++        }
++        _ => crate::types::parameter::TypeTerm::Canonical(ty),
++    }
++}
++
+ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
+     let mut hasher = DefaultHasher::new();
+     unit.id.hash(&mut hasher);
+--- a/phalcom-semantic/src/types/substitution.rs
++++ b/phalcom-semantic/src/types/substitution.rs
+@@ -149,11 +149,11 @@
+                 crate::types::parameter::SelfRole::InstanceType => {
+                     match store.get(receiver).clone() {
+                         TypeData::ClassObject { declaration } => {
+-                            declarations.get(&declaration).map(|info| info.nominal_type).unwrap_or(receiver)
++                            declarations.form(&declaration).unwrap_or(receiver)
+                         }
+                         TypeData::Nominal { .. } | TypeData::Applied { .. } => receiver,
+                         _ => {
+-                            declarations.get(&term.owner).map(|info| info.nominal_type).unwrap_or(receiver)
++                            declarations.form(&term.owner).unwrap_or(receiver)
+                         }
+                     }
+                 }
+--- a/phalcom-semantic/tests/fingerprints.rs
++++ b/phalcom-semantic/tests/fingerprints.rs
+@@ -0,0 +1,199 @@
++use phalcom_common::range::SourceRange;
++use phalcom_common::selector::Selector;
++use phalcom_modules::{InterfaceBuilder, ModuleId, ModuleKind, ModulePath, SyntheticProjectIdAllocator};
++use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
++use phalcom_semantic::checker::analysis::{
++    BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, FlowStateSummary,
++};
++use phalcom_semantic::db::fingerprint::{
++    callable_body_product_fingerprint, callable_signature_product_fingerprint,
++    callable_signature_query_product_fingerprint,
++    declaration_surface_product_fingerprint, unlinked_interface_product_fingerprint,
++};
++use phalcom_semantic::explain::ExplanationArena;
++use phalcom_semantic::types::parameter::TypeTerm;
++use phalcom_semantic::{
++    BindingId, CallableId, CallableSemanticSignature, CallableSignature, CallableSignatureProduct, DeclarationId, DeclarationSurface,
++    DispatchSide, EvidenceAuthority, TypeKnowledge, TypeStore, UnknownReason,
++};
++use std::collections::BTreeMap;
++use std::sync::Arc;
++
++fn module() -> ModuleId {
++    let mut ids = SyntheticProjectIdAllocator::default();
++    ModuleId::synthetic(ids.allocate(), ModulePath::root())
++}
++
++fn callable(owner: DeclarationId, name: &str) -> CallableId {
++    CallableId::new(
++        owner,
++        Selector::method(name, Vec::new()).expect("valid selector"),
++        DispatchSide::Instance,
++    )
++}
++
++#[test]
++fn body_only_source_edit_keeps_unlinked_interface_product_stable() {
++    let module = module();
++    let before = phalcom_ast::parse("class A { value() -> Int { 1 } }", 0);
++    let after = phalcom_ast::parse("class A { value() -> Int { 2 } }", 0);
++
++    let before = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &before.program)
++        .expect("before interface");
++    let after = InterfaceBuilder::build(module, ModuleKind::Module, &after.program)
++        .expect("after interface");
++
++    assert_eq!(
++        unlinked_interface_product_fingerprint(&before),
++        unlinked_interface_product_fingerprint(&after),
++        "callable implementation bodies are not part of a module interface product",
++    );
++}
++
++#[test]
++fn declaration_surface_fingerprint_ignores_type_evidence_source_provenance() {
++    let store = TypeStore::new();
++    let owner = DeclarationId::new(module(), "A".into());
++    let ty = store.unit();
++
++    let mut before = DeclarationSurface::new(Some(owner.clone()));
++    before.add_field(
++        DispatchSide::Instance,
++        "value",
++        TypeKnowledge::known(ty, EvidenceAuthority::Declared)
++            .with_range(SourceRange::from(10..20)),
++    );
++
++    let mut after = DeclarationSurface::new(Some(owner));
++    after.add_field(
++        DispatchSide::Instance,
++        "value",
++        TypeKnowledge::known(ty, EvidenceAuthority::Declared)
++            .with_range(SourceRange::from(100..110)),
++    );
++
++    assert_eq!(
++        declaration_surface_product_fingerprint(&before),
++        declaration_surface_product_fingerprint(&after),
++        "moving semantically identical declarations must not invalidate dependents",
++    );
++}
++
++#[test]
++fn callable_signature_fingerprint_changes_when_effect_contract_changes() {
++    let store = TypeStore::new();
++    let owner = DeclarationId::new(module(), "A".into());
++    let callable = callable(owner.clone(), "value");
++    let mut before = CallableSemanticSignature {
++        callable: callable.clone(),
++        owner,
++        side: DispatchSide::Instance,
++        selector: callable.selector.clone(),
++        generics: None,
++        parameters: Vec::new().into_boxed_slice(),
++        return_type: TypeTerm::Canonical(store.unit()),
++        source: None,
++        implementation: ImplementationKind::Source,
++        native_id: None,
++        effects: EffectSpec::Unknown,
++        raises: RaisesSpec::Unknown,
++        flow: ReturnFlowSpec::Value,
++        lifecycle: NativeLifecycleSpec::UNKNOWN,
++    };
++    let mut after = before.clone();
++    after.effects = EffectSpec::Pure;
++
++    assert_ne!(
++        callable_signature_product_fingerprint(&before),
++        callable_signature_product_fingerprint(&after),
++        "effect contracts participate in callable semantic identity",
++    );
++
++    before.effects = EffectSpec::Pure;
++    assert_eq!(
++        callable_signature_product_fingerprint(&before),
++        callable_signature_product_fingerprint(&after),
++    );
++}
++
++#[test]
++fn callable_signature_query_product_preserves_unknown_type_state() {
++    let owner = DeclarationId::new(module(), "A".into());
++    let callable = callable(owner, "value");
++    let selector = callable.selector.clone();
++    let before = CallableSignatureProduct::new(
++        callable.clone(),
++        CallableSignature::new(
++            selector.clone(),
++            Vec::new(),
++            TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration),
++        ),
++    );
++    let after = CallableSignatureProduct::new(
++        callable,
++        CallableSignature::new(
++            selector,
++            Vec::new(),
++            TypeKnowledge::Unknown(UnknownReason::UnresolvedName("Other".into())),
++        ),
++    );
++
++    assert_ne!(
++        callable_signature_query_product_fingerprint(&before),
++        callable_signature_query_product_fingerprint(&after),
++        "unknown signature state is part of the invalidation contract",
++    );
++}
++
++fn analysis_with_binding(callable: CallableId, current: TypeKnowledge) -> CallableAnalysis {
++    let binding = BindingId(0);
++    let mut bindings = BTreeMap::new();
++    bindings.insert(
++        binding,
++        BindingState::new(
++            binding,
++            "x",
++            SourceRange::from(10..11),
++            None,
++            current,
++            false,
++        ),
++    );
++
++    CallableAnalysis {
++        callable,
++        body_range: SourceRange::from(0..20),
++        expressions: BTreeMap::new(),
++        bindings,
++        flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
++        entry_flow: FlowStateSummary::default(),
++        exits: BodyExitFacts::default(),
++        diagnostics: Arc::from(Vec::new().into_boxed_slice()),
++        explanations: Arc::new(ExplanationArena::new()),
++        dependencies: Arc::from(Vec::new().into_boxed_slice()),
++        semantic_dependencies: Arc::from(Vec::new().into_boxed_slice()),
++        dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
++        status: CallableAnalysisStatus::Complete,
++    }
++}
++
++#[test]
++fn callable_body_fingerprint_changes_when_binding_type_changes() {
++    let store = TypeStore::new();
++    let owner = DeclarationId::new(module(), "A".into());
++    let callable = callable(owner, "value");
++    let before = analysis_with_binding(
++        callable.clone(),
++        TypeKnowledge::known(store.unit(), EvidenceAuthority::Proven),
++    );
++    let after = analysis_with_binding(
++        callable,
++        TypeKnowledge::known(store.never(), EvidenceAuthority::Proven),
++    );
++
++    assert_ne!(
++        callable_body_product_fingerprint(&before),
++        callable_body_product_fingerprint(&after),
++        "binding semantic state is part of the callable body product",
++    );
++}
+--- a/phalcom-semantic/tests/semantic_db_incremental.rs
++++ b/phalcom-semantic/tests/semantic_db_incremental.rs
+@@ -87,8 +87,15 @@
+     assert!(db.is_reusable(&key_leaf, InputFingerprint::new(12)));
+     // Mid depends on leaf with observed prod_fp 100, but current leaf prod_fp is 101 => mid NOT reusable!
+     assert!(!db.is_reusable(&key_mid, InputFingerprint::new(20)));
+-    // Root depends on mid with observed prod_fp 200, mid is still 200, so root is still reusable until mid changes
+-    assert!(db.is_reusable(&key_root, InputFingerprint::new(30)));
++    let mut stale_consumer = DependencyRecorder::new(QueryKey::ModuleDiagnostics(mod_a()));
++    assert!(
++        db.record_dependency(&mut stale_consumer, key_mid.clone()).is_err(),
++        "new queries must not record an edge to a stale Ready dependency"
++    );
++    // Root is also stale transitively: a dependent is reusable only when every
++    // dependency is itself structurally reusable, not merely when its stored
++    // product fingerprint still matches the edge observed by the root.
++    assert!(!db.is_reusable(&key_root, InputFingerprint::new(30)));
+ 
+     // 4. Product fingerprint can remain stable across newer revision and still be reused
+     let mut mid_rec2 = DependencyRecorder::new(key_mid.clone());
+@@ -130,3 +137,54 @@
+     let err = db.record_dependency(&mut recorder, key_a);
+     assert!(err.is_err(), "cannot record dependency on cancelled query");
+ }
++
++#[test]
++fn exact_input_invalidation_preserves_dependents_until_dependency_is_revalidated() {
++    let mut db = SemanticDb::new();
++    let rev1 = db.revision();
++    let leaf = QueryKey::ParsedModule(mod_a());
++    let dependent = QueryKey::UnlinkedInterface(mod_a());
++
++    db.publish_ready(
++        leaf.clone(),
++        rev1,
++        InputFingerprint::new(1),
++        ProductFingerprint::new(10),
++        QueryValue::from_bytes(b"leaf"),
++        [],
++    )
++    .unwrap();
++
++    let mut recorder = DependencyRecorder::new(dependent.clone());
++    db.record_dependency(&mut recorder, leaf.clone()).unwrap();
++    db.publish_ready(
++        dependent.clone(),
++        rev1,
++        InputFingerprint::new(2),
++        ProductFingerprint::new(20),
++        QueryValue::from_bytes(b"dependent"),
++        recorder.finish(),
++    )
++    .unwrap();
++
++    let invalidated = db.invalidate_exact([leaf.clone()]);
++    assert_eq!(invalidated.into_iter().collect::<Vec<_>>(), vec![leaf.clone()]);
++    assert!(db.query_state(&dependent).is_some(), "dependent product must remain stored");
++    assert!(!db.is_reusable(&dependent, InputFingerprint::new(2)));
++
++    let rev2 = db.begin_revision();
++    db.publish_ready(
++        leaf,
++        rev2,
++        InputFingerprint::new(3),
++        ProductFingerprint::new(10),
++        QueryValue::from_bytes(b"leaf changed input but same semantics"),
++        [],
++    )
++    .unwrap();
++
++    assert!(
++        db.is_reusable(&dependent, InputFingerprint::new(2)),
++        "stable dependency product fingerprint must make the dependent reusable again"
++    );
++}
+--- a/phalcom-semantic/tests/type_store_revisions.rs
++++ b/phalcom-semantic/tests/type_store_revisions.rs
+@@ -188,9 +188,6 @@
+ 
+ #[test]
+ fn retained_old_snapshot_preserves_type_denotation_after_later_revisions() {
+-    use phalcom_semantic::types::TypeData;
+-    use phalcom_semantic::types::id::KindId;
+-
+     let module = ModuleId::resolved(
+         ResolvedProjectId::from_raw(1),
+         ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+@@ -208,16 +205,17 @@
+     let snapshot1 = update1.snapshot.clone();
+     let store_id = snapshot1.store.id();
+ 
+-    // Intern a test type directly into the session's store to get a known TypeId and TypeData
+-    let point_name_ty = session.store_mut().intern_with_kind(
+-        TypeData::Nominal {
+-            declaration: phalcom_semantic::identity::DeclarationId::new(module.clone(), "Point".into()),
+-        },
+-        KindId::TYPE,
+-    );
+-    let original_data = session.store().get(point_name_ty).clone();
+-
+-    // Perform revisions 2 and 3 that intern unrelated types
++    // Capture an actual TypeId that was already published in revision 1.
++    // Interning a fresh type after snapshot publication would not prove that
++    // the retained snapshot can still interpret its own historical IDs.
++    let point_decl = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Point".into());
++    let point_ty = snapshot1
++        .declarations
++        .form(&point_decl)
++        .expect("Point form must be present in revision-1 snapshot");
++    let original_data = snapshot1.store.get(point_ty).clone();
++
++    // Perform revisions 2 and 3 that intern unrelated types.
+     let src2 = "class Other { _v: String = \"\" }";
+     let input2 = build_input(module.clone(), src2, 2);
+     let update2 = session.update(input2);
+@@ -226,13 +224,15 @@
+     let input3 = build_input(module.clone(), src3, 3);
+     let update3 = session.update(input3);
+ 
+-    // Verify snapshot 1 retains the exact TypeData for point_name_ty
+     assert_eq!(snapshot1.store.id(), store_id);
+     assert_eq!(update2.snapshot.store.id(), store_id);
+     assert_eq!(update3.snapshot.store.id(), store_id);
+ 
+-    // Later session store also preserves the original type data
+-    assert_eq!(session.store().get(point_name_ty), &original_data);
++    // The retained immutable snapshot must still interpret its own TypeId
++    // exactly as it did when it was published.
++    assert_eq!(snapshot1.store.get(point_ty), &original_data);
++    // The append-only live store must preserve the same historical slot too.
++    assert_eq!(session.store().get(point_ty), &original_data);
+ }
+ 
+ #[test]
+--- a/phalcom-semantic/tests/workspace.rs
++++ b/phalcom-semantic/tests/workspace.rs
+@@ -715,3 +715,122 @@
+     assert_eq!(parcel_binding.current.ty(), Some(parcel_form), "parcel must be formally known as Parcel");
+     assert_eq!(shipment_binding.current.ty(), Some(shipment_form), "shipment must be formally known as Shipment");
+ }
++
++#[test]
++fn constructor_surface_uses_self_and_inherited_dispatch_only_specializes_self() {
++    use phalcom_semantic::types::{SelfRole, TypeData};
++
++    let module = ModuleId::core();
++    let source: Arc<str> = Arc::from(
++        r#"
++class Base {
++  @constructor
++  new() {}
++
++  @class
++  ordinary() -> Base {
++    Base.new()
++  }
++}
++
++class Derived is Base {}
++
++class Probe {
++  @class
++  test {
++    const made = Derived.new()
++    const ordinary = Derived.ordinary()
++  }
++}
++"#,
++    );
++    let program = Arc::new(phalcom_ast::parse(&source, 0).program);
++    let analysis = analyze_single_module(module.clone(), source, program);
++    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
++
++    let base_decl = DeclarationId::new(module.clone(), "Base".into());
++    let derived_decl = DeclarationId::new(module.clone(), "Derived".into());
++    let base_form = analysis.snapshot.declarations.form(&base_decl).expect("Base form");
++    let derived_form = analysis.snapshot.declarations.form(&derived_decl).expect("Derived form");
++
++    let new_selector = phalcom_common::selector::Selector::method("new", Vec::new()).unwrap();
++    let base_surface = analysis.snapshot.surfaces.get(&base_decl).expect("Base surface");
++    let constructor = base_surface
++        .get_callable(phalcom_semantic::identity::DispatchSide::Class, &new_selector)
++        .expect("public constructor signature");
++    let constructor_return = constructor.return_type.ty().expect("known constructor return");
++    assert!(
++        matches!(
++            analysis.snapshot.store.get(constructor_return),
++            TypeData::SelfType(term)
++                if term.owner == base_decl
++                    && term.side == phalcom_semantic::identity::DispatchSide::Class
++                    && term.role == SelfRole::InstanceType
++        ),
++        "constructor declaration must publish receiver-relative Self rather than Base",
++    );
++
++    let initializer_selector = phalcom_common::selector::Selector::method("init new", Vec::new()).unwrap();
++    let initializer = base_surface
++        .get_callable(phalcom_semantic::identity::DispatchSide::Instance, &initializer_selector)
++        .expect("hidden instance-side initializer signature");
++    let initializer_return = initializer.return_type.ty().expect("known initializer return");
++    assert!(
++        matches!(
++            analysis.snapshot.store.get(initializer_return),
++            TypeData::SelfType(term)
++                if term.owner == base_decl
++                    && term.side == phalcom_semantic::identity::DispatchSide::Instance
++                    && term.role == SelfRole::ReceiverValue
++        ),
++        "initializer body must have receiver-value Self rather than reusing the public factory identity",
++    );
++    assert!(
++        base_surface
++            .get_callable(phalcom_semantic::identity::DispatchSide::Instance, &new_selector)
++            .is_none(),
++        "source constructor must not invent an instance-side `new` callable",
++    );
++
++    let initializer_callable = phalcom_semantic::identity::CallableId::new(
++        base_decl.clone(),
++        initializer_selector,
++        phalcom_semantic::identity::DispatchSide::Instance,
++    );
++    assert!(
++        analysis.snapshot.callable_analyses.contains_key(&initializer_callable),
++        "constructor body analysis must be keyed by the hidden initializer CallableId",
++    );
++    let fake_instance_new = phalcom_semantic::identity::CallableId::new(
++        base_decl.clone(),
++        new_selector.clone(),
++        phalcom_semantic::identity::DispatchSide::Instance,
++    );
++    assert!(
++        !analysis.snapshot.callable_analyses.contains_key(&fake_instance_new),
++        "constructor body analysis must not use a fabricated instance-side `new` CallableId",
++    );
++
++    let probe_decl = DeclarationId::new(module.clone(), "Probe".into());
++    let test_selector = phalcom_common::selector::Selector::getter("test").unwrap();
++    let test_callable = phalcom_semantic::identity::CallableId::new(
++        probe_decl,
++        test_selector,
++        phalcom_semantic::identity::DispatchSide::Class,
++    );
++    let test_analysis = analysis
++        .snapshot
++        .callable_analyses
++        .get(&test_callable)
++        .expect("Probe.test analysis");
++
++    let made = test_analysis.bindings.values().find(|binding| binding.name == "made").expect("made binding");
++    let ordinary = test_analysis
++        .bindings
++        .values()
++        .find(|binding| binding.name == "ordinary")
++        .expect("ordinary binding");
++
++    assert_eq!(made.current.ty(), Some(derived_form), "inherited constructor Self specializes to Derived");
++    assert_eq!(ordinary.current.ty(), Some(base_form), "ordinary explicit -> Base must remain Base");
++}

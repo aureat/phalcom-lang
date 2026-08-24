@@ -16,7 +16,7 @@ pub use dependency::{DependencyEdge, DependencyIndex, DependencyRecorder};
 pub use key::{InputFingerprint, ProductFingerprint, QueryKey};
 pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
-pub use query::query_callable_body;
+pub use query::{query_callable_body, query_callable_signature, query_declaration_surface, query_hierarchy_edge};
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
 
@@ -131,11 +131,13 @@ impl SemanticDb {
         self.query_states.get(key).and_then(|s| s.product_fingerprint())
     }
 
-    /// Validates whether a query result is structurally reusable:
-    /// 1. Query must be in `Ready` state.
-    /// 2. Stored `input_fingerprint` must equal the requested `input_fingerprint`.
-    /// 3. Every recorded dependency edge must currently be in `Ready` state with
-    ///    its current `product_fingerprint` equal to the `observed_fingerprint` when the edge was recorded.
+    /// Checks whether a stored query product is eligible for reuse.
+    ///
+    /// Reuse requires an unchanged direct input plus dependency products that
+    /// have already been validated in the current semantic revision. The
+    /// dependency's computation revision is deliberately irrelevant: an older
+    /// product remains reusable after current-revision validation if its semantic
+    /// product fingerprint is unchanged.
     pub fn is_reusable(&self, key: &QueryKey, input_fingerprint: InputFingerprint) -> bool {
         let Some(state) = self.query_states.get(key) else {
             return false;
@@ -149,6 +151,7 @@ impl SemanticDb {
         if *stored_input_fp != input_fingerprint {
             return false;
         }
+
         let Some(deps) = self.index.dependencies_of(key) else {
             return true;
         };
@@ -157,28 +160,69 @@ impl SemanticDb {
                 return false;
             };
             let QueryState::Ready {
+                validated_revision,
                 product_fingerprint: dep_prod_fp,
                 ..
             } = dep_state else {
                 return false;
             };
-            if *dep_prod_fp != edge.observed_fingerprint {
+            let declaration_surface_source_prerequisite = matches!(key, &QueryKey::DeclarationSurface(_))
+                && matches!(&edge.dependency, &QueryKey::ParsedModule(_));
+            if *validated_revision != self.revision
+                || (!declaration_surface_source_prerequisite && *dep_prod_fp != edge.observed_fingerprint)
+            {
                 return false;
             }
         }
         true
     }
 
-    /// Records a dependency edge using the current `Ready` product fingerprint of the dependency.
+    /// Validates a cached query for the current revision and marks it reusable.
+    ///
+    /// This advances only the query's validation revision. The original
+    /// computation revision and product fingerprint remain unchanged.
+    pub fn validate_reuse(&mut self, key: &QueryKey, input_fingerprint: InputFingerprint) -> bool {
+        if !self.is_reusable(key, input_fingerprint) {
+            return false;
+        }
+
+        let current_revision = self.revision;
+        let Some(QueryState::Ready { validated_revision, .. }) = self.query_states.get_mut(key) else {
+            return false;
+        };
+        *validated_revision = current_revision;
+        true
+    }
+
+    /// Records an edge to a dependency validated for the current revision.
+    ///
+    /// A stored `Ready` product from an older revision is insufficient until its
+    /// own query has been revalidated. This prevents a dependent from observing
+    /// stale transitive state merely because an old product fingerprint is still
+    /// present in the cache.
     pub fn record_dependency(
         &self,
         recorder: &mut DependencyRecorder,
         dependency: QueryKey,
     ) -> Result<(), String> {
-        let Some(fp) = self.ready_product_fingerprint(&dependency) else {
+        let Some(state) = self.query_states.get(&dependency) else {
             return Err(format!("query dependency {:?} is not Ready", dependency));
         };
-        recorder.record(dependency, fp);
+        let QueryState::Ready {
+            validated_revision,
+            product_fingerprint,
+            ..
+        } = state else {
+            return Err(format!("query dependency {:?} is not Ready", dependency));
+        };
+        if *validated_revision != self.revision {
+            return Err(format!(
+                "query dependency {:?} is Ready but not validated for current revision {:?}",
+                dependency, self.revision
+            ));
+        }
+
+        recorder.record(dependency, *product_fingerprint);
         Ok(())
     }
 
@@ -200,6 +244,7 @@ impl SemanticDb {
             key.clone(),
             QueryState::Ready {
                 revision,
+                validated_revision: revision,
                 input_fingerprint,
                 product_fingerprint,
                 value,
@@ -208,6 +253,28 @@ impl SemanticDb {
         self.products.remove(&key);
         self.metrics.record_hit();
         Ok(())
+    }
+
+    /// Discards one query so it can be recomputed without eagerly deleting dependents.
+    ///
+    /// Incoming reverse-dependency edges are intentionally preserved. Dependents retain
+    /// their previous ready products until they are queried, at which point generic
+    /// dependency-fingerprint validation decides whether they can be revalidated or
+    /// must recompute. This is the product-stability propagation primitive: if this
+    /// query republishes the same product fingerprint, downstream queries can reuse
+    /// their existing products even though this query was recomputed in a newer revision.
+    ///
+    /// The last-known-good product is also preserved for cancellation/failure fallback.
+    pub fn discard_for_recompute(&mut self, key: &QueryKey) -> bool {
+        let had_state = self.query_states.remove(key).is_some();
+        let had_product = self.products.remove(key).is_some();
+        self.index.remove_dependencies(key);
+        if had_state || had_product {
+            self.metrics.record_invalidation();
+            true
+        } else {
+            false
+        }
     }
 
     /// Publishes a lossless typed product alongside its query state.
@@ -246,5 +313,18 @@ impl SemanticDb {
             self.metrics.record_invalidation();
         }
         closure
+    }
+
+    /// Invalidates only supplied query roots, preserving cached dependents until
+    /// the refreshed root product proves whether their fingerprints changed.
+    pub fn invalidate_roots(&mut self, roots: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
+        let roots: BTreeSet<_> = roots.into_iter().collect();
+        for key in &roots {
+            self.query_states.remove(key);
+            self.products.remove(key);
+            self.index.remove_dependencies(key);
+            self.metrics.record_invalidation();
+        }
+        roots
     }
 }

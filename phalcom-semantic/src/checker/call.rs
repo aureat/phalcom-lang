@@ -21,7 +21,7 @@ pub fn check_arguments(ctx: &mut CheckingContext<'_>, args: &[Expr], param_types
         if let Some(param_k) = param_types.get(i) {
             enforce_assignability(
                 ctx.store,
-                ctx.hierarchy,
+                &ctx.hierarchy,
                 &arg_typed.knowledge,
                 param_k,
                 &ctx.current_module,
@@ -139,7 +139,7 @@ pub fn resolve_call(
                 }
             }
 
-            let outcome = session.solve(ctx.store, ctx.hierarchy);
+            let outcome = session.solve(ctx.store, &ctx.hierarchy);
             return match outcome {
                 crate::checker::inference::InferenceOutcome::Solved(solution) => {
                     if let Some(ret_ty) = signature.return_type.ty() {
@@ -191,7 +191,7 @@ pub fn resolve_call(
                 if let Some(param) = matched_param {
                     enforce_assignability(
                         ctx.store,
-                        ctx.hierarchy,
+                        &ctx.hierarchy,
                         &arg_typed.knowledge,
                         &param.ty,
                         &ctx.current_module,
@@ -218,7 +218,7 @@ pub fn resolve_call(
                     if let Some(param) = matched_param {
                         enforce_assignability(
                             ctx.store,
-                            ctx.hierarchy,
+                            &ctx.hierarchy,
                             &arg_typed.knowledge,
                             &param.ty,
                             &ctx.current_module,

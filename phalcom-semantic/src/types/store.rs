@@ -68,7 +68,7 @@ pub enum TypeData {
 pub struct TypeStore {
     id: TypeStoreId,
     types: Vec<TypeData>,
-    type_to_id: HashMap<TypeData, TypeId>,
+    type_to_id: HashMap<(TypeData, KindId), TypeId>,
     kinds: Vec<KindData>,
     kind_to_id: HashMap<KindData, KindId>,
     type_kinds: Vec<KindId>,
@@ -135,13 +135,29 @@ impl TypeStore {
 
     pub fn intern_type_parameter(&mut self, data: TypeParameterData) -> TypeParameterId {
         let key = (data.owner.clone(), data.index);
-        let variance = data.variance;
         if let TypeParameterOwner::Declaration(ref decl) = data.owner {
-            self.parameter_variances.insert((decl.clone(), data.index), variance);
+            self.parameter_variances.insert((decl.clone(), data.index), data.variance);
         }
+
         if let Some(&id) = self.parameter_to_id.get(&key) {
-            return id;
+            let existing = &self.type_parameters[id.index()];
+            let same_semantics = existing.name == data.name
+                && existing.kind == data.kind
+                && existing.variance == data.variance;
+
+            if same_semantics {
+                // Source provenance is revision-local presentation data, not semantic
+                // identity. Refresh it in the live store while retained snapshot clones
+                // continue to preserve the provenance from their own revision.
+                self.type_parameters[id.index()].source = data.source;
+                return id;
+            }
         }
+
+        // `(owner, index)` identifies the current binder slot, not an eternal arena
+        // object. If the slot's semantic meaning changes, allocate a new parameter
+        // version rather than mutating the old one. Cached products and retained
+        // snapshots may still reference the previous ID and must keep its denotation.
         let id = TypeParameterId(self.type_parameters.len() as u32);
         self.type_parameters.push(data);
         self.parameter_to_id.insert(key, id);
@@ -287,15 +303,19 @@ impl TypeStore {
     }
 
     pub fn intern_with_kind(&mut self, data: TypeData, kind: KindId) -> TypeId {
-        if let Some(&id) = self.type_to_id.get(&data) {
-            debug_assert_eq!(self.type_kinds[id.index()], kind);
+        // Kind is part of a canonical type form's identity. This matters for a
+        // persistent store: the same declaration or parameter payload can acquire a
+        // different kind in a later semantic revision, and the old TypeId must retain
+        // its original denotation for cached products and retained snapshots.
+        let key = (data.clone(), kind);
+        if let Some(&id) = self.type_to_id.get(&key) {
             return id;
         }
 
         let id = TypeId(self.types.len() as u32);
-        self.types.push(data.clone());
+        self.types.push(data);
         self.type_kinds.push(kind);
-        self.type_to_id.insert(data, id);
+        self.type_to_id.insert(key, id);
         debug_assert_eq!(self.types.len(), self.type_kinds.len());
         id
     }

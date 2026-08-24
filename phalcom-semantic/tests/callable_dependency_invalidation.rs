@@ -6,6 +6,7 @@ use phalcom_modules::interface::{InterfaceBuilder, LinkedExport, LinkedExportTar
 use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
+use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -87,7 +88,6 @@ class Consumer {
     let consumer_decl = DeclarationId::new(module.clone(), "Consumer".into());
     let consumer_read_id = CallableId::new(consumer_decl, Selector::method("read", []).unwrap(), DispatchSide::Class);
     let consumer_analysis_v1 = update1.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read analysis v1");
-
     // Revision 2: Callee return type changes from Int to String
     let src2 = r#"
 class Api {
@@ -424,4 +424,96 @@ class Unrelated {
 
     let worker_compute_v2 = update2.snapshot.callable_analyses.get(&worker_compute_id).cloned().expect("Worker.compute v2");
     assert!(Arc::ptr_eq(&worker_compute_v1, &worker_compute_v2), "Worker.compute Arc MUST be reused across unrelated edits");
+}
+
+#[test]
+fn case_g_constructor_body_depends_on_class_side_constructor_signature() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+
+    let source = r#"
+class Base {
+  @constructor
+  new() {}
+}
+"#;
+
+    let update = session.update(single_module_input(module.clone(), source, 1));
+    assert!(!update.snapshot.has_errors());
+
+    let owner = DeclarationId::new(module, "Base".into());
+    let selector = Selector::method("new", []).unwrap();
+    let body_callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+    let signature_callable = CallableId::new(owner, selector, DispatchSide::Class);
+    let body_key = QueryKey::CallableBody(body_callable.clone());
+    let expected_signature_key = QueryKey::CallableSignature(signature_callable);
+    let wrong_instance_signature_key = QueryKey::CallableSignature(body_callable);
+
+    let dependencies = session
+        .db()
+        .index()
+        .dependencies_of(&body_key)
+        .expect("constructor body query must retain semantic dependency edges");
+
+    assert!(
+        dependencies.iter().any(|edge| edge.dependency == expected_signature_key),
+        "constructor body must depend on the class-side constructor signature it consumes"
+    );
+    assert!(
+        dependencies.iter().all(|edge| edge.dependency != wrong_instance_signature_key),
+        "constructor body must not record the synthetic instance-side body identity as its signature dependency"
+    );
+}
+
+#[test]
+fn case_h_builtin_seed_dispatch_does_not_require_unpublished_db_products() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source = r#"
+class Main {
+  @class value() -> Int { 1 + 2 }
+}
+"#;
+
+    let update = session.update(single_module_input(module.clone(), source, 1));
+    let owner = DeclarationId::new(module, "Main".into());
+    let callable = CallableId::new(owner, Selector::method("value", []).unwrap(), DispatchSide::Class);
+    assert!(
+        update.snapshot.callable_analyses.contains_key(&callable),
+        "builtin dispatch must not fail closed on legacy core surfaces that have no DB query products"
+    );
+}
+
+#[test]
+fn case_i_unannotated_callable_uses_surface_dependency_without_missing_signature_product() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source = r#"
+class Untyped {
+  value() { 1 }
+}
+"#;
+
+    let update = session.update(single_module_input(module.clone(), source, 1));
+    let owner = DeclarationId::new(module, "Untyped".into());
+    let callable = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
+    let body_key = QueryKey::CallableBody(callable.clone());
+
+    assert!(update.snapshot.callable_analyses.contains_key(&callable));
+    let dependencies = session
+        .db()
+        .index()
+        .dependencies_of(&body_key)
+        .expect("unannotated callable body must retain its declaration-surface dependency");
+    assert!(dependencies.iter().any(|edge| edge.dependency == QueryKey::DeclarationSurface(owner.clone())));
+    assert!(dependencies.iter().all(|edge| edge.dependency != QueryKey::CallableSignature(callable.clone())));
 }
