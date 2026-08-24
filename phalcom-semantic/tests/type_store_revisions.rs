@@ -3,10 +3,10 @@ use phalcom_modules::interface::InterfaceBuilder;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
-use phalcom_semantic::session::SemanticWorkspaceSession;
-use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::session::SemanticWorkspaceSession;
+use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -42,20 +42,10 @@ fn build_input(module: ModuleId, source_code: &str, generation: u64) -> Semantic
     let mut sources = BTreeMap::new();
     sources.insert(
         module.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            module,
-            ModuleKind::Module,
-            None,
-            Arc::from(source_code),
-            program,
-        )),
+        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source_code), program)),
     );
 
-    SemanticWorkspaceInput {
-        linked,
-        sources,
-        generation,
-    }
+    SemanticWorkspaceInput { linked, sources, generation }
 }
 
 #[test]
@@ -312,13 +302,18 @@ fn generic_parameter_source_moves_refresh_provenance_without_changing_semantic_i
     );
     let retained = store.clone();
     let second = store.intern_type_parameter(
-        TypeParameterData::new(owner, 0, "T", KindId::TYPE)
-            .with_source(SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::new(50, 51))),
+        TypeParameterData::new(owner, 0, "T", KindId::TYPE).with_source(SemanticSourceSpan::new(module, phalcom_common::range::SourceRange::new(50, 51))),
     );
 
     assert_eq!(first, second, "source-only movement must not perturb semantic type identity");
-    assert_eq!(retained.type_parameter(first).source.as_ref().unwrap().range, phalcom_common::range::SourceRange::new(1, 2));
-    assert_eq!(store.type_parameter(second).source.as_ref().unwrap().range, phalcom_common::range::SourceRange::new(50, 51));
+    assert_eq!(
+        retained.type_parameter(first).source.as_ref().unwrap().range,
+        phalcom_common::range::SourceRange::new(1, 2)
+    );
+    assert_eq!(
+        store.type_parameter(second).source.as_ref().unwrap().range,
+        phalcom_common::range::SourceRange::new(50, 51)
+    );
 }
 
 #[test]
@@ -334,7 +329,11 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
 
     let update1 = session.update(build_input(module.clone(), "class Holder<F: Type -> Type> {}", 1));
     assert!(!update1.snapshot.has_errors());
-    let signature1 = update1.snapshot.declarations.generic_signature(&declaration).expect("revision-1 generic signature");
+    let signature1 = update1
+        .snapshot
+        .declarations
+        .generic_signature(&declaration)
+        .expect("revision-1 generic signature");
     let parameter1 = signature1.parameters[0];
     let mut snapshot_store1 = (*update1.snapshot.store).clone();
     let parameter_form1 = snapshot_store1.parameter_form(parameter1);
@@ -344,7 +343,11 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
 
     let update2 = session.update(build_input(module, "class Holder<F> {}", 2));
     assert!(!update2.snapshot.has_errors());
-    let signature2 = update2.snapshot.declarations.generic_signature(&declaration).expect("revision-2 generic signature");
+    let signature2 = update2
+        .snapshot
+        .declarations
+        .generic_signature(&declaration)
+        .expect("revision-2 generic signature");
     let parameter2 = signature2.parameters[0];
     let mut snapshot_store2 = (*update2.snapshot.store).clone();
     let parameter_form2 = snapshot_store2.parameter_form(parameter2);
@@ -352,7 +355,10 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
 
     assert_ne!(parameter1, parameter2, "kind edit must version the generic parameter identity");
     assert_ne!(parameter_form1, parameter_form2, "kind edit must version the parameter TypeId");
-    assert_ne!(declaration_form1, declaration_form2, "declaration forms with different kinds must not alias in the TypeStore");
+    assert_ne!(
+        declaration_form1, declaration_form2,
+        "declaration forms with different kinds must not alias in the TypeStore"
+    );
     assert_eq!(update1.snapshot.store.type_parameter(parameter1).kind, parameter_kind1);
     assert_eq!(update1.snapshot.store.kind_of(parameter_form1), parameter_kind1);
     assert_eq!(update2.snapshot.store.type_parameter(parameter2).kind, KindId::TYPE);
@@ -392,6 +398,10 @@ class Consumer {
     let consumer_state2 = session.db().query_state(&consumer_surface).expect("updated consumer surface");
 
     assert_ne!(shell_fp1, shell_fp2, "generic kind edit must change declaration-shell semantics");
-    assert_ne!(consumer_revision1, consumer_state2.revision(), "dependent surface must recompute through shell product");
+    assert_ne!(
+        consumer_revision1,
+        consumer_state2.revision(),
+        "dependent surface must recompute through shell product"
+    );
     assert_eq!(consumer_state2.validated_revision(), Some(update2.snapshot.id.revision()));
 }

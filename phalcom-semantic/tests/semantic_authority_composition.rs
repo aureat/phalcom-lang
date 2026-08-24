@@ -42,11 +42,7 @@ fn named_callable(analysis: &Analysis, module: &ModuleId, owner: &str, name: &st
         .snapshot
         .callable_analyses
         .keys()
-        .filter(|id| {
-            id.owner == owner
-                && id.side == side
-                && matches!(&id.selector.base, SelectorBase::Named(base) if base == name)
-        })
+        .filter(|id| id.owner == owner && id.side == side && matches!(&id.selector.base, SelectorBase::Named(base) if base == name))
         .cloned()
         .collect::<Vec<_>>();
     assert_eq!(matches.len(), 1, "expected one callable {owner:?}.{name} on {side:?}: {matches:#?}");
@@ -91,7 +87,11 @@ fn diagnostics(analysis: &Analysis, code: DiagnosticCode) -> Vec<&SemanticDiagno
 }
 
 fn assert_method_call_evidence(analysis: &CallableAnalysis, expression: &ExpressionAnalysis, expected_type: TypeId) {
-    assert_eq!(expression.knowledge.ty(), Some(expected_type), "expected method call to be proven to return {expected_type:?}: {expression:#?}");
+    assert_eq!(
+        expression.knowledge.ty(),
+        Some(expected_type),
+        "expected method call to be proven to return {expected_type:?}: {expression:#?}"
+    );
     let explanation_id = expression.explanation.expect("known method call must retain explanation evidence");
     let node = analysis
         .explanations
@@ -548,10 +548,7 @@ class Probe {
     let x = binding(run, "x");
     assert_eq!(x.declared, Some(number_ty));
     assert_eq!(x.current.ty(), Some(int_ty));
-    assert_eq!(
-        x.current.authority(),
-        Some(EvidenceAuthority::ExactSyntax)
-    );
+    assert_eq!(x.current.authority(), Some(EvidenceAuthority::ExactSyntax));
 
     assert!(matches!(
         check_assignability(
@@ -611,6 +608,10 @@ class Probe {
     for name in ["explicit", "tail", "binding", "abrupt"] {
         let id = zero_arg_callable(&module, "Probe", name, DispatchSide::Class);
         let body = callable_analysis(&analysis, &id);
-        assert_eq!(body.exits.normal_return_values.len(), if name == "abrupt" { 0 } else { 1 }, "summary paths for {name}");
+        assert_eq!(
+            body.exits.normal_return_values.len(),
+            if name == "abrupt" { 0 } else { 1 },
+            "summary paths for {name}"
+        );
     }
 }

@@ -33,13 +33,7 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
         entry: module.clone(),
         initialization_order: vec![module.clone()],
     });
-    let unit = Arc::new(ParsedModuleUnit::new(
-        module.clone(),
-        ModuleKind::Module,
-        None,
-        Arc::from(source),
-        program,
-    ));
+    let unit = Arc::new(ParsedModuleUnit::new(module.clone(), ModuleKind::Module, None, Arc::from(source), program));
 
     SemanticWorkspaceInput {
         linked,
@@ -73,11 +67,7 @@ class Consumer {
     let consumer = DeclarationId::new(module.clone(), "Consumer".into());
     let selector = Selector::method("value", []).unwrap();
     let api_value = CallableId::new(api.clone(), selector, DispatchSide::Class);
-    let consumer_read = CallableId::new(
-        consumer,
-        Selector::method("read", []).unwrap(),
-        DispatchSide::Class,
-    );
+    let consumer_read = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
 
     let stable_keys = [
         QueryKey::LinkedInterface(module.clone()),
@@ -133,10 +123,7 @@ class Consumer {
 
     assert_eq!(update2.stats.callables_recomputed, 1);
     assert_eq!(update2.stats.callables_reused, 1);
-    assert!(Arc::ptr_eq(
-        &consumer_v1,
-        update2.snapshot.callable_analyses.get(&consumer_read).unwrap()
-    ));
+    assert!(Arc::ptr_eq(&consumer_v1, update2.snapshot.callable_analyses.get(&consumer_read).unwrap()));
 }
 
 #[test]
@@ -311,21 +298,9 @@ class Unrelated {
     let api = DeclarationId::new(module.clone(), "Api".into());
     let consumer = DeclarationId::new(module.clone(), "Consumer".into());
     let unrelated = DeclarationId::new(module.clone(), "Unrelated".into());
-    let api_value = CallableId::new(
-        api.clone(),
-        Selector::method("value", []).unwrap(),
-        DispatchSide::Class,
-    );
-    let consumer_read = CallableId::new(
-        consumer,
-        Selector::method("read", []).unwrap(),
-        DispatchSide::Class,
-    );
-    let unrelated_stable = CallableId::new(
-        unrelated,
-        Selector::method("stable", []).unwrap(),
-        DispatchSide::Class,
-    );
+    let api_value = CallableId::new(api.clone(), Selector::method("value", []).unwrap(), DispatchSide::Class);
+    let consumer_read = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
+    let unrelated_stable = CallableId::new(unrelated, Selector::method("stable", []).unwrap(), DispatchSide::Class);
     let unrelated_v1 = update1
         .snapshot
         .callable_analyses
@@ -351,29 +326,17 @@ class Unrelated {
     let rev2 = update2.snapshot.id.revision();
 
     assert_eq!(
-        session
-            .db()
-            .query_state(&QueryKey::DeclarationSurface(api.clone()))
-            .unwrap()
-            .revision(),
+        session.db().query_state(&QueryKey::DeclarationSurface(api.clone())).unwrap().revision(),
         Some(rev2),
         "public member contract change must recompute the owning declaration surface"
     );
     assert_eq!(
-        session
-            .db()
-            .query_state(&QueryKey::CallableSignature(api_value.clone()))
-            .unwrap()
-            .revision(),
+        session.db().query_state(&QueryKey::CallableSignature(api_value.clone())).unwrap().revision(),
         Some(rev2),
         "callable signature product must change with the declared return type"
     );
     assert_eq!(
-        session
-            .db()
-            .query_state(&QueryKey::CallableBody(consumer_read))
-            .unwrap()
-            .revision(),
+        session.db().query_state(&QueryKey::CallableBody(consumer_read)).unwrap().revision(),
         Some(rev2),
         "unchanged caller body must recompute because its consumed callable contract changed"
     );
@@ -384,10 +347,7 @@ class Unrelated {
         .expect("unrelated body query");
     assert_eq!(unrelated_state.revision(), Some(rev1));
     assert_eq!(unrelated_state.validated_revision(), Some(rev2));
-    assert!(Arc::ptr_eq(
-        &unrelated_v1,
-        update2.snapshot.callable_analyses.get(&unrelated_stable).unwrap()
-    ));
+    assert!(Arc::ptr_eq(&unrelated_v1, update2.snapshot.callable_analyses.get(&unrelated_stable).unwrap()));
 }
 
 #[test]
@@ -455,20 +415,12 @@ class Unrelated {
     let rev2 = update2.snapshot.id.revision();
 
     assert_eq!(
-        session
-            .db()
-            .query_state(&QueryKey::HierarchyEdge(child))
-            .unwrap()
-            .revision(),
+        session.db().query_state(&QueryKey::HierarchyEdge(child)).unwrap().revision(),
         Some(rev2),
         "changed direct superclass must recompute exactly that hierarchy edge"
     );
     assert_eq!(
-        session
-            .db()
-            .query_state(&QueryKey::CallableBody(consumer_read))
-            .unwrap()
-            .revision(),
+        session.db().query_state(&QueryKey::CallableBody(consumer_read)).unwrap().revision(),
         Some(rev2),
         "dispatch consumer must recompute when its visited hierarchy path changes"
     );
@@ -479,8 +431,5 @@ class Unrelated {
         .expect("unrelated body query");
     assert_eq!(unrelated_state.revision(), Some(rev1));
     assert_eq!(unrelated_state.validated_revision(), Some(rev2));
-    assert!(Arc::ptr_eq(
-        &unrelated_v1,
-        update2.snapshot.callable_analyses.get(&unrelated_stable).unwrap()
-    ));
+    assert!(Arc::ptr_eq(&unrelated_v1, update2.snapshot.callable_analyses.get(&unrelated_stable).unwrap()));
 }

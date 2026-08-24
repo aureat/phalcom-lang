@@ -6,7 +6,7 @@ use phalcom_semantic::checker::context::CheckingContext;
 use phalcom_semantic::checker::expected::ExpectedType;
 use phalcom_semantic::checker::expression::{analyze_expression, check_expr};
 use phalcom_semantic::checker::statement::check_statement;
-use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeTable};
+use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId};
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
 use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};

@@ -1,18 +1,18 @@
 //! Compiler-owned incremental workspace session (Spec 04.5 / Wave 5 / Tasks 16-18).
 
-use crate::checker::context::CheckingContext;
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::body::analyze_callable_body;
+use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
+use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
-    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, semantic_signature_from_surface,
-    query_hierarchy_edge, query_linked_interface, query_unlinked_interface, FormalQueryInputs,
+    FormalQueryInputs, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
+    query_hierarchy_edge, query_linked_interface, query_unlinked_interface, semantic_signature_from_surface,
 };
 use crate::db::state::QueryOutcome;
-use crate::db::SemanticDb;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
@@ -93,9 +93,7 @@ impl SemanticWorkspaceSession {
         let db = SemanticDb::with_workspace(workspace);
         let mut store = TypeStore::new();
 
-        let base_declarations = bootstrap_universe_declarations(&mut store, &|key| {
-            DeclarationId::new(ModuleId::core(), key.name().into())
-        });
+        let base_declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::core(), key.name().into()));
 
         let mut base_hierarchy = MapTypeHierarchy::new();
         for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
@@ -419,7 +417,8 @@ impl SemanticWorkspaceSession {
                             type_parameters: type_params_map,
                         };
                         let mut diags = Vec::new();
-                        let form_res = crate::types::annotation::resolve_type_form(&mut self.store, &declarations, &scoped_resolver, module_id, super_ann, &mut diags);
+                        let form_res =
+                            crate::types::annotation::resolve_type_form(&mut self.store, &declarations, &scoped_resolver, module_id, super_ann, &mut diags);
                         let super_ty = match form_res {
                             crate::types::annotation::TypeFormResolution::Known(ty) => Some(ty),
                             crate::types::annotation::TypeFormResolution::Dynamic | crate::types::annotation::TypeFormResolution::Unknown(_) => None,
@@ -472,11 +471,7 @@ impl SemanticWorkspaceSession {
 
         // Publish/validate linked-interface prerequisites before declaration queries.
         for (module_id, linked_mod) in &input.linked.modules {
-            match query_linked_interface(
-                &mut self.db,
-                module_id.clone(),
-                Arc::new(linked_mod.interface.clone()),
-            ) {
+            match query_linked_interface(&mut self.db, module_id.clone(), Arc::new(linked_mod.interface.clone())) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                 QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -497,13 +492,7 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     let class_decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                    let edge = match query_hierarchy_edge(
-                        &mut self.db,
-                        class_decl.clone(),
-                        parsed_unit.clone(),
-                        linked_interface.clone(),
-                        &resolver,
-                    ) {
+                    let edge = match query_hierarchy_edge(&mut self.db, class_decl.clone(), parsed_unit.clone(), linked_interface.clone(), &resolver) {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -563,10 +552,7 @@ impl SemanticWorkspaceSession {
                     .product(&QueryKey::DeclarationSurface(decl_id.clone()))
                     .and_then(|product| product.as_declaration_surface_diagnostics())
                 {
-                    diags_by_module
-                        .entry(module_id.clone())
-                        .or_default()
-                        .extend(diagnostics.iter().cloned());
+                    diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics.iter().cloned());
                 }
 
                 dispatch.register_surface(decl_id.clone(), (*surface).clone());
@@ -695,14 +681,7 @@ impl SemanticWorkspaceSession {
                 }
             }
 
-            let mut ctx = CheckingContext::new_with_dispatch_ref(
-                &mut self.store,
-                &hierarchy,
-                &resolver,
-                &declarations,
-                &dispatch,
-                module_id.clone(),
-            );
+            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
 
             for stmt in &parsed_unit.program.statements {
                 match stmt {
@@ -849,13 +828,11 @@ fn refresh_inferred_callable_results(
             .iter()
             .filter_map(|(callable, analysis)| {
                 let surface = dispatch.surfaces().get(&callable.owner)?;
-                let signature = surface
-                    .get_callable(callable.side, &callable.selector)
-                    .or_else(|| {
-                        (callable.side == crate::identity::DispatchSide::Instance)
-                            .then(|| surface.get_callable(crate::identity::DispatchSide::Class, &callable.selector))
-                            .flatten()
-                    })?;
+                let signature = surface.get_callable(callable.side, &callable.selector).or_else(|| {
+                    (callable.side == crate::identity::DispatchSide::Instance)
+                        .then(|| surface.get_callable(crate::identity::DispatchSide::Class, &callable.selector))
+                        .flatten()
+                })?;
                 if !signature.return_type.is_unknown() {
                     return None;
                 }
@@ -944,12 +921,9 @@ fn refresh_inferred_callable_results(
                         continue;
                     };
                     let callable = crate::identity::CallableId::new(decl_id.clone(), selector, side);
-                    let affected = callable_analyses
-                        .get(&callable)
-                        .is_some_and(|analysis| {
-                            changed_callables.contains(&callable)
-                                || analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency))
-                        });
+                    let affected = callable_analyses.get(&callable).is_some_and(|analysis| {
+                        changed_callables.contains(&callable) || analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency))
+                    });
                     if !affected {
                         continue;
                     }

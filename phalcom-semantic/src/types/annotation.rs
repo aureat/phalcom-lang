@@ -1,7 +1,7 @@
 //! Source type annotation resolution.
 
 use super::application::TypeApplicationError;
-use super::evidence::{DynamicReason, EvidenceAuthority, TypeEvidence, TypeKnowledge, UnknownReason};
+use super::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use super::id::KindId;
 use super::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
@@ -490,9 +490,11 @@ pub fn resolve_type_annotation(
                 ));
                 TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
             } else {
-                TypeKnowledge::Known(TypeEvidence {
+                TypeKnowledge::Known(super::evidence::TypeEvidence {
                     ty,
-                    authority: EvidenceAuthority::Declared,
+                    status: EvidenceStatus::Assumed,
+                    origin: EvidenceOrigin::DeveloperAnnotation,
+                    authority: super::evidence::EvidenceAuthority::Declared,
                     provenance: Default::default(),
                 })
                 .with_range(annotation.range)

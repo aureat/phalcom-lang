@@ -36,14 +36,7 @@ fn tracked_resolver_records_current_linked_interface_for_non_local_type() {
     let declarations = DeclarationTypeTable::new();
     let dispatch = SurfaceDispatchResolver::new();
 
-    let ctx = CheckingContext::new_with_dispatch_ref(
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &declarations,
-        &dispatch,
-        current.clone(),
-    );
+    let ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, current.clone());
 
     assert_eq!(ctx.resolver.resolve_type_name(&current, "External", &[]), Some(external.clone()));
 
@@ -62,14 +55,7 @@ fn unresolved_type_lookup_records_negative_linked_interface_dependency() {
     let declarations = DeclarationTypeTable::new();
     let dispatch = SurfaceDispatchResolver::new();
 
-    let ctx = CheckingContext::new_with_dispatch_ref(
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &declarations,
-        &dispatch,
-        current.clone(),
-    );
+    let ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, current.clone());
 
     assert_eq!(ctx.resolver.resolve_type_name(&current, "Missing", &[]), None);
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
@@ -123,11 +109,7 @@ fn builtin_seed_reads_do_not_create_query_dependencies() {
     let mut int_surface = DeclarationSurface::new(Some(int_decl.clone()));
     int_surface.add_callable(
         DispatchSide::Instance,
-        CallableSignature::new(
-            selector.clone(),
-            Vec::new(),
-            TypeKnowledge::known(int_ty, EvidenceAuthority::Declared),
-        ),
+        CallableSignature::new(selector.clone(), Vec::new(), TypeKnowledge::known(int_ty, EvidenceAuthority::Declared)),
     );
     dispatch.register_surface(int_decl.clone(), int_surface);
 
@@ -173,11 +155,7 @@ fn dispatch_lookup_records_surfaces_for_every_owner_inspected() {
     let mut base_surface = DeclarationSurface::new(Some(base.clone()));
     base_surface.add_callable(
         DispatchSide::Instance,
-        CallableSignature::new(
-            selector.clone(),
-            Vec::new(),
-            TypeKnowledge::known(child_ty, EvidenceAuthority::Declared),
-        ),
+        CallableSignature::new(selector.clone(), Vec::new(), TypeKnowledge::known(child_ty, EvidenceAuthority::Declared)),
     );
     dispatch.register_surface(base.clone(), base_surface);
 
@@ -186,11 +164,11 @@ fn dispatch_lookup_records_surfaces_for_every_owner_inspected() {
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(child)));
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(base.clone())));
-    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::CallableSignature(CallableId::new(
-        base,
-        selector,
-        DispatchSide::Instance,
-    ))));
+    assert!(
+        analysis
+            .semantic_dependencies
+            .contains(&SemanticDependency::CallableSignature(CallableId::new(base, selector, DispatchSide::Instance,)))
+    );
 }
 
 #[test]

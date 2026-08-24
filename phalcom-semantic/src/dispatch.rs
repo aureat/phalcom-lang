@@ -89,8 +89,7 @@ impl CallableSignature {
     /// Partial source signatures stay represented by their declaration surface until
     /// inference publishes a richer canonical signature product.
     pub fn has_complete_types(&self) -> bool {
-        self.return_type.ty().is_some()
-            && self.parameters.iter().all(|parameter| parameter.ty.ty().is_some())
+        self.return_type.ty().is_some() && self.parameters.iter().all(|parameter| parameter.ty.ty().is_some())
     }
 }
 
@@ -107,9 +106,7 @@ pub struct ResolvedDispatch {
 pub enum ResolvedDispatchResult {
     Found(ResolvedDispatch),
     Ambiguous(Vec<ResolvedDispatch>),
-    Missing {
-        visited_owners: Box<[DeclarationId]>,
-    },
+    Missing { visited_owners: Box<[DeclarationId]> },
     Dynamic,
 }
 
@@ -232,9 +229,7 @@ impl SurfaceDispatchResolver {
     ) -> DispatchResult {
         match self.resolve_dispatch_with_trace(hierarchy, start_decl, side, selector) {
             ResolvedDispatchResult::Found(rd) => DispatchResult::Found(rd.signature),
-            ResolvedDispatchResult::Ambiguous(amb) => {
-                DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect())
-            }
+            ResolvedDispatchResult::Ambiguous(amb) => DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect()),
             ResolvedDispatchResult::Missing { .. } => DispatchResult::Missing,
             ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
         }

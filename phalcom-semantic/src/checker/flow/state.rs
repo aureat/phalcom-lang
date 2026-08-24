@@ -1,9 +1,11 @@
 //! Path-sensitive flow state and binding tracking (Spec 04.5).
 
 use crate::checker::analysis::BindingState;
+use crate::checker::binding::{BindingConsistency, BindingContract, BindingContractOrigin};
+use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::predicate::FlowPredicate;
 use crate::identity::{BindingId, ExplanationId};
-use crate::types::evidence::TypeKnowledge;
+use crate::types::evidence::{TypeKnowledge, join_type_knowledge};
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
@@ -113,7 +115,25 @@ impl FlowState {
         initial: TypeKnowledge,
         mutable: bool,
     ) {
-        let state = BindingState::new(binding, name, range, declared, initial, mutable);
+        let contract = declared.map(|ty| BindingContract {
+            ty,
+            origin: BindingContractOrigin::SourceAnnotation,
+            source: Some(range),
+        });
+        self.declare_with_contract(binding, name, range, declared, contract, initial, mutable);
+    }
+
+    pub fn declare_with_contract(
+        &mut self,
+        binding: BindingId,
+        name: impl Into<String>,
+        range: SourceRange,
+        declared: Option<TypeId>,
+        contract: Option<BindingContract>,
+        initial: TypeKnowledge,
+        mutable: bool,
+    ) {
+        let state = BindingState::new_with_contract(binding, name, range, declared, contract, initial, None, mutable);
         self.bindings.insert(binding, state);
     }
 
@@ -159,8 +179,10 @@ impl FlowState {
         }
 
         for id in all_binding_ids {
-            let sample = reachable_states.iter().find_map(|s| s.bindings.get(&id));
-            if let Some(sample_binding) = sample {
+            let Some(sample_binding) = reachable_states.iter().find_map(|s| s.bindings.get(&id)) else {
+                continue;
+            };
+            if reachable_states.iter().all(|state| state.bindings.contains_key(&id)) {
                 let declared = sample_binding.declared;
                 let mutable = sample_binding.mutable;
                 let max_version = reachable_states
@@ -170,21 +192,31 @@ impl FlowState {
                     .max()
                     .unwrap_or(0);
 
-                // Union of all current types across branches
-                let types: Vec<TypeId> = reachable_states
+                let joined_knowledge = join_type_knowledge(
+                    store,
+                    reachable_states
+                        .iter()
+                        .filter_map(|state| state.bindings.get(&id).map(|binding| binding.current.clone())),
+                );
+
+                let mut b = sample_binding.clone();
+                b.declared = declared;
+                b.current = joined_knowledge;
+                b.mutable = mutable;
+                if reachable_states
                     .iter()
-                    .filter_map(|s| s.bindings.get(&id).and_then(|b| b.current.ty()))
-                    .collect();
-
-                let joined_knowledge = if types.len() == reachable_states.len() && !types.is_empty() {
-                    let union_ty = store.union(&types);
-                    TypeKnowledge::known(union_ty, crate::types::evidence::EvidenceAuthority::Proven)
-                } else {
-                    // Fall back to sample if types aren't all known
-                    sample_binding.current.clone()
-                };
-
-                let mut b = BindingState::new(id, sample_binding.name.clone(), sample_binding.range, declared, joined_knowledge, mutable);
+                    .any(|state| state.bindings.get(&id).is_some_and(|binding| binding.consistency != sample_binding.consistency))
+                {
+                    b.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
+                }
+                if reachable_states.iter().any(|state| {
+                    state
+                        .bindings
+                        .get(&id)
+                        .is_some_and(|binding| binding.causal_invalidity != sample_binding.causal_invalidity)
+                }) {
+                    b.causal_invalidity = CausalInvalidity::Multiple;
+                }
                 b.version = max_version + 1;
                 joined_bindings.insert(id, b);
             }
@@ -210,15 +242,10 @@ impl FlowState {
             if let Some(h_b) = header.bindings.get(id) {
                 if h_b.current != next_b.current {
                     let declared_ty = h_b.declared;
-                    let widened_knowledge = if let Some(decl) = declared_ty {
-                        TypeKnowledge::known(decl, crate::types::evidence::EvidenceAuthority::Declared)
-                    } else if let (Some(h_ty), Some(n_ty)) = (h_b.current.ty(), next_b.current.ty()) {
-                        let union_ty = store.union(&[h_ty, n_ty]);
-                        TypeKnowledge::known(union_ty, crate::types::evidence::EvidenceAuthority::Proven)
-                    } else {
-                        next_b.current.clone()
-                    };
-                    let mut wb = BindingState::new(*id, h_b.name.clone(), h_b.range, declared_ty, widened_knowledge, h_b.mutable);
+                    let widened_knowledge = join_type_knowledge(store, [h_b.current.clone(), next_b.current.clone()]);
+                    let mut wb = h_b.clone();
+                    wb.declared = declared_ty;
+                    wb.current = widened_knowledge;
                     wb.version = h_b.version.max(next_b.version) + 1;
                     widened_bindings.insert(*id, wb);
                 }

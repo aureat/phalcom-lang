@@ -454,28 +454,82 @@ pub fn check_assignability_bounded(
         });
     }
 
-    match (actual, expected) {
-        (TypeKnowledge::Known(act_ev), TypeKnowledge::Known(exp_ev)) => {
-            if matches!(store.get(act_ev.ty), TypeData::Parameter(_)) || matches!(store.get(exp_ev.ty), TypeData::Parameter(_)) {
-                return RelationOutcome::Blocked(BlockReason::RecursiveFixpoint);
-            }
-
-            let sub_res = check_subtype_bounded(store, hierarchy, act_ev.ty, exp_ev.ty, budget, cancellation);
-            if sub_res.is_proven() {
-                RelationOutcome::proven(())
-            } else if (sub_res.is_refuted() && act_ev.authority.is_sound_for_rejection() && exp_ev.authority.is_sound_for_rejection())
-                || sub_res.is_cancelled()
-                || sub_res.is_budget_exceeded()
-            {
-                sub_res
-            } else {
-                RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
-            }
-        }
-        (TypeKnowledge::Unknown(reason), _) | (_, TypeKnowledge::Unknown(reason)) => RelationOutcome::Blocked(BlockReason::UnknownType(reason.clone())),
-        _ => RelationOutcome::DynamicBoundary(DynamicBoundaryObligation {
+    match expected {
+        TypeKnowledge::Known(expected_evidence) => check_knowledge_against_type_bounded(store, hierarchy, actual, expected_evidence.ty, budget, cancellation),
+        TypeKnowledge::Unknown(reason) => RelationOutcome::Blocked(BlockReason::UnknownType(reason.clone())),
+        TypeKnowledge::Dynamic(_) => RelationOutcome::DynamicBoundary(DynamicBoundaryObligation {
             reason: "dynamic boundary".into(),
         }),
+    }
+}
+
+/// Checks formal knowledge against a canonical contract type without first
+/// manufacturing an expected `TypeKnowledge` value.
+pub fn check_knowledge_against_type_bounded(
+    store: &TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    actual: &TypeKnowledge,
+    expected: TypeId,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+) -> RelationOutcome {
+    if cancellation.is_cancelled() {
+        return RelationOutcome::Cancelled;
+    }
+    if actual.is_dynamic() {
+        return RelationOutcome::DynamicBoundary(DynamicBoundaryObligation {
+            reason: "dynamic boundary".into(),
+        });
+    }
+    let TypeKnowledge::Known(actual_evidence) = actual else {
+        return match actual {
+            TypeKnowledge::Unknown(reason) => RelationOutcome::Blocked(BlockReason::UnknownType(reason.clone())),
+            TypeKnowledge::Dynamic(_) => RelationOutcome::DynamicBoundary(DynamicBoundaryObligation {
+                reason: "dynamic boundary".into(),
+            }),
+            TypeKnowledge::Known(_) => unreachable!("known knowledge matched above"),
+        };
+    };
+
+    if matches!(store.get(actual_evidence.ty), TypeData::Parameter(_)) || matches!(store.get(expected), TypeData::Parameter(_)) {
+        return RelationOutcome::Blocked(BlockReason::RecursiveFixpoint);
+    }
+
+    // Formal Known values are already restricted to Established/Assumed. Both
+    // are valid static premises; advisory evidence must not enter this path.
+    check_subtype_bounded(store, hierarchy, actual_evidence.ty, expected, budget, cancellation)
+}
+
+/// Unbounded convenience wrapper for knowledge-to-contract checking.
+pub fn check_knowledge_against_type(store: &TypeStore, hierarchy: &dyn TypeHierarchy, actual: &TypeKnowledge, expected: TypeId) -> Assignability {
+    let mut budget = QueryBudget::default();
+    let cancellation = CancellationToken::new();
+    let outcome = check_knowledge_against_type_bounded(store, hierarchy, actual, expected, &mut budget, &cancellation);
+    relation_to_assignability(outcome, actual.ty(), Some(expected))
+}
+
+fn relation_to_assignability(outcome: RelationOutcome, actual: Option<TypeId>, expected: Option<TypeId>) -> Assignability {
+    match outcome {
+        RelationOutcome::Proven { .. } => Assignability::Assignable,
+        RelationOutcome::Refuted(failure) => {
+            let (failure_actual, failure_expected, reason) = match failure {
+                RelationFailure::IncompatibleNominal { .. } => (actual, expected, RefutationReason::IncompatibleNominal),
+                RelationFailure::UnionMemberMismatch { actual, expected } => (Some(actual), Some(expected), RefutationReason::UnionMemberMismatch),
+                RelationFailure::TypeMismatch { actual, expected } => (Some(actual), Some(expected), RefutationReason::TypeMismatch),
+                RelationFailure::CycleDetected { sub, sup } => (Some(sub), Some(sup), RefutationReason::TypeMismatch),
+                RelationFailure::DepthExceeded | RelationFailure::Custom(_) => (actual, expected, RefutationReason::TypeMismatch),
+            };
+            Assignability::Refuted {
+                actual: failure_actual.unwrap_or(TypeId::DUMMY),
+                expected: failure_expected.unwrap_or(TypeId::DUMMY),
+                reason,
+            }
+        }
+        RelationOutcome::DynamicBoundary(_) => Assignability::DynamicBoundary,
+        RelationOutcome::Blocked(reason) => Assignability::Blocked(reason),
+        RelationOutcome::Cancelled => Assignability::Cancelled,
+        RelationOutcome::BudgetExceeded(report) => Assignability::BudgetExceeded(report),
+        RelationOutcome::InternalFailure(message) => Assignability::InternalFailure(message),
     }
 }
 
@@ -647,6 +701,25 @@ mod tests {
 
         let res = check_assignability(&store, &hier, &actual, &expected);
         assert!(res.is_refuted());
+    }
+
+    #[test]
+    fn knowledge_to_contract_relation_preserves_real_operands() {
+        let mut store = TypeStore::new();
+        let hier = MapTypeHierarchy::new();
+        let actual_ty = store.nominal(test_decl("Int"));
+        let expected_ty = store.nominal(test_decl("String"));
+        let actual = TypeKnowledge::established(actual_ty, super::super::evidence::EvidenceOrigin::Syntax);
+
+        let result = check_knowledge_against_type(&store, &hier, &actual, expected_ty);
+        assert_eq!(
+            result,
+            Assignability::Refuted {
+                actual: actual_ty,
+                expected: expected_ty,
+                reason: RefutationReason::IncompatibleNominal,
+            }
+        );
     }
 
     #[test]

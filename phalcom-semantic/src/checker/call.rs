@@ -3,12 +3,12 @@
 use super::context::CheckingContext;
 use super::expected::ExpectedType;
 use super::expression::analyze_expression;
-use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceTerm};
+use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
 use crate::checker::policy::enforce_assignability;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::CallableSignature;
 use crate::identity::{BodyId, ExpressionId, LocalExpressionId};
-use crate::types::evidence::{EvidenceAuthority, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{Expr, PackItem, PackLabel};
 use phalcom_common::range::SourceRange;
@@ -51,7 +51,7 @@ pub fn resolve_call(
     if let Some(ref generic_sig) = signature.generics {
         if !generic_sig.parameters.is_empty() {
             let mut session = InferenceSession::new();
-            let var_map = session.instantiate_generic_signature(generic_sig);
+            let var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
 
             let dummy_call_id = ExpressionId::new(BodyId(0), LocalExpressionId(0));
             let mut positional_idx = 0;
@@ -72,15 +72,18 @@ pub fn resolve_call(
                                 let arg_expected = ExpectedType::Inference(param_term.clone());
                                 let arg_typed = analyze_expression(ctx, expr, &arg_expected);
                                 if let Some(arg_ty) = arg_typed.knowledge.ty() {
-                                    session.add_constraint(
-                                        InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), param_term),
-                                        ConstraintOrigin::Argument {
-                                            call: dummy_call_id,
-                                            argument: dummy_arg_id,
-                                            parameter_index: (positional_idx - 1) as u16,
-                                        },
-                                        None,
-                                    );
+                                    if let Some(support) = inference_support(&arg_typed.knowledge) {
+                                        session.add_constraint_with_support(
+                                            InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), param_term),
+                                            ConstraintOrigin::Argument {
+                                                call: dummy_call_id,
+                                                argument: dummy_arg_id,
+                                                parameter_index: (positional_idx - 1) as u16,
+                                            },
+                                            None,
+                                            support,
+                                        );
+                                    }
                                 }
                                 break;
                             }
@@ -99,15 +102,18 @@ pub fn resolve_call(
                                         let arg_expected = ExpectedType::Inference(param_term.clone());
                                         let arg_typed = analyze_expression(ctx, value, &arg_expected);
                                         if let Some(arg_ty) = arg_typed.knowledge.ty() {
-                                            session.add_constraint(
-                                                InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), param_term),
-                                                ConstraintOrigin::Argument {
-                                                    call: dummy_call_id,
-                                                    argument: dummy_arg_id,
-                                                    parameter_index: p_idx as u16,
-                                                },
-                                                None,
-                                            );
+                                            if let Some(support) = inference_support(&arg_typed.knowledge) {
+                                                session.add_constraint_with_support(
+                                                    InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), param_term),
+                                                    ConstraintOrigin::Argument {
+                                                        call: dummy_call_id,
+                                                        argument: dummy_arg_id,
+                                                        parameter_index: p_idx as u16,
+                                                    },
+                                                    None,
+                                                    support,
+                                                );
+                                            }
                                         }
                                         break;
                                     }
@@ -121,18 +127,22 @@ pub fn resolve_call(
                 }
             }
 
-            // Collect expected result constraint
-            if let Some(ret_ty) = signature.return_type.ty() {
-                let ret_term = session.type_id_to_inference(ret_ty, &var_map, ctx.store);
+            // Collect expected result constraint. Contextual expectation can
+            // select a valid instantiation, but does not count as value support.
+            let return_term = signature
+                .return_type
+                .ty()
+                .map(|ret_ty| session.type_id_to_inference(ret_ty, &var_map, ctx.store));
+            if let Some(ret_term) = return_term.as_ref() {
                 if let Some(exp_ty) = expected.ty() {
                     session.add_constraint(
-                        InferenceRelation::Subtype(ret_term, InferenceTerm::Canonical(exp_ty)),
+                        InferenceRelation::Subtype(ret_term.clone(), InferenceTerm::Canonical(exp_ty)),
                         ConstraintOrigin::ExpectedResult { expression: dummy_call_id },
                         None,
                     );
                 } else if let ExpectedType::Inference(exp_term) = expected {
                     session.add_constraint(
-                        InferenceRelation::Subtype(ret_term, exp_term.clone()),
+                        InferenceRelation::Subtype(ret_term.clone(), exp_term.clone()),
                         ConstraintOrigin::ExpectedResult { expression: dummy_call_id },
                         None,
                     );
@@ -140,6 +150,16 @@ pub fn resolve_call(
             }
 
             let outcome = session.solve(ctx.store, &ctx.hierarchy);
+            let fixed_return = return_term.as_ref().and_then(|term| {
+                if session.term_has_variables(term) {
+                    None
+                } else {
+                    signature
+                        .return_type
+                        .ty()
+                        .map(|ty| TypeKnowledge::established(ty, EvidenceOrigin::CallableSignature).with_range(call_range))
+                }
+            });
             return match outcome {
                 crate::checker::inference::InferenceOutcome::Solved(solution) => {
                     if let Some(ret_ty) = signature.return_type.ty() {
@@ -152,12 +172,24 @@ pub fn resolve_call(
                             }
                         }
                         let specialized_ret = subst.apply(ctx.store, ret_ty);
-                        TypeKnowledge::known(specialized_ret, EvidenceAuthority::Proven).with_range(call_range)
+                        let support = return_term.as_ref().and_then(|term| session.term_support(term));
+                        match (session.term_has_variables(return_term.as_ref().expect("generic return term")), support) {
+                            (true, Some(InferenceSupport::Established)) => {
+                                TypeKnowledge::established(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range)
+                            }
+                            (true, Some(InferenceSupport::Assumed)) => {
+                                TypeKnowledge::assumed(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range)
+                            }
+                            (true, None) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
+                            (false, _) => fixed_return.expect("fixed generic return must be available"),
+                        }
                     } else {
                         signature.return_type.clone().with_range(call_range)
                     }
                 }
-                crate::checker::inference::InferenceOutcome::Underconstrained(_) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
+                crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
+                    fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable))
+                }
                 crate::checker::inference::InferenceOutcome::Conflicting(_) => {
                     ctx.diagnostics.push(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
@@ -165,9 +197,13 @@ pub fn resolve_call(
                         "generic argument does not satisfy type constraints",
                         call_range,
                     ));
-                    TypeKnowledge::Unknown(UnknownReason::SyntaxError)
+                    fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceConflict))
                 }
-                _ => signature.return_type.clone().with_range(call_range),
+                crate::checker::inference::InferenceOutcome::Blocked(_) => fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)),
+                crate::checker::inference::InferenceOutcome::Cancelled => fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceCancelled)),
+                crate::checker::inference::InferenceOutcome::BudgetExceeded(_) => {
+                    fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded))
+                }
             };
         }
     }
@@ -244,7 +280,15 @@ pub fn resolve_call(
     // the published surface and can still be checked independently against
     // the body.
     match &signature.return_type {
-        TypeKnowledge::Known(evidence) => TypeKnowledge::known(evidence.ty, EvidenceAuthority::Proven).with_range(call_range),
+        TypeKnowledge::Known(evidence) => TypeKnowledge::established(evidence.ty, EvidenceOrigin::CallableSignature).with_range(call_range),
         other => other.clone().with_range(call_range),
+    }
+}
+
+fn inference_support(knowledge: &TypeKnowledge) -> Option<InferenceSupport> {
+    match knowledge.status() {
+        Some(EvidenceStatus::Established) => Some(InferenceSupport::Established),
+        Some(EvidenceStatus::Assumed) => Some(InferenceSupport::Assumed),
+        None => None,
     }
 }

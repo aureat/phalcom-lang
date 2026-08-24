@@ -2,31 +2,29 @@ use phalcom_ast::parse;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::{
-    InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId,
-    UnlinkedModuleInterface,
+    InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, UnlinkedModuleInterface,
 };
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::checker::analysis::{
     AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary,
 };
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
-use phalcom_semantic::db::fingerprint::{
-    callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint,
-    declaration_shell_input_fingerprint, declaration_shell_product_fingerprint, declaration_surface_input_fingerprint,
-    declaration_surface_source_input_fingerprint,
-    declaration_surface_product_fingerprint, linked_interface_input_fingerprint,
-    linked_interface_product_fingerprint, module_diagnostics_product_fingerprint, semantic_component_product_fingerprint,
-    unlinked_interface_input_fingerprint, unlinked_interface_product_fingerprint,
-};
 use phalcom_semantic::db::ProductFingerprint;
+use phalcom_semantic::db::fingerprint::{
+    callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint, declaration_shell_input_fingerprint,
+    declaration_shell_product_fingerprint, declaration_surface_input_fingerprint, declaration_surface_product_fingerprint,
+    declaration_surface_source_input_fingerprint, linked_interface_input_fingerprint, linked_interface_product_fingerprint,
+    module_diagnostics_product_fingerprint, semantic_component_product_fingerprint, unlinked_interface_input_fingerprint,
+    unlinked_interface_product_fingerprint,
+};
 use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use phalcom_semantic::dispatch::{CallableSignature, DispatchSide};
 use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, ExpressionId, LocalExpressionId};
 use phalcom_semantic::signature::CallableSemanticSignature;
-use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::source::ParsedModuleUnit;
+use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::denotation::SemanticDenotation;
 use phalcom_semantic::types::evidence::{EvidenceAuthority, TypeKnowledge};
 use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
@@ -68,13 +66,7 @@ fn source_surface_fingerprint(source: &str) -> phalcom_semantic::db::InputFinger
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
     let program = Arc::new(parsed.program);
     let declaration = DeclarationId::new(module.clone(), "Api".into());
-    let unit = ParsedModuleUnit::new(
-        module,
-        ModuleKind::Module,
-        None,
-        Arc::from(source),
-        program,
-    );
+    let unit = ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program);
     let class_def = unit
         .program
         .statements
@@ -152,7 +144,10 @@ fn unlinked_interface_product_ignores_range_only_source_movement() {
     let compact = build_interface(id.clone(), "import dep\nclass Foo {}\nexport Foo\n");
     let shifted = build_interface(id, "\n\nimport dep\n\nclass Foo {}\nexport Foo\n");
 
-    assert_eq!(unlinked_interface_product_fingerprint(&compact), unlinked_interface_product_fingerprint(&shifted));
+    assert_eq!(
+        unlinked_interface_product_fingerprint(&compact),
+        unlinked_interface_product_fingerprint(&shifted)
+    );
     assert_ne!(unlinked_interface_input_fingerprint(&compact), unlinked_interface_input_fingerprint(&shifted));
 }
 
@@ -175,7 +170,10 @@ fn linked_interface_product_ignores_range_only_source_movement_but_input_tracks_
         linked_interface_product_fingerprint(compact_interface),
         linked_interface_product_fingerprint(shifted_interface)
     );
-    assert_ne!(linked_interface_input_fingerprint(compact_interface), linked_interface_input_fingerprint(shifted_interface));
+    assert_ne!(
+        linked_interface_input_fingerprint(compact_interface),
+        linked_interface_input_fingerprint(shifted_interface)
+    );
 }
 
 #[test]
@@ -306,11 +304,7 @@ fn declaration_surface_product_includes_callable_generic_contract() {
     let owner = declaration("GenericSurface");
     let selector = Selector::getter("value").expect("selector");
     let mut left = DeclarationSurface::new(Some(owner.clone()));
-    let mut left_signature = CallableSignature::new(
-        selector.clone(),
-        Vec::new(),
-        TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared),
-    );
+    let mut left_signature = CallableSignature::new(selector.clone(), Vec::new(), TypeKnowledge::known(TypeId(1), EvidenceAuthority::Declared));
     left_signature.generics = Some(GenericSignature::new(
         TypeParameterOwner::Declaration(owner.clone()),
         Box::new([TypeParameterId(1)]),
@@ -350,7 +344,10 @@ fn callable_signature_product_includes_generics_effects_and_lifecycle() {
         deprecated_since: None,
         replacement: None,
     };
-    assert_ne!(callable_signature_product_fingerprint(&base), callable_signature_product_fingerprint(&lifecycle));
+    assert_ne!(
+        callable_signature_product_fingerprint(&base),
+        callable_signature_product_fingerprint(&lifecycle)
+    );
 }
 
 #[test]
@@ -467,24 +464,17 @@ fn callable_body_product_ignores_explanation_presentation() {
 fn callable_body_product_ignores_diagnostic_details() {
     let mut left = callable_analysis();
     left.diagnostics = Arc::from(
-        vec![SemanticDiagnostic::error_in(
-            ModuleId::core(),
-            DiagnosticCode::TypeMismatch,
-            "mismatch",
-            SourceRange { start: 1, end: 2 },
-        )
-        .with_note("first note")]
+        vec![
+            SemanticDiagnostic::error_in(ModuleId::core(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("first note"),
+        ]
         .into_boxed_slice(),
     );
     let mut right = left.clone();
     right.diagnostics = Arc::from(
-        vec![SemanticDiagnostic::error_in(
-            ModuleId::core(),
-            DiagnosticCode::TypeMismatch,
-            "mismatch",
-            SourceRange { start: 1, end: 2 },
-        )
-        .with_note("different note")]
+        vec![
+            SemanticDiagnostic::error_in(ModuleId::core(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })
+                .with_note("different note"),
+        ]
         .into_boxed_slice(),
     );
 
@@ -527,22 +517,14 @@ fn callable_body_product_ignores_flow_source_ranges() {
 #[test]
 fn module_diagnostics_product_includes_secondary_details() {
     let module = ModuleId::core();
-    let left = SemanticDiagnostic::error_in(
-        module.clone(),
-        DiagnosticCode::TypeMismatch,
-        "mismatch",
-        SourceRange { start: 1, end: 2 },
-    )
-    .with_note("first note");
-    let right = SemanticDiagnostic::error_in(
-        module.clone(),
-        DiagnosticCode::TypeMismatch,
-        "mismatch",
-        SourceRange { start: 1, end: 2 },
-    )
-    .with_note("different note");
+    let left = SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("first note");
+    let right =
+        SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("different note");
 
-    assert_ne!(module_diagnostics_product_fingerprint(&module, &[left]), module_diagnostics_product_fingerprint(&module, &[right]));
+    assert_ne!(
+        module_diagnostics_product_fingerprint(&module, &[left]),
+        module_diagnostics_product_fingerprint(&module, &[right])
+    );
 }
 
 #[test]
@@ -557,17 +539,14 @@ fn semantic_component_product_changes_when_resolved_target_changes() {
     ]);
     let universe = Arc::new(ProjectUniverse::new());
     let linked_a = ModuleLinker::new(universe.clone(), interfaces.clone())
-        .link(
-            importer.clone(),
-            &BTreeMap::from([((importer.clone(), ".target".to_string()), exporter_a)]),
-        )
+        .link(importer.clone(), &BTreeMap::from([((importer.clone(), ".target".to_string()), exporter_a)]))
         .expect("link to exporter A");
     let linked_b = ModuleLinker::new(universe, interfaces)
-        .link(
-            importer.clone(),
-            &BTreeMap::from([((importer, ".target".to_string()), exporter_b)]),
-        )
+        .link(importer.clone(), &BTreeMap::from([((importer, ".target".to_string()), exporter_b)]))
         .expect("link to exporter B");
 
-    assert_ne!(semantic_component_product_fingerprint(&linked_a), semantic_component_product_fingerprint(&linked_b));
+    assert_ne!(
+        semantic_component_product_fingerprint(&linked_a),
+        semantic_component_product_fingerprint(&linked_b)
+    );
 }

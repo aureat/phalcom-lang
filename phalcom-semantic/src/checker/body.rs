@@ -33,10 +33,7 @@ use crate::dispatch::{CallableSignature, SurfaceDispatchResolver};
 
 /// Returns the declaration signature consumed by a body, including the class-side
 /// fallback used for constructor bodies represented on the instance side.
-pub(crate) fn signature_consumed_by_body(
-    dispatch: &SurfaceDispatchResolver,
-    callable: &CallableId,
-) -> Option<(CallableId, CallableSignature)> {
+pub(crate) fn signature_consumed_by_body(dispatch: &SurfaceDispatchResolver, callable: &CallableId) -> Option<(CallableId, CallableSignature)> {
     let surface = dispatch.surfaces().get(&callable.owner)?;
 
     if let Some(signature) = surface.get_callable(callable.side, &callable.selector) {
@@ -52,13 +49,7 @@ pub(crate) fn signature_consumed_by_body(
         let signature_id = surface
             .get_callable_id(crate::identity::DispatchSide::Class, &callable.selector)
             .cloned()
-            .unwrap_or_else(|| {
-                CallableId::new(
-                    callable.owner.clone(),
-                    callable.selector.clone(),
-                    crate::identity::DispatchSide::Class,
-                )
-            });
+            .unwrap_or_else(|| CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class));
         return Some((signature_id, signature.clone()));
     }
 
@@ -101,9 +92,9 @@ pub fn analyze_callable_body(
     // Constructor bodies are represented as instance-side bodies, while their public constructor
     // signatures live on the class side; record the class-side identity in that fallback case.
     let sig_opt = signature_consumed_by_body(ctx.dispatch_ref(), &callable);
-    let constructor_body = sig_opt.as_ref().is_some_and(|(signature_id, _)| {
-        callable.side == crate::identity::DispatchSide::Instance && signature_id.side == crate::identity::DispatchSide::Class
-    });
+    let constructor_body = sig_opt
+        .as_ref()
+        .is_some_and(|(signature_id, _)| callable.side == crate::identity::DispatchSide::Instance && signature_id.side == crate::identity::DispatchSide::Class);
     let setter_body = matches!(
         callable.selector.kind,
         phalcom_common::selector::SelectorKind::Setter | phalcom_common::selector::SelectorKind::SubscriptSet
@@ -203,10 +194,7 @@ pub fn analyze_callable_body(
                     false
                 };
                 if !initializer_never {
-                    let unit = crate::types::evidence::TypeKnowledge::known(
-                        ctx.store.unit(),
-                        crate::types::evidence::EvidenceAuthority::Proven,
-                    );
+                    let unit = crate::types::evidence::TypeKnowledge::known(ctx.store.unit(), crate::types::evidence::EvidenceAuthority::Proven);
                     if !constructor_body && !setter_body {
                         if let Some(expected_return) = ctx.expected_return.clone() {
                             crate::checker::policy::enforce_assignability(
@@ -230,10 +218,7 @@ pub fn analyze_callable_body(
     }
 
     if body.is_empty() && can_fall_through {
-        let unit = crate::types::evidence::TypeKnowledge::known(
-            ctx.store.unit(),
-            crate::types::evidence::EvidenceAuthority::Proven,
-        );
+        let unit = crate::types::evidence::TypeKnowledge::known(ctx.store.unit(), crate::types::evidence::EvidenceAuthority::Proven);
         if !constructor_body && !setter_body {
             if let Some(expected_return) = ctx.expected_return.clone() {
                 crate::checker::policy::enforce_assignability(

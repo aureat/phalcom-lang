@@ -1,5 +1,6 @@
 //! Formal expression and callable analysis product models (Spec 04.5).
 
+use crate::checker::causal::CausalInvalidity;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::{AnalysisIncidentId, BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
 use crate::types::denotation::SemanticDenotation;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 pub enum AnalysisStatus {
     Ready,
     Invalid(DiagnosticCauseId),
+    Suppressed(crate::checker::causal::SuppressionCause),
     Blocked(BlockReason),
     DynamicBoundary(DynamicReason),
     Cancelled,
@@ -39,6 +41,7 @@ pub struct ExpressionAnalysis {
     pub knowledge: TypeKnowledge,
     pub denotation: Option<SemanticDenotation>,
     pub status: AnalysisStatus,
+    pub causal_invalidity: CausalInvalidity,
     pub explanation: Option<ExplanationId>,
     pub call: Option<CallResolutionId>,
 }
@@ -51,6 +54,7 @@ impl ExpressionAnalysis {
             knowledge,
             denotation: None,
             status: AnalysisStatus::Ready,
+            causal_invalidity: CausalInvalidity::Clean,
             explanation: None,
             call: None,
         }
@@ -63,6 +67,7 @@ impl ExpressionAnalysis {
             knowledge: TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SyntaxError),
             denotation: None,
             status: AnalysisStatus::Invalid(cause),
+            causal_invalidity: CausalInvalidity::One(cause),
             explanation: None,
             call: None,
         }
@@ -96,7 +101,11 @@ pub struct BindingState {
     pub name: String,
     pub range: SourceRange,
     pub declared: Option<crate::types::id::TypeId>,
+    pub contract: Option<super::binding::BindingContract>,
     pub current: TypeKnowledge,
+    pub denotation: Option<SemanticDenotation>,
+    pub consistency: super::binding::BindingConsistency,
+    pub causal_invalidity: super::causal::CausalInvalidity,
     pub mutable: bool,
     pub version: u32,
     pub explanation: Option<ExplanationId>,
@@ -111,12 +120,34 @@ impl BindingState {
         current: TypeKnowledge,
         mutable: bool,
     ) -> Self {
+        let contract = declared.map(|ty| super::binding::BindingContract {
+            ty,
+            origin: super::binding::BindingContractOrigin::SourceAnnotation,
+            source: Some(range),
+        });
+        Self::new_with_contract(binding, name, range, declared, contract, current, None, mutable)
+    }
+
+    pub fn new_with_contract(
+        binding: BindingId,
+        name: impl Into<String>,
+        range: SourceRange,
+        declared: Option<crate::types::id::TypeId>,
+        contract: Option<super::binding::BindingContract>,
+        current: TypeKnowledge,
+        denotation: Option<SemanticDenotation>,
+        mutable: bool,
+    ) -> Self {
         Self {
             binding,
             name: name.into(),
             range,
             declared,
+            contract,
             current,
+            denotation,
+            consistency: super::binding::BindingConsistency::Unconstrained,
+            causal_invalidity: super::causal::CausalInvalidity::Clean,
             mutable,
             version: 0,
             explanation: None,
@@ -146,10 +177,7 @@ pub struct BodyExitFacts {
 /// Joins values from all normal callable exits into one published return
 /// knowledge fact. Abrupt-only bodies produce `Never`; incomplete knowledge
 /// keeps the summary incomplete instead of inventing a return type.
-pub fn normal_return_summary(
-    store: &mut crate::types::store::TypeStore,
-    values: &[TypeKnowledge],
-) -> TypeKnowledge {
+pub fn normal_return_summary(store: &mut crate::types::store::TypeStore, values: &[TypeKnowledge]) -> TypeKnowledge {
     use crate::types::evidence::{DynamicReason, EvidenceAuthority, UnknownReason};
 
     if values.is_empty() {

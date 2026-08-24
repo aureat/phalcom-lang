@@ -574,7 +574,11 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
     .unwrap();
 
     fs::write(proj_dir.join("src/package.ph"), "expose .domain\nexpose .service\nexpose .main\n").unwrap();
-    fs::write(proj_dir.join("src/domain/package.ph"), "expose .point\nexpose .weight\nexpose .shipment\nexpose .parcel\n").unwrap();
+    fs::write(
+        proj_dir.join("src/domain/package.ph"),
+        "expose .point\nexpose .weight\nexpose .shipment\nexpose .parcel\n",
+    )
+    .unwrap();
     fs::write(proj_dir.join("src/service/package.ph"), "expose .planner\n").unwrap();
 
     fs::write(
@@ -682,15 +686,33 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
 
     // Verify formal types for the local bindings in Main.main
     let point_decl = DeclarationId::new(
-        ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("domain").unwrap(), ModuleComponent::from_identifier("point").unwrap()])),
+        ModuleId::resolved(
+            root_id,
+            ModulePath::from_components(vec![
+                ModuleComponent::from_identifier("domain").unwrap(),
+                ModuleComponent::from_identifier("point").unwrap(),
+            ]),
+        ),
         "Point".into(),
     );
     let parcel_decl = DeclarationId::new(
-        ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("domain").unwrap(), ModuleComponent::from_identifier("parcel").unwrap()])),
+        ModuleId::resolved(
+            root_id,
+            ModulePath::from_components(vec![
+                ModuleComponent::from_identifier("domain").unwrap(),
+                ModuleComponent::from_identifier("parcel").unwrap(),
+            ]),
+        ),
         "Parcel".into(),
     );
     let shipment_decl = DeclarationId::new(
-        ModuleId::resolved(root_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("domain").unwrap(), ModuleComponent::from_identifier("shipment").unwrap()])),
+        ModuleId::resolved(
+            root_id,
+            ModulePath::from_components(vec![
+                ModuleComponent::from_identifier("domain").unwrap(),
+                ModuleComponent::from_identifier("shipment").unwrap(),
+            ]),
+        ),
         "Shipment".into(),
     );
 
@@ -711,7 +733,15 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
 
     // Inferred formal types
     assert_eq!(origin_binding.current.ty(), Some(point_form), "origin must be formally known as Point");
-    assert_eq!(destination_binding.current.ty(), Some(point_form), "destination must be formally known as Point");
+    assert_eq!(
+        destination_binding.current.ty(),
+        Some(point_form),
+        "destination must be formally known as Point"
+    );
     assert_eq!(parcel_binding.current.ty(), Some(parcel_form), "parcel must be formally known as Parcel");
-    assert_eq!(shipment_binding.current.ty(), Some(shipment_form), "shipment must be formally known as Shipment");
+    assert_eq!(
+        shipment_binding.current.ty(),
+        Some(shipment_form),
+        "shipment must be formally known as Shipment"
+    );
 }

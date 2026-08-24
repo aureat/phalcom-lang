@@ -1,6 +1,8 @@
 use phalcom_modules::DeclarationId;
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::checker::inference::{ConstraintOrigin, InferenceOutcome, InferenceRelation, InferenceSession, InferenceTerm};
+use phalcom_semantic::checker::inference::{
+    ConstraintOrigin, InferenceFailureReason, InferenceOutcome, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm,
+};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
@@ -180,7 +182,7 @@ fn test_generic_signature_instantiation_and_callable_solving() {
     let gen_sig = GenericSignature::new(owner, vec![param_id].into_boxed_slice());
 
     let mut session = InferenceSession::new();
-    let param_map = session.instantiate_generic_signature(&gen_sig);
+    let param_map = session.instantiate_generic_signature(&gen_sig, &store);
     let var_t = param_map.get(&param_id).unwrap().clone();
 
     // Callable: (t: ?T) -> ?T
@@ -216,4 +218,85 @@ fn test_generic_signature_instantiation_and_callable_solving() {
     });
 
     assert_eq!(solved_callable, expected_callable);
+}
+
+#[test]
+fn conflicting_constraint_retains_real_origin_and_terms() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let string_ty = store.nominal(test_decl("String"));
+    let mut session = InferenceSession::new();
+    let var = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var), InferenceTerm::Canonical(int_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var), InferenceTerm::Canonical(string_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hier);
+    let InferenceOutcome::Conflicting(conflict) = outcome else {
+        panic!("expected a real conflicting constraint");
+    };
+    assert_eq!(conflict.constraint_index, Some(1));
+    assert_eq!(conflict.origin, Some(ConstraintOrigin::Explicit));
+    assert!(matches!(conflict.failure, InferenceFailureReason::StructuralMismatch { .. }));
+}
+
+#[test]
+fn generic_support_tracks_value_evidence_and_ignores_plain_context() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let mut session = InferenceSession::new();
+    let var = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint_with_support(
+        InferenceRelation::Subtype(InferenceTerm::Canonical(int_ty), InferenceTerm::Var(var)),
+        ConstraintOrigin::Argument {
+            call: phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(1)),
+            argument: phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(2)),
+            parameter_index: 0,
+        },
+        None,
+        InferenceSupport::Assumed,
+    );
+
+    let outcome = session.solve(&mut store, &hier);
+    let InferenceOutcome::Solved(solution) = outcome else {
+        panic!("assumed value evidence should still solve generic variable");
+    };
+    assert_eq!(solution.support.get(&var), Some(&InferenceSupport::Assumed));
+    assert_eq!(session.term_support(&InferenceTerm::Var(var)), Some(InferenceSupport::Assumed));
+}
+
+#[test]
+fn binding_inference_variable_checks_canonical_kind() {
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(test_decl("HigherKinded"));
+    let arrow_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "F", arrow_kind));
+    let higher_kind_form = store.parameter_form(parameter);
+    let int_ty = store.nominal(test_decl("Int"));
+    let mut session = InferenceSession::new();
+    let var = session.fresh_variable(arrow_kind);
+
+    let failure = session.bind(var, int_ty, &store).expect_err("kind mismatch must remain explicit");
+    assert_eq!(
+        failure,
+        InferenceFailureReason::KindMismatch {
+            var,
+            expected: arrow_kind,
+            actual: store.kind_of(int_ty),
+        }
+    );
+    assert_ne!(store.kind_of(higher_kind_form), KindId::TYPE);
 }

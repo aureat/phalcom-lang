@@ -1,6 +1,8 @@
 pub mod analysis;
+pub mod binding;
 pub mod body;
 pub mod call;
+pub mod causal;
 pub mod context;
 pub mod declaration;
 pub mod expected;
@@ -16,8 +18,10 @@ pub use analysis::{
     AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex,
     FlowStateSummary,
 };
+pub use binding::{AssumptionBasis, BindingConsistency, BindingContract, BindingContractOrigin, BindingReconciliation, reconcile_binding_contract};
 pub use body::analyze_callable_body;
 pub use call::{check_arguments, match_callable_arguments, resolve_call};
+pub use causal::{CausalInvalidity, SuppressionCause};
 pub use context::CheckingContext;
 pub use declaration::{check_class, check_class_bodies, register_class_surface};
 pub use expected::ExpectedType;
@@ -25,7 +29,7 @@ pub use expression::{analyze_expression, check_expr, check_typed_expr, synthesiz
 pub use policy::{enforce_assignability, handle_relation_outcome};
 
 pub use flow::FlowState;
-pub use inference::{InferenceOutcome, InferenceSession, InferenceTerm};
+pub use inference::{InferenceOutcome, InferenceSession, InferenceSupport, InferenceTerm};
 pub use result::TypeCheckReport;
 
 pub use statement::check_statement;

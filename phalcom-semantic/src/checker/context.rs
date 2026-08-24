@@ -1,13 +1,10 @@
-use crate::checker::analysis::{
-    AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency,
-};
+use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
+use crate::checker::binding::{BindingContract, BindingContractOrigin, reconcile_binding_contract};
 use crate::checker::flow::FlowState;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
-use crate::identity::{
-    BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
-};
+use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::TypeKnowledge;
@@ -122,23 +119,14 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         let declaration = self.inner.resolve_type_name(current_module, root, members);
         let Some(declaration) = declaration else {
             if is_query_owned_module(current_module) {
-                record_query_dependency(
-                    &self.dependencies,
-                    SemanticDependency::LinkedInterface(current_module.clone()),
-                );
+                record_query_dependency(&self.dependencies, SemanticDependency::LinkedInterface(current_module.clone()));
             }
             return None;
         };
 
         record_declaration_shell_dependency(&self.dependencies, &declaration);
-        if &declaration.module != current_module
-            && is_query_owned_module(current_module)
-            && is_query_owned_module(&declaration.module)
-        {
-            record_query_dependency(
-                &self.dependencies,
-                SemanticDependency::LinkedInterface(current_module.clone()),
-            );
+        if &declaration.module != current_module && is_query_owned_module(current_module) && is_query_owned_module(&declaration.module) {
+            record_query_dependency(&self.dependencies, SemanticDependency::LinkedInterface(current_module.clone()));
         }
         Some(declaration)
     }
@@ -205,30 +193,6 @@ pub struct LocalBindingInfo {
     pub denotation: Option<SemanticDenotation>,
 }
 
-/// Environment of local bindings in current lexical block/scope.
-#[derive(Clone, Debug, Default)]
-pub struct LocalEnv {
-    bindings: HashMap<String, ValueSemanticFact>,
-}
-
-impl LocalEnv {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert(&mut self, name: impl Into<String>, fact: ValueSemanticFact) {
-        self.bindings.insert(name.into(), fact);
-    }
-
-    pub fn get(&self, name: &str) -> Option<&ValueSemanticFact> {
-        self.bindings.get(name)
-    }
-
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut ValueSemanticFact> {
-        self.bindings.get_mut(name)
-    }
-}
-
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
     pub store: &'a mut TypeStore,
@@ -239,11 +203,11 @@ pub struct CheckingContext<'a> {
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
     pub expected_return: Option<TypeKnowledge>,
-    pub local_envs: Vec<LocalEnv>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
     pub body_id: BodyId,
     pub next_local_expr_id: u32,
+    pub next_diagnostic_cause: u32,
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
     pub bindings: BindingAnalysisIndex,
@@ -297,11 +261,11 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             expected_return: None,
-            local_envs: vec![LocalEnv::new()],
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
+            next_diagnostic_cause: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             bindings: BindingAnalysisIndex::new(),
@@ -333,11 +297,11 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             expected_return: None,
-            local_envs: vec![LocalEnv::new()],
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
+            next_diagnostic_cause: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             bindings: BindingAnalysisIndex::new(),
@@ -361,11 +325,11 @@ impl<'a> CheckingContext<'a> {
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             expected_return: self.expected_return.clone(),
-            local_envs: self.local_envs.clone(),
             scopes: self.scopes.clone(),
             flow: self.flow.clone(),
             body_id: self.body_id,
             next_local_expr_id: self.next_local_expr_id,
+            next_diagnostic_cause: self.next_diagnostic_cause,
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
             bindings: self.bindings.clone(),
@@ -391,6 +355,13 @@ impl<'a> CheckingContext<'a> {
         ExpressionId::new(self.body_id, local)
     }
 
+    /// Allocates a monotonic diagnostic cause independent of expression IDs.
+    pub fn alloc_diagnostic_cause(&mut self) -> crate::identity::DiagnosticCauseId {
+        let cause = crate::identity::DiagnosticCauseId(self.next_diagnostic_cause);
+        self.next_diagnostic_cause = self.next_diagnostic_cause.saturating_add(1);
+        cause
+    }
+
     pub fn record_expression(
         &mut self,
         id: ExpressionId,
@@ -407,12 +378,10 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn push_scope(&mut self) {
-        self.local_envs.push(LocalEnv::new());
         self.scopes.push(HashMap::new());
     }
 
     pub fn pop_scope(&mut self) {
-        self.local_envs.pop();
         self.scopes.pop();
     }
 
@@ -427,7 +396,24 @@ impl<'a> CheckingContext<'a> {
     ) -> BindingId {
         let name_str = name.into();
         let binding_id = self.alloc_binding();
-        self.flow.declare(binding_id, name_str.clone(), range, declared, initial.clone(), mutable);
+        let contract = declared.map(|ty| BindingContract {
+            ty,
+            origin: match initial.origin() {
+                Some(crate::types::evidence::EvidenceOrigin::CallableSignature) => BindingContractOrigin::CallableParameter,
+                Some(crate::types::evidence::EvidenceOrigin::ContextualDerivation) => BindingContractOrigin::ContextualBlockParameter,
+                Some(crate::types::evidence::EvidenceOrigin::DeveloperAnnotation) => BindingContractOrigin::SourceAnnotation,
+                _ => BindingContractOrigin::InferredInitializer,
+            },
+            source: Some(range),
+        });
+        self.flow
+            .declare_with_contract(binding_id, name_str.clone(), range, declared, contract, initial.clone(), mutable);
+        if let Some(state) = self.flow.bindings.get_mut(&binding_id) {
+            let reconciliation = reconcile_binding_contract(self.store, &self.hierarchy, state.contract.as_ref(), &state.current);
+            state.current = reconciliation.current;
+            state.consistency = reconciliation.consistency;
+            state.denotation = denotation;
+        }
         if let Some(state) = self.flow.get_binding(binding_id) {
             self.bindings.insert(binding_id, state.clone());
         }
@@ -440,13 +426,6 @@ impl<'a> CheckingContext<'a> {
                     denotation,
                 },
             );
-        }
-        let fact = ValueSemanticFact {
-            knowledge: initial,
-            denotation,
-        };
-        if let Some(env) = self.local_envs.last_mut() {
-            env.insert(name_str, fact);
         }
         binding_id
     }
@@ -465,13 +444,13 @@ impl<'a> CheckingContext<'a> {
         None
     }
 
-    pub fn lookup_local(&self, name: &str) -> Option<&ValueSemanticFact> {
-        for env in self.local_envs.iter().rev() {
-            if let Some(k) = env.get(name) {
-                return Some(k);
-            }
-        }
-        None
+    pub fn lookup_local(&self, name: &str) -> Option<ValueSemanticFact> {
+        let info = self.lookup_binding_info(name)?;
+        let state = self.flow.get_binding(info.id)?;
+        Some(ValueSemanticFact {
+            knowledge: state.current.clone(),
+            denotation: state.denotation,
+        })
     }
 
     pub fn lookup_local_knowledge(&self, name: &str) -> Option<TypeKnowledge> {
@@ -480,23 +459,21 @@ impl<'a> CheckingContext<'a> {
                 return Some(k.clone());
             }
         }
-        self.lookup_local(name).map(|f| f.knowledge.clone())
+        self.lookup_local(name).map(|f| f.knowledge)
     }
 
     pub fn assign_existing(&mut self, name: &str, fact: ValueSemanticFact) -> bool {
         let mut found = false;
         if let Some(info) = self.lookup_binding_info(name).cloned() {
             self.flow.assign(info.id, fact.knowledge.clone());
-            if let Some(state) = self.flow.get_binding(info.id) {
+            if let Some(state) = self.flow.bindings.get_mut(&info.id) {
+                state.denotation = fact.denotation;
+                let reconciliation = reconcile_binding_contract(self.store, &self.hierarchy, state.contract.as_ref(), &state.current);
+                state.current = reconciliation.current;
+                state.consistency = reconciliation.consistency;
                 self.bindings.insert(info.id, state.clone());
             }
             found = true;
-        }
-        for env in self.local_envs.iter_mut().rev() {
-            if let Some(slot) = env.get_mut(name) {
-                *slot = fact;
-                return true;
-            }
         }
         found
     }
@@ -516,11 +493,7 @@ impl<'a> CheckingContext<'a> {
     /// represented by the canonical `CallableSemanticSignature` product. Their
     /// declaration surface therefore remains the fail-closed dependency until
     /// inference establishes a complete canonical contract.
-    pub(crate) fn record_consumed_callable_signature(
-        &self,
-        callable: &CallableId,
-        signature: &crate::dispatch::CallableSignature,
-    ) {
+    pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, signature: &crate::dispatch::CallableSignature) {
         if !is_query_owned_module(&callable.owner.module) {
             return;
         }
@@ -542,10 +515,7 @@ impl<'a> CheckingContext<'a> {
     }
 
     /// Reads a declaration generic signature while recording the declaration-shell dependency.
-    pub fn declaration_generic_signature(
-        &self,
-        declaration: &DeclarationId,
-    ) -> Option<crate::types::parameter::GenericSignature> {
+    pub fn declaration_generic_signature(&self, declaration: &DeclarationId) -> Option<crate::types::parameter::GenericSignature> {
         record_declaration_shell_dependency(&self.semantic_dependencies, declaration);
         self.declarations.generic_signature(declaration).cloned()
     }
@@ -752,14 +722,7 @@ impl<'a> CheckingContext<'a> {
             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
             explanations: std::sync::Arc::new(self.explanations),
             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
-            semantic_dependencies: std::sync::Arc::from(
-                self.semantic_dependencies
-                    .borrow()
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            ),
+            semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.borrow().iter().cloned().collect::<Vec<_>>().into_boxed_slice()),
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }

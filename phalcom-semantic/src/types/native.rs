@@ -1,7 +1,7 @@
 //! Normalization of rich native metadata specifications into canonical semantic types.
 
 use super::application::TypeApplicationError;
-use super::evidence::{EvidenceAuthority, TypeEvidence, TypeKnowledge, UnknownReason};
+use super::evidence::{EvidenceAuthority, EvidenceOrigin, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason};
 use super::id::TypeId;
 use super::store::{TupleTypeElement, TypeStore};
 use crate::declarations::DeclarationTypeTable;
@@ -162,6 +162,8 @@ pub fn normalize_native_type(
     match resolve_native_type_form(store, declarations, parameters, universe_resolver, spec) {
         Ok(form) if store.is_proper_type(form) => TypeKnowledge::Known(TypeEvidence {
             ty: form,
+            status: EvidenceStatus::Established,
+            origin: EvidenceOrigin::NativeSignature,
             authority: EvidenceAuthority::TrustedNative,
             provenance: Default::default(),
         }),

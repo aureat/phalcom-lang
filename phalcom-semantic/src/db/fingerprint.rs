@@ -6,9 +6,7 @@
 //! dependents?" and deliberately omit incidental source movement for contract
 //! products such as interfaces, declaration surfaces, and callable signatures.
 
-use crate::checker::analysis::{
-    AnalysisStatus, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, FlowStateSummary,
-};
+use crate::checker::analysis::{AnalysisStatus, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, FlowStateSummary};
 use crate::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
@@ -21,14 +19,10 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::parameter::GenericSignature;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{
-    ClassMember, ImportPath, ImportRoot, IndexAccessor, MetadataLiteral, ParameterDef, RestMode, Statement,
-};
+use phalcom_ast::ast::{ClassMember, ImportPath, ImportRoot, IndexAccessor, MetadataLiteral, ParameterDef, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::graph::{ReferenceKind, RuntimeDependencyReason, SemanticEdgeKind};
-use phalcom_modules::interface::{
-    ImportSurface, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface,
-};
+use phalcom_modules::interface::{ImportSurface, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
 use phalcom_modules::metadata::{MetadataTarget, ModuleMetadata};
@@ -109,7 +103,12 @@ fn hash_member_attribute_presence(member: &ClassMember, hasher: &mut impl Hasher
     member.attributes().iter().any(|attribute| attribute.name == "constructor").hash(hasher);
 }
 
-fn hash_generic_contract_source(source: &str, parameters: &[phalcom_ast::ast::GenericParameterSyntax], where_clause: Option<&phalcom_ast::ast::WhereClauseSyntax>, hasher: &mut impl Hasher) {
+fn hash_generic_contract_source(
+    source: &str,
+    parameters: &[phalcom_ast::ast::GenericParameterSyntax],
+    where_clause: Option<&phalcom_ast::ast::WhereClauseSyntax>,
+    hasher: &mut impl Hasher,
+) {
     parameters.len().hash(hasher);
     for parameter in parameters {
         hash_source_region(source, parameter.range, hasher);
@@ -149,8 +148,7 @@ pub fn declaration_surface_source_input_fingerprint(
                 1u8.hash(&mut hasher);
                 hash_dispatch_side(side, &mut hasher);
                 method.name.hash(&mut hasher);
-                (method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"))
-                    .hash(&mut hasher);
+                (method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor")).hash(&mut hasher);
                 hash_member_attribute_presence(member, &mut hasher);
                 method.params.len().hash(&mut hasher);
                 for parameter in &method.params {
@@ -412,7 +410,8 @@ fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hash
         TypeKnowledge::Known(evidence) => {
             0u8.hash(hasher);
             evidence.ty.hash(hasher);
-            evidence.authority.hash(hasher);
+            evidence.status.hash(hasher);
+            evidence.origin.hash(hasher);
             if include_provenance {
                 evidence.provenance.ranges.len().hash(hasher);
                 for range in &evidence.provenance.ranges {
@@ -464,11 +463,7 @@ fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hash
     }
 }
 
-fn hash_dispatch_callable_signature(
-    signature: &crate::dispatch::CallableSignature,
-    include_provenance: bool,
-    hasher: &mut impl Hasher,
-) {
+fn hash_dispatch_callable_signature(signature: &crate::dispatch::CallableSignature, include_provenance: bool, hasher: &mut impl Hasher) {
     signature.selector.hash(hasher);
     signature.parameters.len().hash(hasher);
     for parameter in &signature.parameters {
@@ -604,25 +599,37 @@ fn hash_analysis_status(status: &AnalysisStatus, hasher: &mut impl Hasher) {
         AnalysisStatus::Ready => 0u8.hash(hasher),
         AnalysisStatus::Invalid(cause) => {
             1u8.hash(hasher);
-            cause.hash(hasher);
+            let _ = cause;
         }
+        AnalysisStatus::Suppressed(cause) => match cause {
+            crate::checker::causal::SuppressionCause::One(_) => 2u8.hash(hasher),
+            crate::checker::causal::SuppressionCause::Multiple => 3u8.hash(hasher),
+        },
         AnalysisStatus::Blocked(reason) => {
-            2u8.hash(hasher);
+            4u8.hash(hasher);
             hash_block_reason(reason, hasher);
         }
         AnalysisStatus::DynamicBoundary(reason) => {
-            3u8.hash(hasher);
+            5u8.hash(hasher);
             reason.hash(hasher);
         }
-        AnalysisStatus::Cancelled => 4u8.hash(hasher),
+        AnalysisStatus::Cancelled => 6u8.hash(hasher),
         AnalysisStatus::BudgetExceeded(report) => {
-            5u8.hash(hasher);
+            7u8.hash(hasher);
             hash_budget_report(report, hasher);
         }
         AnalysisStatus::InternalFailure(incident) => {
-            6u8.hash(hasher);
+            8u8.hash(hasher);
             incident.hash(hasher);
         }
+    }
+}
+
+fn hash_causal_invalidity(causal: crate::checker::causal::CausalInvalidity, hasher: &mut impl Hasher) {
+    match causal {
+        crate::checker::causal::CausalInvalidity::Clean => 0u8.hash(hasher),
+        crate::checker::causal::CausalInvalidity::One(_) => 1u8.hash(hasher),
+        crate::checker::causal::CausalInvalidity::Multiple => 2u8.hash(hasher),
     }
 }
 
@@ -636,6 +643,62 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
         Some(SemanticDenotation::Kind(kind)) => {
             2u8.hash(hasher);
             kind.hash(hasher);
+        }
+    }
+}
+
+fn hash_binding_contract(contract: &Option<crate::checker::binding::BindingContract>, hasher: &mut impl Hasher) {
+    let Some(contract) = contract else {
+        0u8.hash(hasher);
+        return;
+    };
+    1u8.hash(hasher);
+    contract.ty.hash(hasher);
+    match contract.origin {
+        crate::checker::binding::BindingContractOrigin::SourceAnnotation => 0u8.hash(hasher),
+        crate::checker::binding::BindingContractOrigin::InferredInitializer => 1u8.hash(hasher),
+        crate::checker::binding::BindingContractOrigin::CallableParameter => 2u8.hash(hasher),
+        crate::checker::binding::BindingContractOrigin::ContextualBlockParameter => 3u8.hash(hasher),
+        crate::checker::binding::BindingContractOrigin::PatternBinding => 4u8.hash(hasher),
+    }
+}
+
+fn hash_binding_consistency(consistency: &crate::checker::binding::BindingConsistency, hasher: &mut impl Hasher) {
+    match consistency {
+        crate::checker::binding::BindingConsistency::Unconstrained => 0u8.hash(hasher),
+        crate::checker::binding::BindingConsistency::Validated => 1u8.hash(hasher),
+        crate::checker::binding::BindingConsistency::Assumed { basis } => {
+            2u8.hash(hasher);
+            match basis {
+                crate::checker::binding::AssumptionBasis::MissingValueEvidence(reason) => {
+                    0u8.hash(hasher);
+                    reason.hash(hasher);
+                }
+                crate::checker::binding::AssumptionBasis::CallableParameterContract => 1u8.hash(hasher),
+                crate::checker::binding::AssumptionBasis::ContextualParameterContract => 2u8.hash(hasher),
+                crate::checker::binding::AssumptionBasis::DerivedEvidence(origin) => {
+                    3u8.hash(hasher);
+                    origin.hash(hasher);
+                }
+            }
+        }
+        crate::checker::binding::BindingConsistency::Refuted { actual, expected, reason } => {
+            3u8.hash(hasher);
+            actual.hash(hasher);
+            expected.hash(hasher);
+            match reason {
+                crate::types::relation::RefutationReason::IncompatibleNominal => 0u8.hash(hasher),
+                crate::types::relation::RefutationReason::TypeMismatch => 1u8.hash(hasher),
+                crate::types::relation::RefutationReason::UnionMemberMismatch => 2u8.hash(hasher),
+            }
+        }
+        crate::checker::binding::BindingConsistency::DynamicBoundary { obligation } => {
+            4u8.hash(hasher);
+            obligation.reason.hash(hasher);
+        }
+        crate::checker::binding::BindingConsistency::Blocked(reason) => {
+            5u8.hash(hasher);
+            hash_block_reason(reason, hasher);
         }
     }
 }
@@ -1004,10 +1067,7 @@ pub fn declaration_surface_input_fingerprint(surface: &DeclarationSurface) -> In
 /// the same semantic `Unknown` surface while their source ranges or explanatory details move.
 /// They deliberately do not participate in the declaration-surface product fingerprint, so
 /// diagnostic-only refreshes do not invalidate semantic consumers.
-pub fn declaration_surface_query_input_fingerprint(
-    surface: &DeclarationSurface,
-    diagnostics: &[SemanticDiagnostic],
-) -> InputFingerprint {
+pub fn declaration_surface_query_input_fingerprint(surface: &DeclarationSurface, diagnostics: &[SemanticDiagnostic]) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     hash_declaration_surface(surface, true, &mut hasher);
     diagnostics.len().hash(&mut hasher);
@@ -1066,12 +1126,7 @@ pub fn hierarchy_edge_product_fingerprint(class_decl: &DeclarationId, super_decl
 }
 
 /// Computes input fingerprint for a callable body query.
-pub fn callable_body_input_fingerprint(
-    callable: &CallableId,
-    body: &[Statement],
-    body_range: SourceRange,
-    store: &TypeStore,
-) -> InputFingerprint {
+pub fn callable_body_input_fingerprint(callable: &CallableId, body: &[Statement], body_range: SourceRange, store: &TypeStore) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable.hash(&mut hasher);
     hash_range(body_range, &mut hasher);
@@ -1096,13 +1151,18 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_type_knowledge(&expression.knowledge, false, &mut hasher);
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &mut hasher);
+        hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
     }
 
     analysis.bindings.len().hash(&mut hasher);
     for (binding_id, binding) in &analysis.bindings {
         binding_id.hash(&mut hasher);
         binding.declared.hash(&mut hasher);
+        hash_binding_contract(&binding.contract, &mut hasher);
         hash_type_knowledge(&binding.current, false, &mut hasher);
+        hash_denotation(&binding.denotation, &mut hasher);
+        hash_binding_consistency(&binding.consistency, &mut hasher);
+        hash_causal_invalidity(binding.causal_invalidity, &mut hasher);
         binding.mutable.hash(&mut hasher);
         binding.version.hash(&mut hasher);
     }

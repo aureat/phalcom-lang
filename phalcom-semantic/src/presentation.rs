@@ -78,6 +78,7 @@ impl<'a> TypePresenter<'a> {
         match &expression.status {
             AnalysisStatus::Ready => self.present_knowledge(&expression.knowledge),
             AnalysisStatus::Invalid(_) => FormalPresentation::Invalid,
+            AnalysisStatus::Suppressed(_) => FormalPresentation::Blocked,
             AnalysisStatus::Blocked(_) => FormalPresentation::Blocked,
             AnalysisStatus::DynamicBoundary(_) => FormalPresentation::Dynamic,
             AnalysisStatus::Cancelled => FormalPresentation::Cancelled,
@@ -177,9 +178,7 @@ impl SemanticPresentationIndex {
                 match best {
                     None => best = Some(site),
                     Some(curr) => {
-                        if site.range.len() < curr.range.len()
-                            || (site.range.len() == curr.range.len() && site.site < curr.site)
-                        {
+                        if site.range.len() < curr.range.len() || (site.range.len() == curr.range.len() && site.site < curr.site) {
                             best = Some(site);
                         }
                     }
@@ -216,7 +215,13 @@ impl SemanticPresentationIndex {
         }
     }
 
-    fn insert_bindings(&mut self, module: ModuleId, callable: &CallableId, bindings: &crate::checker::analysis::BindingAnalysisIndex, presenter: &TypePresenter<'_>) {
+    fn insert_bindings(
+        &mut self,
+        module: ModuleId,
+        callable: &CallableId,
+        bindings: &crate::checker::analysis::BindingAnalysisIndex,
+        presenter: &TypePresenter<'_>,
+    ) {
         for state in bindings.values() {
             let site = FormalSiteId::Binding {
                 callable: callable.clone(),

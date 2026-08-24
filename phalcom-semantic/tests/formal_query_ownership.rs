@@ -6,10 +6,8 @@ use phalcom_modules::interface::LinkedModuleInterface;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
-use phalcom_semantic::db::{
-    query_callable_body_with_formal_inputs, query_declaration_surface, CancellationToken, FormalQueryInputs, QueryBudget, QueryKey,
-};
-use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeInfo};
+use phalcom_semantic::db::{CancellationToken, FormalQueryInputs, QueryBudget, QueryKey, query_callable_body_with_formal_inputs, query_declaration_surface};
+use phalcom_semantic::declarations::{DeclarationTypeInfo, bootstrap_universe_declarations};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -58,20 +56,10 @@ fn single_module_input(module: ModuleId, source_code: &str, generation: u64) -> 
     let mut sources = BTreeMap::new();
     sources.insert(
         module.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            module,
-            ModuleKind::Module,
-            None,
-            Arc::from(source_code),
-            program,
-        )),
+        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source_code), program)),
     );
 
-    SemanticWorkspaceInput {
-        linked,
-        sources,
-        generation,
-    }
+    SemanticWorkspaceInput { linked, sources, generation }
 }
 
 fn dependency_keys(session: &SemanticWorkspaceSession, key: &QueryKey) -> Vec<QueryKey> {

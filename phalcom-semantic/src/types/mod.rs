@@ -24,7 +24,10 @@ pub use application::TypeApplicationError;
 pub use constraint::{ConstraintSet, TypeConstraint};
 pub use denotation::{SemanticDenotation, ValueSemanticFact};
 pub use environment::{SpecializedCallableView, SpecializedMemberView, TypeEnvironment, TypeView};
-pub use evidence::{DynamicReason, EvidenceAuthority, EvidenceSet, TypeEvidence, TypeKnowledge, UnknownReason};
+pub use evidence::{
+    ContractAssumptionEligibility, DynamicReason, EvidenceAuthority, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason,
+    join_type_knowledge,
+};
 pub use id::{InferVarId, KindId, ProperTypeId, RecordRowId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
 pub use kind::{KindApplicationError, KindData};
 pub use native::{
@@ -35,7 +38,8 @@ pub use outcome::{
 };
 pub use parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 pub use relation::{
-    Assignability, MapTypeHierarchy, RefutationReason, TypeHierarchy, check_assignability, check_assignability_bounded, check_subtype_bounded, is_subtype,
+    Assignability, MapTypeHierarchy, RefutationReason, TypeHierarchy, check_assignability, check_assignability_bounded, check_knowledge_against_type,
+    check_knowledge_against_type_bounded, check_subtype_bounded, is_subtype,
 };
 pub use row::{DuplicateFieldError, RecordAccess, RecordRowData, RecordRowField, RecordRowTail};
 pub use row_solver::{

@@ -1,5 +1,6 @@
 //! Semantic typing result representation for expressions.
 
+use crate::checker::causal::CausalInvalidity;
 use crate::dispatch::DispatchLookup;
 use crate::types::constraint::TypeConstraint;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
@@ -15,6 +16,7 @@ pub struct TypedExpression {
     pub dispatch_lookup: DispatchLookup,
     pub constraints: Vec<TypeConstraint>,
     pub provenance: EvidenceSet,
+    pub causal_invalidity: CausalInvalidity,
 }
 
 impl TypedExpression {
@@ -29,6 +31,7 @@ impl TypedExpression {
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance,
+            causal_invalidity: CausalInvalidity::Clean,
         }
     }
 
@@ -42,6 +45,7 @@ impl TypedExpression {
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance,
+            causal_invalidity: CausalInvalidity::Clean,
         }
     }
 
@@ -52,6 +56,7 @@ impl TypedExpression {
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
+            causal_invalidity: CausalInvalidity::Clean,
         }
     }
 
@@ -62,6 +67,7 @@ impl TypedExpression {
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
+            causal_invalidity: CausalInvalidity::Clean,
         }
     }
 
@@ -107,6 +113,7 @@ impl From<crate::checker::analysis::ExpressionAnalysis> for TypedExpression {
     fn from(analysis: crate::checker::analysis::ExpressionAnalysis) -> Self {
         let mut expr = Self::new(analysis.knowledge);
         expr.denotation = analysis.denotation;
+        expr.causal_invalidity = analysis.causal_invalidity;
         expr
     }
 }

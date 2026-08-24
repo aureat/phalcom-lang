@@ -103,6 +103,7 @@ fn test_dynamic_dispatch_produces_opaque_effects() {
         knowledge: TypeKnowledge::Dynamic(DynamicReason::DynamicRestPack),
         denotation: None,
         status: AnalysisStatus::DynamicBoundary(DynamicReason::DynamicRestPack),
+        causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
         explanation: None,
         call: None,
     };
@@ -124,6 +125,7 @@ fn test_reflective_perform_produces_opaque_effects() {
         knowledge: TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection),
         denotation: None,
         status: AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection),
+        causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
         explanation: None,
         call: None,
     };

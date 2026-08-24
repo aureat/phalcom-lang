@@ -48,28 +48,12 @@ class Client {
     // Client.test analysis
     let test_sel = Selector::method("test", vec![]).unwrap();
     let test_cid = CallableId::new(client_decl, test_sel, DispatchSide::Class);
-    let test_analysis = analysis
-        .snapshot
-        .callable_analyses
-        .get(&test_cid)
-        .expect("Client.test analysis exists");
+    let test_analysis = analysis.snapshot.callable_analyses.get(&test_cid).expect("Client.test analysis exists");
     assert_eq!(test_analysis.status, CallableAnalysisStatus::Complete);
 
-    let b_binding = test_analysis
-        .bindings
-        .values()
-        .find(|b| b.name == "b")
-        .expect("b binding");
-    let d_binding = test_analysis
-        .bindings
-        .values()
-        .find(|b| b.name == "d")
-        .expect("d binding");
-    let o_binding = test_analysis
-        .bindings
-        .values()
-        .find(|b| b.name == "o")
-        .expect("o binding");
+    let b_binding = test_analysis.bindings.values().find(|b| b.name == "b").expect("b binding");
+    let d_binding = test_analysis.bindings.values().find(|b| b.name == "d").expect("d binding");
+    let o_binding = test_analysis.bindings.values().find(|b| b.name == "o").expect("o binding");
 
     // Section 17.5 assertions:
     // Base.new() -> Base

@@ -45,20 +45,10 @@ fn single_module_input(module: ModuleId, source_code: &str, generation: u64) -> 
     let mut sources = BTreeMap::new();
     sources.insert(
         module.clone(),
-        Arc::new(ParsedModuleUnit::new(
-            module,
-            ModuleKind::Module,
-            None,
-            Arc::from(source_code),
-            program,
-        )),
+        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source_code), program)),
     );
 
-    SemanticWorkspaceInput {
-        linked,
-        sources,
-        generation,
-    }
+    SemanticWorkspaceInput { linked, sources, generation }
 }
 
 #[test]
@@ -87,7 +77,12 @@ class Consumer {
 
     let consumer_decl = DeclarationId::new(module.clone(), "Consumer".into());
     let consumer_read_id = CallableId::new(consumer_decl, Selector::method("read", []).unwrap(), DispatchSide::Class);
-    let consumer_analysis_v1 = update1.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read analysis v1");
+    let consumer_analysis_v1 = update1
+        .snapshot
+        .callable_analyses
+        .get(&consumer_read_id)
+        .cloned()
+        .expect("Consumer.read analysis v1");
     // Revision 2: Callee return type changes from Int to String
     let src2 = r#"
 class Api {
@@ -107,8 +102,16 @@ class Consumer {
     assert_eq!(update2.stats.callables_recomputed, 2);
     assert_eq!(update2.stats.callables_reused, 0);
 
-    let consumer_analysis_v2 = update2.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read analysis v2");
-    assert!(!Arc::ptr_eq(&consumer_analysis_v1, &consumer_analysis_v2), "Caller analysis Arc must NOT be reused when callee signature changes");
+    let consumer_analysis_v2 = update2
+        .snapshot
+        .callable_analyses
+        .get(&consumer_read_id)
+        .cloned()
+        .expect("Consumer.read analysis v2");
+    assert!(
+        !Arc::ptr_eq(&consumer_analysis_v1, &consumer_analysis_v2),
+        "Caller analysis Arc must NOT be reused when callee signature changes"
+    );
 }
 
 #[test]
@@ -136,7 +139,12 @@ class Consumer {
 
     let consumer_decl = DeclarationId::new(module.clone(), "Consumer".into());
     let consumer_read_id = CallableId::new(consumer_decl, Selector::method("read", []).unwrap(), DispatchSide::Class);
-    let consumer_analysis_v1 = update1.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read analysis v1");
+    let consumer_analysis_v1 = update1
+        .snapshot
+        .callable_analyses
+        .get(&consumer_read_id)
+        .cloned()
+        .expect("Consumer.read analysis v1");
 
     // Revision 2: Change Api.value body 1 -> 2 while signature -> Int stays
     let src2 = r#"
@@ -157,8 +165,16 @@ class Consumer {
     assert_eq!(update2.stats.callables_recomputed, 1, "Only Api.value body recomputes");
     assert_eq!(update2.stats.callables_reused, 1, "Consumer.read must be reused");
 
-    let consumer_analysis_v2 = update2.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read analysis v2");
-    assert!(Arc::ptr_eq(&consumer_analysis_v1, &consumer_analysis_v2), "Consumer.read CallableAnalysis Arc MUST be reused");
+    let consumer_analysis_v2 = update2
+        .snapshot
+        .callable_analyses
+        .get(&consumer_read_id)
+        .cloned()
+        .expect("Consumer.read analysis v2");
+    assert!(
+        Arc::ptr_eq(&consumer_analysis_v1, &consumer_analysis_v2),
+        "Consumer.read CallableAnalysis Arc MUST be reused"
+    );
 }
 
 #[test]
@@ -197,7 +213,10 @@ class Data {
     assert_eq!(update2.stats.callables_reused, 0);
 
     let data_read_v2 = update2.snapshot.callable_analyses.get(&data_read_id).cloned().expect("Data.read v2");
-    assert!(!Arc::ptr_eq(&data_read_v1, &data_read_v2), "Data.read Arc must NOT be reused when field surface changes");
+    assert!(
+        !Arc::ptr_eq(&data_read_v1, &data_read_v2),
+        "Data.read Arc must NOT be reused when field surface changes"
+    );
 }
 
 #[test]
@@ -247,7 +266,10 @@ class Child is B {
     let update2 = session.update(input2);
 
     let child_test_v2 = update2.snapshot.callable_analyses.get(&child_test_id).cloned().expect("Child.test v2");
-    assert!(!Arc::ptr_eq(&child_test_v1, &child_test_v2), "Child.test must recompute when superclass changes");
+    assert!(
+        !Arc::ptr_eq(&child_test_v1, &child_test_v2),
+        "Child.test must recompute when superclass changes"
+    );
 }
 
 #[test]
@@ -286,7 +308,13 @@ class Client {
         );
         sources.insert(
             client_mod.clone(),
-            Arc::new(ParsedModuleUnit::new(client_mod.clone(), ModuleKind::Module, None, Arc::from(client_src), client_prog)),
+            Arc::new(ParsedModuleUnit::new(
+                client_mod.clone(),
+                ModuleKind::Module,
+                None,
+                Arc::from(client_src),
+                client_prog,
+            )),
         );
 
         let mut api_exports = BTreeMap::new();
@@ -352,11 +380,7 @@ class Client {
             initialization_order: vec![api_mod.clone(), client_mod.clone()],
         });
 
-        SemanticWorkspaceInput {
-            linked,
-            sources,
-            generation,
-        }
+        SemanticWorkspaceInput { linked, sources, generation }
     };
 
     let input1 = build_multi_input(api_src1, 1);
@@ -377,7 +401,10 @@ export Service
     let update2 = session.update(input2);
 
     let client_run_v2 = update2.snapshot.callable_analyses.get(&client_run_id).cloned().expect("Client.run v2");
-    assert!(!Arc::ptr_eq(&client_run_v1, &client_run_v2), "Client.run must recompute when imported Service signature changes");
+    assert!(
+        !Arc::ptr_eq(&client_run_v1, &client_run_v2),
+        "Client.run must recompute when imported Service signature changes"
+    );
 }
 
 #[test]
@@ -423,7 +450,10 @@ class Unrelated {
     assert_eq!(update2.stats.callables_reused, 1, "Worker.compute must be reused");
 
     let worker_compute_v2 = update2.snapshot.callable_analyses.get(&worker_compute_id).cloned().expect("Worker.compute v2");
-    assert!(Arc::ptr_eq(&worker_compute_v1, &worker_compute_v2), "Worker.compute Arc MUST be reused across unrelated edits");
+    assert!(
+        Arc::ptr_eq(&worker_compute_v1, &worker_compute_v2),
+        "Worker.compute Arc MUST be reused across unrelated edits"
+    );
 }
 
 #[test]

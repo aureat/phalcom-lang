@@ -171,7 +171,14 @@ fn test_predicate_refinement_and_inversion() {
 
     let b1 = BindingId(1);
     let mut state = FlowState::new();
-    state.declare(b1, "b1", SourceRange::default(), None, TypeKnowledge::known(union_ty, EvidenceAuthority::ExactSyntax), true);
+    state.declare(
+        b1,
+        "b1",
+        SourceRange::default(),
+        None,
+        TypeKnowledge::known(union_ty, EvidenceAuthority::ExactSyntax),
+        true,
+    );
 
     // 1. Filter by IsInstance { target: Int }
     let pred = FlowPredicate::IsInstance { binding: b1, target: int_ty };
@@ -185,7 +192,14 @@ fn test_predicate_refinement_and_inversion() {
 
     // 3. Test IsNotInstance on fresh union state
     let mut state2 = FlowState::new();
-    state2.declare(b1, "b1", SourceRange::default(), None, TypeKnowledge::known(union_ty, EvidenceAuthority::ExactSyntax), true);
+    state2.declare(
+        b1,
+        "b1",
+        SourceRange::default(),
+        None,
+        TypeKnowledge::known(union_ty, EvidenceAuthority::ExactSyntax),
+        true,
+    );
     apply_predicate(&mut state2, &inv, &mut store);
     assert_eq!(state2.get_current_type(b1).and_then(|k| k.ty()), Some(str_ty));
     assert!(state2.facts.contains(&inv));
@@ -205,8 +219,22 @@ fn test_mutation_invalidation_kills_dependent_facts() {
     let b_y = BindingId(2);
 
     let mut state = FlowState::new();
-    state.declare(b_x, "b_x", SourceRange::default(), None, TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax), true);
-    state.declare(b_y, "b_y", SourceRange::default(), None, TypeKnowledge::known(str_ty, EvidenceAuthority::ExactSyntax), true);
+    state.declare(
+        b_x,
+        "b_x",
+        SourceRange::default(),
+        None,
+        TypeKnowledge::known(int_ty, EvidenceAuthority::ExactSyntax),
+        true,
+    );
+    state.declare(
+        b_y,
+        "b_y",
+        SourceRange::default(),
+        None,
+        TypeKnowledge::known(str_ty, EvidenceAuthority::ExactSyntax),
+        true,
+    );
 
     let pred_x = FlowPredicate::EqualLiteral {
         binding: b_x,
@@ -244,7 +272,14 @@ fn test_flow_state_conservative_join_and_loop_widening() {
     let b1 = BindingId(1);
 
     let mut branch_a = FlowState::new();
-    branch_a.declare(b1, "b1", SourceRange::default(), None, TypeKnowledge::known(int_ty, EvidenceAuthority::Proven), true);
+    branch_a.declare(
+        b1,
+        "b1",
+        SourceRange::default(),
+        None,
+        TypeKnowledge::known(int_ty, EvidenceAuthority::Proven),
+        true,
+    );
     let fact_shared = FlowPredicate::OrderedPredicate {
         binding: b1,
         op: ">".into(),
@@ -258,7 +293,14 @@ fn test_flow_state_conservative_join_and_loop_widening() {
     apply_predicate(&mut branch_a, &fact_a_only, &mut store);
 
     let mut branch_b = FlowState::new();
-    branch_b.declare(b1, "b1", SourceRange::default(), None, TypeKnowledge::known(str_ty, EvidenceAuthority::Proven), true);
+    branch_b.declare(
+        b1,
+        "b1",
+        SourceRange::default(),
+        None,
+        TypeKnowledge::known(str_ty, EvidenceAuthority::Proven),
+        true,
+    );
     apply_predicate(&mut branch_b, &fact_shared, &mut store);
 
     let joined = FlowState::join(&[branch_a, branch_b], &mut store);

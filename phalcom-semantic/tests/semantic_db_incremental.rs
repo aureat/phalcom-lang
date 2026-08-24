@@ -1,7 +1,5 @@
 use phalcom_modules::ModuleId;
-use phalcom_semantic::db::{
-    DependencyRecorder, InputFingerprint, ProductFingerprint, QueryKey, QueryState, QueryValue, SemanticDb,
-};
+use phalcom_semantic::db::{DependencyRecorder, InputFingerprint, ProductFingerprint, QueryKey, QueryState, QueryValue, SemanticDb};
 
 fn mod_a() -> ModuleId {
     ModuleId::core()
@@ -94,8 +92,7 @@ fn test_generic_reuse_validation_matrix() {
 
     // 4. Product fingerprint can remain stable across newer revision and still be reused
     let mut mid_rec2 = DependencyRecorder::new(key_mid.clone());
-    db.record_dependency(&mut mid_rec2, key_leaf.clone())
-        .expect("leaf is Ready");
+    db.record_dependency(&mut mid_rec2, key_leaf.clone()).expect("leaf is Ready");
 
     // Mid computes from new leaf but produces SAME product fingerprint 200!
     db.publish_ready(
@@ -127,10 +124,7 @@ fn test_generic_reuse_validation_matrix() {
 fn dependency_product_mismatch_is_never_ignored_for_specific_query_kinds() {
     let mut db = SemanticDb::new();
     let dependency = QueryKey::ParsedModule(mod_a());
-    let dependent = QueryKey::DeclarationSurface(phalcom_semantic::identity::DeclarationId::new(
-        mod_a(),
-        "Client".into(),
-    ));
+    let dependent = QueryKey::DeclarationSurface(phalcom_semantic::identity::DeclarationId::new(mod_a(), "Client".into()));
     let rev1 = db.revision();
 
     db.publish_ready(

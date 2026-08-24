@@ -43,6 +43,7 @@ pub fn infer_intraprocedural_effects(analysis: &CallableAnalysis) -> EffectKnowl
                 return EffectKnowledge::Opaque(EffectOpaqueReason::UnknownDependency);
             }
             AnalysisStatus::Invalid(_) => {}
+            AnalysisStatus::Suppressed(_) => {}
             AnalysisStatus::Cancelled | AnalysisStatus::BudgetExceeded(_) | AnalysisStatus::InternalFailure(_) => {
                 return EffectKnowledge::Opaque(EffectOpaqueReason::UnsupportedConstruct);
             }

@@ -136,29 +136,16 @@ pub fn substitution_for_applied(declarations: &DeclarationTypeTable, store: &Typ
 }
 
 /// Specializes `Self` type terms within `ty` based on the concrete `receiver` type.
-pub fn specialize_self_type(
-    store: &mut TypeStore,
-    declarations: &DeclarationTypeTable,
-    receiver: TypeId,
-    ty: TypeId,
-) -> TypeId {
+pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTypeTable, receiver: TypeId, ty: TypeId) -> TypeId {
     match store.get(ty).clone() {
-        TypeData::SelfType(term) => {
-            match term.role {
-                crate::types::parameter::SelfRole::ReceiverValue => receiver,
-                crate::types::parameter::SelfRole::InstanceType => {
-                    match store.get(receiver).clone() {
-                        TypeData::ClassObject { declaration } => {
-                            declarations.form(&declaration).unwrap_or(receiver)
-                        }
-                        TypeData::Nominal { .. } | TypeData::Applied { .. } => receiver,
-                        _ => {
-                            declarations.form(&term.owner).unwrap_or(receiver)
-                        }
-                    }
-                }
-            }
-        }
+        TypeData::SelfType(term) => match term.role {
+            crate::types::parameter::SelfRole::ReceiverValue => receiver,
+            crate::types::parameter::SelfRole::InstanceType => match store.get(receiver).clone() {
+                TypeData::ClassObject { declaration } => declarations.form(&declaration).unwrap_or(receiver),
+                TypeData::Nominal { .. } | TypeData::Applied { .. } => receiver,
+                _ => declarations.form(&term.owner).unwrap_or(receiver),
+            },
+        },
         TypeData::Applied { origin, arguments } => {
             let subst_origin = specialize_self_type(store, declarations, receiver, origin);
             let subst_args: Vec<TypeId> = arguments.iter().map(|&arg| specialize_self_type(store, declarations, receiver, arg)).collect();

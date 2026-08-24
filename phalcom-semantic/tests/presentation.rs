@@ -104,7 +104,12 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
     assert_eq!(callable_site.range, SourceRange { start: 0, end: 12 });
     assert_eq!(callable_site.presentation, FormalPresentation::Known("Ready".into()));
 
-    let expression_site = index.get(&FormalSiteId::Expression { callable, expression: expression_id }).expect("expression site");
+    let expression_site = index
+        .get(&FormalSiteId::Expression {
+            callable,
+            expression: expression_id,
+        })
+        .expect("expression site");
     assert_eq!(expression_site.presentation, FormalPresentation::Known("Int".into()));
     assert_eq!(expression_site.range, SourceRange { start: 4, end: 7 });
     assert_eq!(index.len(), 2);
@@ -150,7 +155,13 @@ fn presentation_preserves_non_ready_formal_states() {
     };
     let index = SemanticPresentationIndex::from_callable_analysis(module, &analysis, &presenter);
     assert_eq!(
-        index.get(&FormalSiteId::Expression { callable, expression: expression_id_for(&analysis) }).unwrap().presentation,
+        index
+            .get(&FormalSiteId::Expression {
+                callable,
+                expression: expression_id_for(&analysis)
+            })
+            .unwrap()
+            .presentation,
         FormalPresentation::Invalid
     );
 }

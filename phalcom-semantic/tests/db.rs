@@ -1,7 +1,7 @@
 use phalcom_modules::ModuleId;
 use phalcom_semantic::db::{
-    BudgetKind, CancellationToken, DependencyIndex, DependencyRecorder, InputFingerprint, ProductFingerprint, QueryBudget, QueryKey, QueryOutcome, QueryScheduler, QueryValue,
-    SemanticDb,
+    BudgetKind, CancellationToken, DependencyIndex, DependencyRecorder, InputFingerprint, ProductFingerprint, QueryBudget, QueryKey, QueryOutcome,
+    QueryScheduler, QueryValue, SemanticDb,
 };
 use std::sync::Arc;
 
@@ -116,8 +116,6 @@ fn stale_revision_cannot_publish_a_ready_product() {
     assert!(db.query_state(&key).is_none());
 }
 
-
-
 #[test]
 fn test_body_query_execution_and_invalidation() {
     use phalcom_common::range::SourceRange;
@@ -187,7 +185,11 @@ fn test_body_query_execution_and_invalidation() {
     assert_eq!(db.query_state(&key1).unwrap().is_ready(), true);
     assert_eq!(db.query_state(&key1).unwrap().revision(), Some(db.revision()));
     assert_eq!(db.query_state(&key1).unwrap().as_ready_value().unwrap().as_bytes(), b"callable-body");
-    let first_input_fingerprint = db.query_state(&key1).unwrap().input_fingerprint().expect("ready callable has input fingerprint");
+    let first_input_fingerprint = db
+        .query_state(&key1)
+        .unwrap()
+        .input_fingerprint()
+        .expect("ready callable has input fingerprint");
     assert_ne!(first_input_fingerprint.raw(), 0);
     assert!(db.product(&key1).and_then(|product| product.as_callable_body()).is_some());
 
@@ -298,11 +300,7 @@ fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()
     let selector = Selector::getter("value").unwrap();
     let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
 
-    let signature = CallableSignature::new(
-        selector,
-        Vec::new(),
-        TypeKnowledge::known(store.unit(), EvidenceAuthority::Declared),
-    );
+    let signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::known(store.unit(), EvidenceAuthority::Declared));
     let mut surface = DeclarationSurface::new(Some(owner.clone()));
     surface.add_callable(DispatchSide::Instance, signature);
     let mut dispatch = SurfaceDispatchResolver::new();

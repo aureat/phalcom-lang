@@ -62,6 +62,7 @@ fn test_interprocedural_effect_propagation() {
             knowledge: TypeKnowledge::Dynamic(DynamicReason::DynamicRestPack),
             denotation: None,
             status: AnalysisStatus::DynamicBoundary(DynamicReason::DynamicRestPack),
+            causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
             explanation: None,
             call: None,
         },

@@ -24,16 +24,20 @@ use phalcom_common::selector::{Selector, SelectorSlot};
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
 pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
     let expr_id = ctx.alloc_expression_id();
-    let typed = analyze_expression_inner(ctx, expr, expected);
+    let diagnostics_before = ctx.diagnostics.len();
+    let mut typed = analyze_expression_inner(ctx, expr, expected);
 
-    let status = if let Some(_diag) = ctx
-        .diagnostics
+    let owns_error = ctx.diagnostics[diagnostics_before..]
         .iter()
-        .find(|d| d.primary.range == expr.range() && d.severity == crate::diagnostic::DiagnosticSeverity::Error)
-    {
-        let cause_id = crate::identity::DiagnosticCauseId(expr_id.local.0);
+        .chain(ctx.diagnostics[..diagnostics_before].iter())
+        .any(|diagnostic| diagnostic.primary.range == expr.range() && diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error);
+    let status = if owns_error {
+        let cause_id = ctx.alloc_diagnostic_cause();
         ctx.mark_suppressed(expr_id, cause_id);
+        typed.causal_invalidity = typed.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause_id));
         AnalysisStatus::Invalid(cause_id)
+    } else if let Some(cause) = typed.causal_invalidity.suppression_cause() {
+        AnalysisStatus::Suppressed(cause)
     } else if typed.knowledge.is_dynamic() {
         AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection)
     } else {
@@ -72,6 +76,8 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     };
 
     let mut analysis = ctx.record_expression(expr_id, expr.range(), typed.knowledge.clone(), typed.denotation, status);
+    analysis.causal_invalidity = typed.causal_invalidity;
+    ctx.expressions.insert(expr_id, analysis.clone());
     if let Some(eid) = explanation_id {
         analysis.explanation = Some(eid);
         ctx.expressions.insert(expr_id, analysis);
@@ -237,7 +243,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let val_typed = analyze_expression(ctx, &assign.value, &target_expected);
             let val_k = &val_typed.knowledge;
             if let Expr::Var { value: var_name, .. } = &*assign.name {
-                if let Some(target_fact) = ctx.lookup_local(var_name).cloned() {
+                if let Some(target_fact) = ctx.lookup_local(var_name) {
                     enforce_assignability(
                         ctx.store,
                         &ctx.hierarchy,
@@ -704,7 +710,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
 
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
     // 1. Local callable variable lookup
-    if let Some(fact) = ctx.lookup_local(&call.name).cloned() {
+    if let Some(fact) = ctx.lookup_local(&call.name) {
         if let Some(ty) = fact.knowledge.ty() {
             if let TypeData::Callable(c) = ctx.store.get(ty).clone() {
                 let mut params = Vec::new();
@@ -883,12 +889,8 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check Field on class surface
         let field_opt = match ctx.store.get(recv_ty).clone() {
-            TypeData::ClassObject { declaration } => {
-                ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &get.property)
-            }
-            TypeData::Nominal { declaration } => {
-                ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &get.property)
-            }
+            TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &get.property),
+            TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &get.property),
             _ => None,
         };
         if let Some(field_k) = field_opt {
@@ -920,12 +922,8 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check field
         let field_opt = match ctx.store.get(recv_ty).clone() {
-            TypeData::ClassObject { declaration } => {
-                ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property)
-            }
-            TypeData::Nominal { declaration } => {
-                ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &set.property)
-            }
+            TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property),
+            TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &set.property),
             _ => None,
         };
         if let Some(field_k) = field_opt {

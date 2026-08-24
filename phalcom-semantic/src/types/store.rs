@@ -141,9 +141,7 @@ impl TypeStore {
 
         if let Some(&id) = self.parameter_to_id.get(&key) {
             let existing = &self.type_parameters[id.index()];
-            let same_semantics = existing.name == data.name
-                && existing.kind == data.kind
-                && existing.variance == data.variance;
+            let same_semantics = existing.name == data.name && existing.kind == data.kind && existing.variance == data.variance;
 
             if same_semantics {
                 // Source provenance is revision-local presentation data, not semantic

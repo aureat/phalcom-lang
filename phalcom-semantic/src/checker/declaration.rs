@@ -95,7 +95,10 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                         side: crate::identity::DispatchSide::Class,
                         role: crate::types::parameter::SelfRole::InstanceType,
                     });
-                    (crate::identity::DispatchSide::Class, TypeKnowledge::known(self_type, EvidenceAuthority::Declared))
+                    (
+                        crate::identity::DispatchSide::Class,
+                        TypeKnowledge::known(self_type, EvidenceAuthority::Declared),
+                    )
                 } else {
                     let ret_k = m
                         .return_annotation
@@ -234,11 +237,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     ctx.register_surface(decl_id, surface);
 }
 
-fn check_field_initializer_against_declared(
-    ctx: &mut CheckingContext<'_>,
-    field: &phalcom_ast::ast::FieldDef,
-    declared: &TypeKnowledge,
-) {
+fn check_field_initializer_against_declared(ctx: &mut CheckingContext<'_>, field: &phalcom_ast::ast::FieldDef, declared: &TypeKnowledge) {
     let Some(default_expr) = &field.default else {
         return;
     };
@@ -254,21 +253,10 @@ fn check_field_initializer_against_declared(
     }
 }
 
-fn check_field_initializer(
-    ctx: &mut CheckingContext<'_>,
-    resolver: &dyn crate::types::annotation::TypeResolver,
-    field: &phalcom_ast::ast::FieldDef,
-) {
+fn check_field_initializer(ctx: &mut CheckingContext<'_>, resolver: &dyn crate::types::annotation::TypeResolver, field: &phalcom_ast::ast::FieldDef) {
     let declared_k = field.annotation.as_ref().map(|annotation| {
         let mut diagnostics = Vec::new();
-        let knowledge = resolve_type_annotation(
-            ctx.store,
-            ctx.declarations,
-            resolver,
-            &ctx.current_module,
-            annotation,
-            &mut diagnostics,
-        );
+        let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, annotation, &mut diagnostics);
         ctx.diagnostics.extend(diagnostics);
         knowledge
     });

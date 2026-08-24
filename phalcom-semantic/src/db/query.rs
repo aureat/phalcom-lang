@@ -2,11 +2,11 @@
 
 use crate::checker::analysis::{CallableAnalysis, CallableAnalysisStatus};
 use crate::checker::body::{analyze_callable_body, signature_consumed_by_body};
-use crate::db::{DependencyEdge, SemanticDb, SemanticProduct};
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::{InputFingerprint, ProductFingerprint, QueryKey};
 use crate::db::product::DeclarationSurfaceProduct;
 use crate::db::state::{QueryOutcome, QueryState};
+use crate::db::{DependencyEdge, SemanticDb, SemanticProduct};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{CallableSignature as SurfaceCallableSignature, SurfaceDispatchResolver};
@@ -43,21 +43,11 @@ pub struct FormalQueryInputs<'a> {
 
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
     match dependency {
-        crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => {
-            QueryKey::DeclarationShell(declaration.clone())
-        }
-        crate::checker::analysis::SemanticDependency::CallableSignature(callable) => {
-            QueryKey::CallableSignature(callable.clone())
-        }
-        crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
-            QueryKey::DeclarationSurface(declaration.clone())
-        }
-        crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
-            QueryKey::HierarchyEdge(declaration.clone())
-        }
-        crate::checker::analysis::SemanticDependency::LinkedInterface(module) => {
-            QueryKey::LinkedInterface(module.clone())
-        }
+        crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => QueryKey::DeclarationShell(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::CallableSignature(callable) => QueryKey::CallableSignature(callable.clone()),
+        crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
     }
 }
 
@@ -101,10 +91,7 @@ fn superclass_source<'a>(unit: &'a ParsedModuleUnit, class_def: &ClassDef) -> Op
     unit.text.get(range.start..range.end)
 }
 
-pub(crate) fn semantic_signature_from_surface(
-    callable: &CallableId,
-    signature: &SurfaceCallableSignature,
-) -> Option<CallableSemanticSignature> {
+pub(crate) fn semantic_signature_from_surface(callable: &CallableId, signature: &SurfaceCallableSignature) -> Option<CallableSemanticSignature> {
     if !signature.has_complete_types() {
         return None;
     }
@@ -115,11 +102,7 @@ pub(crate) fn semantic_signature_from_surface(
         .enumerate()
         .map(|(index, parameter)| {
             let ty = parameter.ty.ty().expect("complete signature parameter has canonical type");
-            let mut semantic = crate::signature::CallableParameterSemantic::new(
-                index as u32,
-                parameter.local_name.clone(),
-                ty.into(),
-            );
+            let mut semantic = crate::signature::CallableParameterSemantic::new(index as u32, parameter.local_name.clone(), ty.into());
             if let Some(label) = &parameter.external_label {
                 semantic = semantic.with_label(label.clone());
             }
@@ -130,10 +113,7 @@ pub(crate) fn semantic_signature_from_surface(
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let return_type = signature
-        .return_type
-        .ty()
-        .expect("complete signature return has canonical type");
+    let return_type = signature.return_type.ty().expect("complete signature return has canonical type");
 
     Some(CallableSemanticSignature {
         callable: callable.clone(),
@@ -162,29 +142,18 @@ fn publish_current_product(
     dependencies: Vec<DependencyEdge>,
 ) -> Result<(), String> {
     let revision = db.revision();
-    db.publish_product_ready(
-        key,
-        revision,
-        input_fingerprint,
-        product_fingerprint,
-        product,
-        dependencies,
-    )
-    .map_err(|error| {
-        format!(
-            "stale semantic query publication: expected revision {:?}, attempted revision {:?}",
-            error.expected_revision(),
-            error.actual_revision()
-        )
-    })
+    db.publish_product_ready(key, revision, input_fingerprint, product_fingerprint, product, dependencies)
+        .map_err(|error| {
+            format!(
+                "stale semantic query publication: expected revision {:?}, attempted revision {:?}",
+                error.expected_revision(),
+                error.actual_revision()
+            )
+        })
 }
 
 /// Evaluates or retrieves the cached `ParsedModuleUnit` for a given module.
-pub fn query_parsed_module(
-    db: &mut SemanticDb,
-    module: ModuleId,
-    unit: Arc<ParsedModuleUnit>,
-) -> QueryOutcome<Arc<ParsedModuleUnit>> {
+pub fn query_parsed_module(db: &mut SemanticDb, module: ModuleId, unit: Arc<ParsedModuleUnit>) -> QueryOutcome<Arc<ParsedModuleUnit>> {
     let key = QueryKey::ParsedModule(module);
     let input_fingerprint = crate::db::fingerprint::parsed_module_input_fingerprint(&unit.id, unit.kind, &unit.text);
     if db.validate_reuse(&key, input_fingerprint) {
@@ -212,11 +181,7 @@ pub fn query_parsed_module(
 }
 
 /// Evaluates or retrieves the cached `UnlinkedModuleInterface` for a given module.
-pub fn query_unlinked_interface(
-    db: &mut SemanticDb,
-    module: ModuleId,
-    unit: Arc<ParsedModuleUnit>,
-) -> QueryOutcome<Arc<UnlinkedModuleInterface>> {
+pub fn query_unlinked_interface(db: &mut SemanticDb, module: ModuleId, unit: Arc<ParsedModuleUnit>) -> QueryOutcome<Arc<UnlinkedModuleInterface>> {
     let key = QueryKey::UnlinkedInterface(module.clone());
     let input_fingerprint = crate::db::fingerprint::parsed_module_input_fingerprint(&unit.id, unit.kind, &unit.text);
 
@@ -265,7 +230,13 @@ pub fn query_unlinked_interface(
         }
         Err(err) => {
             let query_err = format!("failed to build unlinked interface: {err:?}");
-            db.set_state(key, QueryState::Failed { revision: db.revision(), failure: query_err.clone() });
+            db.set_state(
+                key,
+                QueryState::Failed {
+                    revision: db.revision(),
+                    failure: query_err.clone(),
+                },
+            );
             QueryOutcome::Failed(query_err)
         }
     }
@@ -360,10 +331,7 @@ pub fn query_semantic_component(
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     for mod_id in interfaces.keys() {
-        for dependency in [
-            QueryKey::UnlinkedInterface(mod_id.clone()),
-            QueryKey::ResolvedImports(mod_id.clone()),
-        ] {
+        for dependency in [QueryKey::UnlinkedInterface(mod_id.clone()), QueryKey::ResolvedImports(mod_id.clone())] {
             if let Err(error) = db.record_dependency(&mut recorder, dependency) {
                 return query_failure(db, key, error);
             }
@@ -405,7 +373,13 @@ pub fn query_semantic_component(
         }
         Err(err) => {
             let query_err = format!("linker error: {err:?}");
-            db.set_state(key, QueryState::Failed { revision: db.revision(), failure: query_err.clone() });
+            db.set_state(
+                key,
+                QueryState::Failed {
+                    revision: db.revision(),
+                    failure: query_err.clone(),
+                },
+            );
             QueryOutcome::Failed(query_err)
         }
     }
@@ -421,11 +395,7 @@ pub fn query_hierarchy_edge(
 ) -> QueryOutcome<Arc<HierarchyEdgeProduct>> {
     let key = QueryKey::HierarchyEdge(class_decl.clone());
     if unit.id != class_decl.module || linked_interface.module != class_decl.module {
-        return query_failure(
-            db,
-            key,
-            format!("hierarchy query inputs do not belong to declaration {class_decl:?}"),
-        );
+        return query_failure(db, key, format!("hierarchy query inputs do not belong to declaration {class_decl:?}"));
     }
 
     match query_linked_interface(db, linked_interface.module.clone(), linked_interface) {
@@ -446,11 +416,7 @@ pub fn query_hierarchy_edge(
         let object = DeclarationId::new(ModuleId::core(), "Object".into());
         (class_decl != object).then_some(object)
     };
-    let input_fingerprint = crate::db::fingerprint::hierarchy_edge_input_fingerprint(
-        &class_decl,
-        superclass_source(&unit, class_def),
-        &super_decl,
-    );
+    let input_fingerprint = crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl);
 
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_hierarchy_edge()) {
@@ -464,16 +430,12 @@ pub fn query_hierarchy_edge(
     db.metrics().record_miss();
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-    if let Err(error) = db.record_dependency(
-        &mut recorder,
-        QueryKey::LinkedInterface(class_decl.module.clone()),
-    ) {
+    if let Err(error) = db.record_dependency(&mut recorder, QueryKey::LinkedInterface(class_decl.module.clone())) {
         return query_failure(db, key, error);
     }
 
     let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl));
-    let product_fingerprint =
-        crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &product.super_decl);
+    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &product.super_decl);
     let dependencies = recorder.finish();
     if let Err(error) = publish_current_product(
         db,
@@ -489,10 +451,7 @@ pub fn query_hierarchy_edge(
 }
 
 /// Evaluates or retrieves canonical declaration type metadata for one declaration.
-pub fn query_declaration_shell(
-    db: &mut SemanticDb,
-    info: Arc<DeclarationTypeInfo>,
-) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
+pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInfo>) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
     let key = QueryKey::DeclarationShell(info.declaration.clone());
     let input_fingerprint = crate::db::fingerprint::declaration_shell_input_fingerprint(&info);
     if db.validate_reuse(&key, input_fingerprint) {
@@ -533,11 +492,7 @@ pub fn query_declaration_surface(
 ) -> QueryOutcome<Arc<DeclarationSurface>> {
     let key = QueryKey::DeclarationSurface(decl_id.clone());
     if unit.id != decl_id.module || linked_interface.module != decl_id.module {
-        return query_failure(
-            db,
-            key,
-            format!("declaration-surface query inputs do not belong to declaration {decl_id:?}"),
-        );
+        return query_failure(db, key, format!("declaration-surface query inputs do not belong to declaration {decl_id:?}"));
     }
 
     let Some(class_def) = class_definition_for(&unit, &decl_id) else {
@@ -579,13 +534,7 @@ pub fn query_declaration_surface(
     // Semantic resolution is query-owned and only runs after the source-contract
     // cache lookup misses. Body-only source edits therefore avoid this branch.
     let (computed_surface, computed_diagnostics, captured_dependencies) = {
-        let mut context = crate::checker::context::CheckingContext::new(
-            store,
-            hierarchy,
-            resolver,
-            declarations,
-            decl_id.module.clone(),
-        );
+        let mut context = crate::checker::context::CheckingContext::new(store, hierarchy, resolver, declarations, decl_id.module.clone());
         crate::checker::declaration::register_class_surface(&mut context, class_def);
         let computed_surface = context.dispatch_ref().get_surface(&decl_id).cloned();
         let captured_dependencies = context.semantic_dependencies_snapshot();
@@ -628,18 +577,11 @@ pub fn query_declaration_surface(
 }
 
 /// Evaluates or projects the canonical semantic signature for one callable.
-pub fn query_callable_signature(
-    db: &mut SemanticDb,
-    callable: CallableId,
-) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+pub fn query_callable_signature(db: &mut SemanticDb, callable: CallableId) -> QueryOutcome<Arc<CallableSemanticSignature>> {
     let key = QueryKey::CallableSignature(callable.clone());
     let surface_key = QueryKey::DeclarationSurface(callable.owner.clone());
 
-    if db
-        .query_state(&surface_key)
-        .and_then(QueryState::validated_revision)
-        != Some(db.revision())
-    {
+    if db.query_state(&surface_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
         return query_failure(
             db,
             key,
@@ -659,11 +601,7 @@ pub fn query_callable_signature(
         if db.query_state(&key).is_some() {
             db.discard_for_recompute(&key);
         }
-        return query_blocked(
-            db,
-            key,
-            BlockReason::UnknownType(UnknownReason::UnannotatedDeclaration),
-        );
+        return query_blocked(db, key, BlockReason::UnknownType(UnknownReason::UnannotatedDeclaration));
     };
     let signature = Arc::new(signature);
     let input_fingerprint = crate::db::fingerprint::callable_signature_input_fingerprint(&signature);
@@ -699,22 +637,14 @@ pub fn query_callable_signature(
     QueryOutcome::Ready(signature)
 }
 
-fn ensure_declaration_shell(
-    db: &mut SemanticDb,
-    declaration: &DeclarationId,
-    declarations: &DeclarationTypeTable,
-) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
+fn ensure_declaration_shell(db: &mut SemanticDb, declaration: &DeclarationId, declarations: &DeclarationTypeTable) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
     let Some(info) = declarations.get(declaration).cloned() else {
         return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
     };
     query_declaration_shell(db, Arc::new(info))
 }
 
-fn ensure_linked_interface(
-    db: &mut SemanticDb,
-    module: &ModuleId,
-    linked: &LinkedProgram,
-) -> QueryOutcome<Arc<LinkedModuleInterface>> {
+fn ensure_linked_interface(db: &mut SemanticDb, module: &ModuleId, linked: &LinkedProgram) -> QueryOutcome<Arc<LinkedModuleInterface>> {
     let Some(linked_module) = linked.modules.get(module) else {
         return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
     };
@@ -776,11 +706,7 @@ fn ensure_callable_signature(
 }
 
 /// Evaluates or retrieves the cached `LinkedModuleInterface` for a module.
-pub fn query_linked_interface(
-    db: &mut SemanticDb,
-    module: ModuleId,
-    linked_interface: Arc<LinkedModuleInterface>,
-) -> QueryOutcome<Arc<LinkedModuleInterface>> {
+pub fn query_linked_interface(db: &mut SemanticDb, module: ModuleId, linked_interface: Arc<LinkedModuleInterface>) -> QueryOutcome<Arc<LinkedModuleInterface>> {
     let key = QueryKey::LinkedInterface(module);
     let prod_fp = crate::db::fingerprint::linked_interface_product_fingerprint(&linked_interface);
     let input_fingerprint = crate::db::fingerprint::linked_interface_input_fingerprint(&linked_interface);
@@ -809,11 +735,7 @@ pub fn query_linked_interface(
 }
 
 /// Evaluates or retrieves the cached `ModuleDiagnostics` for a module.
-pub fn query_module_diagnostics(
-    db: &mut SemanticDb,
-    module: ModuleId,
-    diagnostics: Arc<[SemanticDiagnostic]>,
-) -> QueryOutcome<Arc<[SemanticDiagnostic]>> {
+pub fn query_module_diagnostics(db: &mut SemanticDb, module: ModuleId, diagnostics: Arc<[SemanticDiagnostic]>) -> QueryOutcome<Arc<[SemanticDiagnostic]>> {
     let key = QueryKey::ModuleDiagnostics(module.clone());
     let prod_fp = crate::db::fingerprint::module_diagnostics_product_fingerprint(&module, &diagnostics);
     let input_fingerprint = InputFingerprint::new(prod_fp.raw());
@@ -931,7 +853,19 @@ pub fn query_callable_body_with_formal_inputs(
     db.metrics().record_miss();
 
     // 2. Perform analysis
-    let analysis = analyze_callable_body(callable, body, body_range, store, hierarchy, resolver, declarations, dispatch, module, budget, cancel);
+    let analysis = analyze_callable_body(
+        callable,
+        body,
+        body_range,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        dispatch,
+        module,
+        budget,
+        cancel,
+    );
 
     let mut analysis = analysis;
     let product_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);

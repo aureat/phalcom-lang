@@ -1,4 +1,4 @@
-//! Epistemic Type Knowledge, Evidence Authority, and Provenance.
+//! Formal type knowledge, epistemic status/origin, and bounded provenance.
 
 use super::id::TypeId;
 use phalcom_common::range::SourceRange;
@@ -38,6 +38,34 @@ impl TypeKnowledge {
         }
     }
 
+    /// Returns epistemic strength for concrete formal knowledge.
+    #[inline]
+    pub fn status(&self) -> Option<EvidenceStatus> {
+        match self {
+            Self::Known(e) => Some(e.status),
+            _ => None,
+        }
+    }
+
+    /// Returns the primary derivation origin for concrete formal knowledge.
+    #[inline]
+    pub fn origin(&self) -> Option<EvidenceOrigin> {
+        match self {
+            Self::Known(e) => Some(e.origin),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn is_established(&self) -> bool {
+        self.status() == Some(EvidenceStatus::Established)
+    }
+
+    #[inline]
+    pub fn is_assumed(&self) -> bool {
+        self.status() == Some(EvidenceStatus::Assumed)
+    }
+
     #[inline]
     pub fn authority(&self) -> Option<EvidenceAuthority> {
         match self {
@@ -47,15 +75,61 @@ impl TypeKnowledge {
     }
 
     pub fn known(ty: impl Into<TypeId>, authority: EvidenceAuthority) -> Self {
-        Self::Known(TypeEvidence {
-            ty: ty.into(),
-            authority,
-            provenance: EvidenceSet::default(),
-        })
+        Self::from_legacy_authority(ty.into(), authority)
     }
 
     pub fn known_proper(ty: super::id::ProperTypeId, authority: EvidenceAuthority) -> Self {
         Self::known(ty.raw(), authority)
+    }
+
+    /// Constructs formal knowledge established by a semantic derivation.
+    pub fn established(ty: impl Into<TypeId>, origin: EvidenceOrigin) -> Self {
+        Self::Known(TypeEvidence {
+            ty: ty.into(),
+            status: EvidenceStatus::Established,
+            origin,
+            // Kept only as a source-compatibility projection until Task 2
+            // migrates all production callers away from EvidenceAuthority.
+            authority: origin.legacy_authority(EvidenceStatus::Established),
+            provenance: EvidenceSet::default(),
+        })
+    }
+
+    /// Constructs formal knowledge usable through an explicit static contract.
+    pub fn assumed(ty: impl Into<TypeId>, origin: EvidenceOrigin) -> Self {
+        Self::Known(TypeEvidence {
+            ty: ty.into(),
+            status: EvidenceStatus::Assumed,
+            origin,
+            authority: origin.legacy_authority(EvidenceStatus::Assumed),
+            provenance: EvidenceSet::default(),
+        })
+    }
+
+    /// Applies a canonical type transformation without changing epistemic facts.
+    pub fn map_type(&self, transform: impl FnOnce(TypeId) -> TypeId) -> Self {
+        match self {
+            Self::Known(evidence) => Self::Known(TypeEvidence {
+                ty: transform(evidence.ty),
+                status: evidence.status,
+                origin: evidence.origin,
+                authority: evidence.authority,
+                provenance: evidence.provenance.clone(),
+            }),
+            Self::Unknown(reason) => Self::Unknown(reason.clone()),
+            Self::Dynamic(reason) => Self::Dynamic(reason.clone()),
+        }
+    }
+
+    fn from_legacy_authority(ty: TypeId, authority: EvidenceAuthority) -> Self {
+        let (status, origin) = authority.formal_components();
+        Self::Known(TypeEvidence {
+            ty,
+            status,
+            origin,
+            authority,
+            provenance: EvidenceSet::default(),
+        })
     }
 
     pub fn proper_ty(&self, store: &super::store::TypeStore) -> Option<super::id::ProperTypeId> {
@@ -70,12 +144,107 @@ impl TypeKnowledge {
     }
 }
 
-/// A proven or declared type accompanied by epistemic authority and provenance.
+/// Joins reachable formal knowledge without laundering missing evidence into a
+/// concrete type.
+///
+/// `Unknown` is absorbing for a reachable path. `Dynamic` is absorbing only
+/// when every reachable path has at least some formal knowledge. A multi-path
+/// known result is established only when every contributing fact is
+/// established; otherwise it remains an explicit assumption.
+pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl IntoIterator<Item = TypeKnowledge>) -> TypeKnowledge {
+    let inputs = inputs.into_iter().collect::<Vec<_>>();
+    if let Some(reason) = inputs.iter().find_map(|knowledge| match knowledge {
+        TypeKnowledge::Unknown(reason) => Some(reason.clone()),
+        _ => None,
+    }) {
+        return TypeKnowledge::Unknown(reason);
+    }
+    if let Some(reason) = inputs.iter().find_map(|knowledge| match knowledge {
+        TypeKnowledge::Dynamic(reason) => Some(reason.clone()),
+        _ => None,
+    }) {
+        return TypeKnowledge::Dynamic(reason);
+    }
+
+    let known = inputs
+        .into_iter()
+        .filter_map(|knowledge| match knowledge {
+            TypeKnowledge::Known(evidence) => Some(evidence),
+            TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let Some(first) = known.first() else {
+        return TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence);
+    };
+    if known.len() == 1 {
+        return TypeKnowledge::Known(first.clone());
+    }
+
+    let types = known.iter().map(|evidence| evidence.ty).collect::<Vec<_>>();
+    let joined_type = store.union(&types);
+    let status = if known.iter().all(|evidence| evidence.status == EvidenceStatus::Established) {
+        EvidenceStatus::Established
+    } else {
+        EvidenceStatus::Assumed
+    };
+    let mut joined = match status {
+        EvidenceStatus::Established => TypeKnowledge::established(joined_type, EvidenceOrigin::Flow),
+        EvidenceStatus::Assumed => TypeKnowledge::assumed(joined_type, EvidenceOrigin::Flow),
+    };
+    if let TypeKnowledge::Known(evidence) = &mut joined {
+        for input in known {
+            evidence.provenance.ranges.extend(input.provenance.ranges);
+            evidence.provenance.descriptions.extend(input.provenance.descriptions);
+        }
+    }
+    joined
+}
+
+/// A concrete formal type accompanied by epistemic status, origin, and provenance.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeEvidence {
     pub ty: TypeId,
+    pub status: EvidenceStatus,
+    pub origin: EvidenceOrigin,
+    /// Transitional projection for callers not yet migrated to status/origin.
+    /// New code must use [`TypeKnowledge::established`] or [`TypeKnowledge::assumed`].
     pub authority: EvidenceAuthority,
     pub provenance: EvidenceSet,
+}
+
+/// Whether a concrete type is established by formal evidence or usable only as
+/// an explicit static assumption.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum EvidenceStatus {
+    Established,
+    Assumed,
+}
+
+/// Primary semantic origin of formal type knowledge.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum EvidenceOrigin {
+    Syntax,
+    DeclarationSemantics,
+    ConstructorSemantics,
+    CallableSignature,
+    NativeSignature,
+    DeveloperAnnotation,
+    GenericInference,
+    Flow,
+    ContextualDerivation,
+    PatternDecomposition,
+}
+
+impl EvidenceOrigin {
+    fn legacy_authority(self, status: EvidenceStatus) -> EvidenceAuthority {
+        match (status, self) {
+            (EvidenceStatus::Assumed, EvidenceOrigin::DeveloperAnnotation | EvidenceOrigin::CallableSignature) => EvidenceAuthority::Declared,
+            (_, EvidenceOrigin::Syntax) => EvidenceAuthority::ExactSyntax,
+            (_, EvidenceOrigin::NativeSignature) => EvidenceAuthority::TrustedNative,
+            (_, EvidenceOrigin::DeclarationSemantics) => EvidenceAuthority::Declared,
+            _ => EvidenceAuthority::Proven,
+        }
+    }
 }
 
 /// The epistemic authority under which a type claim is made.
@@ -94,6 +263,20 @@ pub enum EvidenceAuthority {
 }
 
 impl EvidenceAuthority {
+    fn formal_components(self) -> (EvidenceStatus, EvidenceOrigin) {
+        match self {
+            Self::Declared => (EvidenceStatus::Assumed, EvidenceOrigin::DeveloperAnnotation),
+            Self::Proven => (EvidenceStatus::Established, EvidenceOrigin::Flow),
+            Self::ExactSyntax => (EvidenceStatus::Established, EvidenceOrigin::Syntax),
+            Self::TrustedNative => (EvidenceStatus::Established, EvidenceOrigin::NativeSignature),
+            // This compatibility path is intentionally not an advisory formal
+            // channel. Part 2 removes advisory callers from this type entirely.
+            Self::Advisory => (EvidenceStatus::Assumed, EvidenceOrigin::ContextualDerivation),
+        }
+    }
+}
+
+impl EvidenceAuthority {
     /// Whether this authority is sound for rejecting code at compile time.
     pub fn is_sound_for_rejection(self) -> bool {
         matches!(self, Self::Declared | Self::Proven | Self::ExactSyntax | Self::TrustedNative)
@@ -109,6 +292,9 @@ pub struct EvidenceSet {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum UnknownReason {
+    /// No value evidence exists, and a valid binding contract may supply a
+    /// usable static assumption.
+    NoTypeEvidence,
     UnannotatedDeclaration,
     UnresolvedName(Box<str>),
     DynamicMessageSend,
@@ -117,7 +303,28 @@ pub enum UnknownReason {
     UncheckedExpression,
     SyntaxError,
     UnderconstrainedTypeVariable,
+    InferenceConflict,
+    InferenceBlocked,
+    InferenceCancelled,
+    InferenceBudgetExceeded,
     SuppressedByInvalidCause,
+}
+
+/// Whether a binding contract may supply usable current knowledge for an
+/// unknown value without laundering a checker failure into an assumption.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContractAssumptionEligibility {
+    MaySupplyAssumption,
+    MustRemainUnknown,
+}
+
+impl UnknownReason {
+    pub fn contract_assumption_eligibility(&self) -> ContractAssumptionEligibility {
+        match self {
+            Self::NoTypeEvidence => ContractAssumptionEligibility::MaySupplyAssumption,
+            _ => ContractAssumptionEligibility::MustRemainUnknown,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

@@ -17,8 +17,8 @@ pub use key::{InputFingerprint, ProductFingerprint, QueryKey};
 pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
 pub use query::{
-    query_callable_body, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell,
-    query_declaration_surface, query_hierarchy_edge, FormalQueryInputs,
+    FormalQueryInputs, query_callable_body, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell,
+    query_declaration_surface, query_hierarchy_edge,
 };
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
@@ -105,11 +105,7 @@ impl SemanticDb {
     /// Returns the typed product published for a ready query.
     pub fn product(&self, key: &QueryKey) -> Option<&Arc<SemanticProduct>> {
         let state = self.query_states.get(key)?;
-        if state.is_ready() {
-            self.products.get(key)
-        } else {
-            None
-        }
+        if state.is_ready() { self.products.get(key) } else { None }
     }
 
     /// Returns the last typed product that reached `Ready` for this key.
@@ -148,7 +144,8 @@ impl SemanticDb {
         let QueryState::Ready {
             input_fingerprint: stored_input_fp,
             ..
-        } = state else {
+        } = state
+        else {
             return false;
         };
         if *stored_input_fp != input_fingerprint {
@@ -166,7 +163,8 @@ impl SemanticDb {
                 validated_revision,
                 product_fingerprint: dep_prod_fp,
                 ..
-            } = dep_state else {
+            } = dep_state
+            else {
                 return false;
             };
             if *validated_revision != self.revision || *dep_prod_fp != edge.observed_fingerprint {
@@ -199,11 +197,7 @@ impl SemanticDb {
     /// own query has been revalidated. This prevents a dependent from observing
     /// stale transitive state merely because an old product fingerprint is still
     /// present in the cache.
-    pub fn record_dependency(
-        &self,
-        recorder: &mut DependencyRecorder,
-        dependency: QueryKey,
-    ) -> Result<(), String> {
+    pub fn record_dependency(&self, recorder: &mut DependencyRecorder, dependency: QueryKey) -> Result<(), String> {
         let Some(state) = self.query_states.get(&dependency) else {
             return Err(format!("query dependency {:?} is not Ready", dependency));
         };
@@ -211,7 +205,8 @@ impl SemanticDb {
             validated_revision,
             product_fingerprint,
             ..
-        } = state else {
+        } = state
+        else {
             return Err(format!("query dependency {:?} is not Ready", dependency));
         };
         if *validated_revision != self.revision {
@@ -288,14 +283,7 @@ impl SemanticDb {
     ) -> Result<(), PublishError> {
         let query_value = product.to_query_value();
         let product = Arc::new(product);
-        self.publish_ready(
-            key.clone(),
-            revision,
-            input_fingerprint,
-            product_fingerprint,
-            query_value,
-            dependencies,
-        )?;
+        self.publish_ready(key.clone(), revision, input_fingerprint, product_fingerprint, query_value, dependencies)?;
         self.products.insert(key.clone(), product);
         if let Some(product) = self.products.get(&key) {
             self.last_known_good.insert(key, product.clone());
