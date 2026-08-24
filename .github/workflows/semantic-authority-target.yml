@@ -1,0 +1,20 @@
+name: Semantic authority target
+
+on:
+  pull_request:
+    paths:
+      - "phalcom-semantic/**"
+      - ".github/workflows/semantic-authority-target.yml"
+
+jobs:
+  semantic-authority:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check new test formatting
+        run: rustfmt +stable --edition 2024 --check phalcom-semantic/tests/semantic_authority_composition.rs
+      - name: Run semantic authority composition tests
+        run: cargo +stable test -p phalcom-semantic --test semantic_authority_composition -- --nocapture
