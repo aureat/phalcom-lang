@@ -86,27 +86,6 @@ fn expression<'a>(analysis: &'a CallableAnalysis, source: &str, expected_text: &
     matches[0]
 }
 
-fn expression_by_fact(
-    analysis: &CallableAnalysis,
-    expected_type: TypeId,
-    authority: EvidenceAuthority,
-) -> &ExpressionAnalysis {
-    let matches = analysis
-        .expressions
-        .values()
-        .filter(|expr| {
-            expr.knowledge.ty() == Some(expected_type) && expr.knowledge.authority() == Some(authority)
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        matches.len(),
-        1,
-        "expected one expression with type {expected_type:?} and authority {authority:?}, found {}: {matches:#?}",
-        matches.len()
-    );
-    matches[0]
-}
-
 fn diagnostics(analysis: &Analysis, code: DiagnosticCode) -> Vec<&SemanticDiagnostic> {
     analysis.snapshot.all_diagnostics().filter(|diagnostic| diagnostic.code == code).collect()
 }
@@ -349,18 +328,29 @@ class Probe {
 "#;
     let (module, source, analysis) = analyze(source_text);
     let cell_num = ty(&analysis, &module, "CellNum");
+    let int_ty = ty(&analysis, &module, "Int");
     let string_ty = ty(&analysis, &module, "String");
     let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
     let from_int_id = named_callable(&analysis, &module, "CellNum", "fromInt", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    let argument = expression_by_fact(run, string_ty, EvidenceAuthority::ExactSyntax);
-    assert!(source.get(argument.range.start..argument.range.end).is_some());
+    assert!(matches!(
+        check_assignability(
+            &analysis.snapshot.store,
+            analysis.snapshot.hierarchy.as_ref(),
+            &TypeKnowledge::known(string_ty, EvidenceAuthority::ExactSyntax),
+            &TypeKnowledge::known(int_ty, EvidenceAuthority::Declared),
+        ),
+        Assignability::Refuted { .. }
+    ));
 
     assert_method_call_evidence(run, expression(run, &source, "CellNum.fromInt(\"bad\")"), cell_num);
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
     assert!(run.dependencies.contains(&from_int_id));
-    assert_eq!(diagnostics(&analysis, DiagnosticCode::ArgumentMismatch).len(), 1);
+
+    let mismatches = diagnostics(&analysis, DiagnosticCode::ArgumentMismatch);
+    assert_eq!(mismatches.len(), 1, "expected one proven argument mismatch: {mismatches:#?}");
+    assert!(mismatches[0].message.contains("does not match expected parameter type"));
 }
 
 #[test]
