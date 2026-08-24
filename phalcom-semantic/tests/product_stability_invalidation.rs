@@ -140,6 +140,54 @@ class Consumer {
 }
 
 #[test]
+fn range_only_body_edit_reuses_semantic_callers() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(6),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("range_only").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source1 = r#"
+class Api {
+  @class value() -> Int { 1 }
+}
+
+class Consumer {
+  @class read() -> Int { Api.value() }
+}
+"#;
+    let update1 = session.update(input(module.clone(), source1, 1));
+    assert!(!update1.snapshot.has_errors());
+    let api = DeclarationId::new(module.clone(), "Api".into());
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let api_callable = CallableId::new(api, Selector::method("value", []).unwrap(), DispatchSide::Class);
+    let consumer_callable = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
+    let api_body_key = QueryKey::CallableBody(api_callable);
+    let consumer_body_key = QueryKey::CallableBody(consumer_callable);
+    let rev1 = update1.snapshot.id.revision();
+    assert_eq!(session.db().query_state(&consumer_body_key).unwrap().revision(), Some(rev1));
+
+    let source2 = r#"
+class Api {
+  @class value() -> Int {
+ 1}
+}
+
+class Consumer {
+  @class read() -> Int { Api.value() }
+}
+"#;
+    let update2 = session.update(input(module, source2, 2));
+    assert!(!update2.snapshot.has_errors());
+    let rev2 = update2.snapshot.id.revision();
+    assert_eq!(session.db().query_state(&api_body_key).unwrap().revision(), Some(rev2));
+    let consumer_state = session.db().query_state(&consumer_body_key).unwrap();
+    assert_eq!(consumer_state.revision(), Some(rev1));
+    assert_eq!(consumer_state.validated_revision(), Some(rev2));
+    assert_eq!(update2.stats.callables_recomputed, 1);
+    assert_eq!(update2.stats.callables_reused, 1);
+}
+
+#[test]
 fn callable_body_product_owns_tail_return_diagnostics() {
     use phalcom_semantic::diagnostic::DiagnosticCode;
 

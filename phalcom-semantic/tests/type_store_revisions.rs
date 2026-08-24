@@ -5,6 +5,8 @@ use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
+use phalcom_semantic::db::QueryKey;
+use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -355,4 +357,41 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
     assert_eq!(update1.snapshot.store.kind_of(parameter_form1), parameter_kind1);
     assert_eq!(update2.snapshot.store.type_parameter(parameter2).kind, KindId::TYPE);
     assert_eq!(update2.snapshot.store.kind_of(parameter_form2), KindId::TYPE);
+}
+
+#[test]
+fn generic_kind_shell_change_recomputes_dependent_surface() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(94),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("generic_surface").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source1 = r#"
+class Holder<F: Type -> Type> {}
+
+class Consumer {
+  @class use(_ value: Holder) -> Int { 1 }
+}
+"#;
+    let _update1 = session.update(build_input(module.clone(), source1, 1));
+    let holder = DeclarationId::new(module.clone(), "Holder".into());
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let holder_shell = QueryKey::DeclarationShell(holder);
+    let consumer_surface = QueryKey::DeclarationSurface(consumer);
+    let shell_fp1 = session.db().ready_product_fingerprint(&holder_shell).expect("holder shell product");
+    let consumer_revision1 = session.db().query_state(&consumer_surface).expect("consumer surface").revision();
+    let source2 = r#"
+class Holder<F> {}
+
+class Consumer {
+  @class use(_ value: Holder) -> Int { 1 }
+}
+"#;
+    let update2 = session.update(build_input(module, source2, 2));
+    let shell_fp2 = session.db().ready_product_fingerprint(&holder_shell).expect("updated holder shell product");
+    let consumer_state2 = session.db().query_state(&consumer_surface).expect("updated consumer surface");
+
+    assert_ne!(shell_fp1, shell_fp2, "generic kind edit must change declaration-shell semantics");
+    assert_ne!(consumer_revision1, consumer_state2.revision(), "dependent surface must recompute through shell product");
+    assert_eq!(consumer_state2.validated_revision(), Some(update2.snapshot.id.revision()));
 }

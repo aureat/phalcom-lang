@@ -549,7 +549,7 @@ pub fn query_declaration_surface(
     };
     let input_fingerprint = crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def);
 
-    match query_linked_interface(db, linked_interface.module.clone(), linked_interface) {
+    match query_declaration_shell(db, Arc::new(declaration_info)) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
@@ -557,7 +557,7 @@ pub fn query_declaration_surface(
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
-    match query_declaration_shell(db, Arc::new(declaration_info)) {
+    match query_linked_interface(db, linked_interface.module.clone(), linked_interface) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
