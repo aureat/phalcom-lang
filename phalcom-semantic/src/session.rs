@@ -6,8 +6,8 @@ use crate::checker::statement::check_statement;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
-    query_callable_body, query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge,
-    query_linked_interface, query_unlinked_interface,
+    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
+    query_hierarchy_edge, query_linked_interface, query_unlinked_interface, FormalQueryInputs,
 };
 use crate::db::state::QueryOutcome;
 use crate::db::SemanticDb;
@@ -593,6 +593,13 @@ impl SemanticWorkspaceSession {
 
         // 7. Check Callable Bodies with DB caching and reuse
         let mut callable_analyses = HashMap::new();
+        let formal_inputs = FormalQueryInputs {
+            sources: &input.sources,
+            linked: &input.linked,
+            hierarchy: &hierarchy,
+            base_resolver: &resolver,
+            declarations: &declarations,
+        };
         for (module_id, parsed_unit) in &input.sources {
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
@@ -644,7 +651,7 @@ impl SemanticWorkspaceSession {
                             let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector, side);
                             let query_key = QueryKey::CallableBody(callable_id.clone());
 
-                            let outcome = query_callable_body(
+                            let outcome = query_callable_body_with_formal_inputs(
                                 &mut self.db,
                                 callable_id.clone(),
                                 body,
@@ -657,6 +664,7 @@ impl SemanticWorkspaceSession {
                                 module_id.clone(),
                                 budget,
                                 cancel,
+                                Some(&formal_inputs),
                             );
 
                             match outcome {

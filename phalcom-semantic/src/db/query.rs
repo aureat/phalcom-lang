@@ -25,7 +25,21 @@ use phalcom_ast::ast::{ClassDef, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// Borrowed formal inputs used when a query must evaluate a missing prerequisite.
+///
+/// This view owns no workspace state and constructs no parallel resolver, linker,
+/// or type store. It only exposes the current session inputs to prerequisite
+/// helpers.
+pub struct FormalQueryInputs<'a> {
+    pub sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    pub linked: &'a LinkedProgram,
+    pub hierarchy: &'a dyn TypeHierarchy,
+    pub base_resolver: &'a dyn TypeResolver,
+    pub declarations: &'a DeclarationTypeTable,
+}
 
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
     match dependency {
@@ -685,6 +699,82 @@ pub fn query_callable_signature(
     QueryOutcome::Ready(signature)
 }
 
+fn ensure_declaration_shell(
+    db: &mut SemanticDb,
+    declaration: &DeclarationId,
+    declarations: &DeclarationTypeTable,
+) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
+    let Some(info) = declarations.get(declaration).cloned() else {
+        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+    };
+    query_declaration_shell(db, Arc::new(info))
+}
+
+fn ensure_linked_interface(
+    db: &mut SemanticDb,
+    module: &ModuleId,
+    linked: &LinkedProgram,
+) -> QueryOutcome<Arc<LinkedModuleInterface>> {
+    let Some(linked_module) = linked.modules.get(module) else {
+        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+    };
+    query_linked_interface(db, module.clone(), Arc::new(linked_module.interface.clone()))
+}
+
+fn ensure_declaration_surface(
+    db: &mut SemanticDb,
+    declaration: &DeclarationId,
+    formal_inputs: &FormalQueryInputs<'_>,
+    store: &mut TypeStore,
+) -> QueryOutcome<Arc<DeclarationSurface>> {
+    let Some(unit) = formal_inputs.sources.get(&declaration.module).cloned() else {
+        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+    };
+    let Some(linked_module) = formal_inputs.linked.modules.get(&declaration.module) else {
+        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+    };
+    query_declaration_surface(
+        db,
+        declaration.clone(),
+        unit,
+        Arc::new(linked_module.interface.clone()),
+        store,
+        formal_inputs.hierarchy,
+        formal_inputs.base_resolver,
+        formal_inputs.declarations,
+    )
+}
+
+fn ensure_callable_signature(
+    db: &mut SemanticDb,
+    callable: &CallableId,
+    formal_inputs: &FormalQueryInputs<'_>,
+    store: &mut TypeStore,
+) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+    match ensure_declaration_shell(db, &callable.owner, formal_inputs.declarations) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+    match ensure_linked_interface(db, &callable.owner.module, formal_inputs.linked) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+    match ensure_declaration_surface(db, &callable.owner, formal_inputs, store) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+    query_callable_signature(db, callable.clone())
+}
+
 /// Evaluates or retrieves the cached `LinkedModuleInterface` for a module.
 pub fn query_linked_interface(
     db: &mut SemanticDb,
@@ -766,29 +856,59 @@ pub fn query_callable_body(
     budget: QueryBudget,
     cancel: &CancellationToken,
 ) -> QueryOutcome<Arc<CallableAnalysis>> {
+    query_callable_body_with_formal_inputs(
+        db,
+        callable,
+        body,
+        body_range,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        dispatch,
+        module,
+        budget,
+        cancel,
+        None,
+    )
+}
+
+/// Evaluates a callable body while allowing missing formal prerequisites to be
+/// evaluated from borrowed current workspace inputs.
+pub fn query_callable_body_with_formal_inputs(
+    db: &mut SemanticDb,
+    callable: CallableId,
+    body: &[Statement],
+    body_range: SourceRange,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+    dispatch: &SurfaceDispatchResolver,
+    module: ModuleId,
+    budget: QueryBudget,
+    cancel: &CancellationToken,
+    formal_inputs: Option<&FormalQueryInputs<'_>>,
+) -> QueryOutcome<Arc<CallableAnalysis>> {
     let key = QueryKey::CallableBody(callable.clone());
 
     let input_fingerprint = crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store);
 
-    // Complete surface signatures must be backed by their canonical query
+    // Complete source signatures must be requested from their canonical query
     // product before body analysis can publish a result. Incomplete source
     // signatures intentionally remain surface-only until inference completes.
     if let Some((signature_id, signature)) = signature_consumed_by_body(dispatch, &callable) {
-        let signature_key = QueryKey::CallableSignature(signature_id);
         if signature.has_complete_types() {
-            let ready = matches!(
-                db.query_state(&signature_key),
-                Some(QueryState::Ready { validated_revision, .. }) if *validated_revision == db.revision()
-            ) && db
-                .product(&signature_key)
-                .and_then(|product| product.as_callable_signature())
-                .is_some();
-            if !ready {
-                return query_failure(
-                    db,
-                    key,
-                    format!("callable body requires ready {:?} product", signature_key),
-                );
+            let signature_outcome = match formal_inputs {
+                Some(formal_inputs) => ensure_callable_signature(db, &signature_id, formal_inputs, store),
+                None => query_callable_signature(db, signature_id),
+            };
+            match signature_outcome {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
             }
         }
     }
