@@ -124,6 +124,52 @@ fn test_generic_reuse_validation_matrix() {
 }
 
 #[test]
+fn dependency_product_mismatch_is_never_ignored_for_specific_query_kinds() {
+    let mut db = SemanticDb::new();
+    let dependency = QueryKey::ParsedModule(mod_a());
+    let dependent = QueryKey::DeclarationSurface(phalcom_semantic::identity::DeclarationId::new(
+        mod_a(),
+        "Client".into(),
+    ));
+    let rev1 = db.revision();
+
+    db.publish_ready(
+        dependency.clone(),
+        rev1,
+        InputFingerprint::new(10),
+        ProductFingerprint::new(100),
+        QueryValue::from_bytes(b"module-v1"),
+        [],
+    )
+    .unwrap();
+
+    let mut recorder = DependencyRecorder::new(dependent.clone());
+    db.record_dependency(&mut recorder, dependency.clone()).unwrap();
+    db.publish_ready(
+        dependent.clone(),
+        rev1,
+        InputFingerprint::new(20),
+        ProductFingerprint::new(200),
+        QueryValue::from_bytes(b"surface-v1"),
+        recorder.finish(),
+    )
+    .unwrap();
+
+    let rev2 = db.begin_revision();
+    db.publish_ready(
+        dependency,
+        rev2,
+        InputFingerprint::new(11),
+        ProductFingerprint::new(101),
+        QueryValue::from_bytes(b"module-v2"),
+        [],
+    )
+    .unwrap();
+
+    assert!(!db.is_reusable(&dependent, InputFingerprint::new(20)));
+}
+
+#[test]
 fn test_record_dependency_fails_on_non_ready() {
     let mut db = SemanticDb::new();
     let key_a = QueryKey::ParsedModule(mod_a());

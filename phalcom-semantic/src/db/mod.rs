@@ -166,11 +166,7 @@ impl SemanticDb {
             } = dep_state else {
                 return false;
             };
-            let declaration_surface_source_prerequisite = matches!(key, &QueryKey::DeclarationSurface(_))
-                && matches!(&edge.dependency, &QueryKey::ParsedModule(_));
-            if *validated_revision != self.revision
-                || (!declaration_surface_source_prerequisite && *dep_prod_fp != edge.observed_fingerprint)
-            {
+            if *validated_revision != self.revision || *dep_prod_fp != edge.observed_fingerprint {
                 return false;
             }
         }
