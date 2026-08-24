@@ -17,3 +17,5 @@ mod semantic_consistency;
 mod semantic_tokens_current_syntax;
 mod source_text;
 mod workspace_semantics;
+
+mod composition1;

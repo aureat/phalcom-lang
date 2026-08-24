@@ -37,7 +37,7 @@ class CellNum is CellValue {
   }
 
   @class
-  of(_ n) { CellNum.new(n) }
+  of(_ n) -> CellNum { CellNum.new(n) }
 
   value { _n }
 

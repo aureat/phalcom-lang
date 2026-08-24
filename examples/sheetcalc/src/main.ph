@@ -61,7 +61,7 @@ class Main {
     System.print("CellNum(5) / CellNum(0) = " + divZero.toString)
     System.print("")
 
-    let n3 = Int.new()
+    let n3 = Value.CellNum.of(10)
 
     System.print("✓ All smoke tests passed")
   }
