@@ -109,6 +109,24 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
 }
 
 #[test]
+fn top_level_expression_sites_are_indexed_for_advisory_queries() {
+    let module = module_id();
+    let source = "class Product { @constructor new() { } }\nconst result = Product.new()\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module.clone(), source, 1));
+
+    let offset = source.rfind("new").expect("constructor selector");
+    let site = update
+        .snapshot
+        .source_index()
+        .expression_site_at(&module, offset)
+        .expect("top-level AST expression site");
+    assert!(matches!(&site.id.owner, SourceOwner::Module(owner) if owner == &module));
+    assert!(site.range.contains(offset));
+    assert!(update.snapshot.advisory().expression(&site.id).is_some());
+}
+
+#[test]
 fn formal_projection_preserves_causal_invalidity_and_binding_contracts() {
     let module = module_id();
     let source = "class Probe { @class run() { let x: Int = 42\nlet y: Missing = 42\n } }\n";

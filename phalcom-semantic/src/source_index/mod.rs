@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::checker::CallableAnalysis;
 use crate::db::ProductFingerprint;
 use crate::identity::{BindingId, CallableId, ExpressionId, ModuleId, SemanticTargetId, SourceSiteId};
+use crate::source_index::interval::{RangeEntry, RangeIndex};
 
 pub mod builder;
 pub mod interval;
@@ -155,7 +156,52 @@ pub struct SourceSemanticIndex {
 pub struct ModuleSourceIndex {
     pub structure: Arc<SourceScopeIndex>,
     pub occurrences: Arc<OccurrenceIndex>,
+    /// AST expression sites owned by this source shard. These are separate
+    /// from token occurrences so chained top-level expressions remain
+    /// queryable without redispatch or request-time AST analysis.
+    pub expression_sites: Arc<[SourceSite]>,
+    expression_intervals: RangeIndex<usize>,
     pub attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>,
+}
+
+impl ModuleSourceIndex {
+    fn new(structure: SourceScopeIndex, occurrences: OccurrenceIndex, attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>) -> Self {
+        let (expression_sites, expression_intervals) = expression_products(&structure, &attachments);
+        Self {
+            structure: Arc::new(structure),
+            occurrences: Arc::new(occurrences),
+            expression_sites,
+            expression_intervals,
+            attachments,
+        }
+    }
+
+    fn rebuild_expression_products(&mut self) {
+        let (expression_sites, expression_intervals) = expression_products(&self.structure, &self.attachments);
+        self.expression_sites = expression_sites;
+        self.expression_intervals = expression_intervals;
+    }
+
+    /// Returns the innermost compiler-owned AST expression site at `offset`.
+    pub fn expression_site_at(&self, offset: usize) -> Option<&SourceSite> {
+        self.expression_intervals.value_at(offset).and_then(|index| self.expression_sites.get(index))
+    }
+}
+
+fn expression_products(
+    structure: &SourceScopeIndex,
+    attachments: &BTreeMap<CallableId, Arc<CallableSourceAttachment>>,
+) -> (Arc<[SourceSite]>, RangeIndex<usize>) {
+    let mut sites = structure
+        .sites
+        .values()
+        .filter(|site| matches!(site.kind, SourceSiteKind::Expression))
+        .cloned()
+        .collect::<Vec<_>>();
+    sites.extend(attachments.values().flat_map(|attachment| attachment.expression_sites.iter().cloned()));
+    sites.sort_by_key(|site| (site.range.start, site.range.len(), site.id.clone()));
+    let intervals = RangeIndex::new(sites.iter().enumerate().map(|(index, site)| RangeEntry::new(site.range, index, 0)));
+    (Arc::from(sites), intervals)
 }
 
 /// Separate source-index identities for semantic reuse and editor position
@@ -247,14 +293,7 @@ impl SourceSemanticIndex {
             .into_iter()
             .map(|(module, structure)| {
                 let occurrences = OccurrenceIndex::from_scope_index(&structure);
-                (
-                    module,
-                    Arc::new(ModuleSourceIndex {
-                        structure: Arc::new(structure),
-                        occurrences: Arc::new(occurrences),
-                        attachments: BTreeMap::new(),
-                    }),
-                )
+                (module, Arc::new(ModuleSourceIndex::new(structure, occurrences, BTreeMap::new())))
             })
             .collect();
         let mut index = Self {
@@ -280,14 +319,7 @@ impl SourceSemanticIndex {
                 } else {
                     OccurrenceIndex::from_scope_index(&structure)
                 };
-                (
-                    module,
-                    Arc::new(ModuleSourceIndex {
-                        structure: Arc::new(structure),
-                        occurrences: Arc::new(occurrences),
-                        attachments: BTreeMap::new(),
-                    }),
-                )
+                (module, Arc::new(ModuleSourceIndex::new(structure, occurrences, BTreeMap::new())))
             })
             .collect();
         let mut index = Self {
@@ -324,7 +356,11 @@ impl SourceSemanticIndex {
     /// Attaches one formal callable product to its exact source sites.
     pub fn attach_formal_analysis(&mut self, module: &ModuleId, analysis: &CallableAnalysis) -> Result<(), SourceAttachmentError> {
         let Some(module_index) = self.modules.get_mut(module) else {
-            return Err(SourceAttachmentError::MissingModule(module.clone()));
+            let error = SourceAttachmentError::MissingModule(module.clone());
+            let mut incidents = self.incidents.to_vec();
+            incidents.push(error.clone());
+            self.incidents = Arc::from(incidents.into_boxed_slice());
+            return Err(error);
         };
         let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
         let module_index = Arc::make_mut(module_index);
@@ -378,7 +414,13 @@ impl SourceSemanticIndex {
         }
         let occurrences = OccurrenceIndex::new(all, exact_targets);
         module_index.occurrences = Arc::new(occurrences);
+        module_index.rebuild_expression_products();
         self.rebuild_target_occurrences();
+        if !incidents.is_empty() {
+            let mut retained = self.incidents.to_vec();
+            retained.extend(incidents.iter().cloned());
+            self.incidents = Arc::from(retained.into_boxed_slice());
+        }
         incidents.into_iter().next().map_or(Ok(()), Err)
     }
 
@@ -397,6 +439,12 @@ impl SourceSemanticIndex {
         let module_index = self.modules.get(module)?;
         let occurrence = module_index.occurrences.occurrence_at(offset)?;
         self.source_site(&occurrence.occurrence.site)
+    }
+
+    /// Returns the innermost AST expression site selected by the bounded
+    /// expression interval index.
+    pub fn expression_site_at(&self, module: &ModuleId, offset: usize) -> Option<&SourceSite> {
+        self.modules.get(module)?.expression_site_at(offset)
     }
 
     /// Returns the exact formal attachment for one callable.

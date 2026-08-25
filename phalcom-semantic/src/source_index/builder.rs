@@ -385,6 +385,9 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_expr(&mut self, scope: SourceScopeId, expr: &Expr) {
+        if matches!(&self.current_owner, SourceOwner::Module(_)) {
+            self.allocate_site(self.current_owner.clone(), expr.range(), SourceSiteKind::Expression);
+        }
         match expr {
             Expr::Assignment(assignment) => {
                 self.visit_expr(scope, &assignment.name);

@@ -896,16 +896,14 @@ fn build_source_semantic_index(
         ..SourceIndexContext::default()
     };
     for (module, linked_module) in &linked.modules {
-        let Some(source) = sources.get(module) else { continue };
+        if !sources.contains_key(module) {
+            continue;
+        }
+        context.modules.entry(module.path.to_string()).or_insert_with(|| module.clone());
+        context.modules.entry(module.to_string()).or_insert_with(|| module.clone());
         for export in linked_module.interface.exports.values() {
             match &export.target {
-                LinkedExportTarget::Binding(symbol)
-                    if source
-                        .program
-                        .statements
-                        .iter()
-                        .any(|statement| matches!(statement, Statement::Class(class) if class.name.as_str() == symbol.name.as_ref())) =>
-                {
+                LinkedExportTarget::Binding(symbol) => {
                     context.targets.insert(
                         (module.clone(), export.public_name.to_string()),
                         SemanticTargetId::Declaration(DeclarationId::new(symbol.module.clone(), symbol.name.clone())),
@@ -916,7 +914,6 @@ fn build_source_semantic_index(
                         .targets
                         .insert((module.clone(), export.public_name.to_string()), SemanticTargetId::Module(target.clone()));
                 }
-                LinkedExportTarget::Binding(_) => {}
             }
         }
     }
@@ -925,16 +922,12 @@ fn build_source_semantic_index(
         .map(|(module, source)| (module.clone(), build_source_scope_index(module.clone(), &source.program, &context)))
         .collect();
     let mut index = SourceSemanticIndex::from_scope_indices_with_programs(scopes, sources);
-    let mut incidents = Vec::new();
     for analysis in callable_analyses.values() {
         let module = &analysis.callable.owner.module;
         if index.module(module).is_some() {
-            if let Err(error) = index.attach_formal_analysis(module, analysis) {
-                incidents.push(error);
-            }
+            let _ = index.attach_formal_analysis(module, analysis);
         }
     }
-    index.incidents = Arc::from(incidents.into_boxed_slice());
     index
 }
 
@@ -1197,11 +1190,11 @@ fn build_advisory_workspace(
 
             let source_site_for_range = |range: SourceRange| {
                 let candidates = module_index
-                    .occurrences
-                    .all()
+                    .expression_sites
                     .iter()
-                    .filter(|occurrence| occurrence.range == range)
-                    .map(|occurrence| occurrence.site.clone())
+                    .filter(|site| matches!(&site.id.owner, SourceOwner::Module(owner) if owner == &module_index.structure.module))
+                    .filter(|site| site.range == range)
+                    .map(|site| site.id.clone())
                     .collect::<Vec<_>>();
                 (candidates.len() == 1).then(|| candidates.into_iter().next().expect("one source-site candidate"))
             };

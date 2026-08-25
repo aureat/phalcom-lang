@@ -972,9 +972,18 @@ impl SemanticSnapshot {
     fn compiler_advisory_at(&self, uri: &Url, offset: usize) -> Option<InferredValue> {
         let static_snapshot = self.current_static_snapshot()?;
         let module = self.documents.get_by_uri(uri)?;
-        let occurrence = static_snapshot.occurrence_at(module, offset)?;
-        let fact = static_snapshot.advisory_fact(&occurrence.occurrence.site)?;
-        Some(self.compiler_advisory_fact(&fact, occurrence.occurrence.range))
+        let site = static_snapshot
+            .source_index()
+            .expression_site_at(module, offset)
+            .or_else(|| static_snapshot.source_index().expression_site_at(module, offset.saturating_sub(1)))
+            .map(|site| (site.id.clone(), site.range))
+            .or_else(|| {
+                static_snapshot
+                    .occurrence_at(module, offset)
+                    .map(|occurrence| (occurrence.occurrence.site.clone(), occurrence.occurrence.range))
+            })?;
+        let fact = static_snapshot.advisory_fact(&site.0)?;
+        Some(self.compiler_advisory_fact(&fact, site.1))
     }
 
     fn compiler_advisory_fact(&self, fact: &phalcom_semantic::AdvisoryFact, range: SourceRange) -> InferredValue {
