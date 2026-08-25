@@ -16,6 +16,7 @@
 
 pub mod ast;
 pub mod error;
+mod expr_ref;
 pub mod lexer;
 pub mod parser;
 pub mod selector;

@@ -509,11 +509,16 @@ impl Fixture {
                     _ => vec![actual],
                 };
                 assert_eq!(actual_members.len(), expected_members.len());
+                let mut used = vec![false; actual_members.len()];
                 for expected in expected_members {
-                    assert!(
-                        actual_members.iter().any(|actual| self.type_matches(*actual, expected)),
-                        "missing union member {expected:?}"
-                    );
+                    let Some((index, _)) = actual_members
+                        .iter()
+                        .enumerate()
+                        .find(|(index, actual)| !used[*index] && self.type_matches(**actual, expected))
+                    else {
+                        panic!("missing union member {expected:?}");
+                    };
+                    used[index] = true;
                 }
             }
             TypeExpectation::Tuple(expected_elements) => {
@@ -550,7 +555,62 @@ impl Fixture {
             TypeExpectation::ClassObject(name) => {
                 matches!(self.analysis.snapshot.store.get(actual), TypeData::ClassObject { declaration } if declaration.name.as_ref() == name)
             }
-            _ => true,
+            TypeExpectation::Applied(expected_origin, expected_arguments) => {
+                let TypeData::Applied { origin, arguments } = self.analysis.snapshot.store.get(actual) else {
+                    return false;
+                };
+                arguments.len() == expected_arguments.len()
+                    && self.type_matches(*origin, expected_origin)
+                    && arguments
+                        .iter()
+                        .zip(expected_arguments)
+                        .all(|(actual, expected)| self.type_matches(*actual, expected))
+            }
+            TypeExpectation::Union(expected_members) => {
+                let actual_members = match self.analysis.snapshot.store.get(actual) {
+                    TypeData::Union(members) => members.to_vec(),
+                    _ => vec![actual],
+                };
+                if actual_members.len() != expected_members.len() {
+                    return false;
+                }
+                let mut used = vec![false; actual_members.len()];
+                for expected in expected_members {
+                    let Some((index, _)) = actual_members
+                        .iter()
+                        .enumerate()
+                        .find(|(index, actual)| !used[*index] && self.type_matches(**actual, expected))
+                    else {
+                        return false;
+                    };
+                    used[index] = true;
+                }
+                true
+            }
+            TypeExpectation::Tuple(expected_elements) => {
+                let TypeData::Tuple(actual_elements) = self.analysis.snapshot.store.get(actual) else {
+                    return false;
+                };
+                actual_elements.len() == expected_elements.len()
+                    && actual_elements
+                        .iter()
+                        .zip(expected_elements)
+                        .all(|(actual, expected)| self.type_matches(actual.ty, expected))
+            }
+            TypeExpectation::Record(expected_fields) => {
+                let TypeData::Record(row) = self.analysis.snapshot.store.get(actual) else {
+                    return false;
+                };
+                let row = self.analysis.snapshot.store.record_row(*row);
+                row.tail == RecordRowTail::Closed
+                    && row.fields.len() == expected_fields.len()
+                    && expected_fields.iter().all(|(name, expected)| {
+                        row.fields
+                            .iter()
+                            .find(|field| field.name.as_ref() == name)
+                            .is_some_and(|field| self.type_matches(field.ty, expected))
+                    })
+            }
         }
     }
 }

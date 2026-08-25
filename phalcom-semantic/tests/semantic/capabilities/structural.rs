@@ -1,4 +1,4 @@
-use crate::semantic::support::{Fixture, assert_refuted, assert_validated, known, tuple};
+use crate::semantic::support::{Fixture, TypeExpectation, assert_refuted, assert_validated, known, tuple};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceStatus;
@@ -39,7 +39,6 @@ class Probe {
 }
 
 /// LAW: broad tuple contract validates each precise product component.
-/// LAW: heterogeneous literals retain a precise element union.
 #[test]
 fn tuple_supertype_annotation_preserves_specific_product_fact() {
     let f = Fixture::new(
@@ -69,7 +68,6 @@ class Probe {
 }
 
 /// LAW: product refutation retains actual component facts and owns one diagnostic.
-/// LAW: record literals retain named structural field facts.
 #[test]
 fn tuple_component_refutation_preserves_actual_product_fact() {
     let f = Fixture::new(
@@ -124,6 +122,7 @@ class Probe {
     f.assert_no_error_diagnostics();
 }
 
+/// LAW: heterogeneous collection literals retain the exact element union.
 #[test]
 fn heterogeneous_collection_infers_union_element_type() {
     let f = Fixture::new(
@@ -149,6 +148,8 @@ class Probe {
     }
 }
 
+/// LAW: record literals publish a closed structural row with the exact field
+/// names and leaf types, not merely an opaque `Record` category.
 #[test]
 fn record_literal_preserves_structural_field_types() {
     let f = Fixture::new(
@@ -161,11 +162,17 @@ class Probe {
 }
 "#,
     );
+    let string_ty = f.ty("String");
+    let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let user = f.binding(run, "user");
     let record_ty = user.current.ty().expect("record type");
-    f.assert_record(record_ty);
+    f.assert_type(
+        record_ty,
+        TypeExpectation::Record(vec![("name".into(), string_ty.into()), ("age".into(), int_ty.into())]),
+    );
     assert_eq!(user.current.status(), Some(EvidenceStatus::Established));
+    assert_eq!(user.current.origin(), Some(phalcom_semantic::EvidenceOrigin::Syntax));
     f.assert_no_error_diagnostics();
 }
 
@@ -192,6 +199,8 @@ class Probe {
     assert_eq!(y.current.ty(), Some(string_ty));
     assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
     assert_eq!(y.current.status(), Some(EvidenceStatus::Established));
+    assert_eq!(x.current.origin(), Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition));
+    assert_eq!(y.current.origin(), Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition));
     f.assert_no_error_diagnostics();
 }
 
@@ -216,4 +225,6 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     f.assert_binding_type(run, "x", int_ty);
     f.assert_binding_type(run, "y", some);
+    assert_eq!(f.binding(run, "x").current.origin(), Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition));
+    assert_eq!(f.binding(run, "y").current.origin(), Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition));
 }

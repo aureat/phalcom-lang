@@ -1,10 +1,14 @@
 # Plan 2 source-semantic coverage ledger
 
 This ledger tracks the 106 laws from Plan 2. A slot is marked `READY` only
-when a source-level test proves the law at its required depth. Foundation and
-database tests remain valuable, but do not satisfy source slots by themselves.
+when an enabled source-level test proves the law at its required depth. Foundation
+and database tests remain valuable, but do not satisfy source slots by themselves.
 
 Status vocabulary: `READY`, `RED-CAPABILITY`, `STAGED`, `GATED`.
+
+Current ledger count after the corrective pass: **54 READY, 17 STAGED, 35 GATED**.
+A green test run never promotes a staged/gated law implicitly; promotion requires
+a named source test and a concrete semantic oracle.
 
 | Slot | Status | Source evidence or concrete prerequisite |
 | --- | --- | --- |
@@ -13,13 +17,13 @@ Status vocabulary: `READY`, `RED-CAPABILITY`, `STAGED`, `GATED`.
 | E03 | READY | `generics::assumed_generic_argument...`; callable parameter assertions in `authority` |
 | E04 | READY | `authority::unknown_initializer_allows_developer_annotation...` |
 | E05 | STAGED | Source unresolved-name plus contract ownership oracle |
-| E06 | READY | `flow_branches::known_branch_does_not_hide_reachable_unknown...` |
+| E06 | READY | `flow_branches::known_branch_does_not_hide_reachable_unknown...`; `deep_regressions::branch_join_preserves_exact_unknown_reason` |
 | E07 | READY | `checker_smoke` dynamic-boundary scenarios |
 | E08 | READY | `generics::mixed_generic_return_uses_weakest_value_support` |
 | B01 | READY | `authority::compatible_supertype_annotation...`; `flow_branches::branch_union_validates...` |
 | B02 | READY | `authority::exact_literal_proof_refutes_annotation...` |
 | B03 | READY | `authority::binding_kind_controls_mutability...` |
-| B04 | READY | `authority::annotation_diagnostic_root_cause...`; branch recovery scenarios |
+| B04 | READY | `authority::annotation_diagnostic_root_cause...`; `deep_regressions::refuted_branch_write_preserves_recovery_union_and_diagnostic_owner` |
 | B05 | READY | `flow_branches::branch_local_shadow_does_not_mutate_outer...` |
 | B06 | READY | `structural::tuple_destructuring_with_broad_contract...` |
 | B07 | READY | `authority::annotation_diagnostic_root_cause...` |
@@ -73,23 +77,23 @@ Status vocabulary: `READY`, `RED-CAPABILITY`, `STAGED`, `GATED`.
 | V06 | GATED | Nested variance in callable occurrences |
 | S01 | READY | `structural::nested_tuple_composes...` |
 | S02 | STAGED | Canonical labeled tuple source structure |
-| S03 | READY | `structural::record_literal_preserves...` |
+| S03 | READY | `structural::record_literal_preserves_structural_field_types` asserts exact closed fields |
 | S04 | READY | `structural::heterogeneous_collection...` |
-| S05 | STAGED | Recursive nested tuple pattern lowering |
+| S05 | READY | `patterns::nested_tuple_pattern_recursively_establishes_each_leaf` |
 | S06 | GATED | List/rest pattern semantic leaves |
 | S07 | GATED | Pattern mismatch ownership and recovery |
-| S08 | STAGED | Generic call followed by structural destructuring |
-| L01 | READY | `flow_branches::same_type_branch_results...` |
+| S08 | READY | `patterns::generic_pair_result_can_be_destructured_without_losing_components` |
+| L01 | READY | `flow_branches::same_type_branch_results...`; `deep_regressions::same_type_branch_writes_publish_flow_provenance` |
 | L02 | READY | `flow_branches::heterogeneous_branch_results...` |
 | L03 | READY | `flow_branches::returning_branch...` |
 | L04 | READY | `flow_branches::throwing_branch...` |
-| L05 | READY | `flow_branches::nested_branch_results...` |
-| L06 | READY | `flow_loops::loop_join_includes_preheader...` |
+| L05 | READY | `flow_branches::nested_branch_results...`; exact unknown trace in `deep_regressions` |
+| L06 | READY | `flow_loops::loop_join_includes_preheader...`; `deep_regressions::loop_join_publishes_flow_provenance_without_widening_to_contract` |
 | L07 | READY | `flow_loops::break_and_continue...` |
-| L08 | READY | `flow_loops::captured_block_write...` |
-| I01 | READY | `iteration::custom_iterator...` |
-| I02 | READY | Generic iterator protocol source scenario |
-| I03 | STAGED | Structured `for` pattern lowering |
+| L08 | READY | `flow_loops::captured_block_write...`; `deep_regressions::closure_construction_preserves_outer_flow_provenance` |
+| I01 | READY | `iteration::custom_iterable_element_type_comes_from_protocol_not_first_generic_argument` |
+| I02 | READY | `iteration::generic_iterator_receiver_substitution_selects_second_parameter` |
+| I03 | READY | `iteration::for_tuple_pattern_decomposes_protocol_element_type` |
 | I04 | GATED | Multi-lane/index iteration source protocol |
 | I05 | READY | Unknown protocol result remains incomplete |
 | P01 | STAGED | Contextual closure parameter publication |
@@ -118,3 +122,8 @@ Status vocabulary: `READY`, `RED-CAPABILITY`, `STAGED`, `GATED`.
 The ledger is intentionally honest about product prerequisites. Gated and
 staged slots remain promotion targets; they are not deleted tests or ignored
 coverage. New source fixtures must use canonical pipe-block syntax.
+
+`BodyExitFacts` trace assertions for nested `return`/`throw` remain a separate
+product-hardening prerequisite: the current published product does not yet
+represent those abrupt paths with sufficient fidelity, so this ledger does not
+claim that deeper oracle merely because the branch value tests are green.
