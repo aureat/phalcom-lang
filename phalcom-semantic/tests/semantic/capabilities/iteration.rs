@@ -122,6 +122,36 @@ class Probe {
     f.assert_binding_type(run, "observed", string_ty);
 }
 
+/// I03: structured `for` patterns decompose the protocol element fact into
+/// independent pattern bindings rather than losing the tuple components.
+#[test]
+fn for_tuple_pattern_decomposes_protocol_element_type() {
+    let f = Fixture::new(
+        r#"
+class Entries {
+  iteratorValue(_ cursor: Int) -> (String, Int) { mystery() }
+}
+class Probe {
+  @class
+  run(_ entries: Entries) {
+    for (key, value) in entries {
+      let observedKey = key
+      let observedValue = value
+    }
+  }
+}
+"#,
+    );
+    let string_ty = f.ty("String");
+    let int_ty = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+
+    f.assert_binding_expectation(run, "key", binding().current(known(string_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)));
+    f.assert_binding_expectation(run, "value", binding().current(known(int_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)));
+    f.assert_binding_type(run, "observedKey", string_ty);
+    f.assert_binding_type(run, "observedValue", int_ty);
+}
+
 /// I05: a collection protocol without formal element evidence stays incomplete.
 #[test]
 fn heterogeneous_collection_iteration_preserves_element_union() {
