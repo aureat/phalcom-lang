@@ -45,11 +45,13 @@ fn workspace_sources() -> [(&'static str, &'static str); 4] {
     ]
 }
 
+/// PASS: GOLDEN-01 source parses.
 #[test]
 fn golden_01_program_parses() {
     assert_parses("GOLDEN-01", GOLDEN_01);
 }
 
+/// FAIL (gated): semantic coverage waits for generic inheritance and nested `Self` specialization.
 #[test]
 #[ignore = "semantic gate waits for generic inheritance and nested Self specialization"]
 fn golden_01_generic_self_chain() {
@@ -78,6 +80,7 @@ fn golden_01_generic_self_chain() {
     f.assert_no_error_diagnostics();
 }
 
+/// FAIL (gated): semantic coverage waits for component-wise product joins across nominal branch results.
 #[test]
 #[ignore = "semantic gate waits for component-wise product joins across nominal branch results"]
 fn golden_02_flow_pattern_publication() {
@@ -107,11 +110,13 @@ fn golden_02_flow_pattern_publication() {
     f.assert_no_error_diagnostics();
 }
 
+/// PASS: GOLDEN-03 source parses.
 #[test]
 fn golden_03_program_parses() {
     assert_parses("GOLDEN-03", GOLDEN_03);
 }
 
+/// FAIL (gated): semantic coverage follows iteration protocol stabilization.
 #[test]
 #[ignore = "semantic gate follows iteration protocol stabilization"]
 fn golden_03_iterator_chain() {
@@ -136,11 +141,13 @@ fn golden_03_iterator_chain() {
     f.assert_no_error_diagnostics();
 }
 
+/// PASS: GOLDEN-04 source parses.
 #[test]
 fn golden_04_program_parses() {
     assert_parses("GOLDEN-04", GOLDEN_04);
 }
 
+/// FAIL (gated): semantic coverage waits for formal Family activation and overloaded callable routes.
 #[test]
 #[ignore = "semantic gate waits for formal Family activation and overloaded callable routes"]
 fn golden_04_family_callable() {
@@ -163,18 +170,21 @@ fn golden_04_family_callable() {
     f.assert_no_error_diagnostics();
 }
 
+/// FAIL (gated): parser prerequisite for source type-lambda declarations is not available.
 #[test]
 #[ignore = "parser prerequisite: source type-lambda declaration syntax is not accepted yet"]
 fn golden_05_program_parses() {
     assert_parses("GOLDEN-05", GOLDEN_05);
 }
 
+/// FAIL (gated): parser and constraint-semantics prerequisites for source type lambdas are not available.
 #[test]
 #[ignore = "parser prerequisite: source type-lambda syntax must land before constraint semantics can run"]
 fn golden_05_type_lambda_constraints() {
     let _ = Fixture::new(GOLDEN_05);
 }
 
+/// PASS: all GOLDEN-06 workspace sources parse.
 #[test]
 fn golden_06_workspace_programs_parse() {
     for (name, source) in workspace_sources() {
@@ -182,6 +192,7 @@ fn golden_06_workspace_programs_parse() {
     }
 }
 
+/// FAIL (gated): semantic coverage waits for linked multi-module export/import publication.
 #[test]
 #[ignore = "semantic gate waits for linked multi-module export/import publication"]
 fn golden_06_workspace_chain() {
@@ -216,6 +227,7 @@ fn golden_06_workspace_chain() {
     assert!(analyzed.analysis.snapshot.module_products.resolved_imports.len() >= 2);
 }
 
+/// PASS: GOLDEN-07 authority and recovery assertions pass.
 #[test]
 fn golden_07_unknown_authority() {
     assert_parses("GOLDEN-07", GOLDEN_07);
@@ -246,6 +258,7 @@ fn golden_07_unknown_authority() {
     f.assert_no_error_diagnostics();
 }
 
+/// FAIL (gated): semantic coverage waits for call-summary refutation recovery through generic variance.
 #[test]
 #[ignore = "semantic gate waits for call-summary refutation recovery through generic variance"]
 fn golden_08_variance_recovery() {
@@ -272,11 +285,13 @@ fn golden_08_variance_recovery() {
     f.assert_only_error_codes(&[DiagnosticCode::BindingInitializerMismatch]);
 }
 
+/// PASS: GOLDEN-09 source parses.
 #[test]
 fn golden_09_program_parses() {
     assert_parses("GOLDEN-09", GOLDEN_09);
 }
 
+/// FAIL (gated): semantic coverage waits for closure contextual typing and capture publication.
 #[test]
 #[ignore = "semantic gate waits for closure contextual typing and capture publication"]
 fn golden_09_closure_flow() {
@@ -297,6 +312,7 @@ fn golden_09_closure_flow() {
     f.assert_no_error_diagnostics();
 }
 
+/// FAIL (gated): semantic coverage waits for structural-record argument recovery and single-diagnostic ownership.
 #[test]
 #[ignore = "semantic gate waits for structural-record argument recovery and single-diagnostic ownership"]
 fn golden_10_mixed_pipeline() {
@@ -328,6 +344,7 @@ fn golden_10_mixed_pipeline() {
     f.assert_only_error_codes(&[DiagnosticCode::BindingInitializerMismatch]);
 }
 
+/// PASS: golden fixture sources remain local to this test binary.
 #[test]
 fn golden_sources_are_local_to_this_binary() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
