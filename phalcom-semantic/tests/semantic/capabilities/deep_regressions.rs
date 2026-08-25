@@ -94,3 +94,61 @@ class Probe {
     f.assert_diagnostic(DiagnosticCode::AssignmentMismatch, 1);
     f.assert_only_error_codes(&[DiagnosticCode::AssignmentMismatch]);
 }
+
+/// LAW: a loop join carries zero-iteration and body-write evidence as a Flow
+/// fact while preserving the broad source contract separately.
+#[test]
+fn loop_join_publishes_flow_provenance_without_widening_to_contract() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ flag: Bool) {
+    let value: Number = 1
+    while flag {
+      value = 2.5
+    }
+    let observed = value
+  }
+}
+"#,
+    );
+    let number = f.ty("Number");
+    let int_ty = f.ty("Int");
+    let float_ty = f.ty("Float");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let expected = known(union([int_ty.into(), float_ty.into()])).established().origin(EvidenceOrigin::Flow);
+
+    f.assert_binding_expectation(run, "value", binding().declared(number).current(expected.clone()));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW: checking an escaping closure body must not execute its captured write
+/// in the enclosing flow. Both the source binding and its later read retain the
+/// original syntax-established fact.
+#[test]
+fn closure_construction_preserves_outer_flow_provenance() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value = 1
+    let action = || {
+      value = "changed"
+    }
+    let observed = value
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let expected = known(int_ty).established().origin(EvidenceOrigin::Syntax);
+
+    f.assert_binding_expectation(run, "value", binding().current(expected.clone()));
+    f.assert_binding_expectation(run, "observed", binding().current(expected));
+    assert!(f.binding(run, "action").current.ty().is_some(), "closure value must still be analyzed");
+    f.assert_no_error_diagnostics();
+}
