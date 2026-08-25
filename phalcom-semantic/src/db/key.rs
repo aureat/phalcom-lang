@@ -48,6 +48,10 @@ pub enum QueryKey {
     CallableTermination(CallableId),
     CallableContracts(CallableId),
     VerificationConditions(CallableId),
+    SourceStructure(ModuleId),
+    SourceFormalAttachment(CallableId),
+    AdvisoryCallable(CallableId),
+    AdvisoryModule(ModuleId),
     ModuleDiagnostics(ModuleId),
     ModuleMetadata(ModuleId),
 }

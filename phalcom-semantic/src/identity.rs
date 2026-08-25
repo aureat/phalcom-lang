@@ -133,6 +133,78 @@ impl FieldId {
     }
 }
 
+/// Owner namespace for snapshot-local source sites.
+///
+/// Site ordinals are allocated independently for modules and callable bodies.
+/// This keeps source-site identity local to one immutable snapshot while
+/// avoiding accidental renumbering across unrelated callable owners.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SourceOwner {
+    /// A module-level source structure and its top-level sites.
+    Module(ModuleId),
+    /// A callable body and its local source sites.
+    Callable(CallableId),
+}
+
+/// Dense source-site ordinal within one [`SourceOwner`] namespace.
+///
+/// This ID is snapshot-local. It must not be reused after a source snapshot is
+/// replaced without carrying the owning [`SnapshotId`] through [`SourceSiteRef`].
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SourceSiteLocalId(pub u32);
+
+/// Snapshot-local source-site identity.
+///
+/// `SourceRange` is deliberately not part of this identity: ranges are
+/// attachment metadata and may change after edits.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SourceSiteId {
+    pub owner: SourceOwner,
+    pub local: SourceSiteLocalId,
+}
+
+/// Externally carryable source-site handle guarded by its owning snapshot.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SourceSiteRef {
+    snapshot: SnapshotId,
+    site: SourceSiteId,
+}
+
+impl SourceSiteRef {
+    /// Creates a reference whose site is valid only for `snapshot`.
+    pub fn new(snapshot: SnapshotId, site: SourceSiteId) -> Self {
+        Self { snapshot, site }
+    }
+
+    /// Returns snapshot that owns this source-site reference.
+    pub const fn snapshot(&self) -> SnapshotId {
+        self.snapshot
+    }
+
+    /// Returns site identity carried by this reference.
+    pub fn site(&self) -> &SourceSiteId {
+        &self.site
+    }
+
+    /// Resolves site only when queried against owning snapshot.
+    pub fn resolve_for(&self, snapshot: SnapshotId) -> Option<&SourceSiteId> {
+        (self.snapshot == snapshot).then_some(&self.site)
+    }
+}
+
+/// Canonical semantic target attached to source sites and occurrences.
+///
+/// Local bindings target their declaration [`SourceSiteId`]; declarations,
+/// callables, fields, and modules use cross-revision compiler identities.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SemanticTargetId {
+    Binding(SourceSiteId),
+    Declaration(DeclarationId),
+    Callable(CallableId),
+    Field(FieldId),
+    Module(ModuleId),
+}
+
 /// Snapshot-local binding identity for local variables/parameters.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BindingId(pub u32);

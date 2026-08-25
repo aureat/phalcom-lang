@@ -696,8 +696,17 @@ pub fn render_binding_hover_with_formal(
         SemanticBindingKind::Import => "import binding",
     };
     let mut sections = vec![format!("`{}` — {kind}", binding.name)];
-    if let Some(formal) = formal {
+    if let Some(formal) = formal.filter(|formal| !matches!(formal, FormalPresentation::Unknown)) {
         sections.push(format!("**Formal type:** `{}`", formal.text()));
+    } else if let Some(formal) = formal {
+        sections.push(format!("**Formal type:** `{}`", formal.text()));
+        if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
+            sections.push(format!(
+                "**Observed type:** `≈ {}`\n\nConfidence: {}",
+                crate::semantic::render_value_shape(&value.shape),
+                crate::semantic::confidence_name(value.confidence)
+            ));
+        }
     } else if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
         sections.push(format!(
             "**Observed type:** `≈ {}`\n\nConfidence: {}",

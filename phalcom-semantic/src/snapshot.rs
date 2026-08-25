@@ -1,9 +1,12 @@
+use crate::advisory::AdvisoryWorkspace;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
-use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, WorkspaceId};
+use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
+use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::signature::CallableSignatureTable;
 use crate::source::ParsedModuleUnit;
+use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
 use crate::surface::DeclarationSurface;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
@@ -91,6 +94,10 @@ pub struct SemanticSnapshot {
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
     pub callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    pub formal_projection: Arc<FormalSemanticProjection>,
+    pub source_index: Arc<SourceSemanticIndex>,
+    /// Immutable advisory runtime-shape products for this exact snapshot.
+    pub advisory: Arc<AdvisoryWorkspace>,
     pub module_products: Arc<ModuleQueryProducts>,
     pub status: SnapshotStatus,
 }
@@ -127,6 +134,9 @@ impl SemanticSnapshot {
             diagnostics,
             semantic_graph,
             callable_analyses: Arc::new(HashMap::new()),
+            formal_projection: Arc::new(FormalSemanticProjection::default()),
+            source_index: Arc::new(SourceSemanticIndex::default()),
+            advisory: Arc::new(AdvisoryWorkspace::default()),
             module_products: Arc::new(ModuleQueryProducts::empty()),
             status: SnapshotStatus::Complete,
         }
@@ -150,6 +160,7 @@ impl SemanticSnapshot {
     ) -> Self {
         let store_id = store.id();
         let id = SnapshotId::new(workspace, revision, store_id);
+        let formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses(&callable_analyses));
         Self {
             id,
             generation,
@@ -163,13 +174,30 @@ impl SemanticSnapshot {
             diagnostics,
             semantic_graph,
             callable_analyses,
+            formal_projection,
+            source_index: Arc::new(SourceSemanticIndex::default()),
+            advisory: Arc::new(AdvisoryWorkspace::default()),
             module_products: Arc::new(ModuleQueryProducts::empty()),
             status: SnapshotStatus::Complete,
         }
     }
 
     pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
+        self.formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses(&callable_analyses));
         self.callable_analyses = callable_analyses;
+        self
+    }
+
+    /// Attaches one immutable compiler-owned source semantic index.
+    pub fn with_source_index(mut self, source_index: Arc<SourceSemanticIndex>) -> Self {
+        self.source_index = source_index;
+        self
+    }
+
+    /// Attaches immutable advisory products built from this snapshot's source
+    /// and formal inputs.
+    pub fn with_advisory(mut self, advisory: Arc<AdvisoryWorkspace>) -> Self {
+        self.advisory = advisory;
         self
     }
 
@@ -234,6 +262,149 @@ impl SemanticSnapshot {
 
     pub fn callable_analyses(&self) -> &Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>> {
         &self.callable_analyses
+    }
+
+    /// Returns source semantic products published with this snapshot.
+    pub fn source_index(&self) -> &Arc<SourceSemanticIndex> {
+        &self.source_index
+    }
+
+    /// Returns machine-readable formal source projection.
+    pub fn formal_projection(&self) -> &Arc<FormalSemanticProjection> {
+        &self.formal_projection
+    }
+
+    /// Returns compiler-owned advisory products for this snapshot.
+    pub fn advisory(&self) -> &Arc<AdvisoryWorkspace> {
+        &self.advisory
+    }
+
+    /// Returns the read-only advisory query facade for this snapshot.
+    pub fn advisory_queries(&self) -> crate::advisory::AdvisoryQuery<'_> {
+        crate::advisory::AdvisoryQuery::new(&self.advisory)
+    }
+
+    /// Retrieves formal expression product by exact callable/expression key.
+    pub fn formal_expression(
+        &self,
+        callable: &crate::identity::CallableId,
+        expression: crate::identity::ExpressionId,
+    ) -> Option<&crate::checker::ExpressionAnalysis> {
+        self.callable_analyses.get(callable)?.expressions.get(&expression)
+    }
+
+    /// Retrieves formal binding product by exact callable/binding key.
+    pub fn formal_binding(&self, callable: &crate::identity::CallableId, binding: crate::identity::BindingId) -> Option<&crate::checker::BindingState> {
+        self.callable_analyses.get(callable)?.bindings.get(&binding)
+    }
+
+    /// Retrieves machine-readable formal fact attachment at a source position.
+    pub fn formal_fact_at(&self, module: &ModuleId, offset: usize) -> Option<&FormalFactSite> {
+        self.formal_projection.fact_at(module, offset)
+    }
+
+    /// Retrieves a machine-readable formal site by canonical fact identity.
+    pub fn formal_fact(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
+        self.formal_projection.get(fact)
+    }
+
+    /// Resolves a source-site handle only against its owning snapshot.
+    pub fn resolve_site_ref(&self, site: &SourceSiteRef) -> Option<&SourceSite> {
+        site.resolve_for(self.id).and_then(|site| self.source_site(site))
+    }
+
+    /// Returns an immutable source site by canonical snapshot-local identity.
+    pub fn source_site(&self, site: &SourceSiteId) -> Option<&SourceSite> {
+        self.source_index.source_site(site)
+    }
+
+    /// Returns source site selected by indexed byte position.
+    pub fn source_site_at(&self, module: &ModuleId, offset: usize) -> Option<&SourceSite> {
+        self.source_index.source_site_at(module, offset)
+    }
+
+    /// Returns occurrence and exact target selected by indexed byte position.
+    pub fn occurrence_at(&self, module: &ModuleId, offset: usize) -> Option<OccurrenceView<'_>> {
+        self.source_index.occurrence_at(module, offset)
+    }
+
+    /// Returns exact source sites for one canonical target.
+    pub fn occurrences_for_target(&self, target: &crate::identity::SemanticTargetId) -> Option<&[SourceSiteId]> {
+        self.source_index.occurrences_for_target(target)
+    }
+
+    /// Returns formal expression product attached to one source site.
+    pub fn formal_expression_at(&self, site: &SourceSiteId) -> Option<&crate::checker::ExpressionAnalysis> {
+        self.formal_fact_for_site(site).as_ref().and_then(|fact| match fact {
+            FormalFactRef::Expression { callable, expression } => self.formal_expression(callable, *expression),
+            _ => None,
+        })
+    }
+
+    /// Returns formal binding product attached to one source site.
+    pub fn formal_binding_at(&self, site: &SourceSiteId) -> Option<&crate::checker::BindingState> {
+        self.formal_fact_for_site(site).as_ref().and_then(|fact| match fact {
+            FormalFactRef::Binding { callable, binding } => self.formal_binding(callable, *binding),
+            _ => None,
+        })
+    }
+
+    /// Returns advisory expression/binding fact attached to one source site.
+    pub fn advisory_fact(&self, site: &SourceSiteId) -> Option<&crate::advisory::AdvisoryFact> {
+        self.advisory.expression(site).or_else(|| self.advisory.binding(site))
+    }
+
+    /// Returns advisory parameter fact for one canonical callable slot.
+    pub fn advisory_binding(&self, slot: &crate::advisory::AdvisoryParameterSlot) -> Option<&crate::advisory::AdvisoryFact> {
+        self.advisory.parameter(slot)
+    }
+
+    /// Returns advisory callable summary for one canonical callable.
+    pub fn advisory_callable(&self, callable: &crate::identity::CallableId) -> Option<&crate::advisory::AdvisoryCallableSummary> {
+        self.advisory.callable(callable)
+    }
+
+    /// Composes indexed source, formal, and advisory products without
+    /// triggering analysis or scanning callable bodies.
+    pub fn semantic_site_at(&self, module: &ModuleId, offset: usize) -> SemanticSiteView<'_> {
+        let source_site = self.source_index.occurrence_at(module, offset).map(|view| view.occurrence.site.clone());
+        let formal = self.formal_projection.fact_at(module, offset);
+        let advisory = source_site
+            .as_ref()
+            .and_then(|site| self.advisory.expression(site).or_else(|| self.advisory.binding(site)));
+        let target = source_site.as_ref().and_then(|site| self.advisory.target(site));
+        SemanticSiteView {
+            source_site,
+            formal,
+            advisory,
+            target,
+        }
+    }
+
+    fn formal_fact_for_site(&self, site: &SourceSiteId) -> Option<FormalFactRef> {
+        for attachment in self.source_index.modules.values().flat_map(|module| module.attachments.values()) {
+            if attachment.formal_expressions.values().any(|candidate| candidate == site) {
+                let expression = attachment
+                    .formal_expressions
+                    .iter()
+                    .find_map(|(expression, candidate)| (candidate == site).then_some(expression))?;
+                return Some(FormalFactRef::Expression {
+                    callable: attachment.callable.clone(),
+                    expression: *expression,
+                });
+            }
+            if let Some(binding) = attachment
+                .formal_bindings
+                .iter()
+                .find_map(|(binding, candidate)| (candidate == site).then_some(binding))
+            {
+                return Some(FormalFactRef::Binding {
+                    callable: attachment.callable.clone(),
+                    binding: *binding,
+                });
+            }
+        }
+        None
     }
 
     pub fn has_errors(&self) -> bool {

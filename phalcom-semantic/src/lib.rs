@@ -1,6 +1,7 @@
 //! `phalcom-semantic` — Canonical static semantic analysis, type store, subtyping relations,
 //! and verification engine for Phalcom.
 
+pub mod advisory;
 pub mod checker;
 pub mod contracts;
 pub mod control_summary;
@@ -25,12 +26,19 @@ pub mod session;
 pub mod signature;
 pub mod snapshot;
 pub mod source;
+pub mod source_index;
 pub mod surface;
 pub mod termination;
 pub mod types;
 pub mod workspace;
 pub mod workspace_inputs;
 
+pub use advisory::{
+    AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryContributionSource, AdvisoryExpressionContext, AdvisoryFact, AdvisoryFlowContext,
+    AdvisoryFlowProduct, AdvisoryLiteral, AdvisoryModuleProduct, AdvisoryOrigin, AdvisoryParameterContributions, AdvisoryParameterFactDelta,
+    AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySummaryEffects, AdvisoryTargetResolution, AdvisoryWorkspace, CapturedMethodFamilyShape,
+    MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
+};
 pub use checker::{
     CheckingContext, TypeCheckReport, TypedExpression, check_arguments, check_class, check_class_bodies, check_statement, match_callable_arguments,
     register_class_surface, synthesize_expr, synthesize_typed_expr,
@@ -51,10 +59,14 @@ pub use export::{
     SemanticExportError, export_kind, export_type_form,
 };
 pub use identity::{
-    BindingId, CallableId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SnapshotId, SnapshotTypeRef, TypeStoreId, WorkspaceId,
+    BindingId, CallableId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner,
+    SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
-pub use presentation::{FormalPresentation, FormalSiteId, FormalTypeSite, SemanticPresentationIndex, TypePresenter};
+pub use presentation::{
+    FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation, FormalSemanticProjection, FormalSiteId, FormalTypeSite, SemanticPresentationIndex,
+    SemanticSiteView, TypePresenter,
+};
 pub use prover::{
     Counterexample, ProofBinaryOp, ProofEvidence, ProofObligationKind, ProofOpaqueReason, ProofTerm, ProofUnaryOp, VcStatus, VcUnknownReason,
     VerificationCondition, simplify_proof_term, solve_vc_deterministic,
@@ -71,6 +83,12 @@ pub use termination::{
 pub use workspace_inputs::*;
 
 pub use source::ParsedSourceUnit;
+pub use source_index::{CallableSourceAttachment, ModuleSourceIndex, SourceAttachmentError, SourceIndexFingerprints, SourceSemanticIndex};
+pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
+pub use source_index::{
+    SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex, build_source_scope_index,
+};
+pub use source_index::{SourceSite, SourceSiteKind};
 pub use surface::DeclarationSurface;
 pub use types::{
     Assignability, BlockReason, BudgetKind, BudgetReport, CallableParameterType, CallableType, CancellationToken, ConstraintSet, ContractAssumptionEligibility,

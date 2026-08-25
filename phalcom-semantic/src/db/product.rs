@@ -1,5 +1,6 @@
 //! Typed semantic query product wrappers and accessors (Spec 04.5 / Wave 5).
 
+use crate::advisory::{AdvisoryCallableSummary, AdvisoryModuleProduct};
 use crate::checker::analysis::CallableAnalysis;
 use crate::db::state::QueryValue;
 use crate::declarations::DeclarationTypeInfo;
@@ -8,6 +9,7 @@ use crate::hierarchy_product::HierarchyEdgeProduct;
 use crate::module_product::ResolvedImportsProduct;
 use crate::signature::CallableSemanticSignature;
 use crate::source::ParsedModuleUnit;
+use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
@@ -45,6 +47,10 @@ pub enum SemanticProduct {
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
     CallableBody(Arc<CallableAnalysis>),
+    SourceStructure(Arc<ModuleSourceIndex>),
+    SourceFormalAttachment(Arc<CallableSourceAttachment>),
+    AdvisoryCallable(Arc<AdvisoryCallableSummary>),
+    AdvisoryModule(Arc<AdvisoryModuleProduct>),
     ModuleDiagnostics(Arc<[SemanticDiagnostic]>),
     SemanticComponent(Arc<LinkedProgram>),
 }
@@ -122,6 +128,34 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_source_structure(&self) -> Option<&Arc<ModuleSourceIndex>> {
+        match self {
+            Self::SourceStructure(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_source_formal_attachment(&self) -> Option<&Arc<CallableSourceAttachment>> {
+        match self {
+            Self::SourceFormalAttachment(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_advisory_callable(&self) -> Option<&Arc<AdvisoryCallableSummary>> {
+        match self {
+            Self::AdvisoryCallable(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_advisory_module(&self) -> Option<&Arc<AdvisoryModuleProduct>> {
+        match self {
+            Self::AdvisoryModule(product) => Some(product),
+            _ => None,
+        }
+    }
+
     pub fn as_module_diagnostics(&self) -> Option<&Arc<[SemanticDiagnostic]>> {
         match self {
             Self::ModuleDiagnostics(diags) => Some(diags),
@@ -148,6 +182,10 @@ impl SemanticProduct {
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),
             Self::CallableBody(_) => b"callable-body".as_slice(),
+            Self::SourceStructure(_) => b"source-structure".as_slice(),
+            Self::SourceFormalAttachment(_) => b"source-formal-attachment".as_slice(),
+            Self::AdvisoryCallable(_) => b"advisory-callable".as_slice(),
+            Self::AdvisoryModule(_) => b"advisory-module".as_slice(),
             Self::ModuleDiagnostics(_) => b"module-diagnostics".as_slice(),
             Self::SemanticComponent(_) => b"semantic-component".as_slice(),
         };

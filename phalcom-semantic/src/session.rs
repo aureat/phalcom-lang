@@ -1,5 +1,10 @@
 //! Compiler-owned incremental workspace session (Spec 04.5 / Wave 5 / Tasks 16-18).
 
+use crate::advisory::{
+    AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
+    AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace,
+    advisory_fact_from_formal, analyze_expr, analyze_statements,
+};
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::body::analyze_callable_body;
 use crate::checker::context::CheckingContext;
@@ -9,26 +14,29 @@ use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
-    FormalQueryInputs, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
-    query_hierarchy_edge, query_linked_interface, query_unlinked_interface, semantic_signature_from_surface,
+    FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_callable_body_with_formal_inputs,
+    query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment,
+    query_source_structure, query_unlinked_interface, semantic_signature_from_surface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
-use crate::identity::{DeclarationId, ModuleId, WorkspaceId};
+use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::resolver::LinkedTypeResolver;
 use crate::signature::CallableSignatureTable;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
+use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index};
 use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
+use crate::types::evidence::TypeKnowledge;
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::TypeParameterOwner;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
-use phalcom_ast::ast::{ClassMember, Statement};
+use phalcom_ast::ast::{ClassMember, PackItem, PackLabel, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
@@ -759,10 +767,85 @@ impl SemanticWorkspaceSession {
             input.linked.universe.clone(),
             Arc::new(unlinked_map),
             Arc::new(linked_map),
-            Arc::new(resolved_imports_map),
+            Arc::new(resolved_imports_map.clone()),
             Arc::new(sources_loc_map),
         ));
 
+        let mut source_index = build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map);
+        if let Some(previous) = self.last_snapshot.as_deref() {
+            for (module, current) in source_index.modules.clone() {
+                let Some(previous_module) = previous.source_index.module_arc(&module) else {
+                    continue;
+                };
+                if previous_module.fingerprints() == current.fingerprints() {
+                    source_index.modules.insert(module, previous_module);
+                }
+            }
+            source_index.rebuild_target_occurrences();
+        }
+        for (module, module_index) in &source_index.modules {
+            match query_source_structure(&mut self.db, module.clone(), module_index.clone()) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+            for attachment in module_index.attachments.values() {
+                match query_source_formal_attachment(&mut self.db, attachment.callable.clone(), attachment.clone()) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
+            }
+        }
+        let mut advisory = build_advisory_workspace(
+            &input.sources,
+            &source_index,
+            &callable_analyses,
+            &self.store,
+            &declarations,
+            &dispatch,
+            &hierarchy,
+            self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
+            budget,
+            cancel,
+        );
+        let mut advisory_query_failed = None;
+        for summary in advisory.callables.values() {
+            if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
+                advisory_query_failed = Some(error);
+                break;
+            }
+        }
+        if advisory_query_failed.is_none() {
+            for summary in advisory.callables.values() {
+                self.db.discard_for_recompute(&QueryKey::AdvisoryCallable(summary.callable.clone()));
+                if let QueryOutcome::Failed(error) = query_advisory_callable(&mut self.db, summary.clone()) {
+                    advisory_query_failed = Some(error);
+                    break;
+                }
+            }
+        }
+        if advisory_query_failed.is_none() {
+            for (module, module_product) in advisory.modules.iter() {
+                let callables = advisory
+                    .callables
+                    .keys()
+                    .filter(|callable| callable.owner.module == *module)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if let QueryOutcome::Failed(error) = query_advisory_module(&mut self.db, module_product.clone(), callables) {
+                    advisory_query_failed = Some(error);
+                    break;
+                }
+            }
+        }
+        if let Some(error) = advisory_query_failed {
+            advisory = advisory.with_status(AdvisoryProductStatus::InternalFailure(error.into_boxed_str()));
+        }
         let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
             self.workspace,
             self.db.revision(),
@@ -778,6 +861,8 @@ impl SemanticWorkspaceSession {
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
         );
+        snapshot_obj.source_index = Arc::new(source_index);
+        snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
         let snapshot = Arc::new(snapshot_obj);
 
@@ -798,6 +883,433 @@ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     unit.id.hash(&mut hasher);
     unit.text.hash(&mut hasher);
     hasher.finish()
+}
+
+fn build_source_semantic_index(
+    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    resolved_imports: &BTreeMap<(ModuleId, String), ModuleId>,
+) -> SourceSemanticIndex {
+    let context = SourceIndexContext {
+        resolved_imports: resolved_imports.clone(),
+        ..SourceIndexContext::default()
+    };
+    let scopes = sources
+        .iter()
+        .map(|(module, source)| (module.clone(), build_source_scope_index(module.clone(), &source.program, &context)))
+        .collect();
+    let mut index = SourceSemanticIndex::from_scope_indices_with_programs(scopes, sources);
+    let mut incidents = Vec::new();
+    for analysis in callable_analyses.values() {
+        let module = &analysis.callable.owner.module;
+        if index.module(module).is_some() {
+            if let Err(error) = index.attach_formal_analysis(module, analysis) {
+                incidents.push(error);
+            }
+        }
+    }
+    index.incidents = Arc::from(incidents.into_boxed_slice());
+    index
+}
+
+/// Builds the advisory workspace from the same source/formal products that
+/// will be published in the immutable snapshot. Missing source attachments
+/// reduce advisory coverage only; they never prevent formal publication.
+fn build_advisory_workspace(
+    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    source_index: &SourceSemanticIndex,
+    callable_analyses: &HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
+    store: &TypeStore,
+    declarations: &DeclarationTypeTable,
+    dispatch: &SurfaceDispatchResolver,
+    hierarchy: &MapTypeHierarchy,
+    previous: Option<&AdvisoryWorkspace>,
+    budget: QueryBudget,
+    cancel: &CancellationToken,
+) -> AdvisoryWorkspace {
+    let builtins = AdvisoryBuiltins::from_declarations(declarations);
+    let resolve_callable_for_shape = |receiver: &crate::advisory::ValueShape, name: &str, args: &[PackItem]| {
+        let slots = args
+            .iter()
+            .map(|arg| match arg {
+                PackItem::Positional { .. } | PackItem::Expand { .. } => Some(phalcom_common::selector::SelectorSlot::Positional),
+                PackItem::Labeled {
+                    label: PackLabel::Static { text, .. },
+                    ..
+                } => Some(phalcom_common::selector::SelectorSlot::Label(text.clone())),
+                PackItem::Labeled {
+                    label: PackLabel::Computed { .. },
+                    ..
+                } => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let selector = Selector::method(name, slots).ok()?;
+        let (owner, side) = match receiver {
+            crate::advisory::ValueShape::ClassObject(owner) => (owner, DispatchSide::Class),
+            crate::advisory::ValueShape::Instance(owner) => (owner, DispatchSide::Instance),
+            _ => return None,
+        };
+        dispatch.resolve_callable_id(hierarchy, owner, side, &selector).or_else(|| {
+            (side == DispatchSide::Class)
+                .then(|| dispatch.resolve_callable_id(hierarchy, owner, DispatchSide::Instance, &selector))
+                .flatten()
+        })
+    };
+    let mut formal_returns = BTreeMap::new();
+    let mut ordered_analyses = callable_analyses.values().cloned().collect::<Vec<_>>();
+    ordered_analyses.sort_by(|left, right| left.callable.cmp(&right.callable));
+    for analysis in &ordered_analyses {
+        formal_returns.insert(analysis.callable.clone(), advisory_return_fact(store, analysis));
+    }
+
+    let mut modules = BTreeMap::new();
+    let mut callables = BTreeMap::new();
+    let mut workspace_partial = false;
+
+    for (module, source) in sources {
+        let Some(module_index) = source_index.module(module) else {
+            workspace_partial = true;
+            continue;
+        };
+        let scope_index = module_index.structure.as_ref();
+        let mut fields = advisory_field_facts(source, scope_index, &builtins, &formal_returns, Some(&resolve_callable_for_shape));
+        let mut expressions = BTreeMap::new();
+        let mut bindings = BTreeMap::new();
+        let mut parameters = BTreeMap::new();
+        let mut targets = BTreeMap::new();
+        let mut module_partial = false;
+
+        for (site, target) in &scope_index.targets {
+            targets.insert(site.clone(), advisory_target_resolution(site, target));
+        }
+        for attachment in module_index.attachments.values() {
+            for (site, target) in &attachment.exact_targets {
+                targets.insert(site.clone(), advisory_target_resolution(site, target));
+            }
+        }
+
+        let mut member_bodies = BTreeMap::new();
+        for statement in &source.program.statements {
+            let Statement::Class(class) = statement else { continue };
+            let declaration = DeclarationId::new(module.clone(), class.name.clone().into());
+            for member in &class.members {
+                if let Some((callable, body, _range)) = advisory_callable_member(&declaration, member) {
+                    member_bodies.insert(callable, body);
+                }
+            }
+        }
+
+        for analysis in ordered_analyses.iter().filter(|analysis| analysis.callable.owner.module == *module) {
+            let Some(body) = member_bodies.get(&analysis.callable).copied() else {
+                module_partial = true;
+                continue;
+            };
+
+            let attachment = module_index.attachments.get(&analysis.callable);
+            if attachment.is_none() {
+                module_partial = true;
+            }
+            let mut sites_by_range = BTreeMap::<SourceRange, Vec<SourceSiteId>>::new();
+            if let Some(attachment) = attachment {
+                for site in attachment.expression_sites.iter() {
+                    sites_by_range.entry(site.range).or_default().push(site.id.clone());
+                }
+            }
+            let site_for_range = |range: SourceRange| {
+                let candidates = sites_by_range.get(&range)?;
+                (candidates.len() == 1).then(|| candidates[0].clone())
+            };
+            let resolved_callable_for_range = |range: SourceRange| {
+                let mut candidates = analysis
+                    .expressions
+                    .values()
+                    .filter(|expression| expression.range == range)
+                    .filter_map(|expression| expression.callable.clone());
+                let first = candidates.next()?;
+                candidates.next().is_none().then_some(first)
+            };
+
+            let mut seed_bindings = BTreeMap::new();
+            for binding in callable_parameter_bindings(scope_index, &analysis.callable) {
+                seed_bindings.insert(
+                    binding.declaration_site.clone(),
+                    AdvisoryFact::unknown().derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(binding.declaration_site.clone())),
+                );
+            }
+            let context = AdvisoryFlowContext {
+                scope_index,
+                fields: &fields,
+                callable_returns: &formal_returns,
+                builtins: &builtins,
+                current_owner: Some(&analysis.callable.owner),
+                dispatch_side: analysis.callable.side,
+                source_site_for_range: &site_for_range,
+                resolved_callable_for_range: &resolved_callable_for_range,
+                resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                resolve_method_family: None,
+            };
+            let flow = analyze_statements(body, &context, seed_bindings);
+            let return_fact = flow.normal_return();
+            expressions.extend(flow.expressions);
+            bindings.extend(flow.bindings);
+
+            let mut summary_parameters = Vec::new();
+            for (index, binding) in callable_parameter_bindings(scope_index, &analysis.callable).into_iter().enumerate() {
+                let fact = bindings.get(&binding.declaration_site).cloned().unwrap_or_else(AdvisoryFact::unknown);
+                let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index as u32);
+                parameters.insert(slot.clone(), fact.clone());
+                summary_parameters.push((slot, fact));
+            }
+            let summary = AdvisoryCallableSummary::new(
+                analysis.callable.clone(),
+                summary_parameters,
+                return_fact,
+                analysis.dependencies.to_vec(),
+                Default::default(),
+                advisory_status(analysis.status),
+            );
+            let summary = previous
+                .and_then(|old| old.callables.get(&analysis.callable))
+                .filter(|old| old.as_ref() == &summary)
+                .cloned()
+                .unwrap_or_else(|| Arc::new(summary));
+            callables.insert(analysis.callable.clone(), summary);
+        }
+
+        let no_site = |_range: SourceRange| None;
+        let no_callable = |_range: SourceRange| None;
+        let top_level_context = AdvisoryFlowContext {
+            scope_index,
+            fields: &fields,
+            callable_returns: &formal_returns,
+            builtins: &builtins,
+            current_owner: None,
+            dispatch_side: DispatchSide::Instance,
+            source_site_for_range: &no_site,
+            resolved_callable_for_range: &no_callable,
+            resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+            resolve_method_family: None,
+        };
+        let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());
+        expressions.extend(top_level.expressions);
+        bindings.extend(top_level.bindings);
+
+        let status = if module_partial {
+            AdvisoryProductStatus::Partial
+        } else {
+            AdvisoryProductStatus::Complete
+        };
+        workspace_partial |= module_partial;
+        let shard = AdvisoryModuleProduct::new(module.clone(), expressions, bindings, std::mem::take(&mut fields), parameters, targets, status);
+        let shard = previous
+            .and_then(|old| old.module(module))
+            .filter(|old| old.fingerprint == shard.fingerprint)
+            .cloned()
+            .unwrap_or_else(|| Arc::new(shard));
+        modules.insert(module.clone(), shard);
+    }
+
+    let mut solver_nodes = BTreeMap::new();
+    for (callable, summary) in &callables {
+        let mut contributions = crate::advisory::AdvisoryParameterContributions::default();
+        let parameter_facts = summary.parameters.iter().cloned().collect::<BTreeMap<_, _>>();
+        contributions.replace_source(crate::advisory::AdvisoryContributionSource::Callable(callable.clone()), parameter_facts);
+        solver_nodes.insert(
+            callable.clone(),
+            AdvisorySolverNode {
+                summary: summary.clone(),
+                parameters: contributions,
+            },
+        );
+    }
+    let solved = AdvisorySolver::new(AdvisorySolverBudget {
+        max_steps: budget.max_steps.min(usize::MAX as u64) as usize,
+    })
+    .solve_with_cancel(solver_nodes, cancel);
+    callables = solved.summaries;
+    workspace_partial |= !solved.converged;
+    AdvisoryWorkspace::from_parts(
+        modules,
+        callables,
+        if matches!(solved.status, AdvisoryProductStatus::Cancelled) {
+            AdvisoryProductStatus::Cancelled
+        } else if matches!(solved.status, AdvisoryProductStatus::BudgetExceeded) {
+            AdvisoryProductStatus::BudgetExceeded
+        } else if workspace_partial {
+            AdvisoryProductStatus::Partial
+        } else {
+            AdvisoryProductStatus::Complete
+        },
+    )
+}
+
+fn advisory_field_facts(
+    source: &ParsedModuleUnit,
+    scope_index: &crate::source_index::SourceScopeIndex,
+    builtins: &AdvisoryBuiltins,
+    callable_returns: &BTreeMap<CallableId, AdvisoryFact>,
+    resolve_callable_for_shape: Option<&dyn Fn(&crate::advisory::ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+) -> BTreeMap<FieldId, AdvisoryFact> {
+    let mut fields = BTreeMap::new();
+    for statement in &source.program.statements {
+        let Statement::Class(class) = statement else { continue };
+        let owner = DeclarationId::new(scope_index.module.clone(), class.name.clone().into());
+        for member in &class.members {
+            let ClassMember::Field(field) = member else { continue };
+            let field_id = FieldId::new(
+                owner.clone(),
+                field.name.clone(),
+                if field.is_static { DispatchSide::Class } else { DispatchSide::Instance },
+            );
+            let fact = field.default.as_ref().map_or_else(AdvisoryFact::unknown, |expr| {
+                let no_site = |_range: SourceRange| None;
+                let no_callable = |_range: SourceRange| None;
+                let context = crate::advisory::AdvisoryExpressionContext {
+                    scope_index,
+                    scope: scope_index.scope_at(expr.range().start),
+                    bindings: &BTreeMap::new(),
+                    fields: &fields,
+                    callable_returns,
+                    builtins,
+                    current_owner: Some(&owner),
+                    dispatch_side: field_id.side,
+                    source_site_for_range: &no_site,
+                    resolved_callable_for_range: &no_callable,
+                    resolve_callable_for_shape,
+                    resolve_method_family: None,
+                };
+                analyze_expr(expr, &context)
+            });
+            fields
+                .entry(field_id)
+                .and_modify(|existing: &mut AdvisoryFact| *existing = existing.join(&fact))
+                .or_insert(fact);
+        }
+    }
+    fields
+}
+
+fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMember) -> Option<(CallableId, &'a [Statement], SourceRange)> {
+    match member {
+        ClassMember::Method(method) => {
+            let slots = method
+                .params
+                .iter()
+                .map(|parameter| {
+                    parameter.label.as_ref().map_or(phalcom_common::selector::SelectorSlot::Positional, |label| {
+                        phalcom_common::selector::SelectorSlot::Label(label.clone())
+                    })
+                })
+                .collect::<Vec<_>>();
+            let selector = Selector::method(&method.name, slots).ok()?;
+            let side = if method.is_constructor {
+                DispatchSide::Instance
+            } else {
+                crate::checker::declaration::member_side(member)
+            };
+            Some((CallableId::new(declaration.clone(), selector, side), method.body.statements()?, method.range))
+        }
+        ClassMember::Getter(getter) => Some((
+            CallableId::new(
+                declaration.clone(),
+                Selector::getter(&getter.name).ok()?,
+                crate::checker::declaration::member_side(member),
+            ),
+            getter.body.statements()?,
+            getter.range,
+        )),
+        ClassMember::Setter(setter) => Some((
+            CallableId::new(
+                declaration.clone(),
+                Selector::setter(&setter.name).ok()?,
+                crate::checker::declaration::member_side(member),
+            ),
+            setter.body.statements()?,
+            setter.range,
+        )),
+        ClassMember::Index(index) => {
+            let slots = index
+                .params
+                .iter()
+                .map(|parameter| {
+                    parameter.label.as_ref().map_or(phalcom_common::selector::SelectorSlot::Positional, |label| {
+                        phalcom_common::selector::SelectorSlot::Label(label.clone())
+                    })
+                })
+                .collect::<Vec<_>>();
+            let selector = match index.accessor {
+                phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots),
+                phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots),
+            }
+            .ok()?;
+            Some((
+                CallableId::new(declaration.clone(), selector, DispatchSide::Instance),
+                index.body.as_slice(),
+                index.range,
+            ))
+        }
+        ClassMember::Field(_) | ClassMember::Variant(_) => None,
+    }
+}
+
+fn callable_parameter_bindings<'a>(
+    scope_index: &'a crate::source_index::SourceScopeIndex,
+    callable: &CallableId,
+) -> Vec<&'a crate::source_index::SourceBindingInfo> {
+    let mut bindings = scope_index
+        .bindings
+        .values()
+        .filter(|binding| {
+            binding.declaration_site.owner == SourceOwner::Callable(callable.clone())
+                && matches!(
+                    binding.kind,
+                    crate::source_index::SourceBindingKind::MethodParameter
+                        | crate::source_index::SourceBindingKind::SetterParameter
+                        | crate::source_index::SourceBindingKind::IndexParameter
+                )
+        })
+        .collect::<Vec<_>>();
+    bindings.sort_by_key(|binding| (binding.declaration_range.start, binding.declaration_range.end));
+    bindings
+}
+
+fn advisory_return_fact(store: &TypeStore, analysis: &crate::checker::CallableAnalysis) -> AdvisoryFact {
+    if analysis.exits.normal_return_values.is_empty() {
+        return AdvisoryFact::unknown();
+    }
+    let mut result = None;
+    for knowledge in &analysis.exits.normal_return_values {
+        let fact = match knowledge {
+            TypeKnowledge::Known(_) => advisory_fact_from_formal(store, knowledge, AdvisoryOrigin::Callable(analysis.callable.clone())),
+            TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => AdvisoryFact::unknown(),
+        };
+        result = Some(result.map_or(fact.clone(), |current: AdvisoryFact| current.join(&fact)));
+    }
+    result.unwrap_or_else(AdvisoryFact::unknown)
+}
+
+fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) -> AdvisoryTargetResolution {
+    let origin = match target {
+        SemanticTargetId::Binding(_) => AdvisoryOrigin::Binding(site.clone()),
+        SemanticTargetId::Callable(_) => AdvisoryOrigin::CallSite(site.clone()),
+        SemanticTargetId::Field(field) => AdvisoryOrigin::Field(field.clone()),
+        SemanticTargetId::Declaration(_) | SemanticTargetId::Module(_) => AdvisoryOrigin::Constraint(site.clone()),
+    };
+    AdvisoryTargetResolution {
+        target: target.clone(),
+        confidence: AdvisoryConfidence::Exact,
+        provenance: vec![origin],
+    }
+}
+
+fn advisory_status(status: crate::checker::CallableAnalysisStatus) -> AdvisoryProductStatus {
+    match status {
+        crate::checker::CallableAnalysisStatus::Complete => AdvisoryProductStatus::Complete,
+        crate::checker::CallableAnalysisStatus::Partial => AdvisoryProductStatus::Partial,
+        crate::checker::CallableAnalysisStatus::Blocked => AdvisoryProductStatus::Blocked,
+        crate::checker::CallableAnalysisStatus::Cancelled => AdvisoryProductStatus::Cancelled,
+        crate::checker::CallableAnalysisStatus::BudgetExceeded => AdvisoryProductStatus::BudgetExceeded,
+    }
 }
 
 /// Propagates body-derived return summaries through source dispatch. Source

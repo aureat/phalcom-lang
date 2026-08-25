@@ -1,5 +1,6 @@
 //! Semantic database high-level query execution and caching (Spec 04.5 / Wave 5).
 
+use crate::advisory::{AdvisoryCallableSummary, AdvisoryModuleProduct};
 use crate::checker::analysis::{CallableAnalysis, CallableAnalysisStatus};
 use crate::checker::body::{analyze_callable_body, signature_consumed_by_body};
 use crate::db::budget::{CancellationToken, QueryBudget};
@@ -15,6 +16,7 @@ use crate::identity::{CallableId, DeclarationId, ModuleId};
 use crate::module_product::ResolvedImportsProduct;
 use crate::signature::CallableSemanticSignature;
 use crate::source::ParsedModuleUnit;
+use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
 use crate::types::annotation::TypeResolver;
 use crate::types::evidence::UnknownReason;
@@ -150,6 +152,180 @@ fn publish_current_product(
                 error.actual_revision()
             )
         })
+}
+
+/// Publishes compiler-owned source structure as a typed incremental product.
+pub fn query_source_structure(db: &mut SemanticDb, module: ModuleId, product: Arc<ModuleSourceIndex>) -> QueryOutcome<Arc<ModuleSourceIndex>> {
+    let key = QueryKey::SourceStructure(module);
+    let input_fingerprint = crate::db::fingerprint::source_structure_input_fingerprint(&product);
+    let product_fingerprint = crate::db::fingerprint::source_structure_product_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_source_structure()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::SourceStructure(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+/// Publishes exact formal-to-source attachment with an explicit structure edge.
+pub fn query_source_formal_attachment(
+    db: &mut SemanticDb,
+    callable: CallableId,
+    attachment: Arc<CallableSourceAttachment>,
+) -> QueryOutcome<Arc<CallableSourceAttachment>> {
+    let key = QueryKey::SourceFormalAttachment(callable.clone());
+    let structure_key = QueryKey::SourceStructure(callable.owner.module.clone());
+    let product_fingerprint = crate::db::fingerprint::source_formal_attachment_fingerprint(&attachment);
+    let input_fingerprint = InputFingerprint::new(attachment_fingerprint(&attachment));
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_source_formal_attachment()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    if let Err(error) = db.record_dependency(&mut recorder, structure_key) {
+        return query_failure(db, key, error);
+    }
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::SourceFormalAttachment(attachment.clone()),
+        recorder.finish(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(attachment)
+}
+
+/// Publishes one advisory callable summary and records canonical callable
+/// dependencies. SCC-internal edges may be omitted during bootstrap and are
+/// added by callers once all members have a current product.
+pub fn query_advisory_callable(db: &mut SemanticDb, summary: Arc<AdvisoryCallableSummary>) -> QueryOutcome<Arc<AdvisoryCallableSummary>> {
+    let key = QueryKey::AdvisoryCallable(summary.callable.clone());
+    let input_fingerprint = crate::db::fingerprint::advisory_callable_input_fingerprint(&summary);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_advisory_callable()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    for dependency in summary.dependencies.iter().filter(|dependency| **dependency != summary.callable) {
+        let dependency_key = QueryKey::AdvisoryCallable(dependency.clone());
+        if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
+            return query_failure(db, key, error);
+        }
+    }
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        crate::db::fingerprint::advisory_callable_product_fingerprint(&summary),
+        SemanticProduct::AdvisoryCallable(summary.clone()),
+        recorder.finish(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(summary)
+}
+
+/// Seeds one advisory callable product without dependency edges. Callers use
+/// this only to bootstrap an SCC, then refresh through
+/// [`query_advisory_callable`] once every SCC member is current.
+pub fn bootstrap_advisory_callable(db: &mut SemanticDb, summary: Arc<AdvisoryCallableSummary>) -> QueryOutcome<Arc<AdvisoryCallableSummary>> {
+    let key = QueryKey::AdvisoryCallable(summary.callable.clone());
+    let input_fingerprint = crate::db::fingerprint::advisory_callable_input_fingerprint(&summary);
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        crate::db::fingerprint::advisory_callable_product_fingerprint(&summary),
+        SemanticProduct::AdvisoryCallable(summary.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(summary)
+}
+
+/// Publishes one advisory module shard after source and callable products.
+pub fn query_advisory_module(
+    db: &mut SemanticDb,
+    product: Arc<AdvisoryModuleProduct>,
+    callables: impl IntoIterator<Item = CallableId>,
+) -> QueryOutcome<Arc<AdvisoryModuleProduct>> {
+    let key = QueryKey::AdvisoryModule(product.module.clone());
+    let input_fingerprint = crate::db::fingerprint::advisory_module_input_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_advisory_module()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    for dependency in [QueryKey::SourceStructure(product.module.clone())] {
+        if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+            return query_failure(db, key, error);
+        }
+    }
+    for callable in callables {
+        if let Err(error) = db.record_dependency(&mut recorder, QueryKey::AdvisoryCallable(callable)) {
+            return query_failure(db, key, error);
+        }
+    }
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        crate::db::fingerprint::advisory_module_product_fingerprint(&product),
+        SemanticProduct::AdvisoryModule(product.clone()),
+        recorder.finish(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+fn attachment_fingerprint(attachment: &CallableSourceAttachment) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    attachment.callable.hash(&mut hasher);
+    attachment.expression_sites.hash(&mut hasher);
+    attachment.formal_bindings.hash(&mut hasher);
+    attachment.formal_expressions.hash(&mut hasher);
+    attachment.exact_targets.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Evaluates or retrieves the cached `ParsedModuleUnit` for a given module.

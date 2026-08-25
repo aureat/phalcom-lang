@@ -1,0 +1,448 @@
+//! Compiler-owned advisory expression analysis.
+//!
+//! This module intentionally consumes canonical source scopes, formal call
+//! targets, and compiler-owned field/return products. It does not perform
+//! formal checking and does not create a second dispatch or identity system.
+
+use std::collections::BTreeMap;
+
+use phalcom_ast::ast::{
+    Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement, SymbolLiteralKind,
+    TupleLiteralEntry,
+};
+use phalcom_common::range::SourceRange;
+
+use crate::declarations::DeclarationTypeTable;
+use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceSiteId};
+use crate::source_index::{SourceNameResolution, SourceScopeId, SourceScopeIndex};
+
+use super::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, CapturedMethodFamilyShape, ValueShape};
+use phalcom_ast::ast::NormalizedSelectorSpec;
+
+/// Canonical builtin declarations used for literal facts.
+///
+/// Missing entries remain unknown. Advisory code never fabricates a class
+/// identity from a spelling such as `Int` or `Bool`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AdvisoryBuiltins {
+    pub int: Option<DeclarationId>,
+    pub float: Option<DeclarationId>,
+    pub string: Option<DeclarationId>,
+    pub boolean: Option<DeclarationId>,
+    pub symbol: Option<DeclarationId>,
+    pub ordering: Option<DeclarationId>,
+}
+
+impl AdvisoryBuiltins {
+    /// Resolves builtin identities only from the supplied canonical
+    /// declaration table. Missing declarations remain absent and therefore
+    /// produce advisory `Unknown` facts.
+    pub fn from_declarations(declarations: &DeclarationTypeTable) -> Self {
+        fn lookup(declarations: &DeclarationTypeTable, name: &str) -> Option<DeclarationId> {
+            let declaration = DeclarationId::new(crate::identity::ModuleId::core(), name.into());
+            declarations.get(&declaration).map(|_| declaration)
+        }
+
+        Self {
+            int: lookup(declarations, "Int"),
+            float: lookup(declarations, "Float"),
+            string: lookup(declarations, "String"),
+            boolean: lookup(declarations, "Bool"),
+            symbol: lookup(declarations, "Symbol"),
+            ordering: lookup(declarations, "Ordering"),
+        }
+    }
+}
+
+/// Inputs for one advisory expression evaluation.
+pub struct AdvisoryExpressionContext<'a> {
+    pub scope_index: &'a SourceScopeIndex,
+    pub scope: SourceScopeId,
+    pub bindings: &'a BTreeMap<SourceSiteId, AdvisoryFact>,
+    pub fields: &'a BTreeMap<FieldId, AdvisoryFact>,
+    pub callable_returns: &'a BTreeMap<CallableId, AdvisoryFact>,
+    pub builtins: &'a AdvisoryBuiltins,
+    pub current_owner: Option<&'a DeclarationId>,
+    pub dispatch_side: DispatchSide,
+    /// Maps an AST range to its canonical source-site identity.
+    pub source_site_for_range: &'a dyn Fn(SourceRange) -> Option<SourceSiteId>,
+    /// Formal expression products provide exact targets when available.
+    pub resolved_callable_for_range: &'a dyn Fn(SourceRange) -> Option<CallableId>,
+    /// Resolves a method call from an advisory receiver shape through the
+    /// compiler dispatch adapter when no formal call attachment is available.
+    pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    /// Canonical dispatch adapter for method-family references.
+    pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
+}
+
+/// Evaluates one AST expression into an advisory fact.
+pub fn analyze_expr(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    let range = expr.range();
+    match expr {
+        Expr::Int { .. } => literal(context, context.builtins.int.clone(), range),
+        Expr::Float { .. } => literal(context, context.builtins.float.clone(), range),
+        Expr::String { .. } => literal(context, context.builtins.string.clone(), range),
+        Expr::Boolean { value, .. } => {
+            let mut fact = literal(context, context.builtins.boolean.clone(), range);
+            fact.literal = Some(super::AdvisoryLiteral::Bool(*value));
+            fact
+        }
+        Expr::Symbol(_) => literal(context, context.builtins.symbol.clone(), range),
+        Expr::Var { value, .. } => analyze_var(value, range, context),
+        Expr::Field { value, .. } => context
+            .current_owner
+            .map(|owner| FieldId::new(owner.clone(), value.clone(), context.dispatch_side))
+            .and_then(|field| context.fields.get(&field).cloned().map(|fact| (field, fact)))
+            .map(|(field, fact)| fact.derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Field(field)))
+            .unwrap_or_else(AdvisoryFact::unknown),
+        Expr::SelfVar { .. } => context
+            .current_owner
+            .map(|owner| {
+                let shape = match context.dispatch_side {
+                    DispatchSide::Instance => ValueShape::Instance(owner.clone()),
+                    DispatchSide::Class => ValueShape::ClassObject(owner.clone()),
+                };
+                syntax_fact(context, shape, range)
+            })
+            .unwrap_or_else(AdvisoryFact::unknown),
+        Expr::Assignment(assignment) => analyze_expr(&assignment.value, context),
+        Expr::Range(range_expr) => {
+            let lower = range_expr.lower.as_ref().map(|expr| analyze_expr(expr, context).shape);
+            let upper = range_expr.upper.as_ref().map(|expr| analyze_expr(expr, context).shape);
+            syntax_fact(
+                context,
+                ValueShape::Range(Box::new(ValueShape::bounded_union(lower.into_iter().chain(upper)))),
+                range,
+            )
+        }
+        Expr::TupleLiteral(tuple) => syntax_fact(
+            context,
+            ValueShape::Tuple(tuple.entries.iter().map(|entry| tuple_entry_shape(entry, context)).collect::<Vec<_>>().into()),
+            range,
+        ),
+        Expr::ListLiteral(list) => {
+            let mut elements = Vec::new();
+            let mut expanded = false;
+            for entry in &list.elements {
+                match entry {
+                    ListLiteralElement::Element { expr, .. } => elements.push(analyze_expr(expr, context).shape),
+                    ListLiteralElement::Expansion { expr, .. } => {
+                        expanded = true;
+                        elements.push(analyze_expr(expr, context).shape.element_shape());
+                    }
+                }
+            }
+            let shape = if expanded {
+                ValueShape::List(Box::new(ValueShape::bounded_union(elements)))
+            } else {
+                ValueShape::ExactList(elements.into())
+            };
+            syntax_fact(context, shape, range)
+        }
+        Expr::RecordLiteral(record) => {
+            let mut fields = Vec::new();
+            let mut dynamic = false;
+            for entry in &record.entries {
+                match entry {
+                    RecordLiteralEntry::Field(field) => fields.push((product_label(&field.label), analyze_expr(&field.value, context).shape)),
+                    RecordLiteralEntry::Expansion { expr, .. } => {
+                        if let ValueShape::Record(expanded) = analyze_expr(expr, context).shape {
+                            fields.extend(expanded.iter().map(|(label, value)| (label.to_string(), value.clone())));
+                        } else {
+                            dynamic = true;
+                        }
+                    }
+                }
+            }
+            if dynamic {
+                unknown_at(context, range)
+            } else {
+                syntax_fact(context, ValueShape::record(fields), range)
+            }
+        }
+        Expr::MapLiteral(map) => {
+            let mut keys = Vec::new();
+            let mut values = Vec::new();
+            for entry in &map.entries {
+                let MapLiteralEntry::Association { key, value, .. } = entry else { continue };
+                keys.push(match key {
+                    MapLiteralKey::BareSymbol { .. } => context.builtins.symbol.clone().map(ValueShape::Instance).unwrap_or(ValueShape::Unknown),
+                    MapLiteralKey::Computed { expr, .. } => analyze_expr(expr, context).shape,
+                });
+                values.push(analyze_expr(value, context).shape);
+            }
+            syntax_fact(
+                context,
+                ValueShape::Map {
+                    key: Box::new(ValueShape::bounded_union(keys)),
+                    value: Box::new(ValueShape::bounded_union(values)),
+                },
+                range,
+            )
+        }
+        Expr::SetLiteral(set) => syntax_fact(
+            context,
+            ValueShape::Set(Box::new(ValueShape::bounded_union(set.entries.iter().map(|entry| match entry {
+                SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => analyze_expr(expr, context).shape,
+            })))),
+            range,
+        ),
+        Expr::MethodRef(reference) => {
+            let receiver = analyze_expr(&reference.receiver, context);
+            let Ok(spec) = reference.spec.normalize() else {
+                return unknown_at(context, range);
+            };
+            if let Some(resolve) = context.resolve_method_family
+                && let Some(family) = resolve(&receiver.shape, &spec)
+            {
+                return syntax_fact(context, ValueShape::MethodFamily(std::sync::Arc::new(family)), range);
+            }
+            syntax_fact(
+                context,
+                ValueShape::Family {
+                    receiver: Box::new(receiver.shape),
+                    spec,
+                },
+                range,
+            )
+        }
+        Expr::MethodCall(call) => {
+            let receiver = analyze_expr(&call.object, context);
+            for arg in &call.args {
+                analyze_pack(arg, context);
+            }
+            resolved_call_or_unknown_with_shape(call.range, &receiver.shape, &call.method, &call.args, context)
+        }
+        Expr::UnqualifiedCall(call) => {
+            for arg in &call.args {
+                analyze_pack(arg, context);
+            }
+            resolved_call_or_unknown(call.range, context)
+        }
+        Expr::GetProperty(property) => {
+            let _ = analyze_expr(&property.object, context);
+            resolved_call_or_unknown(property.range, context)
+        }
+        Expr::SetProperty(property) => {
+            let _ = analyze_expr(&property.object, context);
+            let _ = analyze_expr(&property.value, context);
+            resolved_call_or_unknown(property.range, context)
+        }
+        Expr::Index(index) => {
+            let _ = analyze_expr(&index.object, context);
+            for arg in &index.args {
+                analyze_pack(arg, context);
+            }
+            resolved_call_or_unknown(index.range, context)
+        }
+        Expr::SetIndex(index) => {
+            let _ = analyze_expr(&index.object, context);
+            for arg in &index.args {
+                analyze_pack(arg, context);
+            }
+            let _ = analyze_expr(&index.value, context);
+            resolved_call_or_unknown(index.range, context)
+        }
+        Expr::Unary(unary) => {
+            let operand = analyze_expr(&unary.expr, context);
+            if matches!(unary.op, phalcom_ast::ast::UnaryOp::Not) {
+                if let Some(value) = operand.literal.and_then(|literal| match literal {
+                    super::AdvisoryLiteral::Bool(value) => Some(value),
+                }) {
+                    let mut fact = literal(context, context.builtins.boolean.clone(), range);
+                    fact.literal = Some(super::AdvisoryLiteral::Bool(!value));
+                    return fact;
+                }
+            }
+            resolved_call_or_unknown(range, context)
+        }
+        Expr::Binary(binary) => {
+            let _ = analyze_expr(&binary.left, context);
+            let _ = analyze_expr(&binary.right, context);
+            if matches!(binary.op, phalcom_ast::ast::BinaryOp::Same | phalcom_ast::ast::BinaryOp::Compare) {
+                let shape = if matches!(binary.op, phalcom_ast::ast::BinaryOp::Compare) {
+                    context.builtins.ordering.clone().map(ValueShape::Instance)
+                } else {
+                    context.builtins.boolean.clone().map(ValueShape::Instance)
+                };
+                return literal(
+                    context,
+                    shape.map(|shape| match shape {
+                        ValueShape::Instance(id) => id,
+                        _ => unreachable!(),
+                    }),
+                    range,
+                );
+            }
+            resolved_call_or_unknown(range, context)
+        }
+        Expr::Membership(membership) => {
+            let _ = analyze_expr(&membership.left, context);
+            let _ = analyze_expr(&membership.right, context);
+            literal(context, context.builtins.boolean.clone(), range)
+        }
+        Expr::IsMembership(membership) => {
+            let _ = analyze_expr(&membership.left, context);
+            let _ = analyze_expr(&membership.candidates, context);
+            literal(context, context.builtins.boolean.clone(), range)
+        }
+        Expr::ComparisonChain(chain) => {
+            for operand in &chain.operands {
+                let _ = analyze_expr(operand, context);
+            }
+            literal(context, context.builtins.boolean.clone(), range)
+        }
+        Expr::Block(block) => {
+            for statement in &block.body {
+                let _ = analyze_statement(statement, context);
+            }
+            unknown_at(context, range)
+        }
+        Expr::IfLet(if_let) => {
+            let _ = analyze_expr(&if_let.value, context);
+            literal(context, context.builtins.boolean.clone(), range)
+        }
+        Expr::WhileLet(while_let) => {
+            let _ = analyze_expr(&while_let.value, context);
+            literal(context, context.builtins.boolean.clone(), range)
+        }
+        Expr::SuperVar { .. } | Expr::ImplementationSelector { .. } | Expr::Ellipsis { .. } | Expr::TypeForm(_) => unknown_at(context, range),
+    }
+}
+
+fn analyze_statement(statement: &Statement, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    match statement {
+        Statement::Expr { expr, .. } => analyze_expr(expr, context),
+        Statement::Return(return_statement) => return_statement
+            .value
+            .as_ref()
+            .map(|expr| analyze_expr(expr, context))
+            .unwrap_or_else(AdvisoryFact::unknown),
+        Statement::Throw { expr, .. } => analyze_expr(expr, context),
+        _ => AdvisoryFact::unknown(),
+    }
+}
+
+fn analyze_var(name: &str, range: SourceRange, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    let resolution = context.scope_index.resolve_name(context.scope, name, range.start);
+    match resolution {
+        SourceNameResolution::Binding(site) => context
+            .bindings
+            .get(&site)
+            .cloned()
+            .map(|fact| fact.derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(site)))
+            .unwrap_or_else(|| unknown_at(context, range)),
+        SourceNameResolution::Target(crate::identity::SemanticTargetId::Declaration(declaration)) => {
+            syntax_fact(context, ValueShape::ClassObject(declaration), range)
+        }
+        SourceNameResolution::Target(crate::identity::SemanticTargetId::Module(module)) => syntax_fact(context, ValueShape::Module(module), range),
+        SourceNameResolution::Target(_) | SourceNameResolution::ImplicitSelf | SourceNameResolution::Unresolved => unknown_at(context, range),
+    }
+}
+
+fn analyze_pack(item: &PackItem, context: &AdvisoryExpressionContext<'_>) {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => {
+            let _ = analyze_expr(expr, context);
+        }
+        PackItem::Labeled { value, label, .. } => {
+            let _ = analyze_expr(value, context);
+            if let phalcom_ast::ast::PackLabel::Computed { expr, .. } = label {
+                let _ = analyze_expr(expr, context);
+            }
+        }
+    }
+}
+
+fn tuple_entry_shape(entry: &TupleLiteralEntry, context: &AdvisoryExpressionContext<'_>) -> ValueShape {
+    match entry {
+        TupleLiteralEntry::Positional { expr, .. } | TupleLiteralEntry::Labeled { value: expr, .. } | TupleLiteralEntry::Expand { expr, .. } => {
+            analyze_expr(expr, context).shape
+        }
+    }
+}
+
+fn resolved_call_or_unknown(range: SourceRange, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    let Some(callable) = (context.resolved_callable_for_range)(range) else {
+        return unknown_at(context, range);
+    };
+    context
+        .callable_returns
+        .get(&callable)
+        .cloned()
+        .map(|fact| fact.derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable)))
+        .unwrap_or_else(AdvisoryFact::unknown)
+}
+
+fn resolved_call_or_unknown_with_shape(
+    range: SourceRange,
+    receiver: &ValueShape,
+    name: &str,
+    args: &[PackItem],
+    context: &AdvisoryExpressionContext<'_>,
+) -> AdvisoryFact {
+    if let Some(callable) = (context.resolved_callable_for_range)(range) {
+        return callable_fact(callable, context);
+    }
+    let Some(resolve) = context.resolve_callable_for_shape else {
+        return unknown_at(context, range);
+    };
+    let Some(callable) = resolve(receiver, name, args) else {
+        return unknown_at(context, range);
+    };
+    callable_fact(callable, context)
+}
+
+fn callable_fact(callable: CallableId, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    context
+        .callable_returns
+        .get(&callable)
+        .cloned()
+        .map(|fact| fact.derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable)))
+        .unwrap_or_else(AdvisoryFact::unknown)
+}
+
+fn literal(context: &AdvisoryExpressionContext<'_>, declaration: Option<DeclarationId>, range: SourceRange) -> AdvisoryFact {
+    let Some(declaration) = declaration else {
+        return unknown_at(context, range);
+    };
+    syntax_fact(context, ValueShape::Instance(declaration), range)
+}
+
+fn syntax_fact(context: &AdvisoryExpressionContext<'_>, shape: ValueShape, range: SourceRange) -> AdvisoryFact {
+    let fact = AdvisoryFact::new(shape, AdvisoryConfidence::Exact);
+    let Some(site) = (context.source_site_for_range)(range) else {
+        return fact;
+    };
+    fact.derive(AdvisoryConfidence::Exact, AdvisoryOrigin::Syntax(site))
+}
+
+fn unknown_at(context: &AdvisoryExpressionContext<'_>, range: SourceRange) -> AdvisoryFact {
+    let fact = AdvisoryFact::unknown();
+    let Some(site) = (context.source_site_for_range)(range) else {
+        return fact;
+    };
+    fact.derive(AdvisoryConfidence::Heuristic, AdvisoryOrigin::Syntax(site))
+}
+
+fn product_label(label: &ProductLabel) -> String {
+    match label {
+        ProductLabel::Static {
+            symbol: SymbolLiteralKind::Name(name),
+            ..
+        }
+        | ProductLabel::Static {
+            symbol: SymbolLiteralKind::Selector { name, .. },
+            ..
+        }
+        | ProductLabel::Static {
+            symbol: SymbolLiteralKind::Pattern(phalcom_ast::ast::SelectorPatternSyntax { base: name, .. }),
+            ..
+        } => name.clone(),
+        ProductLabel::Static {
+            symbol: SymbolLiteralKind::Subscript { .. },
+            ..
+        } => "[]".to_string(),
+        ProductLabel::Computed { .. } => "?".to_string(),
+    }
+}

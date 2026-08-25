@@ -1237,3 +1237,43 @@ pub fn semantic_component_product_fingerprint(program: &LinkedProgram) -> Produc
     hash_linked_program(program, &mut hasher);
     finish_product(hasher)
 }
+
+/// Fingerprints for compiler-owned source/advisory query products.
+pub fn source_structure_input_fingerprint(product: &crate::source_index::ModuleSourceIndex) -> InputFingerprint {
+    InputFingerprint::new(product.fingerprints().presentation.raw())
+}
+
+pub fn source_structure_product_fingerprint(product: &crate::source_index::ModuleSourceIndex) -> ProductFingerprint {
+    product.fingerprints().semantic
+}
+
+pub fn source_formal_attachment_fingerprint(product: &crate::source_index::CallableSourceAttachment) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.callable.hash(&mut hasher);
+    for (binding, site) in &product.formal_bindings {
+        binding.hash(&mut hasher);
+        site.hash(&mut hasher);
+    }
+    for (expression, site) in &product.formal_expressions {
+        expression.hash(&mut hasher);
+        site.hash(&mut hasher);
+    }
+    product.exact_targets.hash(&mut hasher);
+    finish_product(hasher)
+}
+
+pub fn advisory_callable_input_fingerprint(product: &crate::advisory::AdvisoryCallableSummary) -> InputFingerprint {
+    InputFingerprint::new(product.fingerprint.raw())
+}
+
+pub fn advisory_callable_product_fingerprint(product: &crate::advisory::AdvisoryCallableSummary) -> ProductFingerprint {
+    product.fingerprint
+}
+
+pub fn advisory_module_input_fingerprint(product: &crate::advisory::AdvisoryModuleProduct) -> InputFingerprint {
+    InputFingerprint::new(product.fingerprint.raw())
+}
+
+pub fn advisory_module_product_fingerprint(product: &crate::advisory::AdvisoryModuleProduct) -> ProductFingerprint {
+    product.fingerprint
+}

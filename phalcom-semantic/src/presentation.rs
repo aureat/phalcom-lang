@@ -1,12 +1,16 @@
 //! Pure presentation projections over compiler-owned semantic products.
 
+use crate::advisory::{AdvisoryFact, AdvisoryTargetResolution};
+use crate::checker::causal::CausalInvalidity;
 use crate::checker::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
-use crate::identity::{CallableId, ExpressionId, ModuleId};
+use crate::identity::{CallableId, ExpressionId, ModuleId, SourceSiteId};
+use crate::source_index::interval::{RangeEntry, RangeIndex};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 /// Canonical formal presentation state for one semantic site.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -132,6 +136,198 @@ pub struct SemanticPresentationIndex {
     sites: BTreeMap<FormalSiteId, FormalTypeSite>,
     binding_sites: BTreeMap<(ModuleId, SourceRange), FormalSiteId>,
     expression_sites: BTreeMap<ModuleId, Vec<FormalTypeSite>>,
+}
+
+/// Machine-readable identity of one formal source fact.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum FormalFactRef {
+    Callable(CallableId),
+    Expression {
+        callable: CallableId,
+        expression: ExpressionId,
+    },
+    Binding {
+        callable: CallableId,
+        binding: crate::identity::BindingId,
+    },
+}
+
+/// Machine-readable formal readiness/validity state attached to a projected
+/// source fact. This is separate from rendered type text and preserves causal
+/// invalidity without making advisory observations formal evidence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FormalFactStatus {
+    Ready,
+    Unknown,
+    Dynamic,
+    Invalid,
+    InvalidMultiple,
+    Blocked,
+    Cancelled,
+    BudgetExceeded,
+    InternalFailure,
+    Partial,
+}
+
+/// Snapshot-owned source attachment for one machine-readable formal fact.
+///
+/// This record contains identity and location only. Callers retrieve formal
+/// knowledge/status from the keyed checker product; no rendered string is used
+/// as semantic truth.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FormalFactSite {
+    pub module: ModuleId,
+    pub range: SourceRange,
+    pub fact: FormalFactRef,
+    pub status: FormalFactStatus,
+}
+
+/// Read-only composition of source, formal, and advisory products at one
+/// indexed source position. Each channel remains independently optional and
+/// retains its own authority/status semantics.
+#[derive(Clone, Debug)]
+pub struct SemanticSiteView<'a> {
+    /// Snapshot-local source site selected by the source occurrence index.
+    pub source_site: Option<SourceSiteId>,
+    /// Keyed formal fact attached at this position, if any.
+    pub formal: Option<&'a FormalFactSite>,
+    /// Advisory runtime-shape fact attached to the selected source site.
+    pub advisory: Option<&'a AdvisoryFact>,
+    /// Advisory canonical target attached to the selected source site.
+    pub target: Option<&'a AdvisoryTargetResolution>,
+}
+
+/// Indexed machine-readable formal source projection.
+#[derive(Clone, Debug, Default)]
+pub struct FormalSemanticProjection {
+    by_fact: BTreeMap<FormalFactRef, FormalFactSite>,
+    by_module: BTreeMap<ModuleId, Arc<[FormalFactSite]>>,
+    intervals: BTreeMap<ModuleId, RangeIndex<usize>>,
+}
+
+impl FormalSemanticProjection {
+    /// Builds projection from immutable callable products without re-analysis.
+    pub fn from_callable_analyses(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>) -> Self {
+        let mut sites = Vec::new();
+        let mut ordered = analyses.values().cloned().collect::<Vec<_>>();
+        ordered.sort_by(|left, right| left.callable.cmp(&right.callable));
+        for analysis in ordered {
+            let module = analysis.callable.owner.module.clone();
+            let callable_fact = FormalFactRef::Callable(analysis.callable.clone());
+            sites.push(FormalFactSite {
+                module: module.clone(),
+                range: analysis.body_range,
+                fact: callable_fact,
+                status: callable_status(analysis.status),
+            });
+            for expression in analysis.expressions.values() {
+                sites.push(FormalFactSite {
+                    module: module.clone(),
+                    range: expression.range,
+                    fact: FormalFactRef::Expression {
+                        callable: analysis.callable.clone(),
+                        expression: expression.id,
+                    },
+                    status: expression_status(&expression.status),
+                });
+            }
+            for binding in analysis.bindings.values() {
+                sites.push(FormalFactSite {
+                    module: module.clone(),
+                    range: binding.range,
+                    fact: FormalFactRef::Binding {
+                        callable: analysis.callable.clone(),
+                        binding: binding.binding,
+                    },
+                    status: binding_status(binding),
+                });
+            }
+        }
+        sites.sort_by_key(|site| (site.module.clone(), site.range.start, site.range.len(), site.fact.clone()));
+        let mut by_fact = BTreeMap::new();
+        let mut grouped = BTreeMap::<ModuleId, Vec<FormalFactSite>>::new();
+        for site in sites {
+            by_fact.insert(site.fact.clone(), site.clone());
+            grouped.entry(site.module.clone()).or_default().push(site);
+        }
+        let mut by_module = BTreeMap::new();
+        let mut intervals = BTreeMap::new();
+        for (module, module_sites) in grouped {
+            let module_sites: Arc<[FormalFactSite]> = Arc::from(module_sites);
+            let ranges = RangeIndex::new(
+                module_sites
+                    .iter()
+                    .enumerate()
+                    .map(|(index, site)| RangeEntry::new(site.range, index, formal_fact_priority(&site.fact))),
+            );
+            by_module.insert(module.clone(), module_sites);
+            intervals.insert(module, ranges);
+        }
+        Self { by_fact, by_module, intervals }
+    }
+
+    /// Returns one formal site by canonical fact identity.
+    pub fn get(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
+        self.by_fact.get(fact)
+    }
+
+    /// Returns most-specific formal site at a source position.
+    pub fn fact_at(&self, module: &ModuleId, offset: usize) -> Option<&FormalFactSite> {
+        let index = self.intervals.get(module)?.index_at(offset)?;
+        self.by_module.get(module)?.get(index)
+    }
+
+    /// Number of machine-readable formal site records.
+    pub fn len(&self) -> usize {
+        self.by_fact.len()
+    }
+
+    /// Whether no formal source facts are published.
+    pub fn is_empty(&self) -> bool {
+        self.by_fact.is_empty()
+    }
+}
+
+fn expression_status(status: &AnalysisStatus) -> FormalFactStatus {
+    match status {
+        AnalysisStatus::Ready => FormalFactStatus::Ready,
+        AnalysisStatus::Invalid(_) => FormalFactStatus::Invalid,
+        AnalysisStatus::Suppressed(_) | AnalysisStatus::Blocked(_) => FormalFactStatus::Blocked,
+        AnalysisStatus::DynamicBoundary(_) => FormalFactStatus::Dynamic,
+        AnalysisStatus::Cancelled => FormalFactStatus::Cancelled,
+        AnalysisStatus::BudgetExceeded(_) => FormalFactStatus::BudgetExceeded,
+        AnalysisStatus::InternalFailure(_) => FormalFactStatus::InternalFailure,
+    }
+}
+
+fn callable_status(status: CallableAnalysisStatus) -> FormalFactStatus {
+    match status {
+        CallableAnalysisStatus::Complete => FormalFactStatus::Ready,
+        CallableAnalysisStatus::Partial => FormalFactStatus::Partial,
+        CallableAnalysisStatus::Blocked => FormalFactStatus::Blocked,
+        CallableAnalysisStatus::Cancelled => FormalFactStatus::Cancelled,
+        CallableAnalysisStatus::BudgetExceeded => FormalFactStatus::BudgetExceeded,
+    }
+}
+
+fn binding_status(binding: &crate::checker::BindingState) -> FormalFactStatus {
+    match binding.causal_invalidity {
+        CausalInvalidity::One(_) => FormalFactStatus::Invalid,
+        CausalInvalidity::Multiple => FormalFactStatus::InvalidMultiple,
+        CausalInvalidity::Clean => match &binding.current {
+            TypeKnowledge::Known(_) => FormalFactStatus::Ready,
+            TypeKnowledge::Unknown(_) => FormalFactStatus::Unknown,
+            TypeKnowledge::Dynamic(_) => FormalFactStatus::Dynamic,
+        },
+    }
+}
+
+fn formal_fact_priority(fact: &FormalFactRef) -> u8 {
+    match fact {
+        FormalFactRef::Expression { .. } => 0,
+        FormalFactRef::Binding { .. } => 1,
+        FormalFactRef::Callable(_) => 2,
+    }
 }
 
 impl SemanticPresentationIndex {
