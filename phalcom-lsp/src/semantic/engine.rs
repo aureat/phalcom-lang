@@ -19,7 +19,7 @@ use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DocumentModuleMap, FieldI
 use super::invalidation::{SourceChangeKind, classify_source_delta};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
-use super::snapshot::{FileSourceSnapshot, SemanticSnapshot, StaticSemanticSnapshot};
+use super::snapshot::{FileSourceSnapshot, SemanticSnapshot, StaticSemanticSnapshot, build_canonical_callable_index};
 use super::surface::{ClassSurface, build_module_surface};
 use super::{DependencySet, FileSemanticSnapshot, infer};
 use crate::perf::{PerfCounters, PerfCountersHandle};
@@ -89,9 +89,7 @@ impl SemanticEngine {
 
     /// Creates an engine whose semantic passes report into `counters`.
     pub fn new_with_counters(counters: PerfCountersHandle) -> Self {
-        let core_surface = crate::semantic::core_source::build_core_surface(
-            &crate::semantic::core_source::CoreSource::select(None, &[]).parse().program,
-        );
+        let core_surface = crate::semantic::core_source::build_core_surface(&crate::semantic::core_source::CoreSource::select(None, &[]).parse().program);
         let mut classes = BTreeMap::new();
         for (id, surface) in core_surface.classes {
             classes.insert(id, Arc::new(surface));
@@ -131,6 +129,7 @@ impl SemanticEngine {
 
     /// Produces an immutable published snapshot of current engine state.
     pub fn snapshot(&self) -> SemanticSnapshot {
+        let canonical_callables = build_canonical_callable_index(self.state.static_snapshot.as_deref(), &self.state.documents);
         SemanticSnapshot {
             generation: self.state.generation,
             files: self.state.files.clone(),
@@ -141,6 +140,7 @@ impl SemanticEngine {
             graph: self.state.graph.clone(),
             documents: Arc::new(self.state.documents.clone()),
             static_snapshot: self.state.static_snapshot.clone(),
+            canonical_callables: Arc::new(canonical_callables),
         }
     }
 

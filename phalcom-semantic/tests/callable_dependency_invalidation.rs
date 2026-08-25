@@ -6,6 +6,7 @@ use phalcom_modules::interface::{InterfaceBuilder, LinkedExport, LinkedExportTar
 use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
+use phalcom_semantic::advisory::ValueShape;
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
@@ -389,6 +390,11 @@ class Client {
     let client_decl = DeclarationId::new(client_mod.clone(), "Client".into());
     let client_run_id = CallableId::new(client_decl, Selector::method("run", []).unwrap(), DispatchSide::Instance);
     let client_run_v1 = update1.snapshot.callable_analyses.get(&client_run_id).cloned().expect("Client.run v1");
+    let client_advisory_v1 = update1.snapshot.advisory().callable(&client_run_id).expect("Client.run advisory v1");
+    assert_eq!(
+        client_advisory_v1.return_fact.shape,
+        ValueShape::Instance(DeclarationId::new(phalcom_modules::ModuleId::core(), "Int".into()))
+    );
 
     // Revision 2: Api module changes Service.serve return type from Int to String
     let api_src2 = r#"
@@ -404,6 +410,11 @@ export Service
     assert!(
         !Arc::ptr_eq(&client_run_v1, &client_run_v2),
         "Client.run must recompute when imported Service signature changes"
+    );
+    let client_advisory_v2 = update2.snapshot.advisory().callable(&client_run_id).expect("Client.run advisory v2");
+    assert_ne!(
+        client_advisory_v1.return_fact.shape, client_advisory_v2.return_fact.shape,
+        "cross-module advisory return must follow imported callable product"
     );
 }
 

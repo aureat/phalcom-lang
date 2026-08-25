@@ -8,11 +8,12 @@ use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::advisory::{AdvisoryModuleProduct, AdvisoryProductStatus, AdvisoryWorkspace};
+use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SourceOwner, SourceSiteId, SourceSiteLocalId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
-use phalcom_semantic::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, FormalFactStatus, ModuleId, ValueShape};
+use phalcom_semantic::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, FormalFactRef, FormalFactStatus, ModuleId, ValueShape};
 
 fn module_id() -> ModuleId {
     ModuleId::resolved(
@@ -105,6 +106,41 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
         ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Int".into()))
     );
     assert_eq!(update.snapshot.id().workspace(), session.workspace());
+}
+
+#[test]
+fn formal_projection_preserves_causal_invalidity_and_binding_contracts() {
+    let module = module_id();
+    let source = "class Probe { @class run() { let x: Int = 42\nlet y: Missing = 42\n } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module.clone(), source, 1));
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Probe".into()),
+        Selector::method("run", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let analysis = update.snapshot.callable_analyses.get(&callable).expect("run analysis");
+    let x = analysis.bindings.values().find(|binding| binding.name == "x").expect("x binding");
+    let x_site = update
+        .snapshot
+        .formal_projection()
+        .get(&FormalFactRef::Binding {
+            callable: callable.clone(),
+            binding: x.binding,
+        })
+        .expect("x formal projection");
+    let x_contract = x_site.contract.as_ref().expect("x contract projection");
+    assert_eq!(x_contract.consistency, BindingConsistency::Validated);
+    assert_eq!(x_site.causal_invalidity, phalcom_semantic::checker::CausalInvalidity::Clean);
+
+    let y = analysis.bindings.values().find(|binding| binding.name == "y").expect("y binding");
+    let y_site = update
+        .snapshot
+        .formal_projection()
+        .get(&FormalFactRef::Binding { callable, binding: y.binding })
+        .expect("y formal projection");
+    assert!(matches!(y_site.causal_invalidity, phalcom_semantic::checker::CausalInvalidity::One(_)));
+    assert!(y_site.contract.is_some(), "formal projection must retain annotation relation metadata");
 }
 
 #[test]

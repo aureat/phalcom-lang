@@ -64,8 +64,8 @@ pub use identity::{
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use presentation::{
-    FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation, FormalSemanticProjection, FormalSiteId, FormalTypeSite, SemanticPresentationIndex,
-    SemanticSiteView, TypePresenter,
+    FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation, FormalSemanticProjection, FormalSiteId, FormalTypeSite,
+    SemanticPresentationIndex, SemanticSiteView, TypePresenter,
 };
 pub use prover::{
     Counterexample, ProofBinaryOp, ProofEvidence, ProofObligationKind, ProofOpaqueReason, ProofTerm, ProofUnaryOp, VcStatus, VcUnknownReason,

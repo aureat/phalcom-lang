@@ -33,7 +33,7 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::TypeParameterOwner;
-use crate::types::relation::MapTypeHierarchy;
+use crate::types::relation::{MapTypeHierarchy, TypeHierarchy};
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
 use phalcom_ast::ast::{ClassMember, PackItem, PackLabel, Statement};
@@ -41,7 +41,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
 use phalcom_modules::graph::{SemanticEdge, SemanticEdgeKind, SemanticNodeId};
-use phalcom_modules::interface::InterfaceBuilder;
+use phalcom_modules::interface::{InterfaceBuilder, LinkedExportTarget};
 use phalcom_modules::linker::LinkedProgram;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -771,7 +771,7 @@ impl SemanticWorkspaceSession {
             Arc::new(sources_loc_map),
         ));
 
-        let mut source_index = build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map);
+        let mut source_index = build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref());
         if let Some(previous) = self.last_snapshot.as_deref() {
             for (module, current) in source_index.modules.clone() {
                 let Some(previous_module) = previous.source_index.module_arc(&module) else {
@@ -889,11 +889,37 @@ fn build_source_semantic_index(
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     resolved_imports: &BTreeMap<(ModuleId, String), ModuleId>,
+    linked: &LinkedProgram,
 ) -> SourceSemanticIndex {
-    let context = SourceIndexContext {
+    let mut context = SourceIndexContext {
         resolved_imports: resolved_imports.clone(),
         ..SourceIndexContext::default()
     };
+    for (module, linked_module) in &linked.modules {
+        let Some(source) = sources.get(module) else { continue };
+        for export in linked_module.interface.exports.values() {
+            match &export.target {
+                LinkedExportTarget::Binding(symbol)
+                    if source
+                        .program
+                        .statements
+                        .iter()
+                        .any(|statement| matches!(statement, Statement::Class(class) if class.name.as_str() == symbol.name.as_ref())) =>
+                {
+                    context.targets.insert(
+                        (module.clone(), export.public_name.to_string()),
+                        SemanticTargetId::Declaration(DeclarationId::new(symbol.module.clone(), symbol.name.clone())),
+                    );
+                }
+                LinkedExportTarget::Module(target) => {
+                    context
+                        .targets
+                        .insert((module.clone(), export.public_name.to_string()), SemanticTargetId::Module(target.clone()));
+                }
+                LinkedExportTarget::Binding(_) => {}
+            }
+        }
+    }
     let scopes = sources
         .iter()
         .map(|(module, source)| (module.clone(), build_source_scope_index(module.clone(), &source.program, &context)))
@@ -965,6 +991,52 @@ fn build_advisory_workspace(
             }
         })
     };
+    let resolve_method_family = |receiver: &crate::advisory::ValueShape, spec: &phalcom_ast::ast::NormalizedSelectorSpec| {
+        let pattern = match spec {
+            phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern) => pattern,
+            phalcom_ast::ast::NormalizedSelectorSpec::Exact(_) => return None,
+        };
+        let (owner, side) = match receiver {
+            crate::advisory::ValueShape::ClassObject(owner) => (owner, DispatchSide::Class),
+            crate::advisory::ValueShape::Instance(owner) => (owner, DispatchSide::Instance),
+            _ => return None,
+        };
+        let mut current = Some(owner.clone());
+        let mut exact = Vec::new();
+        let mut rest_candidates = Vec::new();
+        while let Some(declaration) = current {
+            if let Some(surface) = dispatch.get_surface(&declaration) {
+                let members = surface.surface(side);
+                let mut selectors = members.callable_signatures.keys().collect::<Vec<_>>();
+                selectors.sort();
+                for selector in selectors {
+                    if !pattern.matches(selector) {
+                        continue;
+                    }
+                    let Some(callable) = members.callables_by_selector.get(selector).cloned() else {
+                        continue;
+                    };
+                    let signature = &members.callable_signatures[selector];
+                    if signature.parameters.iter().any(|parameter| parameter.rest) {
+                        rest_candidates.push(callable);
+                    } else {
+                        exact.push((selector.clone(), callable));
+                    }
+                }
+            }
+            current = hierarchy.superclass(&declaration).cloned();
+        }
+        exact.sort_by(|left, right| left.0.cmp(&right.0));
+        exact.dedup();
+        rest_candidates.sort();
+        rest_candidates.dedup();
+        Some(crate::advisory::CapturedMethodFamilyShape {
+            source_behavior: owner.clone(),
+            pattern: pattern.clone(),
+            exact: exact.into_boxed_slice(),
+            rest_candidates: rest_candidates.into_boxed_slice(),
+        })
+    };
     let mut formal_returns = BTreeMap::new();
     let mut ordered_analyses = callable_analyses.values().cloned().collect::<Vec<_>>();
     ordered_analyses.sort_by(|left, right| left.callable.cmp(&right.callable));
@@ -976,18 +1048,14 @@ fn build_advisory_workspace(
     let mut advisory_returns = formal_returns.clone();
     let mut modules = BTreeMap::new();
     let mut callables = BTreeMap::new();
-    let mut workspace_partial = false;
-    let mut solver_status = AdvisoryProductStatus::Complete;
-    let mut solver_converged = true;
-    let max_rounds = callable_analyses.len().saturating_add(sources.len()).saturating_add(2).max(2);
-    let mut converged = false;
+    let mut advisory_budget = budget;
 
-    for _round in 0..max_rounds {
+    let (workspace_partial, solver_status, solver_converged) = loop {
         if cancel.is_cancelled() {
-            workspace_partial = true;
-            solver_status = AdvisoryProductStatus::Cancelled;
-            solver_converged = false;
-            break;
+            break (true, AdvisoryProductStatus::Cancelled, false);
+        }
+        if let Err(_report) = advisory_budget.charge_step() {
+            break (true, AdvisoryProductStatus::BudgetExceeded, false);
         }
         let mut next_modules = BTreeMap::new();
         let mut next_callables = BTreeMap::new();
@@ -1000,7 +1068,14 @@ fn build_advisory_workspace(
                 continue;
             };
             let scope_index = module_index.structure.as_ref();
-            let mut fields = advisory_field_facts(source, scope_index, &builtins, &advisory_returns, Some(&resolve_callable_for_shape));
+            let mut fields = advisory_field_facts(
+                source,
+                scope_index,
+                &builtins,
+                &advisory_returns,
+                Some(&resolve_callable_for_shape),
+                Some(&resolve_method_family),
+            );
             let mut expressions = BTreeMap::new();
             let mut bindings = BTreeMap::new();
             let mut parameters = BTreeMap::new();
@@ -1077,7 +1152,7 @@ fn build_advisory_workspace(
                     source_site_for_range: &site_for_range,
                     resolved_callable_for_range: &resolved_callable_for_range,
                     resolve_callable_for_shape: Some(&resolve_callable_for_shape),
-                    resolve_method_family: None,
+                    resolve_method_family: Some(&resolve_method_family),
                 };
                 let flow = analyze_statements(body, &context, seed_bindings);
                 parameter_contributions.replace_source(
@@ -1132,7 +1207,7 @@ fn build_advisory_workspace(
                 source_site_for_range: &no_site,
                 resolved_callable_for_range: &no_callable,
                 resolve_callable_for_shape: Some(&resolve_callable_for_shape),
-                resolve_method_family: None,
+                resolve_method_family: Some(&resolve_method_family),
             };
             let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());
             parameter_contributions.replace_source(
@@ -1186,7 +1261,7 @@ fn build_advisory_workspace(
             );
         }
         let solved = AdvisorySolver::new(AdvisorySolverBudget {
-            max_steps: budget.max_steps.min(usize::MAX as u64) as usize,
+            max_steps: advisory_budget.max_steps.min(usize::MAX as u64) as usize,
         })
         .solve_with_cancel(solver_nodes, cancel);
         let mut next_returns = formal_returns.clone();
@@ -1198,15 +1273,11 @@ fn build_advisory_workspace(
         callables = solved.summaries;
         parameter_facts = next_parameter_facts;
         advisory_returns = next_returns;
-        workspace_partial = next_partial || !solved.converged;
-        solver_status = solved.status;
-        solver_converged = solved.converged;
         if stable {
-            converged = true;
-            break;
+            break (next_partial || !solved.converged, solved.status, solved.converged);
         }
-    }
-    workspace_partial |= !converged || !solver_converged;
+    };
+    let workspace_partial = workspace_partial || !solver_converged;
     AdvisoryWorkspace::from_parts(
         modules,
         callables,
@@ -1228,6 +1299,9 @@ fn advisory_field_facts(
     builtins: &AdvisoryBuiltins,
     callable_returns: &BTreeMap<CallableId, AdvisoryFact>,
     resolve_callable_for_shape: Option<&dyn Fn(&crate::advisory::ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    resolve_method_family: Option<
+        &dyn Fn(&crate::advisory::ValueShape, &phalcom_ast::ast::NormalizedSelectorSpec) -> Option<crate::advisory::CapturedMethodFamilyShape>,
+    >,
 ) -> BTreeMap<FieldId, AdvisoryFact> {
     let mut fields = BTreeMap::new();
     for statement in &source.program.statements {
@@ -1255,7 +1329,7 @@ fn advisory_field_facts(
                     source_site_for_range: &no_site,
                     resolved_callable_for_range: &no_callable,
                     resolve_callable_for_shape,
-                    resolve_method_family: None,
+                    resolve_method_family,
                     call_observer: None,
                 };
                 analyze_expr(expr, &context)

@@ -84,6 +84,43 @@ pub struct SemanticSnapshot {
     pub documents: Arc<DocumentModuleMap>,
     /// Whole-workspace static semantic snapshot published by the semantic tower.
     pub static_snapshot: Option<Arc<StaticSemanticSnapshot>>,
+    /// Publication-time protocol-to-compiler callable handles. Request paths
+    /// use this index instead of decoding owner/selector strings or scanning
+    /// compiler products.
+    pub canonical_callables: Arc<BTreeMap<CallableId, phalcom_semantic::identity::CallableId>>,
+}
+
+/// Builds the one-way protocol boundary index for compiler callable products.
+pub(crate) fn build_canonical_callable_index(
+    static_snapshot: Option<&StaticSemanticSnapshot>,
+    documents: &DocumentModuleMap,
+) -> BTreeMap<CallableId, phalcom_semantic::identity::CallableId> {
+    let Some(static_snapshot) = static_snapshot else { return BTreeMap::new() };
+    static_snapshot
+        .callable_signatures
+        .iter()
+        .map(|(callable, _signature)| {
+            let module = if callable.owner.module == phalcom_modules::ModuleId::core() {
+                ModuleId::new(CORE_MODULE_URI)
+            } else {
+                documents
+                    .get_by_module(&callable.owner.module)
+                    .and_then(|uri| documents.lsp_for_uri(uri))
+                    .cloned()
+                    .or_else(|| phalcom_modules::builtin_module_uri(&callable.owner.module).map(ModuleId::new))
+                    .unwrap_or_else(|| ModuleId::new(callable.owner.module.to_string()))
+            };
+            let lsp = CallableId {
+                owner: ClassId::new(module, callable.owner.name.to_string()),
+                selector: callable.selector.encode(),
+                side: match callable.side {
+                    phalcom_semantic::DispatchSide::Instance => DispatchSide::Instance,
+                    phalcom_semantic::DispatchSide::Class => DispatchSide::Class,
+                },
+            };
+            (lsp, callable.clone())
+        })
+        .collect()
 }
 
 impl SemanticSnapshot {
@@ -120,11 +157,7 @@ impl SemanticSnapshot {
             && let Some(module) = self.documents.get_by_uri(uri)
             && let Some(view) = static_snapshot.occurrence_at(module, offset)
         {
-            let has_target = view.target.is_some();
-            let occurrence = self.compiler_occurrence_to_lsp(uri, view);
-            if has_target {
-                return Some(occurrence);
-            }
+            return Some(self.compiler_occurrence_to_lsp(uri, view));
         }
         let module = self.module_for_uri(uri)?;
         self.files.get(module).and_then(|file| file.occurrences.occurrence_at(offset).cloned())
@@ -211,9 +244,10 @@ impl SemanticSnapshot {
 
     /// Returns all references to a `SemanticTarget` in the workspace.
     pub fn references_for_target(&self, uri: &Url, target: &SemanticTarget) -> Vec<(Url, SourceRange, OccurrenceRole)> {
-        if let Some(static_snapshot) = self.current_static_snapshot()
-            && let Some(canonical) = self.canonical_target_for_lsp(uri, target, static_snapshot)
-        {
+        if let Some(static_snapshot) = self.current_static_snapshot() {
+            let Some(canonical) = self.canonical_target_for_lsp(uri, target, static_snapshot) else {
+                return Vec::new();
+            };
             let Some(sites) = static_snapshot.occurrences_for_target(&canonical) else {
                 return Vec::new();
             };
@@ -278,9 +312,7 @@ impl SemanticSnapshot {
         target: &SemanticTarget,
         static_snapshot: &StaticSemanticSnapshot,
     ) -> Option<phalcom_semantic::identity::SemanticTargetId> {
-        use phalcom_semantic::identity::{
-            CallableId as CanonicalCallableId, DeclarationId, DispatchSide as CanonicalDispatchSide, FieldId as CanonicalFieldId,
-        };
+        use phalcom_semantic::identity::{DeclarationId, DispatchSide as CanonicalDispatchSide, FieldId as CanonicalFieldId};
         let module = self.documents.get_by_uri(uri)?;
         match target {
             SemanticTarget::Class(class) => Some(phalcom_semantic::identity::SemanticTargetId::Declaration(DeclarationId::new(
@@ -292,19 +324,11 @@ impl SemanticSnapshot {
                 .semantic_for_lsp(module_id)
                 .cloned()
                 .map(phalcom_semantic::identity::SemanticTargetId::Module),
-            SemanticTarget::Callable(callable) => {
-                let owner_module = self.documents.semantic_for_lsp(&callable.owner.module)?.clone();
-                let selector = phalcom_common::selector::Selector::try_decode_exact(&callable.selector).ok()?;
-                let side = match callable.side {
-                    DispatchSide::Instance => CanonicalDispatchSide::Instance,
-                    DispatchSide::Class => CanonicalDispatchSide::Class,
-                };
-                Some(phalcom_semantic::identity::SemanticTargetId::Callable(CanonicalCallableId::new(
-                    DeclarationId::new(owner_module, callable.owner.name.clone().into()),
-                    selector,
-                    side,
-                )))
-            }
+            SemanticTarget::Callable(callable) => self
+                .canonical_callables
+                .get(callable)
+                .cloned()
+                .map(phalcom_semantic::identity::SemanticTargetId::Callable),
             SemanticTarget::Field(field) => {
                 let owner_module = self.documents.semantic_for_lsp(&field.owner.module)?.clone();
                 let side = match field.side {
@@ -320,14 +344,12 @@ impl SemanticSnapshot {
             SemanticTarget::Binding(binding) => {
                 let lsp_module = self.module_for_uri(uri)?;
                 let file = self.file(lsp_module)?;
-                let occurrence = file
-                    .occurrences
-                    .all()
-                    .iter()
-                    .find(|occurrence| occurrence.target == SemanticTarget::Binding(*binding))?;
-                static_snapshot
-                    .occurrence_at(module, occurrence.range.start)
-                    .and_then(|view| view.target.cloned())
+                let binding_info = file.source.scopes.bindings.get(binding)?;
+                let source = static_snapshot.source_index().module(module)?;
+                source
+                    .structure
+                    .binding_for_declaration(binding_info.declaration_range)
+                    .map(|binding| phalcom_semantic::identity::SemanticTargetId::Binding(binding.declaration_site.clone()))
             }
             SemanticTarget::Member { .. } | SemanticTarget::Operator(_) => None,
         }
@@ -698,18 +720,7 @@ impl SemanticSnapshot {
     /// Looks up the compiler-owned formal parameter and return states of one callable.
     pub fn formal_callable_presentation(&self, callable: &CallableId) -> Option<FormalCallablePresentation> {
         let static_snap = self.current_static_snapshot()?;
-        let uri = self.documents.uri_for_lsp(&callable.owner.module)?;
-        let module = self.formal_static_module(uri)?;
-        let side = match callable.side {
-            DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
-            DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
-        };
-        let selector = phalcom_common::selector::Selector::try_decode_exact(&callable.selector).ok()?;
-        let canonical = phalcom_semantic::identity::CallableId::new(
-            phalcom_semantic::identity::DeclarationId::new(module.clone(), callable.owner.name.clone().into()),
-            selector,
-            side,
-        );
+        let canonical = self.canonical_callables.get(callable)?;
         let signature = static_snap.callable_signatures.get(&canonical)?;
         let presenter = TypePresenter::new(&static_snap.store);
         let parameters = signature
@@ -827,17 +838,7 @@ impl SemanticSnapshot {
     }
 
     fn canonical_callable_for_lsp(&self, callable: &CallableId) -> Option<phalcom_semantic::identity::CallableId> {
-        let owner_module = self.documents.semantic_for_lsp(&callable.owner.module)?.clone();
-        let selector = phalcom_common::selector::Selector::try_decode_exact(&callable.selector).ok()?;
-        let side = match callable.side {
-            DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
-            DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
-        };
-        Some(phalcom_semantic::identity::CallableId::new(
-            phalcom_semantic::identity::DeclarationId::new(owner_module, callable.owner.name.clone().into()),
-            selector,
-            side,
-        ))
+        self.canonical_callables.get(callable).cloned()
     }
 
     /// Resolves a class name in its module, with the stable core namespace as a fallback.

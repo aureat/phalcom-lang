@@ -2,7 +2,7 @@
 
 use crate::advisory::{AdvisoryFact, AdvisoryTargetResolution};
 use crate::checker::causal::CausalInvalidity;
-use crate::checker::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
+use crate::checker::{AnalysisStatus, BindingConsistency, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
 use crate::identity::{CallableId, ExpressionId, ModuleId, SourceSiteId};
 use crate::source_index::interval::{RangeEntry, RangeIndex};
 use crate::types::evidence::TypeKnowledge;
@@ -180,6 +180,20 @@ pub struct FormalFactSite {
     pub range: SourceRange,
     pub fact: FormalFactRef,
     pub status: FormalFactStatus,
+    /// Causal invalidity is projected as bounded machine-readable state; it
+    /// is never reconstructed from rendered presentation text.
+    pub causal_invalidity: CausalInvalidity,
+    /// Persistent binding contract and reconciliation outcome, when this site
+    /// is a binding. Expression/callable sites leave this absent.
+    pub contract: Option<FormalContractRelation>,
+}
+
+/// Formal binding-contract relation retained by the source projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FormalContractRelation {
+    pub ty: TypeId,
+    pub origin: crate::checker::binding::BindingContractOrigin,
+    pub consistency: BindingConsistency,
 }
 
 /// Read-only composition of source, formal, and advisory products at one
@@ -219,6 +233,8 @@ impl FormalSemanticProjection {
                 range: analysis.body_range,
                 fact: callable_fact,
                 status: callable_status(analysis.status),
+                causal_invalidity: callable_causal_invalidity(&analysis),
+                contract: None,
             });
             for expression in analysis.expressions.values() {
                 sites.push(FormalFactSite {
@@ -229,6 +245,8 @@ impl FormalSemanticProjection {
                         expression: expression.id,
                     },
                     status: expression_status(&expression.status),
+                    causal_invalidity: expression.causal_invalidity,
+                    contract: None,
                 });
             }
             for binding in analysis.bindings.values() {
@@ -240,6 +258,12 @@ impl FormalSemanticProjection {
                         binding: binding.binding,
                     },
                     status: binding_status(binding),
+                    causal_invalidity: binding.causal_invalidity,
+                    contract: binding.contract.as_ref().map(|contract| FormalContractRelation {
+                        ty: contract.ty,
+                        origin: contract.origin,
+                        consistency: binding.consistency.clone(),
+                    }),
                 });
             }
         }
@@ -320,6 +344,15 @@ fn binding_status(binding: &crate::checker::BindingState) -> FormalFactStatus {
             TypeKnowledge::Dynamic(_) => FormalFactStatus::Dynamic,
         },
     }
+}
+
+fn callable_causal_invalidity(analysis: &CallableAnalysis) -> CausalInvalidity {
+    analysis
+        .expressions
+        .values()
+        .map(|expression| expression.causal_invalidity)
+        .chain(analysis.bindings.values().map(|binding| binding.causal_invalidity))
+        .fold(CausalInvalidity::Clean, CausalInvalidity::join)
 }
 
 fn formal_fact_priority(fact: &FormalFactRef) -> u8 {

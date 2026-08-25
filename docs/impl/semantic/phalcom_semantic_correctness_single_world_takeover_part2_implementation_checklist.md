@@ -46,7 +46,7 @@
 ### Task 5 — Publish source index and machine-readable formal projection
 
 - [x] Publish compiler source/index products from one immutable `SemanticSnapshot`; indexed formal projection is attached to the same snapshot identity.
-- [~] Preserve formal status, causal invalidity, contract relations, callable identity, and dependency ownership through keyed checker products and projection records; machine-readable readiness/invalidity status is now projected, while full causal payload projection remains open.
+- [x] Preserve formal status, bounded causal invalidity, contract relations, callable identity, and dependency ownership through keyed checker products and projection records; machine-readable readiness/invalidity and formal causal/contract payloads are projected.
 - [x] Make formal position lookup indexed and analysis-free; source occurrence AST references and canonical reverse-target lookup are published.
 
 ### Task 6 — Port advisory domain with canonical identities
@@ -57,12 +57,12 @@
 
 ### Task 7 — Port advisory expression and flow analysis
 
-- [~] Add compiler-owned advisory expression/flow analysis over canonical source scopes, formal resolved-call targets, and injected canonical dispatch adapters; direct and forwarding-call propagation is verified, while full interprocedural flow remains open.
-- [~] Cover literals, collections, locals, formal call returns, shared binding flow, fields, and canonical factory dispatch; method-family and full formal/advisory disagreement coverage remain open.
+- [~] Add compiler-owned advisory expression/flow analysis over canonical source scopes, formal resolved-call targets, and injected canonical dispatch adapters; direct, forwarding, cross-module propagation, and compiler method-family dispatch are verified, while full formal/advisory disagreement coverage remains open.
+- [x] Cover literals, collections, locals, formal call returns, shared binding flow, fields, canonical factory dispatch, and method-family capture with canonical selector/signature products.
 
 ### Task 8 — Port contribution-indexed interprocedural advisory solving
 
-- [~] Add canonical parameter slots, contribution replacement/removal, changed-slot deltas, compiler DB advisory keys/dependencies, bounded worklist/SCC solving, and bounded direct/forwarding caller propagation; cross-module/fine-grained caller dependency integration remains open.
+- [x] Add canonical parameter slots, contribution replacement/removal, changed-slot deltas, compiler DB advisory keys/dependencies, budget-driven worklist/SCC solving, and direct/forwarding/cross-module caller propagation.
 - [x] Add explicit advisory product outcomes, deterministic callable-summary/fact fingerprints, solver budget/cancellation results, and focused incrementality tests.
 
 ### Task 9 — Publish advisory workspace in compiler snapshots
@@ -73,7 +73,7 @@
 ### Task 10 — Replace LSP identity and snapshot bridges
 
 - [~] Make LSP URI mapping a boundary over canonical module IDs; canonical `by_uri`/`by_module` mapping is active while legacy protocol keys remain for compatibility.
-- [~] Remove string selector/owner reconciliation, full callable scans, and duplicate semantic IDs from migrated occurrence/reference/formal/advisory query paths; compiler-backed position/reference/scope/dispatch reads are primary, while legacy surface adapters remain.
+- [~] Remove string selector/owner reconciliation, full callable scans, and duplicate semantic IDs from migrated occurrence/reference/formal/advisory query paths; publication-time canonical callable handles and indexed compiler position/reference/formal reads are primary, while legacy surface/identity adapters remain.
 
 ### Task 11 — Delete/demote LSP semantic authority
 
@@ -109,6 +109,7 @@
 - `VERIFIED`: Advisory domain foundation tests passed (4/4); canonical record/union normalization, collection joins, confidence separation, bounded provenance, and selector identity covered.
 - `VERIFIED`: Advisory expression/flow, contribution-summary, snapshot, and incrementality tests passed; canonical literal/collection/local flow, formal call-result reuse, missing-builtin fallback, direct and forwarding-call parameter/return convergence, parameter replacement/removal, recursive convergence, budget/cancel status, explicit status, Arc reuse, and deterministic fingerprints covered.
 - `VERIFIED`: Compiler-backed LSP position/reference/scope/dispatch/advisory reads pass the full registered integration suite (52 passed, 2 ignored); missing formal binding attachments remain incidents without suppressing independent expression/call attachments.
+- `VERIFIED THIS SLICE`: Formal projection now carries bounded causal invalidity and binding-contract relation metadata; advisory outer convergence is explicitly budget-driven; linked interface exports feed source target attachment; cross-module advisory return propagation and canonical method-family capture pass focused tests; LSP callable reconciliation is publication-time indexed and canonical occurrence/reference paths no longer fall back to workspace scans.
 - `BASELINE`: Full semantic suite retains handoff capability baseline 12/40 passed, 28/40 failed; failures are stale `var`/bare-brace fixtures plus documented capability gaps, not introduced Part 2 source-index failures.
 - `VERIFIED`: `cargo check --workspace`, `cargo fmt --all -- --check`, full registered LSP integration (52 passed, 2 ignored), and full compiler suite except known capability baseline passed.
-- `PENDING`: Tasks 7–8 remain partial for full cross-module dependency integration; Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership and forbidden-pattern/capability closure are not complete.
+- `PENDING`: Task 7 remains partial for complete formal/advisory disagreement coverage; Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership and forbidden-pattern/capability closure are not complete.
