@@ -6,6 +6,7 @@ use std::sync::Arc;
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
+use phalcom_semantic::types::relation::TypeHierarchy;
 use phalcom_semantic::{FormalPresentation, TypePresenter};
 
 use super::analyzer::{AnalysisContext, analyze_expr};
@@ -18,7 +19,7 @@ use super::occurrence::{OccurrenceRole, SemanticOccurrence, SemanticOccurrenceKi
 use super::query::{SemanticGeneration, SnapshotStamp};
 use super::scope::{BindingId, BindingInfo, NameResolution};
 use super::surface::{ClassSurface, MemberAstRef, MemberSurface};
-use super::{CompletionMember, FileSemanticSnapshot, resolve_named_class, return_for_callable};
+use super::{CompletionMember, FileSemanticSnapshot, MemberKind, MemberVisibility, resolve_named_class, return_for_callable};
 
 /// Immutable source products shared by every semantic pass for one file.
 ///
@@ -193,10 +194,14 @@ impl SemanticSnapshot {
     }
 
     fn lsp_module_for_canonical(&self, module: &phalcom_modules::ModuleId) -> ModuleId {
+        if *module == phalcom_modules::ModuleId::core() {
+            return ModuleId::new(CORE_MODULE_URI);
+        }
         self.documents
             .get_by_module(module)
             .and_then(|uri| self.documents.lsp_for_uri(uri))
             .cloned()
+            .or_else(|| phalcom_modules::builtin_module_uri(module).map(ModuleId::new))
             .unwrap_or_else(|| ModuleId::new(module.to_string()))
     }
 
@@ -359,8 +364,75 @@ impl SemanticSnapshot {
             .and_then(|resolved| resolver.member(&resolved.callable).cloned())
     }
 
+    fn canonical_declaration_for_lsp(&self, class: &ClassId) -> Option<phalcom_semantic::identity::DeclarationId> {
+        let module = self.documents.semantic_for_lsp(&class.module)?.clone();
+        Some(phalcom_semantic::identity::DeclarationId::new(module, class.name.clone().into()))
+    }
+
+    fn compiler_completion_members(&self, class: &ClassId, side: DispatchSide) -> Option<Vec<CompletionMember>> {
+        let static_snapshot = self.current_static_snapshot()?;
+        let mut current = Some(self.canonical_declaration_for_lsp(class)?);
+        let mut seen = BTreeSet::new();
+        let mut members = Vec::new();
+        while let Some(declaration) = current {
+            let Some(surface) = static_snapshot.surfaces.get(&declaration) else {
+                current = static_snapshot.hierarchy.superclass(&declaration).cloned();
+                continue;
+            };
+            let member_surface = match side {
+                DispatchSide::Instance => &surface.instance,
+                DispatchSide::Class => &surface.class,
+            };
+            let owner = ClassId::new(self.lsp_module_for_canonical(&declaration.module), declaration.name.to_string());
+            let mut selectors = member_surface.callables_by_selector.keys().collect::<Vec<_>>();
+            selectors.sort();
+            for selector in selectors {
+                let encoded = selector.encode();
+                if seen.insert((encoded.clone(), side)) {
+                    members.push(CompletionMember {
+                        selector: encoded,
+                        kind: MemberKind::Method,
+                        owner: owner.clone(),
+                        visibility: MemberVisibility::Public,
+                        side,
+                    });
+                }
+            }
+            let mut fields = member_surface.fields.keys().collect::<Vec<_>>();
+            fields.sort();
+            for field in fields {
+                if seen.insert((field.clone(), side)) {
+                    members.push(CompletionMember {
+                        selector: field.clone(),
+                        kind: MemberKind::Field,
+                        owner: owner.clone(),
+                        visibility: MemberVisibility::Public,
+                        side,
+                    });
+                }
+            }
+            current = static_snapshot.hierarchy.superclass(&declaration).cloned();
+        }
+        Some(members)
+    }
+
     /// Returns inherited, de-duplicated members for one live class surface.
     pub fn completion_members(&self, class: &ClassId, side: DispatchSide) -> Vec<CompletionMember> {
+        if let Some(members) = self.compiler_completion_members(class, side) {
+            let mut merged = members;
+            let mut seen = merged.iter().map(|member| member.selector.clone()).collect::<BTreeSet<_>>();
+            for member in self.legacy_completion_members(class, side) {
+                if seen.insert(member.selector.clone()) {
+                    merged.push(member);
+                }
+            }
+            merged.sort_by(|left, right| left.selector.cmp(&right.selector));
+            return merged;
+        }
+        self.legacy_completion_members(class, side)
+    }
+
+    fn legacy_completion_members(&self, class: &ClassId, side: DispatchSide) -> Vec<CompletionMember> {
         let mut current = Some(class.clone());
         let mut seen = BTreeSet::new();
         let mut visited = BTreeSet::new();
@@ -392,6 +464,36 @@ impl SemanticSnapshot {
 
     /// Returns every declared live member, de-duplicated by selector.
     pub fn all_completion_members(&self) -> Vec<CompletionMember> {
+        if let Some(static_snapshot) = self.current_static_snapshot() {
+            let mut members = BTreeMap::new();
+            for declaration in static_snapshot.surfaces.keys() {
+                let Some(surface) = static_snapshot.surfaces.get(declaration) else { continue };
+                let owner = ClassId::new(self.lsp_module_for_canonical(&declaration.module), declaration.name.to_string());
+                for (side, member_surface) in [(DispatchSide::Instance, &surface.instance), (DispatchSide::Class, &surface.class)] {
+                    for selector in member_surface.callables_by_selector.keys() {
+                        let item = CompletionMember {
+                            selector: selector.encode(),
+                            kind: MemberKind::Method,
+                            owner: owner.clone(),
+                            visibility: MemberVisibility::Public,
+                            side,
+                        };
+                        members.entry((item.selector.clone(), item.side)).or_insert(item);
+                    }
+                    for name in member_surface.fields.keys() {
+                        let item = CompletionMember {
+                            selector: name.clone(),
+                            kind: MemberKind::Field,
+                            owner: owner.clone(),
+                            visibility: MemberVisibility::Public,
+                            side,
+                        };
+                        members.entry((item.selector.clone(), item.side)).or_insert(item);
+                    }
+                }
+            }
+            return members.into_values().collect();
+        }
         let mut members = BTreeMap::new();
         for (class_id, surface) in self.classes.iter() {
             for member in surface.all_members() {
@@ -410,6 +512,26 @@ impl SemanticSnapshot {
 
     /// Tests module-qualified class ancestry for visibility filtering.
     pub fn is_same_or_subclass(&self, child: &ClassId, ancestor: &ClassId) -> bool {
+        if let Some(static_snapshot) = self.current_static_snapshot() {
+            let Some(child) = self.canonical_declaration_for_lsp(child) else {
+                return false;
+            };
+            let Some(ancestor) = self.canonical_declaration_for_lsp(ancestor) else {
+                return false;
+            };
+            let mut current = Some(child);
+            let mut visited = BTreeSet::new();
+            while let Some(declaration) = current {
+                if !visited.insert(declaration.clone()) {
+                    return false;
+                }
+                if declaration == ancestor {
+                    return true;
+                }
+                current = static_snapshot.hierarchy.superclass(&declaration).cloned();
+            }
+            return false;
+        }
         let mut current = Some(child.clone());
         let mut visited = BTreeSet::new();
         while let Some(id) = current.take() {
@@ -604,6 +726,24 @@ impl SemanticSnapshot {
 
     /// Resolves a class name in its module, with the stable core namespace as a fallback.
     pub fn class_for_name(&self, uri: &Url, name: &str) -> Option<ClassId> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(module) = self.documents.get_by_uri(uri)
+        {
+            if let Some(declaration) = static_snapshot
+                .surfaces
+                .keys()
+                .find(|declaration| declaration.module == *module && declaration.name.as_ref() == name)
+            {
+                return Some(ClassId::new(self.lsp_module_for_canonical(&declaration.module), declaration.name.to_string()));
+            }
+            if let Some(declaration) = static_snapshot
+                .surfaces
+                .keys()
+                .find(|declaration| declaration.module == phalcom_modules::ModuleId::core() && declaration.name.as_ref() == name)
+            {
+                return Some(ClassId::new(self.lsp_module_for_canonical(&declaration.module), declaration.name.to_string()));
+            }
+        }
         let module = self.module_for_uri(uri)?;
         resolve_named_class(self.classes.as_ref(), &self.graph, module, name)
     }
@@ -716,9 +856,24 @@ impl SemanticSnapshot {
 
     /// Returns the fact visible for a local binding at a byte offset.
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
-        if let Some(value) = self.compiler_advisory_binding_at(uri, offset) {
+        let legacy = self.legacy_binding_at(uri, name, offset);
+        if let Some(value) = self
+            .compiler_advisory_binding_at(uri, offset)
+            .filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != super::Confidence::Heuristic)
+        {
+            // Cross-module caller contributions can still be present only in
+            // the compatibility summary while compiler parameter transfer is
+            // being completed. Preserve its bounded union until compiler
+            // contribution publication covers the same site.
+            if legacy.as_ref().is_some_and(|legacy| matches!(legacy.shape, ValueShape::Union(_))) {
+                return legacy;
+            }
             return Some(value);
         }
+        legacy
+    }
+
+    fn legacy_binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
         let module = self.module_for_uri(uri)?;
         let file = self.files.get(module)?;
         let binding = match file.source.scopes.resolve(file.source.scopes.scope_at(offset), name, offset) {
