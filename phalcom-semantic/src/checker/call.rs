@@ -241,7 +241,7 @@ fn resolve_call_inner(
                     Some(promote_exact_return(&signature.return_type, call_range))
                 }
             });
-            return match outcome {
+            return match &outcome {
                 crate::checker::inference::InferenceOutcome::Solved(solution) => {
                     if let Some(ret_ty) = signature.return_type.ty() {
                         let mut subst = TypeSubstitution::new();
@@ -268,9 +268,7 @@ fn resolve_call_inner(
                         promote_exact_return(&signature.return_type, call_range)
                     }
                 }
-                crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
-                    fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable))
-                }
+                crate::checker::inference::InferenceOutcome::Underconstrained(_) => terminal_generic_return(&outcome, fixed_return),
                 crate::checker::inference::InferenceOutcome::Conflicting(_) => {
                     ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
@@ -278,13 +276,11 @@ fn resolve_call_inner(
                         "generic argument does not satisfy type constraints",
                         call_range,
                     ));
-                    fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceConflict))
+                    terminal_generic_return(&outcome, fixed_return)
                 }
-                crate::checker::inference::InferenceOutcome::Blocked(_) => fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)),
-                crate::checker::inference::InferenceOutcome::Cancelled => fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceCancelled)),
-                crate::checker::inference::InferenceOutcome::BudgetExceeded(_) => {
-                    fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded))
-                }
+                crate::checker::inference::InferenceOutcome::Blocked(_)
+                | crate::checker::inference::InferenceOutcome::Cancelled
+                | crate::checker::inference::InferenceOutcome::BudgetExceeded(_) => terminal_generic_return(&outcome, fixed_return),
             };
         }
     }
@@ -363,10 +359,74 @@ fn resolve_call_inner(
     promote_exact_return(&signature.return_type, call_range)
 }
 
+fn terminal_generic_return(outcome: &crate::checker::inference::InferenceOutcome, fixed_return: Option<TypeKnowledge>) -> TypeKnowledge {
+    if let Some(fixed_return) = fixed_return {
+        return fixed_return;
+    }
+    match outcome {
+        crate::checker::inference::InferenceOutcome::Underconstrained(_) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
+        crate::checker::inference::InferenceOutcome::Conflicting(_) => TypeKnowledge::Unknown(UnknownReason::InferenceConflict),
+        crate::checker::inference::InferenceOutcome::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
+        crate::checker::inference::InferenceOutcome::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),
+        crate::checker::inference::InferenceOutcome::BudgetExceeded(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded),
+        crate::checker::inference::InferenceOutcome::Solved(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
+    }
+}
+
 fn inference_support(knowledge: &TypeKnowledge) -> Option<InferenceSupport> {
     match knowledge.status() {
         Some(EvidenceStatus::Established) => Some(InferenceSupport::Established),
         Some(EvidenceStatus::Assumed) => Some(InferenceSupport::Assumed),
         None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::terminal_generic_return;
+    use crate::checker::inference::{InferenceConflict, InferenceFailureReason, InferenceOutcome, InferenceTerm, UnderconstrainedInference};
+    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+    use crate::types::id::TypeId;
+    use crate::types::outcome::{BlockReason, BudgetKind, BudgetReport};
+
+    fn terminal_outcomes() -> [(InferenceOutcome, UnknownReason); 5] {
+        [
+            (
+                InferenceOutcome::Underconstrained(UnderconstrainedInference { unsolved_vars: Vec::new() }),
+                UnknownReason::UnderconstrainedTypeVariable,
+            ),
+            (
+                InferenceOutcome::Conflicting(InferenceConflict {
+                    constraint_index: Some(2),
+                    origin: None,
+                    failure: InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(InferenceTerm::Canonical(TypeId(1))),
+                        right: Box::new(InferenceTerm::Canonical(TypeId(2))),
+                    },
+                }),
+                UnknownReason::InferenceConflict,
+            ),
+            (InferenceOutcome::Blocked(BlockReason::RecursiveFixpoint), UnknownReason::InferenceBlocked),
+            (InferenceOutcome::Cancelled, UnknownReason::InferenceCancelled),
+            (
+                InferenceOutcome::BudgetExceeded(BudgetReport::new(BudgetKind::Steps, 0, 1)),
+                UnknownReason::InferenceBudgetExceeded,
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_generic_terminal_outcome_keeps_its_reason_without_fixed_return() {
+        for (outcome, reason) in terminal_outcomes() {
+            assert_eq!(terminal_generic_return(&outcome, None), TypeKnowledge::Unknown(reason));
+        }
+    }
+
+    #[test]
+    fn every_generic_terminal_outcome_preserves_only_independent_fixed_return() {
+        let fixed = TypeKnowledge::established(TypeId(99), EvidenceOrigin::CallableSignature);
+        for (outcome, _) in terminal_outcomes() {
+            assert_eq!(terminal_generic_return(&outcome, Some(fixed.clone())), fixed);
+        }
     }
 }

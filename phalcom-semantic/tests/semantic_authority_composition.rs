@@ -1,6 +1,7 @@
 use phalcom_ast::parse;
 use phalcom_common::selector::{Selector, SelectorBase};
 use phalcom_modules::identity::ModuleId;
+use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use phalcom_semantic::explain::{EvidenceRef, ExplanationStep};
@@ -643,6 +644,7 @@ class Probe {
   }
 }
 "#;
+
     let (module, source, analysis) = analyze(source_text);
 
     let int_ty = ty(&analysis, &module, "Int");
@@ -670,6 +672,72 @@ class Probe {
         ),
         Assignability::Assignable
     ));
+}
+
+#[test]
+fn binding_contract_explanation_preserves_actual_and_relation_outcome() {
+    let source_text = r#"
+class Probe {
+  @class
+  run() {
+    let x: Number = 42
+  }
+}
+"#;
+    let (module, _source, analysis) = analyze(source_text);
+    let int_ty = ty(&analysis, &module, "Int");
+    let number_ty = ty(&analysis, &module, "Number");
+    let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
+    let run = callable_analysis(&analysis, &run_id);
+    let x = binding(run, "x");
+    let explanation = run
+        .explanations
+        .get(x.explanation.expect("binding contract explanation"))
+        .expect("binding explanation node");
+
+    match &explanation.step {
+        ExplanationStep::BindingContract {
+            actual, contract, consistency, ..
+        } => {
+            assert_eq!(actual.ty(), Some(int_ty));
+            assert_eq!(*contract, number_ty);
+            assert_eq!(*consistency, BindingConsistency::Validated);
+        }
+        other => panic!("expected binding-contract explanation, got {other:?}"),
+    }
+    assert_eq!(explanation.status, EvidenceStatus::Established);
+    assert_eq!(explanation.origin, EvidenceOrigin::Syntax);
+}
+
+#[test]
+fn annotation_diagnostic_root_cause_marks_binding_without_erasing_value() {
+    let source_text = r#"
+class Probe {
+  @class
+  run() {
+    let x: Missing = 42
+  }
+}
+"#;
+    let (module, _source, analysis) = analyze(source_text);
+    let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
+    let run = callable_analysis(&analysis, &run_id);
+    let x = binding(run, "x");
+
+    assert_eq!(x.current.ty(), Some(ty(&analysis, &module, "Int")));
+    assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
+    assert!(matches!(x.causal_invalidity, phalcom_semantic::checker::CausalInvalidity::One(_)));
+    let diagnostic = diagnostics(&analysis, DiagnosticCode::AnnotationUnresolved)
+        .into_iter()
+        .next()
+        .expect("unresolved annotation diagnostic");
+    assert_eq!(
+        diagnostic.root_cause,
+        x.causal_invalidity.suppression_cause().and_then(|cause| match cause {
+            phalcom_semantic::checker::SuppressionCause::One(id) => Some(id),
+            phalcom_semantic::checker::SuppressionCause::Multiple => None,
+        })
+    );
 }
 
 #[test]

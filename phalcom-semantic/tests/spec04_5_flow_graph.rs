@@ -267,6 +267,38 @@ fn test_flow_join_is_epistemically_conservative_and_deterministic() {
 }
 
 #[test]
+fn divergent_branch_contracts_fail_closed_without_first_branch_metadata() {
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
+    let string_ty = store.nominal(DeclarationId::new(ModuleId::core(), "String".into()));
+    let binding = BindingId(11);
+
+    let mut int_branch = FlowState::new();
+    int_branch.declare(
+        binding,
+        "value",
+        SourceRange::default(),
+        Some(int_ty),
+        TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+        true,
+    );
+    let mut string_branch = int_branch.clone();
+    let string_state = string_branch.bindings.get_mut(&binding).expect("shared binding");
+    string_state.declared = Some(string_ty);
+    string_state.contract.as_mut().expect("source contract").ty = string_ty;
+    string_state.current = TypeKnowledge::established(string_ty, EvidenceOrigin::Syntax);
+
+    let joined = FlowState::join(&[int_branch, string_branch], &mut store);
+    let binding_state = joined.get_binding(binding).expect("binding survives join");
+    assert!(binding_state.contract.is_none(), "divergent contracts must not choose first branch");
+    assert_eq!(binding_state.declared, None);
+    assert!(matches!(
+        binding_state.consistency,
+        phalcom_semantic::checker::BindingConsistency::Blocked(phalcom_semantic::BlockReason::RecursiveFixpoint)
+    ));
+}
+
+#[test]
 fn test_mutation_invalidation_kills_dependent_facts() {
     let mut store = TypeStore::new();
     let module = ModuleId::core();

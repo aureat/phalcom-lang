@@ -1,4 +1,4 @@
-use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
+use crate::checker::analysis::{AnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
 use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingSeed, BindingWriteResult, reconcile_binding_contract};
 use crate::checker::flow::FlowState;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
@@ -216,7 +216,6 @@ pub struct CheckingContext<'a> {
     pub next_diagnostic_cause: u32,
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
-    pub bindings: BindingAnalysisIndex,
     pub explanations: crate::explain::ExplanationArena,
     pub suppressed: std::collections::BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     expression_owners: Vec<ExpressionId>,
@@ -278,7 +277,6 @@ impl<'a> CheckingContext<'a> {
             next_diagnostic_cause: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
-            bindings: BindingAnalysisIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             suppressed: std::collections::BTreeMap::new(),
             expression_owners: Vec::new(),
@@ -318,7 +316,6 @@ impl<'a> CheckingContext<'a> {
             next_diagnostic_cause: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
-            bindings: BindingAnalysisIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             suppressed: std::collections::BTreeMap::new(),
             expression_owners: Vec::new(),
@@ -350,7 +347,6 @@ impl<'a> CheckingContext<'a> {
             next_diagnostic_cause: self.next_diagnostic_cause,
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
-            bindings: self.bindings.clone(),
             explanations: self.explanations.clone(),
             suppressed: self.suppressed.clone(),
             expression_owners: self.expression_owners.clone(),
@@ -443,6 +439,32 @@ impl<'a> CheckingContext<'a> {
         }
         self.diagnostics.push(diagnostic);
         Some(cause)
+    }
+
+    /// Publishes diagnostics produced by a resolver while retaining every
+    /// owning error cause in the bounded causal domain. Resolver APIs return a
+    /// vector because one annotation may contain several invalid relations;
+    /// callers must not append that vector directly to the context.
+    pub fn publish_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = SemanticDiagnostic>) -> crate::checker::causal::CausalInvalidity {
+        diagnostics
+            .into_iter()
+            .filter_map(|diagnostic| self.emit_diagnostic(diagnostic))
+            .map(crate::checker::causal::CausalInvalidity::One)
+            .fold(crate::checker::causal::CausalInvalidity::Clean, crate::checker::causal::CausalInvalidity::join)
+    }
+
+    /// Resolves one source annotation and publishes all diagnostics under the
+    /// current checker ownership frame.
+    pub fn resolve_type_annotation(
+        &mut self,
+        resolver: &dyn TypeResolver,
+        annotation: &phalcom_ast::ast::TypeAnnotation,
+    ) -> (TypeKnowledge, crate::checker::causal::CausalInvalidity) {
+        let mut diagnostics = Vec::new();
+        let knowledge =
+            crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &self.current_module, annotation, &mut diagnostics);
+        let causal_invalidity = self.publish_diagnostics(diagnostics);
+        (knowledge, causal_invalidity)
     }
 
     pub fn enforce_assignability(
@@ -554,9 +576,35 @@ impl<'a> CheckingContext<'a> {
         let declared = seed.contract.as_ref().map(|contract| contract.ty);
         let denotation = seed.denotation;
         let name = seed.name.clone();
+        let contract_explanation = seed.contract.as_ref().map(|contract| {
+            let actual = reconciliation.current.clone();
+            let status = actual.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed);
+            let origin = actual.origin().unwrap_or(crate::types::evidence::EvidenceOrigin::DeveloperAnnotation);
+            let mut evidence = Vec::new();
+            if let Some(source) = contract.source {
+                evidence.push(crate::explain::EvidenceRef::SourceSpan(source));
+            }
+            evidence.push(crate::explain::EvidenceRef::TypeId(contract.ty));
+            if let Some(actual_ty) = actual.ty() {
+                evidence.push(crate::explain::EvidenceRef::TypeId(actual_ty));
+            }
+            self.record_derivation(
+                crate::explain::ExplanationStep::BindingContract {
+                    binding: binding_id,
+                    actual,
+                    contract: contract.ty,
+                    consistency: reconciliation.consistency.clone(),
+                },
+                crate::explain::DerivationRule::BindingContract,
+                status,
+                origin,
+                evidence,
+                Vec::new(),
+            )
+        });
         self.flow.declare_seed(binding_id, seed, reconciliation.current, reconciliation.consistency);
-        if let Some(state) = self.flow.get_binding(binding_id) {
-            self.bindings.insert(binding_id, state.clone());
+        if let Some(explanation) = contract_explanation {
+            self.flow.set_binding_explanation(binding_id, explanation);
         }
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
@@ -572,6 +620,16 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
+        self.bind_callable_parameter_with_causal(name, current, range, crate::checker::causal::CausalInvalidity::Clean)
+    }
+
+    pub fn bind_callable_parameter_with_causal(
+        &mut self,
+        name: impl Into<String>,
+        current: TypeKnowledge,
+        range: SourceRange,
+        causal_invalidity: crate::checker::causal::CausalInvalidity,
+    ) -> BindingDeclarationResult {
         let contract = current.ty().map(|ty| BindingContract {
             ty,
             origin: BindingContractOrigin::CallableParameter,
@@ -583,7 +641,7 @@ impl<'a> CheckingContext<'a> {
             contract,
             current,
             denotation: None,
-            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            causal_invalidity,
             mutable: false,
         })
     }
@@ -671,11 +729,6 @@ impl<'a> CheckingContext<'a> {
             return BindingWriteResult::Missing;
         };
         let result = self.flow.write(info.id, fact.knowledge, fact.denotation, consistency, causal_invalidity);
-        if matches!(result, BindingWriteResult::Applied) {
-            if let Some(state) = self.flow.get_binding(info.id) {
-                self.bindings.insert(info.id, state.clone());
-            }
-        }
         result
     }
 
@@ -895,7 +948,7 @@ impl<'a> CheckingContext<'a> {
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
 
         let mut known_bindings = std::collections::BTreeMap::new();
-        for (b_id, state) in &self.bindings {
+        for (b_id, state) in &self.flow.bindings {
             if let Some(ty) = state.current.ty() {
                 known_bindings.insert(*b_id, ty);
             }
@@ -920,7 +973,7 @@ impl<'a> CheckingContext<'a> {
             callable,
             body_range,
             expressions: self.expressions,
-            bindings: self.bindings,
+            bindings: self.flow.bindings,
             flow_graph,
             entry_flow,
             exits,
@@ -931,5 +984,39 @@ impl<'a> CheckingContext<'a> {
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CheckingContext;
+    use crate::checker::causal::CausalInvalidity;
+    use crate::declarations::bootstrap_universe_declarations;
+    use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
+    use crate::identity::{DeclarationId, ModuleId};
+    use crate::types::SimpleTypeResolver;
+    use crate::types::relation::MapTypeHierarchy;
+    use crate::types::store::TypeStore;
+    use phalcom_common::range::SourceRange;
+
+    #[test]
+    fn published_annotation_diagnostics_join_all_error_causes() {
+        let module = ModuleId::core();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+
+        let diagnostics = [
+            SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::AnnotationUnresolved, "first", SourceRange { start: 0, end: 1 }),
+            SemanticDiagnostic::error_in(module, DiagnosticCode::AnnotationUnsupported, "second", SourceRange { start: 2, end: 3 }),
+        ];
+        let causal = ctx.publish_diagnostics(diagnostics);
+
+        assert_eq!(causal, CausalInvalidity::Multiple);
+        assert_eq!(ctx.diagnostics.len(), 2);
+        assert!(ctx.diagnostics.iter().all(|diagnostic| diagnostic.root_cause.is_some()));
+        assert_ne!(ctx.diagnostics[0].root_cause, ctx.diagnostics[1].root_cause);
     }
 }

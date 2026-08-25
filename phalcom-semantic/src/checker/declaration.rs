@@ -8,7 +8,6 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSignature};
 use crate::identity::DeclarationId;
 use crate::surface::DeclarationSurface;
-use crate::types::annotation::resolve_type_annotation;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::relation::{Assignability, check_assignability};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
@@ -40,8 +39,9 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     } else {
         std::collections::HashMap::new()
     };
+    let parent_resolver = ctx.resolver.clone();
     let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
-        parent: &ctx.resolver,
+        parent: &parent_resolver,
         type_parameters: type_params_map,
     };
     let resolver = &scoped_resolver;
@@ -53,12 +53,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 let declared_k = f
                     .annotation
                     .as_ref()
-                    .map(|ann| {
-                        let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                        ctx.diagnostics.extend(diags);
-                        k
-                    })
+                    .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
                 surface.add_field(side, &f.name, declared_k);
             }
@@ -70,12 +65,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     let p_k = p
                         .annotation
                         .as_ref()
-                        .map(|ann| {
-                            let mut diags = Vec::new();
-                            let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                            ctx.diagnostics.extend(diags);
-                            k
-                        })
+                        .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                         .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                     let mut param = CallableParameter::new(p.name.clone(), p_k).with_rest(p.is_rest());
@@ -102,12 +92,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     let ret_k = m
                         .return_annotation
                         .as_ref()
-                        .map(|ann| {
-                            let mut diags = Vec::new();
-                            let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                            ctx.diagnostics.extend(diags);
-                            k
-                        })
+                        .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                         .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
                     (side, ret_k)
                 };
@@ -127,7 +112,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                             m.where_clause.as_ref(),
                             &mut diags,
                         );
-                        ctx.diagnostics.extend(diags);
+                        ctx.publish_diagnostics(diags);
                         callable_sig = callable_sig.with_generics(sig);
                     }
                     surface.add_callable(effective_side, callable_sig);
@@ -137,12 +122,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 let ret_k = g
                     .return_annotation
                     .as_ref()
-                    .map(|ann| {
-                        let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                        ctx.diagnostics.extend(diags);
-                        k
-                    })
+                    .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
 
                 if let Ok(sel) = Selector::getter(&g.name) {
@@ -154,12 +134,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .param
                     .annotation
                     .as_ref()
-                    .map(|ann| {
-                        let mut diags = Vec::new();
-                        let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                        ctx.diagnostics.extend(diags);
-                        k
-                    })
+                    .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
 
                 if let Ok(sel) = Selector::setter(&s.name) {
@@ -175,12 +150,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     let p_k = p
                         .annotation
                         .as_ref()
-                        .map(|ann| {
-                            let mut diags = Vec::new();
-                            let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                            ctx.diagnostics.extend(diags);
-                            k
-                        })
+                        .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                         .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                     let mut param = CallableParameter::new(p.name.clone(), p_k).with_rest(p.is_rest());
@@ -198,12 +168,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                         let ret_k = i
                             .return_annotation
                             .as_ref()
-                            .map(|ann| {
-                                let mut diags = Vec::new();
-                                let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                                ctx.diagnostics.extend(diags);
-                                k
-                            })
+                            .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                             .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                         if let Ok(sel) = Selector::subscript_get(slots) {
@@ -214,12 +179,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                         let put_k = put
                             .annotation
                             .as_ref()
-                            .map(|ann| {
-                                let mut diags = Vec::new();
-                                let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-                                ctx.diagnostics.extend(diags);
-                                k
-                            })
+                            .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                             .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                         params.push(CallableParameter::new(put.name.clone(), put_k.clone()));
@@ -253,12 +213,7 @@ fn check_field_initializer_against_declared(ctx: &mut CheckingContext<'_>, field
 }
 
 fn check_field_initializer(ctx: &mut CheckingContext<'_>, resolver: &dyn crate::types::annotation::TypeResolver, field: &phalcom_ast::ast::FieldDef) {
-    let declared_k = field.annotation.as_ref().map(|annotation| {
-        let mut diagnostics = Vec::new();
-        let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, annotation, &mut diagnostics);
-        ctx.diagnostics.extend(diagnostics);
-        knowledge
-    });
+    let declared_k = field.annotation.as_ref().map(|annotation| ctx.resolve_type_annotation(resolver, annotation).0);
 
     if let Some(declared) = declared_k {
         check_field_initializer_against_declared(ctx, field, &declared);
@@ -370,24 +325,19 @@ fn check_callable_body(
 
     // Bind parameters
     for param in params {
-        let param_k = if let Some(ann) = &param.annotation {
-            let mut diags = Vec::new();
-            let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-            ctx.diagnostics.extend(diags);
-            k
+        let (param_k, param_invalidity) = if let Some(ann) = &param.annotation {
+            ctx.resolve_type_annotation(resolver, ann)
         } else {
-            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+            (
+                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                crate::checker::causal::CausalInvalidity::Clean,
+            )
         };
-        ctx.bind_callable_parameter(param.name.clone(), param_k, param.range);
+        ctx.bind_callable_parameter_with_causal(param.name.clone(), param_k, param.range, param_invalidity);
     }
 
     // Resolve return annotation
-    let expected_return = return_annotation.map(|ann| {
-        let mut diags = Vec::new();
-        let k = resolve_type_annotation(ctx.store, ctx.declarations, resolver, &ctx.current_module, ann, &mut diags);
-        ctx.diagnostics.extend(diags);
-        k
-    });
+    let expected_return = return_annotation.map(|ann| ctx.resolve_type_annotation(resolver, ann).0);
 
     let old_return = ctx.expected_return.take();
     ctx.expected_return = expected_return.clone();

@@ -146,6 +146,12 @@ impl FlowState {
         self.bindings.get(&binding)
     }
 
+    pub fn set_binding_explanation(&mut self, binding: BindingId, explanation: ExplanationId) {
+        if let Some(state) = self.bindings.get_mut(&binding) {
+            state.explanation = Some(explanation);
+        }
+    }
+
     pub fn get_current_type(&self, binding: BindingId) -> Option<&TypeKnowledge> {
         self.bindings.get(&binding).map(|b| &b.current)
     }
@@ -246,6 +252,8 @@ impl FlowState {
                 );
 
                 let mut b = sample_binding.clone();
+                // Divergent branches do not have one canonical contract. Do
+                // not retain whichever branch happened to be visited first.
                 b.contract = contract.clone();
                 b.declared = contract.as_ref().map(|contract| contract.ty);
                 b.current = joined_knowledge;
@@ -275,9 +283,10 @@ impl FlowState {
                     } else {
                         b.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
                     }
-                } else if reachable_states
-                    .iter()
-                    .any(|state| state.bindings.get(&id).is_some_and(|binding| binding.consistency != sample_binding.consistency))
+                } else if !contracts_match
+                    || reachable_states
+                        .iter()
+                        .any(|state| state.bindings.get(&id).is_some_and(|binding| binding.consistency != sample_binding.consistency))
                 {
                     b.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
                 }

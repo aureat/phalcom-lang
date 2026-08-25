@@ -1,5 +1,6 @@
 //! Explanation nodes and steps (Spec 04.5).
 
+use crate::checker::binding::BindingConsistency;
 use crate::diagnostic::DiagnosticCode;
 use crate::identity::{BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
@@ -11,6 +12,7 @@ use phalcom_common::range::SourceRange;
 pub enum DerivationRule {
     LiteralSynthesis,
     AnnotationConstraint,
+    BindingContract,
     MethodCallReturn { selector: String },
     GenericInstantiation { type_args: Vec<TypeId> },
     FlowRefinement { predicate_kind: PredicateKind },
@@ -57,6 +59,14 @@ pub enum ExplanationStep {
         range: SourceRange,
         ty: TypeId,
     },
+    /// Reconciliation of current binding knowledge against its persistent
+    /// contract. The contract never replaces the actual value fact.
+    BindingContract {
+        binding: BindingId,
+        actual: TypeKnowledge,
+        contract: TypeId,
+        consistency: BindingConsistency,
+    },
     /// Inferred from call return / method dispatch.
     MethodCall {
         call: ExpressionId,
@@ -87,6 +97,7 @@ impl ExplanationStep {
         match self {
             Self::Literal { .. } => DerivationRule::LiteralSynthesis,
             Self::Declared { .. } => DerivationRule::AnnotationConstraint,
+            Self::BindingContract { .. } => DerivationRule::BindingContract,
             Self::MethodCall { callable, .. } => DerivationRule::MethodCallReturn {
                 selector: format!("{}", callable.selector),
             },

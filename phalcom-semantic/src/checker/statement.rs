@@ -6,7 +6,6 @@ use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::{analyze_expression, synthesize_expr};
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::types::annotation::resolve_type_annotation;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
@@ -19,12 +18,15 @@ use phalcom_common::selector::Selector;
 pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> Option<TypeKnowledge> {
     match statement {
         Statement::Let(binding) => {
-            let declared_k = binding.annotation.as_ref().map(|ann| {
-                let mut diags = Vec::new();
-                let k = resolve_type_annotation(ctx.store, ctx.declarations, &ctx.resolver, &ctx.current_module, ann, &mut diags);
-                ctx.diagnostics.extend(diags);
-                k
-            });
+            let (declared_k, annotation_invalidity) = binding
+                .annotation
+                .as_ref()
+                .map(|annotation| {
+                    let resolver = ctx.resolver.clone();
+                    let (knowledge, causal_invalidity) = ctx.resolve_type_annotation(&resolver, annotation);
+                    (Some(knowledge), causal_invalidity)
+                })
+                .unwrap_or((None, crate::checker::causal::CausalInvalidity::Clean));
 
             let expected_init = declared_k
                 .as_ref()
@@ -59,7 +61,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 })
             };
             let reconciliation = reconcile_binding_contract(ctx.store, &ctx.hierarchy, contract.as_ref(), &val_typed.knowledge);
-            let mut causal_invalidity = val_typed.causal_invalidity;
+            let mut causal_invalidity = val_typed.causal_invalidity.join(annotation_invalidity);
             if matches!(reconciliation.consistency, crate::checker::binding::BindingConsistency::Refuted { .. }) {
                 let mut diag = SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),

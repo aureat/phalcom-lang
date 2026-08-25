@@ -55,7 +55,7 @@
 - [x] Add `BindingContract`, `BindingContractOrigin`, `BindingConsistency`, `AssumptionBasis`, and pure reconciliation; `BindingState`/`FlowState` now retain contract and consistency fields.
 - [x] Add `CausalInvalidity::{Clean, One, Multiple}` and explicit non-clean `SuppressionCause`; test algebra and conversion.
 - [x] Evolve `BindingState` to hold contract, current knowledge, denotation, consistency, invalidity, mutability, version, and explanation.
-- [~] Remove `LocalEnv` as a current-fact owner; scopes map names to `BindingId`; `FlowState` owns current facts. LocalEnv storage removed; analysis-index mirroring remains for publication compatibility.
+- [x] Remove `LocalEnv` as a current-fact owner; scopes map names to `BindingId`; `FlowState` owns current facts. The published binding analysis index is derived from `FlowState`, not a second current-fact owner.
 - [x] Replace `bind_local()` with explicit seed/declaration and source-specific binding helpers.
 - [x] Make same-scope insertion preserve first identity and return a structured redeclaration result.
 
@@ -68,7 +68,7 @@
 - [x] Derive mutability from `BindingKind`; diagnose `const` without initializer, bare `let` without initializer honestly, same-scope redeclaration, and immutable writes.
 - [x] Reconcile writes against persistent contract, not previous current fact.
 - [x] Preserve actual RHS knowledge after mutable type-refuted writes; do not mutate immutable binding state on illegal writes.
-- [~] Emit one owning mismatch cause/diagnostic per relation site; keep causal invalidity separate. Binding/assignment and context relation paths attach explicit roots, and call/branch dependencies now propagate by value; annotation-vector aggregation remains open.
+- [x] Emit one owning mismatch cause/diagnostic per relation site; keep causal invalidity separate. Binding/assignment, context annotations, calls, and branch dependencies attach and aggregate explicit roots by value.
 
 ## Task 5 — Make expression status explicit and causal
 
@@ -77,7 +77,7 @@
 - [x] Add explicit suppression status and causal fields to typed/published expression results; causes use a monotonic allocator and owner frames.
 - [x] Delete diagnostic-range scanning and expression-ID/range-derived causes.
 - [x] Allocate monotonic diagnostic causes explicitly and attach roots at owning judgments; expression-owner frames retain ownership without range matching.
-- [~] Propagate `CausalInvalidity` by value dependency, without contagious parent `Invalid` status. Calls, receivers, arguments, and branch joins are covered; annotation-vector aggregation remains open.
+- [x] Propagate `CausalInvalidity` by value dependency, without contagious parent `Invalid` status. Calls, receivers, arguments, branch joins, and annotation diagnostic vectors are covered.
 - [x] Preserve independently known result knowledge for invalid calls/annotations; use `Suppressed(SuppressionCause)` only when a required premise disappeared.
 
 ## Task 6 — Implement epistemically monotone flow joins and widening
@@ -85,7 +85,7 @@
 **Modify:** `checker/flow/state.rs`, flow transfer/expression synthesis.
 
 - [x] Add one deterministic `join_type_knowledge` operation: reachable `Unknown` wins over known; otherwise `Dynamic` wins; known unions preserve `Established` only when all inputs are established.
-- [~] Intersect binding membership; divergent consistency is fail-closed, while contract/mutability diagnostics remain open.
+- [x] Intersect binding membership; divergent contracts and consistency are fail-closed without retaining first-branch metadata, while owning contract/mutability diagnostics remain at declaration/write sites.
 - [x] Join denotation conservatively and causal invalidity independently.
 - [x] Recompute consistency through pure reconciliation; never emit a new join diagnostic when hierarchy is available.
 - [x] Remove declaration-as-current loop widening; fail closed on nonconvergence. New loop-only declarations are no longer inserted, and inference pass exhaustion returns `Blocked(RecursiveFixpoint)`.
@@ -122,7 +122,7 @@
 - [x] Feed declared generic constraints with real origins and real call/argument `ExpressionId`s.
 - [x] Track bounded monotone `InferenceSupport::{Established, Assumed}` at solver variables/representatives.
 - [x] Classify solved generic result from return-influencing variables only; expected context selects valid instantiation but is not value support.
-- [~] On conflict/blocked/underconstrained/cancelled/budget, generic call code now returns explicit unknown reasons instead of cloning the unspecialized signature return; fixed-return independence and support-aware promotion exist. Dedicated coverage for every terminal call-site branch remains open.
+- [x] On conflict/blocked/underconstrained/cancelled/budget, generic call code now returns explicit unknown reasons instead of cloning the unspecialized signature return; fixed-return independence and support-aware promotion are covered for every terminal outcome.
 - [~] Add all amendment regression tests, including assumed generic return, fixed-return independence, and conflict payload evidence. Solver-level and call-level regressions pass; the complete amendment matrix remains open.
 
 ## Task 10 — Audit Unknown, sentinels, and existing synthesis
@@ -139,7 +139,7 @@
 
 **Modify:** `explain/node.rs`, `explain/arena.rs`, `db/fingerprint.rs`, presentation compatibility, tests.
 
-- [~] Explanations copy actual evidence status/origin and preserve contract relations/real callable identity. Status/origin, resolved callable identity, child explanations, and generic argument explanation parents now flow through calls; explicit contract-node publication remains open.
+- [x] Explanations copy actual evidence status/origin and preserve contract relations/real callable identity. Status/origin, resolved callable identity, child explanations, generic argument explanation parents, and explicit binding-contract nodes are published.
 - [x] Fingerprints include type, status, origin, contract origin/type, consistency, mutability, causal shape, callable identity, and epistemic flow state.
 - [x] Fingerprints ignore range-only provenance and raw `DiagnosticCauseId` allocation; hash causal/status shape instead.
 - [x] Preserve Step 5.5 dependency ownership for callable signatures, declaration surfaces, and generic constraints. Callable/declaration dispatch dependencies and generic argument explanation parents are tracked.
@@ -156,13 +156,13 @@
 
 ## Verification log
 
-- `CURRENT`: formal implementation separates `EvidenceStatus` and `EvidenceOrigin`; annotation-vector causal aggregation, complete generic terminal-call coverage, explicit explanation contract-node publication, and clippy cleanup remain at live HEAD.
+- `CURRENT`: formal implementation separates `EvidenceStatus` and `EvidenceOrigin`; binding current facts have one `FlowState` owner; causal annotation aggregation, generic terminal outcomes, and binding-contract explanation nodes are implemented and focused-verified.
 - `IMPLEMENTED THIS RUN`: Completed formal evidence migration; explicit binding seeds/source helpers with first-identity redeclaration; BindingKind mutability, missing-initializer and immutable-write transfer; expression-owner diagnostic causes without range scanning; conservative flow denotation/cause joins with hierarchy reconciliation; origin-carrying expected context; real generic constraint/call/argument expression identities; unsupported dynamic pack fail-closed behavior; and composite/generic sentinel removal at audited producers. Prior foundations remain: `NoTypeEvidence` eligibility, knowledge-to-contract relation with real operands, fail-closed epistemic joins/widening, causal invalidity/suppression algebra with monotonic causes, structured generic solver failures/kind checks, per-variable generic support, fixed-return independence, and contract/status/causal fingerprinting.
-- `PARTIAL`: LocalEnv compatibility mirroring; annotation-vector causal aggregation; complete generic terminal-call coverage; explicit explanation contract-node publication; and focused clippy cleanup.
+- `PARTIAL`: behavior-fixture/correction-matrix completeness, focused clippy cleanup, and final release-gate closure; broad AST coverage remains intentionally fail-closed per Part 1 scope.
 - `UNVERIFIED`: final Part 1 release gate and full LSP compatibility; final cold/incremental differential and product-stability/dependency checks now pass.
 - `BASELINE`: `phalcom-lsp` constructor-factory hover test fails at baseline `a3f932e0` because top-level binding `x` is absent from callable-local formal products; recorded as deferred LSP boundary, not caused by this run.
 - `VERIFIED`: final `RUST_MIN_STACK=8388608 cargo test -p phalcom-semantic` passed all unit/integration/doc tests; focused semantic regressions pass; `cargo check -p phalcom-lsp`, `cargo fmt --all -- --check`, and scoped `git diff --check` pass; final registered LSP integration records 51 passed, 2 ignored, and 1 unchanged documented baseline failure.
 - `DEFERRED`: Part 2/3 takeover and later completeness listed above.
-- `VERIFIED THIS SLICE`: `semantic_knowledge_invariants` (4/4), `spec04_5_inference_session` (10/10), `semantic_authority_composition` (15/15), `semantic_fingerprints` (25/25), final full semantic suite, `cargo fmt --all -- --check`, scoped `git diff --check`, and `cargo check -p phalcom-lsp`; `cargo clippy --no-deps -p phalcom-semantic --all-targets --message-format=short -- -D warnings` remains red on 18 pre-existing architecture warnings; correction §13 searches are empty except justified established-return/support constructions and status-pattern matching; the final registered LSP integration records 51 passed, 2 ignored, and 1 unchanged documented baseline failure; graphify update/query completed successfully.
+- `VERIFIED THIS SLICE`: annotation diagnostics preserve all owning root causes; `FlowState` divergent-contract fail-closed regression passes; generic terminal outcome/fixed-return tests pass; binding-contract explanation and invalid-annotation composition tests pass; `cargo check -p phalcom-semantic` and focused semantic suites pass. Focused clippy remains red on 18 architecture warnings; final release gate remains open.
 - `CLASSIFIED AUDIT`: zero hits for `EvidenceAuthority`, unrestricted `TypeKnowledge::known`, `ExpectedType::from_knowledge`, `bind_local`, checker `LocalEnv`, expression-range cause allocation, and user-facing `TypeId::DUMMY`; `.declared` is the analysis-index publication compatibility mirror; `UncheckedExpression` producers are fail-closed; surviving `Unit`/`Never` uses are language semantics, type-theoretic rules, or internal store bootstrap; callable return reads are contract reads or exact `promote_exact_return` promotion.
-- `SCOPE GATE`: Part 2/3 work has not started. The Part 1 release gate remains open because focused clippy is red and the documented LSP boundary baseline remains; cold/incremental differential, product-stability, and dependency tracking checks pass.
+- `SCOPE GATE`: Part 2 compiler identity/projection/advisory work is active; Part 3 lifecycle cutover has not started. Part 1 release gate remains open because focused clippy, behavior/correction matrix, and documented LSP boundary baseline remain; cold/incremental differential, product-stability, and dependency tracking checks pass.
