@@ -1016,6 +1016,7 @@ struct StaticWorkspaceIdentity {
     project_roots: Vec<PathBuf>,
     standalone_modules: BTreeMap<Url, phalcom_modules::SyntheticProjectId>,
     synthetic_ids: phalcom_modules::SyntheticProjectIdAllocator,
+    catalog_sources: BTreeSet<phalcom_modules::SourceId>,
     session: phalcom_semantic::SemanticWorkspaceSession,
 }
 
@@ -1062,6 +1063,90 @@ impl phalcom_modules::SourceProvider for StaticSourceProvider {
 }
 
 fn run_static_workspace_analysis(
+    source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
+    documents: crate::semantic::DocumentModuleMap,
+    generation: u64,
+    identity: &mut StaticWorkspaceIdentity,
+) -> Option<StaticWorkspacePublication> {
+    let fallback_documents = documents.clone();
+    run_persistent_workspace_analysis(source_catalog, documents, generation, identity)
+        .or_else(|| run_legacy_static_workspace_analysis(source_catalog, fallback_documents, generation, identity))
+}
+
+fn run_persistent_workspace_analysis(
+    source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
+    mut documents: crate::semantic::DocumentModuleMap,
+    generation: u64,
+    identity: &mut StaticWorkspaceIdentity,
+) -> Option<StaticWorkspacePublication> {
+    if source_catalog.keys().any(|uri| uri.scheme() != "file") {
+        return None;
+    }
+    if source_catalog.keys().any(|uri| {
+        uri.to_file_path()
+            .ok()
+            .and_then(|path| phalcom_modules::discover_owning_project(&path).ok().flatten())
+            .is_none()
+    }) {
+        // Standalone and virtual LSP publication still uses the existing
+        // bridge until its protocol document map is cut over with parity.
+        return None;
+    }
+
+    let current_sources = source_catalog
+        .keys()
+        .filter_map(|uri| uri.to_file_path().ok())
+        .map(|path| phalcom_modules::SourceId(path.to_string_lossy().into()))
+        .collect::<BTreeSet<_>>();
+    let previous_sources = identity.catalog_sources.clone();
+    for source in previous_sources.difference(&current_sources) {
+        let _ = identity.session.module_session_mut().remove_source(source.clone());
+    }
+    identity.catalog_sources = current_sources;
+
+    documents.by_uri.clear();
+    documents.by_module.clear();
+    let overlays = source_catalog
+        .iter()
+        .filter_map(|(uri, (revision, text, _program))| {
+            let path = uri.to_file_path().ok()?;
+            let location = phalcom_modules::SourceLocation {
+                source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
+                display_path: path,
+            };
+            Some((uri, location, text.clone(), phalcom_modules::SourceRevision(revision.0)))
+        })
+        .collect::<Vec<_>>();
+    let update = identity
+        .session
+        .module_session_mut()
+        .set_overlays(overlays.iter().map(|(_, location, text, revision)| (location.clone(), text.clone(), *revision)))
+        .ok()?;
+    for (uri, location, _, _) in overlays {
+        if let Some(module) = identity.session.module_session().module_for_source(&location.source_id).cloned() {
+            let document_uri = documents
+                .lsp_by_uri
+                .keys()
+                .find(|candidate| canonical_uri(candidate) == *uri)
+                .cloned()
+                .unwrap_or_else(|| uri.clone());
+            documents.insert(document_uri, module);
+        }
+    }
+
+    let semantic_update = identity.session.update_module_workspace_at_generation(update, generation);
+    for state in identity.session.module_session().sources().values() {
+        if let Some(uri) = phalcom_modules::builtin_module_uri(&state.module).and_then(|raw| Url::parse(&raw).ok()) {
+            documents.insert(uri, state.module.clone());
+        }
+    }
+    Some(StaticWorkspacePublication {
+        snapshot: semantic_update.snapshot,
+        documents,
+    })
+}
+
+fn run_legacy_static_workspace_analysis(
     source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
     mut documents: crate::semantic::DocumentModuleMap,
     generation: u64,

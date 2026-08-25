@@ -478,11 +478,8 @@ fn collect_file_semantic_hints(
         } else {
             let rendered = render_shape(&value.shape);
             (
-                format!("≈ {rendered}"),
-                format!(
-                    "Observed runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
-                    confidence_name(value.confidence)
-                ),
+                crate::presentation::inlay_type_label(&rendered, false),
+                crate::presentation::advisory_tooltip(&rendered, "runtime value"),
             )
         };
         hints.push(InlayHint {
@@ -531,15 +528,12 @@ fn collect_file_semantic_hints(
                         let rendered = render_shape(&val.shape);
                         hints.push(InlayHint {
                             position: line_index.position(f.name_range.end),
-                            label: InlayHintLabel::String(format!("≈ {rendered}")),
+                            label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, false)),
                             kind: Some(InlayHintKind::TYPE),
                             text_edits: None,
                             tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                                 kind: MarkupKind::Markdown,
-                                value: format!(
-                                    "Inferred runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
-                                    confidence_name(val.confidence)
-                                ),
+                                value: crate::presentation::advisory_tooltip(&rendered, "runtime value"),
                             })),
                             padding_left: Some(true),
                             padding_right: None,
@@ -569,15 +563,12 @@ fn collect_file_semantic_hints(
                         let rendered = render_shape(&val.shape);
                         hints.push(InlayHint {
                             position: line_index.position(param.name_range.end),
-                            label: InlayHintLabel::String(format!("≈ {rendered}")),
+                            label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, false)),
                             kind: Some(InlayHintKind::TYPE),
                             text_edits: None,
                             tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                                 kind: MarkupKind::Markdown,
-                                value: format!(
-                                    "Inferred runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
-                                    confidence_name(val.confidence)
-                                ),
+                                value: crate::presentation::advisory_tooltip(&rendered, "runtime value"),
                             })),
                             padding_left: Some(true),
                             padding_right: None,
@@ -609,15 +600,12 @@ fn collect_file_semantic_hints(
                             let rendered = render_shape(&ret.shape);
                             hints.push(InlayHint {
                                 position: line_index.position(offset),
-                                label: InlayHintLabel::String(format!(" ≈ {rendered}")),
+                                label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, true)),
                                 kind: Some(InlayHintKind::TYPE),
                                 text_edits: None,
                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                                     kind: MarkupKind::Markdown,
-                                    value: format!(
-                                        "Inferred return value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
-                                        confidence_name(ret.confidence)
-                                    ),
+                                    value: crate::presentation::advisory_tooltip(&rendered, "return value"),
                                 })),
                                 padding_left: Some(true),
                                 padding_right: None,
@@ -738,15 +726,12 @@ fn collect_expr_closure_hints(
                             let rendered = render_shape(&val.shape);
                             hints.push(InlayHint {
                                 position: line_index.position(param.range.end),
-                                label: InlayHintLabel::String(format!("≈ {rendered}")),
+                                label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, false)),
                                 kind: Some(InlayHintKind::TYPE),
                                 text_edits: None,
                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                                     kind: MarkupKind::Markdown,
-                                    value: format!(
-                                        "Inferred runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
-                                        confidence_name(val.confidence)
-                                    ),
+                                    value: crate::presentation::advisory_tooltip(&rendered, "runtime value"),
                                 })),
                                 padding_left: Some(true),
                                 padding_right: None,
@@ -770,15 +755,12 @@ fn collect_expr_closure_hints(
                             let rendered = render_shape(&val.shape);
                             hints.push(InlayHint {
                                 position: line_index.position(param.range.end),
-                                label: InlayHintLabel::String(format!("≈ {rendered}")),
+                                label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, false)),
                                 kind: Some(InlayHintKind::TYPE),
                                 text_edits: None,
                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                                     kind: MarkupKind::Markdown,
-                                    value: format!(
-                                        "Inferred runtime value: {rendered}\n\nConfidence: {}\n\nThis is editor inference, not a Phalcom type annotation.",
-                                        confidence_name(val.confidence)
-                                    ),
+                                    value: crate::presentation::advisory_tooltip(&rendered, "runtime value"),
                                 })),
                                 padding_left: Some(true),
                                 padding_right: None,
@@ -1058,12 +1040,12 @@ fn shallow_hints_internal(
                 let rendered = render_shape(&shape);
                 hints.push(InlayHint {
                     position: line_index.position(binding.range.end),
-                    label: InlayHintLabel::String(format!("≈ {rendered}")),
+                    label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, false)),
                     kind: Some(InlayHintKind::TYPE),
                     text_edits: None,
                     tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: format!("Inferred runtime value: {rendered}\n\nConfidence: exact\n\nThis is editor inference, not a Phalcom type annotation."),
+                        value: crate::presentation::advisory_tooltip(&rendered, "runtime value"),
                     })),
                     padding_left: Some(true),
                     padding_right: None,
@@ -1086,12 +1068,12 @@ fn shallow_hints_internal(
                                     let rendered = render_shape(&shape);
                                     hints.push(InlayHint {
                                         position: line_index.position(f.name_range.end),
-                                        label: InlayHintLabel::String(format!("≈ {rendered}")),
+                                        label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, false)),
                                         kind: Some(InlayHintKind::TYPE),
                                         text_edits: None,
                                         tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                                             kind: MarkupKind::Markdown,
-                                            value: format!("Inferred runtime value: {rendered}\n\nConfidence: exact\n\nThis is editor inference, not a Phalcom type annotation."),
+                                            value: crate::presentation::advisory_tooltip(&rendered, "runtime value"),
                                         })),
                                         padding_left: Some(true),
                                         padding_right: None,
@@ -1112,12 +1094,12 @@ fn shallow_hints_internal(
                                             let rendered = render_shape(&shape);
                                             hints.push(InlayHint {
                                                 position: line_index.position(offset),
-                                                label: InlayHintLabel::String(format!(" ≈ {rendered}")),
+                                                label: InlayHintLabel::String(crate::presentation::inlay_type_label(&rendered, true)),
                                                 kind: Some(InlayHintKind::TYPE),
                                                 text_edits: None,
                                                 tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
                                                     kind: MarkupKind::Markdown,
-                                                    value: format!("Inferred return value: {rendered}\n\nConfidence: exact\n\nThis is editor inference, not a Phalcom type annotation."),
+                                                    value: crate::presentation::advisory_tooltip(&rendered, "return value"),
                                                 })),
                                                 padding_left: Some(true),
                                                 padding_right: None,
@@ -1195,10 +1177,6 @@ fn render_shape(shape: &ValueShape) -> String {
     crate::semantic::render_value_shape(shape)
 }
 
-fn confidence_name(confidence: Confidence) -> &'static str {
-    crate::semantic::confidence_name(confidence)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1221,7 +1199,7 @@ mod tests {
             },
         );
         assert_eq!(hints.len(), 1);
-        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == "≈ String"));
+        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == ": String"));
         assert_eq!(hints[0].kind, Some(InlayHintKind::TYPE));
     }
 
@@ -1250,7 +1228,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(labels, vec!["≈ Int"], "only unannotated binding should receive a hint: {hints:?}");
+        assert_eq!(labels, vec![": Int"], "only unannotated binding should receive a hint: {hints:?}");
     }
 
     #[test]
@@ -1281,14 +1259,14 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(
-            labels.iter().filter(|label| **label == "≈ Int").count(),
+            labels.iter().filter(|label| **label == ": Int").count(),
             1,
-            "only _inferred should get ≈ Int: {labels:?}"
+            "only _inferred should get : Int: {labels:?}"
         );
         assert_eq!(
-            labels.iter().filter(|label| **label == " ≈ Int").count(),
+            labels.iter().filter(|label| **label == " -> Int").count(),
             1,
-            "only infer should get ≈ Int: {labels:?}"
+            "only infer should get  -> Int: {labels:?}"
         );
     }
 
@@ -1347,7 +1325,7 @@ mod tests {
             },
         );
         assert_eq!(hints.len(), 1);
-        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == "≈ Int"));
+        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == ": Int"));
     }
 
     #[test]
@@ -1408,10 +1386,10 @@ mod tests {
             },
         );
 
-        let x_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == "≈ Int"));
-        assert!(x_hint.is_some(), "Field _x should have ≈ Int hint, got: {hints:?}");
-        let y_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == "≈ String"));
-        assert!(y_hint.is_some(), "Field _y should have ≈ String hint, got: {hints:?}");
+        let x_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == ": Int"));
+        assert!(x_hint.is_some(), "Field _x should have : Int hint, got: {hints:?}");
+        let y_hint = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == ": String"));
+        assert!(y_hint.is_some(), "Field _y should have : String hint, got: {hints:?}");
     }
 
     #[test]
@@ -1434,13 +1412,13 @@ mod tests {
             },
         );
 
-        let method_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " ≈ Int"));
-        assert!(method_ret.is_some(), "Method compute should have ≈ Int return hint, got: {hints:?}");
+        let method_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " -> Int"));
+        assert!(method_ret.is_some(), "Method compute should have  -> Int return hint, got: {hints:?}");
 
-        let getter_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " ≈ String"));
-        assert!(getter_ret.is_some(), "Getter name should have ≈ String return hint, got: {hints:?}");
+        let getter_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " -> String"));
+        assert!(getter_ret.is_some(), "Getter name should have  -> String return hint, got: {hints:?}");
 
-        let index_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " ≈ Bool"));
-        assert!(index_ret.is_some(), "Index getter should have ≈ Bool return hint, got: {hints:?}");
+        let index_ret = hints.iter().find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == " -> Bool"));
+        assert!(index_ret.is_some(), "Index getter should have  -> Bool return hint, got: {hints:?}");
     }
 }

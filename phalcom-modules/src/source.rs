@@ -84,6 +84,7 @@ impl SourceOverlay {
 }
 
 /// Overlay-capable source provider layering in-memory documents over a base provider.
+#[derive(Debug)]
 pub struct OverlaySourceProvider<P> {
     base: P,
     overlays_by_module: std::sync::RwLock<std::collections::BTreeMap<ModuleId, SourceOverlay>>,

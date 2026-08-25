@@ -4,13 +4,14 @@ use crate::error::{PhResult, RuntimeError};
 use crate::value::Value;
 use crate::vm::VM;
 
-/// Signature: `System.class::print(_)` — prints its arguments, then a newline.
+/// Signature: `System.class::print(_)` — prints its arguments, then a newline,
+/// and returns the canonical `Unit` value.
 #[phalcom_native_macros::primitive(
     System,
     "print(_)",
     params = [Object],
-    returns = Object,
-    types = "(Object) -> Object",
+    returns = Unit,
+    types = "(Object) -> Unit",
     side = class
 )]
 pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -19,7 +20,7 @@ pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhR
         print!("{text}");
     }
     println!();
-    Ok(vm.none_value())
+    Ok(vm.unit_value())
 }
 
 /// Signature: `System.class::new()` — always an error; `System` is not instantiable.
@@ -75,13 +76,13 @@ pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) ->
     }
 }
 
-/// Signature: `System.gc` — forces one full mark-sweep and returns `None`
+/// Signature: `System.gc` — forces one full mark-sweep and returns `None`.
 #[phalcom_native_macros::primitive(
     System,
     "gc",
     params = [],
-    returns = Object,
-    types = "() -> Object",
+    returns = None,
+    types = "() -> None",
     side = class
 )]
 pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {

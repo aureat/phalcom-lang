@@ -75,7 +75,7 @@ pub fn render_signature_help(
             .or_else(|| {
                 advisory
                     .and_then(|signature| signature.parameters.get(index))
-                    .map(|parameter| format!("≈ {}", crate::semantic::render_value_shape(&parameter.value.shape)))
+                    .map(|parameter| crate::semantic::render_value_shape(&parameter.value.shape))
             })
             .unwrap_or_else(|| "Unknown".to_string());
         let rest = match parameter.rest_mode {
@@ -98,7 +98,7 @@ pub fn render_signature_help(
 
     let return_text = formal
         .map(|signature| signature.return_type.text())
-        .or_else(|| advisory.map(|signature| format!("≈ {}", crate::semantic::render_value_shape(&signature.returns.shape))))
+        .or_else(|| advisory.map(|signature| crate::semantic::render_value_shape(&signature.returns.shape)))
         .unwrap_or_else(|| "Unknown".to_string());
     let label = format!("{} -> {return_text}", member.selector.encode());
     let active_parameter = (active_parameter < parameters.len()).then_some(active_parameter as u32);

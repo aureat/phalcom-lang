@@ -315,6 +315,23 @@ pub struct ModuleGraphs {
     pub runtime: RuntimeDependencyGraph,
 }
 
+impl ModuleGraphs {
+    /// Merges deterministic graph products from another linked component.
+    pub fn merge_from(&mut self, other: &Self) {
+        for module in other.references.nodes() {
+            self.references.add_node(module.clone());
+            self.references.replace(module.clone(), other.references.edges_from(&module).to_vec());
+        }
+        for node in other.semantics.nodes() {
+            self.semantics.replace(node.clone(), other.semantics.edges_from(&node).to_vec());
+        }
+        for module in other.runtime.nodes() {
+            self.runtime.add_node(module.clone());
+            self.runtime.replace(module.clone(), other.runtime.edges_from(&module).to_vec());
+        }
+    }
+}
+
 /// Computes deterministic strongly connected components using an iterative
 /// Kosaraju traversal. The caller owns adjacency storage and returns a slice
 /// for each visited node.

@@ -16,6 +16,7 @@ pub mod package_info;
 pub mod project;
 pub mod query;
 pub mod resolver;
+pub mod session;
 pub mod source;
 pub mod stabilization;
 
@@ -49,5 +50,6 @@ pub use package_info::{
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
 pub use query::ModuleQueryFacade;
 pub use resolver::ModuleResolver;
+pub use session::{SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceMutation, WorkspaceSourceState};
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};

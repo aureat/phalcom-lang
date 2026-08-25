@@ -55,3 +55,11 @@ path = "tests/core_startup.rs"
 [[test]]
 name = "module_navigation"
 path = "tests/module_navigation.rs"
+
+[[test]]
+name = "professional_semantic_presentation"
+path = "tests/professional_semantic_presentation.rs"
+
+[[test]]
+name = "single_world_cutover"
+path = "tests/single_world_cutover.rs"

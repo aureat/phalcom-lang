@@ -43,6 +43,7 @@ use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, Declar
 use phalcom_modules::graph::{SemanticEdge, SemanticEdgeKind, SemanticNodeId};
 use phalcom_modules::interface::{InterfaceBuilder, LinkedExportTarget};
 use phalcom_modules::linker::LinkedProgram;
+use phalcom_modules::{WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceMutation};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -72,6 +73,7 @@ pub struct SemanticWorkspaceUpdate {
 #[derive(Debug)]
 pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
+    module_session: WorkspaceModuleSession,
     db: SemanticDb,
     store: TypeStore,
     base_declarations: DeclarationTypeTable,
@@ -133,6 +135,7 @@ impl SemanticWorkspaceSession {
 
         Self {
             workspace,
+            module_session: WorkspaceModuleSession::new(),
             db,
             store,
             base_declarations,
@@ -148,6 +151,36 @@ impl SemanticWorkspaceSession {
 
     pub fn workspace(&self) -> WorkspaceId {
         self.workspace
+    }
+
+    /// Returns persistent project/source/module ownership used by compiler updates.
+    pub fn module_session(&self) -> &WorkspaceModuleSession {
+        &self.module_session
+    }
+
+    /// Mutably borrows persistent module ownership for a worker-side batch.
+    pub fn module_session_mut(&mut self) -> &mut WorkspaceModuleSession {
+        &mut self.module_session
+    }
+
+    /// Applies one module lifecycle mutation and publishes its semantic snapshot.
+    pub fn apply_module_mutation(&mut self, mutation: WorkspaceSourceMutation) -> Result<SemanticWorkspaceUpdate, WorkspaceModuleSessionError> {
+        let update = self.module_session.apply(mutation)?;
+        Ok(self.update_module_workspace(update))
+    }
+
+    /// Publishes semantic products for an already-linked module workspace update.
+    pub fn update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> SemanticWorkspaceUpdate {
+        self.update_module_workspace_at_generation(update, self.module_session.generation())
+    }
+
+    /// Publishes a persistent module workspace at an externally coordinated generation.
+    pub fn update_module_workspace_at_generation(&mut self, update: WorkspaceModuleUpdate, generation: u64) -> SemanticWorkspaceUpdate {
+        self.update(SemanticWorkspaceInput {
+            linked: update.linked,
+            sources: update.sources,
+            generation,
+        })
     }
 
     pub fn db(&self) -> &SemanticDb {

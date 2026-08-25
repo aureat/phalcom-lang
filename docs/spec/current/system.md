@@ -38,7 +38,7 @@ All class-side. Grouped by service.
 
 | Signature | Meaning |
 |-----------|---------|
-| `print(_)` | write `x.toString` followed by a newline to standard output; returns `x` |
+| `print(_)` | write `x.toString` followed by a newline to standard output; returns `Unit` |
 | `write(_)` | write `x.toString` with no trailing newline |
 | `printErr(_)` | write to standard error |
 | `readLine` | read one line from standard input as `Option<String>` (`None` at EOF) |
@@ -88,9 +88,9 @@ ends, it drains `VM::ready_queue` to exhaustion — via `fiber_try` (capture,
 not propagate) — even if `main` never explicitly calls `runScheduled`, so a
 scheduled task's side effect is never silently dropped at program exit.
 
-`print(_)` returning its argument makes `System.print(x)` usable as a
-pass-through in an expression position, consistent with everything being an
-expression ([Classes §4](classes.md)).
+`print(_)` returns `Unit`. It remains usable in expression position, consistent
+with everything being an expression ([Classes §4](classes.md)); callers that
+need the printed value should retain it separately.
 
 ---
 

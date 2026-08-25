@@ -86,7 +86,7 @@ static NEXT_SYNTHETIC_PROJECT_ID: AtomicU64 = AtomicU64::new(1);
 /// Allocator values are intentionally stateless: creating another compiler or
 /// ProjectUniverse cannot restart the sequence and collide with already loaded
 /// standalone/inline modules in the same process.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SyntheticProjectIdAllocator;
 
 impl SyntheticProjectIdAllocator {

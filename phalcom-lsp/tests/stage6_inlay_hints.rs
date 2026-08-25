@@ -102,7 +102,7 @@ async fn inlay_hint_returns_runtime_value_for_literal_binding() {
     let response = read_response(&mut client_end, 2).await;
     let hints = response["result"].as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1);
-    assert_eq!(hints[0]["label"], json!("≈ String"));
+    assert_eq!(hints[0]["label"], json!(": String"));
 
     drop(client_end);
     let _ = server_task.await;
@@ -165,7 +165,7 @@ async fn inlay_hint_skips_explicit_binding_annotation() {
     let response = read_response(&mut client_end, 2).await;
     let hints = response["result"].as_array().expect("inlay hint array");
     assert_eq!(hints.len(), 1, "only unannotated binding should receive a hint: {response:#?}");
-    assert_eq!(hints[0]["label"], json!("≈ Int"));
+    assert_eq!(hints[0]["label"], json!(": Int"));
 
     drop(client_end);
     let _ = server_task.await;

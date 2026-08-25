@@ -33,6 +33,10 @@ name = "invariants"
 path = "tests/invariants.rs"
 
 [[test]]
+name = "native_contracts"
+path = "tests/native_contracts.rs"
+
+[[test]]
 name = "semantic_analysis"
 path = "tests/semantic_analysis.rs"
 

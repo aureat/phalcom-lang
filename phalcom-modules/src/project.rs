@@ -41,7 +41,7 @@ impl ResolvedProject {
 }
 
 /// The set of all resolved projects participating in a compilation or analysis session.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProjectUniverse {
     projects: Vec<ResolvedProject>,
     roots: BTreeMap<ProjectSourceIdentity, ResolvedProjectId>,

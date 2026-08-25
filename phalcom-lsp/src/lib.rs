@@ -52,6 +52,7 @@ pub mod inlay_hints;
 pub mod line_index;
 pub mod parity;
 pub mod perf;
+pub mod presentation;
 pub mod request_context;
 pub mod selectors;
 pub mod semantic;

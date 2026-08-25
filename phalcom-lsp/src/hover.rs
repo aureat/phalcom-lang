@@ -701,17 +701,15 @@ pub fn render_binding_hover_with_formal(
     } else if let Some(formal) = formal {
         sections.push(format!("**Formal type:** `{}`", formal.text()));
         if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
-            sections.push(format!(
-                "**Observed type:** `≈ {}`\n\nConfidence: {}",
-                crate::semantic::render_value_shape(&value.shape),
-                crate::semantic::confidence_name(value.confidence)
+            sections.push(crate::presentation::advisory_hover(
+                "Observed type",
+                &crate::semantic::render_value_shape(&value.shape),
             ));
         }
     } else if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
-        sections.push(format!(
-            "**Observed type:** `≈ {}`\n\nConfidence: {}",
-            crate::semantic::render_value_shape(&value.shape),
-            crate::semantic::confidence_name(value.confidence)
+        sections.push(crate::presentation::advisory_hover(
+            "Observed type",
+            &crate::semantic::render_value_shape(&value.shape),
         ));
     }
     if let Some(doc) = phaldoc {
@@ -880,11 +878,7 @@ pub fn render_selector_hover_with_formal_value(
         sections.push(format!("**Formal return:** `{}`", formal.text()));
     } else if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
         let label = if is_field { "Observed value" } else { "Observed return" };
-        sections.push(format!(
-            "**{label}:** `≈ {}`\n\nConfidence: {}",
-            crate::semantic::render_value_shape(&value.shape),
-            crate::semantic::confidence_name(value.confidence)
-        ));
+        sections.push(crate::presentation::advisory_hover(label, &crate::semantic::render_value_shape(&value.shape)));
     }
 
     if let Some(contract_view) = render_contract_view(selector) {
@@ -1120,8 +1114,8 @@ mod tests {
             kind: crate::index::MemberKind::Method,
         }];
         let rendered = render_selector_hover_with_value("make()", &sites, None, Some(&value)).unwrap();
-        assert!(rendered.contains("**Observed return:** `≈ String`"));
-        assert!(rendered.contains("Confidence: flow"));
+        assert!(rendered.contains("**Observed return:** `String`"));
+        assert!(!rendered.contains("Confidence:"));
     }
 
     #[test]
