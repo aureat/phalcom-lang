@@ -1,8 +1,9 @@
-use crate::support::Fixture;
+use crate::semantic::support::{Fixture, known};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 
+/// LAW: one argument-derived substitution specializes the generic return.
 #[test]
 fn generic_identity_solves_parameter_from_argument_and_specializes_return() {
     let f = Fixture::new(
@@ -24,10 +25,19 @@ class Probe {
     let int_ty = f.ty("Int");
     let string_ty = f.ty("String");
     let run = f.callable("Probe", "run", DispatchSide::Class);
+    f.assert_expression_knowledge(
+        f.expression(run, "Probe.identity(42)"),
+        known(int_ty).established().origin(phalcom_semantic::EvidenceOrigin::GenericInference),
+    );
+    f.assert_expression_knowledge(
+        f.expression(run, "Probe.identity(\"hello\")"),
+        known(string_ty).established().origin(phalcom_semantic::EvidenceOrigin::GenericInference),
+    );
     f.assert_binding_established(run, "x", int_ty);
     f.assert_binding_established(run, "y", string_ty);
 }
 
+/// LAW: independent generic variables retain independent argument evidence.
 #[test]
 fn generic_pair_solves_two_independent_variables() {
     let f = Fixture::new(
@@ -49,8 +59,15 @@ class Probe {
     let string_ty = f.ty("String");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     f.assert_tuple_types(f.binding(run, "x").current.ty().expect("pair result"), &[int_ty, string_ty]);
+    f.assert_expression_knowledge(
+        f.expression(run, "Probe.pair(1, \"hello\")"),
+        known(f.binding(run, "x").current.ty().expect("pair result"))
+            .established()
+            .origin(phalcom_semantic::EvidenceOrigin::GenericInference),
+    );
 }
 
+/// LAW: expected context constrains a call without overwriting its precise fact.
 #[test]
 fn expected_result_context_constrains_generic_without_merely_overwriting_call_fact() {
     let f = Fixture::new(
@@ -78,8 +95,10 @@ class Probe {
     let x = f.binding(run, "x");
     assert_eq!(x.declared, Some(number));
     assert_eq!(x.current.ty(), Some(int_ty));
+    f.assert_no_error_diagnostics();
 }
 
+/// LAW: conflicting generic constraints retain actual evidence and diagnose.
 #[test]
 fn conflicting_generic_constraints_are_refuted_instead_of_using_expected_annotation_as_fact() {
     let f = Fixture::new(
@@ -113,8 +132,10 @@ class Probe {
         !f.diagnostics(DiagnosticCode::BindingInitializerMismatch).is_empty() || !f.diagnostics(DiagnosticCode::ArgumentMismatch).is_empty(),
         "conflicting constraints should produce an owning diagnostic"
     );
+    f.assert_only_error_codes(&[DiagnosticCode::BindingInitializerMismatch, DiagnosticCode::ArgumentMismatch]);
 }
 
+/// LAW: assumed input evidence yields an assumed generic return.
 #[test]
 fn assumed_generic_argument_yields_assumed_generic_return() {
     let f = Fixture::new(
@@ -143,6 +164,7 @@ class Probe {
     assert_eq!(result.current.origin(), Some(phalcom_semantic::EvidenceOrigin::GenericInference));
 }
 
+/// LAW: a composite generic result takes weakest supporting evidence.
 #[test]
 fn mixed_generic_return_uses_weakest_value_support() {
     let f = Fixture::new(
@@ -168,6 +190,7 @@ class Probe {
     assert_eq!(result.current.status(), Some(phalcom_semantic::EvidenceStatus::Assumed));
 }
 
+/// LAW: fixed return evidence stays established despite assumed generic input.
 #[test]
 fn independent_fixed_generic_return_stays_established() {
     let f = Fixture::new(
@@ -203,6 +226,7 @@ class Probe {
     assert_eq!(result.declared, Some(int_ty));
 }
 
+/// LAW: expected context cannot fabricate an underconstrained generic result.
 #[test]
 fn expected_context_cannot_fabricate_missing_generic_return() {
     let f = Fixture::new(

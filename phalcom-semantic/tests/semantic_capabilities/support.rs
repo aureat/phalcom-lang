@@ -1,17 +1,183 @@
+#![allow(dead_code)]
+
 use phalcom_ast::parse;
+use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorBase;
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
+use phalcom_semantic::checker::analysis::SemanticDependency;
+use phalcom_semantic::checker::analysis::{AnalysisStatus, BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::checker::{BindingConsistency, BindingContractOrigin};
-use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_semantic::types::evidence::EvidenceStatus;
+use phalcom_semantic::diagnostic::{DiagnosticCode, DiagnosticSeverity, SemanticDiagnostic};
+use phalcom_semantic::explain::DerivationRule;
+use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SourceSiteId};
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::row::RecordRowTail;
 use phalcom_semantic::types::store::TypeData;
 use phalcom_semantic::{TypeId, analyze_single_module, is_subtype};
 use std::collections::HashSet;
 use std::sync::Arc;
 
 pub type Analysis = phalcom_semantic::workspace::SemanticAnalysis;
+
+/// Stable source location selector used by deep assertions.
+pub enum SourceLocator<'a> {
+    Text { text: &'a str, occurrence: usize },
+    Offset(usize),
+    Range(SourceRange),
+    Site(SourceSiteId),
+}
+
+#[derive(Clone, Debug)]
+pub enum TypeExpectation {
+    Id(TypeId),
+    Any,
+    Nominal(String),
+    ClassObject(String),
+    Applied(Box<TypeExpectation>, Vec<TypeExpectation>),
+    Union(Vec<TypeExpectation>),
+    Tuple(Vec<TypeExpectation>),
+    Record(Vec<(String, TypeExpectation)>),
+}
+
+impl From<TypeId> for TypeExpectation {
+    fn from(value: TypeId) -> Self {
+        Self::Id(value)
+    }
+}
+
+pub fn nominal(name: impl Into<String>) -> TypeExpectation {
+    TypeExpectation::Nominal(name.into())
+}
+
+pub fn class_object(name: impl Into<String>) -> TypeExpectation {
+    TypeExpectation::ClassObject(name.into())
+}
+
+pub fn applied(origin: impl Into<String>, arguments: impl IntoIterator<Item = TypeExpectation>) -> TypeExpectation {
+    TypeExpectation::Applied(Box::new(nominal(origin)), arguments.into_iter().collect())
+}
+
+pub fn union(members: impl IntoIterator<Item = TypeExpectation>) -> TypeExpectation {
+    TypeExpectation::Union(members.into_iter().collect())
+}
+
+pub fn tuple(elements: impl IntoIterator<Item = TypeExpectation>) -> TypeExpectation {
+    TypeExpectation::Tuple(elements.into_iter().collect())
+}
+
+#[derive(Clone, Debug)]
+pub struct KnowledgeExpectation {
+    pub ty: Option<TypeExpectation>,
+    pub state: KnowledgeStateExpectation,
+    pub status: Option<EvidenceStatus>,
+    pub origin: Option<EvidenceOrigin>,
+}
+
+#[derive(Clone, Debug)]
+pub enum KnowledgeStateExpectation {
+    Known,
+    Unknown(Option<UnknownReason>),
+    Dynamic(Option<DynamicReason>),
+}
+
+pub fn known<T: Into<TypeExpectation>>(ty: T) -> KnowledgeExpectation {
+    KnowledgeExpectation {
+        ty: Some(ty.into()),
+        state: KnowledgeStateExpectation::Known,
+        status: None,
+        origin: None,
+    }
+}
+
+pub fn unknown(reason: UnknownReason) -> KnowledgeExpectation {
+    KnowledgeExpectation {
+        ty: None,
+        state: KnowledgeStateExpectation::Unknown(Some(reason)),
+        status: None,
+        origin: None,
+    }
+}
+
+pub fn dynamic(reason: DynamicReason) -> KnowledgeExpectation {
+    KnowledgeExpectation {
+        ty: None,
+        state: KnowledgeStateExpectation::Dynamic(Some(reason)),
+        status: None,
+        origin: None,
+    }
+}
+
+impl KnowledgeExpectation {
+    pub fn established(mut self) -> Self {
+        self.status = Some(EvidenceStatus::Established);
+        self
+    }
+
+    pub fn assumed(mut self) -> Self {
+        self.status = Some(EvidenceStatus::Assumed);
+        self
+    }
+
+    pub fn origin(mut self, origin: EvidenceOrigin) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BindingExpectation {
+    pub declared: Option<TypeExpectation>,
+    pub current: Option<KnowledgeExpectation>,
+    pub consistency: Option<ConsistencyExpectation>,
+    pub mutable: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ConsistencyExpectation {
+    Validated,
+    Assumed,
+    Refuted { actual: TypeExpectation, expected: TypeExpectation },
+    Unconstrained,
+}
+
+pub fn binding() -> BindingExpectation {
+    BindingExpectation::default()
+}
+
+impl BindingExpectation {
+    pub fn declared<T: Into<TypeExpectation>>(mut self, ty: T) -> Self {
+        self.declared = Some(ty.into());
+        self
+    }
+
+    pub fn current(mut self, knowledge: KnowledgeExpectation) -> Self {
+        self.current = Some(knowledge);
+        self
+    }
+
+    pub fn validated(mut self) -> Self {
+        self.consistency = Some(ConsistencyExpectation::Validated);
+        self
+    }
+
+    pub fn assumed(mut self) -> Self {
+        self.consistency = Some(ConsistencyExpectation::Assumed);
+        self
+    }
+
+    pub fn refuted<T: Into<TypeExpectation>, U: Into<TypeExpectation>>(mut self, actual: T, expected: U) -> Self {
+        self.consistency = Some(ConsistencyExpectation::Refuted {
+            actual: actual.into(),
+            expected: expected.into(),
+        });
+        self
+    }
+
+    pub fn mutable(mut self, mutable: bool) -> Self {
+        self.mutable = Some(mutable);
+        self
+    }
+}
 
 pub struct Fixture {
     pub module: ModuleId,
@@ -158,6 +324,234 @@ impl Fixture {
 
     pub fn assert_record(&self, actual: TypeId) {
         assert!(matches!(self.analysis.snapshot.store.get(actual), TypeData::Record(_)), "expected record type");
+    }
+
+    pub fn assert_no_error_diagnostics(&self) {
+        let errors = self
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+            .collect::<Vec<_>>();
+        assert!(errors.is_empty(), "unexpected semantic errors: {errors:#?}");
+    }
+
+    pub fn assert_diagnostic(&self, code: DiagnosticCode, count: usize) {
+        assert_eq!(self.diagnostics(code).len(), count, "unexpected {code} diagnostics");
+    }
+
+    pub fn assert_only_error_codes(&self, expected: &[DiagnosticCode]) {
+        let mut actual = self
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        actual.sort_by_key(|code| code.as_str());
+        let mut expected = expected.to_vec();
+        expected.sort_by_key(|code| code.as_str());
+        assert_eq!(actual, expected);
+    }
+
+    pub fn assert_type(&self, actual: TypeId, expected: impl Into<TypeExpectation>) {
+        self.assert_type_expectation(actual, &expected.into());
+    }
+
+    pub fn assert_knowledge(&self, actual: &TypeKnowledge, expected: &KnowledgeExpectation) {
+        match (&expected.state, actual) {
+            (KnowledgeStateExpectation::Known, TypeKnowledge::Known(_)) => {}
+            (KnowledgeStateExpectation::Unknown(reason), TypeKnowledge::Unknown(actual_reason)) => {
+                if let Some(reason) = reason {
+                    assert_eq!(actual_reason, reason);
+                }
+            }
+            (KnowledgeStateExpectation::Dynamic(reason), TypeKnowledge::Dynamic(actual_reason)) => {
+                if let Some(reason) = reason {
+                    assert_eq!(actual_reason, reason);
+                }
+            }
+            (state, actual) => panic!("knowledge state mismatch: expected {state:?}, actual {actual:?}"),
+        }
+        if let Some(ty) = &expected.ty {
+            let actual_ty = actual.ty().expect("expected known type");
+            self.assert_type_expectation(actual_ty, ty);
+        }
+        if let Some(status) = expected.status {
+            assert_eq!(actual.status(), Some(status), "knowledge status mismatch: {actual:#?}");
+        }
+        if let Some(origin) = expected.origin {
+            assert_eq!(actual.origin(), Some(origin), "knowledge origin mismatch: {actual:#?}");
+        }
+    }
+
+    pub fn assert_binding_expectation(&self, callable: &CallableAnalysis, name: &str, expected: BindingExpectation) {
+        let actual = self.binding(callable, name);
+        if let Some(declared) = expected.declared {
+            let actual_declared = actual.declared.expect("expected declared binding type");
+            self.assert_type_expectation(actual_declared, &declared);
+        }
+        if let Some(current) = expected.current {
+            self.assert_knowledge(&actual.current, &current);
+        }
+        if let Some(mutable) = expected.mutable {
+            assert_eq!(actual.mutable, mutable, "binding mutability mismatch: {actual:#?}");
+        }
+        if let Some(consistency) = expected.consistency {
+            match consistency {
+                ConsistencyExpectation::Validated => assert!(matches!(actual.consistency, BindingConsistency::Validated), "{actual:#?}"),
+                ConsistencyExpectation::Assumed => assert!(matches!(actual.consistency, BindingConsistency::Assumed { .. }), "{actual:#?}"),
+                ConsistencyExpectation::Unconstrained => assert!(matches!(actual.consistency, BindingConsistency::Unconstrained), "{actual:#?}"),
+                ConsistencyExpectation::Refuted {
+                    actual: want_actual,
+                    expected: want_expected,
+                } => {
+                    let BindingConsistency::Refuted {
+                        actual: actual_ty,
+                        expected: expected_ty,
+                        ..
+                    } = actual.consistency
+                    else {
+                        panic!("expected refuted binding: {actual:#?}");
+                    };
+                    self.assert_type_expectation(actual_ty, &want_actual);
+                    self.assert_type_expectation(expected_ty, &want_expected);
+                }
+            }
+        }
+    }
+
+    pub fn assert_expression_knowledge(&self, expression: &ExpressionAnalysis, expected: KnowledgeExpectation) {
+        self.assert_knowledge(&expression.knowledge, &expected);
+    }
+
+    pub fn assert_expression_ready(&self, expression: &ExpressionAnalysis) {
+        assert!(matches!(expression.status, AnalysisStatus::Ready), "expected ready expression: {expression:#?}");
+    }
+
+    pub fn assert_expression_call_target(&self, expression: &ExpressionAnalysis, expected: &CallableId) {
+        assert_eq!(expression.callable.as_ref(), Some(expected), "unexpected resolved callable: {expression:#?}");
+    }
+
+    pub fn assert_explanation_rule(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, expected: DerivationRule) {
+        let id = expression.explanation.expect("expected expression explanation");
+        let node = callable.explanations.get(id).expect("missing explanation node");
+        assert_eq!(node.rule, expected, "unexpected explanation node: {node:#?}");
+        assert_eq!(node.status, expression.knowledge.status().expect("explained expression must be known"));
+        assert_eq!(node.origin, expression.knowledge.origin().expect("explained expression must be known"));
+    }
+
+    pub fn assert_callable_dependency(&self, callable: &CallableAnalysis, expected: &CallableId) {
+        assert!(
+            callable.dependencies.iter().any(|dependency| dependency == expected),
+            "missing callable dependency {expected:?}: {callable:#?}"
+        );
+    }
+
+    pub fn assert_semantic_dependency(&self, callable: &CallableAnalysis, expected: &SemanticDependency) {
+        assert!(
+            callable.semantic_dependencies.iter().any(|dependency| dependency == expected),
+            "missing semantic dependency {expected:?}: {callable:#?}"
+        );
+    }
+
+    pub fn assert_normal_return(&self, callable: &CallableAnalysis, expected: KnowledgeExpectation) {
+        assert_eq!(callable.exits.normal_return_values.len(), 1, "expected one published normal return");
+        self.assert_knowledge(&callable.exits.normal_return_values[0], &expected);
+    }
+
+    pub fn expression_at<'a>(&'a self, callable: &'a CallableAnalysis, locator: SourceLocator<'_>) -> &'a ExpressionAnalysis {
+        match locator {
+            SourceLocator::Text { text, occurrence } => self.expression_n(callable, text, occurrence),
+            SourceLocator::Offset(offset) => callable
+                .expressions
+                .values()
+                .find(|expression| expression.range.contains(offset))
+                .expect("no expression at offset"),
+            SourceLocator::Range(range) => callable
+                .expressions
+                .values()
+                .find(|expression| expression.range == range)
+                .expect("no expression at range"),
+            SourceLocator::Site(site) => self.analysis.snapshot.formal_expression_at(&site).expect("site has no formal expression"),
+        }
+    }
+
+    fn assert_type_expectation(&self, actual: TypeId, expected: &TypeExpectation) {
+        match expected {
+            TypeExpectation::Any => {}
+            TypeExpectation::Id(expected) => assert_eq!(actual, *expected, "unexpected type: {}", self.analysis.snapshot.store.format_type(actual)),
+            TypeExpectation::Nominal(name) => match self.analysis.snapshot.store.get(actual) {
+                TypeData::Nominal { declaration } if declaration.name.as_ref() == name => {}
+                other => panic!("expected nominal `{name}`, got {other:?}"),
+            },
+            TypeExpectation::ClassObject(name) => match self.analysis.snapshot.store.get(actual) {
+                TypeData::ClassObject { declaration } if declaration.name.as_ref() == name => {}
+                other => panic!("expected class object `{name}`, got {other:?}"),
+            },
+            TypeExpectation::Applied(origin, arguments) => {
+                let TypeData::Applied {
+                    origin: actual_origin,
+                    arguments: actual_arguments,
+                } = self.analysis.snapshot.store.get(actual)
+                else {
+                    panic!("expected applied type, got {:?}", self.analysis.snapshot.store.get(actual));
+                };
+                self.assert_type_expectation(*actual_origin, origin);
+                assert_eq!(actual_arguments.len(), arguments.len());
+                for (actual, expected) in actual_arguments.iter().zip(arguments) {
+                    self.assert_type_expectation(*actual, expected);
+                }
+            }
+            TypeExpectation::Union(expected_members) => {
+                let actual_members = match self.analysis.snapshot.store.get(actual) {
+                    TypeData::Union(members) => members.to_vec(),
+                    _ => vec![actual],
+                };
+                assert_eq!(actual_members.len(), expected_members.len());
+                for expected in expected_members {
+                    assert!(
+                        actual_members.iter().any(|actual| self.type_matches(*actual, expected)),
+                        "missing union member {expected:?}"
+                    );
+                }
+            }
+            TypeExpectation::Tuple(expected_elements) => {
+                let TypeData::Tuple(actual_elements) = self.analysis.snapshot.store.get(actual) else {
+                    panic!("expected tuple, got {:?}", self.analysis.snapshot.store.get(actual));
+                };
+                assert_eq!(actual_elements.len(), expected_elements.len());
+                for (actual, expected) in actual_elements.iter().zip(expected_elements) {
+                    self.assert_type_expectation(actual.ty, expected);
+                }
+            }
+            TypeExpectation::Record(expected_fields) => {
+                let TypeData::Record(row) = self.analysis.snapshot.store.get(actual) else {
+                    panic!("expected record, got {:?}", self.analysis.snapshot.store.get(actual));
+                };
+                let row = self.analysis.snapshot.store.record_row(*row);
+                assert_eq!(row.tail, RecordRowTail::Closed);
+                assert_eq!(row.fields.len(), expected_fields.len());
+                for (name, expected) in expected_fields {
+                    let field = row.fields.iter().find(|field| field.name.as_ref() == name).expect("missing record field");
+                    self.assert_type_expectation(field.ty, expected);
+                }
+            }
+        }
+    }
+
+    fn type_matches(&self, actual: TypeId, expected: &TypeExpectation) -> bool {
+        match expected {
+            TypeExpectation::Id(expected) => actual == *expected,
+            TypeExpectation::Any => true,
+            TypeExpectation::Nominal(name) => {
+                matches!(self.analysis.snapshot.store.get(actual), TypeData::Nominal { declaration } if declaration.name.as_ref() == name)
+            }
+            TypeExpectation::ClassObject(name) => {
+                matches!(self.analysis.snapshot.store.get(actual), TypeData::ClassObject { declaration } if declaration.name.as_ref() == name)
+            }
+            _ => true,
+        }
     }
 }
 

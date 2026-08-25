@@ -309,6 +309,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             // rechecked against an inferred outer callable return merely
             // because the block expression appears in that callable.
             let outer_expected_return = ctx.expected_return.take();
+            let outer_flow = ctx.flow.clone();
             ctx.push_scope();
             let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
 
@@ -371,6 +372,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 }
             }
             ctx.pop_scope();
+            // Constructing a closure does not execute its body. Keep facts
+            // produced while checking the captured body inside that body.
+            ctx.flow = outer_flow;
 
             let Some(return_type) = tail_typed.knowledge.ty() else {
                 ctx.expected_return = outer_expected_return;
@@ -722,6 +726,11 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
 
+    if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected) {
+        typed.causal_invalidity = typed.causal_invalidity.join(recv_typed.causal_invalidity);
+        return typed;
+    }
+
     // Build selector from method name + pack items
     let mut slots = Vec::new();
     for arg in &call.args {
@@ -772,6 +781,108 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
     } else {
         TypedExpression::unknown(UnknownReason::DynamicMessageSend)
     }
+}
+
+/// Analyzes parser-desugared control sends using their block bodies as
+/// executable flow, rather than treating blocks as ordinary callable values.
+/// This keeps branch products, abrupt exits, and loop writes visible to the
+/// same formal flow state used by ordinary statements.
+fn synthesize_control_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> Option<TypedExpression> {
+    let positional_block = |index: usize| -> Option<&phalcom_ast::ast::BlockExpr> {
+        call.args
+            .iter()
+            .filter_map(|arg| match arg {
+                PackItem::Positional { expr: Expr::Block(block), .. } => Some(block.as_ref()),
+                _ => None,
+            })
+            .nth(index)
+    };
+    let labeled_block = |label: &str| -> Option<&phalcom_ast::ast::BlockExpr> {
+        call.args.iter().find_map(|arg| match arg {
+            PackItem::Labeled {
+                label: PackLabel::Static { text, .. },
+                value: Expr::Block(block),
+                ..
+            } if text == label => Some(block.as_ref()),
+            _ => None,
+        })
+    };
+
+    match call.method.as_str() {
+        "ifTrue" if labeled_block("ifFalse").is_some() => {
+            let then_block = positional_block(0)?;
+            let else_block = labeled_block("ifFalse")?;
+            let before = ctx.flow.clone();
+
+            let then_typed = analyze_control_block(ctx, then_block, expected);
+            let then_flow = ctx.flow.clone();
+            ctx.flow = before.clone();
+            let else_typed = analyze_control_block(ctx, else_block, expected);
+            let else_flow = ctx.flow.clone();
+
+            ctx.flow = FlowState::join_with_hierarchy(&[then_flow, else_flow], ctx.store, &ctx.hierarchy);
+            let knowledge = crate::types::evidence::join_type_knowledge(ctx.store, [then_typed.knowledge.clone(), else_typed.knowledge.clone()]);
+            let mut typed = TypedExpression::new(knowledge);
+            typed.causal_invalidity = then_typed.causal_invalidity.join(else_typed.causal_invalidity);
+            typed.explanation_parents.extend(then_typed.explanation_parents);
+            typed.explanation_parents.extend(else_typed.explanation_parents);
+            Some(typed)
+        }
+        "whileTrue" => {
+            let body = positional_block(0)?;
+            let before = ctx.flow.clone();
+            ctx.push_loop_frame();
+            let body_typed = analyze_control_block(ctx, body, &ExpectedType::None);
+            let body_flow = ctx.flow.clone();
+            let loop_frame = ctx.pop_loop_frame();
+            let mut loop_states = vec![before, body_flow];
+            loop_states.extend(loop_frame.continues);
+            loop_states.extend(loop_frame.breaks);
+            ctx.flow = FlowState::join_with_hierarchy(&loop_states, ctx.store, &ctx.hierarchy);
+            let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, call.range);
+            typed.causal_invalidity = body_typed.causal_invalidity;
+            Some(typed)
+        }
+        _ => None,
+    }
+}
+
+/// Checks one sacred control-flow block in its own lexical scope. `return`,
+/// `throw`, `break`, and `continue` terminate that path so callers can exclude
+/// it from subsequent reachable joins.
+fn analyze_control_block(ctx: &mut CheckingContext<'_>, block: &phalcom_ast::ast::BlockExpr, expected: &ExpectedType) -> TypedExpression {
+    ctx.push_scope();
+    let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, block.range);
+    for statement in &block.body {
+        match statement {
+            Statement::Expr { expr, .. } => result = analyze_expression(ctx, expr, expected),
+            Statement::Return(_) => {
+                result = check_statement(ctx, statement)
+                    .map(TypedExpression::new)
+                    .unwrap_or_else(|| TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range));
+                ctx.flow.mark_unreachable();
+                break;
+            }
+            Statement::Throw { .. } => {
+                check_statement(ctx, statement);
+                result = TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range);
+                ctx.flow.mark_unreachable();
+                break;
+            }
+            Statement::Break { .. } | Statement::Continue { .. } => {
+                check_statement(ctx, statement);
+                result = TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range);
+                ctx.flow.mark_unreachable();
+                break;
+            }
+            _ => {
+                check_statement(ctx, statement);
+                result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, block.range);
+            }
+        }
+    }
+    ctx.pop_scope();
+    result
 }
 
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {

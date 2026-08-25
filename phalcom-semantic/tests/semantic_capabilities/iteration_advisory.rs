@@ -1,7 +1,8 @@
-use crate::support::{Fixture, assert_source_contract};
+use crate::semantic::support::{Fixture, assert_source_contract, binding, known};
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceStatus;
 
+/// LAW: iteration element type comes from protocol return specialization.
 #[test]
 fn custom_iterable_element_type_comes_from_protocol_not_first_generic_argument() {
     let f = Fixture::new(
@@ -23,10 +24,13 @@ class Probe {
     );
     let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
+    f.assert_binding_expectation(run, "value", binding().current(known(int_ty)));
+    f.assert_binding_expectation(run, "observed", binding().current(known(int_ty)));
     f.assert_binding_type(run, "value", int_ty);
     f.assert_binding_type(run, "observed", int_ty);
 }
 
+/// LAW: branch joins compose nested collection element precision.
 #[test]
 fn constructor_branch_nested_inside_collection_preserves_composed_specific_type() {
     let f = Fixture::new(
@@ -62,6 +66,7 @@ class Probe {
     }
 }
 
+/// LAW: unknown branch evidence weakens a declared result instead of becoming established.
 #[test]
 fn formal_unknown_branch_with_declared_contract_remains_assumed_not_established() {
     let f = Fixture::new(
@@ -90,4 +95,5 @@ class Probe {
     if x.current.ty() == Some(number) {
         assert_eq!(x.current.status(), Some(EvidenceStatus::Assumed));
     }
+    f.assert_no_error_diagnostics();
 }

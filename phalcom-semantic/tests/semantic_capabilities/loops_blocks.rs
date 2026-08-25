@@ -1,6 +1,7 @@
-use crate::support::{Fixture, assert_source_contract};
+use crate::semantic::support::{Fixture, assert_source_contract};
 use phalcom_semantic::identity::DispatchSide;
 
+/// LAW: same-type loop writes preserve current type.
 #[test]
 fn loop_same_type_assignment_preserves_current_type() {
     let f = Fixture::new(
@@ -8,7 +9,7 @@ fn loop_same_type_assignment_preserves_current_type() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    var x = 1
+    let x = 1
     while flag {
       x = 2
     }
@@ -23,6 +24,7 @@ class Probe {
     f.assert_binding_established(run, "y", int_ty);
 }
 
+/// LAW: loop join includes zero-iteration and body paths.
 #[test]
 fn loop_join_includes_preheader_and_body_types() {
     let f = Fixture::new(
@@ -30,7 +32,7 @@ fn loop_join_includes_preheader_and_body_types() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    var x: Number = 1
+    let x: Number = 1
     while flag {
       x = 2.5
     }
@@ -51,6 +53,7 @@ class Probe {
     f.assert_union_members(f.binding(run, "y").current.ty().expect("post-loop read"), &[int_ty, float_ty]);
 }
 
+/// LAW: break/continue paths contribute correct loop exit and backedge facts.
 #[test]
 fn break_and_continue_preserve_loop_exit_and_backedge_facts() {
     let f = Fixture::new(
@@ -58,7 +61,7 @@ fn break_and_continue_preserve_loop_exit_and_backedge_facts() {
 class Probe {
   @class
   run(_ skip: Bool) {
-    var x = 1
+    let x = 1
     for n in [1, 2, 3] {
       if skip {
         x = "continued"
@@ -80,6 +83,7 @@ class Probe {
     f.assert_union_members(post, &[int_ty, string_ty, float_ty]);
 }
 
+/// LAW: closure capture checks body writes without applying them at creation.
 #[test]
 fn captured_block_write_is_not_applied_until_execution_is_proven() {
     let f = Fixture::new(
@@ -87,8 +91,8 @@ fn captured_block_write_is_not_applied_until_execution_is_proven() {
 class Probe {
   @class
   run() {
-    var x = 1
-    let action = {
+    let x = 1
+    let action = || {
       x = "changed"
     }
     let y = x

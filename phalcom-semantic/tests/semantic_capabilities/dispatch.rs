@@ -1,7 +1,8 @@
-use crate::support::Fixture;
+use crate::semantic::support::{Fixture, known};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 
+/// LAW: constructor specialization feeds the next instance-side dispatch.
 #[test]
 fn chained_dispatch_preserves_constructor_specialization_without_binding_storage() {
     let f = Fixture::new(
@@ -22,11 +23,25 @@ class Probe {
     let int_ty = f.ty("Int");
     let derived = f.ty("Derived");
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    f.assert_expression_established(f.expression(run, "Derived.new()"), derived);
-    f.assert_expression_established(f.expression(run, "Derived.new().derivedOnly()"), int_ty);
+    let constructor = f.expression(run, "Derived.new()");
+    let method = f.expression(run, "Derived.new().derivedOnly()");
+    f.assert_expression_knowledge(
+        constructor,
+        known(derived).established().origin(phalcom_semantic::EvidenceOrigin::CallableSignature),
+    );
+    f.assert_expression_knowledge(method, known(int_ty).established().origin(phalcom_semantic::EvidenceOrigin::CallableSignature));
+    assert!(
+        constructor.callable.is_some(),
+        "constructor call must resolve to a canonical callable: {constructor:#?}"
+    );
+    f.assert_expression_call_target(method, &f.callable_id("Derived", "derivedOnly", DispatchSide::Instance));
+    f.assert_expression_established(constructor, derived);
+    f.assert_expression_established(method, int_ty);
     f.assert_binding_established(run, "y", int_ty);
+    f.assert_no_error_diagnostics();
 }
 
+/// LAW: every resolved hop preserves its intermediate receiver/result type.
 #[test]
 fn multiple_hop_call_chain_preserves_each_intermediate_result() {
     let f = Fixture::new(
@@ -60,8 +75,10 @@ class Probe {
     f.assert_expression_established(f.expression(run, "A.new().makeB()"), b);
     f.assert_expression_established(f.expression(run, "A.new().makeB().makeC()"), c);
     f.assert_expression_established(f.expression(run, "A.new().makeB().makeC().value()"), int_ty);
+    f.assert_no_error_diagnostics();
 }
 
+/// LAW: side mismatch remains unresolved and cannot become dynamic certainty.
 #[test]
 fn wrong_class_instance_dispatch_side_is_not_laundered_into_dynamic_unknown() {
     let f = Fixture::new(
@@ -91,8 +108,10 @@ class Probe {
     let bad_instance = f.binding(run, "badInstance");
     assert!(bad_class.current.is_unknown() || bad_class.causal_invalidity.suppression_cause().is_some());
     assert!(bad_instance.current.is_unknown() || bad_instance.causal_invalidity.suppression_cause().is_some());
+    f.assert_diagnostic(DiagnosticCode::ArgumentMismatch, 0);
 }
 
+/// LAW: selector shape errors stay distinct from argument type errors.
 #[test]
 fn selector_label_mismatch_is_distinguished_from_argument_type_mismatch() {
     let f = Fixture::new(
@@ -120,6 +139,7 @@ class Probe {
     );
 }
 
+/// LAW: argument refutation does not erase an independently known return.
 #[test]
 fn argument_refutation_preserves_independently_known_call_return_type() {
     let f = Fixture::new(

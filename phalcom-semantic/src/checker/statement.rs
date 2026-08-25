@@ -7,7 +7,7 @@ use super::expression::{analyze_expression, synthesize_expr};
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::denotation::ValueSemanticFact;
-use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{EvidenceOrigin, TypeEvidence, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
 use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 use phalcom_common::selector::Selector;
@@ -79,17 +79,18 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 causal_invalidity = causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
             }
 
-            if let Pattern::Name { name, .. } = &binding.pattern {
-                ctx.declare_binding(BindingSeed {
-                    name: name.clone(),
-                    range: binding.range,
-                    contract,
-                    current: reconciliation.current,
+            bind_declaration_pattern(
+                ctx,
+                &binding.pattern,
+                ValueSemanticFact {
+                    knowledge: reconciliation.current,
                     denotation: val_typed.denotation,
-                    causal_invalidity,
-                    mutable: binding.kind == BindingKind::Let,
-                });
-            }
+                },
+                contract,
+                causal_invalidity,
+                binding.kind == BindingKind::Let,
+                binding.range,
+            );
             None
         }
         Statement::Return(ret) => {
@@ -124,6 +125,16 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             analyze_expression(ctx, expr, &ExpectedType::None);
             None
         }
+        Statement::Break { .. } => {
+            ctx.record_break();
+            ctx.flow.mark_unreachable();
+            None
+        }
+        Statement::Continue { .. } => {
+            ctx.record_continue();
+            ctx.flow.mark_unreachable();
+            None
+        }
         Statement::Class(class_def) => {
             super::declaration::check_class(ctx, class_def);
             None
@@ -143,19 +154,117 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 let elem_fact = ValueSemanticFact::new(elem_knowledge);
                 lane_facts.push((&lane.pattern, elem_fact));
             }
+            let before = ctx.flow.clone();
+            ctx.push_loop_frame();
             ctx.push_scope();
             for (pat, fact) in lane_facts {
-                if let Pattern::Name { name, range, .. } = pat {
-                    ctx.bind_pattern_binding(name.clone(), fact, *range);
-                }
+                bind_pattern(ctx, pat, fact);
             }
             for s in &for_stmt.body {
                 check_statement(ctx, s);
             }
+            let body_flow = ctx.flow.clone();
             ctx.pop_scope();
+            let loop_frame = ctx.pop_loop_frame();
+            let mut loop_states = vec![before, body_flow];
+            loop_states.extend(loop_frame.continues);
+            loop_states.extend(loop_frame.breaks);
+            ctx.flow = crate::checker::flow::FlowState::join_with_hierarchy(&loop_states, ctx.store, &ctx.hierarchy);
             None
         }
         _ => None,
+    }
+}
+
+fn bind_declaration_pattern(
+    ctx: &mut CheckingContext<'_>,
+    pattern: &Pattern,
+    fact: ValueSemanticFact,
+    contract: Option<BindingContract>,
+    causal_invalidity: crate::checker::causal::CausalInvalidity,
+    mutable: bool,
+    range: phalcom_common::range::SourceRange,
+) {
+    match pattern {
+        Pattern::Name { name, .. } => {
+            ctx.declare_binding(BindingSeed {
+                name: name.clone(),
+                range,
+                contract,
+                current: fact.knowledge,
+                denotation: fact.denotation,
+                causal_invalidity,
+                mutable,
+            });
+        }
+        Pattern::Tuple { elements, .. } => {
+            let component_facts = match fact.knowledge {
+                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty) {
+                    crate::types::store::TypeData::Tuple(types) if types.len() == elements.len() => Some(
+                        types
+                            .iter()
+                            .map(|element| {
+                                ValueSemanticFact::new(TypeKnowledge::Known(TypeEvidence {
+                                    ty: element.ty,
+                                    status: evidence.status,
+                                    origin: EvidenceOrigin::PatternDecomposition,
+                                    provenance: evidence.provenance.clone(),
+                                }))
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                    _ => None,
+                },
+                _ => None,
+            };
+            for (index, element) in elements.iter().enumerate() {
+                let component = component_facts
+                    .as_ref()
+                    .and_then(|facts| facts.get(index))
+                    .cloned()
+                    .unwrap_or_else(|| ValueSemanticFact::new(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)));
+                bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable, range);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact) {
+    match pattern {
+        Pattern::Name { name, range, .. } => {
+            ctx.bind_pattern_binding(name.clone(), fact, *range);
+        }
+        Pattern::Tuple { elements, .. } => {
+            let component_facts = match fact.knowledge {
+                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty) {
+                    crate::types::store::TypeData::Tuple(types) if types.len() == elements.len() => Some(
+                        types
+                            .iter()
+                            .map(|element| {
+                                ValueSemanticFact::new(TypeKnowledge::Known(TypeEvidence {
+                                    ty: element.ty,
+                                    status: evidence.status,
+                                    origin: EvidenceOrigin::PatternDecomposition,
+                                    provenance: evidence.provenance.clone(),
+                                }))
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                    _ => None,
+                },
+                _ => None,
+            };
+            for (index, element) in elements.iter().enumerate() {
+                let component = component_facts
+                    .as_ref()
+                    .and_then(|facts| facts.get(index))
+                    .cloned()
+                    .unwrap_or_else(|| ValueSemanticFact::new(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)));
+                bind_pattern(ctx, element, component);
+            }
+        }
+        _ => {}
     }
 }
 

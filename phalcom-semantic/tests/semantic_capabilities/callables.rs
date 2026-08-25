@@ -1,7 +1,8 @@
-use crate::support::Fixture;
+use crate::semantic::support::{Fixture, known, union};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 
+/// LAW: unannotated callable publication preserves its normal branch return union.
 #[test]
 fn branch_derived_tail_type_is_published_to_unannotated_callable_signature() {
     let f = Fixture::new(
@@ -34,8 +35,17 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let x = f.binding(run, "x");
     f.assert_union_members(x.current.ty().expect("published inferred return"), &[cat, dog]);
+    f.assert_normal_return(
+        factory,
+        known(union([cat.into(), dog.into()]))
+            .established()
+            .origin(phalcom_semantic::EvidenceOrigin::Flow),
+    );
+    f.assert_callable_dependency(run, &f.callable_id("Factory", "make", DispatchSide::Class));
+    f.assert_no_error_diagnostics();
 }
 
+/// LAW: broad public return contract accepts narrower branch evidence.
 #[test]
 fn explicit_broad_return_contract_preserves_narrow_branch_evidence() {
     let f = Fixture::new(
@@ -62,6 +72,13 @@ class Factory {
     f.assert_expression_established(f.expression(make, "Cat.new()"), cat);
     f.assert_expression_established(f.expression(make, "Dog.new()"), dog);
     f.assert_no_diagnostic(DiagnosticCode::ReturnMismatch);
+    f.assert_normal_return(
+        make,
+        known(union([cat.into(), dog.into()]))
+            .established()
+            .origin(phalcom_semantic::EvidenceOrigin::Flow),
+    );
+    f.assert_no_error_diagnostics();
 }
 
 #[test]

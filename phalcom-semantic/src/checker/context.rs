@@ -67,6 +67,12 @@ impl<'a> std::ops::Deref for DispatchAccess<'a> {
 
 type SharedSemanticDependencies = Rc<RefCell<BTreeSet<SemanticDependency>>>;
 
+#[derive(Clone, Default)]
+pub(crate) struct LoopFlowFrame {
+    pub continues: Vec<FlowState>,
+    pub breaks: Vec<FlowState>,
+}
+
 /// The compatibility `core` surface is bootstrapped as an immutable session seed
 /// and currently has no corresponding staged DB products. All other module
 /// identities are query-owned and must participate in dependency tracking.
@@ -211,6 +217,9 @@ pub struct CheckingContext<'a> {
     pub expected_return: Option<TypeKnowledge>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
+    /// Binding products remain queryable after a branch-local scope closes.
+    pub binding_history: BTreeMap<BindingId, crate::checker::analysis::BindingState>,
+    pub(crate) loop_frames: Vec<LoopFlowFrame>,
     pub body_id: BodyId,
     pub next_local_expr_id: u32,
     pub next_diagnostic_cause: u32,
@@ -272,6 +281,8 @@ impl<'a> CheckingContext<'a> {
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
+            binding_history: BTreeMap::new(),
+            loop_frames: Vec::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
             next_diagnostic_cause: 0,
@@ -311,6 +322,8 @@ impl<'a> CheckingContext<'a> {
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
+            binding_history: BTreeMap::new(),
+            loop_frames: Vec::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
             next_diagnostic_cause: 0,
@@ -342,6 +355,8 @@ impl<'a> CheckingContext<'a> {
             expected_return: self.expected_return.clone(),
             scopes: self.scopes.clone(),
             flow: self.flow.clone(),
+            binding_history: self.binding_history.clone(),
+            loop_frames: self.loop_frames.clone(),
             body_id: self.body_id,
             next_local_expr_id: self.next_local_expr_id,
             next_diagnostic_cause: self.next_diagnostic_cause,
@@ -606,6 +621,9 @@ impl<'a> CheckingContext<'a> {
         if let Some(explanation) = contract_explanation {
             self.flow.set_binding_explanation(binding_id, explanation);
         }
+        if let Some(state) = self.flow.get_binding(binding_id).cloned() {
+            self.binding_history.insert(binding_id, state);
+        }
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
                 name,
@@ -729,7 +747,32 @@ impl<'a> CheckingContext<'a> {
             return BindingWriteResult::Missing;
         };
         let result = self.flow.write(info.id, fact.knowledge, fact.denotation, consistency, causal_invalidity);
+        if let Some(state) = self.flow.get_binding(info.id).cloned() {
+            self.binding_history.insert(info.id, state);
+        }
         result
+    }
+
+    pub(crate) fn push_loop_frame(&mut self) {
+        self.loop_frames.push(LoopFlowFrame::default());
+    }
+
+    pub(crate) fn pop_loop_frame(&mut self) -> LoopFlowFrame {
+        self.loop_frames.pop().unwrap_or_default()
+    }
+
+    pub(crate) fn record_continue(&mut self) {
+        let state = self.flow.clone();
+        if let Some(frame) = self.loop_frames.last_mut() {
+            frame.continues.push(state);
+        }
+    }
+
+    pub(crate) fn record_break(&mut self) {
+        let state = self.flow.clone();
+        if let Some(frame) = self.loop_frames.last_mut() {
+            frame.breaks.push(state);
+        }
     }
 
     /// Records an explicitly consumed semantic dependency.
@@ -973,7 +1016,11 @@ impl<'a> CheckingContext<'a> {
             callable,
             body_range,
             expressions: self.expressions,
-            bindings: self.flow.bindings,
+            bindings: {
+                let mut bindings = self.binding_history;
+                bindings.extend(self.flow.bindings);
+                bindings
+            },
             flow_graph,
             entry_flow,
             exits,
