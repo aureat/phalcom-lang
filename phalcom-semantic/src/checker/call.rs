@@ -211,29 +211,10 @@ fn resolve_call_inner(
                 }
             }
 
-            // Collect expected result constraint. Contextual expectation can
-            // select a valid instantiation, but does not count as value support.
             let return_term = signature
                 .return_type
                 .ty()
                 .map(|ret_ty| session.type_id_to_inference(ret_ty, &var_map, ctx.store));
-            if let Some(ret_term) = return_term.as_ref() {
-                if let Some(exp_ty) = expected.ty() {
-                    session.add_constraint(
-                        InferenceRelation::Subtype(ret_term.clone(), InferenceTerm::Canonical(exp_ty)),
-                        ConstraintOrigin::ExpectedResult { expression: call_id },
-                        None,
-                    );
-                } else if let ExpectedType::Inference { term: exp_term, .. } = expected {
-                    session.add_constraint(
-                        InferenceRelation::Subtype(ret_term.clone(), exp_term.clone()),
-                        ConstraintOrigin::ExpectedResult { expression: call_id },
-                        None,
-                    );
-                }
-            }
-
-            let outcome = session.solve(ctx.store, &ctx.hierarchy);
             let fixed_return = return_term.as_ref().and_then(|term| {
                 if session.term_has_variables(term) {
                     None
@@ -241,6 +222,68 @@ fn resolve_call_inner(
                     Some(promote_exact_return(&signature.return_type, call_range))
                 }
             });
+
+            // Solve value-derived constraints before applying contextual result
+            // constraints. If the context contradicts a value-supported
+            // instantiation, preserve that call fact so the enclosing binding
+            // can report the actual-vs-declared mismatch instead of erasing it.
+            let argument_outcome = session.solve(ctx.store, &ctx.hierarchy);
+            let argument_return = if let crate::checker::inference::InferenceOutcome::Solved(solution) = &argument_outcome {
+                if let Some(ret_ty) = signature.return_type.ty() {
+                    let mut subst = TypeSubstitution::new();
+                    for (&param_id, var_term) in &var_map {
+                        if let InferenceTerm::Var(v) = var_term {
+                            if let Some(&solved_ty) = solution.substitutions.get(v) {
+                                subst.bind(param_id, solved_ty);
+                            }
+                        }
+                    }
+                    let specialized_ret = subst.apply(ctx.store, ret_ty);
+                    let support = return_term.as_ref().and_then(|term| session.term_support(term));
+                    match (return_term.as_ref().is_some_and(|term| session.term_has_variables(term)), support) {
+                        (true, Some(InferenceSupport::Established)) => {
+                            Some(TypeKnowledge::established(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range))
+                        }
+                        (true, Some(InferenceSupport::Assumed)) => {
+                            Some(TypeKnowledge::assumed(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range))
+                        }
+                        (false, _) => fixed_return.clone(),
+                        (true, None) => None,
+                    }
+                } else {
+                    fixed_return.clone()
+                }
+            } else {
+                None
+            };
+
+            let outcome = if matches!(
+                &argument_outcome,
+                crate::checker::inference::InferenceOutcome::Solved(_) | crate::checker::inference::InferenceOutcome::Underconstrained(_)
+            ) {
+                if let Some(ret_term) = return_term.as_ref() {
+                    if let Some(exp_ty) = expected.ty() {
+                        session.add_constraint(
+                            InferenceRelation::Subtype(ret_term.clone(), InferenceTerm::Canonical(exp_ty)),
+                            ConstraintOrigin::ExpectedResult { expression: call_id },
+                            None,
+                        );
+                    } else if let ExpectedType::Inference { term: exp_term, .. } = expected {
+                        session.add_constraint(
+                            InferenceRelation::Subtype(ret_term.clone(), exp_term.clone()),
+                            ConstraintOrigin::ExpectedResult { expression: call_id },
+                            None,
+                        );
+                    }
+                }
+                if expected.is_none() {
+                    argument_outcome
+                } else {
+                    session.solve(ctx.store, &ctx.hierarchy)
+                }
+            } else {
+                argument_outcome
+            };
             return match &outcome {
                 crate::checker::inference::InferenceOutcome::Solved(solution) => {
                     if let Some(ret_ty) = signature.return_type.ty() {
@@ -276,7 +319,7 @@ fn resolve_call_inner(
                         "generic argument does not satisfy type constraints",
                         call_range,
                     ));
-                    terminal_generic_return(&outcome, fixed_return)
+                    terminal_generic_return(&outcome, argument_return.or(fixed_return))
                 }
                 crate::checker::inference::InferenceOutcome::Blocked(_)
                 | crate::checker::inference::InferenceOutcome::Cancelled

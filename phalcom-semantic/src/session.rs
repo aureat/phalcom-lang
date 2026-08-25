@@ -1346,6 +1346,7 @@ fn advisory_field_facts(
                     resolve_callable_for_shape,
                     resolve_method_family,
                     call_observer: None,
+                    expression_observer: None,
                 };
                 analyze_expr(expr, &context)
             });

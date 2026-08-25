@@ -1000,7 +1000,8 @@ impl SemanticSnapshot {
                 static_snapshot
                     .occurrence_at(module, offset)
                     .map(|occurrence| (occurrence.occurrence.site.clone(), occurrence.occurrence.range))
-            })?;
+            });
+        let site = site?;
         let fact = static_snapshot.advisory_fact(&site.0)?;
         Some(self.compiler_advisory_fact(&fact, site.1))
     }
@@ -1076,6 +1077,9 @@ impl SemanticSnapshot {
         if let Some(value) = self.compiler_advisory_at(uri, offset) {
             return value;
         }
+        if self.compiler_expression_coverage(uri, offset) {
+            return InferredValue::unknown();
+        }
         let fallback_module = ModuleId::new(uri.to_string());
         let module = self.module_for_uri(uri).unwrap_or(&fallback_module);
 
@@ -1139,6 +1143,19 @@ impl SemanticSnapshot {
             is_same_or_subclass: &is_same_or_subclass,
         };
         analyze_expr(expr, &context)
+    }
+
+    fn compiler_expression_coverage(&self, uri: &Url, offset: usize) -> bool {
+        let Some(static_snapshot) = self.current_static_snapshot() else {
+            return false;
+        };
+        let Some(module) = self.documents.get_by_uri(uri) else { return false };
+        let Some(source) = static_snapshot.source_index().module(module) else {
+            return false;
+        };
+        source.expression_site_at(offset).is_some()
+            || source.expression_site_at(offset.saturating_sub(1)).is_some()
+            || static_snapshot.occurrence_at(module, offset).is_some()
     }
 
     /// Returns current import edges for one module.

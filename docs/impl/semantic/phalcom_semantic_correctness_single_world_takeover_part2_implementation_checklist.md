@@ -57,7 +57,7 @@
 
 ### Task 7 — Port advisory expression and flow analysis
 
-- [~] Add compiler-owned advisory expression/flow analysis over canonical source scopes, formal resolved-call targets, and injected canonical dispatch adapters; direct, forwarding, cross-module propagation, and compiler method-family dispatch are verified, while full formal/advisory disagreement coverage remains open.
+- [x] Add compiler-owned advisory expression/flow analysis over canonical source scopes, formal resolved-call targets, and injected canonical dispatch adapters; direct, forwarding, cross-module propagation, compiler method-family dispatch, and formal/advisory disagreement behavior for ready, unknown, dynamic, invalid, suppressed, blocked, and cancelled formal states are verified.
 - [x] Cover literals, collections, locals, formal call returns, shared binding flow, fields, canonical factory dispatch, and method-family capture with canonical selector/signature products.
 
 ### Task 8 — Port contribution-indexed interprocedural advisory solving
@@ -113,4 +113,5 @@
 - `BASELINE`: Full semantic suite retains handoff capability baseline 12/40 passed, 28/40 failed; failures are stale `var`/bare-brace fixtures plus documented capability gaps, not introduced Part 2 source-index failures.
 - `VERIFIED`: `cargo check --workspace`, `cargo fmt --all -- --check`, full registered LSP integration (52 passed, 2 ignored), and full compiler suite except known capability baseline passed.
 - `VERIFIED THIS SLICE`: Compiler-primary LSP binding, field, parameter, and callable-return reads pass the full LSP crate suite (245 unit tests, 52 integration tests, 3 module-navigation tests); inherited field lookup walks compiler hierarchy, and legacy facts are consulted only when no coherent compiler snapshot exists. Expression inference remains compatibility-backed for uncovered compiler expression sites.
-- `PENDING`: Task 7 remains partial for complete formal/advisory disagreement coverage; Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership and forbidden-pattern/capability closure are not complete.
+- `VERIFIED THIS SLICE`: Advisory comparison is fail-closed for non-ready formal states and non-concrete `TypeKnowledge`; ready disagreement is observational only and leaves formal expression products unchanged. Nested advisory expression observation now publishes compiler-owned source-site facts. Focused advisory suites pass (10 analysis, 5 analyzer, 3 incrementality, 9 callable-dependency, 11 source-index tests).
+- `PENDING`: Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership, standalone uncovered compiler expression sites, forbidden-pattern audit, and capability-suite closure are not complete.

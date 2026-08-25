@@ -14,11 +14,16 @@ pub const DEFAULT_FORMAL_PROJECTION_DEPTH: usize = 8;
 
 /// Projects one formal knowledge result into advisory runtime shape.
 pub fn advisory_fact_from_formal(store: &TypeStore, knowledge: &TypeKnowledge, origin: AdvisoryOrigin) -> AdvisoryFact {
-    let shape = match knowledge {
+    AdvisoryFact::interprocedural(advisory_shape_from_formal(store, knowledge), origin)
+}
+
+/// Projects formal knowledge to a bounded advisory shape without constructing
+/// advisory provenance.
+pub fn advisory_shape_from_formal(store: &TypeStore, knowledge: &TypeKnowledge) -> ValueShape {
+    match knowledge {
         TypeKnowledge::Known(evidence) => shape_from_type(store, evidence.ty, DEFAULT_FORMAL_PROJECTION_DEPTH),
         TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => ValueShape::Unknown,
-    };
-    AdvisoryFact::interprocedural(shape, origin)
+    }
 }
 
 fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {

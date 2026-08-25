@@ -60,63 +60,90 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
             ClassMember::Method(m) => {
                 let is_constructor = m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor");
                 let mut slots = Vec::new();
+                for p in &m.params {
+                    if let Some(ref l) = p.label {
+                        slots.push(SelectorSlot::Label(l.clone()));
+                    } else {
+                        slots.push(SelectorSlot::Positional);
+                    }
+                }
+
+                let effective_side = if is_constructor { crate::identity::DispatchSide::Class } else { side };
+
+                let Ok(sel) = Selector::method(&m.name, slots) else {
+                    continue;
+                };
+                let generic_sig = if !m.generic_parameters.is_empty() {
+                    let mut diags = Vec::new();
+                    let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel.clone(), effective_side);
+                    let sig = crate::types::annotation::resolve_generic_signature(
+                        ctx.store,
+                        ctx.declarations,
+                        resolver,
+                        &ctx.current_module,
+                        crate::types::parameter::TypeParameterOwner::Callable(callable_id),
+                        &m.generic_parameters,
+                        m.where_clause.as_ref(),
+                        &mut diags,
+                    );
+                    ctx.publish_diagnostics(diags);
+                    Some(sig)
+                } else {
+                    None
+                };
+                let method_type_parameters = generic_sig
+                    .as_ref()
+                    .map(|sig| {
+                        sig.parameters
+                            .iter()
+                            .map(|&param_id| {
+                                let name = ctx.store.type_parameter(param_id).name.to_string();
+                                let param_form = ctx.store.parameter_form(param_id);
+                                (name, param_form)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let method_resolver = crate::types::annotation::ScopedTypeResolver {
+                    parent: resolver,
+                    type_parameters: method_type_parameters,
+                };
+                let method_resolver: &dyn crate::types::annotation::TypeResolver = &method_resolver;
+
                 let mut params = Vec::new();
                 for p in &m.params {
                     let p_k = p
                         .annotation
                         .as_ref()
-                        .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
+                        .map(|ann| ctx.resolve_type_annotation(method_resolver, ann).0)
                         .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                     let mut param = CallableParameter::new(p.name.clone(), p_k).with_rest(p.is_rest());
                     if let Some(ref l) = p.label {
-                        slots.push(SelectorSlot::Label(l.clone()));
                         param = param.with_label(l.clone());
-                    } else {
-                        slots.push(SelectorSlot::Positional);
                     }
                     params.push(param);
                 }
 
-                let (effective_side, ret_k) = if is_constructor {
+                let ret_k = if is_constructor {
                     let self_type = ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
                         owner: decl_id.clone(),
                         side: crate::identity::DispatchSide::Class,
                         role: crate::types::parameter::SelfRole::InstanceType,
                     });
-                    (
-                        crate::identity::DispatchSide::Class,
-                        TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics),
-                    )
+                    TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics)
                 } else {
-                    let ret_k = m
-                        .return_annotation
+                    m.return_annotation
                         .as_ref()
-                        .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
-                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-                    (side, ret_k)
+                        .map(|ann| ctx.resolve_type_annotation(method_resolver, ann).0)
+                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration))
                 };
 
-                if let Ok(sel) = Selector::method(&m.name, slots) {
-                    let mut callable_sig = CallableSignature::new(sel.clone(), params, ret_k);
-                    if !m.generic_parameters.is_empty() {
-                        let mut diags = Vec::new();
-                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel, effective_side);
-                        let sig = crate::types::annotation::resolve_generic_signature(
-                            ctx.store,
-                            ctx.declarations,
-                            resolver,
-                            &ctx.current_module,
-                            crate::types::parameter::TypeParameterOwner::Callable(callable_id),
-                            &m.generic_parameters,
-                            m.where_clause.as_ref(),
-                            &mut diags,
-                        );
-                        ctx.publish_diagnostics(diags);
-                        callable_sig = callable_sig.with_generics(sig);
-                    }
-                    surface.add_callable(effective_side, callable_sig);
+                let mut callable_sig = CallableSignature::new(sel, params, ret_k);
+                if let Some(sig) = generic_sig {
+                    callable_sig = callable_sig.with_generics(sig);
                 }
+                surface.add_callable(effective_side, callable_sig);
             }
             ClassMember::Getter(g) => {
                 let ret_k = g

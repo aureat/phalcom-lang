@@ -7,8 +7,9 @@ use phalcom_modules::interface::LinkedModuleInterface;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
-use phalcom_semantic::advisory::{AdvisoryModuleProduct, AdvisoryProductStatus, AdvisoryWorkspace};
+use phalcom_semantic::advisory::{AdvisoryAgreement, AdvisoryModuleProduct, AdvisoryProductStatus, AdvisoryWorkspace, compare_expression};
 use phalcom_semantic::checker::BindingConsistency;
+use phalcom_semantic::checker::analysis::{AnalysisStatus, ExpressionAnalysis};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SourceOwner, SourceSiteId, SourceSiteLocalId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -231,6 +232,82 @@ fn unchanged_advisory_shards_and_callable_summaries_are_reused() {
     let summary1 = first.snapshot.advisory().callables.get(&callable).unwrap();
     let summary2 = second.snapshot.advisory().callables.get(&callable).unwrap();
     assert!(Arc::ptr_eq(summary1, summary2));
+}
+
+#[test]
+fn advisory_disagreement_is_unknown_for_all_non_ready_formal_states() {
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module_id(), "let value = 1\n", 1));
+    let int = update
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(ModuleId::core(), "Int".into()))
+        .expect("Int declaration");
+    let expression_id = phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(1));
+    let advisory = AdvisoryFact::new(
+        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "String".into())),
+        AdvisoryConfidence::Exact,
+    );
+    let statuses = [
+        AnalysisStatus::Invalid(phalcom_semantic::identity::DiagnosticCauseId(1)),
+        AnalysisStatus::Suppressed(phalcom_semantic::checker::SuppressionCause::One(phalcom_semantic::identity::DiagnosticCauseId(
+            2,
+        ))),
+        AnalysisStatus::Blocked(phalcom_semantic::BlockReason::RecursiveFixpoint),
+        AnalysisStatus::DynamicBoundary(phalcom_semantic::DynamicReason::RuntimeReflection),
+        AnalysisStatus::Cancelled,
+    ];
+
+    for status in statuses {
+        let formal = ExpressionAnalysis::ready(
+            expression_id,
+            phalcom_common::range::SourceRange { start: 0, end: 1 },
+            phalcom_semantic::types::evidence::TypeKnowledge::established(int, phalcom_semantic::types::evidence::EvidenceOrigin::Syntax),
+        )
+        .with_status(status);
+        assert_eq!(
+            compare_expression(&update.snapshot.store, &formal, &advisory),
+            AdvisoryAgreement::Unknown,
+            "non-ready formal state must not become comparable advisory evidence"
+        );
+    }
+
+    for knowledge in [
+        phalcom_semantic::types::evidence::TypeKnowledge::Unknown(phalcom_semantic::types::evidence::UnknownReason::NoTypeEvidence),
+        phalcom_semantic::types::evidence::TypeKnowledge::Dynamic(phalcom_semantic::types::evidence::DynamicReason::ExplicitEscape),
+    ] {
+        let formal = ExpressionAnalysis::ready(expression_id, phalcom_common::range::SourceRange { start: 0, end: 1 }, knowledge);
+        assert_eq!(
+            compare_expression(&update.snapshot.store, &formal, &advisory),
+            AdvisoryAgreement::Unknown,
+            "non-concrete formal knowledge must not become comparable advisory evidence"
+        );
+    }
+}
+
+#[test]
+fn advisory_disagreement_keeps_ready_formal_product_unchanged() {
+    let module = module_id();
+    let source = "class Probe { @class run() { let value: Int = 1 } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module.clone(), source, 1));
+    let callable = update
+        .snapshot
+        .callable_analyses
+        .keys()
+        .find(|callable| callable.owner.name.as_ref() == "Probe")
+        .cloned()
+        .expect("Probe callable");
+    let analysis = update.snapshot.callable_analyses.get(&callable).expect("formal analysis");
+    let expression = analysis.expressions.values().next().expect("expression product");
+    let before = expression.clone();
+    let advisory = AdvisoryFact::new(
+        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "String".into())),
+        AdvisoryConfidence::Exact,
+    );
+    let relation = compare_expression(&update.snapshot.store, expression, &advisory);
+    assert!(matches!(relation, AdvisoryAgreement::Incomparable | AdvisoryAgreement::Unknown));
+    assert_eq!(expression, &before, "advisory disagreement must not mutate formal expression product");
 }
 
 #[test]

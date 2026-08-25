@@ -75,6 +75,8 @@ pub struct AdvisoryExpressionContext<'a> {
     pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
     /// Observes resolved call arguments for compiler-owned parameter transfer.
     pub call_observer: Option<&'a dyn Fn(AdvisoryCallObservation)>,
+    /// Observes every nested expression fact for source-site publication.
+    pub expression_observer: Option<&'a dyn Fn(SourceRange, AdvisoryFact)>,
 }
 
 /// One advisory argument observed at a resolved call site.
@@ -99,6 +101,14 @@ pub struct AdvisoryCallObservation {
 
 /// Evaluates one AST expression into an advisory fact.
 pub fn analyze_expr(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    let fact = analyze_expr_inner(expr, context);
+    if let Some(observer) = context.expression_observer {
+        observer(expr.range(), fact.clone());
+    }
+    fact
+}
+
+fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
     let range = expr.range();
     match expr {
         Expr::Int { .. } => literal(context, context.builtins.int.clone(), range),

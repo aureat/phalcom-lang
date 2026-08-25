@@ -123,6 +123,8 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
     let scope = context.scope_index.scope_at(expr.range().start);
     let calls = RefCell::new(Vec::new());
     let observe_call = |call: AdvisoryCallObservation| calls.borrow_mut().push(call);
+    let expressions = RefCell::new(Vec::new());
+    let observe_expression = |range, fact| expressions.borrow_mut().push((range, fact));
     let expression_context = AdvisoryExpressionContext {
         scope_index: context.scope_index,
         scope,
@@ -137,13 +139,16 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
         resolve_callable_for_shape: context.resolve_callable_for_shape,
         resolve_method_family: context.resolve_method_family,
         call_observer: Some(&observe_call),
+        expression_observer: Some(&observe_expression),
     };
     let fact = analyze_expr(expr, &expression_context);
     for call in calls.into_inner() {
         record_call_contributions(product, context, call);
     }
-    if let Some(site) = (context.source_site_for_range)(expr.range()) {
-        product.expressions.insert(site, fact.clone());
+    for (range, observed) in expressions.into_inner() {
+        if let Some(site) = (context.source_site_for_range)(range) {
+            product.expressions.insert(site, observed);
+        }
     }
     fact
 }
