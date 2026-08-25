@@ -1,15 +1,14 @@
 //! Declaration checking: classes, methods, getters, setters, indexers, and fields.
 
-use super::context::CheckingContext;
+use super::context::{CallableReturnContract, CheckingContext};
 use super::expression::synthesize_expr;
 use super::statement::check_statement;
 use crate::TypeResolver;
-use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::dispatch::{CallableParameter, CallableSignature};
+use crate::diagnostic::DiagnosticCode;
+use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
 use crate::identity::DeclarationId;
 use crate::surface::DeclarationSurface;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
-use crate::types::relation::{Assignability, check_assignability};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
 use phalcom_common::selector::{Selector, SelectorSlot};
 
@@ -140,6 +139,9 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 };
 
                 let mut callable_sig = CallableSignature::new(sel, params, ret_k);
+                if is_constructor {
+                    callable_sig = callable_sig.with_kind(CallableSemanticKind::Constructor);
+                }
                 if let Some(sig) = generic_sig {
                     callable_sig = callable_sig.with_generics(sig);
                 }
@@ -228,15 +230,13 @@ fn check_field_initializer_against_declared(ctx: &mut CheckingContext<'_>, field
         return;
     };
     let initializer = synthesize_expr(ctx, default_expr);
-    let assignability = check_assignability(ctx.store, &ctx.hierarchy, &initializer, declared);
-    if let Assignability::Refuted { .. } = assignability {
-        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-            ctx.current_module.clone(),
-            DiagnosticCode::FieldMismatch,
-            format!("default value for field `{}` does not match declared type", field.name),
-            field.range,
-        ));
-    }
+    ctx.apply_assignability(
+        &initializer,
+        declared,
+        DiagnosticCode::FieldMismatch,
+        format!("default value for field `{}` does not match declared type", field.name),
+        field.range,
+    );
 }
 
 fn check_field_initializer(ctx: &mut CheckingContext<'_>, resolver: &dyn crate::types::annotation::TypeResolver, field: &phalcom_ast::ast::FieldDef) {
@@ -364,7 +364,14 @@ fn check_callable_body(
     }
 
     // Resolve return annotation
-    let expected_return = return_annotation.map(|ann| ctx.resolve_type_annotation(resolver, ann).0);
+    let expected_return = return_annotation.and_then(|ann| {
+        let (knowledge, _) = ctx.resolve_type_annotation(resolver, ann);
+        knowledge.ty().map(|ty| CallableReturnContract {
+            ty,
+            origin: EvidenceOrigin::DeveloperAnnotation,
+            source: Some(ann.range),
+        })
+    });
 
     let old_return = ctx.expected_return.take();
     ctx.expected_return = expected_return.clone();
@@ -374,14 +381,15 @@ fn check_callable_body(
             if let Statement::Expr { expr, range } = stmt {
                 let expected_ret_type = expected_return
                     .as_ref()
-                    .and_then(crate::types::evidence::TypeKnowledge::ty)
-                    .map(|ty| crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::ReturnContract))
+                    .map(|contract| {
+                        crate::checker::expected::ExpectedType::proper_from(contract.ty, crate::checker::expected::ExpectationOrigin::ReturnContract)
+                    })
                     .unwrap_or_default();
                 let tail_typed = crate::checker::expression::analyze_expression(ctx, expr, &expected_ret_type);
                 if let Some(expected) = &expected_return {
-                    ctx.enforce_assignability(
+                    ctx.apply_knowledge_against_type(
                         &tail_typed.knowledge,
-                        expected,
+                        expected.ty,
                         DiagnosticCode::ReturnMismatch,
                         "tail expression result is not assignable to method's declared return type",
                         *range,
@@ -390,9 +398,9 @@ fn check_callable_body(
             } else if let Statement::Let(binding) = stmt {
                 let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow);
                 if let Some(expected) = &expected_return {
-                    ctx.enforce_assignability(
+                    ctx.apply_knowledge_against_type(
                         &unit,
-                        expected,
+                        expected.ty,
                         DiagnosticCode::ReturnMismatch,
                         "tail let/const completes with Unit, which is not assignable to method's declared return type",
                         binding.range,

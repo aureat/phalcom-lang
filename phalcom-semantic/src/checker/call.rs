@@ -4,8 +4,9 @@ use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
+use crate::checker::analysis::AnalysisStatus;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::dispatch::CallableSignature;
+use crate::dispatch::{CallableSemanticKind, CallableSignature};
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
 use crate::types::substitution::TypeSubstitution;
@@ -15,17 +16,43 @@ use phalcom_common::range::SourceRange;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallCheckResult {
     pub knowledge: TypeKnowledge,
+    pub status: AnalysisStatus,
     pub causal_invalidity: crate::checker::causal::CausalInvalidity,
     pub explanation_parents: Vec<crate::identity::ExplanationId>,
     pub callable: Option<crate::identity::CallableId>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExactReturnOrigin {
+    CallableSignature,
+    ConstructorSemantics,
+    NativeSignature,
+    GenericInference,
+}
+
+pub(crate) fn exact_return_origin(kind: CallableSemanticKind) -> ExactReturnOrigin {
+    match kind {
+        CallableSemanticKind::Ordinary => ExactReturnOrigin::CallableSignature,
+        CallableSemanticKind::Constructor => ExactReturnOrigin::ConstructorSemantics,
+        CallableSemanticKind::Native => ExactReturnOrigin::NativeSignature,
+    }
+}
+
 /// Promotes a complete callable return contract to call-site knowledge.
 /// Unknown and dynamic contracts remain unknown/dynamic; only a concrete
 /// exact-dispatch return receives established call-site status.
-pub(crate) fn promote_exact_return(return_type: &TypeKnowledge, range: SourceRange) -> TypeKnowledge {
+pub(crate) fn promote_exact_return(return_type: &TypeKnowledge, origin: ExactReturnOrigin, range: SourceRange) -> TypeKnowledge {
     match return_type {
-        TypeKnowledge::Known(evidence) => TypeKnowledge::established(evidence.ty, EvidenceOrigin::CallableSignature).with_range(range),
+        TypeKnowledge::Known(evidence) => TypeKnowledge::established(
+            evidence.ty(),
+            match origin {
+                ExactReturnOrigin::CallableSignature => EvidenceOrigin::CallableSignature,
+                ExactReturnOrigin::ConstructorSemantics => EvidenceOrigin::ConstructorSemantics,
+                ExactReturnOrigin::NativeSignature => EvidenceOrigin::NativeSignature,
+                ExactReturnOrigin::GenericInference => EvidenceOrigin::GenericInference,
+            },
+        )
+        .with_range(range),
         other => other.clone().with_range(range),
     }
 }
@@ -40,7 +67,7 @@ pub fn check_arguments(ctx: &mut CheckingContext<'_>, args: &[Expr], param_types
             .unwrap_or_default();
         let arg_typed = analyze_expression(ctx, arg, &expected);
         if let Some(param_k) = param_types.get(i) {
-            ctx.enforce_assignability(
+            ctx.apply_assignability(
                 &arg_typed.knowledge,
                 param_k,
                 DiagnosticCode::ArgumentMismatch,
@@ -66,9 +93,20 @@ pub fn resolve_call(
 ) -> CallCheckResult {
     ctx.begin_call_causal_capture();
     let knowledge = resolve_call_inner(ctx, signature, args, expected, call_range);
-    let (causal_invalidity, explanation_parents) = ctx.end_call_causal_capture();
+    let (causal_invalidity, explanation_parents, captured_status) = ctx.end_call_causal_capture();
+    let owning_cause = ctx.owning_cause_for_current_expression();
+    let status = captured_status
+        .or_else(|| owning_cause.map(AnalysisStatus::Invalid))
+        .unwrap_or_else(|| match &knowledge {
+            TypeKnowledge::Dynamic(reason) => AnalysisStatus::DynamicBoundary(reason.clone()),
+            _ => AnalysisStatus::Ready,
+        });
+    let causal_invalidity = owning_cause
+        .map(|cause| causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause)))
+        .unwrap_or(causal_invalidity);
     CallCheckResult {
         knowledge,
+        status,
         causal_invalidity,
         explanation_parents,
         callable: ctx.resolved_callable_for_current_expression(),
@@ -219,7 +257,7 @@ fn resolve_call_inner(
                 if session.term_has_variables(term) {
                     None
                 } else {
-                    Some(promote_exact_return(&signature.return_type, call_range))
+                    Some(promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
                 }
             });
 
@@ -284,6 +322,16 @@ fn resolve_call_inner(
             } else {
                 argument_outcome
             };
+            match &outcome {
+                crate::checker::inference::InferenceOutcome::Blocked(reason) => {
+                    ctx.record_call_status(AnalysisStatus::Blocked(reason.clone()));
+                }
+                crate::checker::inference::InferenceOutcome::Cancelled => ctx.record_call_status(AnalysisStatus::Cancelled),
+                crate::checker::inference::InferenceOutcome::BudgetExceeded(report) => {
+                    ctx.record_call_status(AnalysisStatus::BudgetExceeded(report.clone()));
+                }
+                _ => {}
+            }
             return match &outcome {
                 crate::checker::inference::InferenceOutcome::Solved(solution) => {
                     if let Some(ret_ty) = signature.return_type.ty() {
@@ -308,7 +356,7 @@ fn resolve_call_inner(
                             (false, _) => fixed_return.expect("fixed generic return must be available"),
                         }
                     } else {
-                        promote_exact_return(&signature.return_type, call_range)
+                        promote_exact_return(&signature.return_type, exact_return_origin(signature.kind), call_range)
                     }
                 }
                 crate::checker::inference::InferenceOutcome::Underconstrained(_) => terminal_generic_return(&outcome, fixed_return),
@@ -348,7 +396,7 @@ fn resolve_call_inner(
                     .unwrap_or_default();
                 let arg_typed = analyze_expression(ctx, expr, &expected_arg);
                 if let Some(param) = matched_param {
-                    ctx.enforce_assignability(
+                    ctx.apply_assignability(
                         &arg_typed.knowledge,
                         &param.ty,
                         DiagnosticCode::ArgumentMismatch,
@@ -374,7 +422,7 @@ fn resolve_call_inner(
                         .unwrap_or_default();
                     let arg_typed = analyze_expression(ctx, value, &expected_arg);
                     if let Some(param) = matched_param {
-                        ctx.enforce_assignability(
+                        ctx.apply_assignability(
                             &arg_typed.knowledge,
                             &param.ty,
                             DiagnosticCode::ArgumentMismatch,
@@ -399,7 +447,7 @@ fn resolve_call_inner(
     // call-site evidence to `Proven`; the declaration remains `Declared` in
     // the published surface and can still be checked independently against
     // the body.
-    promote_exact_return(&signature.return_type, call_range)
+    promote_exact_return(&signature.return_type, exact_return_origin(signature.kind), call_range)
 }
 
 fn terminal_generic_return(outcome: &crate::checker::inference::InferenceOutcome, fixed_return: Option<TypeKnowledge>) -> TypeKnowledge {

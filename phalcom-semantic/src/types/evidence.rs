@@ -56,6 +56,18 @@ impl TypeKnowledge {
         }
     }
 
+    pub(crate) fn derive_known_type(&self, ty: TypeId, origin: EvidenceOrigin) -> Self {
+        match self {
+            Self::Known(evidence) => Self::Known(TypeEvidence {
+                ty,
+                status: evidence.status,
+                origin,
+                provenance: evidence.provenance.clone(),
+            }),
+            other => other.clone(),
+        }
+    }
+
     #[inline]
     pub fn is_established(&self) -> bool {
         self.status() == Some(EvidenceStatus::Established)
@@ -121,16 +133,24 @@ impl TypeKnowledge {
 /// established; otherwise it remains an explicit assumption.
 pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl IntoIterator<Item = TypeKnowledge>) -> TypeKnowledge {
     let inputs = inputs.into_iter().collect::<Vec<_>>();
-    if let Some(reason) = inputs.iter().find_map(|knowledge| match knowledge {
-        TypeKnowledge::Unknown(reason) => Some(reason.clone()),
-        _ => None,
-    }) {
+    if let Some(reason) = inputs
+        .iter()
+        .filter_map(|knowledge| match knowledge {
+            TypeKnowledge::Unknown(reason) => Some(reason.clone()),
+            _ => None,
+        })
+        .reduce(join_unknown_reason)
+    {
         return TypeKnowledge::Unknown(reason);
     }
-    if let Some(reason) = inputs.iter().find_map(|knowledge| match knowledge {
-        TypeKnowledge::Dynamic(reason) => Some(reason.clone()),
-        _ => None,
-    }) {
+    if let Some(reason) = inputs
+        .iter()
+        .filter_map(|knowledge| match knowledge {
+            TypeKnowledge::Dynamic(reason) => Some(reason.clone()),
+            _ => None,
+        })
+        .reduce(join_dynamic_reason)
+    {
         return TypeKnowledge::Dynamic(reason);
     }
 
@@ -168,13 +188,71 @@ pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl Int
     joined
 }
 
+/// Merges epistemic reasons with a stable, commutative precedence. More
+/// specific solver/control-flow failures outrank ordinary missing-name
+/// evidence, so predecessor iteration order cannot change the published fact.
+fn join_unknown_reason(left: UnknownReason, right: UnknownReason) -> UnknownReason {
+    let left_rank = unknown_reason_rank(&left);
+    let right_rank = unknown_reason_rank(&right);
+    if left_rank != right_rank {
+        return if left_rank > right_rank { left } else { right };
+    }
+    let left_key = format!("{left:?}");
+    let right_key = format!("{right:?}");
+    if left_key >= right_key { left } else { right }
+}
+
+fn unknown_reason_rank(reason: &UnknownReason) -> u8 {
+    match reason {
+        UnknownReason::InferenceCancelled => 100,
+        UnknownReason::InferenceBudgetExceeded => 99,
+        UnknownReason::InferenceConflict => 98,
+        UnknownReason::InferenceBlocked => 97,
+        UnknownReason::UnderconstrainedTypeVariable => 96,
+        UnknownReason::RecursiveFixpoint => 95,
+        UnknownReason::SuppressedByInvalidCause => 94,
+        UnknownReason::SyntaxError => 90,
+        UnknownReason::UnresolvedName(_) => 80,
+        UnknownReason::DynamicMessageSend => 70,
+        UnknownReason::OpaqueNative => 60,
+        UnknownReason::UncheckedExpression => 50,
+        UnknownReason::MissingInitializer => 40,
+        UnknownReason::UnannotatedDeclaration => 30,
+        UnknownReason::NoTypeEvidence => 20,
+    }
+}
+
+fn join_dynamic_reason(left: DynamicReason, right: DynamicReason) -> DynamicReason {
+    let left_key = format!("{left:?}");
+    let right_key = format!("{right:?}");
+    if left_key >= right_key { left } else { right }
+}
+
 /// A concrete formal type accompanied by epistemic status, origin, and provenance.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeEvidence {
-    pub ty: TypeId,
-    pub status: EvidenceStatus,
-    pub origin: EvidenceOrigin,
-    pub provenance: EvidenceSet,
+    ty: TypeId,
+    status: EvidenceStatus,
+    origin: EvidenceOrigin,
+    provenance: EvidenceSet,
+}
+
+impl TypeEvidence {
+    pub fn ty(&self) -> TypeId {
+        self.ty
+    }
+
+    pub fn status(&self) -> EvidenceStatus {
+        self.status
+    }
+
+    pub fn origin(&self) -> EvidenceOrigin {
+        self.origin
+    }
+
+    pub fn provenance(&self) -> &EvidenceSet {
+        &self.provenance
+    }
 }
 
 /// Whether a concrete type is established by formal evidence or usable only as

@@ -4,7 +4,7 @@ use crate::identity::BindingId;
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
-use crate::types::outcome::{BlockReason, DynamicBoundaryObligation};
+use crate::types::outcome::{BlockReason, BudgetReport, DynamicBoundaryObligation, RelationFailure, RelationOutcome};
 use crate::types::relation::{Assignability, RefutationReason, TypeHierarchy, check_knowledge_against_type};
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
@@ -81,6 +81,9 @@ pub enum BindingConsistency {
         obligation: DynamicBoundaryObligation,
     },
     Blocked(BlockReason),
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(Box<str>),
 }
 
 /// Result of pure contract reconciliation. No diagnostics or state mutation occur here.
@@ -153,16 +156,72 @@ pub fn reconcile_binding_contract(
             }
         }
         Assignability::Refuted { actual, expected, reason } => BindingConsistency::Refuted { actual, expected, reason },
-        Assignability::DynamicBoundary => BindingConsistency::DynamicBoundary {
-            obligation: DynamicBoundaryObligation {
-                reason: "binding contract crosses dynamic boundary".into(),
-            },
-        },
+        Assignability::DynamicBoundary(obligation) => BindingConsistency::DynamicBoundary { obligation },
         Assignability::Blocked(reason) => BindingConsistency::Blocked(reason),
-        Assignability::Cancelled => BindingConsistency::Blocked(BlockReason::SuppressedDependency),
-        Assignability::BudgetExceeded(report) => BindingConsistency::Blocked(BlockReason::BudgetExceeded(report)),
-        Assignability::InternalFailure(message) => BindingConsistency::Blocked(BlockReason::OpaqueNative(message.into_boxed_str())),
+        Assignability::Cancelled => BindingConsistency::Cancelled,
+        Assignability::BudgetExceeded(report) => BindingConsistency::BudgetExceeded(report),
+        Assignability::InternalFailure(message) => BindingConsistency::InternalFailure(message.into_boxed_str()),
         Assignability::Uncertain => BindingConsistency::Blocked(BlockReason::RecursiveFixpoint),
+    };
+
+    BindingReconciliation {
+        current: actual.clone(),
+        consistency,
+    }
+}
+
+/// Projects a fully structured relation result into binding consistency without
+/// relabeling operational terminal outcomes as ordinary blockage.
+pub fn reconcile_binding_relation(contract: Option<&BindingContract>, actual: &TypeKnowledge, relation: RelationOutcome) -> BindingReconciliation {
+    let Some(contract) = contract else {
+        return BindingReconciliation {
+            current: actual.clone(),
+            consistency: BindingConsistency::Unconstrained,
+        };
+    };
+
+    if let TypeKnowledge::Unknown(reason) = actual {
+        if matches!(contract.origin, BindingContractOrigin::SourceAnnotation)
+            && reason.contract_assumption_eligibility() == ContractAssumptionEligibility::MaySupplyAssumption
+        {
+            return BindingReconciliation {
+                current: TypeKnowledge::assumed(contract.ty, EvidenceOrigin::DeveloperAnnotation),
+                consistency: BindingConsistency::Assumed {
+                    basis: AssumptionBasis::MissingValueEvidence(reason.clone()),
+                },
+            };
+        }
+    }
+
+    let consistency = match relation {
+        RelationOutcome::Proven { .. } => {
+            if actual.status() == Some(EvidenceStatus::Established) {
+                BindingConsistency::Validated
+            } else {
+                BindingConsistency::Assumed {
+                    basis: assumption_basis(actual),
+                }
+            }
+        }
+        RelationOutcome::Refuted(failure) => {
+            let reason = match failure {
+                RelationFailure::IncompatibleNominal { .. } => RefutationReason::IncompatibleNominal,
+                RelationFailure::UnionMemberMismatch { .. } => RefutationReason::UnionMemberMismatch,
+                RelationFailure::TypeMismatch { .. } | RelationFailure::CycleDetected { .. } | RelationFailure::DepthExceeded | RelationFailure::Custom(_) => {
+                    RefutationReason::TypeMismatch
+                }
+            };
+            BindingConsistency::Refuted {
+                actual: actual.ty().unwrap_or(contract.ty),
+                expected: contract.ty,
+                reason,
+            }
+        }
+        RelationOutcome::DynamicBoundary(obligation) => BindingConsistency::DynamicBoundary { obligation },
+        RelationOutcome::Blocked(reason) => BindingConsistency::Blocked(reason),
+        RelationOutcome::Cancelled => BindingConsistency::Cancelled,
+        RelationOutcome::BudgetExceeded(report) => BindingConsistency::BudgetExceeded(report),
+        RelationOutcome::InternalFailure(message) => BindingConsistency::InternalFailure(message.into_boxed_str()),
     };
 
     BindingReconciliation {

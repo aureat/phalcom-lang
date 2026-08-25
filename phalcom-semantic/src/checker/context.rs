@@ -1,16 +1,20 @@
 use crate::checker::analysis::{AnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
-use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingSeed, BindingWriteResult, reconcile_binding_contract};
+use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingSeed, BindingWriteResult, reconcile_binding_relation};
 use crate::checker::flow::FlowState;
+use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
-use crate::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId};
+use crate::identity::{
+    AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
+};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
-use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
+use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, TypeKnowledge};
 use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
-use crate::types::relation::{Assignability, TypeHierarchy, check_assignability};
+use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
+use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded};
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
@@ -66,6 +70,45 @@ impl<'a> std::ops::Deref for DispatchAccess<'a> {
 }
 
 type SharedSemanticDependencies = Rc<RefCell<BTreeSet<SemanticDependency>>>;
+
+/// Shared control for one callable/query semantic analysis.
+///
+/// Relation checks and statement transfer consume the same budget and
+/// cancellation token. This prevents nested relation calls from silently
+/// resetting query limits or escaping cancellation.
+#[derive(Clone)]
+pub struct CheckerControl {
+    budget: Rc<RefCell<QueryBudget>>,
+    cancellation: CancellationToken,
+}
+
+impl Default for CheckerControl {
+    fn default() -> Self {
+        Self::new(QueryBudget::default(), &CancellationToken::new())
+    }
+}
+
+impl CheckerControl {
+    pub fn new(budget: QueryBudget, cancellation: &CancellationToken) -> Self {
+        Self {
+            budget: Rc::new(RefCell::new(budget)),
+            cancellation: cancellation.clone(),
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
+    pub fn charge_step(&self) -> Result<(), BudgetReport> {
+        self.budget.borrow_mut().charge_step()
+    }
+
+    pub fn relation<R>(&self, f: impl FnOnce(&mut QueryBudget, &CancellationToken) -> R) -> R {
+        let mut budget = self.budget.borrow_mut();
+        f(&mut budget, &self.cancellation)
+    }
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct LoopFlowFrame {
@@ -195,7 +238,6 @@ impl TypeHierarchy for TrackingTypeHierarchy<'_> {
 #[derive(Clone, Debug)]
 pub struct LocalBindingInfo {
     pub id: BindingId,
-    pub declared: Option<TypeId>,
     pub denotation: Option<SemanticDenotation>,
 }
 
@@ -203,6 +245,23 @@ pub struct LocalBindingInfo {
 struct CallDependencyFrame {
     causal_invalidity: crate::checker::causal::CausalInvalidity,
     explanations: Vec<crate::identity::ExplanationId>,
+    status: Option<AnalysisStatus>,
+}
+
+/// Declared callable return contract. This is checking context, not value
+/// evidence; return expressions are judged against its type and provenance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallableReturnContract {
+    pub ty: TypeId,
+    pub origin: crate::types::evidence::EvidenceOrigin,
+    pub source: Option<SourceRange>,
+}
+
+/// Structured result of applying one bounded relation at a checker boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RelationApplication {
+    pub outcome: RelationOutcome<()>,
+    pub cause: Option<DiagnosticCauseId>,
 }
 
 /// The active context during semantic type checking.
@@ -214,7 +273,8 @@ pub struct CheckingContext<'a> {
     pub current_module: ModuleId,
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
-    pub expected_return: Option<TypeKnowledge>,
+    pub control: CheckerControl,
+    pub expected_return: Option<CallableReturnContract>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
     /// Binding products remain queryable after a branch-local scope closes.
@@ -223,10 +283,10 @@ pub struct CheckingContext<'a> {
     pub body_id: BodyId,
     pub next_local_expr_id: u32,
     pub next_diagnostic_cause: u32,
+    pub next_analysis_incident: u32,
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
     pub explanations: crate::explain::ExplanationArena,
-    pub suppressed: std::collections::BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     expression_owners: Vec<ExpressionId>,
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     resolved_callables: BTreeMap<ExpressionId, CallableId>,
@@ -236,6 +296,8 @@ pub struct CheckingContext<'a> {
     semantic_dependencies: SharedSemanticDependencies,
     pub dispatch: DispatchAccess<'a>,
     pub diagnostics: Vec<SemanticDiagnostic>,
+    pub analysis_incidents: BTreeMap<AnalysisIncidentId, String>,
+    pub terminal_status: Option<AnalysisStatus>,
 }
 
 impl<'a> CheckingContext<'a> {
@@ -278,6 +340,7 @@ impl<'a> CheckingContext<'a> {
             current_module,
             current_class: None,
             current_side: DispatchSide::Instance,
+            control: CheckerControl::default(),
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
@@ -286,10 +349,10 @@ impl<'a> CheckingContext<'a> {
             body_id: BodyId(0),
             next_local_expr_id: 0,
             next_diagnostic_cause: 0,
+            next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
-            suppressed: std::collections::BTreeMap::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
@@ -299,6 +362,8 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             dispatch: DispatchAccess::Owned(dispatch),
             diagnostics: Vec::new(),
+            analysis_incidents: BTreeMap::new(),
+            terminal_status: None,
         }
     }
 
@@ -310,6 +375,18 @@ impl<'a> CheckingContext<'a> {
         dispatch: &'a SurfaceDispatchResolver,
         current_module: ModuleId,
     ) -> Self {
+        Self::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, current_module, CheckerControl::default())
+    }
+
+    pub fn new_with_dispatch_ref_and_control(
+        store: &'a mut TypeStore,
+        hierarchy: &'a dyn TypeHierarchy,
+        resolver: &'a dyn TypeResolver,
+        declarations: &'a DeclarationTypeTable,
+        dispatch: &'a SurfaceDispatchResolver,
+        current_module: ModuleId,
+        control: CheckerControl,
+    ) -> Self {
         let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
         Self {
             store,
@@ -319,6 +396,7 @@ impl<'a> CheckingContext<'a> {
             current_module,
             current_class: None,
             current_side: DispatchSide::Instance,
+            control,
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
@@ -327,10 +405,10 @@ impl<'a> CheckingContext<'a> {
             body_id: BodyId(0),
             next_local_expr_id: 0,
             next_diagnostic_cause: 0,
+            next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
-            suppressed: std::collections::BTreeMap::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
@@ -340,6 +418,8 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             dispatch: DispatchAccess::Borrowed(dispatch),
             diagnostics: Vec::new(),
+            analysis_incidents: BTreeMap::new(),
+            terminal_status: None,
         }
     }
 
@@ -352,6 +432,7 @@ impl<'a> CheckingContext<'a> {
             current_module: self.current_module.clone(),
             current_class: self.current_class.clone(),
             current_side: self.current_side,
+            control: self.control.clone(),
             expected_return: self.expected_return.clone(),
             scopes: self.scopes.clone(),
             flow: self.flow.clone(),
@@ -360,10 +441,10 @@ impl<'a> CheckingContext<'a> {
             body_id: self.body_id,
             next_local_expr_id: self.next_local_expr_id,
             next_diagnostic_cause: self.next_diagnostic_cause,
+            next_analysis_incident: self.next_analysis_incident,
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
             explanations: self.explanations.clone(),
-            suppressed: self.suppressed.clone(),
             expression_owners: self.expression_owners.clone(),
             expression_owned_causes: self.expression_owned_causes.clone(),
             resolved_callables: self.resolved_callables.clone(),
@@ -373,6 +454,8 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies: self.semantic_dependencies.clone(),
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             diagnostics: Vec::new(),
+            analysis_incidents: self.analysis_incidents.clone(),
+            terminal_status: self.terminal_status.clone(),
         }
     }
 
@@ -380,6 +463,14 @@ impl<'a> CheckingContext<'a> {
         let id = self.next_binding_id;
         self.next_binding_id += 1;
         BindingId(id)
+    }
+
+    pub fn charge_step(&self) -> Result<(), BudgetReport> {
+        self.control.charge_step()
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.control.is_cancelled()
     }
 
     pub fn alloc_expression_id(&mut self) -> ExpressionId {
@@ -407,6 +498,10 @@ impl<'a> CheckingContext<'a> {
         self.current_expression_id().and_then(|id| self.resolved_callables.get(&id).cloned())
     }
 
+    pub(crate) fn owning_cause_for_current_expression(&self) -> Option<DiagnosticCauseId> {
+        self.current_expression_id().and_then(|id| self.expression_owned_causes.get(&id).copied())
+    }
+
     pub(crate) fn begin_call_causal_capture(&mut self) {
         self.call_dependency_frames.push(CallDependencyFrame::default());
     }
@@ -426,9 +521,46 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    pub(crate) fn end_call_causal_capture(&mut self) -> (crate::checker::causal::CausalInvalidity, Vec<crate::identity::ExplanationId>) {
+    pub(crate) fn record_call_status(&mut self, status: AnalysisStatus) {
+        if matches!(status, AnalysisStatus::Ready) {
+            return;
+        }
+        if let Some(frame) = self.call_dependency_frames.last_mut() {
+            frame.status = Some(status);
+        } else {
+            self.record_terminal_status(status);
+        }
+    }
+
+    pub(crate) fn record_terminal_status(&mut self, status: AnalysisStatus) {
+        if matches!(status, AnalysisStatus::Ready) {
+            return;
+        }
+        if self.terminal_status.is_none() {
+            self.terminal_status = Some(status);
+        }
+    }
+
+    pub fn join_flow_states(&mut self, states: &[FlowState]) -> Result<FlowState, crate::checker::flow::state::FlowJoinFailure> {
+        FlowState::join_with_hierarchy(states, self.store, &self.hierarchy)
+    }
+
+    pub fn publish_flow_join_failure(&mut self, failure: crate::checker::flow::state::FlowJoinFailure) -> AnalysisStatus {
+        let incident = self.publish_analysis_incident(format!("flow join failed: {failure:?}"));
+        let status = AnalysisStatus::InternalFailure(incident);
+        self.record_terminal_status(status.clone());
+        status
+    }
+
+    pub(crate) fn end_call_causal_capture(
+        &mut self,
+    ) -> (
+        crate::checker::causal::CausalInvalidity,
+        Vec<crate::identity::ExplanationId>,
+        Option<AnalysisStatus>,
+    ) {
         let frame = self.call_dependency_frames.pop().unwrap_or_default();
-        (frame.causal_invalidity, frame.explanations)
+        (frame.causal_invalidity, frame.explanations, frame.status)
     }
 
     pub(crate) fn explanation_for_expression(&self, id: ExpressionId) -> Option<crate::identity::ExplanationId> {
@@ -482,41 +614,91 @@ impl<'a> CheckingContext<'a> {
         (knowledge, causal_invalidity)
     }
 
-    pub fn enforce_assignability(
+    pub fn apply_relation_outcome(
+        &mut self,
+        outcome: RelationOutcome<()>,
+        code: crate::diagnostic::DiagnosticCode,
+        message: impl Into<String>,
+        range: SourceRange,
+        owner: Option<ExpressionId>,
+    ) -> RelationApplication {
+        let cause = if matches!(&outcome, RelationOutcome::Refuted(_)) {
+            self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range))
+        } else {
+            None
+        };
+
+        let status = match (&outcome, cause) {
+            (RelationOutcome::Proven { .. }, _) => None,
+            (RelationOutcome::Refuted(_), Some(cause)) => Some(AnalysisStatus::Invalid(cause)),
+            (RelationOutcome::DynamicBoundary(_), _) => Some(AnalysisStatus::DynamicBoundary(crate::types::evidence::DynamicReason::RuntimeReflection)),
+            (RelationOutcome::Blocked(reason), _) => Some(AnalysisStatus::Blocked(reason.clone())),
+            (RelationOutcome::Cancelled, _) => Some(AnalysisStatus::Cancelled),
+            (RelationOutcome::BudgetExceeded(report), _) => Some(AnalysisStatus::BudgetExceeded(report.clone())),
+            (RelationOutcome::InternalFailure(message), _) => Some(AnalysisStatus::InternalFailure(self.publish_analysis_incident(message.clone()))),
+            (RelationOutcome::Refuted(_), None) => None,
+        };
+        if let Some(status) = status.clone() {
+            self.record_call_status(status);
+        }
+
+        if let Some(owner) = owner {
+            if let Some(status) = status {
+                if let Some(analysis) = self.expressions.get_mut(&owner) {
+                    analysis.status = status;
+                    if let Some(cause) = cause {
+                        analysis.causal_invalidity = analysis.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
+                    }
+                }
+            }
+        }
+
+        RelationApplication { outcome, cause }
+    }
+
+    pub fn publish_analysis_incident(&mut self, message: impl Into<String>) -> AnalysisIncidentId {
+        let incident = AnalysisIncidentId(self.next_analysis_incident);
+        self.next_analysis_incident += 1;
+        self.analysis_incidents.insert(incident, message.into());
+        incident
+    }
+
+    pub fn apply_assignability(
         &mut self,
         actual: &TypeKnowledge,
         expected: &TypeKnowledge,
         code: crate::diagnostic::DiagnosticCode,
         message: impl Into<String>,
         range: SourceRange,
-    ) -> bool {
-        match check_assignability(self.store, &self.hierarchy, actual, expected) {
-            Assignability::Refuted { .. } => {
-                self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range));
-                false
-            }
-            _ => true,
-        }
+    ) -> RelationApplication {
+        let outcome = self
+            .control
+            .relation(|budget, cancellation| check_assignability_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
+        self.apply_relation_outcome(outcome, code, message, range, None)
     }
 
-    pub fn enforce_knowledge_against_type(
+    pub fn apply_knowledge_against_type(
         &mut self,
         actual: &TypeKnowledge,
         expected: TypeId,
         code: crate::diagnostic::DiagnosticCode,
         message: impl Into<String>,
         range: SourceRange,
-    ) -> bool {
-        match crate::types::relation::check_knowledge_against_type(self.store, &self.hierarchy, actual, expected) {
-            Assignability::Refuted { .. } => {
-                self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range));
-                false
-            }
-            _ => true,
-        }
+    ) -> RelationApplication {
+        let outcome = self
+            .control
+            .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
+        self.apply_relation_outcome(outcome, code, message, range, None)
     }
 
-    pub fn enforce_knowledge_against_type_owned(
+    /// Evaluates one contract relation while sharing this body's budget and
+    /// cancellation state. The caller owns diagnostic policy and reconciliation.
+    pub fn check_knowledge_against_type(&mut self, actual: &TypeKnowledge, expected: TypeId) -> RelationOutcome {
+        self.control
+            .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation))
+    }
+
+    pub fn apply_knowledge_against_type_owned(
         &mut self,
         actual: &TypeKnowledge,
         expected: TypeId,
@@ -524,21 +706,15 @@ impl<'a> CheckingContext<'a> {
         message: impl Into<String>,
         range: SourceRange,
         owner: ExpressionId,
-    ) -> bool {
-        match crate::types::relation::check_knowledge_against_type(self.store, &self.hierarchy, actual, expected) {
-            Assignability::Refuted { .. } => {
-                let cause = self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range));
-                if let Some(cause) = cause {
-                    self.expression_owned_causes.entry(owner).or_insert(cause);
-                    if let Some(analysis) = self.expressions.get_mut(&owner) {
-                        analysis.status = AnalysisStatus::Invalid(cause);
-                        analysis.causal_invalidity = analysis.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
-                    }
-                }
-                false
-            }
-            _ => true,
+    ) -> RelationApplication {
+        let outcome = self
+            .control
+            .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
+        let application = self.apply_relation_outcome(outcome, code, message, range, Some(owner));
+        if let Some(cause) = application.cause {
+            self.expression_owned_causes.entry(owner).or_insert(cause);
         }
+        application
     }
 
     pub fn record_expression(
@@ -587,8 +763,23 @@ impl<'a> CheckingContext<'a> {
         }
 
         let binding_id = self.alloc_binding();
-        let reconciliation = reconcile_binding_contract(self.store, &self.hierarchy, seed.contract.as_ref(), &seed.current);
-        let declared = seed.contract.as_ref().map(|contract| contract.ty);
+        let relation = match seed.contract.as_ref() {
+            None => RelationOutcome::proven(()),
+            Some(contract) => match &seed.current {
+                TypeKnowledge::Unknown(reason)
+                    if matches!(contract.origin, BindingContractOrigin::SourceAnnotation)
+                        && reason.contract_assumption_eligibility() == ContractAssumptionEligibility::MaySupplyAssumption =>
+                {
+                    RelationOutcome::proven(())
+                }
+                TypeKnowledge::Unknown(reason) => RelationOutcome::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())),
+                TypeKnowledge::Dynamic(_) => RelationOutcome::DynamicBoundary(DynamicBoundaryObligation {
+                    reason: "binding contract crosses dynamic boundary".into(),
+                }),
+                TypeKnowledge::Known(_) => self.check_knowledge_against_type(&seed.current, contract.ty),
+            },
+        };
+        let reconciliation = reconcile_binding_relation(seed.contract.as_ref(), &seed.current, relation);
         let denotation = seed.denotation;
         let name = seed.name.clone();
         let contract_explanation = seed.contract.as_ref().map(|contract| {
@@ -625,14 +816,7 @@ impl<'a> CheckingContext<'a> {
             self.binding_history.insert(binding_id, state);
         }
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(
-                name,
-                LocalBindingInfo {
-                    id: binding_id,
-                    declared,
-                    denotation,
-                },
-            );
+            scope.insert(name, LocalBindingInfo { id: binding_id, denotation });
         }
         BindingDeclarationResult::Inserted(binding_id)
     }
@@ -648,6 +832,10 @@ impl<'a> CheckingContext<'a> {
         range: SourceRange,
         causal_invalidity: crate::checker::causal::CausalInvalidity,
     ) -> BindingDeclarationResult {
+        let current = current
+            .ty()
+            .map(|ty| TypeKnowledge::assumed(ty, crate::types::evidence::EvidenceOrigin::CallableSignature))
+            .unwrap_or(current);
         let contract = current.ty().map(|ty| BindingContract {
             ty,
             origin: BindingContractOrigin::CallableParameter,
@@ -886,22 +1074,14 @@ impl<'a> CheckingContext<'a> {
                 let mut sig = resolved.signature;
                 if let Some(subst) = self.substitution_for_applied_receiver(receiver) {
                     for param in &mut sig.parameters {
-                        if let TypeKnowledge::Known(ref mut ev) = param.ty {
-                            ev.ty = subst.apply(self.store, ev.ty);
-                        }
+                        param.ty = param.ty.map_type(|ty| subst.apply(self.store, ty));
                     }
-                    if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
-                        ev.ty = subst.apply(self.store, ev.ty);
-                    }
+                    sig.return_type = sig.return_type.map_type(|ty| subst.apply(self.store, ty));
                 }
                 for param in &mut sig.parameters {
-                    if let TypeKnowledge::Known(ref mut ev) = param.ty {
-                        ev.ty = self.specialize_self_type(receiver, ev.ty);
-                    }
+                    param.ty = param.ty.map_type(|ty| self.specialize_self_type(receiver, ty));
                 }
-                if let TypeKnowledge::Known(ref mut ev) = sig.return_type {
-                    ev.ty = self.specialize_self_type(receiver, ev.ty);
-                }
+                sig.return_type = sig.return_type.map_type(|ty| self.specialize_self_type(receiver, ty));
                 DispatchResult::Found(sig)
             }
             crate::dispatch::ResolvedDispatchResult::Ambiguous(amb) => {
@@ -962,12 +1142,11 @@ impl<'a> CheckingContext<'a> {
         self.explanations.alloc_full(step, rule, status, origin, evidence, parents)
     }
 
-    pub fn suppression_cause(&self, id: ExpressionId) -> Option<crate::identity::DiagnosticCauseId> {
-        self.suppressed.get(&id).copied()
-    }
-
-    pub fn mark_suppressed(&mut self, id: ExpressionId, cause: crate::identity::DiagnosticCauseId) {
-        self.suppressed.insert(id, cause);
+    /// Legacy compatibility query. Suppression is now carried by the owning
+    /// expression's [`AnalysisStatus`] and is never reconstructed from a
+    /// context-side side table.
+    pub fn suppression_cause(&self, _id: ExpressionId) -> Option<crate::checker::causal::SuppressionCause> {
+        None
     }
 
     pub fn finalize(
@@ -990,14 +1169,24 @@ impl<'a> CheckingContext<'a> {
             .flow_graph
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
 
-        let mut known_bindings = std::collections::BTreeMap::new();
-        for (b_id, state) in &self.flow.bindings {
-            if let Some(ty) = state.current.ty() {
-                known_bindings.insert(*b_id, ty);
-            }
-        }
+        let bindings = self
+            .flow
+            .bindings
+            .iter()
+            .map(|(binding, state)| {
+                (
+                    *binding,
+                    crate::checker::analysis::FlowBindingSummary {
+                        knowledge: state.current.clone(),
+                        contract: state.contract.clone(),
+                        consistency: state.consistency.clone(),
+                        mutable: state.mutable,
+                    },
+                )
+            })
+            .collect();
         let entry_flow = crate::checker::analysis::FlowStateSummary {
-            known_bindings,
+            bindings,
             fact_count: self.flow.facts.len(),
         };
 

@@ -27,7 +27,7 @@ class Probe {
     let method = f.expression(run, "Derived.new().derivedOnly()");
     f.assert_expression_knowledge(
         constructor,
-        known(derived).established().origin(phalcom_semantic::EvidenceOrigin::CallableSignature),
+        known(derived).established().origin(phalcom_semantic::EvidenceOrigin::ConstructorSemantics),
     );
     f.assert_expression_knowledge(method, known(int_ty).established().origin(phalcom_semantic::EvidenceOrigin::CallableSignature));
     assert!(

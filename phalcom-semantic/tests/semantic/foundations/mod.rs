@@ -13,6 +13,7 @@ mod identity_diagnostics;
 mod inference;
 mod kinds;
 mod knowledge;
+mod semantic_correctness_regressions;
 mod substitution;
 mod type_annotations;
 mod type_model;

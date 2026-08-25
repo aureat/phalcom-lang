@@ -247,10 +247,10 @@ fn golden_08_variance_recovery() {
     let run = f.callable("Service", "run", DispatchSide::Class);
     let bad = f.binding(run, "bad");
 
-    assert!(f.binding(run, "producer").declared.is_some());
+    assert!(f.binding(run, "producer").declared_type().is_some());
     assert!(f.binding(run, "producer").current.ty().is_some());
     assert!(f.binding(run, "animal").current.ty().is_some());
-    assert!(bad.declared.is_some());
+    assert!(bad.declared_type().is_some());
     assert!(
         matches!(bad.consistency, BindingConsistency::Refuted { .. }),
         "bad contract must be refuted: {bad:#?}"

@@ -103,7 +103,6 @@ pub struct BindingState {
     pub binding: BindingId,
     pub name: String,
     pub range: SourceRange,
-    pub declared: Option<crate::types::id::TypeId>,
     pub contract: Option<super::binding::BindingContract>,
     pub current: TypeKnowledge,
     pub denotation: Option<SemanticDenotation>,
@@ -115,13 +114,15 @@ pub struct BindingState {
 }
 
 impl BindingState {
+    pub fn declared_type(&self) -> Option<crate::types::id::TypeId> {
+        self.contract.as_ref().map(|contract| contract.ty)
+    }
+
     pub fn from_seed(binding: BindingId, seed: super::binding::BindingSeed, current: TypeKnowledge, consistency: super::binding::BindingConsistency) -> Self {
-        let declared = seed.contract.as_ref().map(|contract| contract.ty);
         Self {
             binding,
             name: seed.name,
             range: seed.range,
-            declared,
             contract: seed.contract,
             current,
             denotation: seed.denotation,
@@ -153,7 +154,7 @@ impl BindingState {
         binding: BindingId,
         name: impl Into<String>,
         range: SourceRange,
-        declared: Option<crate::types::id::TypeId>,
+        _declared: Option<crate::types::id::TypeId>,
         contract: Option<super::binding::BindingContract>,
         current: TypeKnowledge,
         denotation: Option<SemanticDenotation>,
@@ -163,7 +164,6 @@ impl BindingState {
             binding,
             name: name.into(),
             range,
-            declared,
             contract,
             current,
             denotation,
@@ -177,9 +177,17 @@ impl BindingState {
 }
 
 /// Summary of flow state at entry or exit boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FlowBindingSummary {
+    pub knowledge: TypeKnowledge,
+    pub contract: Option<super::binding::BindingContract>,
+    pub consistency: super::binding::BindingConsistency,
+    pub mutable: bool,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FlowStateSummary {
-    pub known_bindings: BTreeMap<BindingId, crate::types::id::TypeId>,
+    pub bindings: BTreeMap<BindingId, FlowBindingSummary>,
     pub fact_count: usize,
 }
 
@@ -199,18 +207,13 @@ pub struct BodyExitFacts {
 /// knowledge fact. Abrupt-only bodies produce `Never`; incomplete knowledge
 /// keeps the summary incomplete instead of inventing a return type.
 pub fn normal_return_summary(store: &mut crate::types::store::TypeStore, values: &[TypeKnowledge]) -> TypeKnowledge {
-    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason, join_type_knowledge};
+    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, join_type_knowledge};
 
     if values.is_empty() {
         return TypeKnowledge::established(store.never(), EvidenceOrigin::Flow);
     }
 
-    let joined = join_type_knowledge(store, values.iter().cloned());
-    if joined.ty().is_none() {
-        TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
-    } else {
-        joined
-    }
+    join_type_knowledge(store, values.iter().cloned())
 }
 
 /// Index of expression analysis products within a body.
@@ -239,6 +242,7 @@ pub enum CallableAnalysisStatus {
     Blocked,
     Cancelled,
     BudgetExceeded,
+    InternalFailure(AnalysisIncidentId),
 }
 
 /// Published semantic analysis product for a single callable body.

@@ -66,7 +66,7 @@ fn test_binding_state_and_flow_state_operations() {
     let joined = FlowState::join(&[branch1, branch2], &mut store);
     assert!(joined.is_reachable());
     let joined_binding = joined.get_binding(b1).unwrap();
-    assert_eq!(joined_binding.declared, Some(num_ty));
+    assert_eq!(joined_binding.declared_type(), Some(num_ty));
     // Joined type should be a union of int and float
     let joined_ty = joined_binding.current.ty().unwrap();
     assert!(matches!(store.get(joined_ty), phalcom_semantic::types::store::TypeData::Union(_)));

@@ -59,12 +59,20 @@ impl CallableParameter {
 }
 
 /// Complete callable contract for a method, getter, setter, or indexer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CallableSemanticKind {
+    Ordinary,
+    Constructor,
+    Native,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableSignature {
     pub selector: Selector,
     pub parameters: Vec<CallableParameter>,
     pub return_type: TypeKnowledge,
     pub generics: Option<crate::types::parameter::GenericSignature>,
+    pub kind: CallableSemanticKind,
 }
 
 impl CallableSignature {
@@ -74,11 +82,17 @@ impl CallableSignature {
             parameters,
             return_type,
             generics: None,
+            kind: CallableSemanticKind::Ordinary,
         }
     }
 
     pub fn with_generics(mut self, generics: crate::types::parameter::GenericSignature) -> Self {
         self.generics = Some(generics);
+        self
+    }
+
+    pub fn with_kind(mut self, kind: CallableSemanticKind) -> Self {
+        self.kind = kind;
         self
     }
 

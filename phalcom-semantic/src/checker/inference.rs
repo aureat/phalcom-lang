@@ -56,6 +56,7 @@ pub enum InferenceFailureReason {
     OccursCheck { var: InferVarId },
     KindMismatch { var: InferVarId, expected: KindId, actual: KindId },
     ConflictingBounds { var: InferVarId, lower: TypeId, upper: TypeId },
+    MissingVariableMetadata { var: InferVarId },
     StructuralMismatch { left: Box<InferenceTerm>, right: Box<InferenceTerm> },
     UnresolvedSelf,
 }
@@ -385,9 +386,11 @@ impl InferenceSession {
                             let candidate = store.union(&lowers);
                             if let Some(uppers) = self.upper_bounds.get(&rep) {
                                 let mut ok = true;
+                                let mut failed_upper = None;
                                 for &upper in uppers {
                                     if !is_subtype(store, hierarchy, candidate, upper) {
                                         ok = false;
+                                        failed_upper = Some(upper);
                                         break;
                                     }
                                 }
@@ -395,7 +398,7 @@ impl InferenceSession {
                                     let failure = InferenceFailureReason::ConflictingBounds {
                                         var: rep,
                                         lower: candidate,
-                                        upper: uppers[0],
+                                        upper: failed_upper.expect("failed upper recorded with non-empty failure"),
                                     };
                                     self.mark_failure(&failure);
                                     return InferenceOutcome::Conflicting(InferenceConflict {
@@ -588,7 +591,8 @@ impl InferenceSession {
         let var = match failure {
             InferenceFailureReason::OccursCheck { var }
             | InferenceFailureReason::KindMismatch { var, .. }
-            | InferenceFailureReason::ConflictingBounds { var, .. } => Some(*var),
+            | InferenceFailureReason::ConflictingBounds { var, .. }
+            | InferenceFailureReason::MissingVariableMetadata { var } => Some(*var),
             InferenceFailureReason::StructuralMismatch { .. } | InferenceFailureReason::UnresolvedSelf => None,
         };
         if let Some(var) = var {
@@ -610,7 +614,7 @@ impl InferenceSession {
             .iter()
             .find(|candidate| candidate.id == rep)
             .map(|candidate| candidate.kind)
-            .unwrap_or(KindId::TYPE);
+            .ok_or(InferenceFailureReason::MissingVariableMetadata { var: rep })?;
         let actual_kind = store.kind_of(ty);
         if expected_kind != actual_kind {
             return Err(InferenceFailureReason::KindMismatch {
@@ -678,13 +682,13 @@ impl InferenceSession {
                     .iter()
                     .find(|candidate| candidate.id == rep1)
                     .map(|candidate| candidate.kind)
-                    .unwrap_or(KindId::TYPE);
+                    .ok_or(InferenceFailureReason::MissingVariableMetadata { var: rep1 })?;
                 let kind2 = self
                     .variables
                     .iter()
                     .find(|candidate| candidate.id == rep2)
                     .map(|candidate| candidate.kind)
-                    .unwrap_or(KindId::TYPE);
+                    .ok_or(InferenceFailureReason::MissingVariableMetadata { var: rep2 })?;
                 if kind1 != kind2 {
                     return Err(InferenceFailureReason::KindMismatch {
                         var: rep1,

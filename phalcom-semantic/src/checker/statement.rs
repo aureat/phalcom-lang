@@ -1,14 +1,16 @@
 //! Statement type checking engine.
 
-use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_contract};
+use super::analysis::AnalysisStatus;
+use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_relation};
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::{analyze_expression, synthesize_expr};
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::denotation::ValueSemanticFact;
-use crate::types::evidence::{EvidenceOrigin, TypeEvidence, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
+use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 use phalcom_common::selector::Selector;
 
@@ -33,7 +35,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 .and_then(TypeKnowledge::ty)
                 .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract))
                 .unwrap_or_default();
-            let val_typed = if let Some(expr) = &binding.value {
+            let mut val_typed = if let Some(expr) = &binding.value {
                 analyze_expression(ctx, expr, &expected_init)
             } else {
                 if binding.kind == BindingKind::Const {
@@ -60,7 +62,23 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     source: binding.value.as_ref().map(|value| value.range()),
                 })
             };
-            let reconciliation = reconcile_binding_contract(ctx.store, &ctx.hierarchy, contract.as_ref(), &val_typed.knowledge);
+            let relation = match contract.as_ref() {
+                None => RelationOutcome::proven(()),
+                Some(contract) => match &val_typed.knowledge {
+                    TypeKnowledge::Unknown(reason)
+                        if matches!(contract.origin, BindingContractOrigin::SourceAnnotation)
+                            && reason.contract_assumption_eligibility() == ContractAssumptionEligibility::MaySupplyAssumption =>
+                    {
+                        RelationOutcome::proven(())
+                    }
+                    TypeKnowledge::Unknown(reason) => RelationOutcome::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())),
+                    TypeKnowledge::Dynamic(_) => RelationOutcome::DynamicBoundary(DynamicBoundaryObligation {
+                        reason: "binding contract crosses dynamic boundary".into(),
+                    }),
+                    TypeKnowledge::Known(_) => ctx.check_knowledge_against_type(&val_typed.knowledge, contract.ty),
+                },
+            };
+            let reconciliation = reconcile_binding_relation(contract.as_ref(), &val_typed.knowledge, relation.clone());
             let mut causal_invalidity = val_typed.causal_invalidity.join(annotation_invalidity);
             if matches!(reconciliation.consistency, crate::checker::binding::BindingConsistency::Refuted { .. }) {
                 let mut diag = SemanticDiagnostic::error_in(
@@ -77,6 +95,22 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 }
                 let cause = ctx.emit_diagnostic(diag).expect("error diagnostic has cause");
                 causal_invalidity = causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
+                val_typed.status = AnalysisStatus::Invalid(cause);
+            } else {
+                val_typed.status = match relation {
+                    RelationOutcome::Blocked(reason) => AnalysisStatus::Blocked(reason),
+                    RelationOutcome::Cancelled => AnalysisStatus::Cancelled,
+                    RelationOutcome::BudgetExceeded(report) => AnalysisStatus::BudgetExceeded(report),
+                    RelationOutcome::InternalFailure(message) => AnalysisStatus::InternalFailure(ctx.publish_analysis_incident(message)),
+                    RelationOutcome::DynamicBoundary(_) => AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection),
+                    _ => val_typed.status.clone(),
+                };
+            }
+            if let Some(expression_id) = val_typed.expression_id {
+                if let Some(analysis) = ctx.expressions.get_mut(&expression_id) {
+                    analysis.status = val_typed.status.clone();
+                    analysis.causal_invalidity = val_typed.causal_invalidity;
+                }
             }
 
             bind_declaration_pattern(
@@ -97,8 +131,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             let expected_ret = ctx
                 .expected_return
                 .as_ref()
-                .and_then(TypeKnowledge::ty)
-                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::ReturnContract))
+                .map(|contract| ExpectedType::proper_from(contract.ty, ExpectationOrigin::ReturnContract))
                 .unwrap_or_default();
             let val_typed = if let Some(expr) = &ret.value {
                 analyze_expression(ctx, expr, &expected_ret)
@@ -107,9 +140,9 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             };
 
             if let Some(expected) = ctx.expected_return.clone() {
-                ctx.enforce_assignability(
+                ctx.apply_knowledge_against_type(
                     &val_typed.knowledge,
-                    &expected,
+                    expected.ty,
                     DiagnosticCode::ReturnMismatch,
                     "returned value is not assignable to method's declared return type",
                     ret.range,
@@ -169,7 +202,13 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             let mut loop_states = vec![before, body_flow];
             loop_states.extend(loop_frame.continues);
             loop_states.extend(loop_frame.breaks);
-            ctx.flow = crate::checker::flow::FlowState::join_with_hierarchy(&loop_states, ctx.store, &ctx.hierarchy);
+            ctx.flow = match ctx.join_flow_states(&loop_states) {
+                Ok(flow) => flow,
+                Err(failure) => {
+                    ctx.publish_flow_join_failure(failure);
+                    return None;
+                }
+            };
             None
         }
         _ => None,
@@ -199,17 +238,14 @@ fn bind_declaration_pattern(
         }
         Pattern::Tuple { elements, .. } => {
             let component_facts = match fact.knowledge {
-                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty) {
+                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty()) {
                     crate::types::store::TypeData::Tuple(types) if types.len() == elements.len() => Some(
                         types
                             .iter()
                             .map(|element| {
-                                ValueSemanticFact::new(TypeKnowledge::Known(TypeEvidence {
-                                    ty: element.ty,
-                                    status: evidence.status,
-                                    origin: EvidenceOrigin::PatternDecomposition,
-                                    provenance: evidence.provenance.clone(),
-                                }))
+                                ValueSemanticFact::new(
+                                    TypeKnowledge::Known(evidence.clone()).derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition),
+                                )
                             })
                             .collect::<Vec<_>>(),
                     ),
@@ -237,17 +273,14 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
         }
         Pattern::Tuple { elements, .. } => {
             let component_facts = match fact.knowledge {
-                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty) {
+                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty()) {
                     crate::types::store::TypeData::Tuple(types) if types.len() == elements.len() => Some(
                         types
                             .iter()
                             .map(|element| {
-                                ValueSemanticFact::new(TypeKnowledge::Known(TypeEvidence {
-                                    ty: element.ty,
-                                    status: evidence.status,
-                                    origin: EvidenceOrigin::PatternDecomposition,
-                                    provenance: evidence.provenance.clone(),
-                                }))
+                                ValueSemanticFact::new(
+                                    TypeKnowledge::Known(evidence.clone()).derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition),
+                                )
                             })
                             .collect::<Vec<_>>(),
                     ),

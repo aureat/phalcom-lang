@@ -71,7 +71,7 @@ impl<'a> TypePresenter<'a> {
     /// Formats formal knowledge while preserving its epistemic state.
     pub fn present_knowledge(&self, knowledge: &TypeKnowledge) -> FormalPresentation {
         match knowledge {
-            TypeKnowledge::Known(evidence) => FormalPresentation::Known(self.present_type(evidence.ty)),
+            TypeKnowledge::Known(evidence) => FormalPresentation::Known(self.present_type(evidence.ty())),
             TypeKnowledge::Dynamic(_) => FormalPresentation::Dynamic,
             TypeKnowledge::Unknown(_) => FormalPresentation::Unknown,
         }
@@ -99,6 +99,7 @@ impl<'a> TypePresenter<'a> {
             CallableAnalysisStatus::Blocked => FormalPresentation::Blocked,
             CallableAnalysisStatus::Cancelled => FormalPresentation::Cancelled,
             CallableAnalysisStatus::BudgetExceeded => FormalPresentation::BudgetExceeded,
+            CallableAnalysisStatus::InternalFailure(_) => FormalPresentation::InternalFailure,
         }
     }
 }
@@ -331,6 +332,7 @@ fn callable_status(status: CallableAnalysisStatus) -> FormalFactStatus {
         CallableAnalysisStatus::Blocked => FormalFactStatus::Blocked,
         CallableAnalysisStatus::Cancelled => FormalFactStatus::Cancelled,
         CallableAnalysisStatus::BudgetExceeded => FormalFactStatus::BudgetExceeded,
+        CallableAnalysisStatus::InternalFailure(_) => FormalFactStatus::InternalFailure,
     }
 }
 

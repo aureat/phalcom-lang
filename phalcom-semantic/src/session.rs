@@ -1521,6 +1521,9 @@ fn advisory_status(status: crate::checker::CallableAnalysisStatus) -> AdvisoryPr
         crate::checker::CallableAnalysisStatus::Blocked => AdvisoryProductStatus::Blocked,
         crate::checker::CallableAnalysisStatus::Cancelled => AdvisoryProductStatus::Cancelled,
         crate::checker::CallableAnalysisStatus::BudgetExceeded => AdvisoryProductStatus::BudgetExceeded,
+        crate::checker::CallableAnalysisStatus::InternalFailure(incident) => {
+            AdvisoryProductStatus::InternalFailure(format!("analysis incident {}", incident.0).into_boxed_str())
+        }
     }
 }
 

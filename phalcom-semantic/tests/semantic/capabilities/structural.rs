@@ -59,7 +59,7 @@ class Probe {
     let some = f.ty("Present");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let x = f.binding(run, "x");
-    let declared = x.declared.expect("declared tuple contract");
+    let declared = x.declared_type().expect("declared tuple contract");
     f.assert_tuple_types(declared, &[number, option]);
     let current = x.current.ty().expect("specific tuple knowledge");
     f.assert_tuple_types(current, &[int_ty, some]);
@@ -88,7 +88,7 @@ class Probe {
     let some = f.ty("Present");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let x = f.binding(run, "x");
-    let declared = x.declared.expect("declared tuple");
+    let declared = x.declared_type().expect("declared tuple");
     f.assert_tuple_types(declared, &[number, option]);
     let actual = x.current.ty().expect("actual tuple");
     f.assert_tuple_types(actual, &[string_ty, some]);
@@ -225,6 +225,12 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     f.assert_binding_type(run, "x", int_ty);
     f.assert_binding_type(run, "y", some);
-    assert_eq!(f.binding(run, "x").current.origin(), Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition));
-    assert_eq!(f.binding(run, "y").current.origin(), Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition));
+    assert_eq!(
+        f.binding(run, "x").current.origin(),
+        Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition)
+    );
+    assert_eq!(
+        f.binding(run, "y").current.origin(),
+        Some(phalcom_semantic::EvidenceOrigin::PatternDecomposition)
+    );
 }

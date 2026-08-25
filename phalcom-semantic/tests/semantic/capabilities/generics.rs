@@ -93,7 +93,7 @@ class Probe {
     let call = f.expression(run, "Factory.choose(42)");
     f.assert_expression_established(call, int_ty);
     let x = f.binding(run, "x");
-    assert_eq!(x.declared, Some(number));
+    assert_eq!(x.declared_type(), Some(number));
     assert_eq!(x.current.ty(), Some(int_ty));
     f.assert_no_error_diagnostics();
 }
@@ -223,7 +223,7 @@ class Probe {
     let result = f.binding(run, "result");
     assert_eq!(result.current.ty(), Some(result_ty));
     assert_eq!(result.current.status(), Some(phalcom_semantic::EvidenceStatus::Established));
-    assert_eq!(result.declared, Some(int_ty));
+    assert_eq!(result.declared_type(), Some(int_ty));
 }
 
 /// LAW: expected context cannot fabricate an underconstrained generic result.
@@ -247,7 +247,7 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Probe.make()");
     assert_eq!(call.knowledge.ty(), None, "expected context cannot fabricate generic return evidence");
-    assert!(matches!(call.status, AnalysisStatus::Ready));
+    assert!(matches!(call.status, AnalysisStatus::Blocked(_)));
 }
 
 /// G03: repeated calls in one body solve independent substitutions independently.
@@ -299,7 +299,7 @@ class Probe {
     let cat = f.ty("Cat");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let value = f.binding(run, "value");
-    assert_eq!(value.declared, Some(animal));
+    assert_eq!(value.declared_type(), Some(animal));
     assert_eq!(value.current.ty(), Some(cat));
     f.assert_binding_type(run, "observed", cat);
 }

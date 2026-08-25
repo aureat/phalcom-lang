@@ -71,7 +71,7 @@ fn lowers_list_and_map_applications() {
     let TypeKnowledge::Known(list_int) = list_int else {
         panic!("expected List<Int>")
     };
-    let TypeData::Applied { origin, arguments } = env.store.get(list_int.ty) else {
+    let TypeData::Applied { origin, arguments } = env.store.get(list_int.ty()) else {
         panic!("expected applied List<Int>")
     };
     assert_eq!(*origin, env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap());
@@ -84,7 +84,7 @@ fn lowers_list_and_map_applications() {
     let TypeKnowledge::Known(map_string_int) = map_string_int else {
         panic!("expected Map<String, Int>")
     };
-    assert!(matches!(env.store.get(map_string_int.ty), TypeData::Applied { arguments, .. } if arguments.len() == 2));
+    assert!(matches!(env.store.get(map_string_int.ty()), TypeData::Applied { arguments, .. } if arguments.len() == 2));
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn lowers_labeled_tuple_and_callable_forms() {
     };
     let tuple = resolve(&mut env, &tuple).0;
     let TypeKnowledge::Known(tuple) = tuple else { panic!("expected tuple type") };
-    assert!(matches!(env.store.get(tuple.ty), TypeData::Tuple(elements) if elements[1].label.as_deref() == Some("name")));
+    assert!(matches!(env.store.get(tuple.ty()), TypeData::Tuple(elements) if elements[1].label.as_deref() == Some("name")));
 
     let callable = TypeAnnotation {
         expr: TypeAnnotationExpr::Callable {
@@ -138,7 +138,7 @@ fn lowers_labeled_tuple_and_callable_forms() {
         panic!("expected callable type")
     };
     assert!(
-        matches!(env.store.get(callable.ty), TypeData::Callable(CallableType { parameters, return_type })
+        matches!(env.store.get(callable.ty()), TypeData::Callable(CallableType { parameters, return_type })
         if parameters[1].label.as_deref() == Some("names")
             && parameters[1].rest
             && *return_type == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap())
@@ -157,7 +157,7 @@ fn lowers_union_and_rejects_unsaturated_or_invalid_applications() {
     };
     let (union, diagnostics) = resolve(&mut env, &union);
     assert!(diagnostics.is_empty());
-    assert!(matches!(union, TypeKnowledge::Known(knowledge) if matches!(env.store.get(knowledge.ty), TypeData::Union(members) if members.len() == 2)));
+    assert!(matches!(union, TypeKnowledge::Known(knowledge) if matches!(env.store.get(knowledge.ty()), TypeData::Union(members) if members.len() == 2)));
 
     let (bare_list, diagnostics) = resolve(&mut env, &reference("List"));
     assert!(matches!(bare_list, TypeKnowledge::Unknown(_)));

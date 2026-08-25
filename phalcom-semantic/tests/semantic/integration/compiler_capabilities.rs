@@ -29,11 +29,11 @@ fn integer_literal_synthesizes_int() {
         .expect("Int type should be resolvable");
     let int_ty = decls.form(&int_decl).expect("Int should exist in bootstraped universe declarations");
 
-    assert_eq!(evidence.ty, int_ty);
-    assert_eq!(evidence.status, phalcom_semantic::EvidenceStatus::Established);
-    assert_eq!(evidence.origin, EvidenceOrigin::Syntax);
-    assert_eq!(evidence.provenance.ranges.len(), 1);
-    assert_eq!(evidence.provenance.ranges.as_slice(), &[expr.range()]);
+    assert_eq!(evidence.ty(), int_ty);
+    assert_eq!(evidence.status(), phalcom_semantic::EvidenceStatus::Established);
+    assert_eq!(evidence.origin(), EvidenceOrigin::Syntax);
+    assert_eq!(evidence.provenance().ranges.len(), 1);
+    assert_eq!(evidence.provenance().ranges.as_slice(), &[expr.range()]);
     assert!(
         ctx.diagnostics.is_empty(),
         "literal synthesis should not emit diagnostics: {:?}",

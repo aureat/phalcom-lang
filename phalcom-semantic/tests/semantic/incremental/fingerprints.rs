@@ -5,8 +5,9 @@ use phalcom_modules::{
     InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, UnlinkedModuleInterface,
 };
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{
-    AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary,
+    AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowBindingSummary, FlowStateSummary,
 };
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
 use phalcom_semantic::db::ProductFingerprint;
@@ -19,7 +20,7 @@ use phalcom_semantic::db::fingerprint::{
 };
 use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
-use phalcom_semantic::dispatch::{CallableSignature, DispatchSide};
+use phalcom_semantic::dispatch::{CallableSemanticKind, CallableSignature, DispatchSide};
 use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, LocalExpressionId};
 use phalcom_semantic::signature::CallableSemanticSignature;
@@ -324,6 +325,33 @@ fn declaration_surface_product_includes_callable_generic_contract() {
 }
 
 #[test]
+fn declaration_surface_product_includes_callable_semantic_kind() {
+    let owner = declaration("KindSurface");
+    let selector = Selector::getter("value").expect("selector");
+    let mut ordinary = DeclarationSurface::new(Some(owner.clone()));
+    ordinary.add_callable(
+        DispatchSide::Instance,
+        CallableSignature::new(
+            selector.clone(),
+            Vec::new(),
+            TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation),
+        ),
+    );
+
+    let mut constructor = DeclarationSurface::new(Some(owner));
+    constructor.add_callable(
+        DispatchSide::Instance,
+        CallableSignature::new(selector, Vec::new(), TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation))
+            .with_kind(CallableSemanticKind::Constructor),
+    );
+
+    assert_ne!(
+        declaration_surface_product_fingerprint(&ordinary),
+        declaration_surface_product_fingerprint(&constructor)
+    );
+}
+
+#[test]
 fn callable_signature_product_includes_generics_effects_and_lifecycle() {
     let base = semantic_signature();
 
@@ -458,6 +486,44 @@ fn callable_body_product_includes_flow_exit_and_callable_status() {
 }
 
 #[test]
+fn callable_body_product_distinguishes_flow_evidence_status() {
+    let binding = phalcom_semantic::identity::BindingId(9);
+    let mut established = callable_analysis();
+    established.entry_flow.bindings.insert(
+        binding,
+        FlowBindingSummary {
+            knowledge: TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            contract: None,
+            consistency: BindingConsistency::Unconstrained,
+            mutable: false,
+        },
+    );
+    let mut assumed = established.clone();
+    assumed.entry_flow.bindings.get_mut(&binding).expect("flow binding").knowledge = TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::Flow);
+
+    assert_ne!(callable_body_product_fingerprint(&established), callable_body_product_fingerprint(&assumed));
+}
+
+#[test]
+fn callable_body_product_distinguishes_unknown_and_dynamic_flow() {
+    let binding = phalcom_semantic::identity::BindingId(10);
+    let mut unknown = callable_analysis();
+    unknown.entry_flow.bindings.insert(
+        binding,
+        FlowBindingSummary {
+            knowledge: TypeKnowledge::Unknown(phalcom_semantic::UnknownReason::NoTypeEvidence),
+            contract: None,
+            consistency: BindingConsistency::Unconstrained,
+            mutable: false,
+        },
+    );
+    let mut dynamic = unknown.clone();
+    dynamic.entry_flow.bindings.get_mut(&binding).expect("flow binding").knowledge = TypeKnowledge::Dynamic(phalcom_semantic::DynamicReason::RuntimeReflection);
+
+    assert_ne!(callable_body_product_fingerprint(&unknown), callable_body_product_fingerprint(&dynamic));
+}
+
+#[test]
 fn callable_body_product_ignores_explanation_presentation() {
     let expression_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
     let mut left = callable_analysis();
@@ -571,6 +637,20 @@ fn module_diagnostics_product_includes_secondary_details() {
     assert_ne!(
         module_diagnostics_product_fingerprint(&module, &[left]),
         module_diagnostics_product_fingerprint(&module, &[right])
+    );
+}
+
+#[test]
+fn module_diagnostics_product_ignores_snapshot_local_cause_numbers() {
+    let module = ModuleId::core();
+    let left = SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })
+        .with_root_cause(DiagnosticCauseId(17));
+    let right = SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })
+        .with_root_cause(DiagnosticCauseId(91));
+
+    assert_eq!(
+        module_diagnostics_product_fingerprint(&module, &[left]),
+        module_diagnostics_product_fingerprint(&module, &[right]),
     );
 }
 

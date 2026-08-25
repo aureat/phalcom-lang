@@ -409,15 +409,15 @@ fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hash
     match knowledge {
         TypeKnowledge::Known(evidence) => {
             0u8.hash(hasher);
-            evidence.ty.hash(hasher);
-            evidence.status.hash(hasher);
-            evidence.origin.hash(hasher);
+            evidence.ty().hash(hasher);
+            evidence.status().hash(hasher);
+            evidence.origin().hash(hasher);
             if include_provenance {
-                evidence.provenance.ranges.len().hash(hasher);
-                for range in &evidence.provenance.ranges {
+                evidence.provenance().ranges.len().hash(hasher);
+                for range in &evidence.provenance().ranges {
                     hash_range(*range, hasher);
                 }
-                evidence.provenance.descriptions.hash(hasher);
+                evidence.provenance().descriptions.hash(hasher);
             }
         }
         TypeKnowledge::Unknown(reason) => {
@@ -465,6 +465,11 @@ fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hash
 
 fn hash_dispatch_callable_signature(signature: &crate::dispatch::CallableSignature, include_provenance: bool, hasher: &mut impl Hasher) {
     signature.selector.hash(hasher);
+    match signature.kind {
+        crate::dispatch::CallableSemanticKind::Ordinary => 0u8.hash(hasher),
+        crate::dispatch::CallableSemanticKind::Constructor => 1u8.hash(hasher),
+        crate::dispatch::CallableSemanticKind::Native => 2u8.hash(hasher),
+    }
     signature.parameters.len().hash(hasher);
     for parameter in &signature.parameters {
         parameter.external_label.hash(hasher);
@@ -700,6 +705,16 @@ fn hash_binding_consistency(consistency: &crate::checker::binding::BindingConsis
             5u8.hash(hasher);
             hash_block_reason(reason, hasher);
         }
+        crate::checker::binding::BindingConsistency::Cancelled => 6u8.hash(hasher),
+        crate::checker::binding::BindingConsistency::BudgetExceeded(report) => {
+            7u8.hash(hasher);
+            report.used.hash(hasher);
+            report.limit.hash(hasher);
+        }
+        crate::checker::binding::BindingConsistency::InternalFailure(message) => {
+            8u8.hash(hasher);
+            message.hash(hasher);
+        }
     }
 }
 
@@ -756,10 +771,13 @@ fn hash_flow_graph_semantics(graph: &FlowGraph, hasher: &mut impl Hasher) {
 }
 
 fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
-    summary.known_bindings.len().hash(hasher);
-    for (binding, ty) in &summary.known_bindings {
+    summary.bindings.len().hash(hasher);
+    for (binding, state) in &summary.bindings {
         binding.hash(hasher);
-        ty.hash(hasher);
+        hash_type_knowledge(&state.knowledge, false, hasher);
+        hash_binding_contract(&state.contract, hasher);
+        hash_binding_consistency(&state.consistency, hasher);
+        state.mutable.hash(hasher);
     }
     summary.fact_count.hash(hasher);
 }
@@ -811,7 +829,9 @@ fn hash_semantic_diagnostic(diagnostic: &SemanticDiagnostic, hasher: &mut impl H
     for fix in &diagnostic.fixes {
         hash_diagnostic_fix(fix, hasher);
     }
-    diagnostic.root_cause.hash(hasher);
+    // Cause numbers are snapshot-local allocator identities, not semantic
+    // diagnostic content. Preserve ownership shape without hashing the ID.
+    diagnostic.root_cause.is_some().hash(hasher);
 }
 
 fn hash_callable_analysis_status(status: CallableAnalysisStatus, hasher: &mut impl Hasher) {
@@ -821,6 +841,10 @@ fn hash_callable_analysis_status(status: CallableAnalysisStatus, hasher: &mut im
         CallableAnalysisStatus::Blocked => 2u8.hash(hasher),
         CallableAnalysisStatus::Cancelled => 3u8.hash(hasher),
         CallableAnalysisStatus::BudgetExceeded => 4u8.hash(hasher),
+        CallableAnalysisStatus::InternalFailure(incident) => {
+            5u8.hash(hasher);
+            incident.hash(hasher);
+        }
     }
 }
 
@@ -1158,7 +1182,6 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     analysis.bindings.len().hash(&mut hasher);
     for (binding_id, binding) in &analysis.bindings {
         binding_id.hash(&mut hasher);
-        binding.declared.hash(&mut hasher);
         hash_binding_contract(&binding.contract, &mut hasher);
         hash_type_knowledge(&binding.current, false, &mut hasher);
         hash_denotation(&binding.denotation, &mut hasher);

@@ -1077,6 +1077,7 @@ pub fn query_callable_body_with_formal_inputs(
             );
             QueryOutcome::Blocked(reason)
         }
+        CallableAnalysisStatus::InternalFailure(incident) => query_failure(db, key, format!("callable body analysis failed (incident {})", incident.0)),
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for sem_dep in arc_analysis.semantic_dependencies.iter() {

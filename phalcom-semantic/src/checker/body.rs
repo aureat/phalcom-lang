@@ -1,7 +1,7 @@
 //! Full callable body type checking and CallableAnalysis generation (Spec 04.5 / Wave 5).
 
-use crate::checker::analysis::{CallableAnalysis, CallableAnalysisStatus};
-use crate::checker::context::CheckingContext;
+use crate::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus};
+use crate::checker::context::{CallableReturnContract, CheckerControl, CheckingContext};
 use crate::checker::flow::graph::FlowGraph;
 use crate::checker::statement::check_statement;
 use crate::db::budget::{CancellationToken, QueryBudget};
@@ -77,10 +77,11 @@ pub fn analyze_callable_body(
     declarations: &DeclarationTypeTable,
     dispatch: &SurfaceDispatchResolver,
     module: ModuleId,
-    mut budget: QueryBudget,
+    budget: QueryBudget,
     cancel: &CancellationToken,
 ) -> CallableAnalysis {
-    let mut ctx = CheckingContext::new_with_dispatch_ref(store, hierarchy, resolver, declarations, dispatch, module);
+    let control = CheckerControl::new(budget, cancel);
+    let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
     ctx.current_class = Some(callable.owner.clone());
     ctx.current_side = callable.side;
 
@@ -107,10 +108,11 @@ pub fn analyze_callable_body(
             ctx.bind_callable_parameter(param.local_name.clone(), param.ty.clone(), body_range);
         }
         if let Some(ret_ty) = sig.return_type.ty() {
-            ctx.expected_return = Some(crate::types::evidence::TypeKnowledge::assumed(
-                ret_ty,
-                crate::types::evidence::EvidenceOrigin::CallableSignature,
-            ));
+            ctx.expected_return = Some(CallableReturnContract {
+                ty: ret_ty,
+                origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
+                source: None,
+            });
         }
     }
 
@@ -120,12 +122,12 @@ pub fn analyze_callable_body(
     let mut can_fall_through = true;
 
     for (statement_index, stmt) in body.iter().enumerate() {
-        if cancel.is_cancelled() {
+        if ctx.is_cancelled() {
             status = CallableAnalysisStatus::Cancelled;
             break;
         }
 
-        if let Err(report) = budget.charge_step() {
+        if let Err(report) = ctx.charge_step() {
             ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::warning_in(
                 ctx.current_module.clone(),
                 crate::diagnostic::DiagnosticCode::AnalysisBudgetExceeded,
@@ -142,15 +144,16 @@ pub fn analyze_callable_body(
                 let expected = ctx
                     .expected_return
                     .as_ref()
-                    .and_then(crate::types::evidence::TypeKnowledge::ty)
-                    .map(|ty| crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::ReturnContract))
+                    .map(|contract| {
+                        crate::checker::expected::ExpectedType::proper_from(contract.ty, crate::checker::expected::ExpectationOrigin::ReturnContract)
+                    })
                     .unwrap_or_default();
                 let typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
                 if !constructor_body && !setter_body {
                     if let Some(expected_return) = ctx.expected_return.clone() {
-                        ctx.enforce_assignability(
+                        ctx.apply_knowledge_against_type(
                             &typed.knowledge,
-                            &expected_return,
+                            expected_return.ty,
                             crate::diagnostic::DiagnosticCode::ReturnMismatch,
                             "tail expression result is not assignable to method's declared return type",
                             *range,
@@ -193,9 +196,9 @@ pub fn analyze_callable_body(
                     let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
                     if !constructor_body && !setter_body {
                         if let Some(expected_return) = ctx.expected_return.clone() {
-                            ctx.enforce_assignability(
+                            ctx.apply_knowledge_against_type(
                                 &unit,
-                                &expected_return,
+                                expected_return.ty,
                                 crate::diagnostic::DiagnosticCode::ReturnMismatch,
                                 "tail statement completes with Unit, which is not assignable to method's declared return type",
                                 stmt_range(stmt),
@@ -213,9 +216,9 @@ pub fn analyze_callable_body(
         let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
         if !constructor_body && !setter_body {
             if let Some(expected_return) = ctx.expected_return.clone() {
-                ctx.enforce_assignability(
+                ctx.apply_knowledge_against_type(
                     &unit,
-                    &expected_return,
+                    expected_return.ty,
                     crate::diagnostic::DiagnosticCode::ReturnMismatch,
                     "empty callable body completes with Unit, which is not assignable to method's declared return type",
                     body_range,
@@ -225,5 +228,8 @@ pub fn analyze_callable_body(
         normal_return_values.push(unit);
     }
 
+    if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status {
+        status = CallableAnalysisStatus::InternalFailure(incident);
+    }
     ctx.finalize_with_normal_returns(callable, body_range, status, normal_return_values)
 }

@@ -11,6 +11,13 @@ use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
 use std::collections::BTreeMap;
 
+/// Structural failures that make a path merge semantically unsafe.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FlowJoinFailure {
+    DivergentBindingContracts { binding: BindingId },
+    DivergentMutability { binding: BindingId },
+}
+
 /// Flow predicate fact set tracking path-sensitive assertions.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FactSet {
@@ -157,7 +164,7 @@ impl FlowState {
     }
 
     pub fn get_declared_type(&self, binding: BindingId) -> Option<TypeId> {
-        self.bindings.get(&binding).and_then(|b| b.declared)
+        self.bindings.get(&binding).and_then(|b| b.contract.as_ref().map(|contract| contract.ty))
     }
 
     /// Sequential assignment: replaces `current` fact, increments version,
@@ -203,8 +210,32 @@ impl FlowState {
     /// Control-flow merge with contract reconciliation against the canonical
     /// hierarchy. The compatibility `join` entry point remains available for
     /// low-level tests that do not have a hierarchy product.
-    pub fn join_with_hierarchy(states: &[FlowState], store: &mut TypeStore, hierarchy: &dyn crate::types::relation::TypeHierarchy) -> FlowState {
-        Self::join_impl(states, store, Some(hierarchy))
+    pub fn join_with_hierarchy(
+        states: &[FlowState],
+        store: &mut TypeStore,
+        hierarchy: &dyn crate::types::relation::TypeHierarchy,
+    ) -> Result<FlowState, FlowJoinFailure> {
+        let reachable_states: Vec<&FlowState> = states.iter().filter(|state| state.reachable).collect();
+        if reachable_states.len() > 1 {
+            let mut all_binding_ids = std::collections::BTreeSet::new();
+            for state in &reachable_states {
+                all_binding_ids.extend(state.bindings.keys().copied());
+            }
+            for binding in all_binding_ids {
+                let bindings = reachable_states.iter().filter_map(|state| state.bindings.get(&binding)).collect::<Vec<_>>();
+                if bindings.len() == reachable_states.len() {
+                    let contract = bindings[0].contract.as_ref();
+                    if bindings.iter().any(|state| state.contract.as_ref() != contract) {
+                        return Err(FlowJoinFailure::DivergentBindingContracts { binding });
+                    }
+                    let mutable = bindings[0].mutable;
+                    if bindings.iter().any(|state| state.mutable != mutable) {
+                        return Err(FlowJoinFailure::DivergentMutability { binding });
+                    }
+                }
+            }
+        }
+        Ok(Self::join_impl(states, store, Some(hierarchy)))
     }
 
     fn join_impl(states: &[FlowState], store: &mut TypeStore, hierarchy: Option<&dyn crate::types::relation::TypeHierarchy>) -> FlowState {
@@ -255,7 +286,6 @@ impl FlowState {
                 // Divergent branches do not have one canonical contract. Do
                 // not retain whichever branch happened to be visited first.
                 b.contract = contract.clone();
-                b.declared = contract.as_ref().map(|contract| contract.ty);
                 b.current = joined_knowledge;
                 b.mutable = mutable;
                 b.denotation = {
@@ -309,17 +339,44 @@ impl FlowState {
     }
 
     /// Widens loop varying states across fixed-point iterations (F3).
-    pub fn widen_loop_state(header: &FlowState, next_header: &FlowState, store: &mut TypeStore) -> FlowState {
+    pub fn widen_loop_state(header: &FlowState, next_header: &FlowState, store: &mut TypeStore) -> Result<FlowState, FlowJoinFailure> {
+        let hierarchy = crate::types::relation::MapTypeHierarchy::default();
+        Self::widen_loop_state_with_hierarchy(header, next_header, store, &hierarchy)
+    }
+
+    /// Widens loop state and immediately rechecks each widened current fact
+    /// against its persistent contract using the canonical hierarchy.
+    pub fn widen_loop_state_with_hierarchy(
+        header: &FlowState,
+        next_header: &FlowState,
+        store: &mut TypeStore,
+        hierarchy: &dyn crate::types::relation::TypeHierarchy,
+    ) -> Result<FlowState, FlowJoinFailure> {
+        for (binding, header_binding) in &header.bindings {
+            let Some(next_binding) = next_header.bindings.get(binding) else {
+                continue;
+            };
+            if header_binding.contract != next_binding.contract {
+                return Err(FlowJoinFailure::DivergentBindingContracts { binding: *binding });
+            }
+            if header_binding.mutable != next_binding.mutable {
+                return Err(FlowJoinFailure::DivergentMutability { binding: *binding });
+            }
+        }
         let mut widened_bindings = header.bindings.clone();
         for (id, next_b) in &next_header.bindings {
             if let Some(h_b) = header.bindings.get(id) {
                 if h_b.current != next_b.current {
                     let widened_knowledge = join_type_knowledge(store, [h_b.current.clone(), next_b.current.clone()]);
                     let mut wb = h_b.clone();
-                    wb.current = widened_knowledge;
+                    wb.current = widened_knowledge.clone();
                     wb.denotation = if h_b.denotation == next_b.denotation { h_b.denotation } else { None };
                     wb.causal_invalidity = h_b.causal_invalidity.join(next_b.causal_invalidity);
-                    if h_b.consistency != next_b.consistency {
+                    if let Some(contract) = wb.contract.as_ref() {
+                        let reconciliation = crate::checker::binding::reconcile_binding_contract(store, hierarchy, Some(contract), &widened_knowledge);
+                        wb.current = reconciliation.current;
+                        wb.consistency = reconciliation.consistency;
+                    } else if h_b.consistency != next_b.consistency {
                         wb.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
                     }
                     wb.version = h_b.version.max(next_b.version) + 1;
@@ -328,11 +385,11 @@ impl FlowState {
             }
         }
         let invariant_facts = header.facts.intersect(&next_header.facts);
-        FlowState {
+        Ok(FlowState {
             bindings: widened_bindings,
             facts: invariant_facts,
             reachable: true,
-        }
+        })
     }
 
     /// Invalidate mutable projection facts on opaque/unknown method calls (F4).

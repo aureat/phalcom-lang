@@ -1,5 +1,6 @@
 //! Semantic typing result representation for expressions.
 
+use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
 use crate::dispatch::DispatchLookup;
 use crate::identity::{CallableId, ExplanationId, ExpressionId};
@@ -16,6 +17,7 @@ pub struct TypedExpression {
     pub callable: Option<CallableId>,
     pub explanation_parents: Vec<ExplanationId>,
     pub knowledge: TypeKnowledge,
+    pub status: AnalysisStatus,
     pub denotation: Option<SemanticDenotation>,
     pub dispatch_lookup: DispatchLookup,
     pub constraints: Vec<TypeConstraint>,
@@ -26,14 +28,18 @@ pub struct TypedExpression {
 impl TypedExpression {
     pub fn new(knowledge: TypeKnowledge) -> Self {
         let provenance = match &knowledge {
-            TypeKnowledge::Known(ev) => ev.provenance.clone(),
+            TypeKnowledge::Known(ev) => ev.provenance().clone(),
             _ => EvidenceSet::default(),
         };
         Self {
             expression_id: None,
             callable: None,
             explanation_parents: Vec::new(),
-            knowledge,
+            knowledge: knowledge.clone(),
+            status: match &knowledge {
+                TypeKnowledge::Dynamic(reason) => AnalysisStatus::DynamicBoundary(reason.clone()),
+                _ => AnalysisStatus::Ready,
+            },
             denotation: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
@@ -51,6 +57,7 @@ impl TypedExpression {
             callable: None,
             explanation_parents: Vec::new(),
             knowledge,
+            status: AnalysisStatus::Ready,
             denotation: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
@@ -68,6 +75,7 @@ impl TypedExpression {
             callable: None,
             explanation_parents: Vec::new(),
             knowledge,
+            status: AnalysisStatus::Ready,
             denotation: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
@@ -82,6 +90,7 @@ impl TypedExpression {
             callable: None,
             explanation_parents: Vec::new(),
             knowledge: TypeKnowledge::Unknown(reason),
+            status: AnalysisStatus::Ready,
             denotation: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
@@ -95,7 +104,8 @@ impl TypedExpression {
             expression_id: None,
             callable: None,
             explanation_parents: Vec::new(),
-            knowledge: TypeKnowledge::Dynamic(reason),
+            knowledge: TypeKnowledge::Dynamic(reason.clone()),
+            status: AnalysisStatus::DynamicBoundary(reason),
             denotation: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
@@ -106,6 +116,11 @@ impl TypedExpression {
 
     pub fn with_denotation(mut self, denotation: SemanticDenotation) -> Self {
         self.denotation = Some(denotation);
+        self
+    }
+
+    pub fn with_status(mut self, status: AnalysisStatus) -> Self {
+        self.status = status;
         self
     }
 
@@ -149,6 +164,7 @@ impl From<crate::checker::analysis::ExpressionAnalysis> for TypedExpression {
         expr.callable = analysis.callable;
         expr.explanation_parents = analysis.explanation.into_iter().collect();
         expr.denotation = analysis.denotation;
+        expr.status = analysis.status;
         expr.causal_invalidity = analysis.causal_invalidity;
         expr
     }

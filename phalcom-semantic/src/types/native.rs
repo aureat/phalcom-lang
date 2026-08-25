@@ -1,7 +1,7 @@
 //! Normalization of rich native metadata specifications into canonical semantic types.
 
 use super::application::TypeApplicationError;
-use super::evidence::{EvidenceOrigin, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason};
+use super::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use super::id::TypeId;
 use super::store::{TupleTypeElement, TypeStore};
 use crate::declarations::DeclarationTypeTable;
@@ -163,12 +163,7 @@ pub fn normalize_native_type(
     spec: &TypeExprSpec,
 ) -> TypeKnowledge {
     match resolve_native_type_form(store, declarations, parameters, universe_resolver, spec) {
-        Ok(form) if store.is_proper_type(form) => TypeKnowledge::Known(TypeEvidence {
-            ty: form,
-            status: EvidenceStatus::Established,
-            origin: EvidenceOrigin::NativeSignature,
-            provenance: Default::default(),
-        }),
+        Ok(form) if store.is_proper_type(form) => TypeKnowledge::established(form, EvidenceOrigin::NativeSignature),
         _ => TypeKnowledge::Unknown(UnknownReason::OpaqueNative),
     }
 }
@@ -311,7 +306,7 @@ pub fn register_native_surfaces(
             _ => import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, record.returns())?,
         };
 
-        let sig = CallableSignature::new(selector, params, ret_knowledge);
+        let sig = CallableSignature::new(selector, params, ret_knowledge).with_kind(crate::dispatch::CallableSemanticKind::Native);
         let callable_id = crate::identity::CallableId::new(decl.clone(), sig.selector.clone(), side);
         report.imported_keys.push(record.id());
         surfaces_by_decl

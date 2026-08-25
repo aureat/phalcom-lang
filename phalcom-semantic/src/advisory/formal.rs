@@ -21,7 +21,7 @@ pub fn advisory_fact_from_formal(store: &TypeStore, knowledge: &TypeKnowledge, o
 /// advisory provenance.
 pub fn advisory_shape_from_formal(store: &TypeStore, knowledge: &TypeKnowledge) -> ValueShape {
     match knowledge {
-        TypeKnowledge::Known(evidence) => shape_from_type(store, evidence.ty, DEFAULT_FORMAL_PROJECTION_DEPTH),
+        TypeKnowledge::Known(evidence) => shape_from_type(store, evidence.ty(), DEFAULT_FORMAL_PROJECTION_DEPTH),
         TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => ValueShape::Unknown,
     }
 }

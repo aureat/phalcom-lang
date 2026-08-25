@@ -388,7 +388,7 @@ impl Fixture {
     pub fn assert_binding_expectation(&self, callable: &CallableAnalysis, name: &str, expected: BindingExpectation) {
         let actual = self.binding(callable, name);
         if let Some(declared) = expected.declared {
-            let actual_declared = actual.declared.expect("expected declared binding type");
+            let actual_declared = actual.declared_type().expect("expected declared binding type");
             self.assert_type_expectation(actual_declared, &declared);
         }
         if let Some(current) = expected.current {
@@ -630,7 +630,7 @@ pub fn assert_refuted(binding: &BindingState, actual: TypeId, expected: TypeId) 
 }
 
 pub fn assert_source_contract(binding: &BindingState, expected: TypeId) {
-    assert_eq!(binding.declared, Some(expected), "unexpected declared type: {binding:#?}");
+    assert_eq!(binding.declared_type(), Some(expected), "unexpected declared type: {binding:#?}");
     let contract = binding.contract.as_ref().expect("expected source contract");
     assert_eq!(contract.ty, expected);
     assert_eq!(contract.origin, BindingContractOrigin::SourceAnnotation);

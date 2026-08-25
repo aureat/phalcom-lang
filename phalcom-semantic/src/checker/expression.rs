@@ -1,18 +1,19 @@
 //! Expression type synthesis, bidirectional checking, and inference engine (Spec 04.5 / Wave 3).
 
-use super::call::{promote_exact_return, resolve_call};
+use super::call::{exact_return_origin, promote_exact_return, resolve_call};
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::flow::FlowState;
 use super::statement::check_statement;
 use super::typed_expr::TypedExpression;
 use crate::checker::analysis::AnalysisStatus;
-use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_contract};
+use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
 use crate::diagnostic::DiagnosticCode;
 use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult};
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::KindId;
+use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     BinaryExpr, BinaryOp, Expr, GetPropertyExpr, IndexExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern,
@@ -29,15 +30,10 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     let owned_cause = ctx.pop_expression_owner(expr_id);
 
     let status = if let Some(cause_id) = owned_cause {
-        ctx.mark_suppressed(expr_id, cause_id);
         typed.causal_invalidity = typed.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause_id));
         AnalysisStatus::Invalid(cause_id)
-    } else if let Some(cause) = typed.causal_invalidity.suppression_cause() {
-        AnalysisStatus::Suppressed(cause)
-    } else if typed.knowledge.is_dynamic() {
-        AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection)
     } else {
-        AnalysisStatus::Ready
+        typed.status.clone()
     };
     let explanation_id = if let Some(ty) = typed.knowledge.ty() {
         let step = match expr {
@@ -64,7 +60,14 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     };
     ctx.record_call_dependency(typed.causal_invalidity, explanation_id);
 
-    let mut analysis = ctx.record_expression(expr_id, expr.range(), typed.knowledge.clone(), typed.callable.clone(), typed.denotation, status);
+    let mut analysis = ctx.record_expression(
+        expr_id,
+        expr.range(),
+        typed.knowledge.clone(),
+        typed.callable.clone(),
+        typed.denotation,
+        status.clone(),
+    );
     analysis.causal_invalidity = typed.causal_invalidity;
     ctx.expressions.insert(expr_id, analysis.clone());
     if let Some(eid) = explanation_id {
@@ -72,6 +75,7 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
         ctx.expressions.insert(expr_id, analysis);
     }
     typed.expression_id = Some(expr_id);
+    typed.status = status;
     typed
 }
 
@@ -84,15 +88,17 @@ pub fn check_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &Expecte
 pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
     let mut typed = analyze_expression(ctx, expr, expected);
     if let Some(expected_ty) = expected.ty() {
-        if !ctx.enforce_knowledge_against_type_owned(
+        let application = ctx.apply_knowledge_against_type_owned(
             &typed.knowledge,
             expected_ty,
             DiagnosticCode::TypeMismatch,
             "expression does not match expected type",
             expr.range(),
             typed.expression_id.expect("analyzed expression has expression identity"),
-        ) {
+        );
+        if application.outcome.is_refuted() {
             if let Some(analysis) = typed.expression_id.and_then(|id| ctx.expressions.get(&id)) {
+                typed.status = analysis.status.clone();
                 typed.causal_invalidity = analysis.causal_invalidity;
             }
         }
@@ -233,12 +239,6 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                 .as_ref()
                                 .map(|contract| ExpectedType::proper_from(contract.ty, ExpectationOrigin::AssignmentContract))
                         })
-                        .or_else(|| {
-                            ctx.flow
-                                .get_current_type(info.id)
-                                .and_then(|k| k.ty())
-                                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::AssignmentContract))
-                        })
                         .unwrap_or_default()
                 } else {
                     ExpectedType::None
@@ -265,7 +265,17 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                 .expect("error diagnostic has cause");
                             causal_invalidity = causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
                         } else {
-                            let reconciliation = reconcile_binding_contract(ctx.store, &ctx.hierarchy, state.contract.as_ref(), &val_typed.knowledge);
+                            let relation = match state.contract.as_ref() {
+                                None => RelationOutcome::proven(()),
+                                Some(contract) => match &val_typed.knowledge {
+                                    TypeKnowledge::Unknown(reason) => RelationOutcome::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())),
+                                    TypeKnowledge::Dynamic(_) => RelationOutcome::DynamicBoundary(DynamicBoundaryObligation {
+                                        reason: "assignment crosses dynamic boundary".into(),
+                                    }),
+                                    TypeKnowledge::Known(_) => ctx.check_knowledge_against_type(&val_typed.knowledge, contract.ty),
+                                },
+                            };
+                            let reconciliation = reconcile_binding_relation(state.contract.as_ref(), &val_typed.knowledge, relation);
                             consistency = reconciliation.consistency;
                             if matches!(consistency, BindingConsistency::Refuted { .. }) {
                                 let cause = ctx
@@ -415,7 +425,16 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 )
             };
 
-            ctx.flow = FlowState::join_with_hierarchy(&[then_flow, else_flow], ctx.store, &ctx.hierarchy);
+            let join_status = match ctx.join_flow_states(&[then_flow, else_flow]) {
+                Ok(flow) => {
+                    ctx.flow = flow;
+                    None
+                }
+                Err(failure) => {
+                    ctx.flow = FlowState::unreachable();
+                    Some(ctx.publish_flow_join_failure(failure))
+                }
+            };
 
             let combined_knowledge = crate::types::evidence::join_type_knowledge(ctx.store, [then_typed.knowledge.clone(), else_typed.knowledge.clone()]);
             let merged_denotation = match (then_typed.denotation, else_typed.denotation) {
@@ -423,6 +442,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 _ => None,
             };
             let mut res = TypedExpression::new(combined_knowledge);
+            if let Some(status) = join_status {
+                res.status = status;
+            }
             res.denotation = merged_denotation;
             res.causal_invalidity = val_typed
                 .causal_invalidity
@@ -722,9 +744,32 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
 // Message Send and Invocation Synthesis (E5)
 // ---------------------------------------------------------------------------
 
+/// A receiver-dependent operation is suppressed only when its required
+/// receiver premise is unavailable because the receiver itself is invalid or
+/// already suppressed. Ready knowledge with upstream causal invalidity stays
+/// analyzable and is handled by ordinary dispatch recovery.
+fn suppress_required_receiver_premise(receiver: &TypedExpression) -> Option<TypedExpression> {
+    if receiver.knowledge.ty().is_some() {
+        return None;
+    }
+    let cause = match &receiver.status {
+        AnalysisStatus::Invalid(cause) => Some(crate::checker::causal::SuppressionCause::One(*cause)),
+        AnalysisStatus::Suppressed(cause) => Some(cause.clone()),
+        _ => None,
+    }?;
+    let mut typed = TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+    typed.status = AnalysisStatus::Suppressed(cause);
+    typed.causal_invalidity = receiver.causal_invalidity;
+    Some(typed)
+}
+
 fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
+
+    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
+        return suppressed;
+    }
 
     if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, recv_k) {
         typed.causal_invalidity = typed.causal_invalidity.join(recv_typed.causal_invalidity);
@@ -757,6 +802,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
             DispatchResult::Found(sig) => {
                 let result = resolve_call(ctx, &sig, &call.args, expected, call.range);
                 let mut typed = TypedExpression::new(result.knowledge);
+                typed.status = result.status;
                 typed.callable = result.callable;
                 typed.explanation_parents = result.explanation_parents;
                 if let Some(receiver) = recv_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)) {
@@ -820,7 +866,7 @@ fn synthesize_control_method_call(
         .map(|declaration| ctx.nominal_type_of(&declaration))
         .zip(receiver_knowledge.ty())
         .is_some_and(|(bool_ty, receiver_ty)| bool_ty == receiver_ty);
-    let receiver_is_literal_block = matches!(call.object.as_ref(), Expr::Block(_));
+    let receiver_is_literal_block = matches!(&call.object, Expr::Block(_));
 
     match call.method.as_str() {
         "ifTrue" if receiver_is_bool && labeled_block("ifFalse").is_some() => {
@@ -834,9 +880,21 @@ fn synthesize_control_method_call(
             let else_typed = analyze_control_block(ctx, else_block, expected);
             let else_flow = ctx.flow.clone();
 
-            ctx.flow = FlowState::join_with_hierarchy(&[then_flow, else_flow], ctx.store, &ctx.hierarchy);
+            let join_status = match ctx.join_flow_states(&[then_flow, else_flow]) {
+                Ok(flow) => {
+                    ctx.flow = flow;
+                    None
+                }
+                Err(failure) => {
+                    ctx.flow = FlowState::unreachable();
+                    Some(ctx.publish_flow_join_failure(failure))
+                }
+            };
             let knowledge = crate::types::evidence::join_type_knowledge(ctx.store, [then_typed.knowledge.clone(), else_typed.knowledge.clone()]);
             let mut typed = TypedExpression::new(knowledge);
+            if let Some(status) = join_status {
+                typed.status = status;
+            }
             typed.causal_invalidity = then_typed.causal_invalidity.join(else_typed.causal_invalidity);
             typed.explanation_parents.extend(then_typed.explanation_parents);
             typed.explanation_parents.extend(else_typed.explanation_parents);
@@ -852,8 +910,20 @@ fn synthesize_control_method_call(
             let mut loop_states = vec![before, body_flow];
             loop_states.extend(loop_frame.continues);
             loop_states.extend(loop_frame.breaks);
-            ctx.flow = FlowState::join_with_hierarchy(&loop_states, ctx.store, &ctx.hierarchy);
+            let join_status = match ctx.join_flow_states(&loop_states) {
+                Ok(flow) => {
+                    ctx.flow = flow;
+                    None
+                }
+                Err(failure) => {
+                    ctx.flow = FlowState::unreachable();
+                    Some(ctx.publish_flow_join_failure(failure))
+                }
+            };
             let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, call.range);
+            if let Some(status) = join_status {
+                typed.status = status;
+            }
             typed.causal_invalidity = body_typed.causal_invalidity;
             Some(typed)
         }
@@ -925,6 +995,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                 );
                 let result = resolve_call(ctx, &sig, &call.args, expected, call.range);
                 let mut typed = TypedExpression::new(result.knowledge);
+                typed.status = result.status;
                 typed.explanation_parents = result.explanation_parents;
                 typed.causal_invalidity = fact_causal_invalidity.join(result.causal_invalidity);
                 return typed;
@@ -965,6 +1036,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
             if let DispatchResult::Found(sig) = dispatch_res {
                 let result = resolve_call(ctx, &sig, &call.args, expected, call.range);
                 let mut typed = TypedExpression::new(result.knowledge);
+                typed.status = result.status;
                 typed.callable = result.callable;
                 typed.explanation_parents = result.explanation_parents;
                 typed.causal_invalidity = result.causal_invalidity;
@@ -1051,7 +1123,7 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
         if let Some(left_ty) = left_k.ty() {
             let dispatch_res = ctx.resolve_dispatch(left_ty, &sel, left_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, binary.range));
+                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), binary.range));
                 typed.callable = ctx.resolved_callable_for_current_expression();
                 typed.causal_invalidity = left_typed.causal_invalidity.join(right_typed.causal_invalidity);
                 return typed;
@@ -1081,7 +1153,7 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> Ty
         if let Some(operand_ty) = operand_k.ty() {
             let dispatch_res = ctx.resolve_dispatch(operand_ty, &sel, operand_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, unary.range));
+                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), unary.range));
                 typed.callable = ctx.resolved_callable_for_current_expression();
                 typed.causal_invalidity = operand_typed.causal_invalidity;
                 return typed;
@@ -1100,6 +1172,10 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
     let recv_typed = analyze_expression(ctx, &get.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
 
+    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
+        return suppressed;
+    }
+
     if let Some(recv_ty) = recv_k.ty() {
         // 1. Check Field on class surface
         let field_opt = match ctx.store.get(recv_ty).clone() {
@@ -1117,7 +1193,7 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
         if let Ok(sel) = Selector::getter(&get.property) {
             let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, get.range));
+                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), get.range));
                 typed.callable = ctx.resolved_callable_for_current_expression();
                 typed.causal_invalidity = recv_typed.causal_invalidity;
                 return typed;
@@ -1135,6 +1211,9 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
 fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &set.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
+    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
+        return suppressed;
+    }
     let val_typed = analyze_expression(ctx, &set.value, &ExpectedType::None);
     let val_k = val_typed.knowledge;
 
@@ -1146,7 +1225,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
             _ => None,
         };
         if let Some(field_k) = field_opt {
-            ctx.enforce_assignability(
+            ctx.apply_assignability(
                 &val_k,
                 &field_k,
                 DiagnosticCode::FieldMismatch,
@@ -1161,7 +1240,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
             let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
                 if let Some(param) = sig.parameters.first() {
-                    ctx.enforce_assignability(
+                    ctx.apply_assignability(
                         &val_k,
                         &param.ty,
                         DiagnosticCode::AssignmentMismatch,
@@ -1180,6 +1259,10 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
 fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &idx.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
+
+    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
+        return suppressed;
+    }
 
     let mut causal_invalidity = recv_typed.causal_invalidity;
     for arg in &idx.args {
@@ -1232,7 +1315,7 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
         if let Ok(sel) = Selector::subscript_get(slots) {
             let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
             if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, idx.range));
+                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), idx.range));
                 typed.callable = ctx.resolved_callable_for_current_expression();
                 typed.causal_invalidity = causal_invalidity;
                 return typed;
@@ -1250,6 +1333,9 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
 fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &set_idx.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
+    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
+        return suppressed;
+    }
     let val_typed = analyze_expression(ctx, &set_idx.value, &ExpectedType::None);
     let val_k = val_typed.knowledge;
 
@@ -1272,7 +1358,7 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
             if let Some(list_decl) = ctx.resolve_type_name("List") {
                 if origin == ctx.nominal_type_of(&list_decl) && arguments.len() == 1 {
                     let elem_k = TypeKnowledge::assumed(arguments[0], EvidenceOrigin::DeclarationSemantics);
-                    ctx.enforce_assignability(
+                    ctx.apply_assignability(
                         &val_k,
                         &elem_k,
                         DiagnosticCode::AssignmentMismatch,

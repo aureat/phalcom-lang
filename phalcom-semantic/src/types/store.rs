@@ -619,7 +619,7 @@ impl TypeStore {
     /// Formats TypeKnowledge into human-readable type syntax.
     pub fn format_knowledge(&self, knowledge: &crate::types::evidence::TypeKnowledge) -> String {
         match knowledge {
-            crate::types::evidence::TypeKnowledge::Known(ev) => self.format_type(ev.ty),
+            crate::types::evidence::TypeKnowledge::Known(ev) => self.format_type(ev.ty()),
             crate::types::evidence::TypeKnowledge::Dynamic(_) => "Dynamic".to_string(),
             crate::types::evidence::TypeKnowledge::Unknown(_) => "Unknown".to_string(),
         }

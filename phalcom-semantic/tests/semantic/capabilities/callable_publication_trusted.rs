@@ -46,11 +46,11 @@ class Demo {
         .max_by_key(|expression| expression.range.end.saturating_sub(expression.range.start))
         .expect("System.print call expression");
     assert!(matches!(call.knowledge, TypeKnowledge::Known(ref evidence)
-        if evidence.ty == snapshot.store.unit()
-            && evidence.status == EvidenceStatus::Established
-            && evidence.origin == EvidenceOrigin::CallableSignature));
+        if evidence.ty() == snapshot.store.unit()
+            && evidence.status() == EvidenceStatus::Established
+            && evidence.origin() == EvidenceOrigin::NativeSignature));
 
     assert_eq!(analysis.exits.normal_return_values.len(), 1);
     assert!(matches!(&analysis.exits.normal_return_values[0], TypeKnowledge::Known(evidence)
-        if evidence.ty == snapshot.store.unit() && evidence.status == EvidenceStatus::Established));
+        if evidence.ty() == snapshot.store.unit() && evidence.status() == EvidenceStatus::Established));
 }

@@ -87,7 +87,7 @@ fn diagnostics(analysis: &Analysis, code: DiagnosticCode) -> Vec<&SemanticDiagno
     analysis.snapshot.all_diagnostics().filter(|diagnostic| diagnostic.code == code).collect()
 }
 
-fn assert_method_call_evidence(analysis: &CallableAnalysis, expression: &ExpressionAnalysis, expected_type: TypeId) {
+fn assert_method_call_evidence(analysis: &CallableAnalysis, expression: &ExpressionAnalysis, expected_type: TypeId, expected_origin: EvidenceOrigin) {
     assert_eq!(
         expression.knowledge.ty(),
         Some(expected_type),
@@ -104,7 +104,7 @@ fn assert_method_call_evidence(analysis: &CallableAnalysis, expression: &Express
         other => panic!("expected method-call explanation, got {other:?}"),
     }
     assert_eq!(node.status, EvidenceStatus::Established);
-    assert_eq!(node.origin, EvidenceOrigin::CallableSignature);
+    assert_eq!(node.origin, expected_origin);
     assert!(
         node.evidence
             .iter()
@@ -139,11 +139,11 @@ class Probe {
     let new_id = zero_arg_callable(&module, "CellNum", "new", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    assert_method_call_evidence(run, expression(run, &source, "CellNum.new()"), cell_num);
+    assert_method_call_evidence(run, expression(run, &source, "CellNum.new()"), cell_num, EvidenceOrigin::ConstructorSemantics);
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
 
     assert_eq!(binding(run, "x").current.status(), Some(EvidenceStatus::Established));
-    assert_eq!(binding(run, "x").current.origin(), Some(EvidenceOrigin::CallableSignature));
+    assert_eq!(binding(run, "x").current.origin(), Some(EvidenceOrigin::ConstructorSemantics));
 
     assert!(run.dependencies.contains(&new_id));
     assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
@@ -175,12 +175,17 @@ class Probe {
     let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
 
     let factory = callable_analysis(&analysis, &of_id);
-    assert_method_call_evidence(factory, expression(factory, &source, "CellNum.new()"), cell_num);
+    assert_method_call_evidence(
+        factory,
+        expression(factory, &source, "CellNum.new()"),
+        cell_num,
+        EvidenceOrigin::ConstructorSemantics,
+    );
     assert!(factory.dependencies.contains(&new_id));
 
     let run = callable_analysis(&analysis, &run_id);
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
-    assert_method_call_evidence(run, expression(run, &source, "CellNum.of()"), cell_num);
+    assert_method_call_evidence(run, expression(run, &source, "CellNum.of()"), cell_num, EvidenceOrigin::CallableSignature);
     assert!(run.dependencies.contains(&of_id));
     assert_eq!(binding(run, "x").current.ty(), Some(cell_num));
 }
@@ -210,23 +215,23 @@ class Probe {
     let cell_only_id = zero_arg_callable(&module, "CellNum", "cellOnly", DispatchSide::Instance);
     let run = callable_analysis(&analysis, &run_id);
 
-    assert_method_call_evidence(run, expression(run, &source, "CellNum.new()"), cell_num);
+    assert_method_call_evidence(run, expression(run, &source, "CellNum.new()"), cell_num, EvidenceOrigin::ConstructorSemantics);
     let x = binding(run, "x");
-    assert_eq!(x.declared, Some(int_ty));
+    assert_eq!(x.declared_type(), Some(int_ty));
     assert_eq!(
         x.current.ty(),
         Some(cell_num),
         "refuted developer annotation must not replace proven checker knowledge"
     );
     assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
-    assert_eq!(x.current.origin(), Some(EvidenceOrigin::CallableSignature));
+    assert_eq!(x.current.origin(), Some(EvidenceOrigin::ConstructorSemantics));
 
     let mismatch = diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch);
     assert_eq!(mismatch.len(), 1, "expected one contradiction: {mismatch:#?}");
     assert!(mismatch[0].labels.iter().any(|label| label.message == "declared type"));
     assert!(mismatch[0].labels.iter().any(|label| label.message == "inferred type"));
 
-    assert_method_call_evidence(run, expression(run, &source, "x.cellOnly()"), int_ty);
+    assert_method_call_evidence(run, expression(run, &source, "x.cellOnly()"), int_ty, EvidenceOrigin::CallableSignature);
     assert_eq!(binding(run, "y").current.ty(), Some(int_ty));
     assert!(run.dependencies.contains(&new_id));
     assert!(run.dependencies.contains(&cell_only_id));
@@ -269,20 +274,20 @@ class Probe {
     let run_id = zero_arg_callable(&module, "Probe", "run", DispatchSide::Class);
     let derived_only_id = zero_arg_callable(&module, "Derived", "derivedOnly", DispatchSide::Instance);
     let run = callable_analysis(&analysis, &run_id);
-    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived);
+    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived, EvidenceOrigin::ConstructorSemantics);
 
     let x = binding(run, "x");
-    assert_eq!(x.declared, Some(base));
+    assert_eq!(x.declared_type(), Some(base));
     assert_eq!(
         x.current.ty(),
         Some(derived),
         "a compatible annotation is a constraint, not permission to erase stronger proof"
     );
     assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
-    assert_eq!(x.current.origin(), Some(EvidenceOrigin::CallableSignature));
+    assert_eq!(x.current.origin(), Some(EvidenceOrigin::ConstructorSemantics));
     assert!(diagnostics(&analysis, DiagnosticCode::BindingInitializerMismatch).is_empty());
 
-    assert_method_call_evidence(run, expression(run, &source, "x.derivedOnly()"), int_ty);
+    assert_method_call_evidence(run, expression(run, &source, "x.derivedOnly()"), int_ty, EvidenceOrigin::CallableSignature);
     assert_eq!(binding(run, "y").current.ty(), Some(int_ty));
     assert!(run.dependencies.contains(&derived_only_id));
 }
@@ -309,7 +314,7 @@ class Probe {
     );
 
     let x = binding(run, "x");
-    assert_eq!(x.declared, Some(int_ty));
+    assert_eq!(x.declared_type(), Some(int_ty));
     assert_eq!(x.current.ty(), Some(int_ty));
     assert_eq!(x.current.status(), Some(EvidenceStatus::Assumed));
     assert_eq!(x.current.origin(), Some(EvidenceOrigin::DeveloperAnnotation));
@@ -353,7 +358,12 @@ class Probe {
         Assignability::Refuted { .. }
     ));
 
-    assert_method_call_evidence(run, expression(run, &source, "CellNum.fromInt(\"bad\")"), cell_num);
+    assert_method_call_evidence(
+        run,
+        expression(run, &source, "CellNum.fromInt(\"bad\")"),
+        cell_num,
+        EvidenceOrigin::CallableSignature,
+    );
     let invalid_call = expression(run, &source, "CellNum.fromInt(\"bad\")");
     assert!(
         invalid_call.status.is_invalid(),
@@ -400,7 +410,7 @@ class Factory {
     let new_id = zero_arg_callable(&module, "CellNum", "new", DispatchSide::Class);
     let make = callable_analysis(&analysis, &make_id);
 
-    assert_method_call_evidence(make, expression(make, &source, "CellNum.new()"), cell_num);
+    assert_method_call_evidence(make, expression(make, &source, "CellNum.new()"), cell_num, EvidenceOrigin::ConstructorSemantics);
     assert!(make.dependencies.contains(&new_id));
     assert_eq!(diagnostics(&analysis, DiagnosticCode::ReturnMismatch).len(), 1);
 
@@ -435,11 +445,11 @@ class Probe {
     let inherited_new_id = zero_arg_callable(&module, "Base", "new", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived);
+    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived, EvidenceOrigin::ConstructorSemantics);
     assert!(run.dependencies.contains(&inherited_new_id));
 
     let x = binding(run, "x");
-    assert_eq!(x.declared, Some(string_ty));
+    assert_eq!(x.declared_type(), Some(string_ty));
     assert_eq!(x.current.ty(), Some(derived));
     assert!(matches!(
         check_assignability(
@@ -490,8 +500,8 @@ class Probe {
     let ordinary_id = zero_arg_callable(&module, "Base", "ordinary", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
-    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived);
-    assert_method_call_evidence(run, expression(run, &source, "Derived.ordinary()"), base);
+    assert_method_call_evidence(run, expression(run, &source, "Derived.new()"), derived, EvidenceOrigin::ConstructorSemantics);
+    assert_method_call_evidence(run, expression(run, &source, "Derived.ordinary()"), base, EvidenceOrigin::CallableSignature);
     assert_eq!(binding(run, "constructed").current.ty(), Some(derived));
     assert_eq!(binding(run, "ordinary").current.ty(), Some(base));
     assert!(run.dependencies.contains(&inherited_new_id));
@@ -623,7 +633,7 @@ class Probe {
     ));
 
     let x = binding(run, "x");
-    assert_eq!(x.declared, Some(string_ty));
+    assert_eq!(x.declared_type(), Some(string_ty));
     assert_eq!(
         x.current.ty(),
         Some(int_ty),
@@ -658,7 +668,7 @@ class Probe {
     assert_eq!(literal.knowledge.origin(), Some(EvidenceOrigin::Syntax));
 
     let x = binding(run, "x");
-    assert_eq!(x.declared, Some(number_ty));
+    assert_eq!(x.declared_type(), Some(number_ty));
     assert_eq!(x.current.ty(), Some(int_ty));
     assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
     assert_eq!(x.current.origin(), Some(EvidenceOrigin::Syntax));
