@@ -108,14 +108,14 @@ pub fn system_raw_write(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
                 expected: "String",
                 found: args[0].type_name(),
             }
-                .into());
+            .into());
         }
     } else {
         return Err(RuntimeError::Type {
             expected: "String",
             found: args[0].type_name(),
         }
-            .into());
+        .into());
     };
     print!("{s}");
     Ok(vm.unit_value())

@@ -1672,10 +1672,7 @@ mod tests {
             let event = rx.blocking_recv().expect("expected event");
             if !matches!(
                 event,
-                AnalysisEvent::Status(_)
-                    | AnalysisEvent::Log(_)
-                    | AnalysisEvent::WorkspaceFileIndexed { .. }
-                    | AnalysisEvent::WorkspaceFileRemoved { .. }
+                AnalysisEvent::Status(_) | AnalysisEvent::Log(_) | AnalysisEvent::WorkspaceFileIndexed { .. } | AnalysisEvent::WorkspaceFileRemoved { .. }
             ) {
                 return event;
             }

@@ -205,11 +205,8 @@ fn tail_let_and_const_blocks_return_unit_not_initializer_value() {
 
     let mut vm = VM::new();
     let module = vm.create_module("tail_bindings", "tail_let_and_const_blocks_return_unit_not_initializer_value");
-    vm.interpret_source(
-        module,
-        "let let_block = || { let x = 42 }\nlet const_block = || { const x = 42 }\n",
-    )
-    .expect("tail let/const blocks should compile");
+    vm.interpret_source(module, "let let_block = || { let x = 42 }\nlet const_block = || { const x = 42 }\n")
+        .expect("tail let/const blocks should compile");
 
     for name in ["let_block", "const_block"] {
         let symbol = vm.interner.intern(name);

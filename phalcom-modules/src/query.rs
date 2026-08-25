@@ -76,10 +76,13 @@ impl<'a> ModuleQueryFacade<'a> {
             && let Some(project) = self.universe.get_project(project)
         {
             roots.extend(project.import_roots().iter().map(|(name, (target, is_self))| {
-                (name.clone(), ImportRootQueryTarget {
-                    target: *target,
-                    is_self: *is_self,
-                })
+                (
+                    name.clone(),
+                    ImportRootQueryTarget {
+                        target: *target,
+                        is_self: *is_self,
+                    },
+                )
             }));
         }
         roots
@@ -143,12 +146,7 @@ impl<'a> ModuleQueryFacade<'a> {
     }
 
     /// Pure relative prefix resolution matching canonical module resolver rules.
-    pub fn resolve_relative_prefix(
-        &self,
-        importer: &ModuleId,
-        dots: usize,
-        suffix: &[ModuleComponent],
-    ) -> Result<ModulePath, RelativeQueryError> {
+    pub fn resolve_relative_prefix(&self, importer: &ModuleId, dots: usize, suffix: &[ModuleComponent]) -> Result<ModulePath, RelativeQueryError> {
         if dots == 0 {
             return Err(RelativeQueryError::InvalidDots);
         }

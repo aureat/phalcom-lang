@@ -174,12 +174,12 @@ impl VM {
             let class = self.heap.class(start);
             if let Some(method) = class.get_rest_method(base)
                 && self
-                .heap
-                .method(method)
-                .signature
-                .rest
-                .as_ref()
-                .is_some_and(|layout| layout.accepts(positional_count, labels))
+                    .heap
+                    .method(method)
+                    .signature
+                    .rest
+                    .as_ref()
+                    .is_some_and(|layout| layout.accepts(positional_count, labels))
             {
                 return Some(method);
             }
@@ -227,7 +227,7 @@ impl VM {
                         .zip(arguments[positional_count + fixed_labels..].iter().copied())
                         .collect(),
                 )
-                    .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
                 self.stack.push(capture);
             }
             crate::method::RestMode::Split { .. } => {
@@ -244,7 +244,7 @@ impl VM {
                         .zip(arguments[positional_count + fixed_labels..].iter().copied())
                         .collect(),
                 )
-                    .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
                 self.stack.push(labeled_capture);
             }
             crate::method::RestMode::Complete { .. } => {
@@ -258,7 +258,7 @@ impl VM {
                         .zip(arguments[positional_count + fixed_labels..].iter().copied())
                         .collect(),
                 )
-                    .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
                 self.stack.push(capture);
             }
         }
@@ -1370,7 +1370,7 @@ impl VM {
                             "scratch local slot {slot} insertion index {local_idx} exceeds stack length {}",
                             self.stack.len()
                         ))
-                            .into());
+                        .into());
                     }
                     let higher_keys: Vec<usize> = self.open_upvalues.range(local_idx..).map(|(&idx, _)| idx).collect();
                     for old_idx in higher_keys.into_iter().rev() {
@@ -1389,7 +1389,7 @@ impl VM {
                             "scratch local slot {slot} removal index {local_idx} exceeds stack length {}",
                             self.stack.len()
                         ))
-                            .into());
+                        .into());
                     }
                     if let Some(cell) = self.open_upvalues.remove(&local_idx) {
                         let value = self.stack[local_idx];
@@ -1619,7 +1619,7 @@ impl VM {
                                 value: val_str,
                                 found: receiver.type_name(),
                             }
-                                .into());
+                            .into());
                         }
                     } else {
                         let mut val_str = receiver.to_string(self);
@@ -1630,7 +1630,7 @@ impl VM {
                             value: val_str,
                             found: receiver.type_name(),
                         }
-                            .into());
+                        .into());
                     }
                 }
                 Bytecode::SetField(slot) => {
@@ -1665,7 +1665,7 @@ impl VM {
                                 value: val_str,
                                 found: receiver.type_name(),
                             }
-                                .into());
+                            .into());
                         }
                     } else {
                         let mut val_str = receiver.to_string(self);
@@ -1676,7 +1676,7 @@ impl VM {
                             value: val_str,
                             found: receiver.type_name(),
                         }
-                            .into());
+                        .into());
                     }
                 }
                 Bytecode::NewInstance => {
@@ -1704,7 +1704,7 @@ impl VM {
                                 value: val_str,
                                 found: class_val.type_name(),
                             }
-                                .into());
+                            .into());
                         }
                     } else {
                         let mut val_str = class_val.to_string(self);
@@ -1715,7 +1715,7 @@ impl VM {
                             value: val_str,
                             found: class_val.type_name(),
                         }
-                            .into());
+                        .into());
                     }
                 }
                 Bytecode::Dup => {
@@ -1741,7 +1741,7 @@ impl VM {
                     let rhs_class = rhs.class(self);
                     let prefer = is_strict_subclass(&self.heap, rhs_class, lhs_class)
                         && lookup_method_with_definer(&self.heap, rhs_class, reflected)
-                        .is_some_and(|(_, defining)| is_strict_subclass(&self.heap, defining, lhs_class));
+                            .is_some_and(|(_, defining)| is_strict_subclass(&self.heap, defining, lhs_class));
                     self.stack.push(Value::bool(prefer));
                 }
                 Bytecode::TryInvokeExact {
@@ -1772,7 +1772,7 @@ impl VM {
                         return Err(RuntimeError::InvalidCompareReturn {
                             found: self.heap.class(class).name.clone(),
                         }
-                            .into());
+                        .into());
                     }
                     let value = if reverse {
                         let reverse_selector = self.interner.intern("reverse");
@@ -1785,7 +1785,7 @@ impl VM {
                         return Err(RuntimeError::InvalidCompareReturn {
                             found: self.heap.class(reversed_class).name.clone(),
                         }
-                            .into());
+                        .into());
                     }
                     self.stack.push(value);
                 }
@@ -1810,7 +1810,7 @@ impl VM {
                         direct: symbol_text(direct)?,
                         reflected: symbol_text(reflected)?,
                     }))
-                        .into());
+                    .into());
                 }
                 Bytecode::InvokeCompilerInternal(arity, selector_idx) => {
                     self.invoke_compiler_internal_at(callable, ip, arity, selector_idx)?;
@@ -1996,7 +1996,7 @@ impl VM {
                             expected: "Symbol product label",
                             found: value.type_name(),
                         }
-                            .into());
+                        .into());
                     }
                 }
                 Bytecode::NewArgumentPack => {
@@ -2130,7 +2130,7 @@ impl VM {
                             found: arity,
                             limit: u8::MAX as usize,
                         }
-                            .into());
+                        .into());
                     }
                     let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     let selector = self.dynamic_pack_selector(base, kind, positionals.len(), &labels)?;
@@ -2167,7 +2167,7 @@ impl VM {
                             found: arity,
                             limit: u8::MAX as usize,
                         }
-                            .into());
+                        .into());
                     }
                     let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     let selector = self.dynamic_pack_selector(base, PackSendKind::Method, positionals.len(), &labels)?;
@@ -2219,7 +2219,7 @@ impl VM {
                                 expected: "Symbol tuple label",
                                 found: label.type_name(),
                             }
-                                .into());
+                            .into());
                         };
                         entries.push((label, value));
                     }
@@ -2243,7 +2243,7 @@ impl VM {
                                 expected: "Symbol record label",
                                 found: label.type_name(),
                             }
-                                .into());
+                            .into());
                         };
                         entries.push((label, value));
                     }
@@ -2264,7 +2264,7 @@ impl VM {
                             expected: "Symbol Record label",
                             found: label.type_name(),
                         }
-                            .into());
+                        .into());
                     };
                     let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());

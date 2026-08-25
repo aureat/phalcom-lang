@@ -118,10 +118,7 @@ async fn wait_for_definition(client: &mut tokio::io::DuplexStream, id: &mut u64,
 async fn goto_definition_on_relative_import_path_and_selective_export() {
     let workspace = ScratchWorkspace::new("rel_import");
     let shapes_path = workspace.write("shapes.ph", "class Circle {\n  area() { 3.14 }\n}\n");
-    let main_path = workspace.write(
-        "main.ph",
-        "import .shapes as shapes\nfrom .shapes import Circle\n\nlet c = Circle.new();\n",
-    );
+    let main_path = workspace.write("main.ph", "import .shapes as shapes\nfrom .shapes import Circle\n\nlet c = Circle.new();\n");
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
     let (server_read, server_write) = tokio::io::split(server_end);
@@ -360,5 +357,8 @@ async fn goto_definition_on_core_class_returns_virtual_location() {
     let locs = result.as_array().unwrap();
     assert!(!locs.is_empty(), "expected location for Object definition");
     let uri_str = locs[0]["uri"].as_str().unwrap_or("");
-    assert!(uri_str.starts_with("phalcom://") || uri_str.ends_with(".ph"), "expected virtual or physical core location, got {uri_str}");
+    assert!(
+        uri_str.starts_with("phalcom://") || uri_str.ends_with(".ph"),
+        "expected virtual or physical core location, got {uri_str}"
+    );
 }

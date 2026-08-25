@@ -464,10 +464,7 @@ impl SourceProvider for FilesystemSourceProvider {
 }
 
 /// Canonical reverse physical-to-logical source path resolution.
-pub fn resolve_source_path(
-    project: &ResolvedProject,
-    path: &Path,
-) -> Result<SourceUnit, ModuleResolutionError> {
+pub fn resolve_source_path(project: &ResolvedProject, path: &Path) -> Result<SourceUnit, ModuleResolutionError> {
     let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let canonical_source_root = std::fs::canonicalize(&project.source_root).unwrap_or_else(|_| project.source_root.clone());
 
@@ -488,24 +485,28 @@ pub fn resolve_source_path(
         check_dir = dir.parent();
     }
 
-    let file_name = relative.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
-        ModuleResolutionError::InvalidModuleLayout(format!("invalid file path {}", path.display()))
-    })?;
+    let file_name = relative
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| ModuleResolutionError::InvalidModuleLayout(format!("invalid file path {}", path.display())))?;
 
     let (kind, components_iter, stem_opt) = if file_name == "package.ph" {
         (ModuleKind::Package, relative.parent(), None)
     } else if let Some(stem) = file_name.strip_suffix(".ph") {
         (ModuleKind::Module, relative.parent(), Some(stem))
     } else {
-        return Err(ModuleResolutionError::InvalidModuleLayout(format!("source file must end in .ph: {}", path.display())));
+        return Err(ModuleResolutionError::InvalidModuleLayout(format!(
+            "source file must end in .ph: {}",
+            path.display()
+        )));
     };
 
     let mut components = Vec::new();
     if let Some(parent) = components_iter {
         for comp in parent.iter() {
-            let s = comp.to_str().ok_or_else(|| {
-                ModuleResolutionError::InvalidModuleLayout(format!("non-utf8 path component in {}", path.display()))
-            })?;
+            let s = comp
+                .to_str()
+                .ok_or_else(|| ModuleResolutionError::InvalidModuleLayout(format!("non-utf8 path component in {}", path.display())))?;
             if !s.is_empty() {
                 let comp_id = ModuleComponent::from_kebab(s).map_err(|e| ModuleResolutionError::InvalidModuleName(s.to_string(), e))?;
                 if comp_id.as_str() != s && comp_id.to_kebab() != s {
@@ -544,4 +545,3 @@ pub fn resolve_source_path(
         source: source_location,
     })
 }
-

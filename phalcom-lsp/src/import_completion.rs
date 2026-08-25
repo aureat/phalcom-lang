@@ -2,7 +2,6 @@
 
 use phalcom_modules::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity};
 use phalcom_modules::interface::LinkedExportTarget;
-use phalcom_modules::query::ModuleQueryFacade;
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Url};
 
 use crate::semantic::SemanticSnapshot;
@@ -106,11 +105,7 @@ pub fn detect_import_context(line_prefix: &str) -> Option<ImportContext> {
             (s, p)
         };
 
-        return Some(ImportContext::ImportChild {
-            root,
-            segments: segs,
-            partial,
-        });
+        return Some(ImportContext::ImportChild { root, segments: segs, partial });
     }
 
     // 3. `expose .<path>`
@@ -142,11 +137,7 @@ pub fn detect_import_context(line_prefix: &str) -> Option<ImportContext> {
 }
 
 /// Computes module and import completion items for an import context.
-pub fn import_completions(
-    snapshot: &SemanticSnapshot,
-    uri: &Url,
-    context: &ImportContext,
-) -> Vec<CompletionItem> {
+pub fn import_completions(snapshot: &SemanticSnapshot, uri: &Url, context: &ImportContext) -> Vec<CompletionItem> {
     let Some(static_snap) = &snapshot.static_snapshot else {
         return Vec::new();
     };
@@ -184,10 +175,7 @@ pub fn import_completions(
                     ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(b),
                     ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(r),
                 };
-                let path_components: Vec<ModuleComponent> = segments
-                    .iter()
-                    .filter_map(|s| ModuleComponent::from_identifier(s).ok())
-                    .collect();
+                let path_components: Vec<ModuleComponent> = segments.iter().filter_map(|s| ModuleComponent::from_identifier(s).ok()).collect();
                 let prefix = ModulePath::from_components(path_components);
                 let children = if root_target.is_self {
                     facade.module_children(project, &prefix)
@@ -211,11 +199,12 @@ pub fn import_completions(
                 }
             }
         }
-        ImportContext::RelativeChild { parent_dots, segments, partial } => {
-            let path_components: Vec<ModuleComponent> = segments
-                .iter()
-                .filter_map(|s| ModuleComponent::from_identifier(s).ok())
-                .collect();
+        ImportContext::RelativeChild {
+            parent_dots,
+            segments,
+            partial,
+        } => {
+            let path_components: Vec<ModuleComponent> = segments.iter().filter_map(|s| ModuleComponent::from_identifier(s).ok()).collect();
             let prefix = match facade.resolve_relative_prefix(importer, *parent_dots, &path_components) {
                 Ok(p) => p,
                 Err(_) => ModulePath::from_components(path_components),
@@ -246,10 +235,7 @@ pub fn import_completions(
                     ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(b),
                     ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(r),
                 };
-                let path_components: Vec<ModuleComponent> = segments
-                    .iter()
-                    .filter_map(|s| ModuleComponent::from_identifier(s).ok())
-                    .collect();
+                let path_components: Vec<ModuleComponent> = segments.iter().filter_map(|s| ModuleComponent::from_identifier(s).ok()).collect();
                 let target_mod = ModuleId {
                     project,
                     path: ModulePath::from_components(path_components),
@@ -287,10 +273,7 @@ mod tests {
 
     #[test]
     fn test_detect_import_context_root() {
-        assert_eq!(
-            detect_import_context("import "),
-            Some(ImportContext::ImportRoot { partial: String::new() })
-        );
+        assert_eq!(detect_import_context("import "), Some(ImportContext::ImportRoot { partial: String::new() }));
         assert_eq!(
             detect_import_context("import st"),
             Some(ImportContext::ImportRoot { partial: "st".to_string() })

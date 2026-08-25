@@ -5,7 +5,7 @@ from geo.route import Route
 class Shipment {
   _parcel: Parcel
   _route: Route
-  _status: ShipmentStatus
+  _status
 
   @constructor
   new(_ parcel: Parcel, route: Route, status: ShipmentStatus) {

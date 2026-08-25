@@ -40,11 +40,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     }
 
     /// Resolves an AST `ImportPath` tracking all package exposure interfaces consulted during hierarchical validation.
-    pub fn resolve_import_with_trace(
-        &mut self,
-        importer: &ModuleId,
-        syntax: &ImportPath,
-    ) -> Result<ImportResolutionTrace, ModuleResolutionError> {
+    pub fn resolve_import_with_trace(&mut self, importer: &ModuleId, syntax: &ImportPath) -> Result<ImportResolutionTrace, ModuleResolutionError> {
         let mut package_interfaces = BTreeSet::new();
         let importer_project = match importer.project {
             crate::identity::ProjectIdentity::Resolved(pid) => self.universe.get_project(pid),
@@ -125,10 +121,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 }
 
                 let target = self.source.locate(target_project, &target_path)?;
-                Ok(ImportResolutionTrace {
-                    target,
-                    package_interfaces,
-                })
+                Ok(ImportResolutionTrace { target, package_interfaces })
             }
             ImportRoot::Relative { dots, range: _ } => {
                 let dots = *dots as usize;
@@ -172,10 +165,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
                 let target_path = ModulePath::from_components(resolved_components);
                 let target = self.source.locate(importer_project, &target_path)?;
-                Ok(ImportResolutionTrace {
-                    target,
-                    package_interfaces,
-                })
+                Ok(ImportResolutionTrace { target, package_interfaces })
             }
         }
     }
