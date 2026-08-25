@@ -57,12 +57,12 @@
 
 ### Task 7 — Port advisory expression and flow analysis
 
-- [~] Add compiler-owned advisory expression/flow analysis over canonical source scopes, formal resolved-call targets, and injected canonical dispatch adapters; full interprocedural flow remains open.
+- [~] Add compiler-owned advisory expression/flow analysis over canonical source scopes, formal resolved-call targets, and injected canonical dispatch adapters; direct and forwarding-call propagation is verified, while full interprocedural flow remains open.
 - [~] Cover literals, collections, locals, formal call returns, shared binding flow, fields, and canonical factory dispatch; method-family and full formal/advisory disagreement coverage remain open.
 
 ### Task 8 — Port contribution-indexed interprocedural advisory solving
 
-- [~] Add canonical parameter slots, contribution replacement/removal, changed-slot deltas, compiler DB advisory keys/dependencies, and bounded worklist/SCC solving; fine-grained caller contribution propagation remains open.
+- [~] Add canonical parameter slots, contribution replacement/removal, changed-slot deltas, compiler DB advisory keys/dependencies, bounded worklist/SCC solving, and bounded direct/forwarding caller propagation; cross-module/fine-grained caller dependency integration remains open.
 - [x] Add explicit advisory product outcomes, deterministic callable-summary/fact fingerprints, solver budget/cancellation results, and focused incrementality tests.
 
 ### Task 9 — Publish advisory workspace in compiler snapshots
@@ -107,7 +107,7 @@
 - `VERIFIED`: Task 3 interval/occurrence tests passed; AST-wide occurrence collection, selector target projection, compiler snapshot publication, reverse-target index, and large-index coverage passed.
 - `VERIFIED`: Formal source attachment and indexed formal projection tests passed; non-fatal attachment incidents and machine-readable formal readiness status are published; workspace, callable-dependency, product-stability, and presentation focused suites passed.
 - `VERIFIED`: Advisory domain foundation tests passed (4/4); canonical record/union normalization, collection joins, confidence separation, bounded provenance, and selector identity covered.
-- `VERIFIED`: Advisory expression/flow, contribution-summary, snapshot, and incrementality tests passed; canonical literal/collection/local flow, formal call-result reuse, missing-builtin fallback, parameter replacement/removal, recursive convergence, budget/cancel status, explicit status, Arc reuse, and deterministic fingerprints covered.
+- `VERIFIED`: Advisory expression/flow, contribution-summary, snapshot, and incrementality tests passed; canonical literal/collection/local flow, formal call-result reuse, missing-builtin fallback, direct and forwarding-call parameter/return convergence, parameter replacement/removal, recursive convergence, budget/cancel status, explicit status, Arc reuse, and deterministic fingerprints covered.
 - `BASELINE`: Full semantic suite retains handoff capability baseline 12/40 passed, 28/40 failed; failures are stale `var`/bare-brace fixtures plus documented capability gaps, not introduced Part 2 source-index failures.
 - `VERIFIED`: `cargo check --workspace`, `cargo fmt --all -- --check`, full registered LSP integration (52 passed, 2 ignored), and full compiler suite except known capability baseline passed.
-- `PENDING`: Tasks 7–8 remain partial; Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership and forbidden-pattern/capability closure are not complete.
+- `PENDING`: Tasks 7–8 remain partial for full cross-module dependency integration; Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership and forbidden-pattern/capability closure are not complete.

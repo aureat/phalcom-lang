@@ -73,6 +73,28 @@ pub struct AdvisoryExpressionContext<'a> {
     pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
     /// Canonical dispatch adapter for method-family references.
     pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
+    /// Observes resolved call arguments for compiler-owned parameter transfer.
+    pub call_observer: Option<&'a dyn Fn(AdvisoryCallObservation)>,
+}
+
+/// One advisory argument observed at a resolved call site.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdvisoryCallArgument {
+    /// Static external label, when the argument used one.
+    pub label: Option<String>,
+    /// Advisory fact evaluated for the argument expression.
+    pub fact: AdvisoryFact,
+}
+
+/// Canonical call-site evidence for advisory parameter propagation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdvisoryCallObservation {
+    /// Resolved canonical callable target.
+    pub target: CallableId,
+    /// Exact call expression range.
+    pub range: SourceRange,
+    /// Arguments evaluated in source order.
+    pub arguments: Vec<AdvisoryCallArgument>,
 }
 
 /// Evaluates one AST expression into an advisory fact.
@@ -208,16 +230,12 @@ pub fn analyze_expr(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> Adv
         }
         Expr::MethodCall(call) => {
             let receiver = analyze_expr(&call.object, context);
-            for arg in &call.args {
-                analyze_pack(arg, context);
-            }
-            resolved_call_or_unknown_with_shape(call.range, &receiver.shape, &call.method, &call.args, context)
+            let arguments = call.args.iter().map(|arg| analyze_pack(arg, context)).collect::<Vec<_>>();
+            resolved_call_or_unknown_with_shape(call.range, &receiver.shape, &call.method, &call.args, &arguments, context)
         }
         Expr::UnqualifiedCall(call) => {
-            for arg in &call.args {
-                analyze_pack(arg, context);
-            }
-            resolved_call_or_unknown(call.range, context)
+            let arguments = call.args.iter().map(|arg| analyze_pack(arg, context)).collect::<Vec<_>>();
+            resolved_call_or_unknown_with_arguments(call.range, &arguments, context)
         }
         Expr::GetProperty(property) => {
             let _ = analyze_expr(&property.object, context);
@@ -230,18 +248,14 @@ pub fn analyze_expr(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> Adv
         }
         Expr::Index(index) => {
             let _ = analyze_expr(&index.object, context);
-            for arg in &index.args {
-                analyze_pack(arg, context);
-            }
-            resolved_call_or_unknown(index.range, context)
+            let arguments = index.args.iter().map(|arg| analyze_pack(arg, context)).collect::<Vec<_>>();
+            resolved_call_or_unknown_with_arguments(index.range, &arguments, context)
         }
         Expr::SetIndex(index) => {
             let _ = analyze_expr(&index.object, context);
-            for arg in &index.args {
-                analyze_pack(arg, context);
-            }
+            let arguments = index.args.iter().map(|arg| analyze_pack(arg, context)).collect::<Vec<_>>();
             let _ = analyze_expr(&index.value, context);
-            resolved_call_or_unknown(index.range, context)
+            resolved_call_or_unknown_with_arguments(index.range, &arguments, context)
         }
         Expr::Unary(unary) => {
             let operand = analyze_expr(&unary.expr, context);
@@ -340,15 +354,27 @@ fn analyze_var(name: &str, range: SourceRange, context: &AdvisoryExpressionConte
     }
 }
 
-fn analyze_pack(item: &PackItem, context: &AdvisoryExpressionContext<'_>) {
+fn analyze_pack(item: &PackItem, context: &AdvisoryExpressionContext<'_>) -> AdvisoryCallArgument {
     match item {
-        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => {
-            let _ = analyze_expr(expr, context);
-        }
+        PackItem::Positional { expr, .. } => AdvisoryCallArgument {
+            label: None,
+            fact: analyze_expr(expr, context),
+        },
+        PackItem::Expand { expr, .. } => AdvisoryCallArgument {
+            label: None,
+            fact: analyze_expr(expr, context),
+        },
         PackItem::Labeled { value, label, .. } => {
-            let _ = analyze_expr(value, context);
+            let fact = analyze_expr(value, context);
             if let phalcom_ast::ast::PackLabel::Computed { expr, .. } = label {
                 let _ = analyze_expr(expr, context);
+            }
+            AdvisoryCallArgument {
+                label: match label {
+                    phalcom_ast::ast::PackLabel::Static { text, .. } => Some(text.clone()),
+                    phalcom_ast::ast::PackLabel::Computed { .. } => None,
+                },
+                fact,
             }
         }
     }
@@ -363,9 +389,14 @@ fn tuple_entry_shape(entry: &TupleLiteralEntry, context: &AdvisoryExpressionCont
 }
 
 fn resolved_call_or_unknown(range: SourceRange, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    resolved_call_or_unknown_with_arguments(range, &[], context)
+}
+
+fn resolved_call_or_unknown_with_arguments(range: SourceRange, arguments: &[AdvisoryCallArgument], context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
     let Some(callable) = (context.resolved_callable_for_range)(range) else {
         return unknown_at(context, range);
     };
+    observe_call(callable.clone(), range, arguments, context);
     context
         .callable_returns
         .get(&callable)
@@ -379,9 +410,11 @@ fn resolved_call_or_unknown_with_shape(
     receiver: &ValueShape,
     name: &str,
     args: &[PackItem],
+    arguments: &[AdvisoryCallArgument],
     context: &AdvisoryExpressionContext<'_>,
 ) -> AdvisoryFact {
     if let Some(callable) = (context.resolved_callable_for_range)(range) {
+        observe_call(callable.clone(), range, arguments, context);
         return callable_fact(callable, context);
     }
     let Some(resolve) = context.resolve_callable_for_shape else {
@@ -390,7 +423,18 @@ fn resolved_call_or_unknown_with_shape(
     let Some(callable) = resolve(receiver, name, args) else {
         return unknown_at(context, range);
     };
+    observe_call(callable.clone(), range, arguments, context);
     callable_fact(callable, context)
+}
+
+fn observe_call(target: CallableId, range: SourceRange, arguments: &[AdvisoryCallArgument], context: &AdvisoryExpressionContext<'_>) {
+    if let Some(observer) = context.call_observer {
+        observer(AdvisoryCallObservation {
+            target,
+            range,
+            arguments: arguments.to_vec(),
+        });
+    }
 }
 
 fn callable_fact(callable: CallableId, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {

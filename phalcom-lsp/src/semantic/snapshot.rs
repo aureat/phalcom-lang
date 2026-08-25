@@ -861,13 +861,6 @@ impl SemanticSnapshot {
             .compiler_advisory_binding_at(uri, offset)
             .filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != super::Confidence::Heuristic)
         {
-            // Cross-module caller contributions can still be present only in
-            // the compatibility summary while compiler parameter transfer is
-            // being completed. Preserve its bounded union until compiler
-            // contribution publication covers the same site.
-            if legacy.as_ref().is_some_and(|legacy| matches!(legacy.shape, ValueShape::Union(_))) {
-                return legacy;
-            }
             return Some(value);
         }
         legacy

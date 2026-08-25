@@ -35,6 +35,7 @@ fn context<'a>(
         resolved_callable_for_range: resolved_callable,
         resolve_callable_for_shape: None,
         resolve_method_family: None,
+        call_observer: None,
     }
 }
 

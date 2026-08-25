@@ -162,3 +162,45 @@ fn unchanged_advisory_shards_and_callable_summaries_are_reused() {
     let summary2 = second.snapshot.advisory().callables.get(&callable).unwrap();
     assert!(Arc::ptr_eq(summary1, summary2));
 }
+
+#[test]
+fn advisory_parameter_transfer_reaches_tail_return_product() {
+    let module = module_id();
+    let source = "class Product { @constructor new() { } }\nclass Service { @constructor new() { } consume(_ value) { value } }\nconst result = Service.new().consume(Product.new())\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module.clone(), source, 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Service".into()),
+        Selector::method("consume", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let product = DeclarationId::new(module, "Product".into());
+    let summary = update.snapshot.advisory().callable(&callable).expect("consume advisory summary");
+    assert!(!summary.parameters.is_empty(), "summary={summary:#?}");
+    assert_eq!(summary.parameters[0].1.shape, ValueShape::Instance(product.clone()));
+    assert_eq!(summary.return_fact.shape, ValueShape::Instance(product));
+}
+
+#[test]
+fn advisory_parameter_transfer_converges_through_forwarding_callable() {
+    let module = module_id();
+    let source = "class Product { @constructor new() { } }\nclass Relay { @constructor new() { } sink(_ value) { value } forward(_ value) { sink(value) } }\nconst result = Relay.new().forward(Product.new())\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module.clone(), source, 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let product = DeclarationId::new(module.clone(), "Product".into());
+    let relay = DeclarationId::new(module, "Relay".into());
+    for name in ["sink", "forward"] {
+        let callable = CallableId::new(
+            relay.clone(),
+            Selector::method(name, [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+            DispatchSide::Instance,
+        );
+        let summary = update.snapshot.advisory().callable(&callable).expect("relay advisory summary");
+        assert_eq!(summary.parameters[0].1.shape, ValueShape::Instance(product.clone()));
+        assert_eq!(summary.return_fact.shape, ValueShape::Instance(product.clone()));
+    }
+}

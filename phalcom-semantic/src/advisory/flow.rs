@@ -1,15 +1,17 @@
 //! One-pass advisory statement flow over compiler-owned source identities.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use phalcom_ast::ast::{Pattern, Statement};
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::SelectorSlot;
 
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceSiteId};
 use crate::source_index::SourceScopeIndex;
 
-use super::analyzer::{AdvisoryBuiltins, AdvisoryExpressionContext, analyze_expr};
-use super::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, CapturedMethodFamilyShape, ValueShape};
+use super::analyzer::{AdvisoryBuiltins, AdvisoryCallObservation, AdvisoryExpressionContext, analyze_expr};
+use super::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, AdvisoryParameterSlot, CapturedMethodFamilyShape, ValueShape};
 use phalcom_ast::ast::NormalizedSelectorSpec;
 
 /// Static inputs shared by one advisory callable traversal.
@@ -35,6 +37,10 @@ pub struct AdvisoryFlowProduct {
     pub expressions: BTreeMap<SourceSiteId, AdvisoryFact>,
     /// Advisory facts observed at normal return statements.
     pub returns: Vec<AdvisoryFact>,
+    /// Parameter facts contributed by resolved call sites in this traversal.
+    pub parameter_contributions: BTreeMap<AdvisoryParameterSlot, AdvisoryFact>,
+    /// Tail expression fact for implicit callable return semantics.
+    pub tail: Option<AdvisoryFact>,
 }
 
 impl AdvisoryFlowProduct {
@@ -43,6 +49,7 @@ impl AdvisoryFlowProduct {
         self.returns
             .iter()
             .cloned()
+            .chain(self.tail.iter().cloned())
             .reduce(|left, right| left.join(&right))
             .unwrap_or_else(AdvisoryFact::unknown)
     }
@@ -59,13 +66,16 @@ pub fn analyze_statements(
         bindings: std::mem::take(&mut seed_bindings),
         ..AdvisoryFlowProduct::default()
     };
-    for statement in statements {
-        analyze_statement(statement, context, &mut product);
+    for (index, statement) in statements.iter().enumerate() {
+        let value = analyze_statement(statement, context, &mut product);
+        if index + 1 == statements.len() {
+            product.tail = value;
+        }
     }
     product
 }
 
-fn analyze_statement(statement: &Statement, context: &AdvisoryFlowContext<'_>, product: &mut AdvisoryFlowProduct) {
+fn analyze_statement(statement: &Statement, context: &AdvisoryFlowContext<'_>, product: &mut AdvisoryFlowProduct) -> Option<AdvisoryFact> {
     match statement {
         Statement::Let(binding) => {
             let value = binding
@@ -74,18 +84,19 @@ fn analyze_statement(statement: &Statement, context: &AdvisoryFlowContext<'_>, p
                 .map(|expr| analyze_expression(expr, context, product))
                 .unwrap_or_else(AdvisoryFact::unknown);
             bind_pattern(&binding.pattern, &value, context, product);
+            None
         }
         Statement::Return(return_statement) => {
             if let Some(expr) = &return_statement.value {
                 let fact = analyze_expression(expr, context, product);
                 product.returns.push(fact);
             }
+            None
         }
-        Statement::Expr { expr, .. } => {
-            let _ = analyze_expression(expr, context, product);
-        }
+        Statement::Expr { expr, .. } => Some(analyze_expression(expr, context, product)),
         Statement::Throw { expr, .. } => {
             let _ = analyze_expression(expr, context, product);
+            None
         }
         Statement::For(for_statement) => {
             for lane in &for_statement.lanes {
@@ -99,16 +110,19 @@ fn analyze_statement(statement: &Statement, context: &AdvisoryFlowContext<'_>, p
                     }
                 }
                 for body_statement in &for_statement.body {
-                    analyze_statement(body_statement, context, product);
+                    let _ = analyze_statement(body_statement, context, product);
                 }
             }
+            None
         }
-        _ => {}
+        _ => None,
     }
 }
 
 fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowContext<'_>, product: &mut AdvisoryFlowProduct) -> AdvisoryFact {
     let scope = context.scope_index.scope_at(expr.range().start);
+    let calls = RefCell::new(Vec::new());
+    let observe_call = |call: AdvisoryCallObservation| calls.borrow_mut().push(call);
     let expression_context = AdvisoryExpressionContext {
         scope_index: context.scope_index,
         scope,
@@ -122,12 +136,58 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
         resolved_callable_for_range: context.resolved_callable_for_range,
         resolve_callable_for_shape: context.resolve_callable_for_shape,
         resolve_method_family: context.resolve_method_family,
+        call_observer: Some(&observe_call),
     };
     let fact = analyze_expr(expr, &expression_context);
+    for call in calls.into_inner() {
+        record_call_contributions(product, context, call);
+    }
     if let Some(site) = (context.source_site_for_range)(expr.range()) {
         product.expressions.insert(site, fact.clone());
     }
     fact
+}
+
+fn record_call_contributions(product: &mut AdvisoryFlowProduct, context: &AdvisoryFlowContext<'_>, call: AdvisoryCallObservation) {
+    let mut positional = 0;
+    for argument in call.arguments {
+        let index = if let Some(label) = argument.label.as_deref() {
+            call.target
+                .selector
+                .slots
+                .iter()
+                .position(|slot| matches!(slot, SelectorSlot::Label(candidate) if candidate == label))
+        } else {
+            let index = call
+                .target
+                .selector
+                .slots
+                .iter()
+                .enumerate()
+                .filter(|(_, slot)| matches!(slot, SelectorSlot::Positional))
+                .nth(positional)
+                .map(|(index, _)| index);
+            positional += 1;
+            index
+        };
+        let Some(index) = index else { continue };
+        if matches!(argument.fact.shape, ValueShape::Unknown) {
+            continue;
+        }
+        let fact = if let Some(site) = (context.source_site_for_range)(call.range) {
+            argument.fact.derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::CallSite(site))
+        } else {
+            argument
+                .fact
+                .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(call.target.clone()))
+        };
+        let slot = AdvisoryParameterSlot::new(call.target.clone(), index as u32);
+        product
+            .parameter_contributions
+            .entry(slot)
+            .and_modify(|old| *old = old.join(&fact))
+            .or_insert(fact);
+    }
 }
 
 fn bind_pattern(pattern: &Pattern, fact: &AdvisoryFact, context: &AdvisoryFlowContext<'_>, product: &mut AdvisoryFlowProduct) {

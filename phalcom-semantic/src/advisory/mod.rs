@@ -16,7 +16,7 @@ mod solver;
 mod summary;
 mod workspace;
 
-pub use analyzer::{AdvisoryBuiltins, AdvisoryExpressionContext, analyze_expr};
+pub use analyzer::{AdvisoryBuiltins, AdvisoryCallArgument, AdvisoryCallObservation, AdvisoryExpressionContext, analyze_expr};
 pub use fact::{AdvisoryConfidence, AdvisoryFact, AdvisoryLiteral};
 pub use flow::{AdvisoryFlowContext, AdvisoryFlowProduct, analyze_statements};
 pub use formal::advisory_fact_from_formal;

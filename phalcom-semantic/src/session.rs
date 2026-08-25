@@ -949,10 +949,20 @@ fn build_advisory_workspace(
             crate::advisory::ValueShape::Instance(owner) => (owner, DispatchSide::Instance),
             _ => return None,
         };
-        dispatch.resolve_callable_id(hierarchy, owner, side, &selector).or_else(|| {
+        let resolved = dispatch.resolve_callable_id(hierarchy, owner, side, &selector).or_else(|| {
             (side == DispatchSide::Class)
                 .then(|| dispatch.resolve_callable_id(hierarchy, owner, DispatchSide::Instance, &selector))
                 .flatten()
+        });
+        resolved.map(|callable| {
+            if callable.side == DispatchSide::Class
+                && callable.selector.kind == phalcom_common::selector::SelectorKind::Method
+                && matches!(&callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
+            {
+                CallableId::new(callable.owner, callable.selector, DispatchSide::Instance)
+            } else {
+                callable
+            }
         })
     };
     let mut formal_returns = BTreeMap::new();
@@ -962,178 +972,247 @@ fn build_advisory_workspace(
         formal_returns.insert(analysis.callable.clone(), advisory_return_fact(store, analysis));
     }
 
+    let mut parameter_facts = BTreeMap::new();
+    let mut advisory_returns = formal_returns.clone();
     let mut modules = BTreeMap::new();
     let mut callables = BTreeMap::new();
     let mut workspace_partial = false;
+    let mut solver_status = AdvisoryProductStatus::Complete;
+    let mut solver_converged = true;
+    let max_rounds = callable_analyses.len().saturating_add(sources.len()).saturating_add(2).max(2);
+    let mut converged = false;
 
-    for (module, source) in sources {
-        let Some(module_index) = source_index.module(module) else {
+    for _round in 0..max_rounds {
+        if cancel.is_cancelled() {
             workspace_partial = true;
-            continue;
-        };
-        let scope_index = module_index.structure.as_ref();
-        let mut fields = advisory_field_facts(source, scope_index, &builtins, &formal_returns, Some(&resolve_callable_for_shape));
-        let mut expressions = BTreeMap::new();
-        let mut bindings = BTreeMap::new();
-        let mut parameters = BTreeMap::new();
-        let mut targets = BTreeMap::new();
-        let mut module_partial = false;
-
-        for (site, target) in &scope_index.targets {
-            targets.insert(site.clone(), advisory_target_resolution(site, target));
+            solver_status = AdvisoryProductStatus::Cancelled;
+            solver_converged = false;
+            break;
         }
-        for attachment in module_index.attachments.values() {
-            for (site, target) in &attachment.exact_targets {
-                targets.insert(site.clone(), advisory_target_resolution(site, target));
-            }
-        }
+        let mut next_modules = BTreeMap::new();
+        let mut next_callables = BTreeMap::new();
+        let mut next_partial = false;
+        let mut parameter_contributions = crate::advisory::AdvisoryParameterContributions::default();
 
-        let mut member_bodies = BTreeMap::new();
-        for statement in &source.program.statements {
-            let Statement::Class(class) = statement else { continue };
-            let declaration = DeclarationId::new(module.clone(), class.name.clone().into());
-            for member in &class.members {
-                if let Some((callable, body, _range)) = advisory_callable_member(&declaration, member) {
-                    member_bodies.insert(callable, body);
-                }
-            }
-        }
-
-        for analysis in ordered_analyses.iter().filter(|analysis| analysis.callable.owner.module == *module) {
-            let Some(body) = member_bodies.get(&analysis.callable).copied() else {
-                module_partial = true;
+        for (module, source) in sources {
+            let Some(module_index) = source_index.module(module) else {
+                next_partial = true;
                 continue;
             };
+            let scope_index = module_index.structure.as_ref();
+            let mut fields = advisory_field_facts(source, scope_index, &builtins, &advisory_returns, Some(&resolve_callable_for_shape));
+            let mut expressions = BTreeMap::new();
+            let mut bindings = BTreeMap::new();
+            let mut parameters = BTreeMap::new();
+            let mut targets = BTreeMap::new();
+            let mut module_partial = false;
 
-            let attachment = module_index.attachments.get(&analysis.callable);
-            if attachment.is_none() {
-                module_partial = true;
+            for (site, target) in &scope_index.targets {
+                targets.insert(site.clone(), advisory_target_resolution(site, target));
             }
-            let mut sites_by_range = BTreeMap::<SourceRange, Vec<SourceSiteId>>::new();
-            if let Some(attachment) = attachment {
-                for site in attachment.expression_sites.iter() {
-                    sites_by_range.entry(site.range).or_default().push(site.id.clone());
+            for attachment in module_index.attachments.values() {
+                for (site, target) in &attachment.exact_targets {
+                    targets.insert(site.clone(), advisory_target_resolution(site, target));
                 }
             }
-            let site_for_range = |range: SourceRange| {
-                let candidates = sites_by_range.get(&range)?;
-                (candidates.len() == 1).then(|| candidates[0].clone())
-            };
-            let resolved_callable_for_range = |range: SourceRange| {
-                let mut candidates = analysis
-                    .expressions
-                    .values()
-                    .filter(|expression| expression.range == range)
-                    .filter_map(|expression| expression.callable.clone());
-                let first = candidates.next()?;
-                candidates.next().is_none().then_some(first)
-            };
 
-            let mut seed_bindings = BTreeMap::new();
-            for binding in callable_parameter_bindings(scope_index, &analysis.callable) {
-                seed_bindings.insert(
-                    binding.declaration_site.clone(),
-                    AdvisoryFact::unknown().derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(binding.declaration_site.clone())),
-                );
+            let mut member_bodies = BTreeMap::new();
+            for statement in &source.program.statements {
+                let Statement::Class(class) = statement else { continue };
+                let declaration = DeclarationId::new(module.clone(), class.name.clone().into());
+                for member in &class.members {
+                    if let Some((callable, body, _range)) = advisory_callable_member(&declaration, member) {
+                        member_bodies.insert(callable, body);
+                    }
+                }
             }
-            let context = AdvisoryFlowContext {
+
+            for analysis in ordered_analyses.iter().filter(|analysis| analysis.callable.owner.module == *module) {
+                let Some(body) = member_bodies.get(&analysis.callable).copied() else {
+                    module_partial = true;
+                    continue;
+                };
+
+                let attachment = module_index.attachments.get(&analysis.callable);
+                if attachment.is_none() {
+                    module_partial = true;
+                }
+                let mut sites_by_range = BTreeMap::<SourceRange, Vec<SourceSiteId>>::new();
+                if let Some(attachment) = attachment {
+                    for site in attachment.expression_sites.iter() {
+                        sites_by_range.entry(site.range).or_default().push(site.id.clone());
+                    }
+                }
+                let site_for_range = |range: SourceRange| {
+                    let candidates = sites_by_range.get(&range)?;
+                    (candidates.len() == 1).then(|| candidates[0].clone())
+                };
+                let resolved_callable_for_range = |range: SourceRange| {
+                    let mut candidates = analysis
+                        .expressions
+                        .values()
+                        .filter(|expression| expression.range == range)
+                        .filter_map(|expression| expression.callable.clone());
+                    let first = candidates.next()?;
+                    candidates.next().is_none().then_some(first)
+                };
+
+                let mut seed_bindings = BTreeMap::new();
+                for binding in callable_parameter_bindings(scope_index, &analysis.callable) {
+                    let index = seed_bindings.len() as u32;
+                    let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index);
+                    let fact = parameter_facts
+                        .get(&slot)
+                        .cloned()
+                        .unwrap_or_else(|| AdvisoryFact::unknown().derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(binding.declaration_site.clone())));
+                    seed_bindings.insert(binding.declaration_site.clone(), fact);
+                }
+                let context = AdvisoryFlowContext {
+                    scope_index,
+                    fields: &fields,
+                    callable_returns: &advisory_returns,
+                    builtins: &builtins,
+                    current_owner: Some(&analysis.callable.owner),
+                    dispatch_side: analysis.callable.side,
+                    source_site_for_range: &site_for_range,
+                    resolved_callable_for_range: &resolved_callable_for_range,
+                    resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                    resolve_method_family: None,
+                };
+                let flow = analyze_statements(body, &context, seed_bindings);
+                parameter_contributions.replace_source(
+                    crate::advisory::AdvisoryContributionSource::Callable(analysis.callable.clone()),
+                    flow.parameter_contributions.clone(),
+                );
+                let return_fact = flow.normal_return();
+                let return_fact = if matches!(return_fact.shape, crate::advisory::ValueShape::Unknown) {
+                    advisory_returns.get(&analysis.callable).cloned().unwrap_or(return_fact)
+                } else {
+                    return_fact
+                };
+                expressions.extend(flow.expressions);
+                bindings.extend(flow.bindings);
+
+                let mut summary_parameters = Vec::new();
+                for (index, binding) in callable_parameter_bindings(scope_index, &analysis.callable).into_iter().enumerate() {
+                    let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index as u32);
+                    let fact = parameter_facts
+                        .get(&slot)
+                        .cloned()
+                        .or_else(|| bindings.get(&binding.declaration_site).cloned())
+                        .unwrap_or_else(AdvisoryFact::unknown);
+                    parameters.insert(slot.clone(), fact.clone());
+                    summary_parameters.push((slot, fact));
+                }
+                let summary = AdvisoryCallableSummary::new(
+                    analysis.callable.clone(),
+                    summary_parameters,
+                    return_fact,
+                    analysis.dependencies.to_vec(),
+                    Default::default(),
+                    advisory_status(analysis.status),
+                );
+                let summary = previous
+                    .and_then(|old| old.callables.get(&analysis.callable))
+                    .filter(|old| old.as_ref() == &summary)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::new(summary));
+                next_callables.insert(analysis.callable.clone(), summary);
+            }
+
+            let no_site = |_range: SourceRange| None;
+            let no_callable = |_range: SourceRange| None;
+            let top_level_context = AdvisoryFlowContext {
                 scope_index,
                 fields: &fields,
-                callable_returns: &formal_returns,
+                callable_returns: &advisory_returns,
                 builtins: &builtins,
-                current_owner: Some(&analysis.callable.owner),
-                dispatch_side: analysis.callable.side,
-                source_site_for_range: &site_for_range,
-                resolved_callable_for_range: &resolved_callable_for_range,
+                current_owner: None,
+                dispatch_side: DispatchSide::Instance,
+                source_site_for_range: &no_site,
+                resolved_callable_for_range: &no_callable,
                 resolve_callable_for_shape: Some(&resolve_callable_for_shape),
                 resolve_method_family: None,
             };
-            let flow = analyze_statements(body, &context, seed_bindings);
-            let return_fact = flow.normal_return();
-            expressions.extend(flow.expressions);
-            bindings.extend(flow.bindings);
-
-            let mut summary_parameters = Vec::new();
-            for (index, binding) in callable_parameter_bindings(scope_index, &analysis.callable).into_iter().enumerate() {
-                let fact = bindings.get(&binding.declaration_site).cloned().unwrap_or_else(AdvisoryFact::unknown);
-                let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index as u32);
-                parameters.insert(slot.clone(), fact.clone());
-                summary_parameters.push((slot, fact));
-            }
-            let summary = AdvisoryCallableSummary::new(
-                analysis.callable.clone(),
-                summary_parameters,
-                return_fact,
-                analysis.dependencies.to_vec(),
-                Default::default(),
-                advisory_status(analysis.status),
+            let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());
+            parameter_contributions.replace_source(
+                crate::advisory::AdvisoryContributionSource::Module(module.clone()),
+                top_level.parameter_contributions.clone(),
             );
-            let summary = previous
-                .and_then(|old| old.callables.get(&analysis.callable))
-                .filter(|old| old.as_ref() == &summary)
+            expressions.extend(top_level.expressions);
+            bindings.extend(top_level.bindings);
+
+            let status = if module_partial {
+                AdvisoryProductStatus::Partial
+            } else {
+                AdvisoryProductStatus::Complete
+            };
+            next_partial |= module_partial;
+            let shard = AdvisoryModuleProduct::new(module.clone(), expressions, bindings, std::mem::take(&mut fields), parameters, targets, status);
+            let shard = previous
+                .and_then(|old| old.module(module))
+                .filter(|old| old.fingerprint == shard.fingerprint)
                 .cloned()
-                .unwrap_or_else(|| Arc::new(summary));
-            callables.insert(analysis.callable.clone(), summary);
+                .unwrap_or_else(|| Arc::new(shard));
+            next_modules.insert(module.clone(), shard);
         }
 
-        let no_site = |_range: SourceRange| None;
-        let no_callable = |_range: SourceRange| None;
-        let top_level_context = AdvisoryFlowContext {
-            scope_index,
-            fields: &fields,
-            callable_returns: &formal_returns,
-            builtins: &builtins,
-            current_owner: None,
-            dispatch_side: DispatchSide::Instance,
-            source_site_for_range: &no_site,
-            resolved_callable_for_range: &no_callable,
-            resolve_callable_for_shape: Some(&resolve_callable_for_shape),
-            resolve_method_family: None,
-        };
-        let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());
-        expressions.extend(top_level.expressions);
-        bindings.extend(top_level.bindings);
-
-        let status = if module_partial {
-            AdvisoryProductStatus::Partial
-        } else {
-            AdvisoryProductStatus::Complete
-        };
-        workspace_partial |= module_partial;
-        let shard = AdvisoryModuleProduct::new(module.clone(), expressions, bindings, std::mem::take(&mut fields), parameters, targets, status);
-        let shard = previous
-            .and_then(|old| old.module(module))
-            .filter(|old| old.fingerprint == shard.fingerprint)
-            .cloned()
-            .unwrap_or_else(|| Arc::new(shard));
-        modules.insert(module.clone(), shard);
+        let next_parameter_facts = parameter_contributions
+            .joined_iter()
+            .map(|(slot, fact)| (slot.clone(), fact.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut solver_nodes = BTreeMap::new();
+        for (callable, summary) in &next_callables {
+            let mut contributions = crate::advisory::AdvisoryParameterContributions::default();
+            let own_parameters = next_parameter_facts
+                .iter()
+                .filter(|(slot, _)| slot.callable == *callable)
+                .map(|(slot, fact)| (slot.clone(), fact.clone()))
+                .collect::<BTreeMap<_, _>>();
+            contributions.replace_source(
+                crate::advisory::AdvisoryContributionSource::Callable(callable.clone()),
+                summary.parameters.iter().cloned().collect::<BTreeMap<_, _>>(),
+            );
+            contributions.replace_source(
+                crate::advisory::AdvisoryContributionSource::Module(callable.owner.module.clone()),
+                own_parameters,
+            );
+            solver_nodes.insert(
+                callable.clone(),
+                AdvisorySolverNode {
+                    summary: summary.clone(),
+                    parameters: contributions,
+                },
+            );
+        }
+        let solved = AdvisorySolver::new(AdvisorySolverBudget {
+            max_steps: budget.max_steps.min(usize::MAX as u64) as usize,
+        })
+        .solve_with_cancel(solver_nodes, cancel);
+        let mut next_returns = formal_returns.clone();
+        for (callable, summary) in &solved.summaries {
+            next_returns.insert(callable.clone(), summary.return_fact.clone());
+        }
+        let stable = next_parameter_facts == parameter_facts && next_returns == advisory_returns;
+        modules = next_modules;
+        callables = solved.summaries;
+        parameter_facts = next_parameter_facts;
+        advisory_returns = next_returns;
+        workspace_partial = next_partial || !solved.converged;
+        solver_status = solved.status;
+        solver_converged = solved.converged;
+        if stable {
+            converged = true;
+            break;
+        }
     }
-
-    let mut solver_nodes = BTreeMap::new();
-    for (callable, summary) in &callables {
-        let mut contributions = crate::advisory::AdvisoryParameterContributions::default();
-        let parameter_facts = summary.parameters.iter().cloned().collect::<BTreeMap<_, _>>();
-        contributions.replace_source(crate::advisory::AdvisoryContributionSource::Callable(callable.clone()), parameter_facts);
-        solver_nodes.insert(
-            callable.clone(),
-            AdvisorySolverNode {
-                summary: summary.clone(),
-                parameters: contributions,
-            },
-        );
-    }
-    let solved = AdvisorySolver::new(AdvisorySolverBudget {
-        max_steps: budget.max_steps.min(usize::MAX as u64) as usize,
-    })
-    .solve_with_cancel(solver_nodes, cancel);
-    callables = solved.summaries;
-    workspace_partial |= !solved.converged;
+    workspace_partial |= !converged || !solver_converged;
     AdvisoryWorkspace::from_parts(
         modules,
         callables,
-        if matches!(solved.status, AdvisoryProductStatus::Cancelled) {
+        if matches!(solver_status, AdvisoryProductStatus::Cancelled) {
             AdvisoryProductStatus::Cancelled
-        } else if matches!(solved.status, AdvisoryProductStatus::BudgetExceeded) {
+        } else if matches!(solver_status, AdvisoryProductStatus::BudgetExceeded) {
             AdvisoryProductStatus::BudgetExceeded
         } else if workspace_partial {
             AdvisoryProductStatus::Partial
@@ -1177,6 +1256,7 @@ fn advisory_field_facts(
                     resolved_callable_for_range: &no_callable,
                     resolve_callable_for_shape,
                     resolve_method_family: None,
+                    call_observer: None,
                 };
                 analyze_expr(expr, &context)
             });
@@ -1274,6 +1354,15 @@ fn callable_parameter_bindings<'a>(
 }
 
 fn advisory_return_fact(store: &TypeStore, analysis: &crate::checker::CallableAnalysis) -> AdvisoryFact {
+    if analysis.callable.selector.kind == phalcom_common::selector::SelectorKind::Method
+        && matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
+    {
+        return AdvisoryFact::new(
+            crate::advisory::ValueShape::Instance(analysis.callable.owner.clone()),
+            AdvisoryConfidence::Interprocedural,
+        )
+        .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(analysis.callable.clone()));
+    }
     if analysis.exits.normal_return_values.is_empty() {
         return AdvisoryFact::unknown();
     }
