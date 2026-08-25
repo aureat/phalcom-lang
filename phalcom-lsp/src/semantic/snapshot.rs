@@ -157,7 +157,9 @@ impl SemanticSnapshot {
             && let Some(module) = self.documents.get_by_uri(uri)
             && let Some(view) = static_snapshot.occurrence_at(module, offset)
         {
-            return Some(self.compiler_occurrence_to_lsp(uri, view));
+            if view.target.is_some() {
+                return Some(self.compiler_occurrence_to_lsp(uri, view));
+            }
         }
         let module = self.module_for_uri(uri)?;
         self.files.get(module).and_then(|file| file.occurrences.occurrence_at(offset).cloned())
@@ -244,13 +246,10 @@ impl SemanticSnapshot {
 
     /// Returns all references to a `SemanticTarget` in the workspace.
     pub fn references_for_target(&self, uri: &Url, target: &SemanticTarget) -> Vec<(Url, SourceRange, OccurrenceRole)> {
-        if let Some(static_snapshot) = self.current_static_snapshot() {
-            let Some(canonical) = self.canonical_target_for_lsp(uri, target, static_snapshot) else {
-                return Vec::new();
-            };
-            let Some(sites) = static_snapshot.occurrences_for_target(&canonical) else {
-                return Vec::new();
-            };
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(canonical) = self.canonical_target_for_lsp(uri, target, static_snapshot)
+            && let Some(sites) = static_snapshot.occurrences_for_target(&canonical)
+        {
             let mut results = Vec::new();
             for site in sites {
                 let module = match &site.owner {
@@ -751,10 +750,10 @@ impl SemanticSnapshot {
 
     /// Returns a callable's target-specific return summary.
     pub fn return_for_callable(&self, id: &CallableId) -> Option<InferredValue> {
-        if let Some(static_snapshot) = self.current_static_snapshot()
-            && let Some(canonical) = self.canonical_callable_for_lsp(id)
-        {
-            if let Some(summary) = static_snapshot.advisory.callable(&canonical) {
+        if let Some(static_snapshot) = self.current_static_snapshot() {
+            if let Some(canonical) = self.canonical_callable_for_lsp(id)
+                && let Some(summary) = static_snapshot.advisory.callable(&canonical)
+            {
                 return Some(self.compiler_advisory_fact(&summary.return_fact, SourceRange::default()));
             }
         }
@@ -792,16 +791,16 @@ impl SemanticSnapshot {
 
     /// Resolves an inferred field fact for a class and side.
     pub fn field_value(&self, class: &ClassId, name: &str, side: DispatchSide) -> Option<InferredValue> {
-        if let Some(static_snapshot) = self.current_static_snapshot()
-            && let Some(declaration) = self.canonical_declaration_for_lsp(class)
-        {
-            let canonical_side = match side {
-                DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
-                DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
-            };
-            let field = phalcom_semantic::identity::FieldId::new(declaration, name.to_string(), canonical_side);
-            if let Some(fact) = static_snapshot.advisory.field(&field) {
-                return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+        if let Some(static_snapshot) = self.current_static_snapshot() {
+            if let Some(declaration) = self.canonical_declaration_for_lsp(class) {
+                let canonical_side = match side {
+                    DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
+                    DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
+                };
+                let field = phalcom_semantic::identity::FieldId::new(declaration, name.to_string(), canonical_side);
+                if let Some(fact) = static_snapshot.advisory.field(&field) {
+                    return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+                }
             }
         }
         let mut current = Some(class.clone());
@@ -824,14 +823,15 @@ impl SemanticSnapshot {
 
     /// Returns the joined call-site fact observed for one callable parameter.
     pub fn parameter_at(&self, id: &CallableId, name: &str) -> Option<InferredValue> {
-        if let Some(static_snapshot) = self.current_static_snapshot()
-            && let Some(canonical) = self.canonical_callable_for_lsp(id)
-            && let Some(member) = self.member_surface(id)
-            && let Some(index) = member.params.iter().position(|parameter| parameter.name == name)
-        {
-            let slot = phalcom_semantic::AdvisoryParameterSlot::new(canonical, index as u32);
-            if let Some(fact) = static_snapshot.advisory.parameter(&slot) {
-                return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+        if let Some(static_snapshot) = self.current_static_snapshot() {
+            if let Some(canonical) = self.canonical_callable_for_lsp(id)
+                && let Some(member) = self.member_surface(id)
+                && let Some(index) = member.params.iter().position(|parameter| parameter.name == name)
+            {
+                let slot = phalcom_semantic::AdvisoryParameterSlot::new(canonical, index as u32);
+                if let Some(fact) = static_snapshot.advisory.parameter(&slot) {
+                    return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+                }
             }
         }
         self.parameter_facts.get(&(id.clone(), name.to_string())).cloned()

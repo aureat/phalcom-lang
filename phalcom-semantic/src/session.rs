@@ -1195,8 +1195,30 @@ fn build_advisory_workspace(
                 next_callables.insert(analysis.callable.clone(), summary);
             }
 
-            let no_site = |_range: SourceRange| None;
-            let no_callable = |_range: SourceRange| None;
+            let source_site_for_range = |range: SourceRange| {
+                let candidates = module_index
+                    .occurrences
+                    .all()
+                    .iter()
+                    .filter(|occurrence| occurrence.range == range)
+                    .map(|occurrence| occurrence.site.clone())
+                    .collect::<Vec<_>>();
+                (candidates.len() == 1).then(|| candidates.into_iter().next().expect("one source-site candidate"))
+            };
+            let resolved_callable_for_range = |range: SourceRange| {
+                let candidates = module_index
+                    .occurrences
+                    .all()
+                    .iter()
+                    .filter(|occurrence| occurrence.range == range)
+                    .filter_map(|occurrence| module_index.occurrences.target_for(&occurrence.site))
+                    .filter_map(|target| match target {
+                        SemanticTargetId::Callable(callable) => Some(callable.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                (candidates.len() == 1).then(|| candidates.into_iter().next().expect("one callable candidate"))
+            };
             let top_level_context = AdvisoryFlowContext {
                 scope_index,
                 fields: &fields,
@@ -1204,8 +1226,8 @@ fn build_advisory_workspace(
                 builtins: &builtins,
                 current_owner: None,
                 dispatch_side: DispatchSide::Instance,
-                source_site_for_range: &no_site,
-                resolved_callable_for_range: &no_callable,
+                source_site_for_range: &source_site_for_range,
+                resolved_callable_for_range: &resolved_callable_for_range,
                 resolve_callable_for_shape: Some(&resolve_callable_for_shape),
                 resolve_method_family: Some(&resolve_method_family),
             };
