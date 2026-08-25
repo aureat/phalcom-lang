@@ -46,7 +46,16 @@ pub struct CallableSourceAttachment {
 impl CallableSourceAttachment {
     /// Attaches checker products to unique compiler-owned declaration sites.
     pub fn from_analysis(callable: CallableId, scopes: &SourceScopeIndex, analysis: &CallableAnalysis) -> Result<Self, SourceAttachmentError> {
+        let (attachment, incidents) = Self::from_analysis_with_incidents(callable, scopes, analysis);
+        incidents.into_iter().next().map_or(Ok(attachment), Err)
+    }
+
+    /// Builds all exact expression attachments while retaining binding failures
+    /// as non-fatal incidents. A missing binding must not erase independently
+    /// attachable call/expression products for the same callable.
+    pub fn from_analysis_with_incidents(callable: CallableId, scopes: &SourceScopeIndex, analysis: &CallableAnalysis) -> (Self, Vec<SourceAttachmentError>) {
         let mut formal_bindings = BTreeMap::new();
+        let mut incidents = Vec::new();
         for state in analysis.bindings.values() {
             let candidates = scopes
                 .bindings
@@ -61,16 +70,18 @@ impl CallableSourceAttachment {
             let site = match candidates.as_slice() {
                 [site] => site.clone(),
                 [] => {
-                    return Err(SourceAttachmentError::MissingBinding {
+                    incidents.push(SourceAttachmentError::MissingBinding {
                         callable: callable.clone(),
                         binding: state.binding,
                     });
+                    continue;
                 }
                 _ => {
-                    return Err(SourceAttachmentError::AmbiguousBinding {
+                    incidents.push(SourceAttachmentError::AmbiguousBinding {
                         callable: callable.clone(),
                         binding: state.binding,
                     });
+                    continue;
                 }
             };
             formal_bindings.insert(state.binding, site.clone());
@@ -107,13 +118,16 @@ impl CallableSourceAttachment {
         for site in formal_bindings.values() {
             exact_targets.insert(site.clone(), SemanticTargetId::Binding(site.clone()));
         }
-        Ok(Self {
-            callable,
-            expression_sites: Arc::from(expression_sites),
-            formal_bindings,
-            formal_expressions,
-            exact_targets,
-        })
+        (
+            Self {
+                callable,
+                expression_sites: Arc::from(expression_sites),
+                formal_bindings,
+                formal_expressions,
+                exact_targets,
+            },
+            incidents,
+        )
     }
 
     /// Finds source site for one formal binding.
@@ -312,7 +326,7 @@ impl SourceSemanticIndex {
         let Some(module_index) = self.modules.get_mut(module) else {
             return Err(SourceAttachmentError::MissingModule(module.clone()));
         };
-        let attachment = CallableSourceAttachment::from_analysis(analysis.callable.clone(), &module_index.structure, analysis)?;
+        let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
         let module_index = Arc::make_mut(module_index);
         module_index.attachments.insert(analysis.callable.clone(), Arc::new(attachment));
         let mut all = module_index.occurrences.all().to_vec();
@@ -365,7 +379,7 @@ impl SourceSemanticIndex {
         let occurrences = OccurrenceIndex::new(all, exact_targets);
         module_index.occurrences = Arc::new(occurrences);
         self.rebuild_target_occurrences();
-        Ok(())
+        incidents.into_iter().next().map_or(Ok(()), Err)
     }
 
     /// Returns one module source shard.

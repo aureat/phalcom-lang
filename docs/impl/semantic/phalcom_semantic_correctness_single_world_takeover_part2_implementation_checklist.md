@@ -73,7 +73,7 @@
 ### Task 10 — Replace LSP identity and snapshot bridges
 
 - [~] Make LSP URI mapping a boundary over canonical module IDs; canonical `by_uri`/`by_module` mapping is active while legacy protocol keys remain for compatibility.
-- [~] Remove string selector/owner reconciliation, full callable scans, and duplicate semantic IDs from migrated occurrence/reference/formal/advisory query paths; legacy surface adapters remain.
+- [~] Remove string selector/owner reconciliation, full callable scans, and duplicate semantic IDs from migrated occurrence/reference/formal/advisory query paths; compiler-backed position/reference/scope/dispatch reads are primary, while legacy surface adapters remain.
 
 ### Task 11 — Delete/demote LSP semantic authority
 
@@ -108,6 +108,7 @@
 - `VERIFIED`: Formal source attachment and indexed formal projection tests passed; non-fatal attachment incidents and machine-readable formal readiness status are published; workspace, callable-dependency, product-stability, and presentation focused suites passed.
 - `VERIFIED`: Advisory domain foundation tests passed (4/4); canonical record/union normalization, collection joins, confidence separation, bounded provenance, and selector identity covered.
 - `VERIFIED`: Advisory expression/flow, contribution-summary, snapshot, and incrementality tests passed; canonical literal/collection/local flow, formal call-result reuse, missing-builtin fallback, direct and forwarding-call parameter/return convergence, parameter replacement/removal, recursive convergence, budget/cancel status, explicit status, Arc reuse, and deterministic fingerprints covered.
+- `VERIFIED`: Compiler-backed LSP position/reference/scope/dispatch/advisory reads pass the full registered integration suite (52 passed, 2 ignored); missing formal binding attachments remain incidents without suppressing independent expression/call attachments.
 - `BASELINE`: Full semantic suite retains handoff capability baseline 12/40 passed, 28/40 failed; failures are stale `var`/bare-brace fixtures plus documented capability gaps, not introduced Part 2 source-index failures.
 - `VERIFIED`: `cargo check --workspace`, `cargo fmt --all -- --check`, full registered LSP integration (52 passed, 2 ignored), and full compiler suite except known capability baseline passed.
 - `PENDING`: Tasks 7–8 remain partial for full cross-module dependency integration; Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership and forbidden-pattern/capability closure are not complete.

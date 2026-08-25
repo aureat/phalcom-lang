@@ -120,7 +120,11 @@ impl SemanticSnapshot {
             && let Some(module) = self.documents.get_by_uri(uri)
             && let Some(view) = static_snapshot.occurrence_at(module, offset)
         {
-            return Some(self.compiler_occurrence_to_lsp(uri, view));
+            let has_target = view.target.is_some();
+            let occurrence = self.compiler_occurrence_to_lsp(uri, view);
+            if has_target {
+                return Some(occurrence);
+            }
         }
         let module = self.module_for_uri(uri)?;
         self.files.get(module).and_then(|file| file.occurrences.occurrence_at(offset).cloned())
@@ -209,8 +213,10 @@ impl SemanticSnapshot {
     pub fn references_for_target(&self, uri: &Url, target: &SemanticTarget) -> Vec<(Url, SourceRange, OccurrenceRole)> {
         if let Some(static_snapshot) = self.current_static_snapshot()
             && let Some(canonical) = self.canonical_target_for_lsp(uri, target, static_snapshot)
-            && let Some(sites) = static_snapshot.occurrences_for_target(&canonical)
         {
+            let Some(sites) = static_snapshot.occurrences_for_target(&canonical) else {
+                return Vec::new();
+            };
             let mut results = Vec::new();
             for site in sites {
                 let module = match &site.owner {
@@ -329,6 +335,17 @@ impl SemanticSnapshot {
 
     /// Returns lexical bindings visible at one source offset, nearest scope first.
     pub fn visible_bindings_at(&self, uri: &Url, offset: usize) -> Vec<BindingInfo> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(module) = self.documents.get_by_uri(uri)
+            && let Some(source) = static_snapshot.source_index().module(module)
+        {
+            return source
+                .structure
+                .visible_bindings_at(offset)
+                .into_iter()
+                .filter_map(|binding| self.legacy_binding_info_for_source(uri, binding))
+                .collect();
+        }
         let Some(module) = self.module_for_uri(uri) else { return Vec::new() };
         self.files
             .get(module)
@@ -338,8 +355,33 @@ impl SemanticSnapshot {
 
     /// Returns one binding's declaration metadata from a file-local identity.
     pub fn binding_info(&self, uri: &Url, binding: BindingId) -> Option<BindingInfo> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(module) = self.module_for_uri(uri)
+            && let Some(file) = self.files.get(module)
+            && let Some(info) = file.source.scopes.bindings.get(&binding)
+            && let Some(source) = self.documents.get_by_uri(uri).and_then(|module| static_snapshot.source_index().module(module))
+            && let Some(compiler_binding) = source
+                .structure
+                .bindings
+                .values()
+                .find(|candidate| candidate.declaration_range == info.declaration_range)
+        {
+            return self.legacy_binding_info_for_source(uri, compiler_binding);
+        }
         let module = self.module_for_uri(uri)?;
         self.files.get(module).and_then(|file| file.source.scopes.bindings.get(&binding).cloned())
+    }
+
+    fn legacy_binding_info_for_source(&self, uri: &Url, binding: &phalcom_semantic::source_index::SourceBindingInfo) -> Option<BindingInfo> {
+        let module = self.module_for_uri(uri)?;
+        let file = self.files.get(module)?;
+        let info = file
+            .source
+            .scopes
+            .bindings
+            .values()
+            .find(|candidate| candidate.declaration_range == binding.declaration_range)?;
+        Some(info.clone())
     }
 
     /// Returns one class surface by module-qualified identity.
@@ -354,6 +396,26 @@ impl SemanticSnapshot {
 
     /// Resolves one receiver-qualified member, including inherited members.
     pub fn receiver_member(&self, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(declaration) = self.canonical_declaration_for_lsp(class)
+            && let Ok(selector) = phalcom_common::selector::Selector::try_decode_exact(selector)
+        {
+            let canonical_side = match side {
+                DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
+                DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
+            };
+            let callable =
+                match static_snapshot
+                    .dispatch
+                    .resolve_dispatch_with_trace(static_snapshot.hierarchy.as_ref(), &declaration, canonical_side, &selector)
+                {
+                    phalcom_semantic::dispatch::ResolvedDispatchResult::Found(resolved) => Some(resolved.callable),
+                    _ => None,
+                };
+            return callable
+                .map(|callable| self.lsp_callable_for_canonical(&callable))
+                .and_then(|callable| self.member_surface(&callable).cloned());
+        }
         let receiver = match side {
             DispatchSide::Instance => DispatchReceiver::Instance(class.clone()),
             DispatchSide::Class => DispatchReceiver::ClassObject(class.clone()),
@@ -367,6 +429,17 @@ impl SemanticSnapshot {
     fn canonical_declaration_for_lsp(&self, class: &ClassId) -> Option<phalcom_semantic::identity::DeclarationId> {
         let module = self.documents.semantic_for_lsp(&class.module)?.clone();
         Some(phalcom_semantic::identity::DeclarationId::new(module, class.name.clone().into()))
+    }
+
+    fn lsp_callable_for_canonical(&self, callable: &phalcom_semantic::identity::CallableId) -> CallableId {
+        CallableId {
+            owner: ClassId::new(self.lsp_module_for_canonical(&callable.owner.module), callable.owner.name.to_string()),
+            selector: callable.selector.encode(),
+            side: match callable.side {
+                phalcom_semantic::DispatchSide::Instance => DispatchSide::Instance,
+                phalcom_semantic::DispatchSide::Class => DispatchSide::Class,
+            },
+        }
     }
 
     fn compiler_completion_members(&self, class: &ClassId, side: DispatchSide) -> Option<Vec<CompletionMember>> {
@@ -667,6 +740,13 @@ impl SemanticSnapshot {
 
     /// Returns a callable's target-specific return summary.
     pub fn return_for_callable(&self, id: &CallableId) -> Option<InferredValue> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(canonical) = self.canonical_callable_for_lsp(id)
+        {
+            if let Some(summary) = static_snapshot.advisory.callable(&canonical) {
+                return Some(self.compiler_advisory_fact(&summary.return_fact, SourceRange::default()));
+            }
+        }
         return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), id)
     }
 
@@ -701,6 +781,18 @@ impl SemanticSnapshot {
 
     /// Resolves an inferred field fact for a class and side.
     pub fn field_value(&self, class: &ClassId, name: &str, side: DispatchSide) -> Option<InferredValue> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(declaration) = self.canonical_declaration_for_lsp(class)
+        {
+            let canonical_side = match side {
+                DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
+                DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
+            };
+            let field = phalcom_semantic::identity::FieldId::new(declaration, name.to_string(), canonical_side);
+            if let Some(fact) = static_snapshot.advisory.field(&field) {
+                return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+            }
+        }
         let mut current = Some(class.clone());
         let mut seen = BTreeSet::new();
         while let Some(owner) = current {
@@ -721,7 +813,31 @@ impl SemanticSnapshot {
 
     /// Returns the joined call-site fact observed for one callable parameter.
     pub fn parameter_at(&self, id: &CallableId, name: &str) -> Option<InferredValue> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(canonical) = self.canonical_callable_for_lsp(id)
+            && let Some(member) = self.member_surface(id)
+            && let Some(index) = member.params.iter().position(|parameter| parameter.name == name)
+        {
+            let slot = phalcom_semantic::AdvisoryParameterSlot::new(canonical, index as u32);
+            if let Some(fact) = static_snapshot.advisory.parameter(&slot) {
+                return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+            }
+        }
         self.parameter_facts.get(&(id.clone(), name.to_string())).cloned()
+    }
+
+    fn canonical_callable_for_lsp(&self, callable: &CallableId) -> Option<phalcom_semantic::identity::CallableId> {
+        let owner_module = self.documents.semantic_for_lsp(&callable.owner.module)?.clone();
+        let selector = phalcom_common::selector::Selector::try_decode_exact(&callable.selector).ok()?;
+        let side = match callable.side {
+            DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
+            DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
+        };
+        Some(phalcom_semantic::identity::CallableId::new(
+            phalcom_semantic::identity::DeclarationId::new(owner_module, callable.owner.name.clone().into()),
+            selector,
+            side,
+        ))
     }
 
     /// Resolves a class name in its module, with the stable core namespace as a fallback.
@@ -750,6 +866,24 @@ impl SemanticSnapshot {
 
     /// Returns the class whose declaration contains a byte offset in `uri`.
     pub fn class_at(&self, uri: &Url, offset: usize) -> Option<ClassId> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(module) = self.documents.get_by_uri(uri)
+            && let Some(source) = static_snapshot.source_index().module(module)
+        {
+            if let Some(declaration) = source
+                .structure
+                .sites
+                .values()
+                .filter(|site| site.range.contains(offset))
+                .find_map(|site| match &site.kind {
+                    phalcom_semantic::source_index::SourceSiteKind::Declaration(declaration) => Some(declaration),
+                    phalcom_semantic::source_index::SourceSiteKind::Callable(callable) => Some(&callable.owner),
+                    _ => None,
+                })
+            {
+                return Some(ClassId::new(self.lsp_module_for_canonical(&declaration.module), declaration.name.to_string()));
+            }
+        }
         let module = self.module_for_uri(uri)?;
         self.files
             .get(module)?
@@ -763,6 +897,9 @@ impl SemanticSnapshot {
 
     /// Returns the source-authored class whose name range contains `offset`.
     pub fn class_name_at(&self, uri: &Url, offset: usize) -> Option<ClassSurface> {
+        if let Some(class) = self.class_at(uri, offset) {
+            return self.class_surface(&class).cloned();
+        }
         let module = self.module_for_uri(uri)?;
         self.files
             .get(module)?
@@ -776,6 +913,23 @@ impl SemanticSnapshot {
 
     /// Returns the declared callable enclosing a source offset.
     pub fn member_at(&self, uri: &Url, offset: usize) -> Option<MemberSurface> {
+        if let Some(static_snapshot) = self.current_static_snapshot()
+            && let Some(module) = self.documents.get_by_uri(uri)
+            && let Some(source) = static_snapshot.source_index().module(module)
+        {
+            if let Some(callable) = source
+                .structure
+                .sites
+                .values()
+                .filter(|site| site.range.contains(offset))
+                .find_map(|site| match &site.kind {
+                    phalcom_semantic::source_index::SourceSiteKind::Callable(callable) => Some(self.lsp_callable_for_canonical(callable)),
+                    _ => None,
+                })
+            {
+                return self.member_surface(&callable).cloned();
+            }
+        }
         let module = self.module_for_uri(uri)?;
         self.files
             .get(module)?
@@ -791,22 +945,35 @@ impl SemanticSnapshot {
     /// Joins return summaries for a bounded set of receiver candidates.
     pub fn returns_for_callables(&self, ids: impl IntoIterator<Item = CallableId>) -> Option<InferredValue> {
         ids.into_iter()
-            .filter_map(|id| return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), &id))
+            .filter_map(|id| self.return_for_callable(&id))
             .reduce(|left, right| left.join(&right))
     }
 
     /// Reads one compiler-owned advisory binding fact when the published
     /// compiler snapshot covers this LSP generation. Legacy local facts remain
     /// only as a compatibility fallback for uncovered documents.
-    fn compiler_advisory_binding_at(&self, uri: &Url, offset: usize) -> Option<InferredValue> {
+    fn compiler_advisory_binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
         let static_snapshot = self.current_static_snapshot()?;
         let module = self.documents.get_by_uri(uri)?;
         let occurrence = static_snapshot.occurrence_at(module, offset)?;
         let phalcom_semantic::identity::SemanticTargetId::Binding(site) = occurrence.target? else {
             return None;
         };
+        let source = static_snapshot.source_index().module(module)?;
+        let binding = source.structure.bindings.get(site)?;
+        if binding.name.as_ref() != name {
+            return None;
+        }
         let fact = static_snapshot.advisory.binding(site)?;
-        Some(self.compiler_advisory_fact(fact, occurrence.occurrence.range))
+        Some(self.compiler_advisory_fact(&fact, occurrence.occurrence.range))
+    }
+
+    fn compiler_advisory_at(&self, uri: &Url, offset: usize) -> Option<InferredValue> {
+        let static_snapshot = self.current_static_snapshot()?;
+        let module = self.documents.get_by_uri(uri)?;
+        let occurrence = static_snapshot.occurrence_at(module, offset)?;
+        let fact = static_snapshot.advisory_fact(&occurrence.occurrence.site)?;
+        Some(self.compiler_advisory_fact(&fact, occurrence.occurrence.range))
     }
 
     fn compiler_advisory_fact(&self, fact: &phalcom_semantic::AdvisoryFact, range: SourceRange) -> InferredValue {
@@ -856,14 +1023,10 @@ impl SemanticSnapshot {
 
     /// Returns the fact visible for a local binding at a byte offset.
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
-        let legacy = self.legacy_binding_at(uri, name, offset);
-        if let Some(value) = self
-            .compiler_advisory_binding_at(uri, offset)
-            .filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != super::Confidence::Heuristic)
-        {
+        if let Some(value) = self.compiler_advisory_binding_at(uri, name, offset) {
             return Some(value);
         }
-        legacy
+        self.legacy_binding_at(uri, name, offset)
     }
 
     fn legacy_binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
@@ -878,6 +1041,9 @@ impl SemanticSnapshot {
 
     /// Infers a parsed receiver expression against the coherent current semantic snapshot.
     pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
+        if let Some(value) = self.compiler_advisory_at(uri, offset) {
+            return value;
+        }
         let fallback_module = ModuleId::new(uri.to_string());
         let module = self.module_for_uri(uri).unwrap_or(&fallback_module);
 

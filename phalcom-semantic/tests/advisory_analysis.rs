@@ -108,6 +108,22 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
 }
 
 #[test]
+fn binding_attachment_incident_does_not_hide_expression_attachment() {
+    let module = module_id();
+    let source = "class CellNum { @constructor new(_ raw: Int) { raw } }\nlet value = CellNum.new(1)\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module.clone(), source, 1));
+
+    assert!(
+        !update.snapshot.source_index().incidents().is_empty(),
+        "fixture should retain binding attachment incident"
+    );
+    let attachments = &update.snapshot.source_index().module(&module).expect("source module").attachments;
+    assert!(!attachments.is_empty(), "formal callable attachment should still publish");
+    assert!(attachments.values().any(|attachment| !attachment.expression_sites.is_empty()));
+}
+
+#[test]
 fn advisory_query_distinguishes_missing_coverage_from_published_unknown() {
     let site = SourceSiteId {
         owner: SourceOwner::Module(ModuleId::core()),
