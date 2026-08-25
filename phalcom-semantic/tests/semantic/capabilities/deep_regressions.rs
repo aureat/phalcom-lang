@@ -136,7 +136,7 @@ class Probe {
   run() {
     let value = 1
     let action = || {
-      value = "changed"
+      value = 2
     }
     let observed = value
   }
