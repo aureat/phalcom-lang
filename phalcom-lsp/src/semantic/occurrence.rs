@@ -211,9 +211,7 @@ impl OccurrenceBuilder<'_> {
                                     item.name_range,
                                     SemanticOccurrenceKind::Member,
                                     OccurrenceRole::Reference,
-                                    SemanticTarget::Member {
-                                        name: item.name.clone(),
-                                    },
+                                    SemanticTarget::Member { name: item.name.clone() },
                                 );
                             } else if let Some(binding) = self.scopes.binding_for_declaration(item.range) {
                                 self.push(
@@ -844,9 +842,7 @@ impl OccurrenceBuilder<'_> {
             super::scope::NameResolution::Binding(binding) => Some(SemanticTarget::Binding(binding)),
             super::scope::NameResolution::Class(class) => Some(SemanticTarget::Class(class)),
             super::scope::NameResolution::Module(module) => Some(SemanticTarget::Module(module)),
-            super::scope::NameResolution::Global(_)
-            | super::scope::NameResolution::ImplicitSelf
-            | super::scope::NameResolution::Unresolved => None,
+            super::scope::NameResolution::Global(_) | super::scope::NameResolution::ImplicitSelf | super::scope::NameResolution::Unresolved => None,
         }
     }
 

@@ -654,21 +654,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
 fn is_builtin_class_name(name: &str) -> bool {
     matches!(
         name,
-        "Object"
-            | "String"
-            | "Int"
-            | "Float"
-            | "Bool"
-            | "Array"
-            | "Symbol"
-            | "Exception"
-            | "Error"
-            | "Type"
-            | "Tuple"
-            | "Record"
-            | "Map"
-            | "Set"
-            | "List"
+        "Object" | "String" | "Int" | "Float" | "Bool" | "Array" | "Symbol" | "Exception" | "Error" | "Type" | "Tuple" | "Record" | "Map" | "Set" | "List"
     )
 }
 

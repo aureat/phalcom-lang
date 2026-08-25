@@ -1,9 +1,0 @@
-// Add after the existing Stage 1-5 modules.
-mod support;
-
-mod fixture_syntax;
-mod semantic_completion;
-mod semantic_consistency;
-mod inlay_hints;
-mod workspace_semantics;
-mod semantic_tokens_current_syntax;

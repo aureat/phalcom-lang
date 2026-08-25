@@ -6,7 +6,7 @@ from .domain.shipment import Shipment
 
 class Main {
   @class
-  main -> () {
+  main {
     const origin: Point = Point.new(0, y: 0)
     const destination: Point = Point.new(3, y: 4)
 
@@ -17,6 +17,8 @@ class Main {
     )
 
     const shipment: Shipment = Planner.plan(parcel, origin: origin)
+
+    const x = #{hello: String}
 
     System.print("Phalcom IDE Golden")
     System.print("parcel: " + shipment.parcel.id)
