@@ -15,7 +15,7 @@ fn ordinary_if_true_selector_on_non_bool_receiver_is_not_control_flow() {
 class Strange {
   @constructor new() {}
 
-  ifTrue(_ yes, ifFalse: no) -> String {
+  ifTrue(_ yes, ifFalse no) -> String {
     "ordinary"
   }
 }
