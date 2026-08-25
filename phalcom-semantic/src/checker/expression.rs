@@ -726,7 +726,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let recv_k = &recv_typed.knowledge;
 
-    if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected) {
+    if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, recv_k) {
         typed.causal_invalidity = typed.causal_invalidity.join(recv_typed.causal_invalidity);
         return typed;
     }
@@ -784,10 +784,17 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
 }
 
 /// Analyzes parser-desugared control sends using their block bodies as
-/// executable flow, rather than treating blocks as ordinary callable values.
-/// This keeps branch products, abrupt exits, and loop writes visible to the
-/// same formal flow state used by ordinary statements.
-fn synthesize_control_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> Option<TypedExpression> {
+/// executable flow while preserving Phalcom's ordinary message-send semantics.
+/// A paired `ifTrue(_:ifFalse:)` is structured only for a receiver proven to be
+/// the canonical Bool type. `whileTrue(_)` is structured only for the literal
+/// block receiver shape recognized by the compiler's sacred-selector inliner.
+/// Other same-named sends fall through to normal dispatch.
+fn synthesize_control_method_call(
+    ctx: &mut CheckingContext<'_>,
+    call: &MethodCallExpr,
+    expected: &ExpectedType,
+    receiver_knowledge: &TypeKnowledge,
+) -> Option<TypedExpression> {
     let positional_block = |index: usize| -> Option<&phalcom_ast::ast::BlockExpr> {
         call.args
             .iter()
@@ -808,8 +815,15 @@ fn synthesize_control_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCa
         })
     };
 
+    let receiver_is_bool = ctx
+        .resolve_type_name("Bool")
+        .map(|declaration| ctx.nominal_type_of(&declaration))
+        .zip(receiver_knowledge.ty())
+        .is_some_and(|(bool_ty, receiver_ty)| bool_ty == receiver_ty);
+    let receiver_is_literal_block = matches!(call.object.as_ref(), Expr::Block(_));
+
     match call.method.as_str() {
-        "ifTrue" if labeled_block("ifFalse").is_some() => {
+        "ifTrue" if receiver_is_bool && labeled_block("ifFalse").is_some() => {
             let then_block = positional_block(0)?;
             let else_block = labeled_block("ifFalse")?;
             let before = ctx.flow.clone();
@@ -828,7 +842,7 @@ fn synthesize_control_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCa
             typed.explanation_parents.extend(else_typed.explanation_parents);
             Some(typed)
         }
-        "whileTrue" => {
+        "whileTrue" if receiver_is_literal_block => {
             let body = positional_block(0)?;
             let before = ctx.flow.clone();
             ctx.push_loop_frame();
