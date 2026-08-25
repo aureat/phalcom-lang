@@ -79,7 +79,7 @@
 
 - [~] Compiler snapshot is primary for occurrence, references, formal lookup, advisory binding facts, and canonical targets; LSP scope/dispatch/surface/advisory compatibility ownership remains for protocol parity.
 - [~] Keep compiler-backed read-only adapters on migrated paths; complete old-engine authority removal is deferred until remaining surface consumers migrate.
-- [ ] Preserve substantive advisory/source test coverage at compiler ownership.
+- [x] Preserve substantive advisory/source test coverage at compiler ownership.
 
 ### Task 12 — Incrementality, performance, and takeover audit
 
