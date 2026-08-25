@@ -756,6 +756,7 @@ impl SemanticSnapshot {
             {
                 return Some(self.compiler_advisory_fact(&summary.return_fact, SourceRange::default()));
             }
+            return None;
         }
         return_for_callable(self.classes.as_ref(), self.summaries.as_ref(), id)
     }
@@ -797,11 +798,20 @@ impl SemanticSnapshot {
                     DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
                     DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
                 };
-                let field = phalcom_semantic::identity::FieldId::new(declaration, name.to_string(), canonical_side);
-                if let Some(fact) = static_snapshot.advisory.field(&field) {
-                    return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+                let mut current = Some(declaration);
+                let mut seen = BTreeSet::new();
+                while let Some(owner) = current {
+                    if !seen.insert(owner.clone()) {
+                        break;
+                    }
+                    let field = phalcom_semantic::identity::FieldId::new(owner.clone(), name.to_string(), canonical_side);
+                    if let Some(fact) = static_snapshot.advisory.field(&field) {
+                        return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
+                    }
+                    current = static_snapshot.hierarchy.superclass(&owner).cloned();
                 }
             }
+            return None;
         }
         let mut current = Some(class.clone());
         let mut seen = BTreeSet::new();
@@ -833,6 +843,7 @@ impl SemanticSnapshot {
                     return Some(self.compiler_advisory_fact(fact, SourceRange::default()));
                 }
             }
+            return None;
         }
         self.parameter_facts.get(&(id.clone(), name.to_string())).cloned()
     }
@@ -956,17 +967,25 @@ impl SemanticSnapshot {
     fn compiler_advisory_binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
         let static_snapshot = self.current_static_snapshot()?;
         let module = self.documents.get_by_uri(uri)?;
-        let occurrence = static_snapshot.occurrence_at(module, offset)?;
-        let phalcom_semantic::identity::SemanticTargetId::Binding(site) = occurrence.target? else {
-            return None;
-        };
         let source = static_snapshot.source_index().module(module)?;
-        let binding = source.structure.bindings.get(site)?;
+        let occurrence = static_snapshot.occurrence_at(module, offset);
+        let site = occurrence
+            .as_ref()
+            .and_then(|occurrence| match occurrence.target {
+                Some(phalcom_semantic::identity::SemanticTargetId::Binding(site)) => Some(site.clone()),
+                _ => None,
+            })
+            .or_else(|| match source.structure.resolve_name(source.structure.scope_at(offset), name, offset) {
+                phalcom_semantic::source_index::SourceNameResolution::Binding(site) => Some(site),
+                _ => None,
+            })?;
+        let binding = source.structure.bindings.get(&site)?;
         if binding.name.as_ref() != name {
             return None;
-        }
-        let fact = static_snapshot.advisory.binding(site)?;
-        Some(self.compiler_advisory_fact(&fact, occurrence.occurrence.range))
+        };
+        let fact = static_snapshot.advisory.binding(&site)?;
+        let range = occurrence.map_or(binding.declaration_range, |occurrence| occurrence.occurrence.range);
+        Some(self.compiler_advisory_fact(&fact, range))
     }
 
     fn compiler_advisory_at(&self, uri: &Url, offset: usize) -> Option<InferredValue> {
@@ -1035,6 +1054,9 @@ impl SemanticSnapshot {
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
         if let Some(value) = self.compiler_advisory_binding_at(uri, name, offset) {
             return Some(value);
+        }
+        if self.current_static_snapshot().is_some() {
+            return None;
         }
         self.legacy_binding_at(uri, name, offset)
     }

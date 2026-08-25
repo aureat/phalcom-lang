@@ -77,8 +77,8 @@
 
 ### Task 11 — Delete/demote LSP semantic authority
 
-- [~] Compiler snapshot is primary for occurrence, references, formal lookup, advisory binding facts, and canonical targets; LSP scope/dispatch/surface/advisory compatibility ownership remains for protocol parity.
-- [~] Keep compiler-backed read-only adapters on migrated paths; complete old-engine authority removal is deferred until remaining surface consumers migrate.
+- [~] Compiler snapshot is primary for occurrence, references, formal lookup, advisory binding/field/parameter/return facts, and canonical targets; LSP scope/dispatch/surface/advisory compatibility ownership remains for protocol parity.
+- [~] Keep compiler-backed read-only adapters on migrated paths; expression inference retains a bounded fallback only when compiler expression coverage is missing, while complete old-engine authority removal remains deferred for remaining surface consumers.
 - [x] Preserve substantive advisory/source test coverage at compiler ownership.
 
 ### Task 12 — Incrementality, performance, and takeover audit
@@ -112,4 +112,5 @@
 - `VERIFIED THIS SLICE`: Formal projection now carries bounded causal invalidity and binding-contract relation metadata; advisory outer convergence is explicitly budget-driven; linked interface exports feed source target attachment; cross-module advisory return propagation and canonical method-family capture pass focused tests; LSP callable reconciliation is publication-time indexed and canonical occurrence/reference paths no longer fall back to workspace scans.
 - `BASELINE`: Full semantic suite retains handoff capability baseline 12/40 passed, 28/40 failed; failures are stale `var`/bare-brace fixtures plus documented capability gaps, not introduced Part 2 source-index failures.
 - `VERIFIED`: `cargo check --workspace`, `cargo fmt --all -- --check`, full registered LSP integration (52 passed, 2 ignored), and full compiler suite except known capability baseline passed.
+- `VERIFIED THIS SLICE`: Compiler-primary LSP binding, field, parameter, and callable-return reads pass the full LSP crate suite (245 unit tests, 52 integration tests, 3 module-navigation tests); inherited field lookup walks compiler hierarchy, and legacy facts are consulted only when no coherent compiler snapshot exists. Expression inference remains compatibility-backed for uncovered compiler expression sites.
 - `PENDING`: Task 7 remains partial for complete formal/advisory disagreement coverage; Tasks 10–12 remain partial because legacy LSP semantic compatibility ownership and forbidden-pattern/capability closure are not complete.
