@@ -12,8 +12,11 @@
 
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::{Duration, sleep};
+use tower_lsp::lsp_types::Position;
 use tower_lsp::{LspService, Server};
 
+use crate::support::{TestLsp, TestWorkspace, completion_labels};
 use phalcom_lsp::Backend;
 
 /// Writes one JSON-RPC message to `w` using the LSP `Content-Length` framing.
@@ -61,6 +64,30 @@ async fn read_response(r: &mut (impl AsyncReadExt + Unpin), id: i64) -> Value {
     panic!("did not observe a response to id {id} within the read budget");
 }
 
+async fn completion_items(client_end: &mut (impl AsyncReadExt + AsyncWriteExt + Unpin), uri: &str, line: u32, character: u32) -> Value {
+    for id in 2..=32 {
+        write_message(
+            client_end,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "textDocument/completion",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "position": { "line": line, "character": character }
+                }
+            }),
+        )
+        .await;
+        let response = read_response(client_end, id).await;
+        if response["result"].as_array().is_some_and(|items| !items.is_empty()) {
+            return response;
+        }
+        sleep(Duration::from_millis(2)).await;
+    }
+    panic!("compiler publication did not produce completion items");
+}
+
 #[tokio::test]
 async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
@@ -92,7 +119,7 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     // `Mover` defines `move(_,to)` and getter `speed`; `m` is constructed from
     // it; the last line is the `m.` member access the completion targets.
     let uri = "file:///workspace/main.ph";
-    let text = "class Mover {\n  move(_ x, to) { }\n  speed { }\n}\nlet m = Mover.new();\nm.\n";
+    let text = "class Mover {\n  @constructor new() {}\n  move(_ x, to) { }\n  speed { }\n}\nlet m = Mover.new();\nm.\n";
     write_message(
         &mut client_end,
         &json!({
@@ -113,20 +140,7 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     let _ = read_message(&mut client_end).await;
 
     // Completion at the end of the `m.` line (line 5, character 2).
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "textDocument/completion",
-            "params": {
-                "textDocument": { "uri": uri },
-                "position": { "line": 5, "character": 2 }
-            }
-        }),
-    )
-    .await;
-    let response = read_response(&mut client_end, 2).await;
+    let response = completion_items(&mut client_end, uri, 6, 2).await;
     let items = response["result"].as_array().expect("completion items array");
     let labels: Vec<&str> = items.iter().filter_map(|item| item["label"].as_str()).collect();
 
@@ -166,7 +180,7 @@ async fn completion_follows_constructor_assigned_field() {
     write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 
     let uri = "file:///workspace/service.ph";
-    let text = "class Client {\n  send() { }\n}\nclass Service {\n  @constructor new() { _client = Client.new() }\n  run() {\n    _client.\n  }\n}\n";
+    let text = "class Client {\n  @constructor new() {}\n  send() { }\n}\nclass Service {\n  @constructor new() { _client = Client.new() }\n  run() {\n    _client.\n  }\n}\n";
     write_message(
         &mut client_end,
         &json!({
@@ -178,17 +192,7 @@ async fn completion_follows_constructor_assigned_field() {
     .await;
     let _ = read_message(&mut client_end).await;
 
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "textDocument/completion",
-            "params": { "textDocument": { "uri": uri }, "position": { "line": 6, "character": 12 } }
-        }),
-    )
-    .await;
-    let response = read_response(&mut client_end, 2).await;
+    let response = completion_items(&mut client_end, uri, 7, 12).await;
     let items = response["result"].as_array().expect("completion items array");
     let labels: Vec<&str> = items.iter().filter_map(|item| item["label"].as_str()).collect();
     assert!(labels.contains(&"send()"), "{labels:#?}");
@@ -221,7 +225,7 @@ async fn completion_marks_partial_union_coverage() {
     write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 
     let uri = "file:///workspace/union.ph";
-    let text = "class Circle { stroke() { } }\nclass Rectangle { fill() { } }\nclass Canvas { draw(_ shape) {\n    shape.\n  }\n}\ndraw(Circle.new())\ndraw(Rectangle.new())\n";
+    let text = "class Circle {\n  @constructor new() {}\n  stroke() { }\n}\nclass Rectangle {\n  @constructor new() {}\n  fill() { }\n}\nclass Canvas {\n  @constructor new() {}\n  draw(_ shape) {\n    shape.\n  }\n}\nCanvas.new().draw(Circle.new())\nCanvas.new().draw(Rectangle.new())\n";
     write_message(
         &mut client_end,
         &json!({
@@ -233,17 +237,7 @@ async fn completion_marks_partial_union_coverage() {
     .await;
     let _ = read_message(&mut client_end).await;
 
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "textDocument/completion",
-            "params": { "textDocument": { "uri": uri }, "position": { "line": 3, "character": 10 } }
-        }),
-    )
-    .await;
-    let response = read_response(&mut client_end, 2).await;
+    let response = completion_items(&mut client_end, uri, 11, 10).await;
     let items = response["result"].as_array().expect("completion items array");
     let stroke = items.iter().find(|item| item["label"] == "stroke()").expect("Circle member present");
     let fill = items.iter().find(|item| item["label"] == "fill()").expect("Rectangle member present");
@@ -254,4 +248,31 @@ async fn completion_marks_partial_union_coverage() {
 
     drop(client_end);
     let _ = server_task.await;
+}
+
+#[tokio::test]
+async fn import_completion_uses_published_module_queries() {
+    let workspace = TestWorkspace::from_fixture_dir("import_completion");
+    let uri = workspace.file_uri("main.ph");
+    let text = "import .a as A\nimport .b as B\n";
+    workspace.write("main.ph", text);
+
+    let mut lsp = TestLsp::start().await;
+    let before = lsp.counter_snapshot();
+    lsp.initialize(Some(&workspace.uri())).await;
+    lsp.open_and_wait(&uri, text).await;
+    lsp.wait_for_publication_after(before).await;
+
+    let response = lsp.completion(&uri, Position::new(1, 8)).await;
+    let labels = completion_labels(&response);
+    assert!(
+        labels.iter().any(|label| label == "a"),
+        "relative import completion must expose module a: {labels:#?}"
+    );
+    assert!(
+        labels.iter().any(|label| label == "b"),
+        "relative import completion must expose module b: {labels:#?}"
+    );
+
+    lsp.finish().await;
 }

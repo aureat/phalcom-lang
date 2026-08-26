@@ -1,4 +1,5 @@
 class Client {
+  @constructor new() {}
   request() {}
 }
 

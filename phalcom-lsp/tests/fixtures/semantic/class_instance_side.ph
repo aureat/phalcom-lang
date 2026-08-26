@@ -1,4 +1,5 @@
 class Widget {
+  @constructor new() {}
   @class
   make() { Widget.new() }
 

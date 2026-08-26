@@ -160,27 +160,26 @@ struct DiagnosticPublication {
     version: Option<i32>,
 }
 
-fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticDb, uri: &Url) -> Option<DiagnosticPublication> {
+fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticSnapshot, uri: &Url) -> Option<DiagnosticPublication> {
     let document = documents.snapshot(uri)?;
     let mut diagnostics = syntax_errors_to_diagnostics(&document.parse.errors, &document.line_index);
     let syntax_only = |diagnostics| DiagnosticPublication {
         diagnostics,
         version: document.version,
     };
-    let advisory = semantic.snapshot();
-    let Some(module) = advisory.module_for_uri(uri) else {
+    let Some(module) = semantic.module_for_uri(uri) else {
         return Some(syntax_only(diagnostics));
     };
-    let Some(file) = advisory.file(module) else {
+    let Some(file) = semantic.file(module) else {
         return Some(syntax_only(diagnostics));
     };
-    let Some(compiler_snapshot) = semantic.compiler_snapshot() else {
+    let Some(compiler_snapshot) = semantic.compiler_snapshot.as_deref() else {
         return Some(syntax_only(diagnostics));
     };
-    if file.revision != document.revision || compiler_snapshot.generation != advisory.generation.0 {
+    if file.revision != document.revision || compiler_snapshot.generation != semantic.generation.0 {
         return Some(syntax_only(diagnostics));
     }
-    let Some(static_module) = advisory.documents.get_by_uri(uri) else {
+    let Some(static_module) = semantic.documents.get_by_uri(uri) else {
         return Some(syntax_only(diagnostics));
     };
     let Some(static_source) = compiler_snapshot.sources.get(static_module) else {
@@ -192,7 +191,7 @@ fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticDb, ur
     if let Some(semantic_diagnostics) = compiler_snapshot.diagnostics.get(static_module) {
         let mut diagnostic_sources = BTreeMap::new();
         for (module, source) in compiler_snapshot.sources.iter() {
-            if let Some(source_uri) = advisory.documents.get_by_module(module) {
+            if let Some(source_uri) = semantic.documents.get_by_module(module) {
                 diagnostic_sources.insert(
                     module.clone(),
                     SemanticDiagnosticSource {
@@ -491,7 +490,12 @@ impl Backend {
     fn request_context(&self, uri: &Url) -> Option<RequestContext> {
         let document = self.documents.snapshot(uri)?;
         let semantic = self.semantic.snapshot();
-        Some(RequestContext::new_with_compiler(document, semantic, self.semantic.compiler_snapshot(), uri))
+        Some(RequestContext::new_with_compiler(
+            document,
+            semantic.clone(),
+            semantic.compiler_snapshot.clone(),
+            uri,
+        ))
     }
 
     fn cached_import_definition_location(&self, request: &RequestContext, position: Position) -> Option<Location> {
@@ -528,7 +532,8 @@ impl Backend {
         self.documents.with_document(&uri, |doc| {
             self.index.update_file(uri.clone(), &doc.parse.program);
         });
-        let diagnostics = combined_diagnostics_for(&self.documents, &self.semantic, &uri)
+        let semantic = self.semantic.snapshot();
+        let diagnostics = combined_diagnostics_for(&self.documents, &semantic, &uri)
             .map(|publication| publication.diagnostics)
             .unwrap_or_default();
         self.client.publish_diagnostics(uri, diagnostics, version).await;
@@ -683,6 +688,177 @@ impl Backend {
         receiver_from_shape(semantic.infer_expression(uri, expression, offset).shape)
     }
 
+    /// Resolves a completion receiver through the pinned compiler snapshot.
+    ///
+    /// Formal expression/binding knowledge is authoritative. Advisory runtime
+    /// shapes are consulted only when the formal product has no concrete class
+    /// denotation. This path intentionally does not call the legacy semantic
+    /// database or reconstruct a module surface from the request buffer.
+    fn compiler_receiver(&self, request: &RequestContext, position: Position) -> Option<completion::CompilerResolvedReceiver> {
+        if !matches!(request.source_match, SourceMatch::Exact) {
+            return None;
+        }
+        let target = completion::target_at_snapshot(&request.document, position)?;
+        self.compiler_receiver_for_range(request, target.receiver_range)
+    }
+
+    fn compiler_receiver_for_range(
+        &self,
+        request: &RequestContext,
+        receiver_range: phalcom_common::range::SourceRange,
+    ) -> Option<completion::CompilerResolvedReceiver> {
+        let compiler = request.compiler.as_deref()?;
+        let module = request.compiler_module()?;
+        let receiver = request.document.text.get(receiver_range.start..receiver_range.end)?.trim();
+        let owner = self
+            .compiler_callable_owner_at(compiler, module, receiver_range.start)
+            .or_else(|| self.compiler_callable_owner_at(compiler, module, receiver_range.end.saturating_sub(1)));
+        if receiver == "self" {
+            return owner.map(|owner| completion::CompilerResolvedReceiver {
+                alternatives: vec![(owner, completion::ReceiverKind::Instance)],
+            });
+        }
+        if receiver == "super" {
+            return owner
+                .and_then(|owner| compiler.hierarchy.superclasses.get(&owner).cloned())
+                .map(|superclass| completion::CompilerResolvedReceiver {
+                    alternatives: vec![(superclass, completion::ReceiverKind::Instance)],
+                });
+        }
+
+        let source = compiler.source_index().module(module)?;
+        let scope = source.structure.scope_at(receiver_range.start);
+        let resolution = source.structure.resolve_name(scope, receiver, receiver_range.start);
+        match resolution {
+            phalcom_semantic::SourceNameResolution::Target(phalcom_semantic::SemanticTargetId::Declaration(declaration)) => {
+                return Some(completion::CompilerResolvedReceiver {
+                    alternatives: vec![(declaration.clone(), completion::ReceiverKind::ClassObject)],
+                });
+            }
+            phalcom_semantic::SourceNameResolution::Target(phalcom_semantic::SemanticTargetId::Field(field)) => {
+                if let Some(knowledge) = compiler
+                    .surfaces
+                    .get(&field.owner)
+                    .and_then(|surface| surface.surface(field.side).field_ids.get(&field))
+                    && let Some(resolved) = compiler_receivers_from_knowledge(compiler, knowledge, owner.as_ref())
+                {
+                    return Some(resolved);
+                }
+                if let Some(advisory) = compiler.advisory.field(&field)
+                    && let Some(resolved) = compiler_receivers_from_advisory(&advisory.shape)
+                {
+                    return Some(resolved);
+                }
+            }
+            phalcom_semantic::SourceNameResolution::ImplicitSelf => {
+                return owner.map(|owner| completion::CompilerResolvedReceiver {
+                    alternatives: vec![(owner, completion::ReceiverKind::Instance)],
+                });
+            }
+            phalcom_semantic::SourceNameResolution::Binding(site) => {
+                if let Some(binding) = compiler.formal_binding_at(&site)
+                    && let Some(resolved) = compiler_receivers_from_knowledge(compiler, &binding.current, owner.as_ref())
+                {
+                    return Some(resolved);
+                }
+                if let Some(advisory) = compiler.advisory.binding(&site)
+                    && let Some(resolved) = compiler_receivers_from_advisory(&advisory.shape)
+                {
+                    return Some(resolved);
+                }
+                let binding = source.structure.bindings.get(&site)?;
+                let initializer = compiler_initializer_for_binding(&compiler.sources.get(module)?.program, &binding.name, binding.declaration_range);
+                if let Some(initializer) = initializer
+                    && let Some(declaration) = compiler_instance_declaration_for_expression(compiler, source, initializer)
+                {
+                    return Some(completion::CompilerResolvedReceiver {
+                        alternatives: vec![(declaration, completion::ReceiverKind::Instance)],
+                    });
+                }
+            }
+            phalcom_semantic::SourceNameResolution::Target(_) | phalcom_semantic::SourceNameResolution::Unresolved => {}
+        }
+
+        let parsed = phalcom_ast::parser::parse(receiver, receiver_range.start);
+        if let Some(expression) = parsed.program.statements.iter().find_map(|statement| match statement {
+            phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+            _ => None,
+        }) && let Some(declaration) = compiler_instance_declaration_for_expression(compiler, source, expression)
+        {
+            return Some(completion::CompilerResolvedReceiver {
+                alternatives: vec![(declaration, completion::ReceiverKind::Instance)],
+            });
+        }
+
+        if let Some(owner) = owner.as_ref()
+            && let Some(field) = compiler.surfaces.get(owner).and_then(|surface| surface.instance.fields_by_name.get(receiver))
+            && let Some(knowledge) = compiler.surfaces.get(owner).and_then(|surface| surface.instance.field_ids.get(field))
+            && let Some(resolved) = compiler_receivers_from_knowledge(compiler, knowledge, Some(owner))
+        {
+            return Some(resolved);
+        }
+        if let Some(owner) = owner.as_ref()
+            && let Some(field) = compiler.surfaces.get(owner).and_then(|surface| surface.instance.fields_by_name.get(receiver))
+            && let Some(advisory) = compiler.advisory.field(field)
+            && let Some(resolved) = compiler_receivers_from_advisory(&advisory.shape)
+        {
+            return Some(resolved);
+        }
+        if let Some(owner) = owner.as_ref() {
+            let field = phalcom_semantic::FieldId::new(owner.clone(), receiver.to_string(), phalcom_semantic::DispatchSide::Instance);
+            if let Some(advisory) = compiler.advisory.field(&field)
+                && let Some(resolved) = compiler_receivers_from_advisory(&advisory.shape)
+            {
+                return Some(resolved);
+            }
+        }
+
+        for offset in [receiver_range.end.saturating_sub(1), receiver_range.start] {
+            if let Some(site) = compiler.source_index().expression_site_at(module, offset) {
+                if let Some(expression) = compiler.formal_expression_at(&site.id)
+                    && let Some(resolved) = compiler_receivers_from_knowledge(compiler, &expression.knowledge, owner.as_ref())
+                {
+                    return Some(resolved);
+                }
+                if let Some(advisory) = compiler.advisory.expression(&site.id)
+                    && let Some(resolved) = compiler_receivers_from_advisory(&advisory.shape)
+                {
+                    return Some(resolved);
+                }
+            }
+        }
+        None
+    }
+
+    fn compiler_callable_owner_at(
+        &self,
+        compiler: &crate::semantic::CompilerSemanticSnapshot,
+        module: &phalcom_modules::ModuleId,
+        offset: usize,
+    ) -> Option<phalcom_semantic::DeclarationId> {
+        let source = compiler.source_index().module(module)?;
+        for offset in [offset, offset.saturating_sub(1)] {
+            if let Some(site) = source.expression_site_at(offset)
+                && let phalcom_semantic::SourceOwner::Callable(callable) = &site.id.owner
+            {
+                return Some(callable.owner.clone());
+            }
+        }
+        source.structure.sites.values().filter_map(|site| {
+            let phalcom_semantic::SourceSiteKind::Callable(callable) = &site.kind else {
+                return None;
+            };
+            site.range.contains(offset).then_some(callable.owner.clone())
+        }).min_by_key(|owner| {
+            source
+                .structure
+                .sites
+                .values()
+                .find(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::Callable(callable) if callable.owner == *owner && site.range.contains(offset)))
+                .map_or(usize::MAX, |site| site.range.len())
+        })
+    }
+
     fn semantic_member_targets_for_request(
         &self,
         request: &RequestContext,
@@ -693,6 +869,47 @@ impl Backend {
         let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
         if !receiver_targeted {
             return None;
+        }
+
+        if matches!(request.source_match, SourceMatch::Exact) {
+            let resolved = match self.compiler_receiver(request, position) {
+                Some(resolved) => resolved,
+                None => {
+                    return Some(Vec::new());
+                }
+            };
+            let Some(compiler) = request.compiler.as_deref() else {
+                return Some(Vec::new());
+            };
+            let Ok(selector) = phalcom_common::selector::Selector::try_decode_exact(selector) else {
+                return Some(Vec::new());
+            };
+            let mut seen = BTreeSet::new();
+            let mut targets = Vec::new();
+            for (receiver, receiver_kind) in resolved.alternatives {
+                let side = match receiver_kind {
+                    completion::ReceiverKind::Instance => phalcom_semantic::DispatchSide::Instance,
+                    completion::ReceiverKind::ClassObject => phalcom_semantic::DispatchSide::Class,
+                };
+                let phalcom_semantic::dispatch::ResolvedDispatchResult::Found(dispatch) =
+                    compiler
+                        .dispatch
+                        .resolve_dispatch_with_trace(compiler.hierarchy.as_ref(), &receiver, side, &selector)
+                else {
+                    continue;
+                };
+                if !seen.insert(dispatch.callable.clone()) {
+                    continue;
+                }
+                let Some(member) = request.semantic.member_surface_for_canonical(&dispatch.callable) else {
+                    continue;
+                };
+                targets.push(ResolvedMemberTarget {
+                    receiver: request.semantic.class_for_canonical(&receiver),
+                    member,
+                });
+            }
+            return Some(targets);
         }
 
         let resolved = self.semantic_receiver(&request.semantic, uri, &request.document, position);
@@ -723,19 +940,7 @@ impl Backend {
         let range = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
             line_index.range(member.name_range.start..member.name_range.end)
         })?;
-        let location_uri = self
-            .index
-            .definition_info(&member.callable.selector)
-            .into_iter()
-            .find(|info| {
-                if info.class != owner.name {
-                    return false;
-                }
-                info.uri == definition_uri
-            })
-            .map(|info| info.uri)
-            .unwrap_or(definition_uri);
-        Some(Location { uri: location_uri, range })
+        Some(Location { uri: definition_uri, range })
     }
 
     fn semantic_definition_locations_for_request(&self, request: &RequestContext, uri: &Url, position: Position, selector: &str) -> Vec<Location> {
@@ -1108,11 +1313,15 @@ impl Backend {
                 range: Some(request.document.line_index.range(import_range.start..import_range.end)),
             });
         }
-        let Some(occurrence) = matches!(request.source_match, SourceMatch::Exact)
+        let occurrence = matches!(request.source_match, SourceMatch::Exact)
             .then(|| request.semantic.occurrence_at(uri, offset))
-            .flatten()
-        else {
-            return self.legacy_hover_at(uri, position, offset);
+            .flatten();
+        let Some(occurrence) = occurrence else {
+            return if matches!(request.source_match, SourceMatch::Exact) {
+                None
+            } else {
+                self.legacy_hover_at(uri, position, offset)
+            };
         };
         let span = request.document.line_index.range(occurrence.range.start..occurrence.range.end);
 
@@ -1120,10 +1329,12 @@ impl Backend {
             crate::semantic::SemanticTarget::Binding(binding) => {
                 let info = request.semantic.binding_info(uri, binding)?;
                 let value = request.semantic.binding_at(uri, &info.name, offset);
-                let formal = request.semantic.formal_binding_presentation_at(uri, &info.name, offset);
+                let formal_states = request.semantic.formal_binding_presentations_at(uri, &info.name, offset);
+                let formal = formal_states.as_ref().map(|states| &states.current);
+                let declared = formal_states.as_ref().and_then(|states| states.declared.as_ref());
 
                 let advisory_str = value.as_ref().map(|v| crate::semantic::render_value_shape(&v.shape));
-                let formal_text = formal.as_ref().map(|presentation| presentation.text());
+                let formal_text = formal.map(|presentation| presentation.text());
                 crate::parity::ShadowParityHarness::new().record_hover_parity(&info.name, formal_text.as_deref(), advisory_str.as_deref());
 
                 let phaldoc = hover::harvest_doc_for_selector(
@@ -1133,9 +1344,10 @@ impl Backend {
                     &info.name,
                 );
                 Some(Hover {
-                    contents: markdown_contents(hover::render_binding_hover_with_formal(
+                    contents: markdown_contents(hover::render_binding_hover_with_formal_and_declared(
                         &info,
-                        formal.as_ref(),
+                        formal,
+                        declared,
                         value.as_ref(),
                         phaldoc.as_ref(),
                     )),
@@ -1210,8 +1422,7 @@ impl Backend {
                 }
                 let targets = self.semantic_member_targets_for_request(request, uri, position, &selector)?;
                 if targets.is_empty() {
-                    let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
-                    if receiver_targeted {
+                    if matches!(request.source_match, SourceMatch::Exact) {
                         return None;
                     }
                     let infos = self.index.definition_info(&selector);
@@ -1519,6 +1730,85 @@ fn is_member_receiver_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b')' | b']')
 }
 
+/// Returns a top-level initializer for one compiler-owned binding. Top-level
+/// bindings do not have callable formal attachments, so this small source
+/// index bridge keeps their receiver type available to exact requests without
+/// consulting the text index or rebuilding a semantic environment.
+fn compiler_initializer_for_binding<'a>(
+    program: &'a phalcom_ast::ast::Program,
+    name: &str,
+    declaration_range: phalcom_common::range::SourceRange,
+) -> Option<&'a phalcom_ast::ast::Expr> {
+    program.statements.iter().find_map(|statement| {
+        let phalcom_ast::ast::Statement::Let(binding) = statement else {
+            return None;
+        };
+        let phalcom_ast::ast::Pattern::Name { name: binding_name, range } = &binding.pattern else {
+            return None;
+        };
+        (*range == declaration_range && binding_name == name).then(|| binding.value.as_ref()).flatten()
+    })
+}
+
+/// Resolves the class instance produced by a bounded constructor expression
+/// using compiler source namespace and declaration-surface products.
+fn compiler_instance_declaration_for_expression(
+    compiler: &crate::semantic::CompilerSemanticSnapshot,
+    source: &phalcom_semantic::source_index::ModuleSourceIndex,
+    expression: &phalcom_ast::ast::Expr,
+) -> Option<phalcom_semantic::DeclarationId> {
+    let phalcom_ast::ast::Expr::MethodCall(call) = expression else {
+        return None;
+    };
+    if call.method != "new" {
+        return None;
+    }
+    let class_object = match &call.object {
+        phalcom_ast::ast::Expr::Var { value, range } => match source.structure.resolve_name(source.structure.root, value, range.start) {
+            phalcom_semantic::SourceNameResolution::Target(phalcom_semantic::SemanticTargetId::Declaration(declaration)) => declaration.clone(),
+            _ => return None,
+        },
+        phalcom_ast::ast::Expr::GetProperty(property) => {
+            let phalcom_ast::ast::Expr::Var { value, range } = &property.object else {
+                return None;
+            };
+            let module = match source.structure.resolve_name(source.structure.root, value, range.start) {
+                phalcom_semantic::SourceNameResolution::Target(phalcom_semantic::SemanticTargetId::Module(module)) => module,
+                phalcom_semantic::SourceNameResolution::Binding(site) => match source.structure.target_for(&site) {
+                    Some(phalcom_semantic::SemanticTargetId::Module(module)) => module.clone(),
+                    _ => compiler_imported_module_for_name(compiler, source, value)?,
+                },
+                _ => compiler_imported_module_for_name(compiler, source, value)?,
+            };
+            let declaration = phalcom_semantic::DeclarationId::new(module, property.property.clone().into());
+            declaration
+        }
+        _ => return None,
+    };
+    compiler.surfaces.contains_key(&class_object).then_some(class_object)
+}
+
+fn compiler_imported_module_for_name(
+    compiler: &crate::semantic::CompilerSemanticSnapshot,
+    source: &phalcom_semantic::source_index::ModuleSourceIndex,
+    name: &str,
+) -> Option<phalcom_semantic::ModuleId> {
+    let program = &compiler.sources.get(&source.structure.module)?.program;
+    program.preamble.dependencies.iter().find_map(|dependency| {
+        let phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(import)) = dependency else {
+            return None;
+        };
+        let alias = import
+            .alias
+            .as_ref()
+            .map(|alias| alias.name.as_str())
+            .or_else(|| import.path.segments.last().map(|segment| segment.name.as_str()))?;
+        (alias == name)
+            .then(|| compiler.module_queries().resolved_import_target(&source.structure.module, name).cloned())
+            .flatten()
+    })
+}
+
 fn receiver_from_shape(shape: ValueShape) -> Option<completion::SemanticResolvedReceiver> {
     let alternatives = match shape {
         ValueShape::Instance(class) => vec![(class, completion::ReceiverKind::Instance)],
@@ -1534,6 +1824,69 @@ fn receiver_from_shape(shape: ValueShape) -> Option<completion::SemanticResolved
         _ => return None,
     };
     (!alternatives.is_empty()).then_some(completion::SemanticResolvedReceiver { alternatives })
+}
+
+fn compiler_receivers_from_knowledge(
+    compiler: &crate::semantic::CompilerSemanticSnapshot,
+    knowledge: &phalcom_semantic::TypeKnowledge,
+    owner: Option<&phalcom_semantic::DeclarationId>,
+) -> Option<completion::CompilerResolvedReceiver> {
+    let ty = knowledge.ty()?;
+    let mut alternatives = Vec::new();
+    compiler_type_receivers(compiler, ty, owner, &mut alternatives);
+    alternatives.sort();
+    alternatives.dedup();
+    (!alternatives.is_empty()).then_some(completion::CompilerResolvedReceiver { alternatives })
+}
+
+fn compiler_type_receivers(
+    compiler: &crate::semantic::CompilerSemanticSnapshot,
+    ty: phalcom_semantic::TypeId,
+    owner: Option<&phalcom_semantic::DeclarationId>,
+    alternatives: &mut Vec<(phalcom_semantic::DeclarationId, completion::ReceiverKind)>,
+) {
+    match compiler.store.get(ty) {
+        phalcom_semantic::TypeData::Nominal { declaration } => alternatives.push((declaration.clone(), completion::ReceiverKind::Instance)),
+        phalcom_semantic::TypeData::ClassObject { declaration } => alternatives.push((declaration.clone(), completion::ReceiverKind::ClassObject)),
+        phalcom_semantic::TypeData::Applied { origin, .. } => compiler_type_receivers(compiler, *origin, owner, alternatives),
+        phalcom_semantic::TypeData::Union(members) => {
+            for member in members {
+                compiler_type_receivers(compiler, *member, owner, alternatives);
+            }
+        }
+        phalcom_semantic::TypeData::SelfType(_) => {
+            if let Some(owner) = owner {
+                alternatives.push((owner.clone(), completion::ReceiverKind::Instance));
+            }
+        }
+        phalcom_semantic::TypeData::Never
+        | phalcom_semantic::TypeData::Unit
+        | phalcom_semantic::TypeData::Tuple(_)
+        | phalcom_semantic::TypeData::Record(_)
+        | phalcom_semantic::TypeData::Callable(_)
+        | phalcom_semantic::TypeData::Parameter(_)
+        | phalcom_semantic::TypeData::Lambda(_) => {}
+    }
+}
+
+fn compiler_receivers_from_advisory(shape: &phalcom_semantic::ValueShape) -> Option<completion::CompilerResolvedReceiver> {
+    let mut alternatives = Vec::new();
+    fn collect(shape: &phalcom_semantic::ValueShape, alternatives: &mut Vec<(phalcom_semantic::DeclarationId, completion::ReceiverKind)>) {
+        match shape {
+            phalcom_semantic::ValueShape::Instance(class) => alternatives.push((class.clone(), completion::ReceiverKind::Instance)),
+            phalcom_semantic::ValueShape::ClassObject(class) => alternatives.push((class.clone(), completion::ReceiverKind::ClassObject)),
+            phalcom_semantic::ValueShape::Union(shapes) => {
+                for shape in shapes.iter() {
+                    collect(shape, alternatives);
+                }
+            }
+            _ => {}
+        }
+    }
+    collect(shape, &mut alternatives);
+    alternatives.sort();
+    alternatives.dedup();
+    (!alternatives.is_empty()).then_some(completion::CompilerResolvedReceiver { alternatives })
 }
 
 fn hover_member_kind(member: &crate::semantic::MemberSurface) -> crate::index::MemberKind {
@@ -1741,8 +2094,9 @@ impl LanguageServer for Backend {
                             }
                         }
                         AnalysisEvent::Published { effects, .. } => {
+                            let semantic_snapshot = semantic.snapshot();
                             for uri in documents.open_uris() {
-                                let Some(publication) = combined_diagnostics_for(&documents, &semantic, &uri) else {
+                                let Some(publication) = combined_diagnostics_for(&documents, &semantic_snapshot, &uri) else {
                                     continue;
                                 };
                                 client.publish_diagnostics(uri, publication.diagnostics, publication.version).await;
@@ -2082,8 +2436,11 @@ impl LanguageServer for Backend {
             };
         }
 
-        let occurrences = self.index.definitions(&selector);
-        let locations = self.occurrences_to_locations(&occurrences);
+        let locations = if matches!(request.source_match, SourceMatch::Exact) {
+            Vec::new()
+        } else {
+            self.occurrences_to_locations(&self.index.definitions(&selector))
+        };
         if locations.is_empty() {
             Ok(None)
         } else {
@@ -2139,8 +2496,12 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let mut occurrences = self.index.references(&selector);
-        if params.context.include_declaration {
+        let mut occurrences = if matches!(request.source_match, SourceMatch::Exact) {
+            Vec::new()
+        } else {
+            self.index.references(&selector)
+        };
+        if params.context.include_declaration && !matches!(request.source_match, SourceMatch::Exact) {
             occurrences.extend(self.index.definitions(&selector));
         }
 
@@ -2159,28 +2520,11 @@ impl LanguageServer for Backend {
     /// (hover, Stage 4, already needs that per-kind rendering and is the
     /// natural place to add it once).
     async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
-        if let Some(compiler) = self.semantic.compiler_snapshot() {
-            let symbols = self.compiler_workspace_symbols(&compiler, &params.query);
-            if !symbols.is_empty() {
-                return Ok(Some(symbols));
-            }
-        }
-        let matches = self.index.symbols_matching(&params.query);
-        let symbols: Vec<SymbolInformation> = matches
-            .into_iter()
-            .filter_map(|(name, occurrence)| {
-                let location = self.occurrence_to_location(&occurrence)?;
-                #[allow(deprecated)] // `deprecated` field has no non-deprecated replacement to construct with here; `tags` is left unset.
-                Some(SymbolInformation {
-                    name,
-                    kind: SymbolKind::METHOD,
-                    tags: None,
-                    deprecated: None,
-                    location,
-                    container_name: None,
-                })
-            })
-            .collect();
+        let symbols = self
+            .semantic
+            .compiler_snapshot()
+            .map(|compiler| self.compiler_workspace_symbols(&compiler, &params.query))
+            .unwrap_or_default();
         Ok(Some(symbols))
     }
 
@@ -2197,29 +2541,36 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
-        let recovered = semantic_recovery_parse(request.document.text.as_ref(), &request.document.parse);
-        let source_program = recovered.as_ref().map(|parse| &parse.program).unwrap_or(&request.document.parse.program);
-        let resolved = self.semantic_receiver(&request.semantic, &uri, &request.document, position);
         let offset = request.document.line_index.offset(position);
         let privileged = self.is_core_source_uri(&uri);
-        let lexical_class = request.semantic.class_at(&uri, offset);
-        let mut items = completion::semantic_contextual_completions(
-            &request.semantic,
-            completion::SemanticCompletionContext {
-                resolved: resolved.as_ref(),
-                lexical_class: lexical_class.as_ref(),
-                privileged,
-                uri: &uri,
-                program: &request.document.parse.program,
-                text: &request.document.text,
-                offset,
-            },
-        );
-        if resolved.is_none()
-            && let Some(shallow) = completion::shallow_receiver_completions_from_snapshot(&self.index, &uri, &request.document, source_program, position)
+        let line_prefix = request.document.text[..offset].rsplit('\n').next().unwrap_or_default();
+        let import_items = crate::import_completion::detect_import_context(
+            line_prefix,
+        )
+        .map(|context| crate::import_completion::import_completions(&request.semantic, &uri, &context))
+        .unwrap_or_default();
+        let mut items = if !import_items.is_empty() {
+            import_items
+        } else if let (Some(compiler), Some(module)) = (request.compiler.as_deref(), request.compiler_module())
+            && matches!(request.source_match, SourceMatch::Exact)
         {
-            items = shallow;
-        }
+            let resolved = self.compiler_receiver(&request, position);
+            let lexical_class = self.compiler_callable_owner_at(compiler, module, offset);
+            completion::compiler_contextual_completions(
+                compiler,
+                completion::CompilerCompletionContext {
+                    resolved: resolved.as_ref(),
+                    lexical_class: lexical_class.as_ref(),
+                    privileged,
+                    module,
+                    program: &request.document.parse.program,
+                    text: &request.document.text,
+                    offset,
+                },
+            )
+        } else {
+            completion::syntax_visible_completions(&request.document.parse.program, &request.document.text, offset)
+        };
         if let Some(target) = completion::target_at_snapshot(&request.document, position)
             && !target.partial_member.is_empty()
         {

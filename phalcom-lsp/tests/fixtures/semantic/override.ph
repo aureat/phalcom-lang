@@ -4,6 +4,7 @@ class Parent {
 }
 
 class Child is Parent {
+  @constructor new() {}
   run() {}
   childOnly() {}
 }

@@ -25,7 +25,9 @@ use std::sync::{Arc, RwLock};
 
 pub use engine::SemanticEngine;
 pub(crate) use engine::SourceAnalysisDepth;
-pub use snapshot::{AdvisorySemanticSnapshot, CompilerSemanticSnapshot, FileSourceSnapshot, FormalCallablePresentation, SemanticSnapshot};
+pub use snapshot::{
+    AdvisorySemanticSnapshot, CompilerSemanticSnapshot, FileSourceSnapshot, FormalBindingPresentations, FormalCallablePresentation, SemanticSnapshot,
+};
 
 #[cfg(test)]
 use phalcom_ast::ast::Program;

@@ -63,6 +63,15 @@ pub struct FormalCallablePresentation {
     pub return_type: FormalPresentation,
 }
 
+/// Compiler-owned formal states for one binding at one source position.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FormalBindingPresentations {
+    /// Persistent declaration/annotation contract, when present.
+    pub declared: Option<FormalPresentation>,
+    /// Current path-sensitive formal value.
+    pub current: FormalPresentation,
+}
+
 /// Immutable published generation of all workspace semantic facts.
 #[derive(Clone, Debug, Default)]
 pub struct SemanticSnapshot {
@@ -418,6 +427,20 @@ impl SemanticSnapshot {
         self.classes.get(&callable.owner).and_then(|surface| surface.member_by_id(callable))
     }
 
+    /// Adapts one compiler callable identity to its immutable protocol-facing
+    /// member surface without decoding selector or module strings at request
+    /// time.
+    pub fn member_surface_for_canonical(&self, callable: &phalcom_semantic::identity::CallableId) -> Option<MemberSurface> {
+        let lsp_callable = self.lsp_callable_for_canonical(callable);
+        self.member_surface(&lsp_callable).cloned()
+    }
+
+    /// Adapts one compiler declaration identity to its protocol-facing class
+    /// identity for presentation metadata.
+    pub fn class_for_canonical(&self, declaration: &phalcom_semantic::identity::DeclarationId) -> ClassId {
+        ClassId::new(self.lsp_module_for_canonical(&declaration.module), declaration.name.to_string())
+    }
+
     /// Resolves one receiver-qualified member, including inherited members.
     pub fn receiver_member(&self, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
         if let Some(compiler_snapshot) = self.current_compiler_snapshot()
@@ -659,6 +682,14 @@ impl SemanticSnapshot {
 
     /// Looks up formal binding knowledge, preserving non-ready states.
     pub fn formal_binding_presentation_at(&self, uri: &Url, name: &str, offset: usize) -> Option<FormalPresentation> {
+        self.formal_binding_presentations_at(uri, name, offset)
+            .map(|presentations| presentations.current)
+    }
+
+    /// Looks up both the persistent binding declaration contract and its
+    /// current path-sensitive formal value. Rendering may show the declared
+    /// contract only when it materially differs from the current value.
+    pub fn formal_binding_presentations_at(&self, uri: &Url, name: &str, offset: usize) -> Option<FormalBindingPresentations> {
         let static_snap = self.current_compiler_snapshot()?;
         let static_mod = self.formal_static_module(uri)?;
         let presenter = TypePresenter::new(&static_snap.store);
@@ -666,12 +697,12 @@ impl SemanticSnapshot {
         match &fact.fact {
             phalcom_semantic::FormalFactRef::Binding { callable, binding } => {
                 let state = static_snap.formal_binding(callable, *binding)?;
-                (state.name == name).then(|| presenter.present_knowledge(&state.current))
+                (state.name == name).then(|| FormalBindingPresentations {
+                    declared: state.declared_type().map(|ty| FormalPresentation::Known(presenter.present_type(ty))),
+                    current: presenter.present_knowledge(&state.current),
+                })
             }
-            phalcom_semantic::FormalFactRef::Expression { callable, expression } => static_snap
-                .formal_expression(callable, *expression)
-                .map(|expr| presenter.present_expression(expr)),
-            phalcom_semantic::FormalFactRef::Callable(_) => None,
+            phalcom_semantic::FormalFactRef::Expression { .. } | phalcom_semantic::FormalFactRef::Callable(_) => None,
         }
     }
 

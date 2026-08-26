@@ -97,9 +97,11 @@ async fn wait_for_workspace_symbol(client: &mut tokio::io::DuplexStream, id: &mu
 
 async fn wait_for_hover(client: &mut tokio::io::DuplexStream, id: &mut i64, uri: &str, text: &str, position_needle: &str, content_needle: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(30);
+    let mut last_response = Value::Null;
     while Instant::now() < deadline {
         *id += 1;
         let response = hover_at(client, *id, uri, text, position_needle).await;
+        last_response = response.clone();
         if response["result"]["contents"]["value"]
             .as_str()
             .is_some_and(|value| value.contains(content_needle))
@@ -108,7 +110,7 @@ async fn wait_for_hover(client: &mut tokio::io::DuplexStream, id: &mut i64, uri:
         }
         tokio::task::yield_now().await;
     }
-    panic!("cross-file hover did not become available within the 30-second yield budget");
+    panic!("cross-file hover did not become available within the 30-second yield budget; last response: {last_response:#?}");
 }
 
 /// A scratch directory on disk holding a small multi-file `.ph` fixture, so

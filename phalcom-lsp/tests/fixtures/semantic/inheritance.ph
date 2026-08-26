@@ -4,6 +4,7 @@ class Animal {
 }
 
 class Dog is Animal {
+  @constructor new() {}
   bark() {}
 }
 

@@ -1,4 +1,5 @@
 class Person {
+  @constructor new() {}
   greet() {}
 }
 

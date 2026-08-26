@@ -87,6 +87,24 @@ impl DocumentModuleMap {
         self.uri_by_lsp.insert(lsp_module, uri);
     }
 
+    /// Associates an additional protocol URI spelling with an existing
+    /// compiler module without changing the module's canonical reverse URI.
+    ///
+    /// File URLs may differ only by an operating-system alias (for example
+    /// `/var` versus `/private/var` on macOS). Such aliases are protocol
+    /// identity, not new semantic modules.
+    pub fn insert_alias(&mut self, uri: Url, module: SemanticModuleId) {
+        if let Some(previous) = self.by_uri.insert(uri.clone(), module.clone())
+            && previous != module
+            && self.by_module.get(&previous).is_some_and(|canonical| canonical == &uri)
+        {
+            self.by_module.remove(&previous);
+        }
+        let lsp_module = self.lsp_by_uri.get(&uri).cloned().unwrap_or_else(|| ModuleId::new(module.to_string()));
+        self.lsp_by_uri.insert(uri.clone(), lsp_module.clone());
+        self.uri_by_lsp.insert(lsp_module, uri);
+    }
+
     /// Looks up semantic identity for a document URI.
     pub fn get_by_uri(&self, uri: &Url) -> Option<&SemanticModuleId> {
         self.by_uri.get(uri)
@@ -129,8 +147,14 @@ impl DocumentModuleMap {
 
     /// Removes one document mapping and returns its LSP-facing key.
     pub fn remove_uri(&mut self, uri: &Url) -> Option<ModuleId> {
-        if let Some(module) = self.by_uri.remove(uri) {
-            self.by_module.remove(&module);
+        if let Some(module) = self.by_uri.remove(uri)
+            && self.by_module.get(&module).is_some_and(|canonical| canonical == uri)
+        {
+            if let Some((replacement_uri, _)) = self.by_uri.iter().find(|(_, candidate)| **candidate == module) {
+                self.by_module.insert(module.clone(), replacement_uri.clone());
+            } else {
+                self.by_module.remove(&module);
+            }
         }
         let lsp_module = self.lsp_by_uri.remove(uri);
         if let Some(ref lsp) = lsp_module {

@@ -12,7 +12,7 @@ async fn complete_fixture(relative: &str, marker: &str) -> Vec<String> {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(None).await;
-    lsp.open(&uri, &fixture.text).await;
+    lsp.open_and_wait(&uri, &fixture.text).await;
 
     let response = lsp.completion(&uri, fixture.position(marker)).await;
     let labels = completion_labels(&response);

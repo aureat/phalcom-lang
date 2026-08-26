@@ -1057,23 +1057,50 @@ fn publish_persistent_compiler_workspace(
             Some((uri, location, text.clone(), phalcom_modules::SourceRevision(revision.0), program.clone()))
         })
         .collect::<Vec<_>>();
-    let update = match identity.session.module_session_mut().set_overlays_with_programs(
-        overlays
-            .iter()
-            .map(|(_, location, text, revision, program)| (location.clone(), text.clone(), *revision, Arc::new(program.clone()))),
-    ) {
-        Ok(update) => update,
-        Err(_) => return None,
+    let mut active = overlays
+        .into_iter()
+        .map(|(uri, location, text, revision, program)| (uri, (location, text, revision, program)))
+        .collect::<BTreeMap<_, _>>();
+    let update = loop {
+        match identity.session.module_session_mut().set_overlays_with_programs(active.values().map(|(location, text, revision, program)| {
+            (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
+        })) {
+            Ok(update) => break update,
+            Err(_) if active.len() > 1 => {
+                let mut recovered = None;
+                for uri in active.keys().cloned().collect::<Vec<_>>() {
+                    let mut trial = active.clone();
+                    trial.remove(&uri);
+                    if let Ok(update) = identity.session.module_session_mut().set_overlays_with_programs(
+                        trial.values().map(|(location, text, revision, program)| {
+                            (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
+                        }),
+                    ) {
+                        recovered = Some((trial, update));
+                        break;
+                    }
+                }
+                let Some((next, update)) = recovered else { return None };
+                active = next;
+                break update;
+            }
+            Err(_) => return None,
+        }
     };
-    for (uri, location, _, _, _) in overlays {
+    for (uri, (location, _, _, _)) in active {
         if let Some(module) = identity.session.module_session().module_for_source(&location.source_id).cloned() {
-            let document_uri = documents
+            let aliases = documents
                 .lsp_by_uri
                 .keys()
                 .find(|candidate| canonical_uri(candidate) == *uri)
-                .cloned()
-                .unwrap_or_else(|| uri.clone());
-            documents.insert(document_uri, module);
+                .cloned();
+            let document_uri = aliases.clone().unwrap_or_else(|| uri.clone());
+            documents.insert(document_uri, module.clone());
+            if let Some(alias) = aliases
+                && alias != *uri
+            {
+                documents.insert_alias(uri.clone(), module);
+            }
         }
     }
 
@@ -1096,17 +1123,41 @@ fn refresh_compiler_workspace(
     generation: SemanticGeneration,
     identity: &mut CompilerWorkspaceState,
 ) -> Option<PublicationEffects> {
-    let documents = engine.snapshot().documents.as_ref().clone();
-    let compiler_analysis = publish_compiler_workspace(source_catalog, documents, generation.0, identity);
+    let protocol_documents = engine.snapshot().documents.as_ref().clone();
+    let compiler_analysis = publish_compiler_workspace(source_catalog, protocol_documents.clone(), generation.0, identity);
     // A parse/link/budget failure must not replace a coherent compiler
     // publication with an empty candidate. The worker already reports syntax
     // state separately; retain the session's last-known-good semantic world.
     if let Some(publication) = compiler_analysis {
         let effects = publication_effects_from_compiler(&publication.effects);
-        engine.set_compiler_analysis(Some((publication.snapshot, publication.documents)));
+        let mut documents = publication.documents;
+        attach_compiler_document_aliases(&mut documents, &protocol_documents, &publication.snapshot);
+        engine.set_compiler_analysis(Some((publication.snapshot, documents)));
         Some(effects)
     } else {
         None
+    }
+}
+
+fn attach_compiler_document_aliases(
+    documents: &mut crate::semantic::DocumentModuleMap,
+    protocol_documents: &crate::semantic::DocumentModuleMap,
+    compiler: &CompilerSemanticSnapshot,
+) {
+    let compiler_modules_by_uri = compiler
+        .sources
+        .iter()
+        .filter_map(|(module, source)| {
+            let location = source.source.as_ref()?;
+            let uri = Url::from_file_path(&location.display_path).ok()?;
+            Some((canonical_uri(&uri), module.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    for alias in protocol_documents.lsp_by_uri.keys() {
+        let Some(module) = compiler_modules_by_uri.get(&canonical_uri(alias)) else {
+            continue;
+        };
+        documents.insert_alias(alias.clone(), module.clone());
     }
 }
 

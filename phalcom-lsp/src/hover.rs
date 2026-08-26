@@ -686,6 +686,18 @@ pub fn render_binding_hover_with_formal(
     value: Option<&InferredValue>,
     phaldoc: Option<&PhaldocDoc>,
 ) -> String {
+    render_binding_hover_with_formal_and_declared(binding, formal, None, value, phaldoc)
+}
+
+/// Renders one binding with current formal knowledge and an optional
+/// compiler-owned declaration contract.
+pub fn render_binding_hover_with_formal_and_declared(
+    binding: &BindingInfo,
+    formal: Option<&FormalPresentation>,
+    declared: Option<&FormalPresentation>,
+    value: Option<&InferredValue>,
+    phaldoc: Option<&PhaldocDoc>,
+) -> String {
     let kind = match binding.kind {
         SemanticBindingKind::TopLevelLet | SemanticBindingKind::LocalLet => "mutable binding",
         SemanticBindingKind::TopLevelConst | SemanticBindingKind::LocalConst => "constant binding",
@@ -711,6 +723,11 @@ pub fn render_binding_hover_with_formal(
             "Observed type",
             &crate::semantic::render_value_shape(&value.shape),
         ));
+    }
+    if let Some(declared) = declared.filter(|declared| !matches!(declared, FormalPresentation::Unknown))
+        && formal.is_none_or(|current| current.text() != declared.text())
+    {
+        sections.push(format!("Declared type: `{}`", declared.text()));
     }
     if let Some(doc) = phaldoc {
         if !doc.summary.is_empty() {
@@ -1156,6 +1173,29 @@ mod tests {
         assert!(rendered.contains("`value`: `Dynamic`"));
         assert!(!rendered.contains("Formal type"));
         assert!(!rendered.contains("Observed type"));
+    }
+
+    #[test]
+    fn render_binding_hover_separates_materially_different_declared_type() {
+        let uri = tower_lsp::lsp_types::Url::parse("file:///main.ph").unwrap();
+        let document = crate::documents::Document::new("let value = 1\n".to_string());
+        let db = crate::semantic::SemanticDb::new();
+        db.update_file(&uri, crate::semantic::FileRevision(1), &document.parse.program);
+        let snapshot = db.snapshot();
+        let binding = snapshot
+            .files
+            .values()
+            .next()
+            .and_then(|file| file.source.scopes.bindings.values().next())
+            .expect("binding");
+        let current = FormalPresentation::Known("Int".to_string());
+        let declared = FormalPresentation::Known("Object".to_string());
+        let rendered = render_binding_hover_with_formal_and_declared(binding, Some(&current), Some(&declared), None, None);
+        assert!(rendered.contains("`value`: `Int`"), "{rendered:?}");
+        assert!(rendered.contains("Declared type: `Object`"), "{rendered:?}");
+
+        let rendered_same = render_binding_hover_with_formal_and_declared(binding, Some(&current), Some(&current), None, None);
+        assert!(!rendered_same.contains("Declared type"), "{rendered_same:?}");
     }
 
     #[test]

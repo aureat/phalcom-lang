@@ -3,17 +3,16 @@
 //! Recovery stays deliberately syntax-light so a dangling dot or incomplete
 //! chained send remains useful while the editor buffer is not parseable.
 
-use phalcom_ast::ast::{ClassMember, Expr, MethodDef, PackItem, Pattern, Program, Statement};
+use phalcom_ast::ast::{Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
-use phalcom_native_surface::{NativeDispatch, NativeMemberKind, NativeVisibility, UniverseKey, native_surfaces_for_owner};
-use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
+use phalcom_common::selector::SelectorKind;
+use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position};
 
 use crate::documents::{Document, DocumentSnapshot};
-use crate::index::WorkspaceIndex;
-use crate::semantic::{ClassId, CompletionMember, DispatchSide, MemberKind, MemberVisibility, SemanticSnapshot};
+use crate::semantic::ClassId;
 
 /// Whether a resolved receiver is an instance or a class object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ReceiverKind {
     /// Offer instance-side members.
     Instance,
@@ -26,6 +25,24 @@ pub enum ReceiverKind {
 pub struct SemanticResolvedReceiver {
     /// Candidate class identities and dispatch sides.
     pub alternatives: Vec<(ClassId, ReceiverKind)>,
+}
+
+/// Compiler-owned receiver alternatives used by the cutover path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilerResolvedReceiver {
+    /// Canonical declaration identities and dispatch sides.
+    pub alternatives: Vec<(phalcom_semantic::DeclarationId, ReceiverKind)>,
+}
+
+/// Inputs for compiler-owned completion presentation.
+pub(crate) struct CompilerCompletionContext<'a> {
+    pub resolved: Option<&'a CompilerResolvedReceiver>,
+    pub lexical_class: Option<&'a phalcom_semantic::DeclarationId>,
+    pub privileged: bool,
+    pub module: &'a phalcom_modules::ModuleId,
+    pub program: &'a Program,
+    pub text: &'a str,
+    pub offset: usize,
 }
 
 /// Recovered member-completion target from an incomplete editor buffer.
@@ -45,431 +62,6 @@ pub fn target_at(doc: &Document, position: Position) -> Option<CompletionTarget>
 /// Recovers a completion target from an owned document snapshot.
 pub(crate) fn target_at_snapshot(doc: &DocumentSnapshot, position: Position) -> Option<CompletionTarget> {
     target_at_offset(&doc.text, doc.line_index.offset(position))
-}
-
-/// Supplies immediate receiver completion from shallow source/index data
-/// while the background semantic snapshot is still catching up.
-/// Same bounded completion fallback using a request-local recovery parse for
-/// buffers whose dangling member dot prevented the normal parse from
-/// reaching later declarations.
-#[cfg(test)]
-pub(crate) fn shallow_receiver_completions_from_program(
-    index: &WorkspaceIndex,
-    uri: &Url,
-    doc: &Document,
-    program: &Program,
-    position: Position,
-) -> Option<Vec<CompletionItem>> {
-    let target = target_at(doc, position)?;
-    let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?.trim();
-    if receiver.is_empty() {
-        return None;
-    }
-    let classes = shallow_receiver_classes(program, receiver, target.receiver_range.end);
-    if classes.is_empty() {
-        return None;
-    }
-    let side = shallow_receiver_side(receiver);
-
-    let module = crate::semantic::ModuleId::new(uri.to_string());
-    let local_surface = crate::semantic::build_module_surface(module.clone(), program);
-    let candidates = classes
-        .iter()
-        .map(|class| shallow_class_items(index, uri, &local_surface, &module, class, side))
-        .collect::<Vec<_>>();
-    Some(shallow_union_items(candidates))
-}
-
-/// Same bounded fallback for an owned request snapshot.
-pub(crate) fn shallow_receiver_completions_from_snapshot(
-    index: &WorkspaceIndex,
-    uri: &Url,
-    doc: &DocumentSnapshot,
-    program: &Program,
-    position: Position,
-) -> Option<Vec<CompletionItem>> {
-    let target = target_at_snapshot(doc, position)?;
-    let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?.trim();
-    if receiver.is_empty() {
-        return None;
-    }
-    let classes = shallow_receiver_classes(program, receiver, target.receiver_range.end);
-    if classes.is_empty() {
-        return None;
-    }
-    let side = shallow_receiver_side(receiver);
-    let module = crate::semantic::ModuleId::new(uri.to_string());
-    let local_surface = crate::semantic::build_module_surface(module.clone(), program);
-    let candidates = classes
-        .iter()
-        .map(|class| shallow_class_items(index, uri, &local_surface, &module, class, side))
-        .collect::<Vec<_>>();
-    Some(shallow_union_items(candidates))
-}
-
-/// Resolves only source-local constructor shapes needed to keep completion
-/// useful before the worker publishes its first semantic generation. This is
-/// intentionally bounded: it walks the current program, never the workspace.
-fn shallow_receiver_classes(program: &Program, receiver: &str, offset: usize) -> Vec<String> {
-    let mut classes = std::collections::BTreeSet::new();
-
-    if receiver.contains('.') || receiver.contains('(') {
-        if let Some(expr) = phalcom_ast::parser::parse(receiver, 0)
-            .program
-            .statements
-            .iter()
-            .find_map(|statement| match statement {
-                Statement::Expr { expr, .. } => Some(expr),
-                _ => None,
-            })
-        {
-            collect_expression_classes(program, expr, &mut classes);
-        }
-    }
-
-    if receiver == "self" {
-        if let Some((class, _)) = enclosing_method(program, offset) {
-            classes.insert(class.name.clone());
-        }
-    } else if receiver == "super" {
-        if let Some((class, _)) = enclosing_method(program, offset) {
-            if let Some(parent) = class.superclass_ref() {
-                classes.insert(parent.leaf_name().to_string());
-            }
-        }
-    } else if receiver.chars().next().is_some_and(char::is_uppercase)
-        && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-        && program
-            .statements
-            .iter()
-            .any(|statement| matches!(statement, Statement::Class(class) if class.name == receiver))
-    {
-        classes.insert(receiver.to_string());
-    }
-
-    for statement in &program.statements {
-        if let Statement::Let(binding) = statement {
-            if let Pattern::Name { name, .. } = &binding.pattern {
-                if name == receiver && binding.range.start < offset {
-                    if let Some(class) = constructor_class(binding.value.as_ref()) {
-                        classes.insert(class);
-                    }
-                }
-            }
-        }
-    }
-
-    let Some((class, method)) = enclosing_method(program, offset) else {
-        return classes.into_iter().collect();
-    };
-
-    if receiver.starts_with('_') {
-        for member in &class.members {
-            if let Some(body) = member_body(member) {
-                collect_field_constructor_assignments(body, receiver, &mut classes);
-            }
-        }
-    }
-
-    if let Some(method) = method {
-        if method.params.iter().any(|param| param.name == receiver) {
-            for statement in &program.statements {
-                collect_argument_constructor_classes(statement, &method.name, receiver, &mut classes);
-            }
-        }
-    }
-
-    classes.into_iter().collect()
-}
-
-fn shallow_receiver_side(receiver: &str) -> DispatchSide {
-    if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-        DispatchSide::Class
-    } else {
-        DispatchSide::Instance
-    }
-}
-
-fn collect_expression_classes(program: &Program, expr: &Expr, classes: &mut std::collections::BTreeSet<String>) {
-    match expr {
-        Expr::MethodCall(call) if call.method == "new" => {
-            if let Expr::Var { value, .. } = &call.object {
-                classes.insert(value.clone());
-            }
-        }
-        Expr::MethodCall(call) => {
-            let mut receivers = std::collections::BTreeSet::new();
-            collect_expression_classes(program, &call.object, &mut receivers);
-            for receiver in receivers {
-                if let Some(class) = find_method_return_class(program, &receiver, &call.method) {
-                    classes.insert(class);
-                }
-            }
-        }
-        Expr::Var { value, .. } => {
-            for statement in &program.statements {
-                let Statement::Let(binding) = statement else { continue };
-                let Pattern::Name { name, .. } = &binding.pattern else { continue };
-                if name == value {
-                    if let Some(value) = binding.value.as_ref() {
-                        collect_expression_classes(program, value, classes);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn find_method_return_class(program: &Program, class_name: &str, method_name: &str) -> Option<String> {
-    let class = program.statements.iter().find_map(|statement| match statement {
-        Statement::Class(class) if class.name == class_name => Some(class),
-        _ => None,
-    })?;
-    let body = class.members.iter().find_map(|member| match member {
-        ClassMember::Method(method) if method.name == method_name => method.body.statements(),
-        _ => None,
-    })?;
-    body.iter().rev().find_map(|statement| match statement {
-        Statement::Return(return_statement) => constructor_class(return_statement.value.as_ref()),
-        Statement::Expr { expr, .. } => constructor_class(Some(expr)),
-        _ => None,
-    })
-}
-
-fn constructor_class(value: Option<&Expr>) -> Option<String> {
-    let Expr::MethodCall(call) = value? else { return None };
-    if call.method != "new" {
-        return None;
-    }
-    let Expr::Var { value, .. } = &call.object else { return None };
-    Some(value.clone())
-}
-
-fn enclosing_method(program: &Program, offset: usize) -> Option<(&phalcom_ast::ast::ClassDef, Option<&MethodDef>)> {
-    program.statements.iter().find_map(|statement| {
-        let Statement::Class(class) = statement else { return None };
-        if !class.range.contains(offset) {
-            return None;
-        }
-        let method = class.members.iter().find_map(|member| match member {
-            ClassMember::Method(method) if method.range.contains(offset) => Some(method),
-            _ => None,
-        });
-        Some((class, method))
-    })
-}
-
-fn member_body(member: &ClassMember) -> Option<&[Statement]> {
-    match member {
-        ClassMember::Method(method) => method.body.statements(),
-        ClassMember::Getter(getter) => getter.body.statements(),
-        ClassMember::Setter(setter) => setter.body.statements(),
-        ClassMember::Index(index) => Some(&index.body),
-        ClassMember::Field(_) | ClassMember::Variant(_) => None,
-    }
-}
-
-fn collect_field_constructor_assignments(statements: &[Statement], field: &str, classes: &mut std::collections::BTreeSet<String>) {
-    for statement in statements {
-        match statement {
-            Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => collect_field_constructor_expr(expr, field, classes),
-            Statement::Return(return_statement) => {
-                if let Some(expr) = &return_statement.value {
-                    collect_field_constructor_expr(expr, field, classes);
-                }
-            }
-            Statement::For(for_statement) => {
-                for lane in &for_statement.lanes {
-                    collect_field_constructor_expr(&lane.iter, field, classes);
-                }
-                collect_field_constructor_assignments(&for_statement.body, field, classes);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_field_constructor_expr(expr: &Expr, field: &str, classes: &mut std::collections::BTreeSet<String>) {
-    match expr {
-        Expr::Assignment(assignment) => {
-            if let Expr::Field { value, .. } = assignment.name.as_ref() {
-                if value == field {
-                    if let Some(class) = constructor_class(Some(&assignment.value)) {
-                        classes.insert(class);
-                    }
-                }
-            }
-            collect_field_constructor_expr(&assignment.value, field, classes);
-        }
-        Expr::Block(block) => collect_field_constructor_assignments(&block.body, field, classes),
-        Expr::MethodCall(call) => {
-            collect_field_constructor_expr(&call.object, field, classes);
-            for item in &call.args {
-                collect_field_constructor_pack(item, field, classes);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_field_constructor_pack(item: &PackItem, field: &str, classes: &mut std::collections::BTreeSet<String>) {
-    match item {
-        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_field_constructor_expr(expr, field, classes),
-        PackItem::Labeled { value, .. } => collect_field_constructor_expr(value, field, classes),
-    }
-}
-
-fn collect_argument_constructor_classes(statement: &Statement, method_name: &str, parameter: &str, classes: &mut std::collections::BTreeSet<String>) {
-    match statement {
-        Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => collect_argument_constructor_expr(expr, method_name, parameter, classes),
-        Statement::Return(return_statement) => {
-            if let Some(expr) = &return_statement.value {
-                collect_argument_constructor_expr(expr, method_name, parameter, classes);
-            }
-        }
-        Statement::For(for_statement) => {
-            for lane in &for_statement.lanes {
-                collect_argument_constructor_expr(&lane.iter, method_name, parameter, classes);
-            }
-            for nested in &for_statement.body {
-                collect_argument_constructor_classes(nested, method_name, parameter, classes);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_argument_constructor_expr(expr: &Expr, method_name: &str, parameter: &str, classes: &mut std::collections::BTreeSet<String>) {
-    match expr {
-        Expr::UnqualifiedCall(call) if call.name == method_name => {
-            for item in &call.args {
-                let PackItem::Positional { expr, .. } = item else { continue };
-                if let Some(class) = constructor_class(Some(expr)) {
-                    classes.insert(class);
-                }
-                let _ = parameter;
-            }
-        }
-        Expr::MethodCall(call) => {
-            collect_argument_constructor_expr(&call.object, method_name, parameter, classes);
-            for item in &call.args {
-                let expr = match item {
-                    PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } | PackItem::Labeled { value: expr, .. } => expr,
-                };
-                collect_argument_constructor_expr(expr, method_name, parameter, classes);
-            }
-        }
-        Expr::Block(block) => {
-            for statement in &block.body {
-                collect_argument_constructor_classes(statement, method_name, parameter, classes);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn shallow_class_items(
-    index: &WorkspaceIndex,
-    uri: &Url,
-    local_surface: &crate::semantic::ModuleSurface,
-    module: &crate::semantic::ModuleId,
-    class: &str,
-    side: DispatchSide,
-) -> Vec<CompletionItem> {
-    let mut items = Vec::new();
-    let mut current = Some(class.to_string());
-    let mut visited = std::collections::BTreeSet::new();
-    while let Some(class_name) = current.take() {
-        if !visited.insert(class_name.clone()) {
-            break;
-        }
-        if let Some(surface) = local_surface.classes.get(&crate::semantic::ClassId::new(module.clone(), class_name.clone())) {
-            for member in surface.members_on(side) {
-                items.push(semantic_to_completion_item(&CompletionMember {
-                    selector: member.callable.selector.clone(),
-                    kind: member.kind,
-                    owner: member.callable.owner.clone(),
-                    visibility: member.visibility,
-                    side: member.side,
-                }));
-            }
-            current = surface
-                .superclass
-                .as_ref()
-                .and_then(|parent| (parent.module == *module).then(|| parent.name.clone()));
-        } else {
-            for member in index.class_members(uri, &class_name) {
-                if (side == DispatchSide::Class) == member.is_class_side {
-                    items.push(shallow_member_item(&member.selector, member.kind, &member.owner));
-                }
-            }
-            current = index.class_parent(uri, &class_name);
-        }
-    }
-    if side == DispatchSide::Instance && !visited.contains("Object") {
-        items.extend(native_object_items());
-    }
-    items.sort_by(|left, right| left.label.cmp(&right.label));
-    items.dedup_by(|left, right| left.label == right.label);
-    items
-}
-
-fn shallow_union_items(candidates: Vec<Vec<CompletionItem>>) -> Vec<CompletionItem> {
-    let total = candidates.len();
-    let mut by_label = std::collections::BTreeMap::<String, (CompletionItem, usize)>::new();
-    for items in candidates {
-        for item in items {
-            by_label
-                .entry(item.label.to_string())
-                .and_modify(|(_, coverage)| *coverage += 1)
-                .or_insert((item, 1));
-        }
-    }
-    let mut items = by_label
-        .into_values()
-        .map(|(mut item, coverage)| {
-            let owner = item.detail.unwrap_or_else(|| "shallow receiver".to_string());
-            item.detail = Some(format!("{owner} — available on {coverage}/{total} candidates"));
-            item.sort_text = Some(format!("{:02}:{}", total.saturating_sub(coverage), item.label));
-            item
-        })
-        .collect::<Vec<_>>();
-    items.sort_by(|left, right| left.sort_text.cmp(&right.sort_text).then_with(|| left.label.cmp(&right.label)));
-    items
-}
-
-fn native_object_items() -> Vec<CompletionItem> {
-    native_surfaces_for_owner(UniverseKey::Object)
-        .filter(|member| member.side() == NativeDispatch::Instance && member.visibility() == NativeVisibility::Public)
-        .map(|member| {
-            let kind = match member.kind {
-                NativeMemberKind::Getter => crate::index::MemberKind::Getter,
-                NativeMemberKind::Setter => crate::index::MemberKind::Setter,
-                NativeMemberKind::Method => crate::index::MemberKind::Method,
-            };
-            shallow_member_item(member.selector(), kind, "Object")
-        })
-        .collect()
-}
-
-fn shallow_member_item(selector: &str, kind: crate::index::MemberKind, owner: &str) -> CompletionItem {
-    let (item_kind, insert_text, insert_text_format) = match kind {
-        crate::index::MemberKind::Getter => (CompletionItemKind::PROPERTY, selector.to_string(), InsertTextFormat::PLAIN_TEXT),
-        crate::index::MemberKind::Field => (CompletionItemKind::FIELD, selector.to_string(), InsertTextFormat::PLAIN_TEXT),
-        crate::index::MemberKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(selector), InsertTextFormat::SNIPPET),
-        crate::index::MemberKind::Method | crate::index::MemberKind::StaticMethod | crate::index::MemberKind::Construct => {
-            (CompletionItemKind::METHOD, method_snippet(selector), InsertTextFormat::SNIPPET)
-        }
-    };
-    CompletionItem {
-        label: selector.to_string(),
-        detail: Some(owner.to_string()),
-        kind: Some(item_kind),
-        insert_text: Some(insert_text),
-        insert_text_format: Some(insert_text_format),
-        ..CompletionItem::default()
-    }
 }
 
 fn target_at_offset(text: &str, offset: usize) -> Option<CompletionTarget> {
@@ -572,190 +164,241 @@ fn is_identifier_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-/// Completion context backed entirely by the live semantic database.
-pub(crate) struct SemanticCompletionContext<'a> {
-    pub resolved: Option<&'a SemanticResolvedReceiver>,
-    pub lexical_class: Option<&'a ClassId>,
-    pub privileged: bool,
-    pub uri: &'a Url,
-    pub program: &'a Program,
-    pub text: &'a str,
-    pub offset: usize,
-}
-
-/// Builds completion items from live source and native semantic surfaces.
-pub(crate) fn semantic_contextual_completions(db: &SemanticSnapshot, context: SemanticCompletionContext<'_>) -> Vec<CompletionItem> {
-    let line_start = context.text[..context.offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_prefix = &context.text[line_start..context.offset];
-    if let Some(import_ctx) = crate::import_completion::detect_import_context(line_prefix) {
-        let import_items = crate::import_completion::import_completions(db, context.uri, &import_ctx);
-        if !import_items.is_empty() {
-            return import_items;
+/// Builds completion items from one pinned compiler snapshot.
+///
+/// Receiver completion never reconstructs a source module surface or asks the
+/// legacy LSP semantic database to infer a class. Unknown receiver targets
+/// therefore produce no fabricated member surface. Non-member completion is
+/// deliberately bounded to names visible in the current compiler source shard.
+pub(crate) fn compiler_contextual_completions(db: &phalcom_semantic::SemanticSnapshot, context: CompilerCompletionContext<'_>) -> Vec<CompletionItem> {
+    let mut items = if target_at_offset(context.text, context.offset).is_some() {
+        match context.resolved {
+            Some(resolved) if resolved.alternatives.len() > 1 => compiler_union_completions(db, resolved, context.lexical_class, context.privileged),
+            Some(resolved) => resolved
+                .alternatives
+                .first()
+                .map(|(declaration, kind)| compiler_class_completions(db, declaration, *kind, context.lexical_class, context.privileged))
+                .unwrap_or_default(),
+            None => Vec::new(),
         }
-    }
-
-    let mut items = match context.resolved {
-        Some(resolved) if resolved.alternatives.len() > 1 => semantic_union_completions(db, resolved, context.lexical_class, context.privileged),
-        Some(resolved) => resolved
-            .alternatives
-            .first()
-            .map(|(class, kind)| semantic_class_completions(db, class, *kind, context.lexical_class, context.privileged))
-            .unwrap_or_default(),
-        None => semantic_all_completions(db, context.lexical_class, context.privileged),
+    } else {
+        compiler_visible_completions(db, context.module, context.program, context.offset)
     };
-    if target_at_offset(context.text, context.offset).is_none() {
-        if let Some(class) = context.lexical_class {
-            items.extend(semantic_class_completions(db, class, ReceiverKind::Instance, Some(class), context.privileged));
-        }
-        items.extend(
-            visible_names_at(db, context.uri, context.program, context.offset)
-                .into_iter()
-                .map(|name| CompletionItem {
-                    label: name.clone(),
-                    kind: Some(CompletionItemKind::VARIABLE),
-                    insert_text: Some(name),
-                    ..CompletionItem::default()
-                }),
-        );
-    }
     items.sort_by(|left, right| left.label.cmp(&right.label));
     items.dedup_by(|left, right| left.label == right.label);
     items
 }
 
-fn semantic_union_completions(
-    db: &SemanticSnapshot,
-    resolved: &SemanticResolvedReceiver,
-    lexical_class: Option<&ClassId>,
+fn compiler_union_completions(
+    db: &phalcom_semantic::SemanticSnapshot,
+    resolved: &CompilerResolvedReceiver,
+    lexical_class: Option<&phalcom_semantic::DeclarationId>,
     privileged: bool,
 ) -> Vec<CompletionItem> {
-    let mut by_label = std::collections::BTreeMap::new();
-    for (class, kind) in &resolved.alternatives {
-        for item in semantic_class_completions(db, class, *kind, lexical_class, privileged) {
+    let mut by_label = std::collections::BTreeMap::<String, (CompletionItem, usize)>::new();
+    for (declaration, kind) in &resolved.alternatives {
+        for item in compiler_class_completions(db, declaration, *kind, lexical_class, privileged) {
             by_label
                 .entry(item.label.clone())
                 .and_modify(|(_, coverage)| *coverage += 1)
-                .or_insert((item, 1_usize));
+                .or_insert((item, 1));
         }
     }
     let total = resolved.alternatives.len();
-    let mut items = by_label
+    by_label
         .into_values()
         .map(|(mut item, coverage)| {
-            let owner = item.detail.unwrap_or_else(|| "semantic receiver".to_string());
+            let owner = item.detail.take().unwrap_or_else(|| "semantic receiver".to_string());
             item.detail = Some(format!("{owner} — available on {coverage}/{total} candidates"));
             item.sort_text = Some(format!("{:02}:{}", total.saturating_sub(coverage), item.label));
             item
         })
-        .collect::<Vec<_>>();
-    items.sort_by(|left, right| left.sort_text.cmp(&right.sort_text).then_with(|| left.label.cmp(&right.label)));
-    items
+        .collect()
 }
 
-fn semantic_class_completions(
-    db: &SemanticSnapshot,
-    class: &ClassId,
+fn compiler_class_completions(
+    db: &phalcom_semantic::SemanticSnapshot,
+    declaration: &phalcom_semantic::DeclarationId,
     receiver_kind: ReceiverKind,
-    lexical_class: Option<&ClassId>,
+    lexical_class: Option<&phalcom_semantic::DeclarationId>,
     privileged: bool,
 ) -> Vec<CompletionItem> {
     let side = match receiver_kind {
-        ReceiverKind::Instance => DispatchSide::Instance,
-        ReceiverKind::ClassObject => DispatchSide::Class,
+        ReceiverKind::Instance => phalcom_semantic::DispatchSide::Instance,
+        ReceiverKind::ClassObject => phalcom_semantic::DispatchSide::Class,
     };
-    let mut items = db
-        .completion_members(class, side)
-        .iter()
-        .filter(|member| semantic_visibility_allowed(db, member, lexical_class, privileged))
-        .map(semantic_to_completion_item)
-        .collect::<Vec<_>>();
+    let mut items = Vec::new();
+    let mut current = Some(declaration.clone());
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(owner) = current {
+        if !visited.insert(owner.clone()) {
+            break;
+        }
+        if let Some(surface) = db.surfaces.get(&owner) {
+            let members = surface.surface(side);
+            for name in members.fields.keys() {
+                let visibility = members.field_visibility.get(name).copied().unwrap_or_default();
+                if !member_visible(db, &owner, visibility, lexical_class, privileged) {
+                    continue;
+                }
+                items.push(CompletionItem {
+                    label: name.clone(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    insert_text: Some(name.clone()),
+                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    detail: Some(owner.name.to_string()),
+                    ..CompletionItem::default()
+                });
+            }
+            for signature in members.callable_signatures.values() {
+                let visibility = members.callable_visibility.get(&signature.selector).copied().unwrap_or_default();
+                if !member_visible(db, &owner, visibility, lexical_class, privileged) {
+                    continue;
+                }
+                let label = signature.selector.encode();
+                let (kind, insert_text, insert_text_format) = match signature.selector.kind {
+                    SelectorKind::Getter => (CompletionItemKind::PROPERTY, label.clone(), InsertTextFormat::PLAIN_TEXT),
+                    SelectorKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(&label), InsertTextFormat::SNIPPET),
+                    SelectorKind::Method | SelectorKind::SubscriptGet | SelectorKind::SubscriptSet => {
+                        (CompletionItemKind::METHOD, method_snippet(&label), InsertTextFormat::SNIPPET)
+                    }
+                };
+                items.push(CompletionItem {
+                    label,
+                    kind: Some(kind),
+                    insert_text: Some(insert_text),
+                    insert_text_format: Some(insert_text_format),
+                    detail: Some(owner.name.to_string()),
+                    ..CompletionItem::default()
+                });
+            }
+        }
+        current = db.hierarchy.superclasses.get(&owner).cloned();
+    }
     if receiver_kind == ReceiverKind::ClassObject && !items.iter().any(|item| item.label == "new()") {
         items.push(CompletionItem {
             label: "new()".to_string(),
             kind: Some(CompletionItemKind::METHOD),
             insert_text: Some("new()".to_string()),
             insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            detail: Some(declaration.name.to_string()),
             ..CompletionItem::default()
         });
     }
     items.sort_by(|left, right| left.label.cmp(&right.label));
+    items.dedup_by(|left, right| left.label == right.label);
     items
 }
 
-fn semantic_all_completions(db: &SemanticSnapshot, lexical_class: Option<&ClassId>, privileged: bool) -> Vec<CompletionItem> {
-    let mut items = db
-        .all_completion_members()
-        .iter()
-        .filter(|member| semantic_visibility_allowed(db, member, lexical_class, privileged))
-        .map(semantic_to_completion_item)
-        .collect::<Vec<_>>();
-    items.sort_by(|left, right| left.label.cmp(&right.label));
-    items
-}
-
-fn semantic_visibility_allowed(db: &SemanticSnapshot, member: &CompletionMember, lexical_class: Option<&ClassId>, privileged: bool) -> bool {
-    match member.visibility {
-        MemberVisibility::Public => true,
-        MemberVisibility::Private => lexical_class == Some(&member.owner),
-        MemberVisibility::Protected => lexical_class.is_some_and(|caller| db.is_same_or_subclass(caller, &member.owner)),
-        MemberVisibility::Internal => privileged,
-    }
-}
-
-fn semantic_to_completion_item(member: &CompletionMember) -> CompletionItem {
-    let (kind, insert_text, insert_text_format) = match member.kind {
-        MemberKind::Getter => (CompletionItemKind::PROPERTY, member.selector.clone(), InsertTextFormat::PLAIN_TEXT),
-        MemberKind::Field => (CompletionItemKind::FIELD, member.selector.clone(), InsertTextFormat::PLAIN_TEXT),
-        MemberKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(&member.selector), InsertTextFormat::SNIPPET),
-        MemberKind::Method | MemberKind::Index | MemberKind::Variant => {
-            (CompletionItemKind::METHOD, method_snippet(&member.selector), InsertTextFormat::SNIPPET)
+fn member_visible(
+    db: &phalcom_semantic::SemanticSnapshot,
+    owner: &phalcom_semantic::DeclarationId,
+    visibility: phalcom_semantic::MemberVisibility,
+    lexical_class: Option<&phalcom_semantic::DeclarationId>,
+    privileged: bool,
+) -> bool {
+    match visibility {
+        phalcom_semantic::MemberVisibility::Public => true,
+        phalcom_semantic::MemberVisibility::Private => lexical_class == Some(owner),
+        phalcom_semantic::MemberVisibility::Protected => {
+            let Some(mut current) = lexical_class.cloned() else { return false };
+            let mut visited = std::collections::BTreeSet::new();
+            while visited.insert(current.clone()) {
+                if current == *owner {
+                    return true;
+                }
+                let Some(parent) = db.hierarchy.superclasses.get(&current).cloned() else {
+                    break;
+                };
+                current = parent;
+            }
+            false
         }
-    };
-    CompletionItem {
-        label: member.selector.clone(),
-        detail: Some(member.owner.name.clone()),
-        kind: Some(kind),
-        insert_text: Some(insert_text),
-        insert_text_format: Some(insert_text_format),
-        ..CompletionItem::default()
+        phalcom_semantic::MemberVisibility::Internal => privileged,
     }
 }
 
-fn visible_names_at(db: &SemanticSnapshot, uri: &Url, program: &Program, offset: usize) -> Vec<String> {
-    let mut names = db.visible_bindings_at(uri, offset).into_iter().map(|binding| binding.name).collect::<Vec<_>>();
-    for dep in &program.preamble.dependencies {
-        match dep {
-            phalcom_ast::ast::DependencyDecl::Import(imp) => match imp {
-                phalcom_ast::ast::ImportDecl::Module(m) => {
-                    let name = if let Some(alias) = &m.alias {
-                        alias.name.clone()
-                    } else if m.path.segments.is_empty() {
-                        match &m.path.root {
-                            phalcom_ast::ast::ImportRoot::Absolute(seg) => seg.name.clone(),
-                            phalcom_ast::ast::ImportRoot::Relative { .. } => String::new(),
-                        }
-                    } else {
-                        m.path.segments.last().unwrap().name.clone()
-                    };
-                    if !name.is_empty() {
-                        names.push(name);
+fn compiler_visible_completions(
+    db: &phalcom_semantic::SemanticSnapshot,
+    module: &phalcom_modules::ModuleId,
+    program: &Program,
+    offset: usize,
+) -> Vec<CompletionItem> {
+    let mut names = std::collections::BTreeSet::new();
+    if let Some(source) = db.source_index().module(module) {
+        names.extend(source.structure.visible_bindings_at(offset).into_iter().map(|binding| binding.name.to_string()));
+        names.extend(source.structure.sites.values().filter_map(|site| match &site.kind {
+            phalcom_semantic::SourceSiteKind::Declaration(declaration) if declaration.module == *module => Some(declaration.name.to_string()),
+            _ => None,
+        }));
+    }
+    for dependency in &program.preamble.dependencies {
+        match dependency {
+            phalcom_ast::ast::DependencyDecl::Import(import) => match import {
+                phalcom_ast::ast::ImportDecl::Module(import) => {
+                    if let Some(alias) = &import.alias {
+                        names.insert(alias.name.clone());
+                    } else if let Some(segment) = import.path.segments.last() {
+                        names.insert(segment.name.clone());
                     }
                 }
-                phalcom_ast::ast::ImportDecl::Selective(s) => {
-                    for item in &s.items {
-                        let name = if let Some(alias) = &item.alias {
-                            alias.name.clone()
-                        } else {
-                            item.name.clone()
-                        };
-                        names.push(name);
-                    }
+                phalcom_ast::ast::ImportDecl::Selective(import) => {
+                    names.extend(
+                        import
+                            .items
+                            .iter()
+                            .map(|item| item.alias.as_ref().map_or_else(|| item.name.clone(), |alias| alias.name.clone())),
+                    );
                 }
             },
-            phalcom_ast::ast::DependencyDecl::ReExport(r) => {
-                for item in &r.items {
-                    names.push(item.local_or_remote_name.clone());
+            phalcom_ast::ast::DependencyDecl::ReExport(reexport) => {
+                names.extend(reexport.items.iter().map(|item| item.local_or_remote_name.clone()));
+            }
+            phalcom_ast::ast::DependencyDecl::Expose(_) => {}
+        }
+    }
+    names
+        .into_iter()
+        .map(|name| CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::VARIABLE),
+            insert_text: Some(name),
+            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            ..CompletionItem::default()
+        })
+        .collect()
+}
+
+/// Returns syntax-only names while the pinned compiler publication is stale or
+/// has not mapped the document yet. This deliberately never infers a receiver
+/// class or reconstructs a member surface.
+pub(crate) fn syntax_visible_completions(program: &Program, text: &str, offset: usize) -> Vec<CompletionItem> {
+    if target_at_offset(text, offset).is_some() {
+        return Vec::new();
+    }
+
+    let mut names = Vec::new();
+    for dependency in &program.preamble.dependencies {
+        match dependency {
+            phalcom_ast::ast::DependencyDecl::Import(import) => match import {
+                phalcom_ast::ast::ImportDecl::Module(import) => {
+                    if let Some(alias) = &import.alias {
+                        names.push(alias.name.clone());
+                    } else if let Some(segment) = import.path.segments.last() {
+                        names.push(segment.name.clone());
+                    }
                 }
+                phalcom_ast::ast::ImportDecl::Selective(import) => {
+                    names.extend(
+                        import
+                            .items
+                            .iter()
+                            .map(|item| item.alias.as_ref().map_or_else(|| item.name.clone(), |alias| alias.name.clone())),
+                    );
+                }
+            },
+            phalcom_ast::ast::DependencyDecl::ReExport(reexport) => {
+                names.extend(reexport.items.iter().map(|item| item.local_or_remote_name.clone()));
             }
             phalcom_ast::ast::DependencyDecl::Expose(_) => {}
         }
@@ -778,6 +421,15 @@ fn visible_names_at(db: &SemanticSnapshot, uri: &Url, program: &Program, offset:
     names.sort();
     names.dedup();
     names
+        .into_iter()
+        .map(|name| CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::VARIABLE),
+            insert_text: Some(name),
+            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            ..CompletionItem::default()
+        })
+        .collect()
 }
 
 fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
@@ -840,35 +492,5 @@ mod tests {
     fn snippets_preserve_selector_shape() {
         assert_eq!(method_snippet("move(_,to,duration)"), "move(${1:_}, to: ${2:_}, duration: ${3:_})");
         assert_eq!(setter_snippet("x=(put)"), "x = ${1:value}");
-    }
-
-    #[test]
-    fn shallow_completion_reads_live_constructor_surface_before_worker_publish() {
-        let uri = Url::parse("file:///completion.ph").unwrap();
-        let source = "class Animal { move() {} }\nclass Dog is Animal { bark() {} }\nconst dog = Dog.new()\ndog.bark()\n";
-        let doc = Document::new(source.to_string());
-        let index = WorkspaceIndex::new();
-        index.update_file(uri.clone(), &doc.parse.program);
-        let items = shallow_receiver_completions_from_program(&index, &uri, &doc, &doc.parse.program, Position { line: 3, character: 4 }).unwrap();
-        let labels = items.into_iter().map(|item| item.label.to_string()).collect::<Vec<_>>();
-        assert!(labels.contains(&"bark()".to_string()), "{labels:?}");
-        assert!(labels.contains(&"move()".to_string()), "{labels:?}");
-    }
-
-    #[test]
-    fn shallow_receiver_resolves_constructor_assigned_field() {
-        let source =
-            "class Client {\n  send() { }\n}\nclass Service {\n  @constructor new() { _client = Client.new() }\n  run() {\n    _client.send()\n  }\n}\n";
-        let program = phalcom_ast::parser::parse(source, 0).program;
-        let offset = source.find("_client.send").unwrap() + "_client.".len();
-        assert_eq!(shallow_receiver_classes(&program, "_client", offset), vec!["Client"]);
-    }
-
-    #[test]
-    fn shallow_receiver_resolves_parameter_constructor_union() {
-        let source = "class Circle { stroke() { } }\nclass Rectangle { fill() { } }\nclass Canvas { draw(_ shape) {\n    shape.stroke()\n  }\n}\ndraw(Circle.new())\ndraw(Rectangle.new())\n";
-        let program = phalcom_ast::parser::parse(source, 0).program;
-        let offset = source.find("shape.stroke").unwrap() + "shape.".len();
-        assert_eq!(shallow_receiver_classes(&program, "shape", offset), vec!["Circle", "Rectangle"]);
     }
 }

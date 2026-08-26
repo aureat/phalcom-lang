@@ -1,8 +1,10 @@
 class User {
+  @constructor new() {}
   greet() {}
 }
 
 class Factory {
+  @constructor new() {}
   make() { User.new() }
 }
 
