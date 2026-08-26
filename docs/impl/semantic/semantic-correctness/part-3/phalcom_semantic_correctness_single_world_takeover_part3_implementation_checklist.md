@@ -94,7 +94,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Suppress stale semantic ranges on current open text.
 - [x] Render current syntax diagnostics independently.
 - [x] Render compiler semantic diagnostics only when source-coherent.
-- [ ] Test concurrent old-snapshot request immutability.
+- [x] Test concurrent old-snapshot request immutability.
 
 ### Task 7: Presentation renderer
 
@@ -308,6 +308,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Formal/advisory hover precedence regression.
   Result: `cargo test -p phalcom-lsp --lib hover::tests -- --nocapture` — 23 passed; `cargo test -p phalcom-lsp --test professional_semantic_presentation -- --nocapture` — 2 passed; Stage 4 hover integration — 11 passed.
   Evidence: formal Dynamic remains primary; formal Unknown remains visible while concrete advisory return evidence is shown as contextual local-flow information; legacy observed/confidence labels remain absent from rendered output.
+- [x] Request snapshot pinning regression.
+  Result: `cargo test -p phalcom-lsp --lib request_context::tests -- --nocapture` — 1 passed.
+  Evidence: a request-held compiler `Arc<SemanticSnapshot>` remains immutable and readable from a concurrent reader after a later workspace publication.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.

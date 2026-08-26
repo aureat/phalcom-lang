@@ -107,3 +107,67 @@ fn classify_source(document: &DocumentSnapshot, semantic: &SemanticSnapshot, com
         SourceMatch::Stale
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::documents::Document;
+    use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceMutation};
+    use phalcom_semantic::SemanticWorkspaceSession;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn old_request_keeps_immutable_compiler_snapshot_after_new_publication() {
+        let path = PathBuf::from(format!("/tmp/phalcom-request-context-{}.ph", std::process::id()));
+        let uri = Url::from_file_path(&path).expect("test path must be a file URI");
+        let location = SourceLocation {
+            source_id: SourceId(path.to_string_lossy().into()),
+            display_path: path,
+        };
+        let mut session = SemanticWorkspaceSession::new();
+        let first = session
+            .apply_module_mutation(WorkspaceSourceMutation::SetOverlay {
+                source: location.clone(),
+                text: Arc::from("class Main { old() {} }\n"),
+                revision: SourceRevision(1),
+            })
+            .expect("first publication");
+        let old = first.snapshot;
+        let old_id = old.id;
+        let old_text = old.sources.values().next().expect("source publication").text.clone();
+
+        let document = Document::new_with_revision("class Main { old() {} }\n".to_string(), FileRevision(1));
+        let document = DocumentSnapshot {
+            text: document.text,
+            parse: document.parse,
+            line_index: document.line_index,
+            revision: document.revision,
+            version: document.version,
+        };
+        let request = RequestContext::new_with_compiler(
+            document,
+            Arc::new(SemanticSnapshot::default()),
+            Some(old.clone()),
+            &uri,
+        );
+        let reader = thread::spawn(move || {
+            let pinned = request.compiler.expect("request must retain compiler snapshot");
+            (pinned.id, pinned.sources.values().next().expect("pinned source").text.clone())
+        });
+
+        let second = session
+            .apply_module_mutation(WorkspaceSourceMutation::SetOverlay {
+                source: location,
+                text: Arc::from("class Main { new() {} }\n"),
+                revision: SourceRevision(2),
+            })
+            .expect("second publication");
+        assert_ne!(second.snapshot.id, old_id);
+
+        let (pinned_id, pinned_text) = reader.join().expect("reader must complete");
+        assert_eq!(pinned_id, old_id);
+        assert_eq!(pinned_text, old_text);
+    }
+}
