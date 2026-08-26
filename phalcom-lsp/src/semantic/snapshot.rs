@@ -166,10 +166,14 @@ impl SemanticSnapshot {
             && let Some(module) = self.documents.get_by_uri(uri)
             && let Some(view) = compiler_snapshot.occurrence_at(module, offset)
         {
-            if view.target.is_some() {
-                return Some(self.compiler_occurrence_to_lsp(uri, view));
-            }
+            // The compiler source index owns occurrence identity for every
+            // published module, including unresolved hints. Do not let an
+            // unresolved compiler occurrence be replaced by the legacy LSP
+            // index, which can attach a different target to the same range.
+            return Some(self.compiler_occurrence_to_lsp(uri, view));
         }
+        // A missing compiler occurrence means this snapshot does not cover
+        // the request. Compatibility lookup remains bounded to that case.
         let module = self.module_for_uri(uri)?;
         self.files.get(module).and_then(|file| file.occurrences.occurrence_at(offset).cloned())
     }
