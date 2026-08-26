@@ -256,7 +256,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 56. References consume compiler reverse target index. Status: exact-source reverse target path is primary, including binding declaration roots; focused binding navigation passes.
 - [x] 57. Workspace symbols consume compiler declaration index. Status: compiler source declaration/callable/field index is primary with text-index fallback; focused cross-file symbol test passes.
 - [x] 58. Import/module completion consumes ModuleQueryFacade. Status: exact-source requests pass the pinned compiler snapshot and its module-query facade directly; stale/unmapped requests return no semantic import result. Stage 3 import completion passes.
-- [ ] 59. Core/native navigation consumes canonical source provenance. Status: partial.
+- [x] 59. Core/native navigation consumes canonical source provenance. Status: exact compiler target locations use canonical source-site provenance; module-navigation and virtual-core location tests pass.
 - [x] 60. Semantic token semantic refinement consumes compiler occurrences. Status: direct source-index path plus focused LSP build/tests verified.
 - [x] 61. No semantic handler performs filesystem resolution on request path. Status: request-path audit found no filesystem reads; source reads are confined to analysis-service worker scan/refresh functions.
 - [x] 62. No semantic handler runs formal analysis on request path. Status: request-path audit found only immutable compiler formal-product reads; formal analysis remains in the worker.
@@ -329,6 +329,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] WorkspaceIndex authority-boundary audit.
   Result: source comments and request branches reviewed; full LSP integration remains green.
   Evidence: `WorkspaceIndex` is documented and used as a text-derived stale/unmapped compatibility index. Exact compiler-covered definition, references, workspace symbols, completion, and hover branches do not consult it for semantic identity or dispatch.
+- [x] Core/native source-provenance navigation gate.
+  Result: `cargo test -p phalcom-lsp --test module_navigation -- --nocapture` — 3 passed.
+  Evidence: relative imports, selective exports, and core class navigation resolve locations through canonical compiler source provenance; virtual source remains protocol adaptation.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
