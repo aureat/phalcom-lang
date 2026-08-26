@@ -45,7 +45,7 @@ pub fn some_call(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Va
     effects = pure
 )]
 pub fn some_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    some_call(vm, receiver, args)
+    Ok(wrap_some(_vm, args[0])?)
 }
 
 /// Eliminates an `Option`: `receiver.match(some: onSome, none: onNone)`.
@@ -74,5 +74,5 @@ fn type_error(receiver: &Value) -> crate::error::PhError {
         expected: "Option",
         found: receiver.type_name(),
     }
-    .into()
+        .into()
 }
