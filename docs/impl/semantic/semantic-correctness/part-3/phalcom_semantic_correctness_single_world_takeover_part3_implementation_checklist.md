@@ -51,8 +51,8 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Prove native metadata reaches canonical callable signatures.
 - [x] Prove System.print call result is Established Unit.
 - [x] Prove caller normal-tail return is Established Unit.
-- [ ] Add table-driven fixed-return coverage.
-- [ ] Prove advisory products cannot replace formal fixed returns.
+- [x] Add table-driven fixed-return coverage.
+- [x] Prove advisory products cannot replace formal fixed returns.
 
 ### Task 3: Module lifecycle
 
@@ -314,6 +314,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Completion presentation parity regression.
   Result: `cargo test -p phalcom-lsp --test integration stage3_completion:: -- --nocapture` — 4 passed.
   Evidence: receiver-aware, field, union, and import completion remain green; completion payloads contain no advisory glyph, confidence taxonomy, or observed-value boilerplate.
+- [x] Trusted native fixed-return precedence regression.
+  Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
+  Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.

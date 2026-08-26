@@ -2,7 +2,9 @@
 
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_semantic::advisory::{compare_expression, AdvisoryAgreement, AdvisoryConfidence, AdvisoryFact, ValueShape};
 use phalcom_semantic::checker::analysis::CallableAnalysis;
+use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
 use phalcom_semantic::workspace::analyze_single_module;
 use std::sync::Arc;
@@ -24,9 +26,66 @@ fn demo_run<'a>(analyses: &'a std::collections::HashMap<phalcom_semantic::Callab
 }
 
 #[test]
-fn system_print_call_and_tail_return_are_established_unit() {
+fn trusted_native_fixed_returns_are_table_driven() {
+    struct Case {
+        source: &'static str,
+        expression: &'static str,
+        expected_type: &'static str,
+    }
+
+    let cases = [
+        Case {
+            source: r#"
+class Demo {
+  run() {
+    System.print("hello")
+  }
+}
+"#,
+            expression: "System.print(\"hello\")",
+            expected_type: "Unit",
+        },
+        Case {
+            source: r#"
+class Demo {
+  run() {
+    System.gc
+  }
+}
+"#,
+            expression: "System.gc",
+            expected_type: "None",
+        },
+    ];
+
+    for case in cases {
+        let module = module_id();
+        let source: Arc<str> = Arc::from(case.source);
+        let program = Arc::new(phalcom_ast::parse(&source, 0).program);
+        let snapshot = analyze_single_module(module, source.clone(), program).snapshot;
+        let analysis = demo_run(&snapshot.callable_analyses);
+        let call = analysis
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end).map(str::trim) == Some(case.expression))
+            .unwrap_or_else(|| panic!("{} call expression", case.expression));
+
+        assert!(matches!(call.knowledge, TypeKnowledge::Known(ref evidence)
+            if snapshot.store.format_type(evidence.ty()) == case.expected_type
+                && evidence.status() == EvidenceStatus::Established
+                && evidence.origin() == EvidenceOrigin::NativeSignature));
+
+        assert_eq!(analysis.exits.normal_return_values.len(), 1);
+        assert!(matches!(&analysis.exits.normal_return_values[0], TypeKnowledge::Known(evidence)
+            if snapshot.store.format_type(evidence.ty()) == case.expected_type
+                && evidence.status() == EvidenceStatus::Established));
+    }
+}
+
+#[test]
+fn advisory_shape_cannot_replace_trusted_native_fixed_return() {
     let module = module_id();
-    let source = Arc::from(
+    let source: Arc<str> = Arc::from(
         r#"
 class Demo {
   run() {
@@ -36,21 +95,21 @@ class Demo {
 "#,
     );
     let program = Arc::new(phalcom_ast::parse(&source, 0).program);
-    let snapshot = analyze_single_module(module, source, program).snapshot;
+    let snapshot = analyze_single_module(module, source.clone(), program).snapshot;
     let analysis = demo_run(&snapshot.callable_analyses);
-
     let call = analysis
         .expressions
         .values()
-        .filter(|expression| expression.knowledge.ty() == Some(snapshot.store.unit()))
-        .max_by_key(|expression| expression.range.end.saturating_sub(expression.range.start))
+        .find(|expression| source.get(expression.range.start..expression.range.end).map(str::trim) == Some("System.print(\"hello\")"))
         .expect("System.print call expression");
+
+    let advisory = AdvisoryFact::new(
+        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Int".into())),
+        AdvisoryConfidence::Exact,
+    );
+    assert_eq!(compare_expression(&snapshot.store, call, &advisory), AdvisoryAgreement::Incomparable);
     assert!(matches!(call.knowledge, TypeKnowledge::Known(ref evidence)
-        if evidence.ty() == snapshot.store.unit()
+        if snapshot.store.format_type(evidence.ty()) == "Unit"
             && evidence.status() == EvidenceStatus::Established
             && evidence.origin() == EvidenceOrigin::NativeSignature));
-
-    assert_eq!(analysis.exits.normal_return_values.len(), 1);
-    assert!(matches!(&analysis.exits.normal_return_values[0], TypeKnowledge::Known(evidence)
-        if evidence.ty() == snapshot.store.unit() && evidence.status() == EvidenceStatus::Established));
 }
