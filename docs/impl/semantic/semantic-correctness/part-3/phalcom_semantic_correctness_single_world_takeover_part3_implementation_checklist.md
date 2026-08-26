@@ -248,7 +248,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 ### Compiler snapshot consumers
 
 - [x] 50. Diagnostics consume the compiler snapshot directly. Status: diagnostic publication now accepts the pinned compiler snapshot and boundary module map directly; stage 1 and stage 7 diagnostics pass.
-- [ ] 51. Hover consumes compiler source-site/presentation views directly. Status: pending.
+- [~] 51. Hover consumes compiler source-site/presentation views directly. Status: callable-target hover now reads the pinned compiler target, signature, formal return presentation, and advisory return directly; class, binding, and receiver-member presentation adapters remain.
 - [~] 52. Inlay hints consume compiler source sites directly. Status: formal binding lane is compiler-first; field, parameter, return, and closure lanes remain compatibility-backed.
 - [x] 53. Signature help resolves canonical compiler callable signatures. Status: exact-source path projects canonical compiler signatures with formal terms and advisory fallback; focused integration passes.
 - [ ] 54. Completion consumes compiler receiver/surface/advisory products. Status: partial.
@@ -332,6 +332,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Core/native source-provenance navigation gate.
   Result: `cargo test -p phalcom-lsp --test module_navigation -- --nocapture` — 3 passed.
   Evidence: relative imports, selective exports, and core class navigation resolve locations through canonical compiler source provenance; virtual source remains protocol adaptation.
+- [~] Compiler-owned callable hover cutover.
+  Result: `cargo test -p phalcom-lsp --test integration stage4_hover:: -- --nocapture` — 11 passed; `cargo test -p phalcom-lsp --test integration workspace_semantics -- --nocapture` — 9 passed; `cargo test -p phalcom-lsp --test integration semantic_consistency:: -- --nocapture` — 3 passed; `cargo check -p phalcom-lsp` passed.
+  Evidence: exact-source callable hover selects canonical compiler target and signature, renders compiler formal return presentation, and reads compiler advisory return before protocol rendering. Class, binding, and receiver-member metadata adapters remain bounded follow-up work.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
