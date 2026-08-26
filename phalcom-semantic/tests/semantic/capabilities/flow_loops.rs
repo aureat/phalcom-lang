@@ -1,4 +1,5 @@
 use crate::semantic::support::{Fixture, assert_source_contract};
+use phalcom_semantic::checker::flow::graph::{FlowEdgeKind, FlowNodeKind};
 use phalcom_semantic::identity::DispatchSide;
 
 /// LAW: same-type loop writes preserve current type.
@@ -103,4 +104,54 @@ class Probe {
     let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     f.assert_binding_established(run, "y", int_ty);
+}
+
+/// COMPOSED: loop fixed points retain mutation facts across nested break/continue paths.
+#[test]
+fn loop_fixpoint_preserves_mutated_integer_and_abrupt_edges() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ limit: Int) -> Int {
+    let total = 0
+    let i = 0
+    while (i < limit) {
+      i = i + 1
+      if (i == 2) { continue }
+      total = total + i
+    }
+    for item in [1, 2, 3] {
+      if (item == 2) { break }
+      total = total + item
+    }
+    total
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+
+    f.assert_binding_established(run, "total", int_ty);
+    f.assert_normal_return(
+        run,
+        crate::semantic::support::known(int_ty)
+            .established()
+            .origin(phalcom_semantic::EvidenceOrigin::Flow),
+    );
+    assert!(
+        run.flow_graph.nodes.values().any(|node| matches!(node.kind, FlowNodeKind::LoopHeader)),
+        "composed loop must publish loop-header structure"
+    );
+    assert!(
+        run.flow_graph.edges.values().any(|edge| matches!(edge.kind, FlowEdgeKind::BackEdge)),
+        "while loop must publish a back edge"
+    );
+    assert!(
+        run.flow_graph.edges.values().any(|edge| matches!(edge.kind, FlowEdgeKind::Continue))
+            && run.flow_graph.edges.values().any(|edge| matches!(edge.kind, FlowEdgeKind::Break)),
+        "nested abrupt loop paths must remain explicit in the flow graph"
+    );
+    f.assert_no_error_diagnostics();
 }

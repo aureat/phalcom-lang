@@ -246,3 +246,56 @@ class Probe {
     f.assert_binding_type(run, "good", string_ty);
     assert_eq!(f.binding(run, "bad").current.ty(), Some(string_ty));
 }
+
+/// COMPOSED: constructor specialization and both `super` dispatch sides retain identity.
+#[test]
+fn constructor_super_chain_preserves_instance_and_class_side_results() {
+    let f = Fixture::new(
+        r#"
+class Base {
+  @constructor new() {}
+
+  value(_ n: Int) -> Int { n }
+
+  @class
+  label() -> String { "base" }
+}
+
+class Derived is Base {
+  value(_ n: Int) -> Int { super.value(n) + 1 }
+
+  @class
+  label() -> String { super.label() }
+}
+
+class Probe {
+  @class
+  run() {
+    let object = Derived.new()
+    let number = object.value(4)
+    let text = Derived.label()
+  }
+}
+"#,
+    );
+    let derived = f.ty("Derived");
+    let int_ty = f.ty("Int");
+    let string_ty = f.ty("String");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+
+    f.assert_binding_established(run, "object", derived);
+    f.assert_binding_established(run, "number", int_ty);
+    f.assert_binding_established(run, "text", string_ty);
+
+    let derived_value = f.callable("Derived", "value", DispatchSide::Instance);
+    f.assert_expression_call_target(
+        f.expression(derived_value, "super.value(n)"),
+        &f.callable_id("Base", "value", DispatchSide::Instance),
+    );
+    let derived_label = f.callable("Derived", "label", DispatchSide::Class);
+    f.assert_expression_call_target(
+        f.expression(derived_label, "super.label()"),
+        &f.callable_id("Base", "label", DispatchSide::Class),
+    );
+    f.assert_no_error_diagnostics();
+}

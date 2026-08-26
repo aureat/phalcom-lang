@@ -171,6 +171,37 @@ class Probe {
     f.assert_binding_established(run, "y", int_ty);
 }
 
+/// COMPOSED: narrowing plus an abrupt arm publishes only reachable normal values.
+#[test]
+fn refined_branch_with_abrupt_else_publishes_only_normal_value() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ value: Object) {
+    if (value.is(Int)) {
+      return value
+    } else {
+      throw value
+    }
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+
+    f.assert_expression_established(f.expression_n(run, "value", 1), int_ty);
+    f.assert_normal_return(
+        run,
+        known(int_ty)
+            .established()
+            .origin(phalcom_semantic::EvidenceOrigin::Flow),
+    );
+    assert_eq!(run.exits.throws.len(), 1, "throwing arm must remain recorded as abrupt");
+    f.assert_no_error_diagnostics();
+}
+
 #[test]
 fn same_type_writes_in_both_branches_preserve_flow_type() {
     let f = Fixture::new(

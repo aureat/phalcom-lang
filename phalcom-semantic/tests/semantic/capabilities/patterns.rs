@@ -85,3 +85,31 @@ class Probe {
         !matches!(f.analysis.snapshot.store.get(values), phalcom_semantic::types::store::TypeData::Nominal { declaration } if declaration.name.as_ref() == "Object")
     );
 }
+
+/// COMPOSED: collection rest capture must preserve head precision and product structure.
+#[test]
+#[ignore = "GATED: list/rest pattern lowering is not formal yet"]
+fn collection_and_destructure_facts_preserve_element_shapes() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let source = [1, 2, 3]
+    let [head, *tail] = source
+    let pair = (head, tail)
+    let record = #{first: head, remaining: tail}
+    record
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let tail = f.binding(run, "tail").current.ty().expect("rest binding type");
+
+    f.assert_binding_established(run, "head", int_ty);
+    assert!(!f.binding(run, "tail").current.is_dynamic(), "rest capture must retain structural knowledge");
+    f.assert_tuple_types(f.binding(run, "pair").current.ty().expect("pair type"), &[int_ty, tail]);
+    f.assert_record(f.binding(run, "record").current.ty().expect("record type"));
+}
