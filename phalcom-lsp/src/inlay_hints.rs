@@ -12,7 +12,9 @@ use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintPa
 use crate::documents::{Document, DocumentSnapshot};
 use crate::line_index::LineIndex;
 use crate::request_context::RequestContext;
-use crate::semantic::{Confidence, FileSemanticSnapshot, InferredValue, SemanticBindingKind, SemanticDb, SemanticSnapshot, ValueShape};
+use crate::semantic::{
+    CompilerSemanticSnapshot, Confidence, FileSemanticSnapshot, InferredValue, SemanticBindingKind, SemanticDb, SemanticSnapshot, ValueShape,
+};
 
 type SourceRangeKey = (usize, usize);
 
@@ -383,6 +385,8 @@ pub fn hints_for_with_policy(db: &SemanticDb, uri: &Url, doc: &Document, visible
     collect_file_semantic_hints(
         &snapshot,
         Some(&global_snapshot),
+        None,
+        None,
         &doc.text,
         &doc.line_index,
         visible_start,
@@ -415,6 +419,11 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
     collect_file_semantic_hints(
         snapshot,
         Some(&request.semantic),
+        request
+            .compiler
+            .as_deref()
+            .filter(|_| matches!(request.source_match, crate::request_context::SourceMatch::Exact)),
+        request.compiler_module(),
         &request.document.text,
         &request.document.line_index,
         visible_start,
@@ -432,6 +441,8 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
 fn collect_file_semantic_hints(
     file_snapshot: &FileSemanticSnapshot,
     global_snapshot: Option<&SemanticSnapshot>,
+    compiler_snapshot: Option<&CompilerSemanticSnapshot>,
+    compiler_module: Option<&phalcom_modules::ModuleId>,
     text: &str,
     line_index: &LineIndex,
     visible_start: usize,
@@ -457,10 +468,15 @@ fn collect_file_semantic_hints(
         let Some(value) = file_snapshot.local_facts.value_before(binding.id, range.end.saturating_add(1)) else {
             continue;
         };
-        let formal = global_snapshot.and_then(|snap| {
-            let uri = snap.documents.uri_for_lsp(&file_snapshot.module)?;
-            snap.formal_binding_presentation_at(&uri, &binding.name, range.end)
-        });
+        let formal = compiler_snapshot
+            .zip(compiler_module)
+            .and_then(|(snapshot, module)| compiler_formal_presentation_at(snapshot, module, &binding.name, range.end))
+            .or_else(|| {
+                global_snapshot.and_then(|snap| {
+                    let uri = snap.documents.uri_for_lsp(&file_snapshot.module)?;
+                    snap.formal_binding_presentation_at(&uri, &binding.name, range.end)
+                })
+            });
         if formal.is_none() && (!should_render(policy, &value.confidence, &value.shape) || (suppress_obvious && obvious_initializer_text(text, range))) {
             continue;
         }
@@ -963,6 +979,25 @@ fn find_return_hint_offset(
             }
             IndexAccessor::Set { .. } => None,
         },
+    }
+}
+
+fn compiler_formal_presentation_at(
+    snapshot: &CompilerSemanticSnapshot,
+    module: &phalcom_modules::ModuleId,
+    name: &str,
+    offset: usize,
+) -> Option<phalcom_semantic::FormalPresentation> {
+    let fact = snapshot.formal_fact_at(module, offset)?;
+    match &fact.fact {
+        phalcom_semantic::FormalFactRef::Binding { callable, binding } => {
+            let state = snapshot.formal_binding(callable, *binding)?;
+            (state.name == name).then(|| phalcom_semantic::TypePresenter::new(&snapshot.store).present_knowledge(&state.current))
+        }
+        phalcom_semantic::FormalFactRef::Expression { callable, expression } => snapshot
+            .formal_expression(callable, *expression)
+            .map(|expression| phalcom_semantic::TypePresenter::new(&snapshot.store).present_expression(expression)),
+        phalcom_semantic::FormalFactRef::Callable(_) => None,
     }
 }
 

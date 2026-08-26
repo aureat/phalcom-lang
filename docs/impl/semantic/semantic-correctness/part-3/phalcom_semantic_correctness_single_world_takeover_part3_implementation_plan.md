@@ -568,6 +568,26 @@ Focused gate:
     cargo test -p phalcom-lsp
     cargo clippy --workspace
 
+## Continuation slice — compiler-first LSP request consumers
+
+This slice advances the Part 2 Tasks 10–11 / Part 3 Tasks 8–10 cutover without
+deleting duplicate authority before consumer parity is proven.
+
+- [x] Route exact-source signature help through canonical compiler callable signatures, formal type terms, and compiler advisory fallback.
+- [~] Route exact-source inlay formal binding presentation through compiler source/formal products; retain compatibility reads for remaining field, parameter, return, and closure lanes.
+- [x] Route exact-source definition and references through compiler target occurrences, including binding declaration roots plus reverse-indexed uses.
+- [x] Route workspace symbols through compiler source declarations/callable/field sites before the text index fallback.
+- [ ] Migrate completion receiver/surface reads and remove its semantic reconstruction dependency.
+- [ ] Re-run consumer parity and forbidden-authority audits before deleting `WorkspaceIndex` or duplicate LSP semantic modules.
+
+Focused gates:
+
+    cargo test -p phalcom-lsp --test integration signature_help_recovers_incomplete_receiver_call
+    cargo test -p phalcom-lsp --test integration inlay
+    cargo test -p phalcom-lsp --test integration semantic_consistency::local_binding_definition_and_references_are_precise
+    cargo test -p phalcom-lsp --test integration stage2_index::goto_definition_and_workspace_symbol_resolve_across_files
+    cargo test -p phalcom-lsp --test module_navigation
+
 ## Required audit commands
 
 Run after Task 13 and again before release:

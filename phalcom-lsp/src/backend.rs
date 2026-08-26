@@ -743,6 +743,120 @@ impl Backend {
         targets.iter().filter_map(|target| self.member_definition_location(&target.member)).collect()
     }
 
+    fn compiler_target_at_request(&self, request: &RequestContext, offset: usize) -> Option<phalcom_semantic::SemanticTargetId> {
+        if !matches!(request.source_match, SourceMatch::Exact) {
+            return None;
+        }
+        let compiler = request.compiler.as_deref()?;
+        let module = request.compiler_module()?;
+        if let Some(target) = compiler.occurrence_at(module, offset).and_then(|occurrence| occurrence.target.cloned()) {
+            return Some(target);
+        }
+        match &compiler.formal_fact_at(module, offset)?.fact {
+            phalcom_semantic::FormalFactRef::Expression { callable, .. } => Some(phalcom_semantic::SemanticTargetId::Callable(callable.clone())),
+            phalcom_semantic::FormalFactRef::Callable(callable) => Some(phalcom_semantic::SemanticTargetId::Callable(callable.clone())),
+            phalcom_semantic::FormalFactRef::Binding { .. } => None,
+        }
+    }
+
+    fn compiler_uri_for_module(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
+        let published = self.semantic.snapshot();
+        if let Some(uri) = published.documents.get_by_module(module) {
+            return Some(uri.clone());
+        }
+        let source = compiler.sources.get(module)?.source.as_ref()?;
+        Url::from_file_path(&source.display_path)
+            .ok()
+            .or_else(|| Url::parse(source.source_id.0.as_ref()).ok())
+    }
+
+    fn compiler_site_location(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, site: &phalcom_semantic::SourceSiteId) -> Option<Location> {
+        let source = compiler.source_site(site)?;
+        let module = match &site.owner {
+            phalcom_semantic::SourceOwner::Module(module) => module,
+            phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
+        };
+        let uri = self.compiler_uri_for_module(compiler, module)?;
+        let range = self.with_source_snapshot(&uri, |_, _, line_index| line_index.range(source.range.start..source.range.end))?;
+        Some(Location { uri, range })
+    }
+
+    fn compiler_target_locations(
+        &self,
+        compiler: &crate::semantic::CompilerSemanticSnapshot,
+        target: &phalcom_semantic::SemanticTargetId,
+        declarations_only: bool,
+    ) -> Vec<Location> {
+        let sites = match target {
+            phalcom_semantic::SemanticTargetId::Binding(site) => compiler
+                .occurrences_for_target(target)
+                .unwrap_or_default()
+                .iter()
+                .cloned()
+                .chain(std::iter::once(site.clone()))
+                .collect(),
+            _ => compiler.occurrences_for_target(target).unwrap_or_default().to_vec(),
+        };
+        let mut locations = Vec::new();
+        for site in sites {
+            let is_declaration = compiler
+                .source_index()
+                .module(match &site.owner {
+                    phalcom_semantic::SourceOwner::Module(module) => module,
+                    phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
+                })
+                .and_then(|module| module.occurrences.occurrence_for_site(&site))
+                .is_some_and(|occurrence| occurrence.role == phalcom_semantic::source_index::OccurrenceRole::Declaration);
+            let is_binding_declaration = matches!(target, phalcom_semantic::SemanticTargetId::Binding(declaration) if declaration == &site);
+            if declarations_only && !is_declaration && !is_binding_declaration {
+                continue;
+            }
+            if let Some(location) = self.compiler_site_location(compiler, &site)
+                && !locations
+                    .iter()
+                    .any(|existing: &Location| existing.uri == location.uri && existing.range == location.range)
+            {
+                locations.push(location);
+            }
+        }
+        locations
+    }
+
+    fn compiler_workspace_symbols(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, query: &str) -> Vec<SymbolInformation> {
+        let query = query.to_lowercase();
+        let mut symbols = Vec::new();
+        for module in compiler.source_index().modules.values() {
+            for site in module.structure.sites.values() {
+                let (name, kind, container_name) = match &site.kind {
+                    phalcom_semantic::SourceSiteKind::Declaration(declaration) => (declaration.name.to_string(), SymbolKind::CLASS, None),
+                    phalcom_semantic::SourceSiteKind::Callable(callable) => {
+                        (callable.selector.encode(), SymbolKind::METHOD, Some(callable.owner.name.to_string()))
+                    }
+                    phalcom_semantic::SourceSiteKind::Field(field) => (field.name.to_string(), SymbolKind::FIELD, Some(field.owner.name.to_string())),
+                    _ => continue,
+                };
+                if !name.to_lowercase().contains(&query) {
+                    continue;
+                }
+                let Some(location) = self.compiler_site_location(compiler, &site.id) else {
+                    continue;
+                };
+                #[allow(deprecated)]
+                symbols.push(SymbolInformation {
+                    name,
+                    kind,
+                    tags: None,
+                    deprecated: None,
+                    location,
+                    container_name,
+                });
+            }
+        }
+        symbols.sort_by(|left, right| left.name.cmp(&right.name).then_with(|| left.location.uri.cmp(&right.location.uri)));
+        symbols.dedup_by(|left, right| left.name == right.name && left.location == right.location);
+        symbols
+    }
+
     /// Resolves the selector under `position` in the open document `uri`,
     /// via that document's own cached parse and [`LineIndex`], together with
     /// the matched node's own LSP [`tower_lsp::lsp_types::Range`] (so a
@@ -929,6 +1043,21 @@ impl Backend {
         let request = self.request_context(uri)?;
         let offset = request.document.line_index.offset(position);
         let site = signature_help::call_site_at(&request.document.text, offset)?;
+
+        if matches!(request.source_match, SourceMatch::Exact)
+            && let Some(compiler) = request.compiler.as_deref()
+            && let Some(module) = request.compiler_module()
+            && let Some(signature) = compiler_signature_for_call(compiler, module, &site)
+        {
+            let advisory = compiler.advisory_callable(&signature.callable);
+            return Some(signature_help::render_compiler_signature_help(
+                signature,
+                &compiler.store,
+                advisory,
+                site.active_parameter,
+            ));
+        }
+
         let member = if let Some(receiver_range) = site.receiver_range {
             let resolved = self.semantic_receiver_for_range(&request.semantic, uri, &request.document, receiver_range)?;
             resolved.alternatives.into_iter().find_map(|(class, receiver_kind)| {
@@ -1424,6 +1553,28 @@ fn hover_member_kind(member: &crate::semantic::MemberSurface) -> crate::index::M
     }
 }
 
+fn compiler_signature_for_call<'a>(
+    compiler: &'a crate::semantic::CompilerSemanticSnapshot,
+    module: &phalcom_modules::ModuleId,
+    site: &signature_help::CallSite,
+) -> Option<&'a phalcom_semantic::CallableSemanticSignature> {
+    let callable = compiler
+        .formal_fact_at(module, site.name_range.start)
+        .and_then(|fact| match &fact.fact {
+            phalcom_semantic::FormalFactRef::Callable(callable) | phalcom_semantic::FormalFactRef::Expression { callable, .. } => Some(callable),
+            phalcom_semantic::FormalFactRef::Binding { .. } => None,
+        })
+        .or_else(|| {
+            compiler
+                .occurrence_at(module, site.name_range.start)
+                .and_then(|occurrence| match occurrence.target {
+                    Some(phalcom_semantic::SemanticTargetId::Callable(callable)) => Some(callable),
+                    _ => None,
+                })
+        })?;
+    compiler.callable_signatures().get(callable)
+}
+
 fn member_matches_call(member: &crate::semantic::MemberSurface, site: &signature_help::CallSite) -> bool {
     let encoded = member.selector.encode();
     encoded == site.selector || (encoded.split_once('(').map(|(name, _)| name == site.name).unwrap_or(false) && member.params.len() > site.active_parameter)
@@ -1803,6 +1954,15 @@ impl LanguageServer for Backend {
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
 
         let offset = request.document.line_index.offset(position);
+        if let Some(target) = self.compiler_target_at_request(&request, offset)
+            && let Some(compiler) = request.compiler.as_deref()
+        {
+            let locations = self.compiler_target_locations(compiler, &target, true);
+            if !locations.is_empty() {
+                return Ok(Some(GotoDefinitionResponse::Array(locations)));
+            }
+        }
+
         if let Some(occurrence) = matches!(request.source_match, SourceMatch::Exact)
             .then(|| request.semantic.occurrence_at(&uri, offset))
             .flatten()
@@ -1941,6 +2101,15 @@ impl LanguageServer for Backend {
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
 
         let offset = request.document.line_index.offset(position);
+        if let Some(target) = self.compiler_target_at_request(&request, offset)
+            && let Some(compiler) = request.compiler.as_deref()
+        {
+            let locations = self.compiler_target_locations(compiler, &target, !params.context.include_declaration);
+            if !locations.is_empty() {
+                return Ok(Some(locations));
+            }
+        }
+
         if let Some(occurrence) = matches!(request.source_match, SourceMatch::Exact)
             .then(|| request.semantic.occurrence_at(&uri, offset))
             .flatten()
@@ -1990,6 +2159,12 @@ impl LanguageServer for Backend {
     /// (hover, Stage 4, already needs that per-kind rendering and is the
     /// natural place to add it once).
     async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
+        if let Some(compiler) = self.semantic.compiler_snapshot() {
+            let symbols = self.compiler_workspace_symbols(&compiler, &params.query);
+            if !symbols.is_empty() {
+                return Ok(Some(symbols));
+            }
+        }
         let matches = self.index.symbols_matching(&params.query);
         let symbols: Vec<SymbolInformation> = matches
             .into_iter()

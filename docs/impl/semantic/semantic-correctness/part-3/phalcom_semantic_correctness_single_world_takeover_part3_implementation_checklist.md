@@ -114,7 +114,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [ ] Hover explains narrowing, specialization, native return, advisory-only, and actionable Unknown only when useful.
 - [ ] Explicit annotations suppress duplicate inlays.
 - [ ] Inlays use colon/arrow language syntax.
-- [ ] Signature help uses canonical callable signatures.
+- [x] Signature help uses canonical callable signatures on exact-source requests; compatibility fallback remains for missing compiler products.
 - [ ] No advisory glyph or status decoration remains.
 
 ### Task 9: Completion
@@ -127,10 +127,10 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 
 ### Task 10: Navigation and WorkspaceIndex deletion
 
-- [ ] Definition uses compiler exact target first.
+- [x] Definition uses compiler exact target first on exact-source requests.
 - [ ] Advisory target is fallback only when exact target is absent.
-- [ ] References use compiler reverse target index.
-- [ ] Workspace symbols use compiler declaration index.
+- [x] References use compiler reverse target index on exact-source requests.
+- [x] Workspace symbols use compiler declaration/source index first, with text-index fallback.
 - [ ] Snapshot-local identities cannot alias across revisions.
 - [ ] All semantic WorkspaceIndex consumers are removed.
 - [ ] WorkspaceIndex is deleted or reduced to a documented non-semantic text-only role.
@@ -249,12 +249,12 @@ Every item remains unchecked until independently evidenced. Initial status descr
 
 - [ ] 50. Diagnostics consume the compiler snapshot directly. Status: pending.
 - [ ] 51. Hover consumes compiler source-site/presentation views directly. Status: pending.
-- [ ] 52. Inlay hints consume compiler source sites directly. Status: pending.
-- [ ] 53. Signature help resolves canonical compiler callable signatures. Status: pending.
+- [~] 52. Inlay hints consume compiler source sites directly. Status: formal binding lane is compiler-first; field, parameter, return, and closure lanes remain compatibility-backed.
+- [x] 53. Signature help resolves canonical compiler callable signatures. Status: exact-source path projects canonical compiler signatures with formal terms and advisory fallback; focused integration passes.
 - [ ] 54. Completion consumes compiler receiver/surface/advisory products. Status: partial.
-- [ ] 55. Definition consumes compiler target/location indexes. Status: pending.
-- [ ] 56. References consume compiler reverse target index. Status: pending.
-- [ ] 57. Workspace symbols consume compiler declaration index. Status: pending.
+- [x] 55. Definition consumes compiler target/location indexes. Status: exact-source compiler target/location path is primary; focused navigation tests pass.
+- [x] 56. References consume compiler reverse target index. Status: exact-source reverse target path is primary, including binding declaration roots; focused binding navigation passes.
+- [x] 57. Workspace symbols consume compiler declaration index. Status: compiler source declaration/callable/field index is primary with text-index fallback; focused cross-file symbol test passes.
 - [ ] 58. Import/module completion consumes ModuleQueryFacade. Status: pending.
 - [ ] 59. Core/native navigation consumes canonical source provenance. Status: partial.
 - [x] 60. Semantic token semantic refinement consumes compiler occurrences. Status: direct source-index path plus focused LSP build/tests verified.
