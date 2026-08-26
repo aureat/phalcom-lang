@@ -299,6 +299,14 @@ Every item remains unchecked until independently evidenced. Initial status descr
 
 ### Focused gates
 
+- [x] Continuation slice: compiler-owned advisory module-member projection and cross-module parameter propagation.
+  Result: `cargo test -p phalcom-lsp --test integration workspace_semantics -- --nocapture` — 9 passed; `cargo test -p phalcom-semantic --test semantic advisory_parameter_transfer -- --nocapture` — 2 passed.
+  Evidence: imported module aliases use canonical source targets; linked module exports and compiler declaration surfaces resolve `Provider.Service` as a verified class object; join and forwarding regressions pass without restoring LSP semantic authority.
+- [x] Focused consumer/lifecycle rerun after continuation slice.
+  Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
+  Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.
+- [x] Continuation graph refresh: `graphify update . --no-cluster`.
+  Result: graph refreshed with 85,324 nodes and 130,021 edges; immediate `git status --short --branch` showed no graphify output changes.
 - [x] `cargo test -p phalcom-modules --test workspace_session -- --nocapture`
   Result: 5 passed.
   Evidence: persistent project/standalone identity, overlays, disk fallback, removal, relative imports, and root reset.
