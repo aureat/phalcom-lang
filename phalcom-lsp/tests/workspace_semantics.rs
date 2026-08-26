@@ -58,6 +58,37 @@ async fn editing_an_imported_provider_invalidates_consumer_completion() {
 }
 
 #[tokio::test]
+async fn open_change_close_reopen_preserves_latest_compiler_world() {
+    let workspace = TestWorkspace::from_fixture_dir("workspace");
+    let uri = workspace.file_uri("lifecycle.ph");
+    let before = MarkedSource::parse("class Item {\n  @constructor new() { }\n  oldOnly() { }\n}\nlet item = Item.new()\nitem./*@completion*/\n");
+    let after = MarkedSource::parse("class Item {\n  @constructor new() { }\n  newOnly() { }\n}\nlet item = Item.new()\nitem./*@completion*/\n");
+    workspace.write("lifecycle.ph", &before.text);
+
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(Some(&workspace.uri())).await;
+    lsp.open_and_wait(&uri, &before.text).await;
+
+    let old_labels = completion_labels(&lsp.completion(&uri, before.position("completion")).await);
+    assert!(old_labels.iter().any(|label| label == "oldOnly()"), "initial compiler world: {old_labels:#?}");
+
+    let before_change = lsp.counter_snapshot();
+    lsp.change(&uri, &after.text).await;
+    lsp.wait_for_semantic_publication_after(before_change).await;
+    let changed_labels = completion_labels(&lsp.completion(&uri, after.position("completion")).await);
+    assert!(changed_labels.iter().any(|label| label == "newOnly()"), "changed compiler world: {changed_labels:#?}");
+    assert!(!changed_labels.iter().any(|label| label == "oldOnly()"), "stale changed world: {changed_labels:#?}");
+
+    lsp.close(&uri).await;
+    lsp.open_and_wait(&uri, &after.text).await;
+    let reopened_labels = completion_labels(&lsp.completion(&uri, after.position("completion")).await);
+    assert!(reopened_labels.iter().any(|label| label == "newOnly()"), "reopened compiler world: {reopened_labels:#?}");
+    assert!(!reopened_labels.iter().any(|label| label == "oldOnly()"), "reopened stale world: {reopened_labels:#?}");
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
 async fn parameter_facts_from_multiple_consumer_modules_join_instead_of_overwriting() {
     let workspace = TestWorkspace::from_fixture_dir("interprocedural_join");
     let a_uri = workspace.file_uri("consumer_a.ph");

@@ -160,7 +160,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 ### Task 14: Acceptance suites
 
 - [ ] Cold/incremental final-world parity.
-- [ ] Open/change/close/reopen lifecycle.
+- [x] Open/change/close/reopen lifecycle.
 - [ ] Delete/rename lifecycle.
 - [ ] Project configuration lifecycle.
 - [ ] Cancellation/latest-wins.
@@ -270,7 +270,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [ ] 67. Duplicate LSP scope/occurrence/dispatch/module graph/advisory solver is deleted. Status: pending.
 - [x] 68. WorkspaceIndex semantic authority is deleted. Status: exact compiler-covered requests bypass the documented text-only compatibility index; remaining use is limited to stale/unmapped fallback while duplicate LSP deletion proceeds.
 - [ ] 69. Cold and incremental final semantic products pass parity tests. Status: pending.
-- [ ] 70. Open/change/close lifecycle tests pass. Status: pending.
+- [x] 70. Open/change/close lifecycle tests pass. Status: open, change, close, and reopen preserve the latest compiler world; stale member completion is absent after change and reopen.
 - [ ] 71. Delete/rename lifecycle tests pass. Status: pending.
 - [ ] 72. Project configuration lifecycle tests pass. Status: pending.
 - [x] 73. Cancellation/latest-wins tests pass. Status: current LSP analysis-service suite covers stale batches, coalescing, generation ordering, and candidate publication; all 17 analysis-service tests pass.
@@ -338,6 +338,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [~] Compiler-owned inlay parameter cutover.
   Result: `cargo test -p phalcom-lsp --test integration stage6_inlay_hints:: -- --nocapture` — 2 passed; `cargo test -p phalcom-lsp --test integration semantic_consistency:: -- --nocapture` — 3 passed; `cargo check -p phalcom-lsp` passed.
   Evidence: exact-source parameter hints resolve canonical callable identity and parameter slot from compiler source bindings/signatures before reading advisory parameter products; field, return, and closure source enumeration remains bounded follow-up work.
+- [x] Open/change/close/reopen compiler-world lifecycle regression.
+  Result: `cargo test -p phalcom-lsp --test integration workspace_semantics::open_change_close_reopen_preserves_latest_compiler_world -- --nocapture` — 1 passed.
+  Evidence: compiler-backed completion exposes the initial member, replaces it after `didChange`, and retains only the latest member after `didClose` followed by `didOpen`; stale completion is absent in both updated states.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.

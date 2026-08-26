@@ -128,6 +128,16 @@ impl TestLsp {
         .await;
     }
 
+    pub async fn close(&mut self, uri: &str) {
+        self.notify(
+            "textDocument/didClose",
+            json!({
+                "textDocument": { "uri": uri }
+            }),
+        )
+        .await;
+    }
+
     pub async fn completion(&mut self, uri: &str, position: Position) -> Value {
         self.request(
             "textDocument/completion",
