@@ -273,7 +273,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [ ] 70. Open/change/close lifecycle tests pass. Status: pending.
 - [ ] 71. Delete/rename lifecycle tests pass. Status: pending.
 - [ ] 72. Project configuration lifecycle tests pass. Status: pending.
-- [ ] 73. Cancellation/latest-wins tests pass. Status: pending.
+- [x] 73. Cancellation/latest-wins tests pass. Status: current LSP analysis-service suite covers stale batches, coalescing, generation ordering, and candidate publication; all 17 analysis-service tests pass.
 - [x] 74. Concurrent old-snapshot request immutability test passes. Status: `request_context` unit test passes in the current full LSP library run.
 - [x] 75. Body-only edit structural counters show no project-universe rebuild. Status: verified by incremental stats regression.
 - [ ] 76. Unrelated callables remain reused after isolated body edit. Status: pending.
@@ -364,6 +364,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Current compiler package rerun.
   Result: `cargo test -p phalcom-core -- --nocapture` — all package targets passed: 81 unit, 191 integration, 48 invariants, 58 language, and contract/spec targets; 4 language tests ignored by design.
   Evidence: core/runtime/native contract surface remains green after semantic/LSP changes.
+- [x] Current compiler semantic integration rerun.
+  Result: `cargo test -p phalcom-semantic --test semantic -- --nocapture` — 384 passed, 10 intentionally ignored.
+  Evidence: canonical identity, formal projection, advisory convergence, workspace linking, source indexes, incrementality, and fixed-return capability targets remain green.
 - [x] Trusted native return IDE regression.
   Result: `cargo test -p phalcom-lsp --test integration semantic_consistency::trusted_system_print_return_never_surfaces_as_option_in_ide_hints -- --nocapture` — 1 passed; `cargo test -p phalcom-semantic --test semantic capabilities::generics::independent_fixed_generic_return_stays_established -- --nocapture` — 1 passed; `cargo test -p phalcom-core --test native_contracts -- --nocapture` — 3 passed.
   Evidence: `System.print` normal-tail hover and return inlay never report `Option`; generic fixed-return precedence and native metadata/runtime contracts remain green.
