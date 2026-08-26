@@ -88,6 +88,35 @@ fn removed_source_reports_identity_change() {
 }
 
 #[test]
+fn standalone_move_is_remove_then_add_identity_transition() {
+    let temp = TempDir::new().unwrap();
+    let old_file = temp.path().join("old.ph");
+    let new_file = temp.path().join("new.ph");
+    fs::write(&old_file, "class Moved {}\n").unwrap();
+    fs::write(&new_file, "class Moved {}\n").unwrap();
+    let old_source = location(&old_file);
+    let new_source = location(&new_file);
+    let mut session = WorkspaceModuleSession::new();
+
+    let first = session
+        .set_overlay(old_source.clone(), Arc::from("class Moved {}\n"), SourceRevision(1))
+        .unwrap();
+    let old_module = first.sources.keys().next().cloned().unwrap();
+
+    let removed = session.remove_source(old_source.source_id.clone()).unwrap();
+    assert!(removed.removed_modules.contains(&old_module));
+    assert!(removed.identity_changes.contains(&old_module));
+
+    let added = session
+        .set_overlay(new_source.clone(), Arc::from("class Moved {}\n"), SourceRevision(1))
+        .unwrap();
+    let new_module = session.module_for_source(&new_source.source_id).unwrap().clone();
+    assert!(!added.sources.contains_key(&old_module));
+    assert_ne!(new_module, old_module, "logical path move must not preserve old module identity");
+    assert!(session.module_for_source(&old_source.source_id).is_none());
+}
+
+#[test]
 fn standalone_relative_imports_resolve_from_registered_sources() {
     let temp = TempDir::new().unwrap();
     let mover = temp.path().join("mover.ph");

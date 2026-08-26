@@ -62,9 +62,9 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Overlay precedence over disk.
 - [x] Close restores disk source.
 - [x] Delete clears source/module mappings.
-- [ ] Rename/move follows canonical identity transition.
-- [ ] Project/config changes use explicit rebuild path.
-- [ ] Batch overlays link once.
+- [x] Rename/move follows canonical identity transition.
+- [x] Project/config changes use explicit rebuild path.
+- [x] Batch overlays link once.
 
 ### Task 4: Semantic publication
 
@@ -302,6 +302,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Continuation slice: compiler-owned advisory module-member projection and cross-module parameter propagation.
   Result: `cargo test -p phalcom-lsp --test integration workspace_semantics -- --nocapture` — 9 passed; `cargo test -p phalcom-semantic --test semantic advisory_parameter_transfer -- --nocapture` — 2 passed.
   Evidence: imported module aliases use canonical source targets; linked module exports and compiler declaration surfaces resolve `Provider.Service` as a verified class object; join and forwarding regressions pass without restoring LSP semantic authority.
+- [x] Persistent module lifecycle transition regression.
+  Result: `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 6 passed.
+  Evidence: standalone rename/move is represented as remove-old plus add-new; project configuration reset, batch overlay linking, overlay precedence, close-to-disk fallback, removal, and relative import identity all pass.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.
