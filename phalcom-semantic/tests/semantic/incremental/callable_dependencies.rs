@@ -580,3 +580,119 @@ class Untyped {
     assert!(dependencies.iter().any(|edge| edge.dependency == QueryKey::DeclarationSurface(owner.clone())));
     assert!(dependencies.iter().all(|edge| edge.dependency != QueryKey::CallableSignature(callable.clone())));
 }
+
+/// COMPOSED: body edits reuse callers, signature edits invalidate callers, and removal/re-addition clears stale products.
+#[test]
+fn dependency_edit_remove_readd_recomputes_affected_summary_deterministically() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let client_owner = DeclarationId::new(module.clone(), "Client".into());
+    let client_read = CallableId::new(client_owner, Selector::method("read", []).unwrap(), DispatchSide::Class);
+    let api_owner = DeclarationId::new(module.clone(), "Api".into());
+    let api_value = CallableId::new(api_owner, Selector::method("value", []).unwrap(), DispatchSide::Class);
+
+    let source_v1 = r#"
+class Api {
+  @class value() -> Int { 1 }
+}
+class Client {
+  @class read() { Api.value() }
+}
+"#;
+    let update_v1 = session.update(single_module_input(module.clone(), source_v1, 1));
+    let client_v1 = update_v1
+        .snapshot
+        .callable_analyses
+        .get(&client_read)
+        .cloned()
+        .expect("Client.read v1");
+    assert!(update_v1.snapshot.callable_analyses.contains_key(&api_value));
+
+    let source_v2 = r#"
+class Api {
+  @class value() -> Int { 2 }
+}
+class Client {
+  @class read() { Api.value() }
+}
+"#;
+    let update_v2 = session.update(single_module_input(module.clone(), source_v2, 2));
+    assert_eq!(update_v2.stats.callables_recomputed, 1, "body-only edit should recompute Api.value");
+    assert_eq!(update_v2.stats.callables_reused, 1, "body-only edit should reuse Client.read");
+    let client_v2 = update_v2
+        .snapshot
+        .callable_analyses
+        .get(&client_read)
+        .cloned()
+        .expect("Client.read v2");
+    assert!(Arc::ptr_eq(&client_v1, &client_v2));
+
+    let source_v3 = r#"
+class Api {
+  @class value() -> String { "changed" }
+}
+class Client {
+  @class read() { Api.value() }
+}
+"#;
+    let update_v3 = session.update(single_module_input(module.clone(), source_v3, 3));
+    assert_eq!(update_v3.stats.callables_recomputed, 2, "signature edit must invalidate caller");
+    let client_v3 = update_v3
+        .snapshot
+        .callable_analyses
+        .get(&client_read)
+        .expect("Client.read v3");
+    let string_ty = update_v3
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(ModuleId::core(), "String".into()))
+        .expect("String type");
+    let call_v3 = client_v3
+        .expressions
+        .values()
+        .find(|expression| source_v3.get(expression.range.start..expression.range.end) == Some("Api.value()"))
+        .expect("Client.read call v3");
+    assert_eq!(call_v3.knowledge.ty(), Some(string_ty));
+    assert!(!Arc::ptr_eq(&client_v1, client_v3));
+
+    let source_v4 = r#"
+class Client {
+  @class read() { Api.value() }
+}
+"#;
+    let update_v4 = session.update(single_module_input(module.clone(), source_v4, 4));
+    assert!(
+        update_v4
+            .snapshot
+            .callable_analyses
+            .keys()
+            .all(|callable| callable.owner.name.as_ref() != "Api"),
+        "removed declarations must not leave stale callable products"
+    );
+
+    let source_v5 = r#"
+class Api {
+  @class value() -> String { "restored" }
+}
+class Client {
+  @class read() { Api.value() }
+}
+"#;
+    let update_v5 = session.update(single_module_input(module, source_v5, 5));
+    let client_v5 = update_v5
+        .snapshot
+        .callable_analyses
+        .get(&client_read)
+        .expect("Client.read v5");
+    let call_v5 = client_v5
+        .expressions
+        .values()
+        .find(|expression| source_v5.get(expression.range.start..expression.range.end) == Some("Api.value()"))
+        .expect("Client.read call v5");
+    assert_eq!(call_v5.knowledge.ty(), Some(string_ty));
+    assert!(update_v5.snapshot.callable_analyses.contains_key(&api_value));
+    assert!(update_v5.snapshot.internal_incidents.is_empty());
+}
