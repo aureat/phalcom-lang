@@ -28,7 +28,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri};
+use crate::analysis_service::{
+    AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri, resolve_source_import,
+};
 use crate::analysis_status::AnalysisStatusNotification;
 
 use serde::Deserialize;
@@ -53,12 +55,105 @@ use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfCountersHandle, PerfSpan};
-use crate::request_context::RequestContext;
+use crate::request_context::{RequestContext, SourceMatch};
 use crate::semantic::{FileRevision, OccurrenceRole, SemanticDb, SemanticSnapshot, SemanticTarget, ValueShape};
 use crate::semantic_tokens;
 use crate::signature_help;
 
 use crate::workspace_scan::AnalysisMode;
+
+fn import_path_range_at_offset(program: &phalcom_ast::ast::Program, offset: usize) -> Option<phalcom_common::range::SourceRange> {
+    program.preamble.dependencies.iter().find_map(|dependency| {
+        let path = match dependency {
+            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(import)) => &import.path,
+            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(import)) => &import.path,
+            _ => return None,
+        };
+        path.range.contains(offset).then_some(path.range)
+    })
+}
+
+fn import_binding_declaration_at_offset(request: &RequestContext, offset: usize) -> Option<phalcom_common::range::SourceRange> {
+    let identifier = crate::hover::qualified_identifier_at_offset(&request.document.text, offset).map(|(name, _)| name);
+    for dependency in &request.document.parse.program.preamble.dependencies {
+        let phalcom_ast::ast::DependencyDecl::Import(import) = dependency else {
+            continue;
+        };
+        match import {
+            phalcom_ast::ast::ImportDecl::Module(import) => {
+                let Some(alias) = &import.alias else { continue };
+                if identifier.as_deref() == Some(alias.name.as_str()) {
+                    return Some(alias.range);
+                }
+            }
+            phalcom_ast::ast::ImportDecl::Selective(import) => {
+                for item in &import.items {
+                    let (name, range) = item
+                        .alias
+                        .as_ref()
+                        .map_or_else(|| (item.name.as_str(), item.name_range), |alias| (alias.name.as_str(), alias.range));
+                    if identifier.as_deref() == Some(name) {
+                        return Some(range);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn compiler_import_definition_location(request: &RequestContext, position: Position) -> Option<Location> {
+    let compiler = request.compiler.as_deref()?;
+    let importer = request.compiler_module()?;
+    let offset = request.document.line_index.offset(position);
+
+    for dependency in &request.document.parse.program.preamble.dependencies {
+        let (path, range, binding_names) = match dependency {
+            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(import)) => {
+                let mut names = Vec::new();
+                if let Some(alias) = &import.alias {
+                    names.push(alias.name.clone());
+                }
+                if let Some(segment) = import.path.segments.last() {
+                    names.push(segment.name.clone());
+                }
+                if let phalcom_ast::ast::ImportRoot::Absolute(segment) = &import.path.root {
+                    names.push(segment.name.clone());
+                }
+                (&import.path, import.path.range, names)
+            }
+            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(import)) => {
+                let names = import
+                    .items
+                    .iter()
+                    .flat_map(|item| [Some(item.name.clone()), item.alias.as_ref().map(|alias| alias.name.clone())])
+                    .flatten()
+                    .collect();
+                (&import.path, import.path.range, names)
+            }
+            _ => continue,
+        };
+        if !range.contains(offset) {
+            continue;
+        }
+
+        let queries = compiler.module_queries();
+        let target = binding_names
+            .iter()
+            .find_map(|name| queries.resolved_import_target(importer, name))
+            .or_else(|| queries.resolved_import_target(importer, &path.to_string()))?;
+        let source = queries.definition_source(target)?;
+        let uri = Url::from_file_path(&source.display_path)
+            .ok()
+            .or_else(|| Url::parse(source.source_id.0.as_ref()).ok())?;
+        return Some(Location {
+            uri,
+            range: tower_lsp::lsp_types::Range::default(),
+        });
+    }
+
+    None
+}
 
 struct DiagnosticPublication {
     diagnostics: Vec<tower_lsp::lsp_types::Diagnostic>,
@@ -79,24 +174,24 @@ fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticDb, ur
     let Some(file) = advisory.file(module) else {
         return Some(syntax_only(diagnostics));
     };
-    let Some(static_snapshot) = advisory.static_snapshot.as_ref() else {
+    let Some(compiler_snapshot) = semantic.compiler_snapshot() else {
         return Some(syntax_only(diagnostics));
     };
-    if file.revision != document.revision || static_snapshot.generation != advisory.generation.0 {
+    if file.revision != document.revision || compiler_snapshot.generation != advisory.generation.0 {
         return Some(syntax_only(diagnostics));
     }
     let Some(static_module) = advisory.documents.get_by_uri(uri) else {
         return Some(syntax_only(diagnostics));
     };
-    let Some(static_source) = static_snapshot.sources.get(static_module) else {
+    let Some(static_source) = compiler_snapshot.sources.get(static_module) else {
         return Some(syntax_only(diagnostics));
     };
     if static_source.text.as_ref() != document.text.as_ref() {
         return Some(syntax_only(diagnostics));
     }
-    if let Some(semantic_diagnostics) = static_snapshot.diagnostics.get(static_module) {
+    if let Some(semantic_diagnostics) = compiler_snapshot.diagnostics.get(static_module) {
         let mut diagnostic_sources = BTreeMap::new();
-        for (module, source) in static_snapshot.sources.iter() {
+        for (module, source) in compiler_snapshot.sources.iter() {
             if let Some(source_uri) = advisory.documents.get_by_module(module) {
                 diagnostic_sources.insert(
                     module.clone(),
@@ -260,7 +355,8 @@ pub struct Backend {
     /// and written from concurrent `&self` handlers without a server-wide
     /// lock — no `Arc`/`Mutex` wrapper needed around it here.
     index: Arc<WorkspaceIndex>,
-    /// Live VM-free semantic state snapshot reader.
+    /// Immutable semantic publication reader; compiler snapshots are pinned
+    /// from this handle at request entry.
     semantic: Arc<SemanticDb>,
     /// Background semantic analysis service.
     analysis: AnalysisService,
@@ -394,7 +490,30 @@ impl Backend {
     /// `DocumentStore::snapshot` before this returns.
     fn request_context(&self, uri: &Url) -> Option<RequestContext> {
         let document = self.documents.snapshot(uri)?;
-        Some(RequestContext::new(document, self.semantic.snapshot(), uri))
+        let semantic = self.semantic.snapshot();
+        Some(RequestContext::new_with_compiler(document, semantic, self.semantic.compiler_snapshot(), uri))
+    }
+
+    fn cached_import_definition_location(&self, request: &RequestContext, position: Position) -> Option<Location> {
+        let offset = request.document.line_index.offset(position);
+        for dependency in &request.document.parse.program.preamble.dependencies {
+            let path = match dependency {
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(import)) => &import.path,
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(import)) => &import.path,
+                _ => continue,
+            };
+            if !path.range.contains(offset) {
+                continue;
+            }
+            let uri = resolve_source_import(&request.uri, &path.to_string())?;
+            if self.documents.snapshot(&uri).is_some() || self.closed_sources.read().expect("closed source cache lock poisoned").contains_key(&uri) {
+                return Some(Location {
+                    uri,
+                    range: tower_lsp::lsp_types::Range::default(),
+                });
+            }
+        }
+        None
     }
 
     /// Reparses the document at `uri` (already updated in the store by the
@@ -651,16 +770,17 @@ impl Backend {
     /// Returns `None` if the file is not open and has no cached source
     /// metadata.
     fn occurrence_to_location(&self, occurrence: &Occurrence) -> Option<Location> {
-        if let Some(doc) = self.documents.snapshot(&occurrence.uri) {
+        let location_uri = canonical_location_uri(&occurrence.uri);
+        if let Some(doc) = self.documents.snapshot(&occurrence.uri).or_else(|| self.documents.snapshot(&location_uri)) {
             return Some(Location {
-                uri: occurrence.uri.clone(),
+                uri: location_uri,
                 range: doc.line_index.range(occurrence.range.start..occurrence.range.end),
             });
         }
 
-        let source = self.cached_source(&occurrence.uri)?;
+        let source = self.cached_source(&occurrence.uri).or_else(|| self.cached_source(&location_uri))?;
         Some(Location {
-            uri: occurrence.uri.clone(),
+            uri: location_uri,
             range: source.line_index.range(occurrence.range.start..occurrence.range.end),
         })
     }
@@ -738,7 +858,11 @@ impl Backend {
     ) -> Option<(crate::semantic::ClassSurface, tower_lsp::lsp_types::Range)> {
         let doc = &request.document;
         let offset = doc.line_index.offset(position);
-        if let Some(class) = request.semantic.class_name_at(uri, offset).filter(|_| request.exact_file().is_some()) {
+        if let Some(class) = request
+            .semantic
+            .class_name_at(uri, offset)
+            .filter(|_| matches!(request.source_match, SourceMatch::Exact))
+        {
             let range = doc.line_index.range(class.name_range.start..class.name_range.end);
             return Some((class, range));
         }
@@ -847,7 +971,18 @@ impl Backend {
 
     fn hover_at_request(&self, request: &RequestContext, uri: &Url, position: Position) -> Option<Hover> {
         let offset = request.document.line_index.offset(position);
-        let Some(occurrence) = request.exact_file().and_then(|_| request.semantic.occurrence_at(uri, offset)) else {
+        if let Some(import_range) = import_path_range_at_offset(&request.document.parse.program, offset)
+            && let Some(location) = compiler_import_definition_location(request, position).or_else(|| self.cached_import_definition_location(request, position))
+        {
+            return Some(Hover {
+                contents: markdown_contents(format!("module: `{}`", location.uri)),
+                range: Some(request.document.line_index.range(import_range.start..import_range.end)),
+            });
+        }
+        let Some(occurrence) = matches!(request.source_match, SourceMatch::Exact)
+            .then(|| request.semantic.occurrence_at(uri, offset))
+            .flatten()
+        else {
             return self.legacy_hover_at(uri, position, offset);
         };
         let span = request.document.line_index.range(occurrence.range.start..occurrence.range.end);
@@ -1041,7 +1176,8 @@ impl Backend {
                 .strip_suffix('.')
                 .and_then(|prefix| prefix.rsplit(|character: char| !character.is_ascii_alphanumeric() && character != '_').next());
             let infos = if let Some(receiver) = receiver {
-                infos.into_iter().filter(|info| info.class == receiver).collect::<Vec<_>>()
+                let receiver_infos = infos.iter().filter(|info| info.class == receiver).cloned().collect::<Vec<_>>();
+                if receiver_infos.is_empty() { infos } else { receiver_infos }
             } else {
                 let local = infos
                     .iter()
@@ -1667,7 +1803,10 @@ impl LanguageServer for Backend {
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
 
         let offset = request.document.line_index.offset(position);
-        if let Some(occurrence) = request.exact_file().and_then(|_| request.semantic.occurrence_at(&uri, offset)) {
+        if let Some(occurrence) = matches!(request.source_match, SourceMatch::Exact)
+            .then(|| request.semantic.occurrence_at(&uri, offset))
+            .flatten()
+        {
             match &occurrence.target {
                 SemanticTarget::Binding(binding_id) => {
                     if let Some(info) = request.semantic.binding_info(&uri, *binding_id) {
@@ -1748,13 +1887,24 @@ impl LanguageServer for Backend {
                 .map(|location| GotoDefinitionResponse::Array(vec![location])));
         }
 
+        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
+            return Ok(Some(GotoDefinitionResponse::Array(vec![Location {
+                uri: uri.clone(),
+                range: request.document.line_index.range(range.start..range.end),
+            }])));
+        }
+
+        if let Some(location) = compiler_import_definition_location(&request, position).or_else(|| self.cached_import_definition_location(&request, position)) {
+            return Ok(Some(GotoDefinitionResponse::Array(vec![location])));
+        }
+
         let Some((selector, _range)) = self.selector_at_document(&request.document, position) else {
             return Ok(None);
         };
 
-        if let Some(member) = request
-            .exact_file()
-            .and_then(|_| request.semantic.member_at(&uri, offset))
+        if let Some(member) = matches!(request.source_match, SourceMatch::Exact)
+            .then(|| request.semantic.member_at(&uri, offset))
+            .flatten()
             .filter(|member| member.callable.selector == selector)
         {
             return Ok(self
@@ -1763,7 +1913,7 @@ impl LanguageServer for Backend {
         }
 
         let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
-        if receiver_targeted {
+        if receiver_targeted && matches!(request.source_match, SourceMatch::Exact) {
             let semantic_locations = self.semantic_definition_locations_for_request(&request, &uri, position, &selector);
             return if semantic_locations.is_empty() {
                 Ok(None)
@@ -1791,7 +1941,10 @@ impl LanguageServer for Backend {
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
 
         let offset = request.document.line_index.offset(position);
-        if let Some(occurrence) = request.exact_file().and_then(|_| request.semantic.occurrence_at(&uri, offset)) {
+        if let Some(occurrence) = matches!(request.source_match, SourceMatch::Exact)
+            .then(|| request.semantic.occurrence_at(&uri, offset))
+            .flatten()
+        {
             let refs = request.semantic.references_for_target(&uri, &occurrence.target);
             let locations: Vec<Location> = refs
                 .into_iter()
@@ -1804,6 +1957,13 @@ impl LanguageServer for Backend {
                 })
                 .collect();
             return Ok(if locations.is_empty() { None } else { Some(locations) });
+        }
+
+        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
+            return Ok(Some(vec![Location {
+                uri: uri.clone(),
+                range: request.document.line_index.range(range.start..range.end),
+            }]));
         }
 
         let Some((selector, _range)) = self.selector_at_document(&request.document, position) else {
@@ -1954,6 +2114,14 @@ fn virtual_source_text(uri: &Url) -> Option<String> {
         .source_text(&module)
         .ok()
         .map(|text| text.to_string())
+}
+
+fn canonical_location_uri(uri: &Url) -> Url {
+    uri.to_file_path()
+        .ok()
+        .and_then(|path| path.canonicalize().ok())
+        .and_then(|path| Url::from_file_path(path).ok())
+        .unwrap_or_else(|| uri.clone())
 }
 
 #[cfg(test)]

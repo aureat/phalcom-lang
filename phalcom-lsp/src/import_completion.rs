@@ -138,7 +138,7 @@ pub fn detect_import_context(line_prefix: &str) -> Option<ImportContext> {
 
 /// Computes module and import completion items for an import context.
 pub fn import_completions(snapshot: &SemanticSnapshot, uri: &Url, context: &ImportContext) -> Vec<CompletionItem> {
-    let Some(static_snap) = &snapshot.static_snapshot else {
+    let Some(static_snap) = &snapshot.compiler_snapshot else {
         return Vec::new();
     };
 

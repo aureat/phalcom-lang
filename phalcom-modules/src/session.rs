@@ -248,12 +248,53 @@ impl WorkspaceModuleSession {
     where
         I: IntoIterator<Item = (SourceLocation, Arc<str>, SourceRevision)>,
     {
+        self.set_overlay_batch(overlays.into_iter().map(|(source, text, revision)| (source, text, revision, None)))
+    }
+
+    /// Applies source overlays with parser output supplied by the boundary
+    /// that already performed syntax recovery. The module session still owns
+    /// source/module identity and linking; it accepts the recovered program
+    /// as the source artifact so a syntax-error edit can publish semantic
+    /// products for its valid portions without replacing the live text.
+    pub fn set_overlays_with_programs<I>(&mut self, overlays: I) -> Result<WorkspaceModuleUpdate, WorkspaceModuleSessionError>
+    where
+        I: IntoIterator<Item = (SourceLocation, Arc<str>, SourceRevision, Arc<phalcom_ast::ast::Program>)>,
+    {
+        self.set_overlay_batch(
+            overlays
+                .into_iter()
+                .map(|(source, text, revision, program)| (source, text, revision, Some(program))),
+        )
+    }
+
+    fn set_overlay_batch<I>(&mut self, overlays: I) -> Result<WorkspaceModuleUpdate, WorkspaceModuleSessionError>
+    where
+        I: IntoIterator<Item = (SourceLocation, Arc<str>, SourceRevision, Option<Arc<phalcom_ast::ast::Program>>)>,
+    {
         let before: BTreeSet<_> = self.sources_by_module.keys().cloned().collect();
         let mut changed = BTreeSet::new();
-        for (source, text, revision) in overlays {
+        // Parse and resolve every item before mutating overlay/state maps. A
+        // malformed batch therefore leaves the previous coherent publication
+        // and source lifecycle intact.
+        let mut staged = Vec::new();
+        for (source, text, revision, program) in overlays {
             let module = self.module_for_location(&source)?;
             let kind = self.kind_for_source(&module, &source);
-            let parsed = parse_source(module.clone(), kind, source.clone(), text)?;
+            let parsed = program.map_or_else(
+                || parse_source(module.clone(), kind, source.clone(), text.clone()),
+                |program| {
+                    Ok(Arc::new(ParsedModuleUnit::new(
+                        module.clone(),
+                        kind,
+                        Some(source.clone()),
+                        text.clone(),
+                        program,
+                    )))
+                },
+            )?;
+            staged.push((module, kind, source, revision, parsed));
+        }
+        for (module, kind, source, revision, parsed) in staged {
             self.provider
                 .set_overlay(SourceOverlay::new(module.clone(), kind, source.clone(), parsed.text.clone()));
             self.insert_state(module.clone(), kind, source, revision, parsed, true);

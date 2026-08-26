@@ -21,8 +21,8 @@ fn formal_and_advisory_types_use_plain_language_labels() {
 #[test]
 fn advisory_evidence_remains_available_as_contextual_tooltip() {
     let tooltip = advisory_tooltip("User", "runtime value");
-    assert!(tooltip.contains("Inferred runtime value"));
-    assert!(tooltip.contains("current semantic evidence"));
+    assert!(tooltip.contains("`User`"));
+    assert!(tooltip.contains("Inferred from local flow."));
     assert!(!tooltip.contains('≈'));
     assert!(!tooltip.contains("Confidence:"));
 }

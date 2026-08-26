@@ -697,9 +697,9 @@ pub fn render_binding_hover_with_formal(
     };
     let mut sections = vec![format!("`{}` — {kind}", binding.name)];
     if let Some(formal) = formal.filter(|formal| !matches!(formal, FormalPresentation::Unknown)) {
-        sections.push(format!("**Formal type:** `{}`", formal.text()));
+        sections.push(format!("`{}`: `{}`", binding.name, formal.text()));
     } else if let Some(formal) = formal {
-        sections.push(format!("**Formal type:** `{}`", formal.text()));
+        sections.push(format!("`{}`: `{}`", binding.name, formal.text()));
         if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
             sections.push(crate::presentation::advisory_hover(
                 "Observed type",
@@ -875,7 +875,7 @@ pub fn render_selector_hover_with_formal_value(
     }
 
     if let Some(formal) = formal {
-        sections.push(format!("**Formal return:** `{}`", formal.text()));
+        sections.push(format!("Return type: `{}`", formal.text()));
     } else if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
         let label = if is_field { "Observed value" } else { "Observed return" };
         sections.push(crate::presentation::advisory_hover(label, &crate::semantic::render_value_shape(&value.shape)));
@@ -1114,8 +1114,10 @@ mod tests {
             kind: crate::index::MemberKind::Method,
         }];
         let rendered = render_selector_hover_with_value("make()", &sites, None, Some(&value)).unwrap();
-        assert!(rendered.contains("**Observed return:** `String`"));
-        assert!(!rendered.contains("Confidence:"));
+        assert!(rendered.contains("`String`"));
+        assert!(rendered.contains("Inferred from local flow."));
+        assert!(!rendered.contains("Observed return"));
+        assert!(!rendered.contains(["Confidence", ":"].concat().as_str()));
     }
 
     #[test]
@@ -1131,7 +1133,8 @@ mod tests {
             (0..0).into(),
         );
         let rendered = render_selector_hover_with_formal_value("make()", &sites, None, Some(&formal), Some(&inferred)).unwrap();
-        assert!(rendered.contains("**Formal return:** `Dynamic`"));
+        assert!(rendered.contains("Return type: `Dynamic`"));
+        assert!(!rendered.contains("Formal return"));
         assert!(!rendered.contains("Observed return"));
     }
 
@@ -1150,7 +1153,8 @@ mod tests {
             .expect("binding");
         let formal = FormalPresentation::Dynamic;
         let rendered = render_binding_hover_with_formal(binding, Some(&formal), None, None);
-        assert!(rendered.contains("**Formal type:** `Dynamic`"));
+        assert!(rendered.contains("`value`: `Dynamic`"));
+        assert!(!rendered.contains("Formal type"));
         assert!(!rendered.contains("Observed type"));
     }
 

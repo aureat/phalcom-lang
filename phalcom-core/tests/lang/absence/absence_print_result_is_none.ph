@@ -3,7 +3,7 @@
 // status: PASS
 // U6 Invariant 4: `System.print(_)` is a surface-reachable send whose result
 // flows straight into the outer `print` argument without crossing a read
-// boundary, so it must yield the `None` singleton, not the raw `nil` sentinel.
-// The inner call prints `1`; the outer prints the inner's `None` result.
+// boundary, so it yields the language `Unit` value.
+// The inner call prints `1`; the outer prints the inner call's `Unit` result.
 
 System.print(System.print(1))

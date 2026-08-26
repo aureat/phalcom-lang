@@ -4,7 +4,7 @@
 // Ported from Wren `test/core/fiber/yield_with_value.wren`: a straight-line
 // (no loop) fiber yields a value at each of two suspension points, then
 // falls off the end without an explicit `return` — the third `call()`
-// delivers the entry's implicit completion value, `None` (the last
+// delivers the entry's implicit completion value, `Unit` (the last
 // statement's value; see `concurrency_fiber_call_resume_value` for the same
 // implicit-completion shape).
 

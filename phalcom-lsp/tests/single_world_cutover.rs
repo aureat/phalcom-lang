@@ -2,6 +2,7 @@ use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceM
 use phalcom_semantic::SemanticWorkspaceSession;
 use std::fs;
 use std::sync::Arc;
+use tower_lsp::lsp_types::Url;
 
 #[test]
 fn compiler_session_keeps_module_identity_across_overlay_edits() {
@@ -41,4 +42,36 @@ fn compiler_session_keeps_module_identity_across_overlay_edits() {
     assert!(second_snapshot.generation > first_snapshot.generation);
     assert_eq!(&*second_snapshot.sources.get(&module).unwrap().text, "class Main { run() {} }\n");
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn worker_reuses_compiler_snapshot_store_across_edits() {
+    let path = std::env::temp_dir().join(format!("phalcom_lsp_compiler_store_{}.ph", std::process::id()));
+    let uri = Url::from_file_path(&path).unwrap();
+    let db = Arc::new(phalcom_lsp::semantic::SemanticDb::new());
+    let (service, _events) = phalcom_lsp::analysis_service::AnalysisService::new(db.clone());
+
+    service.enqueue_file_update(
+        uri.clone(),
+        phalcom_lsp::semantic::FileRevision(1),
+        phalcom_ast::parser::parse("class Main { run() {} }\n", 0).program,
+    );
+    service.flush();
+    let first = db.compiler_snapshot().expect("compiler publication");
+    let module = first.sources.keys().next().cloned().expect("module publication");
+    let store = first.store.id();
+
+    service.enqueue_file_update(
+        uri,
+        phalcom_lsp::semantic::FileRevision(2),
+        phalcom_ast::parser::parse("class Main { run() { } edit() {} }\n", 0).program,
+    );
+    service.flush();
+    let second = db.compiler_snapshot().expect("second compiler publication");
+
+    assert_eq!(second.store.id(), store, "ordinary edits retain one compiler TypeStore");
+    assert!(second.sources.contains_key(&module), "ordinary edits retain canonical module identity");
+    assert_ne!(first.id, second.id, "edits publish a new immutable snapshot");
+    service.shutdown();
+    let _ = fs::remove_file(path);
 }

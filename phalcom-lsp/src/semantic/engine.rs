@@ -19,7 +19,7 @@ use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DocumentModuleMap, FieldI
 use super::invalidation::{SourceChangeKind, classify_source_delta};
 use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
-use super::snapshot::{FileSourceSnapshot, SemanticSnapshot, StaticSemanticSnapshot, build_canonical_callable_index};
+use super::snapshot::{CompilerSemanticSnapshot, FileSourceSnapshot, SemanticSnapshot, build_canonical_callable_index};
 use super::surface::{ClassSurface, build_module_surface};
 use super::{DependencySet, FileSemanticSnapshot, infer};
 use crate::perf::{PerfCounters, PerfCountersHandle};
@@ -54,7 +54,7 @@ pub(crate) struct SemanticState {
     pub callable_dependents: Arc<BTreeMap<CallableId, BTreeSet<CallableId>>>,
     pub graph: Arc<ModuleGraph>,
     pub documents: DocumentModuleMap,
-    pub static_snapshot: Option<Arc<StaticSemanticSnapshot>>,
+    pub compiler_snapshot: Option<Arc<CompilerSemanticSnapshot>>,
     #[cfg(test)]
     pub last_trace: Option<RebuildTrace>,
 }
@@ -117,19 +117,19 @@ impl SemanticEngine {
         self.state.generation
     }
 
-    /// Atomically publishes or clears static semantics and their URI identities.
-    pub fn set_static_analysis(&mut self, analysis: Option<(Arc<StaticSemanticSnapshot>, DocumentModuleMap)>) {
+    /// Atomically publishes or clears compiler semantics and their URI identities.
+    pub fn set_compiler_analysis(&mut self, analysis: Option<(Arc<CompilerSemanticSnapshot>, DocumentModuleMap)>) {
         if let Some((snapshot, documents)) = analysis {
-            self.state.static_snapshot = Some(snapshot);
+            self.state.compiler_snapshot = Some(snapshot);
             self.state.documents = documents;
         } else {
-            self.state.static_snapshot = None;
+            self.state.compiler_snapshot = None;
         }
     }
 
     /// Produces an immutable published snapshot of current engine state.
     pub fn snapshot(&self) -> SemanticSnapshot {
-        let canonical_callables = build_canonical_callable_index(self.state.static_snapshot.as_deref(), &self.state.documents);
+        let canonical_callables = build_canonical_callable_index(self.state.compiler_snapshot.as_deref(), &self.state.documents);
         SemanticSnapshot {
             generation: self.state.generation,
             files: self.state.files.clone(),
@@ -139,7 +139,7 @@ impl SemanticEngine {
             parameter_facts: self.state.parameter_facts.clone(),
             graph: self.state.graph.clone(),
             documents: Arc::new(self.state.documents.clone()),
-            static_snapshot: self.state.static_snapshot.clone(),
+            compiler_snapshot: self.state.compiler_snapshot.clone(),
             canonical_callables: Arc::new(canonical_callables),
         }
     }

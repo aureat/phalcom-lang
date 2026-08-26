@@ -1,7 +1,7 @@
 //! Asynchronous semantic analysis service with latest-wins edit coalescing and background worker thread.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
@@ -16,7 +16,7 @@ use crate::analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStep, Status
 use crate::index::WorkspaceIndex;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfContext, PerfCountersHandle, PerfSpan};
-use crate::semantic::{FileRevision, SemanticDb, SemanticEngine, SemanticGeneration, SemanticSnapshot, SourceAnalysisDepth, StaticSemanticSnapshot};
+use crate::semantic::{CompilerSemanticSnapshot, FileRevision, SemanticDb, SemanticEngine, SemanticGeneration, SemanticSnapshot, SourceAnalysisDepth};
 use crate::workspace_scan::{AnalysisMode, ExcludeMatcher, ScanBudget, WorkspaceScanState};
 
 /// Closed-file source metadata populated by the worker before it publishes
@@ -595,7 +595,7 @@ fn worker_loop(
     let mut core_initialized = false;
     let mut analysis_mode = AnalysisMode::Local;
     let mut source_catalog = BTreeMap::new();
-    let mut static_workspace_identity = StaticWorkspaceIdentity::default();
+    let mut compiler_workspace_state = CompilerWorkspaceState::default();
     let mut workspace_roots = Vec::new();
     let mut configured_sysroot = None;
     let mut status_tracker = StatusTracker::new(analysis_mode);
@@ -705,7 +705,7 @@ fn worker_loop(
                     &mut source_catalog,
                     selected_core_uri.as_ref(),
                     StaticScanContext {
-                        identity: &mut static_workspace_identity,
+                        identity: &mut compiler_workspace_state,
                         refresh: scan_complete,
                     },
                 );
@@ -768,7 +768,7 @@ fn worker_loop(
                     &mut source_catalog,
                     selected_core_uri.as_ref(),
                     StaticScanContext {
-                        identity: &mut static_workspace_identity,
+                        identity: &mut compiler_workspace_state,
                         refresh: scan_complete,
                     },
                 );
@@ -913,9 +913,9 @@ fn worker_loop(
             if let Some(generation) = generation {
                 latest_generation = generation;
                 source_catalog = next_source_catalog.clone();
-                refresh_static_workspace_analysis(&mut engine, &source_catalog, generation, &mut static_workspace_identity);
+                let compiler_effects = refresh_compiler_workspace(&mut engine, &source_catalog, generation, &mut compiler_workspace_state);
                 if !cancelled() {
-                    effects = publish_engine(&db, &engine);
+                    effects = merge_publication_effects(publish_engine(&db, &engine), compiler_effects.unwrap_or_default());
                     status_tracker.set_generation(generation.0);
                     let status = status_tracker.transition(AnalysisPhase::Publishing, None);
                     let _ = event_tx.send(AnalysisEvent::Status(status));
@@ -1006,93 +1006,33 @@ fn has_analysis_work(pending: &PendingWork) -> bool {
         || pending.full_workspace_rebuild_requested
 }
 
-struct StaticWorkspacePublication {
-    snapshot: Arc<StaticSemanticSnapshot>,
+struct CompilerWorkspacePublication {
+    snapshot: Arc<CompilerSemanticSnapshot>,
     documents: crate::semantic::DocumentModuleMap,
+    effects: phalcom_semantic::SemanticPublicationEffects,
 }
 
 #[derive(Debug, Default)]
-struct StaticWorkspaceIdentity {
-    project_roots: Vec<PathBuf>,
-    standalone_modules: BTreeMap<Url, phalcom_modules::SyntheticProjectId>,
-    synthetic_ids: phalcom_modules::SyntheticProjectIdAllocator,
+struct CompilerWorkspaceState {
     catalog_sources: BTreeSet<phalcom_modules::SourceId>,
     session: phalcom_semantic::SemanticWorkspaceSession,
 }
 
-impl StaticWorkspaceIdentity {
-    fn remember_project_root(&mut self, root: PathBuf) {
-        if !self.project_roots.contains(&root) {
-            self.project_roots.push(root);
-        }
-    }
-
-    fn standalone_module(&mut self, uri: &Url) -> phalcom_modules::ModuleId {
-        let project = *self.standalone_modules.entry(uri.clone()).or_insert_with(|| self.synthetic_ids.allocate());
-        phalcom_modules::ModuleId::synthetic(project, phalcom_modules::ModulePath::root())
-    }
-}
-
-struct StaticSourceProvider {
-    filesystem: phalcom_modules::FilesystemSourceProvider,
-    located: BTreeMap<phalcom_modules::ModuleId, phalcom_modules::source::SourceUnit>,
-    text: BTreeMap<phalcom_modules::SourceId, Arc<str>>,
-}
-
-impl phalcom_modules::SourceProvider for StaticSourceProvider {
-    fn locate(
-        &self,
-        project: &phalcom_modules::ResolvedProject,
-        path: &phalcom_modules::ModulePath,
-    ) -> Result<phalcom_modules::source::SourceUnit, phalcom_modules::ModuleResolutionError> {
-        let id = phalcom_modules::ModuleId::resolved(project.id, path.clone());
-        self.located
-            .get(&id)
-            .cloned()
-            .map(Ok)
-            .unwrap_or_else(|| phalcom_modules::SourceProvider::locate(&self.filesystem, project, path))
-    }
-
-    fn read(&self, source: &phalcom_modules::SourceId) -> Result<Arc<str>, phalcom_modules::SourceError> {
-        self.text
-            .get(source)
-            .cloned()
-            .map(Ok)
-            .unwrap_or_else(|| phalcom_modules::SourceProvider::read(&self.filesystem, source))
-    }
-}
-
-fn run_static_workspace_analysis(
+fn publish_compiler_workspace(
     source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
     documents: crate::semantic::DocumentModuleMap,
     generation: u64,
-    identity: &mut StaticWorkspaceIdentity,
-) -> Option<StaticWorkspacePublication> {
-    let fallback_documents = documents.clone();
-    run_persistent_workspace_analysis(source_catalog, documents, generation, identity)
-        .or_else(|| run_legacy_static_workspace_analysis(source_catalog, fallback_documents, generation, identity))
+    identity: &mut CompilerWorkspaceState,
+) -> Option<CompilerWorkspacePublication> {
+    publish_persistent_compiler_workspace(source_catalog, documents, generation, identity)
 }
 
-fn run_persistent_workspace_analysis(
+fn publish_persistent_compiler_workspace(
     source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
     mut documents: crate::semantic::DocumentModuleMap,
     generation: u64,
-    identity: &mut StaticWorkspaceIdentity,
-) -> Option<StaticWorkspacePublication> {
-    if source_catalog.keys().any(|uri| uri.scheme() != "file") {
-        return None;
-    }
-    if source_catalog.keys().any(|uri| {
-        uri.to_file_path()
-            .ok()
-            .and_then(|path| phalcom_modules::discover_owning_project(&path).ok().flatten())
-            .is_none()
-    }) {
-        // Standalone and virtual LSP publication still uses the existing
-        // bridge until its protocol document map is cut over with parity.
-        return None;
-    }
-
+    identity: &mut CompilerWorkspaceState,
+) -> Option<CompilerWorkspacePublication> {
     let current_sources = source_catalog
         .keys()
         .filter_map(|uri| uri.to_file_path().ok())
@@ -1108,21 +1048,24 @@ fn run_persistent_workspace_analysis(
     documents.by_module.clear();
     let overlays = source_catalog
         .iter()
-        .filter_map(|(uri, (revision, text, _program))| {
+        .filter_map(|(uri, (revision, text, program))| {
             let path = uri.to_file_path().ok()?;
             let location = phalcom_modules::SourceLocation {
                 source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
                 display_path: path,
             };
-            Some((uri, location, text.clone(), phalcom_modules::SourceRevision(revision.0)))
+            Some((uri, location, text.clone(), phalcom_modules::SourceRevision(revision.0), program.clone()))
         })
         .collect::<Vec<_>>();
-    let update = identity
-        .session
-        .module_session_mut()
-        .set_overlays(overlays.iter().map(|(_, location, text, revision)| (location.clone(), text.clone(), *revision)))
-        .ok()?;
-    for (uri, location, _, _) in overlays {
+    let update = match identity.session.module_session_mut().set_overlays_with_programs(
+        overlays
+            .iter()
+            .map(|(_, location, text, revision, program)| (location.clone(), text.clone(), *revision, Arc::new(program.clone()))),
+    ) {
+        Ok(update) => update,
+        Err(_) => return None,
+    };
+    for (uri, location, _, _, _) in overlays {
         if let Some(module) = identity.session.module_session().module_for_source(&location.source_id).cloned() {
             let document_uri = documents
                 .lsp_by_uri
@@ -1140,240 +1083,31 @@ fn run_persistent_workspace_analysis(
             documents.insert(uri, state.module.clone());
         }
     }
-    Some(StaticWorkspacePublication {
+    Some(CompilerWorkspacePublication {
         snapshot: semantic_update.snapshot,
         documents,
+        effects: semantic_update.effects,
     })
 }
 
-fn run_legacy_static_workspace_analysis(
-    source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
-    mut documents: crate::semantic::DocumentModuleMap,
-    generation: u64,
-    identity: &mut StaticWorkspaceIdentity,
-) -> Option<StaticWorkspacePublication> {
-    for uri in source_catalog.keys() {
-        let Some(path) = uri.to_file_path().ok() else {
-            continue;
-        };
-        let Ok(Some(root)) = phalcom_modules::discover_owning_project(&path) else {
-            continue;
-        };
-        identity.remember_project_root(root.canonicalize().unwrap_or(root));
-    }
-
-    let mut universe = phalcom_modules::ProjectUniverse::new();
-    let mut loaded_projects = BTreeMap::new();
-    for root in &identity.project_roots {
-        if let Ok(project) = universe.load_root(root.join("project.toml")) {
-            loaded_projects.insert(root.clone(), project);
-        }
-    }
-    let universe = Arc::new(universe);
-
-    // Semantic ownership is rebuilt from current canonical project state.
-    // Boundary-only LSP keys remain stable for advisory editor products.
-    documents.by_uri.clear();
-    documents.by_module.clear();
-
-    let mut sources = BTreeMap::new();
-    let mut interfaces = BTreeMap::new();
-    let mut located = BTreeMap::new();
-    let mut source_text = BTreeMap::new();
-    for (uri, (_rev, text, program)) in source_catalog {
-        let physical_path = uri.to_file_path().ok();
-        let builtin_module = builtin_module_from_uri(uri);
-        let project_root = physical_path.as_ref().and_then(|path| {
-            phalcom_modules::discover_owning_project(path)
-                .ok()
-                .flatten()
-                .map(|root| root.canonicalize().unwrap_or(root))
-        });
-        let (sem_mod_id, kind) = if let Some(module) = builtin_module {
-            let builtin = module.project.as_builtin()?;
-            let kind = phalcom_modules::BuiltinProjectSourceProvider::new(builtin).kind(&module.path)?;
-            (module, kind)
-        } else if let Some((project_id, path)) = project_root.as_ref().and_then(|root| loaded_projects.get(root)).and_then(|project_id| {
-            let project = universe.get_project(*project_id)?;
-            let path = module_path_for_source(&project.source_root, physical_path.as_deref()?)?;
-            Some((*project_id, path))
-        }) {
-            let kind = if physical_path
-                .as_ref()
-                .is_some_and(|path| path.file_name().is_some_and(|name| name == "package.ph"))
-            {
-                phalcom_modules::ModuleKind::Package
-            } else {
-                phalcom_modules::ModuleKind::Module
-            };
-            (phalcom_modules::ModuleId::resolved(project_id, path), kind)
-        } else if project_root.is_none() {
-            (identity.standalone_module(uri), phalcom_modules::ModuleKind::Module)
-        } else {
-            // Invalid/unloadable project state must not be reinterpreted as a
-            // standalone module with different import semantics.
-            continue;
-        };
-
-        let document_uri = documents
-            .lsp_by_uri
-            .keys()
-            .find(|candidate| canonical_uri(candidate) == *uri)
-            .cloned()
-            .unwrap_or_else(|| uri.clone());
-        documents.insert(document_uri, sem_mod_id.clone());
-        let loc = physical_path
-            .map(|path| phalcom_modules::SourceLocation {
-                source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
-                display_path: path,
-            })
-            .or_else(|| {
-                sem_mod_id.project.as_builtin().map(|_| phalcom_modules::SourceLocation {
-                    source_id: phalcom_modules::SourceId(uri.as_str().into()),
-                    display_path: PathBuf::from(uri.as_str()),
-                })
-            });
-        if let Some(loc) = &loc {
-            located.insert(
-                sem_mod_id.clone(),
-                phalcom_modules::source::SourceUnit {
-                    id: sem_mod_id.clone(),
-                    kind,
-                    source: loc.clone(),
-                },
-            );
-            source_text.insert(loc.source_id.clone(), text.clone());
-        }
-
-        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
-            sem_mod_id.clone(),
-            kind,
-            loc,
-            text.clone(),
-            Arc::new(program.clone()),
-        ));
-        sources.insert(sem_mod_id.clone(), parsed_unit);
-
-        if let Ok(interface) = phalcom_modules::InterfaceBuilder::build(sem_mod_id.clone(), kind, program) {
-            interfaces.insert(sem_mod_id.clone(), interface);
-        }
-    }
-
-    if sources.is_empty() {
-        return None;
-    }
-
-    let provider = StaticSourceProvider {
-        filesystem: phalcom_modules::FilesystemSourceProvider::new(),
-        located,
-        text: source_text,
-    };
-    let mut resolver = phalcom_modules::ModuleResolver::new(universe.as_ref(), &provider);
-    let mut resolved = BTreeMap::new();
-    let mut pending = sources.keys().cloned().collect::<Vec<_>>();
-    let mut visited = pending.iter().cloned().collect::<BTreeSet<_>>();
-    while let Some(importer) = pending.pop() {
-        let Some(interface) = interfaces.get(&importer).cloned() else {
-            continue;
-        };
-        for import in &interface.imports {
-            let path = match import {
-                phalcom_modules::ImportSurface::Module(import) => &import.path,
-                phalcom_modules::ImportSurface::Selective(import) => &import.path,
-                phalcom_modules::ImportSurface::ReExport(import) => &import.path,
-            };
-            let Ok(target) = resolver.resolve_import(&importer, path) else {
-                continue;
-            };
-            resolved.insert((importer.clone(), path.to_string()), target.id.clone());
-            if !sources.contains_key(&target.id) {
-                let Ok(parsed) = resolver.load_parsed(&target.id) else {
-                    continue;
-                };
-                let Ok(target_interface) = resolver.load_interface(&target.id) else {
-                    continue;
-                };
-                sources.insert(target.id.clone(), parsed);
-                interfaces.insert(target.id.clone(), target_interface);
-            }
-            if documents.get_by_module(&target.id).is_none()
-                && let Some(uri) = phalcom_modules::builtin_module_uri(&target.id).and_then(|uri| Url::parse(&uri).ok())
-            {
-                documents.insert(uri, target.id.clone());
-            }
-            if visited.insert(target.id.clone()) {
-                pending.push(target.id);
-            }
-        }
-    }
-
-    let linker = phalcom_modules::ModuleLinker::new(universe.clone(), interfaces);
-    let mut modules = BTreeMap::new();
-    let mut graphs = phalcom_modules::ModuleGraphs::default();
-    for entry in sources.keys() {
-        let Ok(component) = linker.link(entry.clone(), &resolved) else {
-            continue;
-        };
-        modules.extend(component.modules);
-        merge_module_graphs(&mut graphs, &component.graphs);
-    }
-    if modules.is_empty() {
-        return None;
-    }
-
-    sources.retain(|module, _| modules.contains_key(module));
-    let entry = modules.keys().next()?.clone();
-    let Ok(initialization_order) = graphs.runtime.initialization_order() else {
-        return None;
-    };
-    let linked = phalcom_modules::LinkedProgram {
-        universe,
-        modules,
-        graphs,
-        entry,
-        initialization_order,
-    };
-
-    let update = identity.session.update(phalcom_semantic::SemanticWorkspaceInput {
-        linked: Arc::new(linked),
-        sources,
-        generation,
-    });
-
-    Some(StaticWorkspacePublication {
-        snapshot: update.snapshot,
-        documents,
-    })
-}
-
-fn refresh_static_workspace_analysis(
+fn refresh_compiler_workspace(
     engine: &mut SemanticEngine,
     source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
     generation: SemanticGeneration,
-    identity: &mut StaticWorkspaceIdentity,
-) {
+    identity: &mut CompilerWorkspaceState,
+) -> Option<PublicationEffects> {
     let documents = engine.snapshot().documents.as_ref().clone();
-    let static_analysis = run_static_workspace_analysis(source_catalog, documents, generation.0, identity);
-    engine.set_static_analysis(static_analysis.map(|publication| (publication.snapshot, publication.documents)));
-}
-
-fn module_path_for_source(source_root: &Path, source_path: &Path) -> Option<phalcom_modules::ModulePath> {
-    let relative = source_path.strip_prefix(source_root).ok()?;
-    if relative.extension().and_then(|extension| extension.to_str()) != Some("ph") {
-        return None;
+    let compiler_analysis = publish_compiler_workspace(source_catalog, documents, generation.0, identity);
+    // A parse/link/budget failure must not replace a coherent compiler
+    // publication with an empty candidate. The worker already reports syntax
+    // state separately; retain the session's last-known-good semantic world.
+    if let Some(publication) = compiler_analysis {
+        let effects = publication_effects_from_compiler(&publication.effects);
+        engine.set_compiler_analysis(Some((publication.snapshot, publication.documents)));
+        Some(effects)
+    } else {
+        None
     }
-    let mut components = Vec::new();
-    for component in relative.parent()?.components() {
-        let Component::Normal(component) = component else {
-            return None;
-        };
-        components.push(phalcom_modules::ModuleComponent::from_kebab(component.to_str()?).ok()?);
-    }
-    let stem = relative.file_stem()?.to_str()?;
-    if stem != "package" {
-        components.push(phalcom_modules::ModuleComponent::from_kebab(stem).ok()?);
-    }
-    Some(phalcom_modules::ModulePath::from_components(components))
 }
 
 pub(crate) fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::ModuleId> {
@@ -1395,20 +1129,6 @@ pub(crate) fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::Modu
         project,
         phalcom_modules::ModulePath::from_components(components),
     ))
-}
-
-fn merge_module_graphs(target: &mut phalcom_modules::ModuleGraphs, source: &phalcom_modules::ModuleGraphs) {
-    for module in source.references.nodes() {
-        target.references.add_node(module.clone());
-        target.references.replace(module.clone(), source.references.edges_from(&module).to_vec());
-    }
-    for node in source.semantics.nodes() {
-        target.semantics.replace(node.clone(), source.semantics.edges_from(&node).to_vec());
-    }
-    for module in source.runtime.nodes() {
-        target.runtime.add_node(module.clone());
-        target.runtime.replace(module.clone(), source.runtime.edges_from(&module).to_vec());
-    }
 }
 
 fn publish_engine(db: &SemanticDb, engine: &SemanticEngine) -> PublicationEffects {
@@ -1436,6 +1156,19 @@ fn publication_effects(previous: &SemanticSnapshot, next: &SemanticSnapshot) -> 
     }
 }
 
+fn publication_effects_from_compiler(effects: &phalcom_semantic::SemanticPublicationEffects) -> PublicationEffects {
+    PublicationEffects {
+        inlay_hints_changed: !effects.formal_changed.is_empty() || !effects.advisory_changed.is_empty(),
+        semantic_tokens_changed: !effects.source_index_changed.is_empty(),
+    }
+}
+
+fn merge_publication_effects(mut primary: PublicationEffects, secondary: PublicationEffects) -> PublicationEffects {
+    primary.inlay_hints_changed |= secondary.inlay_hints_changed;
+    primary.semantic_tokens_changed |= secondary.semantic_tokens_changed;
+    primary
+}
+
 fn source_epoch(shared: &WorkerShared, uri: &Url) -> u64 {
     shared
         .source_epochs
@@ -1459,7 +1192,7 @@ struct ScanEnv<'a> {
 }
 
 struct StaticScanContext<'a> {
-    identity: &'a mut StaticWorkspaceIdentity,
+    identity: &'a mut CompilerWorkspaceState,
     refresh: bool,
 }
 
@@ -1618,10 +1351,12 @@ fn process_scan_batch(
             env.shared.counters.clone(),
         );
         let generation = engine.update_files_batch_with_source(semantic_files);
-        if static_context.refresh {
-            refresh_static_workspace_analysis(engine, source_catalog, generation, static_context.identity);
-        }
-        let effects = publish_engine(env.db, engine);
+        let compiler_effects = static_context
+            .refresh
+            .then(|| refresh_compiler_workspace(engine, source_catalog, generation, static_context.identity))
+            .flatten()
+            .unwrap_or_default();
+        let effects = merge_publication_effects(publish_engine(env.db, engine), compiler_effects);
         env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
         let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
     }
@@ -1649,10 +1384,12 @@ fn process_scan_batch(
                 env.shared.counters.clone(),
             );
             let generation = engine.update_files_batch_with_source(batch);
-            if static_context.refresh {
-                refresh_static_workspace_analysis(engine, source_catalog, generation, static_context.identity);
-            }
-            let effects = publish_engine(env.db, engine);
+            let compiler_effects = static_context
+                .refresh
+                .then(|| refresh_compiler_workspace(engine, source_catalog, generation, static_context.identity))
+                .flatten()
+                .unwrap_or_default();
+            let effects = merge_publication_effects(publish_engine(env.db, engine), compiler_effects);
             env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
             let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
         }
@@ -1688,7 +1425,7 @@ fn extend_import_closure_with_source(
     }
 }
 
-fn resolve_source_import(uri: &Url, import: &str) -> Option<Url> {
+pub(crate) fn resolve_source_import(uri: &Url, import: &str) -> Option<Url> {
     let source = uri.to_file_path().ok()?;
     let dot_count = import.bytes().take_while(|byte| *byte == b'.').count();
     if dot_count == 0 {
@@ -1770,10 +1507,10 @@ mod tests {
         let source: Arc<str> = Arc::from("let x: Int = \"string\"\n");
         let parsed = parse(&source, 0);
         let source_catalog = BTreeMap::from([(file_uri.clone(), (FileRevision(1), source, parsed.program))]);
-        let mut identity = StaticWorkspaceIdentity::default();
+        let mut identity = CompilerWorkspaceState::default();
 
-        let publication = run_static_workspace_analysis(&source_catalog, crate::semantic::DocumentModuleMap::new(), 7, &mut identity)
-            .expect("static workspace should analyze");
+        let publication =
+            publish_compiler_workspace(&source_catalog, crate::semantic::DocumentModuleMap::new(), 7, &mut identity).expect("static workspace should analyze");
         let module = publication.documents.get_by_uri(&file_uri).expect("URI mapping published with snapshot");
 
         assert_eq!(publication.snapshot.generation, 7);
@@ -1798,7 +1535,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_publishes_static_snapshot_for_same_revision_and_generation() {
+    fn worker_publishes_compiler_snapshot_for_same_revision_and_generation() {
         let db = Arc::new(SemanticDb::new());
         let (service, mut events) = AnalysisService::new(db.clone());
         let file_uri = uri("file:///worker-typecheck-test.ph");
@@ -1816,12 +1553,12 @@ mod tests {
         let published = db.snapshot();
         let advisory_module = published.module_for_uri(&file_uri).expect("advisory URI mapping");
         assert_eq!(published.file(advisory_module).unwrap().revision, FileRevision(1));
-        let static_snapshot = published.static_snapshot.as_ref().expect("static snapshot");
-        assert_eq!(static_snapshot.generation, published.generation.0);
+        let compiler_snapshot = published.compiler_snapshot.as_ref().expect("static snapshot");
+        assert_eq!(compiler_snapshot.generation, published.generation.0);
         let static_module = published.documents.get_by_uri(&file_uri).expect("static URI mapping");
-        assert_eq!(static_snapshot.sources.get(static_module).unwrap().text, source);
+        assert_eq!(compiler_snapshot.sources.get(static_module).unwrap().text, source);
         assert!(
-            static_snapshot
+            compiler_snapshot
                 .diagnostics
                 .get(static_module)
                 .is_some_and(|diagnostics| !diagnostics.is_empty())
@@ -1847,8 +1584,8 @@ mod tests {
         service.wait_for_idle();
 
         let published = db.snapshot();
-        let static_snapshot = published.static_snapshot.as_ref().expect("static snapshot");
-        assert!(!static_snapshot.callable_analyses.is_empty(), "callable analyses must be populated");
+        let compiler_snapshot = published.compiler_snapshot.as_ref().expect("static snapshot");
+        assert!(!compiler_snapshot.callable_analyses.is_empty(), "callable analyses must be populated");
 
         let formal_y = published.formal_binding_type_at(&file_uri, "y", 70);
         assert_eq!(formal_y, Some("Int".to_string()));
@@ -1891,9 +1628,9 @@ mod tests {
             (b_uri.clone(), (FileRevision(1), b_source.clone(), parse(&b_source, 0).program)),
             (c_uri.clone(), (FileRevision(1), c_source.clone(), parse(&c_source, 0).program)),
         ]);
-        let mut identity = StaticWorkspaceIdentity::default();
+        let mut identity = CompilerWorkspaceState::default();
 
-        let publication = run_static_workspace_analysis(&source_catalog, crate::semantic::DocumentModuleMap::new(), 1, &mut identity)
+        let publication = publish_compiler_workspace(&source_catalog, crate::semantic::DocumentModuleMap::new(), 1, &mut identity)
             .expect("static workspace should link all resolvable catalog modules");
         let a_module = publication.documents.get_by_uri(&a_uri).unwrap();
         let b_module = publication.documents.get_by_uri(&b_uri).unwrap();
@@ -2148,10 +1885,10 @@ mod tests {
 
         assert_eq!(db.file_snapshot(&uri).unwrap().revision, FileRevision(1));
         let published = db.snapshot();
-        let static_snapshot = published.static_snapshot.as_ref().expect("workspace scan must publish static semantics");
-        assert_eq!(static_snapshot.generation, published.generation.0);
+        let compiler_snapshot = published.compiler_snapshot.as_ref().expect("workspace scan must publish static semantics");
+        assert_eq!(compiler_snapshot.generation, published.generation.0);
         let static_module = published.documents.get_by_uri(&uri).unwrap();
-        assert!(static_snapshot.sources.contains_key(static_module));
+        assert!(compiler_snapshot.sources.contains_key(static_module));
         assert_eq!(service.perf_counters().snapshot().scan_batches_published, 1);
         service.shutdown();
         let _ = fs::remove_dir_all(root);

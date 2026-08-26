@@ -73,7 +73,7 @@ pub use prover::{
 };
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
-pub use session::{SemanticUpdateStats, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
+pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 pub use signature::{CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable};
 pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
 pub use termination::{

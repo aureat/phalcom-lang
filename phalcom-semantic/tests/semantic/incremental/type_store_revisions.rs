@@ -70,6 +70,7 @@ class Counter {
     _count
   }
 }
+
 "#;
     let input1 = build_input(module.clone(), src1, 1);
     let update1 = session.update(input1);
@@ -109,6 +110,40 @@ class Counter {
     // Verify fine-grained callable reuse: `new` was reused, `get` was recomputed
     assert_eq!(update2.stats.callables_reused, 1, "unchanged `new` callable must be reused from DB cache");
     assert_eq!(update2.stats.callables_recomputed, 1, "changed `get` callable must be recomputed");
+}
+
+#[test]
+fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(101),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("effects").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(build_input(module.clone(), "class Sample { value() -> Int { 1 } }", 1));
+
+    assert!(first.effects.diagnostics_changed.contains(&module));
+    assert!(first.effects.source_index_changed.contains(&module));
+    assert!(first.effects.formal_changed.contains(&module));
+    assert!(first.effects.advisory_changed.contains(&module));
+    assert!(first.effects.declaration_index_changed);
+    assert!(first.effects.module_graph_changed);
+    assert!(first.stats.project_graph_rebuilt);
+    assert_eq!(first.stats.modules_relinked, 1);
+    assert_eq!(first.stats.source_indexes_recomputed, 1);
+    assert_eq!(first.stats.advisory_sources_recomputed, 1);
+
+    let second = session.update(build_input(module.clone(), "class Sample { value() -> Int { 2 } }", 2));
+
+    assert_eq!(first.snapshot.store.id(), second.snapshot.store.id());
+    assert!(second.effects.source_index_changed.contains(&module));
+    assert!(second.effects.formal_changed.contains(&module));
+    assert!(second.effects.advisory_changed.contains(&module));
+    assert!(!second.effects.declaration_index_changed);
+    assert!(!second.effects.module_graph_changed);
+    assert!(!second.stats.project_graph_rebuilt);
+    assert_eq!(second.stats.modules_relinked, 0);
+    assert_eq!(second.stats.source_indexes_recomputed, 1);
+    assert_eq!(second.stats.advisory_sources_recomputed, 1);
 }
 
 #[test]

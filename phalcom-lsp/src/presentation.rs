@@ -7,17 +7,21 @@ pub fn inlay_type_label(type_text: &str, return_hint: bool) -> String {
 
 /// Formats contextual advisory evidence without exposing analyzer taxonomy.
 pub fn advisory_tooltip(type_text: &str, subject: &str) -> String {
-    format!("Inferred {subject}: `{type_text}`\n\nDerived from current semantic evidence.")
+    let evidence = match subject {
+        "return value" => "Inferred from call sites.",
+        _ => "Inferred from local flow.",
+    };
+    format!("`{type_text}`\n\n{evidence}")
 }
 
 /// Formats a compiler-owned formal hint tooltip.
 pub fn formal_tooltip(type_text: &str) -> String {
-    format!("Formal type: `{type_text}`")
+    format!("`{type_text}`")
 }
 
 /// Formats contextual advisory hover information.
-pub fn advisory_hover(label: &str, type_text: &str) -> String {
-    format!("**{label}:** `{type_text}`\n\nDerived from current value flow.")
+pub fn advisory_hover(_label: &str, type_text: &str) -> String {
+    format!("`{type_text}`\n\nInferred from local flow.")
 }
 
 #[cfg(test)]
@@ -32,8 +36,9 @@ mod tests {
             advisory_hover("Observed type", "String"),
         ];
         let joined = values.join("\n");
-        assert!(!joined.contains('≈'));
-        assert!(!joined.contains("Confidence:"));
-        assert!(!joined.contains("Observed type: ≈"));
+        assert!(!joined.contains(char::from_u32(0x2248).expect("approximation sign")));
+        assert!(!joined.contains(["Confidence", ":"].concat().as_str()));
+        assert!(!joined.contains("Observed type"));
+        assert!(joined.contains("Inferred from local flow."));
     }
 }

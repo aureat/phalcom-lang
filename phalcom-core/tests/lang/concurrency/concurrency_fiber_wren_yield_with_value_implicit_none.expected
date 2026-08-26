@@ -3,4 +3,4 @@ yield 1
 fiber 2
 yield 2
 fiber 3
-None
+()

@@ -55,16 +55,42 @@ pub struct SemanticUpdateStats {
     pub modules_recomputed: usize,
     pub callables_recomputed: usize,
     pub callables_reused: usize,
+    pub project_graph_rebuilt: bool,
+    pub modules_relinked: usize,
+    pub source_indexes_recomputed: usize,
+    pub advisory_sources_recomputed: usize,
+    pub advisory_callables_recomputed: usize,
 }
 
-/// The result of an incremental semantic workspace update.
+/// Product-level effects of one immutable semantic publication.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SemanticPublicationEffects {
+    /// Modules whose published diagnostics changed.
+    pub diagnostics_changed: BTreeSet<ModuleId>,
+    /// Modules whose source-site or occurrence products changed.
+    pub source_index_changed: BTreeSet<ModuleId>,
+    /// Modules whose formal products changed.
+    pub formal_changed: BTreeSet<ModuleId>,
+    /// Modules whose advisory products changed.
+    pub advisory_changed: BTreeSet<ModuleId>,
+    /// Whether the sorted declaration index changed.
+    pub declaration_index_changed: bool,
+    /// Whether the canonical module graph changed.
+    pub module_graph_changed: bool,
+}
+
+/// The result of an incremental semantic workspace publication.
 #[derive(Clone, Debug)]
-pub struct SemanticWorkspaceUpdate {
+pub struct SemanticWorkspacePublication {
     pub snapshot: Arc<SemanticSnapshot>,
     pub invalidated: Arc<[QueryKey]>,
     pub recomputed: Arc<[QueryKey]>,
     pub stats: SemanticUpdateStats,
+    pub effects: SemanticPublicationEffects,
 }
+
+/// Compatibility name for existing compiler tests and lower-level callers.
+pub type SemanticWorkspaceUpdate = SemanticWorkspacePublication;
 
 /// Compiler-owned stateful semantic workspace session.
 ///
@@ -236,6 +262,7 @@ impl SemanticWorkspaceSession {
                     invalidated: Arc::from(Vec::new()),
                     recomputed: Arc::from(Vec::new()),
                     stats: SemanticUpdateStats::default(),
+                    effects: SemanticPublicationEffects::default(),
                 }
             })
     }
@@ -255,6 +282,8 @@ impl SemanticWorkspaceSession {
         let mut stats = SemanticUpdateStats::default();
         let mut invalidated_keys = BTreeSet::new();
         let mut recomputed_keys = Vec::new();
+        let previous_sources = self.sources.clone();
+        let previous_snapshot = self.last_snapshot.clone();
 
         // 1. Refresh source-owned staged products without eager reverse invalidation.
         //
@@ -264,6 +293,7 @@ impl SemanticWorkspaceSession {
         // evaluated for every source so an unchanged unlinked semantic product can become
         // current and allow linked/formal/body products to remain reusable.
         let mut new_fingerprints = BTreeMap::new();
+        let mut changed_modules = BTreeSet::new();
         for (module_id, unit) in &input.sources {
             let fp = compute_module_fingerprint(unit);
             new_fingerprints.insert(module_id.clone(), fp);
@@ -272,6 +302,7 @@ impl SemanticWorkspaceSession {
             let changed = self.source_fingerprints.get(module_id).copied() != Some(fp);
 
             if changed {
+                changed_modules.insert(module_id.clone());
                 stats.modules_recomputed += 1;
                 if existed {
                     invalidated_keys.insert(QueryKey::ParsedModule(module_id.clone()));
@@ -291,6 +322,7 @@ impl SemanticWorkspaceSession {
         // fingerprint could prove semantic stability, so its full reverse closure must die.
         for old_module_id in self.sources.keys() {
             if !input.sources.contains_key(old_module_id) {
+                changed_modules.insert(old_module_id.clone());
                 let parsed_key = QueryKey::ParsedModule(old_module_id.clone());
                 let unlinked_key = QueryKey::UnlinkedInterface(old_module_id.clone());
                 let linked_key = QueryKey::LinkedInterface(old_module_id.clone());
@@ -899,6 +931,50 @@ impl SemanticWorkspaceSession {
         snapshot_obj.module_products = module_products;
         let snapshot = Arc::new(snapshot_obj);
 
+        let mut diagnostics_changed = BTreeSet::new();
+        let previous_diagnostics = previous_snapshot.as_ref().map(|snapshot| snapshot.diagnostics.as_ref());
+        let module_ids = previous_sources.keys().chain(snapshot.sources.keys()).cloned().collect::<BTreeSet<_>>();
+        for module in module_ids {
+            let before = previous_diagnostics.and_then(|diagnostics| diagnostics.get(&module));
+            let after = snapshot.diagnostics.get(&module);
+            if before != after {
+                diagnostics_changed.insert(module);
+            }
+        }
+        let module_graph_changed = previous_snapshot.as_deref().is_none_or(|previous| {
+            previous.semantic_graph != snapshot.semantic_graph
+                || previous.module_products.resolved_imports != snapshot.module_products.resolved_imports
+                || !previous.module_products.linked.keys().eq(snapshot.module_products.linked.keys())
+        });
+        let declaration_index_changed = previous_snapshot.as_deref().is_none_or(|previous| {
+            let previous_callables = previous.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
+            let current_callables = snapshot.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
+            !previous.surfaces.keys().eq(snapshot.surfaces.keys()) || previous_callables != current_callables
+        });
+        let effects = SemanticPublicationEffects {
+            diagnostics_changed,
+            source_index_changed: changed_modules.clone(),
+            formal_changed: changed_modules.clone(),
+            advisory_changed: changed_modules.clone(),
+            declaration_index_changed,
+            module_graph_changed,
+        };
+
+        // These counters describe compiler-owned product work, not protocol
+        // requests. A source mutation refreshes the affected source shard and
+        // its advisory/callable products; graph/declaration work is tracked
+        // separately so callers can distinguish a body edit from a project
+        // lifecycle event.
+        stats.source_indexes_recomputed = changed_modules.len();
+        stats.advisory_sources_recomputed = changed_modules.len();
+        stats.advisory_callables_recomputed = snapshot
+            .callable_analyses
+            .values()
+            .filter(|analysis| changed_modules.contains(&analysis.callable.owner.module))
+            .count();
+        stats.modules_relinked = module_graph_changed.then_some(changed_modules.len()).unwrap_or_default();
+        stats.project_graph_rebuilt = effects.module_graph_changed;
+
         self.last_snapshot = Some(snapshot.clone());
         self.last_known_good = Some(snapshot.clone());
 
@@ -907,6 +983,7 @@ impl SemanticWorkspaceSession {
             invalidated: Arc::from(invalidated_keys.into_iter().collect::<Vec<_>>()),
             recomputed: Arc::from(recomputed_keys),
             stats,
+            effects,
         })
     }
 }

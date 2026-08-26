@@ -51,7 +51,7 @@ use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend, Url};
 
 use crate::line_index::LineIndex;
-use crate::request_context::RequestContext;
+use crate::request_context::{RequestContext, SourceMatch};
 use crate::semantic::{SemanticDb, SemanticOccurrenceKind};
 
 /// The semantic token types this server declares, in legend order.
@@ -531,9 +531,12 @@ pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
     let mut raw = Vec::new();
     collect_tokens(&request.document.text, 0, &mut raw);
     apply_symbol_operator_overrides(&request.document.text, &mut raw);
-    if let Some(file) = request.exact_file() {
-        apply_occurrence_overrides(file, &mut raw);
-        apply_decl_name_overrides_program(&file.source.program, &mut raw);
+    if matches!(request.source_match, SourceMatch::Exact)
+        && let (Some(compiler), Some(module)) = (request.compiler.as_deref(), request.compiler_module())
+        && let Some(source) = compiler.source_index.module(module)
+    {
+        apply_compiler_occurrence_overrides(source, &mut raw);
+        apply_decl_name_overrides_program(&request.document.parse.program, &mut raw);
     } else {
         // The parse is owned by DocumentSnapshot. Never reparse live text in
         // this fallback: declaration ranges must come from the same source
@@ -541,6 +544,26 @@ pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
         apply_decl_name_overrides_program(&request.document.parse.program, &mut raw);
     }
     encode(&request.document.text, &request.document.line_index, &raw)
+}
+
+fn apply_compiler_occurrence_overrides(source: &phalcom_semantic::source_index::ModuleSourceIndex, raw: &mut [RawToken]) {
+    let mut occurrences_map = std::collections::BTreeMap::new();
+    for occurrence in source.occurrences.all() {
+        occurrences_map.insert((occurrence.range.start, occurrence.range.end), occurrence.kind);
+    }
+    for token in raw.iter_mut() {
+        if let Some(kind) = occurrences_map.get(&(token.start, token.end)) {
+            token.kind = match kind {
+                phalcom_semantic::source_index::OccurrenceKind::Parameter => SemanticTokenKind::Parameter,
+                phalcom_semantic::source_index::OccurrenceKind::Binding => SemanticTokenKind::Variable,
+                phalcom_semantic::source_index::OccurrenceKind::Field => SemanticTokenKind::Property,
+                phalcom_semantic::source_index::OccurrenceKind::Member => SemanticTokenKind::Method,
+                phalcom_semantic::source_index::OccurrenceKind::Declaration => SemanticTokenKind::Class,
+                phalcom_semantic::source_index::OccurrenceKind::Module => SemanticTokenKind::Variable,
+                phalcom_semantic::source_index::OccurrenceKind::Operator => SemanticTokenKind::Operator,
+            };
+        }
+    }
 }
 
 fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut Vec<RawToken>) {

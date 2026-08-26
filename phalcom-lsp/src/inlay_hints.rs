@@ -468,13 +468,7 @@ fn collect_file_semantic_hints(
         crate::parity::ShadowParityHarness::new().record_inlay_hint_parity(&binding.name, formal_text.as_deref(), Some(&render_shape(&value.shape)));
 
         let (label, tooltip) = if let Some(formal) = formal.as_ref() {
-            (
-                format!(": {}", formal.text()),
-                format!(
-                    "Formal semantic result: `{}`\n\nThis result is compiler-owned and authoritative.",
-                    formal.text()
-                ),
-            )
+            (format!(": {}", formal.text()), String::new())
         } else {
             let rendered = render_shape(&value.shape);
             (
@@ -487,7 +481,7 @@ fn collect_file_semantic_hints(
             label: InlayHintLabel::String(label),
             kind: Some(InlayHintKind::TYPE),
             text_edits: None,
-            tooltip: Some(InlayHintTooltip::MarkupContent(MarkupContent {
+            tooltip: (!tooltip.is_empty()).then_some(InlayHintTooltip::MarkupContent(MarkupContent {
                 kind: MarkupKind::Markdown,
                 value: tooltip,
             })),
