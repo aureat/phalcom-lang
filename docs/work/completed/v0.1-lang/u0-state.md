@@ -93,7 +93,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
   primitive bodies + the `Method` re-parent, only 1 of 7 installs wired — was handed to a fresh
   implementer agent with an explicit checkpoint description; no work was lost or redone).
   `./scripts/verify.sh` green (build+test+clippy); `cargo doc` clean on all new items (one
-  pre-existing unrelated warning in `nil.rs` logged as DEFERRED #33, not introduced by this unit).
+  pre-existing unrelated warning in `option` logged as DEFERRED #33, not introduced by this unit).
 - **NEXT = U-CORE-3** (callables/Block/Method reflection — the iteration-method prereq); do not
   co-schedule with anything else touching `create_core_classes`.
 
@@ -219,7 +219,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
   `pending/blocks_argument_to_method.ph` (`List.reduce(_)` — not in the kernel) stays pending with a
   comment noting it is blocked on U-STD's `reduce`, **not** on U10 (DEFERRED #25).
 - **Green gate:** `./scripts/verify.sh` exit 0; `cargo doc --workspace --no-deps` clean (no new
-  warnings — one pre-existing `nil.rs` `wrap_some` private-link warning is unrelated). Reviewer OFF
+  warnings — one pre-existing `option` `wrap_some` private-link warning is unrelated). Reviewer OFF
   per policy — self-verified, including the dead-frame path and upvalue-across-unwind promotion.
 - **Working model:** in-tree on `main`, no worktree.
 - **Hard stop:** did not begin U11/U-LEX/U-STD.

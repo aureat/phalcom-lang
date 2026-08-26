@@ -1,6 +1,9 @@
 //! Expression type synthesis, bidirectional checking, and inference engine (Spec 04.5 / Wave 3).
 
-use super::call::{exact_return_origin, promote_exact_return, resolve_call};
+use super::call::{
+    CallPremise, CallableApplicationTarget, StaticCallShape, UnresolvedApplicationReason, analyze_non_callable_invocation, analyze_unresolved_application,
+    application_arguments, apply_resolved_callable,
+};
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::statement::check_statement;
@@ -8,11 +11,13 @@ use super::typed_expr::TypedExpression;
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
 use crate::diagnostic::DiagnosticCode;
-use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult};
+use crate::dispatch::{CallableParameter, CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
+use crate::identity::DeclarationId;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
-use crate::types::id::KindId;
+use crate::types::id::{KindId, TypeId};
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
+use crate::types::relation::TypeHierarchy;
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     BinaryExpr, BinaryOp, Expr, GetPropertyExpr, IndexExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern,
@@ -26,14 +31,9 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     let expr_id = ctx.alloc_expression_id();
     ctx.push_expression_owner(expr_id);
     let mut typed = analyze_expression_inner(ctx, expr, expected);
-    let owned_cause = ctx.pop_expression_owner(expr_id);
-
-    let status = if let Some(cause_id) = owned_cause {
-        typed.causal_invalidity = typed.causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause_id));
-        AnalysisStatus::Invalid(cause_id)
-    } else {
-        typed.status.clone()
-    };
+    if let Some(cause_id) = ctx.pop_expression_owner(expr_id) {
+        typed.invalidate(cause_id);
+    }
     let explanation_id = if let Some(ty) = typed.knowledge.ty() {
         let step = match expr {
             Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } => {
@@ -59,22 +59,8 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     };
     ctx.record_call_dependency(typed.causal_invalidity, explanation_id);
 
-    let mut analysis = ctx.record_expression(
-        expr_id,
-        expr.range(),
-        typed.knowledge.clone(),
-        typed.callable.clone(),
-        typed.denotation,
-        status.clone(),
-    );
-    analysis.causal_invalidity = typed.causal_invalidity;
-    ctx.expressions.insert(expr_id, analysis.clone());
-    if let Some(eid) = explanation_id {
-        analysis.explanation = Some(eid);
-        ctx.expressions.insert(expr_id, analysis);
-    }
     typed.expression_id = Some(expr_id);
-    typed.status = status;
+    ctx.publish_expression_analysis(expr_id, expr.range(), &typed, explanation_id);
     typed
 }
 
@@ -228,22 +214,24 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 
         // --- 3. Assignments ---
         Expr::Assignment(assign) => {
-            let target_expected = if let Expr::Var { value: var_name, .. } = &*assign.name {
-                if let Some(info) = ctx.lookup_binding_info(var_name) {
-                    ctx.flow
-                        .get_binding(info.id)
-                        .and_then(|state| {
-                            state
-                                .contract
-                                .as_ref()
-                                .map(|contract| ExpectedType::proper_from(contract.ty, ExpectationOrigin::AssignmentContract))
-                        })
-                        .unwrap_or_default()
-                } else {
-                    ExpectedType::None
-                }
-            } else {
-                ExpectedType::None
+            let target_expected = match &*assign.name {
+                Expr::Var { value: var_name, .. } => ctx
+                    .lookup_binding_info(var_name)
+                    .and_then(|info| ctx.flow.get_binding(info.id))
+                    .and_then(|state| {
+                        state
+                            .contract
+                            .as_ref()
+                            .map(|contract| ExpectedType::proper_from(contract.ty, ExpectationOrigin::AssignmentContract))
+                    })
+                    .unwrap_or_default(),
+                Expr::Field { value: field_name, .. } => ctx
+                    .current_class
+                    .clone()
+                    .and_then(|class_decl| ctx.get_field(&class_decl, ctx.current_side, field_name))
+                    .and_then(|field| field.ty().map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::AssignmentContract)))
+                    .unwrap_or_default(),
+                _ => ExpectedType::None,
             };
 
             let val_typed = analyze_expression(ctx, &assign.value, &target_expected);
@@ -258,7 +246,10 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                 .emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                                     ctx.current_module.clone(),
                                     DiagnosticCode::AssignmentToImmutable,
-                                    format!("Cannot reassign immutable `const` binding `{}`; declare it with `let` to allow mutation.", var_name),
+                                    format!(
+                                        "Cannot reassign immutable `const` binding `{}`; declare it with `let` to allow mutation.",
+                                        var_name
+                                    ),
                                     assign.range,
                                 ))
                                 .expect("error diagnostic has cause");
@@ -299,6 +290,23 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
                 result.causal_invalidity = causal_invalidity;
                 return result;
+            }
+            if let Expr::Field { value: field_name, .. } = &*assign.name {
+                if let Some(class_decl) = ctx.current_class.clone() {
+                    if let Some(field_k) = ctx.get_field(&class_decl, ctx.current_side, field_name) {
+                        let application = ctx.apply_assignability(
+                            &val_typed.knowledge,
+                            &field_k,
+                            DiagnosticCode::FieldMismatch,
+                            format!("assigned value does not match field type"),
+                            assign.range,
+                        );
+                        let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
+                        result.causal_invalidity = val_typed.causal_invalidity;
+                        apply_relation_application_to_typed(&mut result, &application);
+                        return result;
+                    }
+                }
             }
             TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range)
         }
@@ -405,7 +413,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let flow_before = ctx.flow.clone();
 
             ctx.push_scope();
-            bind_pattern(ctx, &if_let.pattern, val_typed.fact());
+            bind_pattern(ctx, &if_let.pattern, val_typed.fact(), val_typed.causal_invalidity);
             let then_typed = analyze_expression(ctx, &Expr::Block(Box::new(if_let.then_body.clone())), expected);
             let then_flow = ctx.flow.clone();
             ctx.pop_scope();
@@ -451,7 +459,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         Expr::WhileLet(while_let) => {
             let val_typed = analyze_expression(ctx, &while_let.value, &ExpectedType::None);
             ctx.push_scope();
-            bind_pattern(ctx, &while_let.pattern, val_typed.fact());
+            bind_pattern(ctx, &while_let.pattern, val_typed.fact(), val_typed.causal_invalidity);
             for stmt in &while_let.body {
                 check_statement(ctx, stmt);
             }
@@ -540,149 +548,192 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
 fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let list_decl = ctx.resolve_type_name("List");
     let expected_elem = expected.collection_element_type(ctx.store);
-    let mut elem_tys = Vec::new();
+    let list_form = list_decl.as_ref().map(|decl| {
+        let kind = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        ctx.store.nominal_form(decl.clone(), kind)
+    });
+    let mut contributions = Vec::new();
+    let mut operands = Vec::new();
 
     for el in &list.elements {
         match el {
             ListLiteralElement::Element { expr, .. } => {
-                let k = analyze_expression(ctx, expr, &expected_elem);
-                if let Some(ty) = k.knowledge.ty() {
-                    elem_tys.push(ty);
-                }
+                let typed = analyze_expression(ctx, expr, &expected_elem);
+                contributions.push(typed.knowledge.clone());
+                operands.push(typed);
             }
             ListLiteralElement::Expansion { expr, .. } => {
-                analyze_expression(ctx, expr, &ExpectedType::None);
+                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                let projected = list_form
+                    .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                contributions.push(projected);
+                operands.push(typed);
             }
         }
     }
 
-    let elem_ty = if elem_tys.is_empty() {
-        return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
+    let knowledge = if list.elements.is_empty() {
+        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+    } else if let Some(form) = list_form {
+        crate::types::evidence::compose_required_knowledge(contributions, EvidenceOrigin::Syntax, |types| {
+            if types.is_empty() {
+                return Err(UnknownReason::NoTypeEvidence);
+            }
+            let element = ctx.store.union(types);
+            ctx.store.list_of(form, element).map_err(|_| UnknownReason::UncheckedExpression)
+        })
     } else {
-        ctx.store.union(&elem_tys)
+        TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
     };
-
-    if let Some(decl) = list_decl {
-        let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-        let form = ctx.store.nominal_form(decl, k);
-        if let Ok(ty) = ctx.store.list_of(form, elem_ty) {
-            TypedExpression::established(ty, EvidenceOrigin::Syntax, list.range)
-        } else {
-            TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-        }
-    } else {
-        TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-    }
+    let mut result = TypedExpression::new(match knowledge {
+        TypeKnowledge::Known(_) => knowledge.with_range(list.range),
+        other => other,
+    });
+    crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result
 }
 
 fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let set_decl = ctx.resolve_type_name("Set");
     let expected_elem = expected.collection_element_type(ctx.store);
-    let mut elem_tys = Vec::new();
+    let set_form = set_decl.as_ref().map(|decl| {
+        let kind = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        ctx.store.nominal_form(decl.clone(), kind)
+    });
+    let mut contributions = Vec::new();
+    let mut operands = Vec::new();
 
     for el in &set.entries {
         match el {
             SetLiteralEntry::Element { expr, .. } => {
-                let k = analyze_expression(ctx, expr, &expected_elem);
-                if let Some(ty) = k.knowledge.ty() {
-                    elem_tys.push(ty);
-                }
+                let typed = analyze_expression(ctx, expr, &expected_elem);
+                contributions.push(typed.knowledge.clone());
+                operands.push(typed);
             }
             SetLiteralEntry::Expansion { expr, .. } => {
-                analyze_expression(ctx, expr, &ExpectedType::None);
+                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                let projected = set_form
+                    .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                contributions.push(projected);
+                operands.push(typed);
             }
         }
     }
 
-    let elem_ty = if elem_tys.is_empty() {
-        return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
+    let knowledge = if set.entries.is_empty() {
+        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+    } else if let Some(form) = set_form {
+        crate::types::evidence::compose_required_knowledge(contributions, EvidenceOrigin::Syntax, |types| {
+            if types.is_empty() {
+                return Err(UnknownReason::NoTypeEvidence);
+            }
+            let element = ctx.store.union(types);
+            ctx.store.set_of(form, element).map_err(|_| UnknownReason::UncheckedExpression)
+        })
     } else {
-        ctx.store.union(&elem_tys)
+        TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
     };
-
-    if let Some(decl) = set_decl {
-        let k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-        let form = ctx.store.nominal_form(decl, k);
-        if let Ok(ty) = ctx.store.set_of(form, elem_ty) {
-            TypedExpression::established(ty, EvidenceOrigin::Syntax, set.range)
-        } else {
-            TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-        }
-    } else {
-        TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-    }
+    let mut result = TypedExpression::new(match knowledge {
+        TypeKnowledge::Known(_) => knowledge.with_range(set.range),
+        other => other,
+    });
+    crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result
 }
 
 fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let map_decl = ctx.resolve_type_name("Map");
-    let string_decl = ctx.resolve_type_name("String");
+    let symbol_decl = ctx.resolve_type_name("Symbol");
     let (expected_key, expected_val) = expected.map_key_val_types(ctx.store);
-    let mut key_tys = Vec::new();
-    let mut val_tys = Vec::new();
+    let map_form = map_decl.as_ref().map(|decl| {
+        let kind = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        ctx.store.nominal_form(decl.clone(), kind)
+    });
+    let mut operands = Vec::new();
+    let mut key_knowledge = Vec::new();
+    let mut value_knowledge = Vec::new();
 
     for entry in &map.entries {
         match entry {
             MapLiteralEntry::Association { key, value, .. } => {
-                let key_ty = match key {
-                    MapLiteralKey::BareSymbol { .. } => string_decl.as_ref().map(|d| ctx.nominal_type_of(d)),
-                    MapLiteralKey::Computed { expr, .. } => analyze_expression(ctx, expr, &expected_key).knowledge.ty(),
-                };
-                if let Some(kt) = key_ty {
-                    key_tys.push(kt);
+                match key {
+                    MapLiteralKey::BareSymbol { .. } => {
+                        let knowledge = symbol_decl
+                            .as_ref()
+                            .map(|decl| TypeKnowledge::established(ctx.nominal_type_of(decl), EvidenceOrigin::Syntax))
+                            .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                        key_knowledge.push(knowledge);
+                    }
+                    MapLiteralKey::Computed { expr, .. } => {
+                        let typed = analyze_expression(ctx, expr, &expected_key);
+                        key_knowledge.push(typed.knowledge.clone());
+                        operands.push(typed);
+                    }
                 }
-                let val_k = analyze_expression(ctx, value, &expected_val);
-                if let Some(vt) = val_k.knowledge.ty() {
-                    val_tys.push(vt);
-                }
+                let typed = analyze_expression(ctx, value, &expected_val);
+                value_knowledge.push(typed.knowledge.clone());
+                operands.push(typed);
             }
             MapLiteralEntry::Expansion { expr, .. } => {
-                analyze_expression(ctx, expr, &ExpectedType::None);
+                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                let key = map_form
+                    .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                let value = map_form
+                    .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 1))
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                key_knowledge.push(key);
+                value_knowledge.push(value);
+                operands.push(typed);
             }
         }
     }
 
-    let key_ty = if key_tys.is_empty() {
-        return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
-    } else {
-        ctx.store.union(&key_tys)
+    let mut lane = |knowledge: Vec<TypeKnowledge>| {
+        crate::types::evidence::compose_required_knowledge(knowledge, EvidenceOrigin::Syntax, |types| {
+            if types.is_empty() {
+                return Err(UnknownReason::NoTypeEvidence);
+            }
+            Ok(ctx.store.union(types))
+        })
     };
-
-    let val_ty = if val_tys.is_empty() {
-        return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
+    let key_lane = lane(key_knowledge);
+    let value_lane = lane(value_knowledge);
+    let knowledge = if let Some(form) = map_form {
+        crate::types::evidence::compose_required_knowledge([key_lane, value_lane], EvidenceOrigin::Syntax, |types| {
+            let [key, value] = types else {
+                return Err(UnknownReason::UncheckedExpression);
+            };
+            ctx.store.map_of(form, *key, *value).map_err(|_| UnknownReason::UncheckedExpression)
+        })
     } else {
-        ctx.store.union(&val_tys)
+        TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
     };
-
-    if let Some(decl) = map_decl {
-        let k = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-        let form = ctx.store.nominal_form(decl, k);
-        if let Ok(ty) = ctx.store.map_of(form, key_ty, val_ty) {
-            TypedExpression::established(ty, EvidenceOrigin::Syntax, map.range)
-        } else {
-            TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-        }
-    } else {
-        TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-    }
+    let mut result = TypedExpression::new(match knowledge {
+        TypeKnowledge::Known(_) => knowledge.with_range(map.range),
+        other => other,
+    });
+    crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result
 }
 
 fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::ast::TupleLiteralExpr, _expected: &ExpectedType) -> TypedExpression {
-    let mut elements = Vec::new();
+    let mut labels = Vec::new();
+    let mut knowledge = Vec::new();
+    let mut operands = Vec::new();
 
     for entry in &tup.entries {
         match entry {
             TupleLiteralEntry::Positional { expr, .. } => {
-                let k = analyze_expression(ctx, expr, &ExpectedType::None);
-                let Some(ty) = k.knowledge.ty() else {
-                    return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-                };
-                elements.push(TupleTypeElement { label: None, ty });
+                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                labels.push(None);
+                knowledge.push(typed.knowledge.clone());
+                operands.push(typed);
             }
             TupleLiteralEntry::Labeled { label, value, .. } => {
-                let k = analyze_expression(ctx, value, &ExpectedType::None);
-                let Some(ty) = k.knowledge.ty() else {
-                    return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-                };
+                let typed = analyze_expression(ctx, value, &ExpectedType::None);
                 let label_name = match label {
                     ProductLabel::Static { symbol, .. } => match symbol {
                         SymbolLiteralKind::Name(n) => Some(n.clone().into_boxed_str()),
@@ -691,28 +742,62 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                     },
                     _ => None,
                 };
-                elements.push(TupleTypeElement { label: label_name, ty });
+                labels.push(label_name);
+                knowledge.push(typed.knowledge.clone());
+                operands.push(typed);
             }
             TupleLiteralEntry::Expand { expr, .. } => {
-                analyze_expression(ctx, expr, &ExpectedType::None);
+                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                match crate::checker::composition::project_tuple_elements(ctx.store, &typed.knowledge) {
+                    Ok(projected) => {
+                        let source_labels = typed.knowledge.ty().and_then(|ty| match ctx.store.get(ty) {
+                            TypeData::Tuple(elements) => Some(elements.iter().map(|element| element.label.clone()).collect::<Vec<_>>()),
+                            _ => None,
+                        });
+                        for (index, component) in projected.into_iter().enumerate() {
+                            labels.push(source_labels.as_ref().and_then(|labels| labels.get(index).cloned()).flatten());
+                            knowledge.push(component);
+                        }
+                    }
+                    Err(blocker) => {
+                        labels.push(None);
+                        knowledge.push(blocker);
+                    }
+                }
+                operands.push(typed);
             }
         }
     }
 
-    let ty = ctx.store.tuple(elements.into_boxed_slice());
-    TypedExpression::established(ty, EvidenceOrigin::Syntax, tup.range)
+    let knowledge = crate::types::evidence::compose_required_knowledge(knowledge, EvidenceOrigin::Syntax, |types| {
+        if types.len() != labels.len() {
+            return Err(UnknownReason::UncheckedExpression);
+        }
+        let elements = labels
+            .iter()
+            .cloned()
+            .zip(types.iter().copied())
+            .map(|(label, ty)| TupleTypeElement { label, ty })
+            .collect::<Vec<_>>();
+        Ok(ctx.store.tuple(elements.into_boxed_slice()))
+    });
+    let mut result = TypedExpression::new(match knowledge {
+        TypeKnowledge::Known(_) => knowledge.with_range(tup.range),
+        other => other,
+    });
+    crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result
 }
 
 fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr, _expected: &ExpectedType) -> TypedExpression {
-    let mut fields = Vec::new();
+    let mut names = Vec::new();
+    let mut knowledge = Vec::new();
+    let mut operands = Vec::new();
 
     for entry in &rec.entries {
         match entry {
             RecordLiteralEntry::Field(f) => {
-                let k = analyze_expression(ctx, &f.value, &ExpectedType::None);
-                let Some(ty) = k.knowledge.ty() else {
-                    return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-                };
+                let typed = analyze_expression(ctx, &f.value, &ExpectedType::None);
                 let name = match &f.label {
                     ProductLabel::Static { symbol, .. } => match symbol {
                         SymbolLiteralKind::Name(n) => n.clone(),
@@ -721,107 +806,115 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                     },
                     _ => "field".into(),
                 };
-                fields.push(RecordTypeField {
-                    name: name.into_boxed_str(),
-                    ty,
-                });
+                names.push(name.into_boxed_str());
+                knowledge.push(typed.knowledge.clone());
+                operands.push(typed);
             }
             RecordLiteralEntry::Expansion { expr, .. } => {
-                analyze_expression(ctx, expr, &ExpectedType::None);
+                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                match crate::checker::composition::project_record_fields(ctx.store, &typed.knowledge) {
+                    Ok(fields) => {
+                        for (name, field_knowledge) in fields {
+                            names.push(name);
+                            knowledge.push(field_knowledge);
+                        }
+                    }
+                    Err(blocker) => {
+                        names.push("field".into());
+                        knowledge.push(blocker);
+                    }
+                }
+                operands.push(typed);
             }
         }
     }
 
-    let ty = ctx.store.record(fields.into_boxed_slice());
-    TypedExpression::established(ty, EvidenceOrigin::Syntax, rec.range)
+    let knowledge = crate::types::evidence::compose_required_knowledge(knowledge, EvidenceOrigin::Syntax, |types| {
+        if types.len() != names.len() {
+            return Err(UnknownReason::UncheckedExpression);
+        }
+        let fields = names
+            .iter()
+            .cloned()
+            .zip(types.iter().copied())
+            .map(|(name, ty)| RecordTypeField { name, ty })
+            .collect::<Vec<_>>();
+        Ok(ctx.store.record(fields.into_boxed_slice()))
+    });
+    let mut result = TypedExpression::new(match knowledge {
+        TypeKnowledge::Known(_) => knowledge.with_range(rec.range),
+        other => other,
+    });
+    crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result
 }
 
 // ---------------------------------------------------------------------------
 // Message Send and Invocation Synthesis (E5)
 // ---------------------------------------------------------------------------
 
-/// A receiver-dependent operation is suppressed only when its required
-/// receiver premise is unavailable because the receiver itself is invalid or
-/// already suppressed. Ready knowledge with upstream causal invalidity stays
-/// analyzable and is handled by ordinary dispatch recovery.
-fn suppress_required_receiver_premise(receiver: &TypedExpression) -> Option<TypedExpression> {
-    if receiver.knowledge.ty().is_some() {
-        return None;
+fn apply_relation_application_to_typed(typed: &mut TypedExpression, application: &super::context::RelationApplication) {
+    if let Some(status) = &application.status {
+        match status {
+            AnalysisStatus::Invalid(cause) => typed.invalidate(*cause),
+            other => typed.status = other.clone(),
+        }
     }
-    let cause = match &receiver.status {
-        AnalysisStatus::Invalid(cause) => Some(crate::checker::causal::SuppressionCause::One(*cause)),
-        AnalysisStatus::Suppressed(cause) => Some(cause.clone()),
-        _ => None,
-    }?;
-    let mut typed = TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
-    typed.status = AnalysisStatus::Suppressed(cause);
-    typed.causal_invalidity = receiver.causal_invalidity;
-    Some(typed)
+    typed.debug_assert_coherent();
 }
 
 fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
-    let recv_k = &recv_typed.knowledge;
+    let premise = CallPremise::from_typed(ctx, &recv_typed);
 
-    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
-        return suppressed;
-    }
-
-    if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, recv_k) {
+    if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, &recv_typed.knowledge) {
         typed.causal_invalidity = typed.causal_invalidity.join(recv_typed.causal_invalidity);
         return typed;
     }
 
-    // Build selector from method name + pack items
-    let mut slots = Vec::new();
-    for arg in &call.args {
-        match arg {
-            PackItem::Positional { .. } => slots.push(SelectorSlot::Positional),
-            PackItem::Labeled { label, .. } => {
-                if let PackLabel::Static { text, .. } = label {
-                    slots.push(SelectorSlot::Label(text.clone()));
+    let arguments = application_arguments(&call.args);
+    let Some(receiver_ty) = recv_typed.knowledge.ty() else {
+        let reason = match &recv_typed.knowledge {
+            TypeKnowledge::Unknown(_) => {
+                if matches!(recv_typed.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Suppressed(_)) {
+                    UnresolvedApplicationReason::PremiseInvalidUnavailable
                 } else {
-                    slots.push(SelectorSlot::Positional);
+                    UnresolvedApplicationReason::PremiseUnknown
                 }
             }
-            PackItem::Expand { .. } => slots.push(SelectorSlot::Positional),
-        }
-    }
-
-    let Ok(sel) = Selector::method(&call.method, slots) else {
-        return TypedExpression::unknown(UnknownReason::DynamicMessageSend);
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known receiver has a type"),
+        };
+        return analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
     };
 
-    if let Some(recv_ty) = recv_k.ty() {
-        let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
-        match dispatch_res {
-            DispatchResult::Found(sig) => {
-                let result = resolve_call(ctx, &sig, &call.args, expected, call.range);
-                let mut typed = TypedExpression::new(result.knowledge);
-                typed.status = result.status;
-                typed.callable = result.callable;
-                typed.explanation_parents = result.explanation_parents;
-                if let Some(receiver) = recv_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)) {
-                    if !typed.explanation_parents.contains(&receiver) {
-                        typed.explanation_parents.push(receiver);
-                    }
-                }
-                typed.causal_invalidity = recv_typed.causal_invalidity.join(result.causal_invalidity);
-                return typed;
-            }
-            DispatchResult::Dynamic => {
-                let mut typed = TypedExpression::dynamic(DynamicReason::RuntimeReflection);
-                typed.causal_invalidity = recv_typed.causal_invalidity;
-                return typed;
-            }
-            _ => {}
+    let slots = match super::call::static_call_shape(&arguments) {
+        StaticCallShape::Exact(slots) => slots,
+        StaticCallShape::Dynamic(reason) => {
+            return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DynamicShape(reason)).into();
         }
-    }
-
-    if recv_k.is_dynamic() {
-        TypedExpression::dynamic(DynamicReason::RuntimeReflection)
-    } else {
-        TypedExpression::unknown(UnknownReason::DynamicMessageSend)
+    };
+    let Ok(selector) = Selector::method(&call.method, slots) else {
+        return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into();
+    };
+    match ctx.resolve_dispatch_target(receiver_ty, &selector, recv_typed.dispatch_lookup.clone()) {
+        ResolvedDispatchResult::Found(resolved) => {
+            let target = CallableApplicationTarget::from_dispatch(resolved);
+            apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into()
+        }
+        ResolvedDispatchResult::Missing { .. } => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
+        }
+        ResolvedDispatchResult::Ambiguous(_) => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
+        }
+        ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
+            ctx,
+            &premise,
+            &arguments,
+            UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+        )
+        .into(),
     }
 }
 
@@ -962,38 +1055,52 @@ fn analyze_control_block(ctx: &mut CheckingContext<'_>, block: &phalcom_ast::ast
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
     // 1. Local callable variable lookup
     if let Some(fact) = ctx.lookup_local(&call.name) {
-        let fact_causal_invalidity = ctx
-            .lookup_binding_info(&call.name)
-            .and_then(|info| ctx.flow.get_binding(info.id))
-            .map(|state| state.causal_invalidity)
-            .unwrap_or(crate::checker::causal::CausalInvalidity::Clean);
+        let binding_state = ctx.lookup_binding_info(&call.name).and_then(|info| ctx.flow.get_binding(info.id)).cloned();
+        let premise = CallPremise {
+            knowledge: fact.knowledge.clone(),
+            status: AnalysisStatus::Ready,
+            causal_invalidity: binding_state.as_ref().map(|state| state.causal_invalidity).unwrap_or_default(),
+            explanation: binding_state.as_ref().and_then(|state| state.explanation),
+        };
+        let arguments = application_arguments(&call.args);
         if let Some(ty) = fact.knowledge.ty() {
             if let TypeData::Callable(c) = ctx.store.get(ty).clone() {
-                let mut params = Vec::new();
-                for p in c.parameters.iter() {
-                    let mut param = CallableParameter::new("p", TypeKnowledge::assumed(p.ty, EvidenceOrigin::CallableSignature));
-                    if let Some(ref l) = p.label {
-                        param = param.with_label(l.to_string());
+                let mut parameters = Vec::with_capacity(c.parameters.len());
+                let mut slots = Vec::with_capacity(c.parameters.len());
+                for parameter in c.parameters.iter() {
+                    let mut formal =
+                        CallableParameter::new("argument", TypeKnowledge::assumed(parameter.ty, EvidenceOrigin::CallableSignature)).with_rest(parameter.rest);
+                    if let Some(label) = &parameter.label {
+                        formal = formal.with_label(label.to_string());
+                        slots.push(phalcom_common::selector::SelectorSlot::Label(label.to_string()));
+                    } else {
+                        slots.push(phalcom_common::selector::SelectorSlot::Positional);
                     }
-                    param = param.with_rest(p.rest);
-                    params.push(param);
+                    parameters.push(formal);
                 }
-                let sig = CallableSignature::new(
-                    Selector::method(&call.name, vec![]).unwrap_or_else(|_| Selector::getter(&call.name).unwrap()),
-                    params,
-                    TypeKnowledge::established(c.return_type, EvidenceOrigin::Flow),
+                let signature = CallableSignature::new(
+                    Selector::method("call", slots).expect("callable type selector"),
+                    parameters,
+                    TypeKnowledge::assumed(c.return_type, EvidenceOrigin::CallableSignature),
                 );
-                let result = resolve_call(ctx, &sig, &call.args, expected, call.range);
-                let mut typed = TypedExpression::new(result.knowledge);
-                typed.status = result.status;
-                typed.explanation_parents = result.explanation_parents;
-                typed.causal_invalidity = fact_causal_invalidity.join(result.causal_invalidity);
-                return typed;
+                match super::call::static_call_shape(&arguments) {
+                    StaticCallShape::Exact(_) => {
+                        let target = CallableApplicationTarget::callable_value(signature, fact.knowledge.status().unwrap_or(EvidenceStatus::Assumed));
+                        return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
+                    }
+                    StaticCallShape::Dynamic(reason) => {
+                        return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DynamicShape(reason)).into();
+                    }
+                }
             }
+            return analyze_non_callable_invocation(ctx, &premise, &call.args, call.range).into();
         }
-        let mut typed = TypedExpression::new(fact.knowledge);
-        typed.denotation = fact.denotation;
-        return typed;
+        let reason = match &fact.knowledge {
+            TypeKnowledge::Unknown(_) => UnresolvedApplicationReason::PremiseUnknown,
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known lexical value has a type"),
+        };
+        return analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
     }
 
     // 2. Dispatch send on `self` if inside a class
@@ -1007,30 +1114,33 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         } else {
             ctx.nominal_type_of(class_decl)
         };
-        let mut slots = Vec::new();
-        for arg in &call.args {
-            match arg {
-                PackItem::Positional { .. } => slots.push(SelectorSlot::Positional),
-                PackItem::Labeled { label, .. } => {
-                    if let PackLabel::Static { text, .. } = label {
-                        slots.push(SelectorSlot::Label(text.clone()));
-                    } else {
-                        slots.push(SelectorSlot::Positional);
-                    }
-                }
-                PackItem::Expand { .. } => slots.push(SelectorSlot::Positional),
+        let premise = CallPremise::established(TypeKnowledge::established(class_ty, EvidenceOrigin::DeclarationSemantics));
+        let arguments = application_arguments(&call.args);
+        let slots = match super::call::static_call_shape(&arguments) {
+            StaticCallShape::Exact(slots) => slots,
+            StaticCallShape::Dynamic(reason) => {
+                return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DynamicShape(reason)).into();
             }
-        }
-        if let Ok(sel) = Selector::method(&call.name, slots) {
-            let dispatch_res = ctx.resolve_dispatch(class_ty, &sel, crate::dispatch::DispatchLookup::Normal);
-            if let DispatchResult::Found(sig) = dispatch_res {
-                let result = resolve_call(ctx, &sig, &call.args, expected, call.range);
-                let mut typed = TypedExpression::new(result.knowledge);
-                typed.status = result.status;
-                typed.callable = result.callable;
-                typed.explanation_parents = result.explanation_parents;
-                typed.causal_invalidity = result.causal_invalidity;
-                return typed;
+        };
+        if let Ok(selector) = Selector::method(&call.name, slots) {
+            match ctx.resolve_dispatch_target(class_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
+                ResolvedDispatchResult::Found(resolved) => {
+                    let target = CallableApplicationTarget::from_dispatch(resolved);
+                    return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
+                }
+                ResolvedDispatchResult::Missing { .. } => {}
+                ResolvedDispatchResult::Ambiguous(_) => {
+                    return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
+                }
+                ResolvedDispatchResult::Dynamic => {
+                    return analyze_unresolved_application(
+                        ctx,
+                        &premise,
+                        &arguments,
+                        UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                    )
+                    .into();
+                }
             }
         }
     }
@@ -1080,9 +1190,6 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
 
 fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) -> TypedExpression {
     let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
-    let left_k = &left_typed.knowledge;
-    let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
-    let right_k = &right_typed.knowledge;
 
     let op_name = match binary.op {
         BinaryOp::Add => "+",
@@ -1109,28 +1216,178 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
         BinaryOp::Compare => "<=>",
     };
 
-    if let Ok(sel) = Selector::method(op_name, vec![SelectorSlot::Positional]) {
-        if let Some(left_ty) = left_k.ty() {
-            let dispatch_res = ctx.resolve_dispatch(left_ty, &sel, left_typed.dispatch_lookup);
-            if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), binary.range));
-                typed.callable = ctx.resolved_callable_for_current_expression();
-                typed.causal_invalidity = left_typed.causal_invalidity.join(right_typed.causal_invalidity);
-                return typed;
-            }
-        }
+    let Ok(selector) = Selector::method(op_name, vec![SelectorSlot::Positional]) else {
+        let premise = CallPremise::from_typed(ctx, &left_typed);
+        let arguments = vec![super::call::ApplicationArgument::Positional {
+            expression: &binary.right,
+            range: binary.right.range(),
+        }];
+        return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into();
+    };
+    let direct = left_typed
+        .knowledge
+        .ty()
+        .map(|left_ty| ctx.resolve_dispatch_target(left_ty, &selector, left_typed.dispatch_lookup.clone()));
+
+    if let Some(right_knowledge) = static_binary_operand_knowledge(ctx, &binary.right)
+        && let Some(right_ty) = right_knowledge.ty()
+        && let Some(reflected_selector) = reflected_binary_selector(&binary.op)
+        && let ResolvedDispatchResult::Found(reflected) = ctx.resolve_dispatch_target(right_ty, &reflected_selector, crate::dispatch::DispatchLookup::Normal)
+        && should_use_reflected_binary_target(ctx, &left_typed.knowledge, right_ty, &right_knowledge, direct.as_ref(), &reflected)
+    {
+        let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
+        let premise = CallPremise::from_typed(ctx, &right_typed);
+        let target = CallableApplicationTarget::from_dispatch(reflected);
+        let arguments = vec![super::call::ApplicationArgument::PreAnalyzed {
+            label: if matches!(binary.op, BinaryOp::Compare) { None } else { Some("from") },
+            typed: &left_typed,
+            range: binary.left.range(),
+        }];
+        return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, binary.range).into();
     }
 
-    if left_k.is_dynamic() || right_k.is_dynamic() {
-        TypedExpression::dynamic(DynamicReason::RuntimeReflection)
+    let premise = CallPremise::from_typed(ctx, &left_typed);
+    let arguments = vec![super::call::ApplicationArgument::Positional {
+        expression: &binary.right,
+        range: binary.right.range(),
+    }];
+    let Some(direct) = direct else {
+        let reason = match &left_typed.knowledge {
+            TypeKnowledge::Unknown(_) => UnresolvedApplicationReason::PremiseUnknown,
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known binary receiver has a type"),
+        };
+        return analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
+    };
+    match direct {
+        ResolvedDispatchResult::Found(resolved) => {
+            let target = CallableApplicationTarget::from_dispatch(resolved);
+            apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, binary.range).into()
+        }
+        ResolvedDispatchResult::Missing { .. } => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
+        }
+        ResolvedDispatchResult::Ambiguous(_) => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
+        }
+        ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
+            ctx,
+            &premise,
+            &arguments,
+            UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+        )
+        .into(),
+    }
+}
+
+fn static_binary_operand_knowledge(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Option<TypeKnowledge> {
+    match expr {
+        Expr::Var { value, .. } => ctx.lookup_local_knowledge(value),
+        Expr::Int { .. } => static_nominal_knowledge(ctx, "Int"),
+        Expr::Float { .. } => static_nominal_knowledge(ctx, "Float"),
+        Expr::String { .. } => static_nominal_knowledge(ctx, "String"),
+        Expr::Boolean { .. } => static_nominal_knowledge(ctx, "Bool"),
+        Expr::Symbol(_) => static_nominal_knowledge(ctx, "Symbol"),
+        _ => None,
+    }
+}
+
+fn static_nominal_knowledge(ctx: &mut CheckingContext<'_>, name: &str) -> Option<TypeKnowledge> {
+    let declaration = ctx.resolve_type_name(name)?;
+    Some(TypeKnowledge::established(ctx.nominal_type_of(&declaration), EvidenceOrigin::Syntax))
+}
+
+fn should_use_reflected_binary_target(
+    ctx: &mut CheckingContext<'_>,
+    left: &TypeKnowledge,
+    right_ty: TypeId,
+    right: &TypeKnowledge,
+    direct: Option<&ResolvedDispatchResult>,
+    reflected: &ResolvedDispatch,
+) -> bool {
+    if !binary_target_may_accept(ctx, left, &reflected.signature) {
+        return false;
+    }
+
+    match direct {
+        None | Some(ResolvedDispatchResult::Missing { .. }) => true,
+        Some(ResolvedDispatchResult::Found(direct)) => {
+            reflected_target_has_runtime_priority(ctx, left.ty(), right_ty, reflected) || binary_target_refutes(ctx, right, &direct.signature)
+        }
+        Some(ResolvedDispatchResult::Ambiguous(_) | ResolvedDispatchResult::Dynamic) => false,
+    }
+}
+
+fn binary_target_may_accept(ctx: &mut CheckingContext<'_>, actual: &TypeKnowledge, signature: &CallableSignature) -> bool {
+    if signature.generics.as_ref().is_some_and(|generics| !generics.parameters.is_empty()) {
+        return true;
+    }
+    let Some(parameter) = signature.parameters.first() else {
+        return false;
+    };
+    let Some(expected) = parameter.ty.ty() else {
+        return true;
+    };
+    !matches!(ctx.check_knowledge_against_type(actual, expected), RelationOutcome::Refuted(_))
+}
+
+fn binary_target_refutes(ctx: &mut CheckingContext<'_>, actual: &TypeKnowledge, signature: &CallableSignature) -> bool {
+    if signature.generics.as_ref().is_some_and(|generics| !generics.parameters.is_empty()) {
+        return false;
+    }
+    let Some(expected) = signature.parameters.first().and_then(|parameter| parameter.ty.ty()) else {
+        return false;
+    };
+    matches!(ctx.check_knowledge_against_type(actual, expected), RelationOutcome::Refuted(_))
+}
+
+fn reflected_target_has_runtime_priority(ctx: &CheckingContext<'_>, left_ty: Option<TypeId>, right_ty: TypeId, reflected: &ResolvedDispatch) -> bool {
+    let Some(left) = left_ty.and_then(|ty| nominal_instance_declaration(ctx, ty)) else {
+        return false;
+    };
+    let Some(right) = nominal_instance_declaration(ctx, right_ty) else {
+        return false;
+    };
+    right != left && ctx.hierarchy.is_subclass(&right, &left) && reflected.callable.owner != left && ctx.hierarchy.is_subclass(&reflected.callable.owner, &left)
+}
+
+fn nominal_instance_declaration(ctx: &CheckingContext<'_>, mut ty: TypeId) -> Option<DeclarationId> {
+    loop {
+        match ctx.store.get(ty) {
+            TypeData::Nominal { declaration } => return Some(declaration.clone()),
+            TypeData::Applied { origin, .. } => ty = *origin,
+            _ => return None,
+        }
+    }
+}
+
+fn reflected_binary_selector(op: &BinaryOp) -> Option<Selector> {
+    let (name, compare) = match op {
+        BinaryOp::Add => ("+", false),
+        BinaryOp::Subtract => ("-", false),
+        BinaryOp::Multiply => ("*", false),
+        BinaryOp::Divide => ("/", false),
+        BinaryOp::IntegerDivide => ("//", false),
+        BinaryOp::Power => ("**", false),
+        BinaryOp::Modulo => ("%", false),
+        BinaryOp::ShiftLeft => ("<<", false),
+        BinaryOp::ShiftRight => (">>", false),
+        BinaryOp::BitAnd => ("&", false),
+        BinaryOp::BitXor => ("^", false),
+        BinaryOp::BitOr => ("|", false),
+        BinaryOp::Compare => ("compare", true),
+        _ => return None,
+    };
+    if compare {
+        Selector::method(name, vec![SelectorSlot::Positional]).ok()
     } else {
-        TypedExpression::unknown(UnknownReason::DynamicMessageSend)
+        Selector::method(name, vec![SelectorSlot::Label("from".to_string())]).ok()
     }
 }
 
 fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> TypedExpression {
     let operand_typed = analyze_expression(ctx, &unary.expr, &ExpectedType::None);
-    let operand_k = &operand_typed.knowledge;
+    let premise = CallPremise::from_typed(ctx, &operand_typed);
 
     let op_name = match unary.op {
         UnaryOp::Plus => "+",
@@ -1139,233 +1396,323 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> Ty
         UnaryOp::BitNot => "~",
     };
 
-    if let Ok(sel) = Selector::getter(op_name) {
-        if let Some(operand_ty) = operand_k.ty() {
-            let dispatch_res = ctx.resolve_dispatch(operand_ty, &sel, operand_typed.dispatch_lookup);
-            if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), unary.range));
-                typed.callable = ctx.resolved_callable_for_current_expression();
-                typed.causal_invalidity = operand_typed.causal_invalidity;
-                return typed;
-            }
+    let Some(operand_ty) = operand_typed.knowledge.ty() else {
+        let reason = match &operand_typed.knowledge {
+            TypeKnowledge::Unknown(_) => UnresolvedApplicationReason::PremiseUnknown,
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known unary receiver has a type"),
+        };
+        return analyze_unresolved_application(ctx, &premise, &[], reason).into();
+    };
+    let Ok(selector) = Selector::getter(op_name) else {
+        return analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into();
+    };
+    match ctx.resolve_dispatch_target(operand_ty, &selector, operand_typed.dispatch_lookup.clone()) {
+        ResolvedDispatchResult::Found(resolved) => {
+            let target = CallableApplicationTarget::from_dispatch(resolved);
+            apply_resolved_callable(ctx, &target, &premise, &[], &ExpectedType::None, unary.range).into()
         }
-    }
-
-    if operand_k.is_dynamic() {
-        TypedExpression::dynamic(DynamicReason::RuntimeReflection)
-    } else {
-        TypedExpression::unknown(UnknownReason::DynamicMessageSend)
+        ResolvedDispatchResult::Missing { .. } => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into(),
+        ResolvedDispatchResult::Ambiguous(_) => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into(),
+        ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
+            ctx,
+            &premise,
+            &[],
+            UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+        )
+        .into(),
     }
 }
 
 fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &get.object, &ExpectedType::None);
-    let recv_k = &recv_typed.knowledge;
+    let premise = CallPremise::from_typed(ctx, &recv_typed);
+    let Some(recv_ty) = recv_typed.knowledge.ty() else {
+        let reason = match &recv_typed.knowledge {
+            TypeKnowledge::Unknown(_) => {
+                if matches!(recv_typed.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Suppressed(_)) {
+                    UnresolvedApplicationReason::PremiseInvalidUnavailable
+                } else {
+                    UnresolvedApplicationReason::PremiseUnknown
+                }
+            }
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known property receiver has a type"),
+        };
+        return analyze_unresolved_application(ctx, &premise, &[], reason).into();
+    };
 
-    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
-        return suppressed;
+    // 1. Check Field on class surface
+    let field_opt = match ctx.store.get(recv_ty).clone() {
+        TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &get.property),
+        TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &get.property),
+        _ => None,
+    };
+    if let Some(field_k) = field_opt {
+        let mut typed = TypedExpression::new(field_k.with_range(get.range));
+        typed.causal_invalidity = recv_typed.causal_invalidity;
+        return typed;
     }
 
-    if let Some(recv_ty) = recv_k.ty() {
-        // 1. Check Field on class surface
-        let field_opt = match ctx.store.get(recv_ty).clone() {
-            TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &get.property),
-            TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &get.property),
-            _ => None,
-        };
-        if let Some(field_k) = field_opt {
-            let mut typed = TypedExpression::new(field_k.with_range(get.range));
-            typed.causal_invalidity = recv_typed.causal_invalidity;
-            return typed;
-        }
-
-        // 2. Check Getter selector
-        if let Ok(sel) = Selector::getter(&get.property) {
-            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
-            if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), get.range));
-                typed.callable = ctx.resolved_callable_for_current_expression();
-                typed.causal_invalidity = recv_typed.causal_invalidity;
-                return typed;
+    // 2. Check Getter selector
+    if let Ok(sel) = Selector::getter(&get.property) {
+        match ctx.resolve_dispatch_target(recv_ty, &sel, recv_typed.dispatch_lookup.clone()) {
+            ResolvedDispatchResult::Found(resolved) => {
+                let target = CallableApplicationTarget::from_dispatch(resolved);
+                return apply_resolved_callable(ctx, &target, &premise, &[], &ExpectedType::None, get.range).into();
+            }
+            ResolvedDispatchResult::Missing { .. } => {}
+            ResolvedDispatchResult::Ambiguous(_) => {
+                return analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into();
+            }
+            ResolvedDispatchResult::Dynamic => {
+                return analyze_unresolved_application(
+                    ctx,
+                    &premise,
+                    &[],
+                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                )
+                .into();
             }
         }
     }
-
-    if recv_k.is_dynamic() {
-        TypedExpression::dynamic(DynamicReason::RuntimeReflection)
-    } else {
-        TypedExpression::unknown(UnknownReason::DynamicMessageSend)
-    }
+    analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into()
 }
 
 fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &set.object, &ExpectedType::None);
-    let recv_k = &recv_typed.knowledge;
-    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
-        return suppressed;
-    }
-    let val_typed = analyze_expression(ctx, &set.value, &ExpectedType::None);
-    let val_k = val_typed.knowledge;
-
-    if let Some(recv_ty) = recv_k.ty() {
-        // 1. Check field
-        let field_opt = match ctx.store.get(recv_ty).clone() {
-            TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property),
-            TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &set.property),
-            _ => None,
-        };
-        if let Some(field_k) = field_opt {
-            ctx.apply_assignability(
-                &val_k,
-                &field_k,
-                DiagnosticCode::FieldMismatch,
-                format!("assigned value does not match field `{}` type", set.property),
-                set.range,
-            );
-            return TypedExpression::new(val_k);
-        }
-
-        // 2. Check setter selector
-        if let Ok(sel) = Selector::setter(&set.property) {
-            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
-            if let DispatchResult::Found(sig) = dispatch_res {
-                if let Some(param) = sig.parameters.first() {
-                    ctx.apply_assignability(
-                        &val_k,
-                        &param.ty,
-                        DiagnosticCode::AssignmentMismatch,
-                        format!("assigned value does not match setter `{}=` parameter type", set.property),
-                        set.range,
-                    );
+    let premise = CallPremise::from_typed(ctx, &recv_typed);
+    let Some(recv_ty) = recv_typed.knowledge.ty() else {
+        let operation = analyze_unresolved_application(
+            ctx,
+            &premise,
+            &[super::call::ApplicationArgument::Positional {
+                expression: &set.value,
+                range: set.value.range(),
+            }],
+            match &recv_typed.knowledge {
+                TypeKnowledge::Unknown(_) => {
+                    if matches!(recv_typed.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Suppressed(_)) {
+                        UnresolvedApplicationReason::PremiseInvalidUnavailable
+                    } else {
+                        UnresolvedApplicationReason::PremiseUnknown
+                    }
                 }
-                return TypedExpression::new(val_k);
+                TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+                TypeKnowledge::Known(_) => unreachable!("known property receiver has a type"),
+            },
+        );
+        return super::call::assignment_result_from_call(ctx, operation, set.range);
+    };
+
+    // 1. Check field
+    let field_opt = match ctx.store.get(recv_ty).clone() {
+        TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property),
+        TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &set.property),
+        _ => None,
+    };
+    if let Some(field_k) = field_opt {
+        let expected_value = field_k
+            .ty()
+            .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::AssignmentContract))
+            .unwrap_or_default();
+        let value_typed = analyze_expression(ctx, &set.value, &expected_value);
+        let application = ctx.apply_assignability(
+            &value_typed.knowledge,
+            &field_k,
+            DiagnosticCode::FieldMismatch,
+            format!("assigned value does not match field `{}` type", set.property),
+            set.range,
+        );
+        let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, set.range);
+        crate::checker::composition::propagate_required_dependencies(&mut result, &[recv_typed, value_typed]);
+        apply_relation_application_to_typed(&mut result, &application);
+        return result;
+    }
+
+    // 2. Check setter selector
+    if let Ok(sel) = Selector::setter(&set.property) {
+        match ctx.resolve_dispatch_target(recv_ty, &sel, recv_typed.dispatch_lookup.clone()) {
+            ResolvedDispatchResult::Found(resolved) => {
+                let arguments = vec![super::call::ApplicationArgument::Positional {
+                    expression: &set.value,
+                    range: set.value.range(),
+                }];
+                let target = CallableApplicationTarget::from_dispatch(resolved);
+                let operation = apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, set.range);
+                return super::call::assignment_result_from_call(ctx, operation, set.range);
+            }
+            ResolvedDispatchResult::Missing { .. } => {}
+            ResolvedDispatchResult::Ambiguous(_) => {
+                let operation = analyze_unresolved_application(
+                    ctx,
+                    &premise,
+                    &[super::call::ApplicationArgument::Positional {
+                        expression: &set.value,
+                        range: set.value.range(),
+                    }],
+                    UnresolvedApplicationReason::DispatchAmbiguous,
+                );
+                return super::call::assignment_result_from_call(ctx, operation, set.range);
+            }
+            ResolvedDispatchResult::Dynamic => {
+                let operation = analyze_unresolved_application(
+                    ctx,
+                    &premise,
+                    &[super::call::ApplicationArgument::Positional {
+                        expression: &set.value,
+                        range: set.value.range(),
+                    }],
+                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                );
+                return super::call::assignment_result_from_call(ctx, operation, set.range);
             }
         }
     }
-
-    TypedExpression::new(val_k)
+    let operation = analyze_unresolved_application(
+        ctx,
+        &premise,
+        &[super::call::ApplicationArgument::Positional {
+            expression: &set.value,
+            range: set.value.range(),
+        }],
+        UnresolvedApplicationReason::DispatchMissing,
+    );
+    super::call::assignment_result_from_call(ctx, operation, set.range)
 }
 
 fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &idx.object, &ExpectedType::None);
-    let recv_k = &recv_typed.knowledge;
-
-    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
-        return suppressed;
-    }
-
-    let mut causal_invalidity = recv_typed.causal_invalidity;
-    for arg in &idx.args {
-        match arg {
-            PackItem::Positional { expr, .. } => {
-                causal_invalidity = causal_invalidity.join(analyze_expression(ctx, expr, &ExpectedType::None).causal_invalidity);
-            }
-            PackItem::Labeled { value, .. } => {
-                causal_invalidity = causal_invalidity.join(analyze_expression(ctx, value, &ExpectedType::None).causal_invalidity);
-            }
-            PackItem::Expand { expr, .. } => {
-                causal_invalidity = causal_invalidity.join(analyze_expression(ctx, expr, &ExpectedType::None).causal_invalidity);
-            }
-        }
-    }
-
-    if let Some(recv_ty) = recv_k.ty() {
-        // Direct generic List/Map indexing
-        if let TypeData::Applied { origin, arguments } = ctx.store.get(recv_ty).clone() {
-            if let TypeData::Nominal { declaration } = ctx.store.get(origin) {
-                if declaration.name.as_ref() == "List" && arguments.len() == 1 {
-                    let elem_ty = arguments[0];
-                    let mut typed = TypedExpression::established(elem_ty, EvidenceOrigin::Flow, idx.range);
-                    typed.causal_invalidity = causal_invalidity;
-                    return typed;
-                } else if declaration.name.as_ref() == "Map" && arguments.len() == 2 {
-                    let val_ty = arguments[1];
-                    let mut typed = TypedExpression::established(val_ty, EvidenceOrigin::Flow, idx.range);
-                    typed.causal_invalidity = causal_invalidity;
-                    return typed;
+    let premise = CallPremise::from_typed(ctx, &recv_typed);
+    let arguments = application_arguments(&idx.args);
+    let Some(recv_ty) = recv_typed.knowledge.ty() else {
+        let reason = match &recv_typed.knowledge {
+            TypeKnowledge::Unknown(_) => {
+                if matches!(recv_typed.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Suppressed(_)) {
+                    UnresolvedApplicationReason::PremiseInvalidUnavailable
+                } else {
+                    UnresolvedApplicationReason::PremiseUnknown
                 }
             }
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known subscript receiver has a type"),
+        };
+        return analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
+    };
+    let slots = match super::call::static_call_shape(&arguments) {
+        StaticCallShape::Exact(slots) => slots,
+        StaticCallShape::Dynamic(reason) => {
+            return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DynamicShape(reason)).into();
         }
-
-        // Subscript selector dispatch
-        let mut slots = Vec::new();
-        for arg in &idx.args {
-            match arg {
-                PackItem::Positional { .. } => slots.push(SelectorSlot::Positional),
-                PackItem::Labeled { label, .. } => {
-                    if let PackLabel::Static { text, .. } = label {
-                        slots.push(SelectorSlot::Label(text.clone()));
-                    } else {
-                        slots.push(SelectorSlot::Positional);
-                    }
-                }
-                PackItem::Expand { .. } => slots.push(SelectorSlot::Positional),
-            }
+    };
+    let Ok(selector) = Selector::subscript_get(slots) else {
+        return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into();
+    };
+    match ctx.resolve_dispatch_target(recv_ty, &selector, recv_typed.dispatch_lookup.clone()) {
+        ResolvedDispatchResult::Found(resolved) => {
+            let target = CallableApplicationTarget::from_dispatch(resolved);
+            return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, idx.range).into();
         }
-        if let Ok(sel) = Selector::subscript_get(slots) {
-            let dispatch_res = ctx.resolve_dispatch(recv_ty, &sel, recv_typed.dispatch_lookup);
-            if let DispatchResult::Found(sig) = dispatch_res {
-                let mut typed = TypedExpression::new(promote_exact_return(&sig.return_type, exact_return_origin(sig.kind), idx.range));
-                typed.callable = ctx.resolved_callable_for_current_expression();
-                typed.causal_invalidity = causal_invalidity;
-                return typed;
-            }
+        ResolvedDispatchResult::Missing { .. } => {}
+        ResolvedDispatchResult::Ambiguous(_) => {
+            return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
+        }
+        ResolvedDispatchResult::Dynamic => {
+            return analyze_unresolved_application(
+                ctx,
+                &premise,
+                &arguments,
+                UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+            )
+            .into();
         }
     }
-
-    if recv_k.is_dynamic() {
-        TypedExpression::dynamic(DynamicReason::RuntimeReflection)
-    } else {
-        TypedExpression::unknown(UnknownReason::DynamicMessageSend)
+    if let Some(target) = super::call::structural_list_index_get_target(ctx, recv_ty).or_else(|| super::call::structural_map_index_get_target(ctx, recv_ty)) {
+        return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, idx.range).into();
     }
+    analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
 }
 
 fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &set_idx.object, &ExpectedType::None);
-    let recv_k = &recv_typed.knowledge;
-    if let Some(suppressed) = suppress_required_receiver_premise(&recv_typed) {
-        return suppressed;
-    }
-    let val_typed = analyze_expression(ctx, &set_idx.value, &ExpectedType::None);
-    let val_k = val_typed.knowledge;
-
-    for arg in &set_idx.args {
-        match arg {
-            PackItem::Positional { expr, .. } => {
-                analyze_expression(ctx, expr, &ExpectedType::None);
-            }
-            PackItem::Labeled { value, .. } => {
-                analyze_expression(ctx, value, &ExpectedType::None);
-            }
-            PackItem::Expand { expr, .. } => {
-                analyze_expression(ctx, expr, &ExpectedType::None);
-            }
-        }
-    }
-
-    if let Some(recv_ty) = recv_k.ty() {
-        if let TypeData::Applied { origin, arguments } = ctx.store.get(recv_ty).clone() {
-            if let Some(list_decl) = ctx.resolve_type_name("List") {
-                if origin == ctx.nominal_type_of(&list_decl) && arguments.len() == 1 {
-                    let elem_k = TypeKnowledge::assumed(arguments[0], EvidenceOrigin::DeclarationSemantics);
-                    ctx.apply_assignability(
-                        &val_k,
-                        &elem_k,
-                        DiagnosticCode::AssignmentMismatch,
-                        "value assigned to List index does not match element type",
-                        set_idx.range,
-                    );
-                    return TypedExpression::new(val_k);
+    let premise = CallPremise::from_typed(ctx, &recv_typed);
+    let index_arguments = application_arguments(&set_idx.args);
+    let mut all_arguments = index_arguments.clone();
+    all_arguments.push(super::call::ApplicationArgument::Positional {
+        expression: &set_idx.value,
+        range: set_idx.value.range(),
+    });
+    let Some(recv_ty) = recv_typed.knowledge.ty() else {
+        let reason = match &recv_typed.knowledge {
+            TypeKnowledge::Unknown(_) => {
+                if matches!(recv_typed.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Suppressed(_)) {
+                    UnresolvedApplicationReason::PremiseInvalidUnavailable
+                } else {
+                    UnresolvedApplicationReason::PremiseUnknown
                 }
             }
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known subscript receiver has a type"),
+        };
+        let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, reason);
+        return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+    };
+    let slots = match super::call::static_call_shape(&index_arguments) {
+        StaticCallShape::Exact(slots) => slots,
+        StaticCallShape::Dynamic(reason) => {
+            let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DynamicShape(reason));
+            return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+        }
+    };
+    let Ok(selector) = Selector::subscript_set(slots) else {
+        let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchMissing);
+        return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+    };
+    match ctx.resolve_dispatch_target(recv_ty, &selector, recv_typed.dispatch_lookup.clone()) {
+        ResolvedDispatchResult::Found(resolved) => {
+            let target = CallableApplicationTarget::from_dispatch(resolved);
+            let operation = apply_resolved_callable(ctx, &target, &premise, &all_arguments, &ExpectedType::None, set_idx.range);
+            return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+        }
+        ResolvedDispatchResult::Missing { .. } => {}
+        ResolvedDispatchResult::Ambiguous(_) => {
+            let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchAmbiguous);
+            return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+        }
+        ResolvedDispatchResult::Dynamic => {
+            let operation = analyze_unresolved_application(
+                ctx,
+                &premise,
+                &all_arguments,
+                UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+            );
+            return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
         }
     }
-
-    TypedExpression::new(val_k)
+    if let Some(target) = super::call::structural_list_index_set_target(ctx, recv_ty) {
+        let operation = apply_resolved_callable(ctx, &target, &premise, &all_arguments, &ExpectedType::None, set_idx.range);
+        return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+    }
+    let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchMissing);
+    super::call::assignment_result_from_call(ctx, operation, set_idx.range)
 }
 
-fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact) {
-    if let Pattern::Name { name, range, .. } = pattern {
-        ctx.bind_pattern_binding(name.clone(), fact, *range);
+fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact, causal_invalidity: crate::checker::causal::CausalInvalidity) {
+    match pattern {
+        Pattern::Name { name, range, .. } => {
+            ctx.bind_pattern_binding_with_causal(name.clone(), fact, *range, causal_invalidity);
+        }
+        Pattern::Tuple { elements, .. } => {
+            for (index, element) in elements.iter().enumerate() {
+                let component = ValueSemanticFact::new(crate::checker::composition::decompose_tuple_component(
+                    ctx.store,
+                    &fact.knowledge,
+                    index,
+                    elements.len(),
+                ));
+                bind_pattern(ctx, element, component, causal_invalidity);
+            }
+        }
+        _ => {}
     }
 }

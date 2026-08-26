@@ -26,7 +26,7 @@ design, no runtime-code change expected, no other doc to touch.
 
 | §0.1 item | Verdict | Cite (HEAD `aa9cdca`) |
 |---|---|---|
-| A.1 `ifTrue`/`ifFalse` Some-lift the taken arm | ✅ landed | `primitive/boolean.rs` `bool_if_true` L127–134, `bool_if_false` L145–153 (mirror); `wrap_some` `nil.rs` L47–58, still asserts `!matches!(value, Value::Nil)`. (Line numbers drifted +12…+20 from this spec's original citations — purely added rustdoc; logic unchanged.) |
+| A.1 `ifTrue`/`ifFalse` Some-lift the taken arm | ✅ landed | `primitive/boolean.rs` `bool_if_true` L127–134, `bool_if_false` L145–153 (mirror); `wrap_some` `option` L47–58, still asserts `!matches!(value, Value::Nil)`. (Line numbers drifted +12…+20 from this spec's original citations — purely added rustdoc; logic unchanged.) |
 | A.2 `WrapSome` opcode + inliner emit + `want_value` elision thread | ✅ landed | `bytecode.rs` `WrapSome` L194; `vm.rs` exec L1002–1006; `inliner.rs` `compile_if_true` L289 (emit L296), `compile_if_false` L313 (emit L324); `compiler/lib.rs` `compile_statement_with_pop_control` L502, `compile_expr_want` L939 (these two are at the **identical** line numbers this spec cites — no drift in `lib.rs`). `compile_if_true_if_false` (L339), `compile_and` (L363), `compile_or` (L383) confirmed to emit **no** `WrapSome` — the one-armed-only property holds. |
 | A.3 four `core.ph` combinators over `match` | ✅ landed, and exceeded | `Option` class in `core.ph`: `ifNone` L74–76, `orElse` L81–83, `isSome` L85, `isNone` L87 — all still pure `match`-eliminator bodies as specified. U-STD (separate, already-landed unit) has since added `map` L93–95, `flatMap` L100–102, `filter` L107–109, `ifSome` L114–116, `unwrapOr` and siblings further down — all out of this unit's scope per §0.3, noted only so the residue check isn't confused by the larger file. |
 | A.4 golden fixtures from `0da64d6` | ✅ present | `tests/lang/absence/absence_iftrue_{empty_body_is_some_none,issome_isnone,orelse,false_branch_is_none}.ph`, `tests/lang/control-flow/control_flow_iftrue_ifnone_desugar.ph` — all present, none in `pending/`. |
@@ -41,7 +41,7 @@ design, no runtime-code change expected, no other doc to touch.
 **Present and working — U-CORE-3 is unblocked on this specific method.**
 `Option>>isNone` is defined at `core.ph` L87 as
 `isNone => self.match(some: { v => false }, none: { true })`, dispatched
-through the `option_match` primitive (`nil.rs` L92–116), unconditionally
+through the `option_match` primitive (`option` L92–116), unconditionally
 installed on the abstract `Option` class (inherited by both `Some` and
 `None`) at bootstrap. U-CORE-3's miss-probe fixture pattern
 `g.methodFor(Symbol.new("nope")).isNone` needs nothing further from this
@@ -216,7 +216,7 @@ These four are this unit's deliverable.
 **no ADR-0019 amendment is required.** For the record, the pieces that landed in
 `0da64d6` are *not* floor additions:
 
-- `wrap_some` (`nil.rs` L47–58) is a **private `pub(crate)` helper** factored out
+- `wrap_some` (`option` L47–58) is a **private `pub(crate)` helper** factored out
   of the existing `some_new` primitive — it registers no new `(class, selector)`
   binding, so the floor census count is unchanged (still 73; R-INV-0.1 must stay
   green, unmoved).
@@ -523,13 +523,13 @@ implementation (not a user decision):
 
 | Requirement | Spec / ADR anchor | As-built (verify) | Acceptance |
 |---|---|---|---|
-| `ifTrue`/`ifFalse` return well-formed `Option` | values-and-absence §3; catalog-delta §4.2; ADR-0018 amendment | `boolean.rs` L115–140; `nil.rs` L47–58 | R-INV-2.1 fixtures |
+| `ifTrue`/`ifFalse` return well-formed `Option` | values-and-absence §3; catalog-delta §4.2; ADR-0018 amendment | `boolean.rs` L115–140; `option` L47–58 | R-INV-2.1 fixtures |
 | Fast path ≡ deopt path (Some-lift) | ADR-0018 amendment; invariant-req R-INV-2.1 | `inliner.rs` L296/L324; `vm.rs` L982–986, L1135; `universe.rs` L214–220 | `absence_iftrue_some_lift_{fast,deopt}_path` |
 | Pop-context elision invisible | ADR-0018 amendment ("Allocation elision") | `lib.rs` L502/L509; `inliner.rs` L148/L295/L323 | `absence_iftrue_pop_elision_invisible` |
 | Paired / `and` / `or` still raw | catalog-delta §4.2; invariant-req R-INV-2.3 | `boolean.rs` L152–155; `inliner.rs` L339–399 | `control_flow_paired_and_or_raw` |
-| Combinators route through `match` | values-and-absence §3.3; ADR-0007; invariant-req R-INV-2.4 | `core.ph` L42–60; `nil.rs` L92–116 | `absence_combinators_route_through_match` |
+| Combinators route through `match` | values-and-absence §3.3; ADR-0007; invariant-req R-INV-2.4 | `core.ph` L42–60; `option` L92–116 | `absence_combinators_route_through_match` |
 | Absence non-surfacing (boot) | invariant-req R-INV-0.3 | `universe.rs::verify_invariants` | **U-CORE-1 owns**; corpus half green in `invariants.rs` L48–115 |
-| Empty-body `Some(None)` safe vs Invariant 4 | values-and-absence Inv 4; ADR-0010 | `vm.rs` L804; `nil.rs` L48–51 | R-INV-2.1 empty-body line; existing `absence_iftrue_empty_body_is_some_none` |
+| Empty-body `Some(None)` safe vs Invariant 4 | values-and-absence Inv 4; ADR-0010 | `vm.rs` L804; `option` L48–51 | R-INV-2.1 empty-body line; existing `absence_iftrue_empty_body_is_some_none` |
 | No floor delta | ADR-0019; floor-census §2.6/§2.8 | census unchanged = 73 | R-INV-0.1 audit (U-CORE-1), stays unmoved |
 | `Option`↔`Result` parity preserved | forward-compat §2 | no `Option` shape change | §5.1 walk-through |
 | Flips no pending fixture | pending-retirement §4 | `control_flow_iftrue_iffalse` stays in `pending/` (needs U-STD `unwrapOr`) | n/a |

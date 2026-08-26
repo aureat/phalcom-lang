@@ -1061,9 +1061,11 @@ fn publish_persistent_compiler_workspace(
         .into_iter()
         .map(|(uri, location, text, revision, program)| (uri, (location, text, revision, program)))
         .collect::<BTreeMap<_, _>>();
-    let update = match identity.session.module_session_mut().set_overlays_with_programs(active.values().map(|(location, text, revision, program)| {
-        (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
-    })) {
+    let update = match identity.session.module_session_mut().set_overlays_with_programs(
+        active
+            .values()
+            .map(|(location, text, revision, program)| (location.clone(), text.clone(), *revision, Arc::new(program.clone()))),
+    ) {
         Ok(update) => update,
         Err(_) if active.len() > 1 => {
             let mut recovered = None;
@@ -1071,9 +1073,9 @@ fn publish_persistent_compiler_workspace(
                 let mut trial = active.clone();
                 trial.remove(&uri);
                 if let Ok(update) = identity.session.module_session_mut().set_overlays_with_programs(
-                    trial.values().map(|(location, text, revision, program)| {
-                        (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
-                    }),
+                    trial
+                        .values()
+                        .map(|(location, text, revision, program)| (location.clone(), text.clone(), *revision, Arc::new(program.clone()))),
                 ) {
                     recovered = Some((trial, update));
                     break;
@@ -1087,11 +1089,7 @@ fn publish_persistent_compiler_workspace(
     };
     for (uri, (location, _, _, _)) in active {
         if let Some(module) = identity.session.module_session().module_for_source(&location.source_id).cloned() {
-            let aliases = documents
-                .lsp_by_uri
-                .keys()
-                .find(|candidate| canonical_uri(candidate) == *uri)
-                .cloned();
+            let aliases = documents.lsp_by_uri.keys().find(|candidate| canonical_uri(candidate) == *uri).cloned();
             let document_uri = aliases.clone().unwrap_or_else(|| uri.clone());
             documents.insert(document_uri, module.clone());
             if let Some(alias) = aliases

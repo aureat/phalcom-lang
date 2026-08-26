@@ -2,9 +2,10 @@
 
 use super::analysis::AnalysisStatus;
 use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_relation};
+use super::call::{CallPremise, CallableApplicationTarget, UnresolvedApplicationReason, analyze_unresolved_application, apply_resolved_callable};
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
-use super::expression::{analyze_expression, synthesize_expr};
+use super::expression::analyze_expression;
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::denotation::ValueSemanticFact;
@@ -12,7 +13,8 @@ use crate::types::evidence::{ContractAssumptionEligibility, DynamicReason, Evide
 use crate::types::id::TypeId;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use phalcom_ast::ast::{BindingKind, Pattern, Statement};
-use phalcom_common::selector::Selector;
+use phalcom_common::range::SourceRange;
+use phalcom_common::selector::{Selector, SelectorSlot};
 
 /// Checks a single statement, updating context bindings and recording
 /// diagnostics. A direct `return` reports its typed normal-return value to
@@ -99,8 +101,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     diag = diag.with_label(val.range(), "inferred type");
                 }
                 let cause = ctx.emit_diagnostic(diag).expect("error diagnostic has cause");
-                causal_invalidity = causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
-                val_typed.status = AnalysisStatus::Invalid(cause);
+                val_typed.invalidate(cause);
+                causal_invalidity = val_typed.causal_invalidity.join(annotation_invalidity);
             } else {
                 val_typed.status = match relation {
                     RelationOutcome::Blocked(reason) => AnalysisStatus::Blocked(reason),
@@ -111,12 +113,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     _ => val_typed.status.clone(),
                 };
             }
-            if let Some(expression_id) = val_typed.expression_id {
-                if let Some(analysis) = ctx.expressions.get_mut(&expression_id) {
-                    analysis.status = val_typed.status.clone();
-                    analysis.causal_invalidity = val_typed.causal_invalidity;
-                }
-            }
+            ctx.sync_expression_outcome(&val_typed);
 
             bind_declaration_pattern(
                 ctx,
@@ -180,23 +177,28 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
         Statement::For(for_stmt) => {
             let mut lane_facts = Vec::new();
             for lane in &for_stmt.lanes {
-                let iter_k = synthesize_expr(ctx, &lane.iter);
-                let elem_knowledge = if let Some(iter_ty) = iter_k.ty() {
-                    resolve_iteration_element(ctx, iter_ty)
-                } else if iter_k.is_dynamic() {
-                    TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection)
-                } else {
-                    TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+                let iter_typed = analyze_expression(ctx, &lane.iter, &ExpectedType::None);
+                let premise = CallPremise::from_typed(ctx, &iter_typed);
+                let (elem_knowledge, iteration_causal_invalidity) = match &iter_typed.knowledge {
+                    TypeKnowledge::Known(evidence) => {
+                        let result = resolve_iteration_element_application(ctx, &premise, evidence.ty(), lane.iter.range());
+                        if !result.status.is_ready() {
+                            ctx.record_call_status(result.status.clone());
+                        }
+                        (result.knowledge, result.causal_invalidity)
+                    }
+                    TypeKnowledge::Unknown(reason) => (TypeKnowledge::Unknown(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
+                    TypeKnowledge::Dynamic(reason) => (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
                 };
 
                 let elem_fact = ValueSemanticFact::new(elem_knowledge);
-                lane_facts.push((&lane.pattern, elem_fact));
+                lane_facts.push((&lane.pattern, elem_fact, iter_typed.causal_invalidity.join(iteration_causal_invalidity)));
             }
             let before = ctx.flow.clone();
             ctx.push_loop_frame();
             ctx.push_scope();
-            for (pat, fact) in lane_facts {
-                bind_pattern(ctx, pat, fact);
+            for (pat, fact, causal_invalidity) in lane_facts {
+                bind_pattern(ctx, pat, fact, causal_invalidity);
             }
             for s in &for_stmt.body {
                 check_statement(ctx, s);
@@ -242,28 +244,13 @@ fn bind_declaration_pattern(
             });
         }
         Pattern::Tuple { elements, .. } => {
-            let component_facts = match fact.knowledge {
-                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty()) {
-                    crate::types::store::TypeData::Tuple(types) if types.len() == elements.len() => Some(
-                        types
-                            .iter()
-                            .map(|element| {
-                                ValueSemanticFact::new(
-                                    TypeKnowledge::Known(evidence.clone()).derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition),
-                                )
-                            })
-                            .collect::<Vec<_>>(),
-                    ),
-                    _ => None,
-                },
-                _ => None,
-            };
             for (index, element) in elements.iter().enumerate() {
-                let component = component_facts
-                    .as_ref()
-                    .and_then(|facts| facts.get(index))
-                    .cloned()
-                    .unwrap_or_else(|| ValueSemanticFact::new(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)));
+                let component = ValueSemanticFact::new(crate::checker::composition::decompose_tuple_component(
+                    ctx.store,
+                    &fact.knowledge,
+                    index,
+                    elements.len(),
+                ));
                 bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable, range);
             }
         }
@@ -271,83 +258,95 @@ fn bind_declaration_pattern(
     }
 }
 
-fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact) {
+fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact, causal_invalidity: crate::checker::causal::CausalInvalidity) {
     match pattern {
         Pattern::Name { name, range, .. } => {
-            ctx.bind_pattern_binding(name.clone(), fact, *range);
+            ctx.bind_pattern_binding_with_causal(name.clone(), fact, *range, causal_invalidity);
         }
         Pattern::Tuple { elements, .. } => {
-            let component_facts = match fact.knowledge {
-                TypeKnowledge::Known(evidence) => match ctx.store.get(evidence.ty()) {
-                    crate::types::store::TypeData::Tuple(types) if types.len() == elements.len() => Some(
-                        types
-                            .iter()
-                            .map(|element| {
-                                ValueSemanticFact::new(
-                                    TypeKnowledge::Known(evidence.clone()).derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition),
-                                )
-                            })
-                            .collect::<Vec<_>>(),
-                    ),
-                    _ => None,
-                },
-                _ => None,
-            };
             for (index, element) in elements.iter().enumerate() {
-                let component = component_facts
-                    .as_ref()
-                    .and_then(|facts| facts.get(index))
-                    .cloned()
-                    .unwrap_or_else(|| ValueSemanticFact::new(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)));
-                bind_pattern(ctx, element, component);
+                let component = ValueSemanticFact::new(crate::checker::composition::decompose_tuple_component(
+                    ctx.store,
+                    &fact.knowledge,
+                    index,
+                    elements.len(),
+                ));
+                bind_pattern(ctx, element, component, causal_invalidity);
             }
         }
         _ => {}
     }
 }
 
-/// Derives the iteration element type from the receiver via the `iterate(_)` / `iteratorValue(_)` protocol (F5 / DEC-IMPL-FOR-PROTOCOL-ONLY).
+/// Compatibility wrapper for callers that only need element knowledge.
 pub fn resolve_iteration_element(ctx: &mut CheckingContext<'_>, receiver_ty: TypeId) -> TypeKnowledge {
-    // 1. Try 1-argument protocol selector `iteratorValue(_)`
-    if let Ok(sel_1) = Selector::method("iteratorValue", vec![phalcom_common::selector::SelectorSlot::Positional]) {
-        let dispatch_res = ctx.resolve_dispatch(receiver_ty, &sel_1, crate::dispatch::DispatchLookup::Normal);
-        match dispatch_res {
-            crate::dispatch::DispatchResult::Found(sig) => {
-                if !sig.return_type.is_unknown() {
-                    return sig.return_type;
-                }
+    let premise = CallPremise::established(TypeKnowledge::established(receiver_ty, EvidenceOrigin::DeclarationSemantics));
+    resolve_iteration_element_application(ctx, &premise, receiver_ty, SourceRange::default()).knowledge
+}
+
+fn resolve_iteration_element_application(
+    ctx: &mut CheckingContext<'_>,
+    premise: &CallPremise,
+    receiver_ty: TypeId,
+    call_range: SourceRange,
+) -> super::call::CallCheckResult {
+    // Parameterized protocol application has no modeled cursor expression here.
+    if let Ok(selector) = Selector::method("iteratorValue", vec![SelectorSlot::Positional]) {
+        match ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
+            crate::dispatch::ResolvedDispatchResult::Found(_) | crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
             }
-            crate::dispatch::DispatchResult::Dynamic => {
-                return TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection);
+            crate::dispatch::ResolvedDispatchResult::Dynamic => {
+                return analyze_unresolved_application(
+                    ctx,
+                    premise,
+                    &[],
+                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                );
             }
-            _ => {}
+            crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
         }
     }
 
-    // 2. Try 0-argument selector / getter `iteratorValue`
-    if let Ok(sel_0) = Selector::method("iteratorValue", vec![]) {
-        let dispatch_res = ctx.resolve_dispatch(receiver_ty, &sel_0, crate::dispatch::DispatchLookup::Normal);
-        match dispatch_res {
-            crate::dispatch::DispatchResult::Found(sig) => {
-                if !sig.return_type.is_unknown() {
-                    return sig.return_type;
-                }
+    // A zero-argument protocol getter is a real callable application.
+    if let Ok(selector) = Selector::getter("iteratorValue") {
+        match ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
+            crate::dispatch::ResolvedDispatchResult::Found(resolved) => {
+                let target = CallableApplicationTarget::from_dispatch(resolved);
+                return apply_resolved_callable(ctx, &target, premise, &[], &ExpectedType::None, call_range);
             }
-            crate::dispatch::DispatchResult::Dynamic => {
-                return TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::RuntimeReflection);
+            crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchAmbiguous);
             }
-            _ => {}
+            crate::dispatch::ResolvedDispatchResult::Dynamic => {
+                return analyze_unresolved_application(
+                    ctx,
+                    premise,
+                    &[],
+                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                );
+            }
+            crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
         }
     }
 
-    // 3. Check iterate(_) protocol existence. Presence without a resolved
-    // element result is not enough to invent one from generic arguments.
-    if let Ok(iterate_sel) = Selector::method("iterate", vec![phalcom_common::selector::SelectorSlot::Positional]) {
-        let dispatch_res = ctx.resolve_dispatch(receiver_ty, &iterate_sel, crate::dispatch::DispatchLookup::Normal);
-        if dispatch_res.is_found() {
-            return TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration);
+    // `iterate(_)` is also parameterized; do not consume its return contract.
+    if let Ok(selector) = Selector::method("iterate", vec![SelectorSlot::Positional]) {
+        match ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
+            crate::dispatch::ResolvedDispatchResult::Found(_) | crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
+            }
+            crate::dispatch::ResolvedDispatchResult::Dynamic => {
+                return analyze_unresolved_application(
+                    ctx,
+                    premise,
+                    &[],
+                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                );
+            }
+            crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
         }
     }
 
-    TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
+    analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchMissing)
 }

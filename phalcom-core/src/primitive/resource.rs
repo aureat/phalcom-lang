@@ -87,7 +87,16 @@ pub fn system_leak_report(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> Ph
 }
 
 /// `System.strictResources_(_)` primitive.
-#[phalcom_native_macros::primitive(System, "_$strictResources(_)" , side = class, visibility = internal)]
+#[phalcom_native_macros::primitive(
+    System,
+    "_$strictResources(_)" ,
+    side = class,
+    visibility = internal,
+    params = [Bool],
+    returns = Unit,
+    types = "(Bool) -> Unit",
+    effects = pure
+)]
 pub fn system_strict_resources(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let flag = match args[0].as_bool() {
         Some(b) => b,
@@ -100,5 +109,5 @@ pub fn system_strict_resources(vm: &mut VM, _receiver: &Value, args: &[Value]) -
         }
     };
     vm.strict_resources = flag;
-    Ok(Value::none())
+    Ok(Value::unit())
 }

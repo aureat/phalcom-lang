@@ -342,7 +342,7 @@ All pointers below refer to the inspected `main` snapshot on 2026-08-11. Use sym
 | `Nil` surfacing | `phalcom-core/src/value/mod.rs` | `sentinel_to_option` | Return immediate `Value::None`; remove singleton parameter |
 | Rust hash | `phalcom-core/src/value/mod.rs` | `impl Hash for Value` | Hash Option variant/depth + payload |
 | rendering | `phalcom-core/src/value/render.rs` | `Value::to_string`, `to_debug`, `Debug`, `Display` | Remove heap Some/None inspection; render immediate nested options |
-| Option primitives | `phalcom-core/src/primitive/nil.rs` | `wrap_some`, `some_new`, `option_match` | Remove `InstanceObject` allocation and slot access |
+| Option primitives | `../../../../phalcom-core/src/primitive/option.rs` | `wrap_some`, `some_new`, `option_match` | Remove `InstanceObject` allocation and slot access |
 | runtime error | `phalcom-core/src/error.rs` | `RuntimeError` | Add bounded-Option nesting error |
 | Option classes | `phalcom-core/src/universe/core_classes.rs` | `create_core_classes` Option block | Stop allocating `none_singleton` |
 | native representation flag | `phalcom-core/src/universe/core_classes.rs` | `native_repr_classes` | Mark Option/Some/None as non-generic-instance classes |
@@ -783,7 +783,7 @@ The `cargo check` step is intentional: adding variants should trigger exhaustive
 
 ## File
 
-`phalcom-core/src/primitive/nil.rs`
+`../../../../phalcom-core/src/primitive/option.rs`
 
 Current implementation:
 

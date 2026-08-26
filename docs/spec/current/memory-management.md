@@ -204,7 +204,7 @@ handles held *solely* in native locals across a re-entrant send.
 
 ## 5. `System.gc`
 
-`System.gc` forces one full mark-sweep at the current safepoint and returns `None`
+`System.gc` forces one full mark-sweep at the current safepoint and returns `Unit`
 ([system.md](system.md) §`gc`, [values-and-absence.md](values-and-absence.md)).
 It guarantees:
 

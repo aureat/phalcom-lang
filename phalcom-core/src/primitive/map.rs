@@ -21,7 +21,7 @@
 
 use crate::error::{MapMutationError, PhResult, RuntimeError};
 use crate::heap::ObjRef;
-use crate::primitive::nil::wrap_some;
+use crate::primitive::option::wrap_some;
 use crate::primitive::{expect_class, expect_map, is_mutable_collection_key, mutable_key_error, send_eq, send_hash};
 use crate::value::Value;
 use crate::vm::VM;

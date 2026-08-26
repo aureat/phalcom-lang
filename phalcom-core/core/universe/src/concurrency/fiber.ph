@@ -9,34 +9,34 @@ class System is Object {
 
   @class @native nextScheduled -> Option<Fiber>
 
-  @class @native gc -> Dynamic
+  @class @native gc -> Unit
 
-  @class @internal @native _$write(_ value: String) -> Dynamic
+  @class @internal @native _$write(_ value: String) -> Unit
 
-  @class @internal @native _$leakReport -> Dynamic
+  @class @internal @native _$leakReport -> List<String>
 
-  @class @internal @native _$strictResources(_ enabled: Bool) -> Dynamic
+  @class @internal @native _$strictResources(_ enabled: Bool) -> Unit
 
   // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
   // native `write_(_)` and the `toString` message. Additive-only: does not
   // touch the native `print(_)` pathway (pre-existing divergence between
   // `Value::to_string` and the `.toString` message is out of scope).
   @class
-  write(_ obj) {
+  write(_ obj: Object) -> Object {
     System.writeObject(obj)
-    return obj
+    obj
   }
 
   @private
   @class
-  writeObject(_ obj) {
+  writeObject(_ obj: Object) -> Object {
     const s = obj.toString
-    (s.is(String)).ifTrue(|| {
+    if s is String {
       System._$write(s)
-    }, ifFalse: || {
+    } else {
       System._$write("invalid toString")
-    })
-    return obj
+    }
+    obj
   }
 
   // U-SCHED: the `.ph`-callable counterpart to `VM::run`'s native
@@ -60,7 +60,7 @@ class System is Object {
       f.try()
       next = System.nextScheduled
     }
-    return ()
+    ()
   }
 }
 

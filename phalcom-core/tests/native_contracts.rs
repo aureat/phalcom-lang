@@ -21,11 +21,11 @@ fn system_print_runtime_returns_unit() {
 }
 
 #[test]
-fn system_gc_runtime_returns_none() {
+fn system_gc_runtime_returns_unit() {
     let mut vm = VM::new();
     let system = Value::obj(vm.universe.classes.system_class);
     let result = system_gc(&mut vm, &system, &[]).expect("System.gc");
-    assert_eq!(result, Value::none());
+    assert_eq!(result, Value::unit());
 }
 
 #[test]
@@ -35,6 +35,6 @@ fn system_native_metadata_matches_language_contracts() {
     assert_eq!(print.callable().return_type, &TypeExprSpec::Universe(UniverseKey::Unit));
 
     let gc = native_record("gc");
-    assert_eq!(gc.returns(), &TypeExprSpec::Universe(UniverseKey::None));
-    assert_eq!(gc.callable().return_type, &TypeExprSpec::Universe(UniverseKey::None));
+    assert_eq!(gc.returns(), &TypeExprSpec::Universe(UniverseKey::Unit));
+    assert_eq!(gc.callable().return_type, &TypeExprSpec::Universe(UniverseKey::Unit));
 }

@@ -31,6 +31,18 @@ impl CausalInvalidity {
         }
     }
 
+    /// Returns whether this bounded causal summary can contain `cause`.
+    ///
+    /// `Multiple` deliberately does not retain exact cause identity, so any
+    /// concrete cause is conservatively considered contained.
+    pub fn contains(self, cause: DiagnosticCauseId) -> bool {
+        match self {
+            Self::Clean => false,
+            Self::One(actual) => actual == cause,
+            Self::Multiple => true,
+        }
+    }
+
     /// Converts causal dependence to the only valid suppression payloads.
     pub fn suppression_cause(self) -> Option<SuppressionCause> {
         match self {
@@ -63,5 +75,17 @@ mod tests {
             Some(SuppressionCause::One(DiagnosticCauseId(4)))
         );
         assert_eq!(CausalInvalidity::Multiple.suppression_cause(), Some(SuppressionCause::Multiple));
+    }
+
+    #[test]
+    fn contains_reports_bounded_cause_membership() {
+        let c1 = DiagnosticCauseId(4);
+        let c2 = DiagnosticCauseId(5);
+
+        assert!(!CausalInvalidity::Clean.contains(c1));
+        assert!(CausalInvalidity::One(c1).contains(c1));
+        assert!(!CausalInvalidity::One(c1).contains(c2));
+        assert!(CausalInvalidity::Multiple.contains(c1));
+        assert!(CausalInvalidity::Multiple.contains(c2));
     }
 }

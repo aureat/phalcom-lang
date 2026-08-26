@@ -6,6 +6,7 @@ use phalcom_common::selector::SelectorBase;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::checker::analysis::SemanticDependency;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, BindingState, CallableAnalysis, ExpressionAnalysis};
+use phalcom_semantic::checker::causal::CausalInvalidity;
 use phalcom_semantic::checker::{BindingConsistency, BindingContractOrigin};
 use phalcom_semantic::diagnostic::{DiagnosticCode, DiagnosticSeverity, SemanticDiagnostic};
 use phalcom_semantic::explain::DerivationRule;
@@ -267,6 +268,28 @@ impl Fixture {
                 matches.len()
             )
         })
+    }
+
+    pub fn assert_expression_product_invariants(&self) {
+        for callable in self.analysis.snapshot.callable_analyses.values() {
+            for expression in callable.expressions.values() {
+                match &expression.status {
+                    AnalysisStatus::Invalid(cause) => {
+                        assert!(
+                            expression.causal_invalidity.contains(*cause),
+                            "Invalid expression must contain owning cause: {expression:#?}",
+                        );
+                    }
+                    AnalysisStatus::Suppressed(_) => {
+                        assert!(
+                            !matches!(expression.causal_invalidity, CausalInvalidity::Clean),
+                            "Suppressed expression must have non-clean causal state: {expression:#?}",
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     pub fn diagnostics(&self, code: DiagnosticCode) -> Vec<&SemanticDiagnostic> {

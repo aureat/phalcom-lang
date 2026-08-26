@@ -17,5 +17,5 @@ System.print(fromList.toString)     // [5, 6, 7]
 System.print(fromRange.toString)    // [0, 1, 2]
 System.print(fromUnit.toString)     // [8]
 System.print(limited.toString)      // [0, 1, 2]
-System.print(gcList.toString)       // [[1, 2], None]
+System.print(gcList.toString)       // [[1, 2], ()]
 System.print(large.size)            // 65536

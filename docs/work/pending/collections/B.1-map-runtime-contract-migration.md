@@ -116,7 +116,7 @@ get(missing)      -> None
 
 ### 4.2 Reuse the existing Option substrate
 
-`phalcom-core/src/primitive/nil.rs` already exposes the internal `wrap_some(vm, value)` helper used by `Some.new` and `WrapSome`. Reuse it. Do not add a new Map-specific Some allocator.
+`../../../../phalcom-core/src/primitive/option.rs` already exposes the internal `wrap_some(vm, value)` helper used by `Some.new` and `WrapSome`. Reuse it. Do not add a new Map-specific Some allocator.
 
 Change the existing `get_` raw binding's semantics to:
 

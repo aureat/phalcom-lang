@@ -35,10 +35,16 @@ async fn trusted_system_print_return_never_surfaces_as_option_in_ide_hints() {
     lsp.open_and_wait(uri, source).await;
 
     let hover = lsp.hover(uri, tower_lsp::lsp_types::Position::new(2, 12)).await;
-    assert!(!hover.to_string().contains("Option"), "trusted System.print hover must not report Option: {hover:#?}");
+    assert!(
+        !hover.to_string().contains("Option"),
+        "trusted System.print hover must not report Option: {hover:#?}"
+    );
 
     let hints = hint_labels(&lsp.inlay_hints(uri, 100).await);
-    assert!(!hints.iter().any(|label| label.contains("Option")), "trusted System.print inlay must not report Option: {hints:#?}");
+    assert!(
+        !hints.iter().any(|label| label.contains("Option")),
+        "trusted System.print inlay must not report Option: {hints:#?}"
+    );
 
     lsp.finish().await;
 }

@@ -70,7 +70,7 @@ All class-side. Grouped by service.
 
 | Signature | Meaning |
 |-----------|---------|
-| `gc` | request a garbage collection; returns `None` ([Values & Absence](values-and-absence.md)) |
+| `gc` | request a garbage collection; returns `Unit` ([Values & Absence](values-and-absence.md)) |
 | `version` | the runtime version `String` |
 
 ### Scheduler (with [Futures](concurrency.md))

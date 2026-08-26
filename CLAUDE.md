@@ -45,12 +45,12 @@ Cargo workspace (edition 2024, resolver 2). Members:
 - **Compiler:** `compiler/` (`lib.rs`, `mod.rs`) — lowers AST to bytecode.
 - **Bytecode & execution:** `bytecode.rs`, `chunk.rs`, `vm.rs`, `frame.rs`, `interpret.rs`.
 - **Object model:** `value.rs`, `instance.rs`, `class.rs`, `method.rs`, `signature.rs`,
-  `callable.rs`, `closure.rs`, and immediate types `boolean.rs`, `nil.rs`, `string.rs`.
+  `callable.rs`, `closure.rs`, and immediate types `boolean.rs`, `option`, `string.rs`.
 - **Runtime state:** `universe.rs` (globals + bootstrap), `interner.rs` (symbol interning),
   `module.rs`, `diagnostics.rs`, `error.rs`.
 - **Primitives (`primitive/`):** native Rust method implementations per core class —
   `object.rs`, `class.rs`, `method.rs`, `module.rs`, `number.rs`, `string.rs`, `symbol.rs`,
-  `boolean.rs`, `nil.rs`, `system.rs`.
+  `boolean.rs`, `option`, `system.rs`.
 - **CLI (`bin/phalcom/`):** `main.rs` (entry), `cli.rs` (arg handling), `disasm.rs` (bytecode disassembler).
 
 ### `phalcom-core/core/core.ph`

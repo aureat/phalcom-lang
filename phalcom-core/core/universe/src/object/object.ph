@@ -8,7 +8,7 @@ class Object {
   class -> Dynamic
 
   @native
-  class=(put value: Dynamic) -> Dynamic
+  class=(put value: Dynamic) -> Unit
 
   @native
   toString -> String

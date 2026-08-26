@@ -146,12 +146,7 @@ mod tests {
             revision: document.revision,
             version: document.version,
         };
-        let request = RequestContext::new_with_compiler(
-            document,
-            Arc::new(SemanticSnapshot::default()),
-            Some(old.clone()),
-            &uri,
-        );
+        let request = RequestContext::new_with_compiler(document, Arc::new(SemanticSnapshot::default()), Some(old.clone()), &uri);
         let reader = thread::spawn(move || {
             let pinned = request.compiler.expect("request must retain compiler snapshot");
             (pinned.id, pinned.sources.values().next().expect("pinned source").text.clone())

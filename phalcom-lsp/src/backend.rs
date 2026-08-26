@@ -969,11 +969,7 @@ impl Backend {
     /// signature, and return facts. The protocol member surface is consulted
     /// only for presentation metadata that has no compiler source-index
     /// equivalent yet (member kind and Phaldoc source ranges).
-    fn compiler_callable_hover(
-        &self,
-        request: &RequestContext,
-        callable: &phalcom_semantic::identity::CallableId,
-    ) -> Option<CompilerCallableHover> {
+    fn compiler_callable_hover(&self, request: &RequestContext, callable: &phalcom_semantic::identity::CallableId) -> Option<CompilerCallableHover> {
         let compiler = request.compiler.as_deref()?;
         let signature = compiler.callable_signatures.get(callable)?;
         let owner = request.semantic.class_for_canonical(&callable.owner);
@@ -992,19 +988,16 @@ impl Backend {
             .and_then(|surface| surface.surface(compiler_side).get_callable(&callable.selector))
             .map(|signature| signature.kind);
         let metadata = request.semantic.member_surface_for_canonical(callable);
-        let kind = metadata
-            .as_ref()
-            .map(hover_member_kind)
-            .unwrap_or_else(|| match compiler_kind {
-                Some(phalcom_semantic::dispatch::CallableSemanticKind::Constructor) => crate::index::MemberKind::Construct,
-                Some(phalcom_semantic::dispatch::CallableSemanticKind::Native | phalcom_semantic::dispatch::CallableSemanticKind::Ordinary) | None => {
-                    if callable.side == phalcom_semantic::DispatchSide::Class {
-                        crate::index::MemberKind::StaticMethod
-                    } else {
-                        crate::index::MemberKind::Method
-                    }
+        let kind = metadata.as_ref().map(hover_member_kind).unwrap_or_else(|| match compiler_kind {
+            Some(phalcom_semantic::dispatch::CallableSemanticKind::Constructor) => crate::index::MemberKind::Construct,
+            Some(phalcom_semantic::dispatch::CallableSemanticKind::Native | phalcom_semantic::dispatch::CallableSemanticKind::Ordinary) | None => {
+                if callable.side == phalcom_semantic::DispatchSide::Class {
+                    crate::index::MemberKind::StaticMethod
+                } else {
+                    crate::index::MemberKind::Method
                 }
-            });
+            }
+        });
         let phaldoc = metadata.as_ref().and_then(|member| self.member_phaldoc(member));
         let presenter = phalcom_semantic::TypePresenter::new(&compiler.store);
         let formal = match &signature.return_type {
@@ -1445,13 +1438,8 @@ impl Backend {
             match target {
                 phalcom_semantic::SemanticTargetId::Callable(callable)
                     if let Some((selector, site, phaldoc, formal, advisory)) = self.compiler_callable_hover(request, &callable)
-                    && let Some(contents) = hover::render_selector_hover_with_formal_value(
-                        &selector,
-                        &[site],
-                        phaldoc.as_ref(),
-                        Some(&formal),
-                        advisory.as_ref(),
-                    ) =>
+                        && let Some(contents) =
+                            hover::render_selector_hover_with_formal_value(&selector, &[site], phaldoc.as_ref(), Some(&formal), advisory.as_ref()) =>
                 {
                     return Some(Hover {
                         contents: markdown_contents(contents),
@@ -1468,7 +1456,7 @@ impl Backend {
                 }
                 phalcom_semantic::SemanticTargetId::Field(field)
                     if let Some((name, site, advisory)) = self.compiler_field_hover(request, &field)
-                    && let Some(contents) = hover::render_selector_hover_with_value(&name, &[site], None, advisory.as_ref()) =>
+                        && let Some(contents) = hover::render_selector_hover_with_value(&name, &[site], None, advisory.as_ref()) =>
                 {
                     return Some(Hover {
                         contents: markdown_contents(contents),
@@ -2250,12 +2238,9 @@ impl LanguageServer for Backend {
                         AnalysisEvent::Published { effects, .. } => {
                             let semantic_snapshot = semantic.snapshot();
                             for uri in documents.open_uris() {
-                                let Some(publication) = combined_diagnostics_for(
-                                    &documents,
-                                    semantic_snapshot.compiler_snapshot.as_deref(),
-                                    &semantic_snapshot.documents,
-                                    &uri,
-                                ) else {
+                                let Some(publication) =
+                                    combined_diagnostics_for(&documents, semantic_snapshot.compiler_snapshot.as_deref(), &semantic_snapshot.documents, &uri)
+                                else {
                                     continue;
                                 };
                                 client.publish_diagnostics(uri, publication.diagnostics, publication.version).await;

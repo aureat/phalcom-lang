@@ -1,6 +1,6 @@
 //! Immediate Option object-model, constructor, and allocation regressions.
 
-use phalcom_core::primitive::nil::{some_call, some_new};
+use phalcom_core::primitive::option::{some_call, some_new};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 

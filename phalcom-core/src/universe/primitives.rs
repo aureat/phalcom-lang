@@ -22,7 +22,6 @@ use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
 use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
-use crate::primitive::nil::{option_match, some_call, some_new};
 use crate::primitive::number::{
     number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod,
     number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
@@ -32,6 +31,7 @@ use crate::primitive::object::{
     object_invariant_exit, object_matches, object_method_for, object_name, object_neq, object_perform_shape, object_responds_to, object_same, object_set_class,
     object_to_string, object_understands,
 };
+use crate::primitive::option::{option_match, some_call, some_new};
 use crate::primitive::primitive;
 use crate::primitive::primitive_internal;
 use crate::primitive::primitive_rest;

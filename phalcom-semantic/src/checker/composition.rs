@@ -1,0 +1,249 @@
+use crate::checker::analysis::AnalysisStatus;
+use crate::checker::typed_expr::TypedExpression;
+use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+use crate::types::id::TypeId;
+use crate::types::row::RecordRowTail;
+use crate::types::store::{TypeData, TypeStore};
+
+fn terminal_priority(status: &AnalysisStatus) -> u8 {
+    match status {
+        AnalysisStatus::InternalFailure(_) => 7,
+        AnalysisStatus::Cancelled => 6,
+        AnalysisStatus::BudgetExceeded(_) => 5,
+        AnalysisStatus::Blocked(_) => 4,
+        AnalysisStatus::Suppressed(_) => 3,
+        AnalysisStatus::DynamicBoundary(_) => 2,
+        AnalysisStatus::Invalid(_) => 1,
+        AnalysisStatus::Ready => 0,
+    }
+}
+
+fn push_unique<T: Eq + Copy>(items: &mut Vec<T>, value: T) {
+    if !items.contains(&value) {
+        items.push(value);
+    }
+}
+
+fn select_terminal(selected: &mut Option<AnalysisStatus>, candidate: AnalysisStatus) {
+    match selected {
+        None => *selected = Some(candidate),
+        Some(current) if terminal_priority(&candidate) > terminal_priority(current) => {
+            *selected = Some(candidate);
+        }
+        Some(_) => {}
+    }
+}
+
+pub(crate) fn propagate_required_dependencies(result: &mut TypedExpression, operands: &[TypedExpression]) {
+    let mut selected_terminal: Option<AnalysisStatus> = None;
+
+    for operand in operands {
+        result.causal_invalidity = result.causal_invalidity.join(operand.causal_invalidity);
+        for parent in &operand.explanation_parents {
+            push_unique(&mut result.explanation_parents, *parent);
+        }
+
+        match &operand.status {
+            AnalysisStatus::Invalid(_) if operand.knowledge.ty().is_some() => {}
+            AnalysisStatus::Invalid(_) => {
+                if let Some(cause) = result.causal_invalidity.suppression_cause() {
+                    select_terminal(&mut selected_terminal, AnalysisStatus::Suppressed(cause));
+                }
+            }
+            AnalysisStatus::Ready => {}
+            status => select_terminal(&mut selected_terminal, status.clone()),
+        }
+    }
+
+    if let Some(status) = selected_terminal {
+        if terminal_priority(&status) >= terminal_priority(&result.status) {
+            result.status = status;
+        }
+    }
+
+    result.debug_assert_coherent();
+}
+
+pub(crate) fn project_applied_argument(store: &TypeStore, knowledge: &TypeKnowledge, expected_origin: TypeId, argument_index: usize) -> TypeKnowledge {
+    match knowledge {
+        TypeKnowledge::Known(_) => {
+            let Some(source_ty) = knowledge.ty() else {
+                unreachable!("Known knowledge has a type");
+            };
+            match store.get(source_ty) {
+                TypeData::Applied { origin, arguments } if *origin == expected_origin => {
+                    let Some(argument) = arguments.get(argument_index).copied() else {
+                        return TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
+                    };
+                    knowledge.derive_known_type(argument, EvidenceOrigin::PatternDecomposition)
+                }
+                _ => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
+            }
+        }
+        TypeKnowledge::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
+        TypeKnowledge::Dynamic(reason) => TypeKnowledge::Dynamic(reason.clone()),
+    }
+}
+
+pub(crate) fn project_tuple_elements(store: &TypeStore, knowledge: &TypeKnowledge) -> Result<Vec<TypeKnowledge>, TypeKnowledge> {
+    match knowledge {
+        TypeKnowledge::Known(_) => {
+            let Some(source_ty) = knowledge.ty() else {
+                unreachable!("Known knowledge has a type");
+            };
+            match store.get(source_ty) {
+                TypeData::Tuple(elements) => Ok(elements
+                    .iter()
+                    .map(|element| knowledge.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition))
+                    .collect()),
+                _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+            }
+        }
+        TypeKnowledge::Unknown(reason) => Err(TypeKnowledge::Unknown(reason.clone())),
+        TypeKnowledge::Dynamic(reason) => Err(TypeKnowledge::Dynamic(reason.clone())),
+    }
+}
+
+pub(crate) fn project_record_fields(store: &TypeStore, knowledge: &TypeKnowledge) -> Result<Vec<(Box<str>, TypeKnowledge)>, TypeKnowledge> {
+    match knowledge {
+        TypeKnowledge::Known(_) => {
+            let Some(source_ty) = knowledge.ty() else {
+                unreachable!("Known knowledge has a type");
+            };
+            match store.get(source_ty) {
+                TypeData::Record(row_id) if store.record_row(*row_id).tail == RecordRowTail::Closed => Ok(store
+                    .record_row(*row_id)
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
+                    .collect()),
+                _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+            }
+        }
+        TypeKnowledge::Unknown(reason) => Err(TypeKnowledge::Unknown(reason.clone())),
+        TypeKnowledge::Dynamic(reason) => Err(TypeKnowledge::Dynamic(reason.clone())),
+    }
+}
+
+pub(crate) fn decompose_tuple_component(store: &TypeStore, parent: &TypeKnowledge, index: usize, expected_len: usize) -> TypeKnowledge {
+    match parent {
+        TypeKnowledge::Known(_) => {
+            let Some(parent_ty) = parent.ty() else {
+                unreachable!("Known knowledge has a type");
+            };
+            match store.get(parent_ty) {
+                TypeData::Tuple(elements) if elements.len() == expected_len => {
+                    let Some(element) = elements.get(index) else {
+                        return TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
+                    };
+                    parent.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition)
+                }
+                _ => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
+            }
+        }
+        TypeKnowledge::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
+        TypeKnowledge::Dynamic(reason) => TypeKnowledge::Dynamic(reason.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::checker::causal::{CausalInvalidity, SuppressionCause};
+    use crate::identity::{DiagnosticCauseId, InternalSemanticIncidentId};
+    use crate::types::evidence::{DynamicReason, EvidenceOrigin, UnknownReason};
+    use crate::types::id::TypeId;
+    use crate::types::outcome::{BlockReason, BudgetKind, BudgetReport};
+    use phalcom_common::range::SourceRange;
+
+    fn known() -> TypedExpression {
+        TypedExpression::established(TypeId::DUMMY, EvidenceOrigin::Syntax, SourceRange::default())
+    }
+
+    fn result() -> TypedExpression {
+        TypedExpression::new(crate::types::evidence::TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+    }
+
+    #[test]
+    fn invalid_known_dependency_keeps_parent_ready_and_causal() {
+        let cause = DiagnosticCauseId(1);
+        let mut operand = known();
+        operand.invalidate(cause);
+        let mut parent = result();
+
+        propagate_required_dependencies(&mut parent, &[operand]);
+
+        assert!(matches!(parent.status, AnalysisStatus::Ready));
+        assert!(parent.causal_invalidity.contains(cause));
+    }
+
+    #[test]
+    fn invalid_unavailable_dependency_suppresses_parent() {
+        let cause = DiagnosticCauseId(1);
+        let mut operand = TypedExpression::unknown(UnknownReason::UnresolvedName("missing".into()));
+        operand.invalidate(cause);
+        let mut parent = result();
+
+        propagate_required_dependencies(&mut parent, &[operand]);
+
+        assert!(matches!(parent.status, AnalysisStatus::Suppressed(SuppressionCause::One(actual)) if actual == cause));
+        assert!(parent.causal_invalidity.contains(cause));
+    }
+
+    #[test]
+    fn suppressed_dependency_suppresses_parent() {
+        let cause = DiagnosticCauseId(1);
+        let mut operand = TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+        operand.status = AnalysisStatus::Suppressed(SuppressionCause::One(cause));
+        operand.causal_invalidity = CausalInvalidity::One(cause);
+        let mut parent = result();
+
+        propagate_required_dependencies(&mut parent, &[operand]);
+
+        assert!(matches!(parent.status, AnalysisStatus::Suppressed(_)));
+    }
+
+    #[test]
+    fn higher_priority_terminal_status_wins() {
+        let mut cancelled = TypedExpression::new(crate::types::evidence::TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape));
+        cancelled.status = AnalysisStatus::Cancelled;
+        let mut internal = known();
+        internal.status = AnalysisStatus::InternalFailure(InternalSemanticIncidentId(2));
+        let mut parent = result();
+
+        propagate_required_dependencies(&mut parent, &[cancelled, internal]);
+
+        assert!(matches!(parent.status, AnalysisStatus::InternalFailure(InternalSemanticIncidentId(2))));
+    }
+
+    #[test]
+    fn budget_and_cancelled_statuses_propagate() {
+        let mut budget = known();
+        budget.status = AnalysisStatus::BudgetExceeded(BudgetReport::new(BudgetKind::Steps, 1, 2));
+        let mut parent = result();
+        propagate_required_dependencies(&mut parent, &[budget]);
+        assert!(matches!(parent.status, AnalysisStatus::BudgetExceeded(_)));
+
+        let mut cancelled = known();
+        cancelled.status = AnalysisStatus::Cancelled;
+        let mut parent = result();
+        propagate_required_dependencies(&mut parent, &[cancelled]);
+        assert!(matches!(parent.status, AnalysisStatus::Cancelled));
+
+        let mut blocked = known();
+        blocked.status = AnalysisStatus::Blocked(BlockReason::RecursiveFixpoint);
+        let mut parent = result();
+        propagate_required_dependencies(&mut parent, &[blocked]);
+        assert!(matches!(parent.status, AnalysisStatus::Blocked(BlockReason::RecursiveFixpoint)));
+    }
+
+    #[test]
+    fn tuple_decomposition_preserves_unknown_and_dynamic_reasons() {
+        let store = TypeStore::new();
+        let unknown = TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()));
+        assert_eq!(decompose_tuple_component(&store, &unknown, 0, 2), unknown);
+
+        let dynamic = TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape);
+        assert_eq!(decompose_tuple_component(&store, &dynamic, 0, 2), dynamic);
+    }
+}

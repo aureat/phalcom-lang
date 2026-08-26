@@ -17,7 +17,7 @@ pub fn range_raw_lower(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     let id: ObjRef = expect_range(vm, receiver)?;
     let lower = vm.heap.range(id).lower();
     Ok(match lower {
-        Some(value) => crate::primitive::nil::wrap_some(vm, value)?,
+        Some(value) => crate::primitive::option::wrap_some(vm, value)?,
         None => vm.none_value(),
     })
 }
@@ -28,7 +28,7 @@ pub fn range_raw_upper(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     let id: ObjRef = expect_range(vm, receiver)?;
     let upper = vm.heap.range(id).upper();
     Ok(match upper {
-        Some(value) => crate::primitive::nil::wrap_some(vm, value)?,
+        Some(value) => crate::primitive::option::wrap_some(vm, value)?,
         None => vm.none_value(),
     })
 }

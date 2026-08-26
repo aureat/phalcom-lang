@@ -16,8 +16,8 @@ use crate::vm::VM;
     Object,
     "_$attach(_)",
     params = [Object],
-    returns = Option,
-    types = "(Object) -> Option",
+    returns = Unit,
+    types = "(Object) -> Unit",
     visibility = internal
 )]
 pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -43,7 +43,7 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     if !attached {
         return Err(RuntimeError::NotAllowed("attr.frozen: attribute store is frozen".to_string()).into());
     }
-    Ok(vm.none_value())
+    Ok(vm.unit_value())
 }
 
 /// Signature: `Object#__attributes` — reads the receiver's attribute-
@@ -51,8 +51,8 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     Object,
     "_$attributes",
     params = [],
-    returns = List,
-    types = "() -> List",
+    returns = "List<Attribute>",
+    types = "() -> List<Attribute>",
     visibility = internal
 )]
 pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -75,6 +75,7 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
             .into());
         }
     };
+    // TODO: Should return an immutable view
     Ok(Value::obj(vm.heap.alloc(Object::List(crate::heap::ListObject::new(attrs)))))
 }
 
@@ -88,8 +89,8 @@ pub fn method_attribute_attributes(vm: &mut VM, receiver: &Value, args: &[Value]
     Object,
     "_$freezeAttributes()",
     params = [],
-    returns = Option,
-    types = "() -> Option",
+    returns = Unit,
+    types = "() -> Unit",
     visibility = internal
 )]
 pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -111,5 +112,5 @@ pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
             .into());
         }
     }
-    Ok(vm.none_value())
+    Ok(vm.unit_value())
 }

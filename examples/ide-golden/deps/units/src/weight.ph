@@ -9,4 +9,6 @@ class Weight {
   units -> Int { _units }
 }
 
+const weight: Int = Weight.new(5).units
+
 export Weight

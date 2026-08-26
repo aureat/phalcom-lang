@@ -9,7 +9,7 @@
 //! with them.
 
 use phalcom_core::heap::{InstanceObject, Object};
-use phalcom_core::primitive::nil::some_call;
+use phalcom_core::primitive::option::some_call;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 
@@ -162,15 +162,15 @@ fn surviving_objects_keep_their_handles() {
     vm.pop_root_for_test();
 }
 
-/// **System.gc returns None (U-GC step 3).**
+/// **System.gc returns Unit (U-GC step 3).**
 #[test]
-fn system_gc_returns_none() {
+fn system_gc_returns_unit() {
     let (mut vm, _) = settled_vm();
     let system_cls = Value::obj(vm.universe.classes.system_class);
     use phalcom_core::primitive::system::system_gc;
     let result = system_gc(&mut vm, &system_cls, &[]).expect("System.gc primitive call");
 
-    assert_eq!(result, Value::none());
+    assert_eq!(result, Value::unit());
 }
 
 /// An immediate `Some(ObjRef)` held only in the VM operand stack keeps its

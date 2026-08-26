@@ -3,6 +3,7 @@ pub mod binding;
 pub mod body;
 pub mod call;
 pub mod causal;
+pub(crate) mod composition;
 pub mod context;
 pub mod declaration;
 pub mod expected;
@@ -23,7 +24,7 @@ pub use binding::{
     BindingWriteResult, reconcile_binding_contract,
 };
 pub use body::analyze_callable_body;
-pub use call::{CallCheckResult, check_arguments, match_callable_arguments, resolve_call};
+pub use call::CallCheckResult;
 pub use causal::{CausalInvalidity, SuppressionCause};
 pub use context::CheckingContext;
 pub use declaration::{check_class, check_class_bodies, register_class_surface};

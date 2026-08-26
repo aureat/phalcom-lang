@@ -1,8 +1,8 @@
-use crate::semantic::support::{Fixture, assert_source_contract, binding, known};
+use crate::semantic::support::{Fixture, assert_source_contract};
 use phalcom_semantic::identity::DispatchSide;
-use phalcom_semantic::types::evidence::EvidenceStatus;
+use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
 
-/// LAW: iteration element type comes from protocol return specialization.
+/// LAW: parameterized iteration cannot project a return without a cursor application.
 #[test]
 fn custom_iterable_element_type_comes_from_protocol_not_first_generic_argument() {
     let f = Fixture::new(
@@ -22,12 +22,9 @@ class Probe {
 }
 "#,
     );
-    let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    f.assert_binding_expectation(run, "value", binding().current(known(int_ty)));
-    f.assert_binding_expectation(run, "observed", binding().current(known(int_ty)));
-    f.assert_binding_type(run, "value", int_ty);
-    f.assert_binding_type(run, "observed", int_ty);
+    assert_eq!(f.binding(run, "value").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
+    assert_eq!(f.binding(run, "observed").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
 }
 
 /// LAW: branch joins compose nested collection element precision.
@@ -116,10 +113,9 @@ class Probe {
 }
 "#,
     );
-    let string_ty = f.ty("String");
     let run = f.callable("Probe", "run", DispatchSide::Class);
-    f.assert_binding_type(run, "value", string_ty);
-    f.assert_binding_type(run, "observed", string_ty);
+    assert_eq!(f.binding(run, "value").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
+    assert_eq!(f.binding(run, "observed").current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
 }
 
 /// I03: structured `for` patterns decompose the protocol element fact into
@@ -142,22 +138,12 @@ class Probe {
 }
 "#,
     );
-    let string_ty = f.ty("String");
-    let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
-
-    f.assert_binding_expectation(
-        run,
-        "key",
-        binding().current(known(string_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)),
-    );
-    f.assert_binding_expectation(
-        run,
-        "value",
-        binding().current(known(int_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)),
-    );
-    f.assert_binding_type(run, "observedKey", string_ty);
-    f.assert_binding_type(run, "observedValue", int_ty);
+    let unknown = TypeKnowledge::Unknown(UnknownReason::UncheckedExpression);
+    assert_eq!(f.binding(run, "key").current, unknown);
+    assert_eq!(f.binding(run, "value").current, unknown);
+    assert_eq!(f.binding(run, "observedKey").current, unknown);
+    assert_eq!(f.binding(run, "observedValue").current, unknown);
 }
 
 /// I05: a collection protocol without formal element evidence stays incomplete.

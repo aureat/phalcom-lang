@@ -44,7 +44,7 @@ pub fn some_call(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Va
     side = class,
     effects = pure
 )]
-pub fn some_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+pub fn some_new(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(wrap_some(_vm, args[0])?)
 }
 
@@ -74,5 +74,5 @@ fn type_error(receiver: &Value) -> crate::error::PhError {
         expected: "Option",
         found: receiver.type_name(),
     }
-        .into()
+    .into()
 }

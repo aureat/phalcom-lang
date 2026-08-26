@@ -148,7 +148,10 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
         let rendered = item.to_string();
         assert!(!rendered.contains('≈'), "completion item must not expose advisory decoration: {item}");
         assert!(!rendered.contains("Confidence"), "completion item must not expose confidence taxonomy: {item}");
-        assert!(!rendered.contains("Observed"), "completion item must not expose observed-value boilerplate: {item}");
+        assert!(
+            !rendered.contains("Observed"),
+            "completion item must not expose observed-value boilerplate: {item}"
+        );
     }
 
     assert!(labels.contains(&"move(_,to)"), "{labels:#?}");

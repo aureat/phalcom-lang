@@ -3,7 +3,7 @@
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
 use crate::dispatch::DispatchLookup;
-use crate::identity::{CallableId, ExplanationId, ExpressionId};
+use crate::identity::{CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
 use crate::types::constraint::TypeConstraint;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{EvidenceOrigin, EvidenceSet, TypeKnowledge, UnknownReason};
@@ -26,6 +26,29 @@ pub struct TypedExpression {
 }
 
 impl TypedExpression {
+    /// Marks this expression as owning `cause` while keeping independently
+    /// available type knowledge intact.
+    pub(crate) fn invalidate(&mut self, cause: DiagnosticCauseId) {
+        self.status = AnalysisStatus::Invalid(cause);
+        self.causal_invalidity = self.causal_invalidity.join(CausalInvalidity::One(cause));
+    }
+
+    pub(crate) fn debug_assert_coherent(&self) {
+        if let AnalysisStatus::Invalid(cause) = self.status {
+            debug_assert!(
+                self.causal_invalidity.contains(cause),
+                "Invalid expression status must include its owning diagnostic cause"
+            );
+        }
+
+        if matches!(self.status, AnalysisStatus::Suppressed(_)) {
+            debug_assert!(
+                !matches!(self.causal_invalidity, CausalInvalidity::Clean),
+                "Suppressed expression must have non-clean causal invalidity"
+            );
+        }
+    }
+
     pub fn new(knowledge: TypeKnowledge) -> Self {
         let provenance = match &knowledge {
             TypeKnowledge::Known(ev) => ev.provenance().clone(),
@@ -154,6 +177,18 @@ impl TypedExpression {
 impl From<TypeKnowledge> for TypedExpression {
     fn from(knowledge: TypeKnowledge) -> Self {
         Self::new(knowledge)
+    }
+}
+
+impl From<crate::checker::call::CallCheckResult> for TypedExpression {
+    fn from(result: crate::checker::call::CallCheckResult) -> Self {
+        let mut typed = Self::new(result.knowledge);
+        typed.status = result.status;
+        typed.causal_invalidity = result.causal_invalidity;
+        typed.explanation_parents = result.explanation_parents;
+        typed.callable = result.callable;
+        typed.debug_assert_coherent();
+        typed
     }
 }
 

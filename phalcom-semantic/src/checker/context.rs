@@ -7,7 +7,7 @@ use crate::checker::incident::{
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{DispatchResult, SurfaceDispatchResolver};
+use crate::dispatch::{DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
@@ -265,6 +265,7 @@ pub struct CallableReturnContract {
 pub struct RelationApplication {
     pub outcome: RelationOutcome<()>,
     pub cause: Option<DiagnosticCauseId>,
+    pub status: Option<AnalysisStatus>,
 }
 
 /// The active context during semantic type checking.
@@ -674,9 +675,12 @@ impl<'a> CheckingContext<'a> {
         if let Some(status) = status.clone() {
             self.record_call_status(status);
         }
+        if let Some(cause) = cause {
+            self.record_call_dependency(crate::checker::causal::CausalInvalidity::One(cause), None);
+        }
 
         if let Some(owner) = owner {
-            if let Some(status) = status {
+            if let Some(status) = status.clone() {
                 if let Some(analysis) = self.expressions.get_mut(&owner) {
                     analysis.status = status;
                     if let Some(cause) = cause {
@@ -686,7 +690,7 @@ impl<'a> CheckingContext<'a> {
             }
         }
 
-        RelationApplication { outcome, cause }
+        RelationApplication { outcome, cause, status }
     }
 
     pub fn publish_analysis_incident(&mut self, message: impl Into<String>) -> AnalysisIncidentId {
@@ -783,21 +787,43 @@ impl<'a> CheckingContext<'a> {
         application
     }
 
-    pub fn record_expression(
+    /// Publishes the complete expression product after analysis has settled.
+    /// Production expression analysis uses this single publication path.
+    pub(crate) fn publish_expression_analysis(
         &mut self,
         id: ExpressionId,
         range: SourceRange,
-        knowledge: TypeKnowledge,
-        callable: Option<CallableId>,
-        denotation: Option<SemanticDenotation>,
-        status: AnalysisStatus,
+        typed: &crate::checker::typed_expr::TypedExpression,
+        explanation: Option<crate::identity::ExplanationId>,
     ) -> ExpressionAnalysis {
-        let mut analysis = ExpressionAnalysis::ready(id, range, knowledge);
-        analysis.callable = callable;
-        analysis.denotation = denotation;
-        analysis.status = status;
+        typed.debug_assert_coherent();
+
+        let mut analysis = ExpressionAnalysis::ready(id, range, typed.knowledge.clone());
+        analysis.callable = typed.callable.clone();
+        analysis.denotation = typed.denotation;
+        analysis.status = typed.status.clone();
+        analysis.causal_invalidity = typed.causal_invalidity;
+        analysis.explanation = explanation;
+
         self.expressions.insert(id, analysis.clone());
         analysis
+    }
+
+    pub(crate) fn sync_expression_outcome(&mut self, typed: &crate::checker::typed_expr::TypedExpression) {
+        typed.debug_assert_coherent();
+
+        let Some(id) = typed.expression_id else {
+            return;
+        };
+        let Some(analysis) = self.expressions.get_mut(&id) else {
+            return;
+        };
+
+        analysis.knowledge = typed.knowledge.clone();
+        analysis.callable = typed.callable.clone();
+        analysis.denotation = typed.denotation;
+        analysis.status = typed.status.clone();
+        analysis.causal_invalidity = typed.causal_invalidity;
     }
 
     pub fn push_scope(&mut self) {
@@ -946,7 +972,13 @@ impl<'a> CheckingContext<'a> {
         })
     }
 
-    pub fn bind_pattern_binding(&mut self, name: impl Into<String>, fact: ValueSemanticFact, range: SourceRange) -> BindingDeclarationResult {
+    pub fn bind_pattern_binding_with_causal(
+        &mut self,
+        name: impl Into<String>,
+        fact: ValueSemanticFact,
+        range: SourceRange,
+        causal_invalidity: crate::checker::causal::CausalInvalidity,
+    ) -> BindingDeclarationResult {
         let contract = fact.knowledge.ty().map(|ty| BindingContract {
             ty,
             origin: BindingContractOrigin::PatternBinding,
@@ -958,9 +990,13 @@ impl<'a> CheckingContext<'a> {
             contract,
             current: fact.knowledge,
             denotation: fact.denotation,
-            causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+            causal_invalidity,
             mutable: true,
         })
+    }
+
+    pub fn bind_pattern_binding(&mut self, name: impl Into<String>, fact: ValueSemanticFact, range: SourceRange) -> BindingDeclarationResult {
+        self.bind_pattern_binding_with_causal(name, fact, range, crate::checker::causal::CausalInvalidity::Clean)
     }
 
     pub fn lookup_binding_info(&self, name: &str) -> Option<&LocalBindingInfo> {
@@ -1099,73 +1135,95 @@ impl<'a> CheckingContext<'a> {
         crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ty)
     }
 
-    pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
-        let (decl, side) = match lookup {
+    fn dispatch_owner_for_lookup(&self, receiver: TypeId, lookup: crate::dispatch::DispatchLookup) -> Option<(DeclarationId, DispatchSide)> {
+        match lookup {
             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
-                if let Some(super_decl) = self.hierarchy.superclass(&defining_class) {
-                    (super_decl.clone(), side)
-                } else {
-                    return DispatchResult::Missing;
-                }
+                self.hierarchy.superclass(&defining_class).cloned().map(|super_decl| (super_decl, side))
             }
             crate::dispatch::DispatchLookup::Normal => match self.store.get(receiver) {
-                TypeData::ClassObject { declaration } => (declaration.clone(), DispatchSide::Class),
-                TypeData::Nominal { declaration } => (declaration.clone(), DispatchSide::Instance),
+                TypeData::ClassObject { declaration } => Some((declaration.clone(), DispatchSide::Class)),
+                TypeData::Nominal { declaration } => Some((declaration.clone(), DispatchSide::Instance)),
                 TypeData::Applied { origin, .. } => {
                     let mut curr_origin = *origin;
                     while let TypeData::Applied { origin: inner_origin, .. } = self.store.get(curr_origin) {
                         curr_origin = *inner_origin;
                     }
                     if let TypeData::Nominal { declaration } = self.store.get(curr_origin) {
-                        (declaration.clone(), DispatchSide::Instance)
+                        Some((declaration.clone(), DispatchSide::Instance))
                     } else {
-                        return DispatchResult::Missing;
+                        None
                     }
                 }
-                _ => return DispatchResult::Missing,
+                _ => None,
             },
+        }
+    }
+
+    fn specialize_dispatch_signature(&mut self, receiver: TypeId, mut signature: crate::dispatch::CallableSignature) -> crate::dispatch::CallableSignature {
+        if let Some(subst) = self.substitution_for_applied_receiver(receiver) {
+            for parameter in &mut signature.parameters {
+                parameter.ty = parameter.ty.map_type(|ty| subst.apply(self.store, ty));
+            }
+            signature.return_type = signature.return_type.map_type(|ty| subst.apply(self.store, ty));
+        }
+        for parameter in &mut signature.parameters {
+            parameter.ty = parameter.ty.map_type(|ty| self.specialize_self_type(receiver, ty));
+        }
+        signature.return_type = signature.return_type.map_type(|ty| self.specialize_self_type(receiver, ty));
+        signature
+    }
+
+    pub(crate) fn resolve_dispatch_target(
+        &mut self,
+        receiver: TypeId,
+        selector: &Selector,
+        lookup: crate::dispatch::DispatchLookup,
+    ) -> ResolvedDispatchResult {
+        let Some((decl, side)) = self.dispatch_owner_for_lookup(receiver, lookup) else {
+            return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
         };
 
-        let res = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
-        match res {
-            crate::dispatch::ResolvedDispatchResult::Found(resolved) => {
-                if let Some(expression) = self.current_expression_id() {
-                    self.resolved_callables.insert(expression, resolved.callable.clone());
-                }
+        let result = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
+        match result {
+            ResolvedDispatchResult::Found(mut resolved) => {
                 for owner in resolved.visited_owners.iter() {
                     record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                 }
                 self.dependencies.insert(resolved.callable.clone());
                 self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
-                let mut sig = resolved.signature;
-                if let Some(subst) = self.substitution_for_applied_receiver(receiver) {
-                    for param in &mut sig.parameters {
-                        param.ty = param.ty.map_type(|ty| subst.apply(self.store, ty));
-                    }
-                    sig.return_type = sig.return_type.map_type(|ty| subst.apply(self.store, ty));
+                resolved.signature = self.specialize_dispatch_signature(receiver, resolved.signature);
+                if let Some(expression) = self.current_expression_id() {
+                    self.resolved_callables.insert(expression, resolved.callable.clone());
                 }
-                for param in &mut sig.parameters {
-                    param.ty = param.ty.map_type(|ty| self.specialize_self_type(receiver, ty));
-                }
-                sig.return_type = sig.return_type.map_type(|ty| self.specialize_self_type(receiver, ty));
-                DispatchResult::Found(sig)
+                ResolvedDispatchResult::Found(resolved)
             }
-            crate::dispatch::ResolvedDispatchResult::Ambiguous(amb) => {
-                for rd in &amb {
-                    for owner in rd.visited_owners.iter() {
+            ResolvedDispatchResult::Ambiguous(mut ambiguous) => {
+                for resolved in &mut ambiguous {
+                    for owner in resolved.visited_owners.iter() {
                         record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                     }
-                    self.record_consumed_callable_signature(&rd.callable, &rd.signature);
+                    self.dependencies.insert(resolved.callable.clone());
+                    self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
+                    resolved.signature = self.specialize_dispatch_signature(receiver, resolved.signature.clone());
                 }
-                DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect())
+                ResolvedDispatchResult::Ambiguous(ambiguous)
             }
-            crate::dispatch::ResolvedDispatchResult::Missing { visited_owners } => {
+            ResolvedDispatchResult::Missing { visited_owners } => {
                 for owner in visited_owners.iter() {
                     record_declaration_surface_dependency(&self.semantic_dependencies, owner);
                 }
-                DispatchResult::Missing
+                ResolvedDispatchResult::Missing { visited_owners }
             }
-            crate::dispatch::ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
+            ResolvedDispatchResult::Dynamic => ResolvedDispatchResult::Dynamic,
+        }
+    }
+
+    pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
+        match self.resolve_dispatch_target(receiver, selector, lookup) {
+            ResolvedDispatchResult::Found(resolved) => DispatchResult::Found(resolved.signature),
+            ResolvedDispatchResult::Ambiguous(ambiguous) => DispatchResult::Ambiguous(ambiguous.into_iter().map(|resolved| resolved.signature).collect()),
+            ResolvedDispatchResult::Missing { .. } => DispatchResult::Missing,
+            ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
         }
     }
 
@@ -1299,7 +1357,8 @@ mod tests {
     use crate::checker::incident::{InternalFailurePolicy, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
     use crate::declarations::bootstrap_universe_declarations;
     use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-    use crate::identity::{DeclarationId, ModuleId};
+    use crate::identity::{CallableId, DeclarationId, DispatchSide, ModuleId};
+    use crate::dispatch::{CallableSignature, ResolvedDispatchResult};
     use crate::types::SimpleTypeResolver;
     use crate::types::id::TypeId;
     use crate::types::relation::MapTypeHierarchy;
@@ -1392,5 +1451,38 @@ mod tests {
             ctx.terminal_status,
             Some(crate::checker::analysis::AnalysisStatus::InternalFailure(_))
         ));
+    }
+
+    #[test]
+    fn dispatch_target_preserves_callable_identity() {
+        let module = ModuleId::core();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+
+        let owner = DeclarationId::new(module, "Owner".into());
+        let selector = phalcom_common::selector::Selector::getter("value").unwrap();
+        let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+        let int_decl = DeclarationId::new(ctx.current_module.clone(), "Int".into());
+        let int = ctx.nominal_type_of(&int_decl);
+        let signature = CallableSignature::new(
+            selector,
+            Vec::new(),
+            crate::types::evidence::TypeKnowledge::established(int, crate::types::evidence::EvidenceOrigin::CallableSignature),
+        );
+        let mut surface = crate::surface::DeclarationSurface::new(Some(owner.clone()));
+        surface.add_callable(DispatchSide::Instance, signature);
+        ctx.register_surface(owner.clone(), surface);
+
+        let receiver = ctx.nominal_type_of(&owner);
+        let selector = phalcom_common::selector::Selector::getter("value").unwrap();
+        let result = ctx.resolve_dispatch_target(receiver, &selector, crate::dispatch::DispatchLookup::Normal);
+        let ResolvedDispatchResult::Found(resolved) = result else {
+            panic!("expected resolved target");
+        };
+        assert_eq!(resolved.callable, callable);
+        assert_eq!(resolved.signature.return_type.ty(), Some(int));
     }
 }

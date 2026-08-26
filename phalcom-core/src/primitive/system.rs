@@ -1,6 +1,7 @@
 //! Native primitives on `System`.
 
 use crate::error::{PhResult, RuntimeError};
+use crate::primitive::option::wrap_some;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -71,23 +72,23 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 )]
 pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match vm.ready_queue.pop_front() {
-        Some(fiber_ref) => Ok(crate::primitive::nil::wrap_some(vm, Value::obj(fiber_ref))?),
+        Some(fiber_ref) => Ok(wrap_some(vm, Value::obj(fiber_ref))?),
         None => Ok(vm.none_value()),
     }
 }
 
-/// Signature: `System.gc` — forces one full mark-sweep and returns `None`.
+/// Signature: `System.gc` — forces one full mark-sweep and returns `Unit`.
 #[phalcom_native_macros::primitive(
     System,
     "gc",
     params = [],
-    returns = None,
-    types = "() -> None",
+    returns = Unit,
+    types = "() -> Unit",
     side = class
 )]
 pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     vm.force_gc();
-    Ok(vm.none_value())
+    Ok(vm.unit_value())
 }
 
 /// Signature: `System._$write(_)` — raw stdout write of an already-formed `String`.

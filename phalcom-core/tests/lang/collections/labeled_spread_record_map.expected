@@ -2,7 +2,7 @@
 {#recordLeft: 4, #recordRight: 5}
 {#mapLeft: 6, #mapRight: 7}
 true
-{#held: [1, 2], #after: None}
+{#held: [1, 2], #after: ()}
 {#trailing: 1}
 {#recordLeft: 4, #recordRight: 5}
 {#multiline: 2}

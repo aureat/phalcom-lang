@@ -3,7 +3,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::block::block_call;
 use crate::primitive::expect_class;
-use crate::primitive::nil::wrap_some;
+use crate::primitive::option::wrap_some;
 use crate::value::Value;
 use crate::value::{FALSE, TRUE};
 use crate::vm::VM;

@@ -78,14 +78,26 @@ async fn open_change_close_reopen_preserves_latest_compiler_world() {
     lsp.change(&uri, &after.text).await;
     lsp.wait_for_semantic_publication_after(before_change).await;
     let changed_labels = completion_labels(&lsp.completion(&uri, after.position("completion")).await);
-    assert!(changed_labels.iter().any(|label| label == "newOnly()"), "changed compiler world: {changed_labels:#?}");
-    assert!(!changed_labels.iter().any(|label| label == "oldOnly()"), "stale changed world: {changed_labels:#?}");
+    assert!(
+        changed_labels.iter().any(|label| label == "newOnly()"),
+        "changed compiler world: {changed_labels:#?}"
+    );
+    assert!(
+        !changed_labels.iter().any(|label| label == "oldOnly()"),
+        "stale changed world: {changed_labels:#?}"
+    );
 
     lsp.close(&uri).await;
     lsp.open_and_wait(&uri, &after.text).await;
     let reopened_labels = completion_labels(&lsp.completion(&uri, after.position("completion")).await);
-    assert!(reopened_labels.iter().any(|label| label == "newOnly()"), "reopened compiler world: {reopened_labels:#?}");
-    assert!(!reopened_labels.iter().any(|label| label == "oldOnly()"), "reopened stale world: {reopened_labels:#?}");
+    assert!(
+        reopened_labels.iter().any(|label| label == "newOnly()"),
+        "reopened compiler world: {reopened_labels:#?}"
+    );
+    assert!(
+        !reopened_labels.iter().any(|label| label == "oldOnly()"),
+        "reopened stale world: {reopened_labels:#?}"
+    );
 
     lsp.finish().await;
 }
@@ -97,9 +109,7 @@ async fn watched_file_rename_and_delete_follow_compiler_module_identity() {
     let renamed_uri = workspace.file_uri("renamed-provider.ph");
     let consumer_uri = workspace.file_uri("provider_consumer.ph");
     let provider = "class Product { oldMethod() {} }\n";
-    let consumer_before = MarkedSource::parse(
-        "import .provider as Provider\n\nProvider.Product.new()./*@product*/oldMethod()\n",
-    );
+    let consumer_before = MarkedSource::parse("import .provider as Provider\n\nProvider.Product.new()./*@product*/oldMethod()\n");
     workspace.write("provider.ph", provider);
 
     let mut lsp = TestLsp::start().await;
@@ -114,9 +124,7 @@ async fn watched_file_rename_and_delete_follow_compiler_module_identity() {
     let renamed_path = Url::parse(&renamed_uri).expect("renamed URI").to_file_path().expect("renamed path");
     fs::rename(&provider_path, &renamed_path).expect("rename provider source");
 
-    let consumer_after = MarkedSource::parse(
-        "import .renamed_provider as Provider\n\nProvider.Product.new()./*@product*/oldMethod()\n",
-    );
+    let consumer_after = MarkedSource::parse("import .renamed_provider as Provider\n\nProvider.Product.new()./*@product*/oldMethod()\n");
     let before_change = lsp.counter_snapshot();
     lsp.change(&consumer_uri, &consumer_after.text).await;
     lsp.wait_for_semantic_publication_after(before_change).await;
@@ -134,19 +142,22 @@ async fn watched_file_rename_and_delete_follow_compiler_module_identity() {
     lsp.wait_for_semantic_publication_after(before_watched_rename).await;
 
     let after_rename = completion_labels(&lsp.completion(&consumer_uri, consumer_after.position("product")).await);
-    assert!(after_rename.iter().any(|label| label == "oldMethod()"), "renamed provider surface: {after_rename:#?}");
+    assert!(
+        after_rename.iter().any(|label| label == "oldMethod()"),
+        "renamed provider surface: {after_rename:#?}"
+    );
 
     fs::remove_file(&renamed_path).expect("delete renamed provider source");
     let before_delete = lsp.counter_snapshot();
-    lsp.notify(
-        "workspace/didChangeWatchedFiles",
-        json!({ "changes": [{ "uri": renamed_uri, "type": 3 }] }),
-    )
-    .await;
+    lsp.notify("workspace/didChangeWatchedFiles", json!({ "changes": [{ "uri": renamed_uri, "type": 3 }] }))
+        .await;
     lsp.wait_for_semantic_publication_after(before_delete).await;
 
     let after_delete = completion_labels(&lsp.completion(&consumer_uri, consumer_after.position("product")).await);
-    assert!(!after_delete.iter().any(|label| label == "oldMethod()"), "deleted provider remained in compiler world: {after_delete:#?}");
+    assert!(
+        !after_delete.iter().any(|label| label == "oldMethod()"),
+        "deleted provider remained in compiler world: {after_delete:#?}"
+    );
 
     lsp.finish().await;
 }

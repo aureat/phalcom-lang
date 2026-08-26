@@ -113,7 +113,7 @@ decision.
 
 1. **`fiber_is_done`.** Add + register + one PASS golden. Green.
 2. **`fiber_error`.** Add + register (needs `wrap_some`, already `pub(crate)`
-   in `nil.rs` — confirm visibility, widen if `primitive/fiber.rs` can't see
+   in `option` — confirm visibility, widen if `primitive/fiber.rs` can't see
    it). PASS goldens for both `Failed` (`Some`) and `Done`/never-run
    (`None`). Green.
 3. **Floor-census bump** (+2) in the same commit as step 2 — `isDone`/`error`

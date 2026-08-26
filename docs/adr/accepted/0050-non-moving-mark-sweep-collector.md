@@ -28,7 +28,7 @@ could drop in later behind the `ObjRef`/`ClassId` surface* — and deferred
 reclamation. That deferral has now bound: nothing is ever freed. Every
 allocation grows the `SlotMap`; a long-running program or any allocating loop
 (the 1M-fiber Skynet benchmark is the extreme) leaks without bound.
-`System.gc` is specified (`system.md` §`gc`, returns `None`) but unimplemented.
+`System.gc` is specified (`system.md` §`gc`, returns `Unit`) but unimplemented.
 Smalltalk semantics assume a real collector: cycles are normal, the kernel
 *is* a cycle (`Metaclass` is an instance of itself), and `superclass=`
 ([Q4](../../spec/current/open-questions.md)) mutates the graph after construction.
@@ -95,7 +95,7 @@ built directly on the existing `SlotMap`, in safe Rust, behind the current
    `invoke_method_object`) protects it with a `vm.push_temp_root(h)` /
    `pop_temp_root()` scope (the Wren `wrenPushRoot`/`wrenPopRoot` model). The
    temp-root stack is a root.
-8. **`System.gc`** forces one full mark-sweep and returns `None` (per
+8. **`System.gc`** forces one full mark-sweep and returns `Unit` (per
    `system.md` §`gc`). It runs **no finalizers**, performs **no compaction**, and
    **does not** change any handle. Deterministic and safe to call at any
    safepoint.

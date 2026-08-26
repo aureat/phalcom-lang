@@ -38,7 +38,7 @@ drafts it; claim the next free number at dispatch._
   `universe.rs:427–436`). This unit adds them. **This is the load-bearing finding: the entire handling
   protocol is greenfield native work, not a wiring-up of existing sends.**
 - **U6 landed** — `Option`/`Some`/`None` exist (abstract `Option` + `Some(_value)` + `None` singleton;
-  `Some(_)` construction + `match(some:,none:)` are native, `nil.rs`). `Result` **mirrors** this shape;
+  `Some(_)` construction + `match(some:,none:)` are native, `option`). `Result` **mirrors** this shape;
   `result.ok()` returns an `Option`, `option.okOr(_)` returns a `Result` — both must round-trip.
 - **U7 landed** — `.ph` `construct` + `_`-prefixed instance fields + fixed slot layout (ADR-0011),
   `561f7e2`. **Decisive for the floor split:** because user-facing `construct`/fields now work in `.ph`,
@@ -259,7 +259,7 @@ class Err { construct(e) { _error = e }  match(ok: o, err: e) => e.call(_error) 
 | `phalcom-core/core/core.ph` **(never two editors — serialize)** | `class Result`/`Ok`/`Err` (pure `.ph`); `Option`/`Some`/`None` reopen for `okOr(_)`; `Block#attempt` `.ph` | protocol |
 | `docs/adr/00NN-amend-floor-admit-block-handlers.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for `Block#on`/`ensure` (+2) | ADR |
 | `docs/spec/current/core/floor-census.md` | +2 census rows, in lockstep with the ADR (same change) | ADR |
-| `phalcom-core/src/primitive/nil.rs` (**adopted debt**) | repoint the broken rustdoc intra-doc link at `nil.rs:~64` → private `wrap_some` (was orphaned) | docs |
+| `../../../../phalcom-core/src/primitive/option.rs` (**adopted debt**) | repoint the broken rustdoc intra-doc link at `nil.rs:~64` → private `wrap_some` (was orphaned) | docs |
 | `docs/spec/current/core/README.md` (**adopted debt**) | re-baseline the stale "Baseline & drift policy" floor table to the post-U-CORE ceiling (was orphaned; ex-DEFERRED) | docs |
 | `phalcom-core/tests/lang/errors/` (**new label**) + `tests/lang/MANIFEST.md` | goldens + negatives (§6) | all |
 | `phalcom-core/tests/invariants.rs` | the catch-restore + isA-match invariants (§6) | all |

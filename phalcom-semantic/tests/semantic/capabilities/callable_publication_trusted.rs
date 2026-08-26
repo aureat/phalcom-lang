@@ -54,7 +54,7 @@ class Demo {
 }
 "#,
             expression: "System.gc",
-            expected_type: "None",
+            expected_type: "Unit",
         },
     ];
 

@@ -68,6 +68,19 @@ impl TypeKnowledge {
         }
     }
 
+    pub(crate) fn with_status_and_origin(self, status: EvidenceStatus, origin: EvidenceOrigin, range: SourceRange) -> Self {
+        match self {
+            Self::Known(evidence) => Self::Known(TypeEvidence {
+                ty: evidence.ty,
+                status,
+                origin,
+                provenance: evidence.provenance,
+            })
+            .with_range(range),
+            other => other,
+        }
+    }
+
     #[inline]
     pub fn is_established(&self) -> bool {
         self.status() == Some(EvidenceStatus::Established)
@@ -133,24 +146,10 @@ impl TypeKnowledge {
 /// established; otherwise it remains an explicit assumption.
 pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl IntoIterator<Item = TypeKnowledge>) -> TypeKnowledge {
     let inputs = inputs.into_iter().collect::<Vec<_>>();
-    if let Some(reason) = inputs
-        .iter()
-        .filter_map(|knowledge| match knowledge {
-            TypeKnowledge::Unknown(reason) => Some(reason.clone()),
-            _ => None,
-        })
-        .reduce(join_unknown_reason)
-    {
+    if let Some(reason) = joined_unknown_reason(&inputs) {
         return TypeKnowledge::Unknown(reason);
     }
-    if let Some(reason) = inputs
-        .iter()
-        .filter_map(|knowledge| match knowledge {
-            TypeKnowledge::Dynamic(reason) => Some(reason.clone()),
-            _ => None,
-        })
-        .reduce(join_dynamic_reason)
-    {
+    if let Some(reason) = joined_dynamic_reason(&inputs) {
         return TypeKnowledge::Dynamic(reason);
     }
 
@@ -186,6 +185,74 @@ pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl Int
         }
     }
     joined
+}
+
+fn joined_unknown_reason(inputs: &[TypeKnowledge]) -> Option<UnknownReason> {
+    inputs
+        .iter()
+        .filter_map(|knowledge| match knowledge {
+            TypeKnowledge::Unknown(reason) => Some(reason.clone()),
+            _ => None,
+        })
+        .reduce(join_unknown_reason)
+}
+
+fn joined_dynamic_reason(inputs: &[TypeKnowledge]) -> Option<DynamicReason> {
+    inputs
+        .iter()
+        .filter_map(|knowledge| match knowledge {
+            TypeKnowledge::Dynamic(reason) => Some(reason.clone()),
+            _ => None,
+        })
+        .reduce(join_dynamic_reason)
+}
+
+/// Composes required type premises without dropping unavailable evidence.
+pub(crate) fn compose_required_knowledge(
+    inputs: impl IntoIterator<Item = TypeKnowledge>,
+    origin: EvidenceOrigin,
+    build_type: impl FnOnce(&[TypeId]) -> Result<TypeId, UnknownReason>,
+) -> TypeKnowledge {
+    let inputs = inputs.into_iter().collect::<Vec<_>>();
+
+    if let Some(reason) = joined_unknown_reason(&inputs) {
+        return TypeKnowledge::Unknown(reason);
+    }
+    if let Some(reason) = joined_dynamic_reason(&inputs) {
+        return TypeKnowledge::Dynamic(reason);
+    }
+
+    let evidence = inputs
+        .into_iter()
+        .map(|knowledge| match knowledge {
+            TypeKnowledge::Known(evidence) => evidence,
+            TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => {
+                unreachable!("Unknown/Dynamic handled before known composition")
+            }
+        })
+        .collect::<Vec<_>>();
+    let types = evidence.iter().map(TypeEvidence::ty).collect::<Vec<_>>();
+
+    let ty = match build_type(&types) {
+        Ok(ty) => ty,
+        Err(reason) => return TypeKnowledge::Unknown(reason),
+    };
+    let status = if evidence.iter().all(|item| item.status() == EvidenceStatus::Established) {
+        EvidenceStatus::Established
+    } else {
+        EvidenceStatus::Assumed
+    };
+    let mut result = match status {
+        EvidenceStatus::Established => TypeKnowledge::established(ty, origin),
+        EvidenceStatus::Assumed => TypeKnowledge::assumed(ty, origin),
+    };
+    if let TypeKnowledge::Known(result_evidence) = &mut result {
+        for input in evidence {
+            result_evidence.provenance.ranges.extend(input.provenance.ranges);
+            result_evidence.provenance.descriptions.extend(input.provenance.descriptions);
+        }
+    }
+    result
 }
 
 /// Merges epistemic reasons with a stable, commutative precedence. More
@@ -328,4 +395,105 @@ pub enum DynamicReason {
     ExplicitEscape,
     DynamicRestPack,
     RuntimeReflection,
+}
+
+#[cfg(test)]
+mod required_composition_tests {
+    use super::*;
+    use crate::identity::DeclarationId;
+    use crate::types::store::TypeStore;
+    use phalcom_common::range::SourceRange;
+    use phalcom_modules::identity::ModuleId;
+
+    fn nominal(store: &mut TypeStore, name: &str) -> TypeId {
+        store.nominal(DeclarationId::new(ModuleId::core(), name.into()))
+    }
+
+    #[test]
+    fn required_composition_is_established_only_from_established_inputs() {
+        let mut store = TypeStore::new();
+        let int_ty = nominal(&mut store, "Int");
+        let string_ty = nominal(&mut store, "String");
+        let result = compose_required_knowledge(
+            [
+                TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+                TypeKnowledge::established(string_ty, EvidenceOrigin::Syntax),
+            ],
+            EvidenceOrigin::Syntax,
+            |types| Ok(store.union(types)),
+        );
+        assert_eq!(result.status(), Some(EvidenceStatus::Established));
+        assert!(result.ty().is_some());
+    }
+
+    #[test]
+    fn required_composition_weakens_when_any_input_is_assumed() {
+        let mut store = TypeStore::new();
+        let int_ty = nominal(&mut store, "Int");
+        let result = compose_required_knowledge(
+            [
+                TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+                TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation),
+            ],
+            EvidenceOrigin::Syntax,
+            |types| Ok(store.union(types)),
+        );
+        assert_eq!(result.ty(), Some(int_ty));
+        assert_eq!(result.status(), Some(EvidenceStatus::Assumed));
+        assert_eq!(result.origin(), Some(EvidenceOrigin::Syntax));
+    }
+
+    #[test]
+    fn required_composition_unknown_is_absorbing() {
+        let mut store = TypeStore::new();
+        let int_ty = nominal(&mut store, "Int");
+        let unknown = UnknownReason::UnresolvedName("missing".into());
+        let result = compose_required_knowledge(
+            [
+                TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+                TypeKnowledge::Unknown(unknown.clone()),
+            ],
+            EvidenceOrigin::Syntax,
+            |_| panic!("builder must not run when a required input is Unknown"),
+        );
+        assert_eq!(result, TypeKnowledge::Unknown(unknown));
+    }
+
+    #[test]
+    fn required_composition_dynamic_is_absorbing_after_unknown_check() {
+        let mut store = TypeStore::new();
+        let int_ty = nominal(&mut store, "Int");
+        let reason = DynamicReason::ExplicitEscape;
+        let result = compose_required_knowledge(
+            [
+                TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+                TypeKnowledge::Dynamic(reason.clone()),
+            ],
+            EvidenceOrigin::Syntax,
+            |_| panic!("builder must not run when a required input is Dynamic"),
+        );
+        assert_eq!(result, TypeKnowledge::Dynamic(reason));
+    }
+
+    #[test]
+    fn required_composition_preserves_component_provenance() {
+        let mut store = TypeStore::new();
+        let int_ty = nominal(&mut store, "Int");
+        let left = TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax).with_range(SourceRange::default());
+        let right = TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax).with_range(SourceRange::default());
+        let result = compose_required_knowledge([left, right], EvidenceOrigin::Syntax, |types| Ok(store.union(types)));
+        let TypeKnowledge::Known(evidence) = result else {
+            panic!("expected known required composition");
+        };
+        assert_eq!(evidence.provenance().ranges.len(), 2);
+    }
+
+    #[test]
+    fn required_composition_delegates_empty_shape_to_builder() {
+        let store = TypeStore::new();
+        let unit = store.unit();
+        let result = compose_required_knowledge(std::iter::empty(), EvidenceOrigin::Syntax, |_| Ok(unit));
+        assert_eq!(result.ty(), Some(unit));
+        assert_eq!(result.status(), Some(EvidenceStatus::Established));
+    }
 }
