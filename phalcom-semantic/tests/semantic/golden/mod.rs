@@ -21,6 +21,20 @@ const GOLDEN_07: &str = include_str!("../../golden/unknown_authority.ph");
 const GOLDEN_08: &str = include_str!("../../golden/variance_recovery.ph");
 const GOLDEN_09: &str = include_str!("../../golden/closure_flow.ph");
 const GOLDEN_10: &str = include_str!("../../golden/mixed_pipeline.ph");
+const GOLDEN_11: &str = include_str!("../../golden/recursive_fixed_point.ph");
+const GOLDEN_12: &str = include_str!("../../golden/higher_order_mutation.ph");
+const GOLDEN_13: &str = include_str!("../../golden/reflection_boundary.ph");
+const GOLDEN_15: &str = include_str!("../../golden/row_effect_contract.ph");
+
+fn incremental_diamond_sources() -> [(&'static str, &'static str); 5] {
+    [
+        ("app/base.ph", include_str!("../../golden/incremental_diamond/base.ph")),
+        ("app/provider_a.ph", include_str!("../../golden/incremental_diamond/provider_a.ph")),
+        ("app/provider_b.ph", include_str!("../../golden/incremental_diamond/provider_b.ph")),
+        ("app/consumer.ph", include_str!("../../golden/incremental_diamond/consumer.ph")),
+        ("app/controller.ph", include_str!("../../golden/incremental_diamond/controller.ph")),
+    ]
+}
 
 fn assert_parses(name: &str, source: &str) {
     let parsed = parse(source, 0);
@@ -320,6 +334,160 @@ fn golden_10_mixed_pipeline() {
 }
 
 #[test]
+#[ignore = "semantic gate waits for recursive generic callable fixed points and abrupt-flow publication"]
+fn golden_11_recursive_fixed_point() {
+    assert_parses("GOLDEN-11", GOLDEN_11);
+    let f = Fixture::new(GOLDEN_11);
+    let int = f.ty("Int");
+    let visit = f.callable("Walker", "visit", DispatchSide::Instance);
+    let revisit = f.callable("Walker", "revisit", DispatchSide::Instance);
+    let run = f.callable("IntWalker", "run", DispatchSide::Instance);
+    let execute = f.callable("Service", "execute", DispatchSide::Class);
+    let probe = f.callable("Probe", "run", DispatchSide::Class);
+    let visit_id = f.callable_id("Walker", "visit", DispatchSide::Instance);
+    let revisit_id = f.callable_id("Walker", "revisit", DispatchSide::Instance);
+    let walker_run = f.callable_id("IntWalker", "run", DispatchSide::Instance);
+    let value = f.callable_id("Item", "value", DispatchSide::Instance);
+
+    assert_eq!(visit.callable.owner.name.as_ref(), "Walker");
+    assert_eq!(revisit.callable.owner.name.as_ref(), "Walker");
+    assert_eq!(run.callable.owner.name.as_ref(), "IntWalker");
+    f.assert_expression_call_target(f.expression(visit, "self.revisit(item.next(), fuel - 1)"), &revisit_id);
+    f.assert_expression_call_target(f.expression(revisit, "self.visit(item.next(), fuel - 1)"), &visit_id);
+    f.assert_expression_call_target(f.expression(run, "self.visit(item, fuel)"), &visit_id);
+    f.assert_expression_call_target(f.expression(visit, "item.value()"), &value);
+    f.assert_binding_type(execute, "current", int);
+    f.assert_binding_type(execute, "index", int);
+    f.assert_binding_type(probe, "independent", int);
+    f.assert_callable_dependency(run, &visit_id);
+    assert!(visit.dependencies.iter().any(|dependency| dependency == &revisit_id));
+    assert!(revisit.dependencies.iter().any(|dependency| dependency == &visit_id));
+    assert!(execute.dependencies.iter().any(|dependency| dependency == &walker_run));
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn golden_12_higher_order_mutation() {
+    assert_parses("GOLDEN-12", GOLDEN_12);
+    let f = Fixture::new(GOLDEN_12);
+    let int = f.ty("Int");
+    let factory = f.callable("Factory", "make", DispatchSide::Class);
+    let service = f.callable("Service", "run", DispatchSide::Class);
+    let probe = f.callable("Probe", "run", DispatchSide::Class);
+    let apply = f.callable("Apply", "apply", DispatchSide::Class);
+    let apply_id = f.callable_id("Apply", "apply", DispatchSide::Class);
+
+    f.assert_binding_type(factory, "total", int);
+    assert!(f.binding(factory, "add").current.ty().is_some());
+    assert!(f.binding(factory, "twice").current.ty().is_some());
+    f.assert_binding_type(service, "first", int);
+    f.assert_binding_type(service, "second", int);
+    f.assert_binding_type(probe, "independent", int);
+    assert_ne!(f.binding(service, "original").binding, f.binding(service, "alias").binding);
+    assert_ne!(f.binding(service, "original").binding, f.binding(service, "selected").binding);
+    f.assert_expression_call_target(f.expression(service, "Apply.apply(1, with: selected)"), &apply_id);
+    f.assert_expression_ready(f.expression(service, "Apply.apply(1, with: selected)"));
+    assert!(apply.dependencies.is_empty());
+    assert!(service.dependencies.iter().any(|dependency| dependency == &apply_id));
+    assert!(!factory.dependencies.is_empty(), "Factory should retain closure callable dependencies");
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn golden_13_reflection_boundary() {
+    assert_parses("GOLDEN-13", GOLDEN_13);
+    let f = Fixture::new(GOLDEN_13);
+    let service = f.callable("Service", "run", DispatchSide::Class);
+    let inspector = f.callable("Inspector", "inspect", DispatchSide::Class);
+    let lookup = f.callable_id("Registry", "lookup", DispatchSide::Class);
+    let inspect = f.callable_id("Inspector", "inspect", DispatchSide::Class);
+    let name = f.callable_id("User", "name", DispatchSide::Instance);
+
+    assert!(f.binding(service, "candidate").current.ty().is_none());
+    assert!(f.binding(inspector, "runtimeClass").current.ty().is_none());
+    assert!(f.binding(inspector, "canConstruct").current.ty().is_none());
+    assert!(f.binding(inspector, "isUser").current.ty().is_none());
+    assert!(f.binding(inspector, "hasName").current.ty().is_none());
+    f.assert_expression_call_target(f.expression(service, "Registry.lookup(name)"), &lookup);
+    f.assert_expression_call_target(f.expression(service, "Inspector.inspect(candidate)"), &inspect);
+    f.assert_expression_call_target(f.expression(service, "User.new(\"known\").name()"), &name);
+    f.assert_binding_type(service, "knownName", f.ty("String"));
+    assert!(inspector.dependencies.is_empty());
+    assert!(service.dependencies.iter().any(|dependency| dependency == &lookup));
+    assert!(service.dependencies.iter().any(|dependency| dependency == &inspect));
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn golden_14_incremental_diamond() {
+    let mut workspace = WorkspaceFixture::new().entry("app.controller");
+    for (name, source) in incremental_diamond_sources() {
+        let module = name.strip_suffix(".ph").expect("fixture module suffix").replace('/', ".");
+        workspace = workspace.module(module, source);
+    }
+    let analyzed = workspace.analyze();
+
+    assert_eq!(analyzed.analysis.snapshot.sources.len(), 5);
+    assert_eq!(analyzed.analysis.snapshot.module_products.linked.len(), 5);
+    assert!(analyzed.analysis.snapshot.surfaces.contains_key(&analyzed.decl("app.base", "Packet")));
+    assert!(analyzed.analysis.snapshot.surfaces.contains_key(&analyzed.decl("app.provider_a", "ProviderA")));
+    assert!(analyzed.analysis.snapshot.surfaces.contains_key(&analyzed.decl("app.provider_b", "ProviderB")));
+    assert!(analyzed.analysis.snapshot.surfaces.contains_key(&analyzed.decl("app.consumer", "Consumer")));
+    assert_ne!(analyzed.module("app.base"), analyzed.module("app.provider_a"));
+    assert_ne!(analyzed.module("app.provider_a"), analyzed.module("app.provider_b"));
+    assert_ne!(analyzed.module("app.provider_b"), analyzed.module("app.consumer"));
+
+    for (name, source) in [
+        (
+            "provider_a_body_v2",
+            include_str!("../../golden/incremental_diamond/revisions/provider_a_body_v2.ph"),
+        ),
+        (
+            "provider_b_removed",
+            include_str!("../../golden/incremental_diamond/revisions/provider_b_removed.ph"),
+        ),
+        (
+            "provider_b_signature_v2",
+            include_str!("../../golden/incremental_diamond/revisions/provider_b_signature_v2.ph"),
+        ),
+        (
+            "provider_b_restored",
+            include_str!("../../golden/incremental_diamond/revisions/provider_b_restored.ph"),
+        ),
+    ] {
+        assert_parses(name, source);
+    }
+}
+
+#[test]
+#[ignore = "semantic gate waits for open record-row lowering, effect/exit summaries, and contract proof products"]
+fn golden_15_row_effect_contract() {
+    assert_parses("GOLDEN-15", GOLDEN_15);
+    let f = Fixture::new(GOLDEN_15);
+    let int = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let pipeline = f.callable("Pipeline", "fetch", DispatchSide::Class);
+    let normalizer = f.callable_id("Normalizer", "normalize", DispatchSide::Class);
+    let presenter = f.callable_id("Presenter", "present", DispatchSide::Class);
+    let pipeline_id = f.callable_id("Pipeline", "fetch", DispatchSide::Class);
+
+    let record = f.binding(run, "record").current.ty().expect("published record type");
+    f.assert_record(record);
+    assert!(f.binding(pipeline, "user").current.ty().is_some());
+    assert!(f.binding(pipeline, "record").current.ty().is_some());
+    f.assert_expression_call_target(f.expression(pipeline, "Normalizer.normalize(user)"), &normalizer);
+    f.assert_expression_call_target(f.expression(run, "Pipeline.fetch(repo, fallback)"), &pipeline_id);
+    f.assert_expression_call_target(f.expression(run, "Presenter.present(record)"), &presenter);
+    let bad = f.binding(run, "bad");
+    assert!(matches!(bad.consistency, BindingConsistency::Refuted { .. }));
+    f.assert_binding_type(run, "label", f.ty("String"));
+    f.assert_binding_type(run, "count", int);
+    f.assert_binding_type(run, "independent", int);
+    f.assert_diagnostic(DiagnosticCode::BindingInitializerMismatch, 1);
+    f.assert_only_error_codes(&[DiagnosticCode::BindingInitializerMismatch]);
+}
+
+#[test]
 fn golden_sources_are_part_of_canonical_semantic_target() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let golden_dir = manifest_dir.join("tests/golden");
@@ -334,7 +502,26 @@ fn golden_sources_are_part_of_canonical_semantic_target() {
         "variance_recovery.ph",
         "closure_flow.ph",
         "mixed_pipeline.ph",
+        "recursive_fixed_point.ph",
+        "higher_order_mutation.ph",
+        "reflection_boundary.ph",
+        "row_effect_contract.ph",
     ] {
         assert!(golden_dir.join(file).is_file(), "missing golden source {file}");
+    }
+
+    let incremental_dir = golden_dir.join("incremental_diamond");
+    for file in [
+        "base.ph",
+        "provider_a.ph",
+        "provider_b.ph",
+        "consumer.ph",
+        "controller.ph",
+        "revisions/provider_a_body_v2.ph",
+        "revisions/provider_b_removed.ph",
+        "revisions/provider_b_signature_v2.ph",
+        "revisions/provider_b_restored.ph",
+    ] {
+        assert!(incremental_dir.join(file).is_file(), "missing incremental golden source {file}");
     }
 }

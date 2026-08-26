@@ -21,7 +21,7 @@
 
 class Item<T> {
   _value: T
-  _next: Item<T>
+  _next: Item<T> = mystery()
 
   @constructor
   new(_ value: T, _ next: Item<T>) {
