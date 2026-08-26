@@ -8,6 +8,7 @@
 
 use crate::checker::analysis::{AnalysisStatus, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, FlowStateSummary};
 use crate::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
+use crate::checker::incident::{BindingContractSummary, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
@@ -494,6 +495,7 @@ fn hash_member_surface(surface: &crate::surface::MemberSurface, include_provenan
     for (name, knowledge) in fields {
         name.hash(hasher);
         hash_type_knowledge(knowledge, include_provenance, hasher);
+        surface.field_visibility.get(name).copied().unwrap_or_default().hash(hasher);
     }
 
     let mut callables = surface.callable_signatures.iter().collect::<Vec<_>>();
@@ -502,6 +504,7 @@ fn hash_member_surface(surface: &crate::surface::MemberSurface, include_provenan
     for (selector, signature) in callables {
         selector.hash(hasher);
         hash_dispatch_callable_signature(signature, include_provenance, hasher);
+        surface.callable_visibility.get(selector).copied().unwrap_or_default().hash(hasher);
     }
 }
 
@@ -599,7 +602,51 @@ fn hash_block_reason(reason: &BlockReason, hasher: &mut impl Hasher) {
     }
 }
 
-fn hash_analysis_status(status: &AnalysisStatus, hasher: &mut impl Hasher) {
+fn hash_incident_kind(kind: &InternalSemanticIncidentKind, hasher: &mut impl Hasher) {
+    match kind {
+        InternalSemanticIncidentKind::FlowInvariantViolation => 0u8.hash(hasher),
+        InternalSemanticIncidentKind::RelationInvariantViolation => 1u8.hash(hasher),
+        InternalSemanticIncidentKind::InferenceInvariantViolation => 2u8.hash(hasher),
+        InternalSemanticIncidentKind::IdentityInvariantViolation => 3u8.hash(hasher),
+        InternalSemanticIncidentKind::DatabaseInvariantViolation => 4u8.hash(hasher),
+    }
+}
+
+fn hash_contract_summary(summary: &BindingContractSummary, hasher: &mut impl Hasher) {
+    summary.ty.hash(hasher);
+    match summary.origin {
+        None => 0u8.hash(hasher),
+        Some(crate::checker::binding::BindingContractOrigin::SourceAnnotation) => 1u8.hash(hasher),
+        Some(crate::checker::binding::BindingContractOrigin::InferredInitializer) => 2u8.hash(hasher),
+        Some(crate::checker::binding::BindingContractOrigin::CallableParameter) => 3u8.hash(hasher),
+        Some(crate::checker::binding::BindingContractOrigin::ContextualBlockParameter) => 4u8.hash(hasher),
+        Some(crate::checker::binding::BindingContractOrigin::PatternBinding) => 5u8.hash(hasher),
+    }
+}
+
+fn hash_internal_incident_shape(incident: &InternalSemanticIncident, hasher: &mut impl Hasher) {
+    hash_incident_kind(&incident.kind, hasher);
+    match &incident.details {
+        InternalSemanticIncidentDetails::DivergentBindingContract { binding, left, right } => {
+            0u8.hash(hasher);
+            binding.hash(hasher);
+            hash_contract_summary(left, hasher);
+            hash_contract_summary(right, hasher);
+        }
+        InternalSemanticIncidentDetails::DivergentMutability { binding, left, right } => {
+            1u8.hash(hasher);
+            binding.hash(hasher);
+            left.hash(hasher);
+            right.hash(hasher);
+        }
+        InternalSemanticIncidentDetails::Message { message } => {
+            2u8.hash(hasher);
+            message.hash(hasher);
+        }
+    }
+}
+
+fn hash_analysis_status(status: &AnalysisStatus, incidents: &[InternalSemanticIncident], hasher: &mut impl Hasher) {
     match status {
         AnalysisStatus::Ready => 0u8.hash(hasher),
         AnalysisStatus::Invalid(cause) => {
@@ -625,7 +672,11 @@ fn hash_analysis_status(status: &AnalysisStatus, hasher: &mut impl Hasher) {
         }
         AnalysisStatus::InternalFailure(incident) => {
             8u8.hash(hasher);
-            incident.hash(hasher);
+            if let Some(record) = incidents.iter().find(|record| record.id == *incident) {
+                hash_internal_incident_shape(record, hasher);
+            } else {
+                0xBAD1u16.hash(hasher);
+            }
         }
     }
 }
@@ -834,7 +885,7 @@ fn hash_semantic_diagnostic(diagnostic: &SemanticDiagnostic, hasher: &mut impl H
     diagnostic.root_cause.is_some().hash(hasher);
 }
 
-fn hash_callable_analysis_status(status: CallableAnalysisStatus, hasher: &mut impl Hasher) {
+fn hash_callable_analysis_status(status: CallableAnalysisStatus, incidents: &[InternalSemanticIncident], hasher: &mut impl Hasher) {
     match status {
         CallableAnalysisStatus::Complete => 0u8.hash(hasher),
         CallableAnalysisStatus::Partial => 1u8.hash(hasher),
@@ -843,7 +894,11 @@ fn hash_callable_analysis_status(status: CallableAnalysisStatus, hasher: &mut im
         CallableAnalysisStatus::BudgetExceeded => 4u8.hash(hasher),
         CallableAnalysisStatus::InternalFailure(incident) => {
             5u8.hash(hasher);
-            incident.hash(hasher);
+            if let Some(record) = incidents.iter().find(|record| record.id == incident) {
+                hash_internal_incident_shape(record, hasher);
+            } else {
+                0xBAD1u16.hash(hasher);
+            }
         }
     }
 }
@@ -1175,7 +1230,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_type_knowledge(&expression.knowledge, false, &mut hasher);
         expression.callable.hash(&mut hasher);
         hash_denotation(&expression.denotation, &mut hasher);
-        hash_analysis_status(&expression.status, &mut hasher);
+        hash_analysis_status(&expression.status, &analysis.internal_incidents, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
     }
 
@@ -1195,8 +1250,13 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     hash_flow_summary(&analysis.entry_flow, &mut hasher);
     hash_exit_facts(&analysis.exits, &mut hasher);
 
+    analysis.internal_incidents.len().hash(&mut hasher);
+    for incident in analysis.internal_incidents.iter() {
+        hash_internal_incident_shape(incident, &mut hasher);
+    }
+
     analysis.dependencies.hash(&mut hasher);
-    hash_callable_analysis_status(analysis.status, &mut hasher);
+    hash_callable_analysis_status(analysis.status, &analysis.internal_incidents, &mut hasher);
     // `dependency_fingerprint` is assigned from this fingerprint after
     // computation. Hashing it would make the product definition recursive.
     finish_product(hasher)

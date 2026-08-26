@@ -1,4 +1,5 @@
 use crate::advisory::AdvisoryWorkspace;
+use crate::checker::incident::InternalSemanticIncident;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
@@ -17,6 +18,17 @@ use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::query::ModuleQueryFacade;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+
+fn collect_internal_incidents(
+    callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+) -> Arc<[InternalSemanticIncident]> {
+    let mut incidents = callable_analyses
+        .values()
+        .flat_map(|analysis| analysis.internal_incidents.iter().cloned())
+        .collect::<Vec<_>>();
+    incidents.sort_by_key(|incident| (incident.callable.clone(), incident.id));
+    Arc::from(incidents.into_boxed_slice())
+}
 
 /// Retained module query products for pure read queries over immutable snapshot.
 #[derive(Clone, Debug)]
@@ -94,6 +106,8 @@ pub struct SemanticSnapshot {
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
     pub callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    /// Internal analyzer incidents, kept separate from source diagnostics.
+    pub internal_incidents: Arc<[InternalSemanticIncident]>,
     pub formal_projection: Arc<FormalSemanticProjection>,
     pub source_index: Arc<SourceSemanticIndex>,
     /// Immutable advisory runtime-shape products for this exact snapshot.
@@ -134,6 +148,7 @@ impl SemanticSnapshot {
             diagnostics,
             semantic_graph,
             callable_analyses: Arc::new(HashMap::new()),
+            internal_incidents: Arc::from([]),
             formal_projection: Arc::new(FormalSemanticProjection::default()),
             source_index: Arc::new(SourceSemanticIndex::default()),
             advisory: Arc::new(AdvisoryWorkspace::default()),
@@ -161,6 +176,7 @@ impl SemanticSnapshot {
         let store_id = store.id();
         let id = SnapshotId::new(workspace, revision, store_id);
         let formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses(&callable_analyses));
+        let internal_incidents = collect_internal_incidents(&callable_analyses);
         Self {
             id,
             generation,
@@ -174,6 +190,7 @@ impl SemanticSnapshot {
             diagnostics,
             semantic_graph,
             callable_analyses,
+            internal_incidents,
             formal_projection,
             source_index: Arc::new(SourceSemanticIndex::default()),
             advisory: Arc::new(AdvisoryWorkspace::default()),
@@ -184,6 +201,7 @@ impl SemanticSnapshot {
 
     pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
         self.formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses(&callable_analyses));
+        self.internal_incidents = collect_internal_incidents(&callable_analyses);
         self.callable_analyses = callable_analyses;
         self
     }

@@ -296,6 +296,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         entry_flow: FlowStateSummary::default(),
         exits: Default::default(),
         diagnostics: Arc::from([]),
+        internal_incidents: Arc::from([]),
         explanations: Arc::new(ExplanationArena::default()),
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),

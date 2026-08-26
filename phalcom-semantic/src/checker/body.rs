@@ -82,6 +82,7 @@ pub fn analyze_callable_body(
 ) -> CallableAnalysis {
     let control = CheckerControl::new(budget, cancel);
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
+    ctx.current_callable = Some(callable.clone());
     ctx.current_class = Some(callable.owner.clone());
     ctx.current_side = callable.side;
 
@@ -160,6 +161,10 @@ pub fn analyze_callable_body(
                         );
                     }
                 }
+                if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status.clone() {
+                    status = CallableAnalysisStatus::InternalFailure(incident);
+                    break;
+                }
                 if can_fall_through {
                     if typed.knowledge.ty() != Some(ctx.store.never()) {
                         normal_return_values.push(typed.knowledge);
@@ -171,6 +176,10 @@ pub fn analyze_callable_body(
         }
 
         let returned = check_statement(&mut ctx, stmt);
+        if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status.clone() {
+            status = CallableAnalysisStatus::InternalFailure(incident);
+            break;
+        }
         if can_fall_through {
             if let Some(value) = returned {
                 if value.ty() != Some(ctx.store.never()) {

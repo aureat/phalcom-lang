@@ -91,14 +91,18 @@ impl WorkspaceFixture {
             initialization_order,
         });
 
-        WorkspaceAnalysisFixture {
-            analysis: analyze_workspace(SemanticWorkspaceInput {
-                linked,
-                sources,
-                generation: 1,
-            }),
-            modules: module_ids,
-        }
+        let analysis = analyze_workspace(SemanticWorkspaceInput {
+            linked,
+            sources,
+            generation: 1,
+        });
+        assert!(
+            analysis.snapshot.internal_incidents.is_empty(),
+            "semantic analyzer produced internal incidents: {:#?}",
+            analysis.snapshot.internal_incidents
+        );
+
+        WorkspaceAnalysisFixture { analysis, modules: module_ids }
     }
 }
 

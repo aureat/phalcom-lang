@@ -254,6 +254,9 @@ pub struct DiagnosticCauseId(pub u32);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallResolutionId(pub u32);
 
-/// Snapshot-local analysis incident identifier.
+/// Snapshot-local internal semantic incident identifier.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct AnalysisIncidentId(pub u32);
+pub struct InternalSemanticIncidentId(pub u32);
+
+/// Compatibility alias for older checker/query callers.
+pub type AnalysisIncidentId = InternalSemanticIncidentId;

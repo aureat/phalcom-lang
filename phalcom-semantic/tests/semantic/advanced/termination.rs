@@ -37,6 +37,7 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
         exits: phalcom_semantic::checker::BodyExitFacts::default(),
         diagnostics: Arc::new([]),
+        internal_incidents: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::from(dependencies),
         semantic_dependencies: Arc::from([]),

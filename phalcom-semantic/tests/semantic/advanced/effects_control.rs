@@ -37,6 +37,7 @@ fn mock_callable(expressions: BTreeMap<ExpressionId, ExpressionAnalysis>) -> Cal
         entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
         exits: phalcom_semantic::checker::BodyExitFacts::default(),
         diagnostics: Arc::new([]),
+        internal_incidents: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
         dependencies: Arc::new([]),
         semantic_dependencies: Arc::new([]),

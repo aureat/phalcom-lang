@@ -7,7 +7,7 @@ use crate::TypeResolver;
 use crate::diagnostic::DiagnosticCode;
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
 use crate::identity::DeclarationId;
-use crate::surface::DeclarationSurface;
+use crate::surface::{DeclarationSurface, MemberVisibility};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -47,6 +47,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
 
     for member in &class_def.members {
         let side = member_side(member);
+        let visibility = member_visibility(member);
         match member {
             ClassMember::Field(f) => {
                 let declared_k = f
@@ -54,7 +55,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .as_ref()
                     .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-                surface.add_field(side, &f.name, declared_k);
+                surface.add_field_with_visibility(side, &f.name, declared_k, visibility);
             }
             ClassMember::Method(m) => {
                 let is_constructor = m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor");
@@ -145,7 +146,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 if let Some(sig) = generic_sig {
                     callable_sig = callable_sig.with_generics(sig);
                 }
-                surface.add_callable(effective_side, callable_sig);
+                surface.add_callable_with_visibility(effective_side, callable_sig, visibility);
             }
             ClassMember::Getter(g) => {
                 let ret_k = g
@@ -155,7 +156,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
 
                 if let Ok(sel) = Selector::getter(&g.name) {
-                    surface.add_callable(side, CallableSignature::new(sel, Vec::new(), ret_k));
+                    surface.add_callable_with_visibility(side, CallableSignature::new(sel, Vec::new(), ret_k), visibility);
                 }
             }
             ClassMember::Setter(s) => {
@@ -169,7 +170,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 if let Ok(sel) = Selector::setter(&s.name) {
                     let param = CallableParameter::new(s.param.name.clone(), param_k);
                     let ret_k = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
-                    surface.add_callable(side, CallableSignature::new(sel, vec![param], ret_k));
+                    surface.add_callable_with_visibility(side, CallableSignature::new(sel, vec![param], ret_k), visibility);
                 }
             }
             ClassMember::Index(i) => {
@@ -201,7 +202,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                             .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
                         if let Ok(sel) = Selector::subscript_get(slots) {
-                            surface.add_callable(side, CallableSignature::new(sel, params, ret_k));
+                            surface.add_callable_with_visibility(side, CallableSignature::new(sel, params, ret_k), visibility);
                         }
                     }
                     phalcom_ast::ast::IndexAccessor::Set { put } => {
@@ -213,7 +214,7 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
 
                         params.push(CallableParameter::new(put.name.clone(), put_k.clone()));
                         if let Ok(sel) = Selector::subscript_set(slots) {
-                            surface.add_callable(side, CallableSignature::new(sel, params, put_k));
+                            surface.add_callable_with_visibility(side, CallableSignature::new(sel, params, put_k), visibility);
                         }
                     }
                 }
@@ -223,6 +224,26 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     }
 
     ctx.register_surface(decl_id, surface);
+}
+
+fn member_visibility(member: &ClassMember) -> MemberVisibility {
+    let (name, attributes, is_field) = match member {
+        ClassMember::Method(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
+        ClassMember::Getter(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
+        ClassMember::Setter(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
+        ClassMember::Field(item) => (Some(item.name.as_str()), item.attributes.as_slice(), true),
+        ClassMember::Variant(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
+        ClassMember::Index(item) => (None, item.attributes.as_slice(), false),
+    };
+    if name.is_some_and(|name| name.starts_with("_$")) {
+        MemberVisibility::Internal
+    } else if is_field || attributes.iter().any(|attribute| attribute.name == "private") {
+        MemberVisibility::Private
+    } else if attributes.iter().any(|attribute| attribute.name == "protected") {
+        MemberVisibility::Protected
+    } else {
+        MemberVisibility::Public
+    }
 }
 
 fn check_field_initializer_against_declared(ctx: &mut CheckingContext<'_>, field: &phalcom_ast::ast::FieldDef, declared: &TypeKnowledge) {

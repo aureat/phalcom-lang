@@ -34,9 +34,11 @@ fn context<'a>(
         source_site_for_range: site_for_range,
         resolved_callable_for_range: resolved_callable,
         resolve_callable_for_shape: None,
+        resolve_module_member: None,
         resolve_method_family: None,
         call_observer: None,
         expression_observer: None,
+        field_observer: None,
     }
 }
 
@@ -184,6 +186,7 @@ fn flow_product_shares_binding_environment_across_initializer_and_use() {
         source_site_for_range: &site_for_range,
         resolved_callable_for_range: &no_call,
         resolve_callable_for_shape: None,
+        resolve_module_member: None,
         resolve_method_family: None,
     };
 

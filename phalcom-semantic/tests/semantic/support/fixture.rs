@@ -187,6 +187,12 @@ pub struct Fixture {
 
 impl Fixture {
     pub fn new(source_text: &str) -> Self {
+        let fixture = Self::new_allowing_internal_incidents(source_text);
+        fixture.assert_no_internal_incidents();
+        fixture
+    }
+
+    pub fn new_allowing_internal_incidents(source_text: &str) -> Self {
         let module = ModuleId::core();
         let source: Arc<str> = Arc::from(source_text);
         let parsed = parse(&source, 0);
@@ -334,6 +340,14 @@ impl Fixture {
             .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
             .collect::<Vec<_>>();
         assert!(errors.is_empty(), "unexpected semantic errors: {errors:#?}");
+    }
+
+    pub fn assert_no_internal_incidents(&self) {
+        assert!(
+            self.analysis.snapshot.internal_incidents.is_empty(),
+            "semantic analyzer produced internal incidents: {:#?}",
+            self.analysis.snapshot.internal_incidents
+        );
     }
 
     pub fn assert_diagnostic(&self, code: DiagnosticCode, count: usize) {

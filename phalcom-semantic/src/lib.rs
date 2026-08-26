@@ -89,7 +89,7 @@ pub use source_index::{
     SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex, build_source_scope_index,
 };
 pub use source_index::{SourceSite, SourceSiteKind};
-pub use surface::DeclarationSurface;
+pub use surface::{DeclarationSurface, MemberVisibility};
 pub use types::{
     Assignability, BlockReason, BudgetKind, BudgetReport, CallableParameterType, CallableType, CancellationToken, ConstraintSet, ContractAssumptionEligibility,
     DynamicBoundaryObligation, DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, GenericSignature, InferVarId, KindData, KindId, MapTypeHierarchy,

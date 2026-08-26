@@ -8,6 +8,7 @@ pub mod declaration;
 pub mod expected;
 pub mod expression;
 pub mod flow;
+pub mod incident;
 pub mod inference;
 pub mod result;
 pub mod statement;
@@ -28,6 +29,7 @@ pub use context::CheckingContext;
 pub use declaration::{check_class, check_class_bodies, register_class_surface};
 pub use expected::{ExpectationOrigin, ExpectedType};
 pub use expression::{analyze_expression, check_expr, check_typed_expr, synthesize_expr, synthesize_typed_expr};
+pub use incident::{BindingContractSummary, InternalFailurePolicy, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 
 pub use flow::FlowState;
 pub use inference::{InferenceOutcome, InferenceSession, InferenceSupport, InferenceTerm};

@@ -10,6 +10,7 @@ use phalcom_semantic::checker::analysis::{
     AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowBindingSummary, FlowStateSummary,
 };
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
+use phalcom_semantic::checker::incident::{InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::db::fingerprint::{
     callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint, declaration_shell_input_fingerprint,
@@ -22,7 +23,7 @@ use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTempla
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use phalcom_semantic::dispatch::{CallableSemanticKind, CallableSignature, DispatchSide};
 use phalcom_semantic::explain::{ExplanationArena, ExplanationStep};
-use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, LocalExpressionId};
+use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, InternalSemanticIncidentId, LocalExpressionId};
 use phalcom_semantic::signature::CallableSemanticSignature;
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::surface::DeclarationSurface;
@@ -113,12 +114,50 @@ fn callable_analysis() -> CallableAnalysis {
         entry_flow: FlowStateSummary::default(),
         exits: BodyExitFacts::default(),
         diagnostics: Arc::from([]),
+        internal_incidents: Arc::from([]),
         explanations: Arc::new(ExplanationArena::default()),
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),
         dependency_fingerprint: ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     }
+}
+
+#[test]
+fn callable_internal_failure_fingerprint_ignores_local_incident_id() {
+    let mut left = callable_analysis();
+    let mut right = callable_analysis();
+    let left_incident = InternalSemanticIncident {
+        id: InternalSemanticIncidentId(3),
+        kind: InternalSemanticIncidentKind::FlowInvariantViolation,
+        module: ModuleId::core(),
+        callable: Some(left.callable.clone()),
+        expression: None,
+        range: None,
+        details: InternalSemanticIncidentDetails::DivergentMutability {
+            binding: phalcom_semantic::identity::BindingId(7),
+            left: true,
+            right: false,
+        },
+    };
+    let mut right_incident = left_incident.clone();
+    right_incident.id = InternalSemanticIncidentId(9);
+    left.status = CallableAnalysisStatus::InternalFailure(left_incident.id);
+    right.status = CallableAnalysisStatus::InternalFailure(right_incident.id);
+    left.internal_incidents = Arc::from(vec![left_incident].into_boxed_slice());
+    right.internal_incidents = Arc::from(vec![right_incident].into_boxed_slice());
+
+    assert_eq!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&right));
+
+    let mut changed = right.clone();
+    let mut changed_incidents = changed.internal_incidents.to_vec();
+    changed_incidents[0].details = InternalSemanticIncidentDetails::DivergentMutability {
+        binding: phalcom_semantic::identity::BindingId(7),
+        left: false,
+        right: true,
+    };
+    changed.internal_incidents = Arc::from(changed_incidents.into_boxed_slice());
+    assert_ne!(callable_body_product_fingerprint(&left), callable_body_product_fingerprint(&changed));
 }
 
 #[test]

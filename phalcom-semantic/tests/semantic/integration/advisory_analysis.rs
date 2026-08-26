@@ -351,3 +351,27 @@ fn advisory_parameter_transfer_converges_through_forwarding_callable() {
         assert_eq!(summary.return_fact.shape, ValueShape::Instance(product.clone()));
     }
 }
+
+#[test]
+fn compiler_surfaces_publish_source_member_visibility() {
+    let module = module_id();
+    let source = "class Base {\n  @constructor new() { }\n  @private hide() { }\n  @protected guarded() { }\n  open() { }\n  _field: Int = 1\n}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input(module.clone(), source, 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let declaration = DeclarationId::new(module, "Base".into());
+    let surface = update.snapshot.surfaces.get(&declaration).expect("Base surface");
+    for (name, expected) in [
+        ("hide", phalcom_semantic::MemberVisibility::Private),
+        ("guarded", phalcom_semantic::MemberVisibility::Protected),
+        ("open", phalcom_semantic::MemberVisibility::Public),
+    ] {
+        let selector = Selector::method(name, []).unwrap();
+        assert_eq!(surface.instance.callable_visibility.get(&selector).copied(), Some(expected), "{name}");
+    }
+    assert_eq!(
+        surface.instance.field_visibility.get("_field").copied(),
+        Some(phalcom_semantic::MemberVisibility::Private)
+    );
+}

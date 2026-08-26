@@ -1,6 +1,9 @@
 use crate::checker::analysis::{AnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex, SemanticDependency};
 use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingSeed, BindingWriteResult, reconcile_binding_relation};
 use crate::checker::flow::FlowState;
+use crate::checker::incident::{
+    BindingContractSummary, InternalFailurePolicy, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind,
+};
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
@@ -273,6 +276,8 @@ pub struct CheckingContext<'a> {
     pub current_module: ModuleId,
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
+    pub current_callable: Option<CallableId>,
+    pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
@@ -296,7 +301,7 @@ pub struct CheckingContext<'a> {
     semantic_dependencies: SharedSemanticDependencies,
     pub dispatch: DispatchAccess<'a>,
     pub diagnostics: Vec<SemanticDiagnostic>,
-    pub analysis_incidents: BTreeMap<AnalysisIncidentId, String>,
+    pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
     pub terminal_status: Option<AnalysisStatus>,
 }
 
@@ -340,6 +345,8 @@ impl<'a> CheckingContext<'a> {
             current_module,
             current_class: None,
             current_side: DispatchSide::Instance,
+            current_callable: None,
+            internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
             expected_return: None,
             scopes: vec![HashMap::new()],
@@ -396,6 +403,8 @@ impl<'a> CheckingContext<'a> {
             current_module,
             current_class: None,
             current_side: DispatchSide::Instance,
+            current_callable: None,
+            internal_failure_policy: InternalFailurePolicy::Contain,
             control,
             expected_return: None,
             scopes: vec![HashMap::new()],
@@ -432,6 +441,8 @@ impl<'a> CheckingContext<'a> {
             current_module: self.current_module.clone(),
             current_class: self.current_class.clone(),
             current_side: self.current_side,
+            current_callable: self.current_callable.clone(),
+            internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
             expected_return: self.expected_return.clone(),
             scopes: self.scopes.clone(),
@@ -536,20 +547,36 @@ impl<'a> CheckingContext<'a> {
         if matches!(status, AnalysisStatus::Ready) {
             return;
         }
-        if self.terminal_status.is_none() {
+        if matches!(status, AnalysisStatus::InternalFailure(_)) || self.terminal_status.is_none() {
             self.terminal_status = Some(status);
         }
     }
 
-    pub fn join_flow_states(&mut self, states: &[FlowState]) -> Result<FlowState, crate::checker::flow::state::FlowJoinFailure> {
+    pub fn join_flow_states(&mut self, states: &[FlowState]) -> Result<FlowState, crate::checker::flow::state::FlowInvariantFailure> {
         FlowState::join_with_hierarchy(states, self.store, &self.hierarchy)
     }
 
-    pub fn publish_flow_join_failure(&mut self, failure: crate::checker::flow::state::FlowJoinFailure) -> AnalysisStatus {
-        let incident = self.publish_analysis_incident(format!("flow join failed: {failure:?}"));
+    pub fn publish_flow_join_failure(&mut self, failure: crate::checker::flow::state::FlowInvariantFailure, range: SourceRange) -> AnalysisStatus {
+        let details = match failure {
+            crate::checker::flow::state::FlowInvariantFailure::DivergentBindingContract { binding, left, right } => {
+                InternalSemanticIncidentDetails::DivergentBindingContract {
+                    binding,
+                    left: BindingContractSummary::from(left.as_ref()),
+                    right: BindingContractSummary::from(right.as_ref()),
+                }
+            }
+            crate::checker::flow::state::FlowInvariantFailure::DivergentMutability { binding, left, right } => {
+                InternalSemanticIncidentDetails::DivergentMutability { binding, left, right }
+            }
+        };
+        let incident = self.record_internal_incident(InternalSemanticIncidentKind::FlowInvariantViolation, details, Some(range));
         let status = AnalysisStatus::InternalFailure(incident);
-        self.record_terminal_status(status.clone());
+        self.poison_flow(incident);
         status
+    }
+
+    pub fn poison_flow(&mut self, incident: AnalysisIncidentId) {
+        self.flow = FlowState::poisoned(incident);
     }
 
     pub(crate) fn end_call_causal_capture(
@@ -635,7 +662,13 @@ impl<'a> CheckingContext<'a> {
             (RelationOutcome::Blocked(reason), _) => Some(AnalysisStatus::Blocked(reason.clone())),
             (RelationOutcome::Cancelled, _) => Some(AnalysisStatus::Cancelled),
             (RelationOutcome::BudgetExceeded(report), _) => Some(AnalysisStatus::BudgetExceeded(report.clone())),
-            (RelationOutcome::InternalFailure(message), _) => Some(AnalysisStatus::InternalFailure(self.publish_analysis_incident(message.clone()))),
+            (RelationOutcome::InternalFailure(message), _) => Some(AnalysisStatus::InternalFailure(self.record_internal_incident(
+                InternalSemanticIncidentKind::RelationInvariantViolation,
+                InternalSemanticIncidentDetails::Message {
+                    message: message.clone().into_boxed_str(),
+                },
+                Some(range),
+            ))),
             (RelationOutcome::Refuted(_), None) => None,
         };
         if let Some(status) = status.clone() {
@@ -657,10 +690,43 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn publish_analysis_incident(&mut self, message: impl Into<String>) -> AnalysisIncidentId {
-        let incident = AnalysisIncidentId(self.next_analysis_incident);
+        self.record_internal_incident(
+            InternalSemanticIncidentKind::RelationInvariantViolation,
+            InternalSemanticIncidentDetails::Message {
+                message: message.into().into_boxed_str(),
+            },
+            None,
+        )
+    }
+
+    pub fn record_internal_incident(
+        &mut self,
+        kind: InternalSemanticIncidentKind,
+        details: InternalSemanticIncidentDetails,
+        range: Option<SourceRange>,
+    ) -> AnalysisIncidentId {
+        let incident = crate::identity::InternalSemanticIncidentId(self.next_analysis_incident);
         self.next_analysis_incident += 1;
-        self.analysis_incidents.insert(incident, message.into());
+        let record = InternalSemanticIncident {
+            id: incident,
+            kind,
+            module: self.current_module.clone(),
+            callable: self.current_callable.clone(),
+            expression: self.current_expression_id(),
+            range,
+            details,
+        };
+        self.analysis_incidents.insert(incident, record);
+        self.record_terminal_status(AnalysisStatus::InternalFailure(incident));
+        if matches!(self.internal_failure_policy, InternalFailurePolicy::FailFast) {
+            let incident = self.analysis_incidents.get(&incident).expect("incident stored before fail-fast policy");
+            panic!("INTERNAL SEMANTIC INVARIANT FAILURE\n{incident:#?}");
+        }
         incident
+    }
+
+    pub fn set_internal_failure_policy(&mut self, policy: InternalFailurePolicy) {
+        self.internal_failure_policy = policy;
     }
 
     pub fn apply_assignability(
@@ -1214,6 +1280,7 @@ impl<'a> CheckingContext<'a> {
             entry_flow,
             exits,
             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
+            internal_incidents: std::sync::Arc::from(self.analysis_incidents.into_values().collect::<Vec<_>>().into_boxed_slice()),
             explanations: std::sync::Arc::new(self.explanations),
             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
             semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.borrow().iter().cloned().collect::<Vec<_>>().into_boxed_slice()),
@@ -1226,14 +1293,19 @@ impl<'a> CheckingContext<'a> {
 #[cfg(test)]
 mod tests {
     use super::CheckingContext;
+    use crate::checker::binding::{BindingContract, BindingContractOrigin};
     use crate::checker::causal::CausalInvalidity;
+    use crate::checker::flow::state::FlowInvariantFailure;
+    use crate::checker::incident::{InternalFailurePolicy, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
     use crate::declarations::bootstrap_universe_declarations;
     use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
     use crate::identity::{DeclarationId, ModuleId};
     use crate::types::SimpleTypeResolver;
+    use crate::types::id::TypeId;
     use crate::types::relation::MapTypeHierarchy;
     use crate::types::store::TypeStore;
     use phalcom_common::range::SourceRange;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
     fn published_annotation_diagnostics_join_all_error_causes() {
@@ -1254,5 +1326,71 @@ mod tests {
         assert_eq!(ctx.diagnostics.len(), 2);
         assert!(ctx.diagnostics.iter().all(|diagnostic| diagnostic.root_cause.is_some()));
         assert_ne!(ctx.diagnostics[0].root_cause, ctx.diagnostics[1].root_cause);
+    }
+
+    #[test]
+    fn flow_invariant_is_recorded_before_callable_containment() {
+        let module = ModuleId::core();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+        let binding = crate::identity::BindingId(7);
+        let left = BindingContract {
+            ty: TypeId(1),
+            origin: BindingContractOrigin::SourceAnnotation,
+            source: Some(SourceRange { start: 1, end: 2 }),
+        };
+        let right = BindingContract {
+            ty: TypeId(2),
+            origin: BindingContractOrigin::SourceAnnotation,
+            source: Some(SourceRange { start: 3, end: 4 }),
+        };
+
+        let status = ctx.publish_flow_join_failure(
+            FlowInvariantFailure::DivergentBindingContract {
+                binding,
+                left: Some(left),
+                right: Some(right),
+            },
+            SourceRange { start: 1, end: 4 },
+        );
+
+        let incident = ctx.analysis_incidents.values().next().expect("incident recorded");
+        assert!(matches!(status, crate::checker::analysis::AnalysisStatus::InternalFailure(_)));
+        assert!(ctx.flow.is_poisoned());
+        assert!(matches!(incident.kind, InternalSemanticIncidentKind::FlowInvariantViolation));
+        assert!(matches!(incident.details, InternalSemanticIncidentDetails::DivergentBindingContract { binding: id, .. } if id == binding));
+        assert!(matches!(
+            ctx.terminal_status,
+            Some(crate::checker::analysis::AnalysisStatus::InternalFailure(_))
+        ));
+    }
+
+    #[test]
+    fn fail_fast_policy_panics_only_after_recording_incident() {
+        let module = ModuleId::core();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+        ctx.set_internal_failure_policy(InternalFailurePolicy::FailFast);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            ctx.record_internal_incident(
+                InternalSemanticIncidentKind::RelationInvariantViolation,
+                InternalSemanticIncidentDetails::Message { message: "test".into() },
+                None,
+            )
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(ctx.analysis_incidents.len(), 1);
+        assert!(matches!(
+            ctx.terminal_status,
+            Some(crate::checker::analysis::AnalysisStatus::InternalFailure(_))
+        ));
     }
 }

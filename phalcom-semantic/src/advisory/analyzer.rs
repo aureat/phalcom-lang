@@ -71,12 +71,18 @@ pub struct AdvisoryExpressionContext<'a> {
     /// Resolves a method call from an advisory receiver shape through the
     /// compiler dispatch adapter when no formal call attachment is available.
     pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    /// Resolves a member of a compiler-linked module shape. This is kept
+    /// separate from method dispatch because top-level module exports have no
+    /// callable formal attachment of their own.
+    pub resolve_module_member: Option<&'a dyn Fn(&ValueShape, &str) -> Option<ValueShape>>,
     /// Canonical dispatch adapter for method-family references.
     pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
     /// Observes resolved call arguments for compiler-owned parameter transfer.
     pub call_observer: Option<&'a dyn Fn(AdvisoryCallObservation)>,
     /// Observes every nested expression fact for source-site publication.
     pub expression_observer: Option<&'a dyn Fn(SourceRange, AdvisoryFact)>,
+    /// Observes implicit field writes so the workspace can publish field facts.
+    pub field_observer: Option<&'a dyn Fn(FieldId, AdvisoryFact)>,
 }
 
 /// One advisory argument observed at a resolved call site.
@@ -137,7 +143,16 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
                 syntax_fact(context, shape, range)
             })
             .unwrap_or_else(AdvisoryFact::unknown),
-        Expr::Assignment(assignment) => analyze_expr(&assignment.value, context),
+        Expr::Assignment(assignment) => {
+            let fact = analyze_expr(&assignment.value, context);
+            if let Expr::Field { value, .. } = &*assignment.name
+                && let Some(owner) = context.current_owner
+                && let Some(observer) = context.field_observer
+            {
+                observer(FieldId::new(owner.clone(), value.clone(), context.dispatch_side), fact.clone());
+            }
+            fact
+        }
         Expr::Range(range_expr) => {
             let lower = range_expr.lower.as_ref().map(|expr| analyze_expr(expr, context).shape);
             let upper = range_expr.upper.as_ref().map(|expr| analyze_expr(expr, context).shape);
@@ -248,7 +263,12 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             resolved_call_or_unknown_with_arguments(call.range, &arguments, context)
         }
         Expr::GetProperty(property) => {
-            let _ = analyze_expr(&property.object, context);
+            let object = analyze_expr(&property.object, context);
+            if let Some(resolve) = context.resolve_module_member
+                && let Some(shape) = resolve(&object.shape, &property.property)
+            {
+                return compiler_shape_fact(context, shape, property.range);
+            }
             resolved_call_or_unknown(property.range, context)
         }
         Expr::SetProperty(property) => {
@@ -350,12 +370,16 @@ fn analyze_statement(statement: &Statement, context: &AdvisoryExpressionContext<
 fn analyze_var(name: &str, range: SourceRange, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
     let resolution = context.scope_index.resolve_name(context.scope, name, range.start);
     match resolution {
-        SourceNameResolution::Binding(site) => context
-            .bindings
-            .get(&site)
-            .cloned()
-            .map(|fact| fact.derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(site)))
-            .unwrap_or_else(|| unknown_at(context, range)),
+        SourceNameResolution::Binding(site) => {
+            if let Some(fact) = context.bindings.get(&site) {
+                return fact.clone().derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(site));
+            }
+            match context.scope_index.target_for(&site) {
+                Some(crate::identity::SemanticTargetId::Declaration(declaration)) => syntax_fact(context, ValueShape::ClassObject(declaration.clone()), range),
+                Some(crate::identity::SemanticTargetId::Module(module)) => syntax_fact(context, ValueShape::Module(module.clone()), range),
+                _ => unknown_at(context, range),
+            }
+        }
         SourceNameResolution::Target(crate::identity::SemanticTargetId::Declaration(declaration)) => {
             syntax_fact(context, ValueShape::ClassObject(declaration), range)
         }
@@ -403,7 +427,7 @@ fn resolved_call_or_unknown(range: SourceRange, context: &AdvisoryExpressionCont
 }
 
 fn resolved_call_or_unknown_with_arguments(range: SourceRange, arguments: &[AdvisoryCallArgument], context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
-    let Some(callable) = (context.resolved_callable_for_range)(range) else {
+    let Some(callable) = (context.resolved_callable_for_range)(range).map(advisory_callable_id) else {
         return unknown_at(context, range);
     };
     observe_call(callable.clone(), range, arguments, context);
@@ -424,6 +448,7 @@ fn resolved_call_or_unknown_with_shape(
     context: &AdvisoryExpressionContext<'_>,
 ) -> AdvisoryFact {
     if let Some(callable) = (context.resolved_callable_for_range)(range) {
+        let callable = advisory_callable_id(callable);
         observe_call(callable.clone(), range, arguments, context);
         return callable_fact(callable, context);
     }
@@ -435,6 +460,20 @@ fn resolved_call_or_unknown_with_shape(
     };
     observe_call(callable.clone(), range, arguments, context);
     callable_fact(callable, context)
+}
+
+/// Source occurrence indexing retains constructor declarations on the class
+/// dispatch side, while advisory callable summaries model the generated
+/// instance initializer. Normalize that boundary before querying summaries.
+fn advisory_callable_id(callable: CallableId) -> CallableId {
+    if callable.side == DispatchSide::Class
+        && callable.selector.kind == phalcom_common::selector::SelectorKind::Method
+        && matches!(&callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
+    {
+        CallableId::new(callable.owner, callable.selector, DispatchSide::Instance)
+    } else {
+        callable
+    }
 }
 
 fn observe_call(target: CallableId, range: SourceRange, arguments: &[AdvisoryCallArgument], context: &AdvisoryExpressionContext<'_>) {
@@ -469,6 +508,14 @@ fn syntax_fact(context: &AdvisoryExpressionContext<'_>, shape: ValueShape, range
         return fact;
     };
     fact.derive(AdvisoryConfidence::Exact, AdvisoryOrigin::Syntax(site))
+}
+
+fn compiler_shape_fact(context: &AdvisoryExpressionContext<'_>, shape: ValueShape, range: SourceRange) -> AdvisoryFact {
+    let fact = AdvisoryFact::new(shape, AdvisoryConfidence::Exact);
+    let Some(site) = (context.source_site_for_range)(range) else {
+        return fact;
+    };
+    fact.derive(AdvisoryConfidence::Exact, AdvisoryOrigin::Constraint(site))
 }
 
 fn unknown_at(context: &AdvisoryExpressionContext<'_>, range: SourceRange) -> AdvisoryFact {

@@ -5,6 +5,7 @@
 // 4. SelfNode#boxed specializes Self to CatNode.
 
 class Animal {}
+
 class Cat is Animal { @constructor new() {} }
 
 class Box<+T> {

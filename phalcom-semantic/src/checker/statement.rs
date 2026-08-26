@@ -205,7 +205,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             ctx.flow = match ctx.join_flow_states(&loop_states) {
                 Ok(flow) => flow,
                 Err(failure) => {
-                    ctx.publish_flow_join_failure(failure);
+                    ctx.publish_flow_join_failure(failure, for_stmt.range);
                     return None;
                 }
             };

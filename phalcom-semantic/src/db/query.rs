@@ -1077,8 +1077,11 @@ pub fn query_callable_body_with_formal_inputs(
             );
             QueryOutcome::Blocked(reason)
         }
-        CallableAnalysisStatus::InternalFailure(incident) => query_failure(db, key, format!("callable body analysis failed (incident {})", incident.0)),
-        CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial => {
+        // Internal failures are already contained at callable scope. Publish
+        // the structured product so release/LSP queries remain operational;
+        // test fixtures enforce fail-fast policy by asserting the incident
+        // collection is empty.
+        CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
                 let dependency = semantic_dependency_query_key(sem_dep);

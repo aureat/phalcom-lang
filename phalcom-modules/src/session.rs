@@ -1,7 +1,7 @@
 //! Persistent compiler-owned module workspace lifecycle.
 
 use crate::error::{InterfaceError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
-use crate::identity::{ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator};
+use crate::identity::{ModuleComponent, ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator};
 use crate::interface::{ImportSurface, InterfaceBuilder};
 use crate::linker::{LinkError, LinkedProgram, ModuleLinker};
 use crate::manifest::DependencyProvider;
@@ -272,6 +272,10 @@ impl WorkspaceModuleSession {
         I: IntoIterator<Item = (SourceLocation, Arc<str>, SourceRevision, Option<Arc<phalcom_ast::ast::Program>>)>,
     {
         let before: BTreeSet<_> = self.sources_by_module.keys().cloned().collect();
+        let previous_modules_by_source = self.modules_by_source.clone();
+        let previous_sources_by_module = self.sources_by_module.clone();
+        let previous_linked = self.linked.clone();
+        let previous_generation = self.generation;
         let mut changed = BTreeSet::new();
         // Parse and resolve every item before mutating overlay/state maps. A
         // malformed batch therefore leaves the previous coherent publication
@@ -303,7 +307,21 @@ impl WorkspaceModuleSession {
         self.generation = self.generation.saturating_add(1);
         let after: BTreeSet<_> = self.sources_by_module.keys().cloned().collect();
         let removed_modules = before.difference(&after).cloned().collect();
-        self.rebuild(changed, removed_modules, BTreeSet::new())
+        match self.rebuild(changed, removed_modules, BTreeSet::new()) {
+            Ok(update) => Ok(update),
+            Err(error) => {
+                self.modules_by_source = previous_modules_by_source;
+                self.sources_by_module = previous_sources_by_module;
+                self.linked = previous_linked;
+                self.generation = previous_generation;
+                self.provider.clear_overlays();
+                for state in self.sources_by_module.values().filter(|state| state.open_overlay) {
+                    self.provider
+                        .set_overlay(SourceOverlay::new(state.module.clone(), state.kind, state.location.clone(), state.text.clone()));
+                }
+                Err(error)
+            }
+        }
     }
 
     pub fn set_overlay(
@@ -347,11 +365,54 @@ impl WorkspaceModuleSession {
             return Ok(unit.id);
         }
 
-        let synthetic = *self
-            .standalone_projects
-            .entry(location.source_id.clone())
-            .or_insert_with(|| self.synthetic_ids.allocate());
-        Ok(ModuleId::synthetic(synthetic, ModulePath::root()))
+        let root = path
+            .parent()
+            .ok_or_else(|| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?
+            .to_path_buf();
+        if !root.is_dir() {
+            let synthetic = *self
+                .standalone_projects
+                .entry(location.source_id.clone())
+                .or_insert_with(|| self.synthetic_ids.allocate());
+            return Ok(ModuleId::synthetic(synthetic, ModulePath::root()));
+        }
+        let root_identity = ProjectSourceIdentity::from_path(root.clone());
+        let project = if let Some(id) = self.project_roots.get(&root_identity) {
+            *id
+        } else {
+            let name = root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.replace('-', "_"))
+                .filter(|name| ModuleComponent::from_identifier(name).is_ok())
+                .unwrap_or_else(|| "standalone".to_string());
+            let id = self.universe.load_synthetic_root(&name, &root, "main")?;
+            self.project_roots.insert(root_identity, id);
+            id
+        };
+        let relative = path
+            .strip_prefix(&root)
+            .map_err(|_| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?;
+        let file_name = relative
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?;
+        let mut components = relative
+            .parent()
+            .into_iter()
+            .flat_map(|parent| parent.iter())
+            .map(|component| component.to_string_lossy().replace('-', "_"))
+            .map(|component| ModuleComponent::from_identifier(&component))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?;
+        if file_name != "package.ph" {
+            let stem = file_name
+                .strip_suffix(".ph")
+                .ok_or_else(|| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?
+                .replace('-', "_");
+            components.push(ModuleComponent::from_identifier(&stem).map_err(|_| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?);
+        }
+        Ok(ModuleId::resolved(project, ModulePath::from_components(components)))
     }
 
     fn kind_for_source(&self, module: &ModuleId, location: &SourceLocation) -> ModuleKind {

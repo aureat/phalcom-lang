@@ -12,9 +12,11 @@ pub struct MemberSurface {
     pub fields: HashMap<String, TypeKnowledge>,
     pub field_ids: HashMap<FieldId, TypeKnowledge>,
     pub fields_by_name: HashMap<String, FieldId>,
+    pub field_visibility: HashMap<String, MemberVisibility>,
     pub callables: HashMap<CallableId, TypeKnowledge>,
     pub callable_signatures: HashMap<Selector, CallableSignature>,
     pub callables_by_selector: HashMap<Selector, CallableId>,
+    pub callable_visibility: HashMap<Selector, MemberVisibility>,
 }
 
 impl MemberSurface {
@@ -23,12 +25,24 @@ impl MemberSurface {
     }
 
     pub fn add_field(&mut self, decl_id: Option<&DeclarationId>, side: DispatchSide, name: impl Into<String>, ty: TypeKnowledge) {
+        self.add_field_with_visibility(decl_id, side, name, ty, MemberVisibility::Public);
+    }
+
+    pub fn add_field_with_visibility(
+        &mut self,
+        decl_id: Option<&DeclarationId>,
+        side: DispatchSide,
+        name: impl Into<String>,
+        ty: TypeKnowledge,
+        visibility: MemberVisibility,
+    ) {
         let name_str = name.into();
         if let Some(id) = decl_id {
             let field_id = FieldId::new(id.clone(), name_str.clone(), side);
             self.field_ids.insert(field_id.clone(), ty.clone());
             self.fields_by_name.insert(name_str.clone(), field_id);
         }
+        self.field_visibility.insert(name_str.clone(), visibility);
         self.fields.insert(name_str, ty);
     }
 
@@ -41,11 +55,22 @@ impl MemberSurface {
     }
 
     pub fn add_callable(&mut self, decl_id: Option<&DeclarationId>, side: DispatchSide, signature: CallableSignature) {
+        self.add_callable_with_visibility(decl_id, side, signature, MemberVisibility::Public);
+    }
+
+    pub fn add_callable_with_visibility(
+        &mut self,
+        decl_id: Option<&DeclarationId>,
+        side: DispatchSide,
+        signature: CallableSignature,
+        visibility: MemberVisibility,
+    ) {
         if let Some(id) = decl_id {
             let callable_id = CallableId::new(id.clone(), signature.selector.clone(), side);
             self.callables.insert(callable_id.clone(), signature.return_type.clone());
             self.callables_by_selector.insert(signature.selector.clone(), callable_id);
         }
+        self.callable_visibility.insert(signature.selector.clone(), visibility);
         self.callable_signatures.insert(signature.selector.clone(), signature);
     }
 
@@ -56,6 +81,20 @@ impl MemberSurface {
     pub fn get_callable_id(&self, selector: &Selector) -> Option<&CallableId> {
         self.callables_by_selector.get(selector)
     }
+}
+
+/// Source visibility published with compiler-owned member surfaces.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MemberVisibility {
+    /// Public member visible from every receiver context.
+    #[default]
+    Public,
+    /// Member visible only from its defining class.
+    Private,
+    /// Member visible from its defining class and subclasses.
+    Protected,
+    /// Core/internal member visible only to privileged consumers.
+    Internal,
 }
 
 /// Published semantic surface for a module or class declaration containing both instance and class surfaces.
@@ -94,6 +133,11 @@ impl DeclarationSurface {
         self.surface_mut(side).add_field(id.as_ref(), side, name, ty);
     }
 
+    pub fn add_field_with_visibility(&mut self, side: DispatchSide, name: impl Into<String>, ty: TypeKnowledge, visibility: MemberVisibility) {
+        let id = self.id.clone();
+        self.surface_mut(side).add_field_with_visibility(id.as_ref(), side, name, ty, visibility);
+    }
+
     pub fn get_field(&self, side: DispatchSide, name: &str) -> Option<&TypeKnowledge> {
         self.surface(side).get_field(name)
     }
@@ -105,6 +149,11 @@ impl DeclarationSurface {
     pub fn add_callable(&mut self, side: DispatchSide, signature: CallableSignature) {
         let id = self.id.clone();
         self.surface_mut(side).add_callable(id.as_ref(), side, signature);
+    }
+
+    pub fn add_callable_with_visibility(&mut self, side: DispatchSide, signature: CallableSignature, visibility: MemberVisibility) {
+        let id = self.id.clone();
+        self.surface_mut(side).add_callable_with_visibility(id.as_ref(), side, signature, visibility);
     }
 
     pub fn get_callable(&self, side: DispatchSide, selector: &Selector) -> Option<&CallableSignature> {

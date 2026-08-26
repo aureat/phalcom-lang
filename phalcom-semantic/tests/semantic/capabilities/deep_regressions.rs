@@ -1,4 +1,4 @@
-use crate::semantic::support::{Fixture, binding, known, unknown, union};
+use crate::semantic::support::{Fixture, binding, known, union, unknown};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{EvidenceOrigin, UnknownReason};

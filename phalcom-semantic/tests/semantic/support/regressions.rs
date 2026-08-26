@@ -24,13 +24,7 @@ class Probe {
     let actual = f.binding(run, "value").current.ty().expect("branch union");
 
     let rejected = catch_unwind(AssertUnwindSafe(|| {
-        f.assert_type(
-            actual,
-            union([
-                tuple([int_ty.into()]),
-                tuple([string_ty.into()]),
-            ]),
-        );
+        f.assert_type(actual, union([tuple([int_ty.into()]), tuple([string_ty.into()])]));
     }));
 
     assert!(rejected.is_err(), "wrong structural union members were accepted by the test oracle");

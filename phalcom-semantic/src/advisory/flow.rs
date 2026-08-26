@@ -25,6 +25,7 @@ pub struct AdvisoryFlowContext<'a> {
     pub source_site_for_range: &'a dyn Fn(SourceRange) -> Option<SourceSiteId>,
     pub resolved_callable_for_range: &'a dyn Fn(SourceRange) -> Option<CallableId>,
     pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[phalcom_ast::ast::PackItem]) -> Option<CallableId>>,
+    pub resolve_module_member: Option<&'a dyn Fn(&ValueShape, &str) -> Option<ValueShape>>,
     pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
 }
 
@@ -39,6 +40,8 @@ pub struct AdvisoryFlowProduct {
     pub returns: Vec<AdvisoryFact>,
     /// Parameter facts contributed by resolved call sites in this traversal.
     pub parameter_contributions: BTreeMap<AdvisoryParameterSlot, AdvisoryFact>,
+    /// Advisory facts observed for implicit field assignments.
+    pub field_writes: BTreeMap<FieldId, AdvisoryFact>,
     /// Tail expression fact for implicit callable return semantics.
     pub tail: Option<AdvisoryFact>,
 }
@@ -125,6 +128,8 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
     let observe_call = |call: AdvisoryCallObservation| calls.borrow_mut().push(call);
     let expressions = RefCell::new(Vec::new());
     let observe_expression = |range, fact| expressions.borrow_mut().push((range, fact));
+    let field_writes = RefCell::new(Vec::new());
+    let observe_field = |field, fact| field_writes.borrow_mut().push((field, fact));
     let expression_context = AdvisoryExpressionContext {
         scope_index: context.scope_index,
         scope,
@@ -137,9 +142,11 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
         source_site_for_range: context.source_site_for_range,
         resolved_callable_for_range: context.resolved_callable_for_range,
         resolve_callable_for_shape: context.resolve_callable_for_shape,
+        resolve_module_member: context.resolve_module_member,
         resolve_method_family: context.resolve_method_family,
         call_observer: Some(&observe_call),
         expression_observer: Some(&observe_expression),
+        field_observer: Some(&observe_field),
     };
     let fact = analyze_expr(expr, &expression_context);
     for call in calls.into_inner() {
@@ -149,6 +156,13 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
         if let Some(site) = (context.source_site_for_range)(range) {
             product.expressions.insert(site, observed);
         }
+    }
+    for (field, observed) in field_writes.into_inner() {
+        product
+            .field_writes
+            .entry(field)
+            .and_modify(|old| *old = old.join(&observed))
+            .or_insert(observed);
     }
     fact
 }

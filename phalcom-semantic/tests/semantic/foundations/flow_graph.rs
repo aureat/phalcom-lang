@@ -289,7 +289,7 @@ fn divergent_branch_contracts_fail_closed_without_first_branch_metadata() {
 
     let failure = FlowState::join_with_hierarchy(&[int_branch, string_branch], &mut store, &MapTypeHierarchy::new())
         .expect_err("divergent contracts are a flow invariant failure");
-    assert!(matches!(failure, phalcom_semantic::checker::flow::state::FlowJoinFailure::DivergentBindingContracts { binding: id } if id == binding));
+    assert!(matches!(failure, phalcom_semantic::checker::flow::state::FlowInvariantFailure::DivergentBindingContract { binding: id, .. } if id == binding));
 }
 
 #[test]
@@ -311,7 +311,76 @@ fn divergent_branch_mutability_is_a_flow_invariant_failure() {
 
     let failure = FlowState::join_with_hierarchy(&[mutable_branch, immutable_branch], &mut store, &MapTypeHierarchy::new())
         .expect_err("divergent mutability is a flow invariant failure");
-    assert!(matches!(failure, phalcom_semantic::checker::flow::state::FlowJoinFailure::DivergentMutability { binding: id } if id == binding));
+    assert!(matches!(failure, phalcom_semantic::checker::flow::state::FlowInvariantFailure::DivergentMutability { binding: id, .. } if id == binding));
+}
+
+#[test]
+fn current_value_disagreement_is_a_normal_flow_join() {
+    let mut store = TypeStore::new();
+    let module = ModuleId::core();
+    let int_ty = store.nominal(DeclarationId::new(module.clone(), "Int".into()));
+    let string_ty = store.nominal(DeclarationId::new(module, "String".into()));
+    let binding = BindingId(13);
+
+    let mut left = FlowState::new();
+    left.declare(
+        binding,
+        "value",
+        SourceRange::default(),
+        Some(int_ty),
+        TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+        true,
+    );
+    let mut right = left.clone();
+    right.bindings.get_mut(&binding).expect("shared binding").current = TypeKnowledge::established(string_ty, EvidenceOrigin::Flow);
+
+    let joined = FlowState::join_with_hierarchy(&[left, right], &mut store, &MapTypeHierarchy::new()).expect("current facts may differ");
+    assert_eq!(
+        joined
+            .get_binding(binding)
+            .and_then(|state| state.contract.as_ref())
+            .map(|contract| contract.ty),
+        Some(int_ty)
+    );
+    assert_eq!(
+        joined.get_current_type(binding).and_then(TypeKnowledge::ty),
+        Some(store.union(&[int_ty, string_ty]))
+    );
+}
+
+#[test]
+fn loop_widening_rejects_divergent_persistent_contracts() {
+    let mut store = TypeStore::new();
+    let module = ModuleId::core();
+    let int_ty = store.nominal(DeclarationId::new(module.clone(), "Int".into()));
+    let string_ty = store.nominal(DeclarationId::new(module, "String".into()));
+    let binding = BindingId(14);
+
+    let mut header = FlowState::new();
+    header.declare(
+        binding,
+        "value",
+        SourceRange::default(),
+        Some(int_ty),
+        TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+        true,
+    );
+    let mut next_header = header.clone();
+    next_header
+        .bindings
+        .get_mut(&binding)
+        .expect("shared binding")
+        .contract
+        .as_mut()
+        .expect("persistent contract")
+        .ty = string_ty;
+
+    let failure = FlowState::widen_loop_state_with_hierarchy(&header, &next_header, &mut store, &MapTypeHierarchy::new())
+        .expect_err("loop widening must reject divergent persistent contracts");
+    assert!(matches!(
+        failure,
+        phalcom_semantic::checker::flow::state::FlowInvariantFailure::DivergentBindingContract { binding: id, .. } if id == binding
+    ));
 }
 
 #[test]

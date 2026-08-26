@@ -4,7 +4,7 @@ use crate::checker::analysis::BindingState;
 use crate::checker::binding::{BindingConsistency, BindingContract, BindingContractOrigin, BindingSeed, BindingWriteResult};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::predicate::FlowPredicate;
-use crate::identity::{BindingId, ExplanationId};
+use crate::identity::{AnalysisIncidentId, BindingId, ExplanationId};
 use crate::types::evidence::{TypeKnowledge, join_type_knowledge};
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
@@ -13,10 +13,21 @@ use std::collections::BTreeMap;
 
 /// Structural failures that make a path merge semantically unsafe.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FlowJoinFailure {
-    DivergentBindingContracts { binding: BindingId },
-    DivergentMutability { binding: BindingId },
+pub enum FlowInvariantFailure {
+    DivergentBindingContract {
+        binding: BindingId,
+        left: Option<BindingContract>,
+        right: Option<BindingContract>,
+    },
+    DivergentMutability {
+        binding: BindingId,
+        left: bool,
+        right: bool,
+    },
 }
+
+/// Compatibility alias retained for callers compiled against the parent plan.
+pub type FlowJoinFailure = FlowInvariantFailure;
 
 /// Flow predicate fact set tracking path-sensitive assertions.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -76,6 +87,7 @@ pub struct FlowState {
     pub bindings: BTreeMap<BindingId, BindingState>,
     pub facts: FactSet,
     pub reachable: bool,
+    poisoned: Option<AnalysisIncidentId>,
 }
 
 impl Default for FlowState {
@@ -90,6 +102,7 @@ impl FlowState {
             bindings: BTreeMap::new(),
             facts: FactSet::new(),
             reachable: true,
+            poisoned: None,
         }
     }
 
@@ -98,6 +111,16 @@ impl FlowState {
             bindings: BTreeMap::new(),
             facts: FactSet::new(),
             reachable: false,
+            poisoned: None,
+        }
+    }
+
+    pub fn poisoned(incident: AnalysisIncidentId) -> Self {
+        Self {
+            bindings: BTreeMap::new(),
+            facts: FactSet::new(),
+            reachable: false,
+            poisoned: Some(incident),
         }
     }
 
@@ -106,7 +129,15 @@ impl FlowState {
     }
 
     pub fn is_reachable(&self) -> bool {
-        self.reachable
+        self.reachable && self.poisoned.is_none()
+    }
+
+    pub fn is_poisoned(&self) -> bool {
+        self.poisoned.is_some()
+    }
+
+    pub fn poisoned_by(&self) -> Option<AnalysisIncidentId> {
+        self.poisoned
     }
 
     pub fn mark_unreachable(&mut self) {
@@ -214,8 +245,8 @@ impl FlowState {
         states: &[FlowState],
         store: &mut TypeStore,
         hierarchy: &dyn crate::types::relation::TypeHierarchy,
-    ) -> Result<FlowState, FlowJoinFailure> {
-        let reachable_states: Vec<&FlowState> = states.iter().filter(|state| state.reachable).collect();
+    ) -> Result<FlowState, FlowInvariantFailure> {
+        let reachable_states: Vec<&FlowState> = states.iter().filter(|state| state.is_reachable()).collect();
         if reachable_states.len() > 1 {
             let mut all_binding_ids = std::collections::BTreeSet::new();
             for state in &reachable_states {
@@ -225,12 +256,20 @@ impl FlowState {
                 let bindings = reachable_states.iter().filter_map(|state| state.bindings.get(&binding)).collect::<Vec<_>>();
                 if bindings.len() == reachable_states.len() {
                     let contract = bindings[0].contract.as_ref();
-                    if bindings.iter().any(|state| state.contract.as_ref() != contract) {
-                        return Err(FlowJoinFailure::DivergentBindingContracts { binding });
+                    if let Some(right) = bindings.iter().find(|state| state.contract.as_ref() != contract) {
+                        return Err(FlowInvariantFailure::DivergentBindingContract {
+                            binding,
+                            left: contract.cloned(),
+                            right: right.contract.clone(),
+                        });
                     }
                     let mutable = bindings[0].mutable;
-                    if bindings.iter().any(|state| state.mutable != mutable) {
-                        return Err(FlowJoinFailure::DivergentMutability { binding });
+                    if let Some(right) = bindings.iter().find(|state| state.mutable != mutable) {
+                        return Err(FlowInvariantFailure::DivergentMutability {
+                            binding,
+                            left: mutable,
+                            right: right.mutable,
+                        });
                     }
                 }
             }
@@ -239,7 +278,7 @@ impl FlowState {
     }
 
     fn join_impl(states: &[FlowState], store: &mut TypeStore, hierarchy: Option<&dyn crate::types::relation::TypeHierarchy>) -> FlowState {
-        let reachable_states: Vec<&FlowState> = states.iter().filter(|s| s.reachable).collect();
+        let reachable_states: Vec<&FlowState> = states.iter().filter(|s| s.is_reachable()).collect();
         if reachable_states.is_empty() {
             return FlowState::unreachable();
         }
@@ -335,11 +374,12 @@ impl FlowState {
             bindings: joined_bindings,
             facts: joined_facts,
             reachable: true,
+            poisoned: None,
         }
     }
 
     /// Widens loop varying states across fixed-point iterations (F3).
-    pub fn widen_loop_state(header: &FlowState, next_header: &FlowState, store: &mut TypeStore) -> Result<FlowState, FlowJoinFailure> {
+    pub fn widen_loop_state(header: &FlowState, next_header: &FlowState, store: &mut TypeStore) -> Result<FlowState, FlowInvariantFailure> {
         let hierarchy = crate::types::relation::MapTypeHierarchy::default();
         Self::widen_loop_state_with_hierarchy(header, next_header, store, &hierarchy)
     }
@@ -351,16 +391,24 @@ impl FlowState {
         next_header: &FlowState,
         store: &mut TypeStore,
         hierarchy: &dyn crate::types::relation::TypeHierarchy,
-    ) -> Result<FlowState, FlowJoinFailure> {
+    ) -> Result<FlowState, FlowInvariantFailure> {
         for (binding, header_binding) in &header.bindings {
             let Some(next_binding) = next_header.bindings.get(binding) else {
                 continue;
             };
             if header_binding.contract != next_binding.contract {
-                return Err(FlowJoinFailure::DivergentBindingContracts { binding: *binding });
+                return Err(FlowInvariantFailure::DivergentBindingContract {
+                    binding: *binding,
+                    left: header_binding.contract.clone(),
+                    right: next_binding.contract.clone(),
+                });
             }
             if header_binding.mutable != next_binding.mutable {
-                return Err(FlowJoinFailure::DivergentMutability { binding: *binding });
+                return Err(FlowInvariantFailure::DivergentMutability {
+                    binding: *binding,
+                    left: header_binding.mutable,
+                    right: next_binding.mutable,
+                });
             }
         }
         let mut widened_bindings = header.bindings.clone();
@@ -389,6 +437,7 @@ impl FlowState {
             bindings: widened_bindings,
             facts: invariant_facts,
             reachable: true,
+            poisoned: None,
         })
     }
 

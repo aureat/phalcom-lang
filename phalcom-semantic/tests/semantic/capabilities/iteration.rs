@@ -146,8 +146,16 @@ class Probe {
     let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
 
-    f.assert_binding_expectation(run, "key", binding().current(known(string_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)));
-    f.assert_binding_expectation(run, "value", binding().current(known(int_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)));
+    f.assert_binding_expectation(
+        run,
+        "key",
+        binding().current(known(string_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)),
+    );
+    f.assert_binding_expectation(
+        run,
+        "value",
+        binding().current(known(int_ty).origin(phalcom_semantic::EvidenceOrigin::PatternDecomposition)),
+    );
     f.assert_binding_type(run, "observedKey", string_ty);
     f.assert_binding_type(run, "observedValue", int_ty);
 }

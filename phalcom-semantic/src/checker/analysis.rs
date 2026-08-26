@@ -1,6 +1,7 @@
 //! Formal expression and callable analysis product models (Spec 04.5).
 
 use crate::checker::causal::CausalInvalidity;
+use crate::checker::incident::InternalSemanticIncident;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::{AnalysisIncidentId, BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
 use crate::types::denotation::SemanticDenotation;
@@ -256,6 +257,8 @@ pub struct CallableAnalysis {
     pub entry_flow: FlowStateSummary,
     pub exits: BodyExitFacts,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
+    /// Structured analyzer incidents kept separate from source diagnostics.
+    pub internal_incidents: Arc<[InternalSemanticIncident]>,
     pub explanations: Arc<crate::explain::ExplanationArena>,
     pub dependencies: Arc<[CallableId]>,
     pub semantic_dependencies: Arc<[SemanticDependency]>,

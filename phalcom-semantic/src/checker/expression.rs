@@ -3,7 +3,6 @@
 use super::call::{exact_return_origin, promote_exact_return, resolve_call};
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
-use super::flow::FlowState;
 use super::statement::check_statement;
 use super::typed_expr::TypedExpression;
 use crate::checker::analysis::AnalysisStatus;
@@ -430,10 +429,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                     ctx.flow = flow;
                     None
                 }
-                Err(failure) => {
-                    ctx.flow = FlowState::unreachable();
-                    Some(ctx.publish_flow_join_failure(failure))
-                }
+                Err(failure) => Some(ctx.publish_flow_join_failure(failure, if_let.range)),
             };
 
             let combined_knowledge = crate::types::evidence::join_type_knowledge(ctx.store, [then_typed.knowledge.clone(), else_typed.knowledge.clone()]);
@@ -885,10 +881,7 @@ fn synthesize_control_method_call(
                     ctx.flow = flow;
                     None
                 }
-                Err(failure) => {
-                    ctx.flow = FlowState::unreachable();
-                    Some(ctx.publish_flow_join_failure(failure))
-                }
+                Err(failure) => Some(ctx.publish_flow_join_failure(failure, call.range)),
             };
             let knowledge = crate::types::evidence::join_type_knowledge(ctx.store, [then_typed.knowledge.clone(), else_typed.knowledge.clone()]);
             let mut typed = TypedExpression::new(knowledge);
@@ -915,10 +908,7 @@ fn synthesize_control_method_call(
                     ctx.flow = flow;
                     None
                 }
-                Err(failure) => {
-                    ctx.flow = FlowState::unreachable();
-                    Some(ctx.publish_flow_join_failure(failure))
-                }
+                Err(failure) => Some(ctx.publish_flow_join_failure(failure, call.range)),
             };
             let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, call.range);
             if let Some(status) = join_status {

@@ -36,7 +36,7 @@ use crate::types::parameter::TypeParameterOwner;
 use crate::types::relation::{MapTypeHierarchy, TypeHierarchy};
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
-use phalcom_ast::ast::{ClassMember, PackItem, PackLabel, Statement};
+use phalcom_ast::ast::{ClassMember, DependencyDecl, ImportDecl, PackItem, PackLabel, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
@@ -812,17 +812,16 @@ impl SemanticWorkspaceSession {
 
         for (mod_id, linked_mod) in &input.linked.modules {
             linked_map.insert(mod_id.clone(), linked_mod.interface.clone());
-            for (name, _) in &linked_mod.bindings.imports {
-                for read_spec in &linked_mod.linked_reads {
-                    match read_spec {
-                        phalcom_modules::linker::LinkedReadSpec::Binding(sym) => {
-                            if sym.name.as_ref() == name.as_ref() {
-                                resolved_imports_map.insert((mod_id.clone(), name.to_string()), sym.module.clone());
-                            }
-                        }
-                        phalcom_modules::linker::LinkedReadSpec::Module(target_mod) => {
-                            resolved_imports_map.insert((mod_id.clone(), name.to_string()), target_mod.clone());
-                        }
+            for (name, import_id) in &linked_mod.bindings.imports {
+                let Some(read_spec) = linked_mod.linked_reads.get(import_id.0 as usize) else {
+                    continue;
+                };
+                match read_spec {
+                    phalcom_modules::linker::LinkedReadSpec::Binding(sym) => {
+                        resolved_imports_map.insert((mod_id.clone(), name.to_string()), sym.module.clone());
+                    }
+                    phalcom_modules::linker::LinkedReadSpec::Module(target_mod) => {
+                        resolved_imports_map.insert((mod_id.clone(), name.to_string()), target_mod.clone());
                     }
                 }
             }
@@ -874,6 +873,7 @@ impl SemanticWorkspaceSession {
             &declarations,
             &dispatch,
             &hierarchy,
+            input.linked.as_ref(),
             self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
             budget,
             cancel,
@@ -1011,6 +1011,34 @@ fn build_source_semantic_index(
         }
         context.modules.entry(module.path.to_string()).or_insert_with(|| module.clone());
         context.modules.entry(module.to_string()).or_insert_with(|| module.clone());
+        if let Some(source) = sources.get(module) {
+            for dependency in &source.program.preamble.dependencies {
+                let DependencyDecl::Import(ImportDecl::Module(module_import)) = dependency else {
+                    continue;
+                };
+                let binding_name = module_import
+                    .alias
+                    .as_ref()
+                    .map(|alias| alias.name.as_str())
+                    .or_else(|| module_import.path.segments.last().map(|segment| segment.name.as_str()))
+                    .or_else(|| match &module_import.path.root {
+                        phalcom_ast::ast::ImportRoot::Absolute(segment) => Some(segment.name.as_str()),
+                        phalcom_ast::ast::ImportRoot::Relative { .. } => None,
+                    });
+                let Some(binding_name) = binding_name else {
+                    continue;
+                };
+                let Some(import_id) = linked_module.bindings.imports.get(binding_name) else {
+                    continue;
+                };
+                let Some(phalcom_modules::linker::LinkedReadSpec::Module(target)) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                    continue;
+                };
+                context
+                    .resolved_imports
+                    .insert((module.clone(), module_import.path.to_string()), target.clone());
+            }
+        }
         for export in linked_module.interface.exports.values() {
             match &export.target {
                 LinkedExportTarget::Binding(symbol) => {
@@ -1052,11 +1080,34 @@ fn build_advisory_workspace(
     declarations: &DeclarationTypeTable,
     dispatch: &SurfaceDispatchResolver,
     hierarchy: &MapTypeHierarchy,
+    linked: &LinkedProgram,
     previous: Option<&AdvisoryWorkspace>,
     budget: QueryBudget,
     cancel: &CancellationToken,
 ) -> AdvisoryWorkspace {
     let builtins = AdvisoryBuiltins::from_declarations(declarations);
+    let resolve_module_member = |receiver: &crate::advisory::ValueShape, name: &str| {
+        let crate::advisory::ValueShape::Module(module) = receiver else {
+            return None;
+        };
+        if let Some(export) = linked.modules.get(module).and_then(|linked_module| linked_module.interface.exports.get(name)) {
+            match &export.target {
+                LinkedExportTarget::Module(target) => return Some(crate::advisory::ValueShape::Module(target.clone())),
+                LinkedExportTarget::Binding(symbol) => {
+                    let declaration = DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+                    if dispatch.surfaces().contains_key(&declaration) {
+                        return Some(crate::advisory::ValueShape::ClassObject(declaration));
+                    }
+                }
+            }
+        }
+        dispatch
+            .surfaces()
+            .keys()
+            .find(|declaration| declaration.module == *module && declaration.name.as_ref() == name)
+            .cloned()
+            .map(crate::advisory::ValueShape::ClassObject)
+    };
     let resolve_callable_for_shape = |receiver: &crate::advisory::ValueShape, name: &str, args: &[PackItem]| {
         let slots = args
             .iter()
@@ -1177,6 +1228,7 @@ fn build_advisory_workspace(
                 &builtins,
                 &advisory_returns,
                 Some(&resolve_callable_for_shape),
+                Some(&resolve_module_member),
                 Some(&resolve_method_family),
             );
             let mut expressions = BTreeMap::new();
@@ -1255,9 +1307,16 @@ fn build_advisory_workspace(
                     source_site_for_range: &site_for_range,
                     resolved_callable_for_range: &resolved_callable_for_range,
                     resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                    resolve_module_member: Some(&resolve_module_member),
                     resolve_method_family: Some(&resolve_method_family),
                 };
                 let flow = analyze_statements(body, &context, seed_bindings);
+                for (field, fact) in &flow.field_writes {
+                    fields
+                        .entry(field.clone())
+                        .and_modify(|old| *old = old.join(fact))
+                        .or_insert_with(|| fact.clone());
+                }
                 parameter_contributions.replace_source(
                     crate::advisory::AdvisoryContributionSource::Callable(analysis.callable.clone()),
                     flow.parameter_contributions.clone(),
@@ -1332,6 +1391,7 @@ fn build_advisory_workspace(
                 source_site_for_range: &source_site_for_range,
                 resolved_callable_for_range: &resolved_callable_for_range,
                 resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                resolve_module_member: Some(&resolve_module_member),
                 resolve_method_family: Some(&resolve_method_family),
             };
             let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());
@@ -1424,6 +1484,7 @@ fn advisory_field_facts(
     builtins: &AdvisoryBuiltins,
     callable_returns: &BTreeMap<CallableId, AdvisoryFact>,
     resolve_callable_for_shape: Option<&dyn Fn(&crate::advisory::ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    resolve_module_member: Option<&dyn Fn(&crate::advisory::ValueShape, &str) -> Option<crate::advisory::ValueShape>>,
     resolve_method_family: Option<
         &dyn Fn(&crate::advisory::ValueShape, &phalcom_ast::ast::NormalizedSelectorSpec) -> Option<crate::advisory::CapturedMethodFamilyShape>,
     >,
@@ -1454,9 +1515,11 @@ fn advisory_field_facts(
                     source_site_for_range: &no_site,
                     resolved_callable_for_range: &no_callable,
                     resolve_callable_for_shape,
+                    resolve_module_member,
                     resolve_method_family,
                     call_observer: None,
                     expression_observer: None,
+                    field_observer: None,
                 };
                 analyze_expr(expr, &context)
             });
