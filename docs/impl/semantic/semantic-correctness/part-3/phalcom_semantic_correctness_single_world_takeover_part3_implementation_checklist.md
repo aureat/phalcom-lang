@@ -71,7 +71,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Add publication effects.
 - [x] Publish one coherent snapshot atom.
 - [x] Retain TypeStore across ordinary revisions.
-- [ ] Invalidate removed-module reverse closure.
+- [x] Invalidate removed-module reverse closure.
 - [ ] Publish semantic errors with current products.
 - [ ] Discard cancelled, budget-exceeded, and stale candidates.
 - [ ] Retain last-known-good on infrastructure failure.
@@ -317,6 +317,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
+- [x] Removed-module reverse invalidation regression.
+  Result: `cargo test -p phalcom-semantic --test semantic incremental::callable_dependencies -- --nocapture` — 9 passed.
+  Evidence: removing an imported provider invalidates its parsed/interface/declaration/callable products, the dependent client body, and the provider advisory roots; reverse advisory edges are no longer left outside the removal closure.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.

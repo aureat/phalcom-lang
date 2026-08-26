@@ -416,6 +416,28 @@ export Service
         client_advisory_v1.return_fact.shape, client_advisory_v2.return_fact.shape,
         "cross-module advisory return must follow imported callable product"
     );
+
+    // Revision 3: remove the provider. The dependent callable must be part of
+    // the invalidation closure rather than retaining products for a vanished
+    // linked interface.
+    let mut input3 = build_multi_input(api_src2, 3);
+    input3.sources.remove(&api_mod);
+    let mut linked3 = (*input3.linked).clone();
+    linked3.modules.remove(&api_mod);
+    linked3.initialization_order.retain(|module| module != &api_mod);
+    input3.linked = Arc::new(linked3);
+    let update3 = session.update(input3);
+
+    assert!(!update3.snapshot.sources.contains_key(&api_mod));
+    assert!(update3.invalidated.contains(&QueryKey::LinkedInterface(api_mod.clone())));
+    assert!(
+        update3.invalidated.contains(&QueryKey::CallableBody(client_run_id.clone())),
+        "provider removal must invalidate dependent callable body"
+    );
+    assert!(
+        update3.invalidated.contains(&QueryKey::AdvisoryCallable(client_run_id)),
+        "provider removal must invalidate dependent advisory callable"
+    );
 }
 
 #[test]

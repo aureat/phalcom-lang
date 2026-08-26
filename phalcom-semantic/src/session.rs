@@ -327,7 +327,18 @@ impl SemanticWorkspaceSession {
                 let unlinked_key = QueryKey::UnlinkedInterface(old_module_id.clone());
                 let linked_key = QueryKey::LinkedInterface(old_module_id.clone());
                 let diags_key = QueryKey::ModuleDiagnostics(old_module_id.clone());
-                let closure = self.db.invalidate([parsed_key, unlinked_key, linked_key, diags_key]);
+                let mut seeds = vec![parsed_key, unlinked_key, linked_key, diags_key, QueryKey::AdvisoryModule(old_module_id.clone())];
+                if let Some(snapshot) = previous_snapshot.as_ref() {
+                    seeds.extend(
+                        snapshot
+                            .callable_analyses
+                            .keys()
+                            .filter(|callable| callable.owner.module == *old_module_id)
+                            .cloned()
+                            .map(QueryKey::AdvisoryCallable),
+                    );
+                }
+                let closure = self.db.invalidate(seeds);
                 invalidated_keys.extend(closure);
             }
         }
