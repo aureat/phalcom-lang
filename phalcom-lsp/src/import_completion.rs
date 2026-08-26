@@ -2,9 +2,7 @@
 
 use phalcom_modules::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity};
 use phalcom_modules::interface::LinkedExportTarget;
-use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Url};
-
-use crate::semantic::SemanticSnapshot;
+use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
 
 /// Position context within an import or exposure declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -137,16 +135,8 @@ pub fn detect_import_context(line_prefix: &str) -> Option<ImportContext> {
 }
 
 /// Computes module and import completion items for an import context.
-pub fn import_completions(snapshot: &SemanticSnapshot, uri: &Url, context: &ImportContext) -> Vec<CompletionItem> {
-    let Some(static_snap) = &snapshot.compiler_snapshot else {
-        return Vec::new();
-    };
-
-    let importer_module = snapshot.documents.by_uri.get(uri);
-    let facade = static_snap.module_queries();
-
-    let default_importer = ModuleId::core();
-    let importer = importer_module.unwrap_or(&default_importer);
+pub fn import_completions(snapshot: &phalcom_semantic::SemanticSnapshot, importer: &phalcom_modules::ModuleId, context: &ImportContext) -> Vec<CompletionItem> {
+    let facade = snapshot.module_queries();
     let mut items = Vec::new();
 
     match context {

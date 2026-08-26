@@ -137,7 +137,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 
 ### Task 11: Modules and core navigation
 
-- [ ] Import completion uses ModuleQueryFacade/module query products.
+- [x] Import completion uses ModuleQueryFacade/module query products from the pinned compiler snapshot on exact-source requests; stale/unmapped requests do not project older module semantics.
 - [ ] Request path performs no filesystem semantic resolution.
 - [ ] Core/native locations use canonical source provenance.
 - [ ] Virtual source content remains protocol adaptation only.
@@ -255,7 +255,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 55. Definition consumes compiler target/location indexes. Status: exact-source compiler target/location path is primary; focused navigation tests pass.
 - [x] 56. References consume compiler reverse target index. Status: exact-source reverse target path is primary, including binding declaration roots; focused binding navigation passes.
 - [x] 57. Workspace symbols consume compiler declaration index. Status: compiler source declaration/callable/field index is primary with text-index fallback; focused cross-file symbol test passes.
-- [ ] 58. Import/module completion consumes ModuleQueryFacade. Status: pending.
+- [x] 58. Import/module completion consumes ModuleQueryFacade. Status: exact-source requests pass the pinned compiler snapshot and its module-query facade directly; stale/unmapped requests return no semantic import result. Stage 3 import completion passes.
 - [ ] 59. Core/native navigation consumes canonical source provenance. Status: partial.
 - [x] 60. Semantic token semantic refinement consumes compiler occurrences. Status: direct source-index path plus focused LSP build/tests verified.
 - [ ] 61. No semantic handler performs filesystem resolution on request path. Status: pending audit.
@@ -314,6 +314,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Completion presentation parity regression.
   Result: `cargo test -p phalcom-lsp --test integration stage3_completion:: -- --nocapture` — 4 passed.
   Evidence: receiver-aware, field, union, and import completion remain green; completion payloads contain no advisory glyph, confidence taxonomy, or observed-value boilerplate.
+- [x] Compiler-owned import completion cutover.
+  Result: `cargo test -p phalcom-lsp --test integration stage3_completion:: -- --nocapture` — 4 passed; `cargo test -p phalcom-lsp --test integration workspace_semantics -- --nocapture` — 9 passed; `cargo check -p phalcom-lsp -p phalcom-modules` passed.
+  Evidence: import/module completion now accepts the pinned compiler semantic snapshot and canonical importer module directly; no protocol semantic snapshot or URI-based fallback participates on exact-source requests.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.

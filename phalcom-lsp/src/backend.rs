@@ -2544,13 +2544,12 @@ impl LanguageServer for Backend {
         let offset = request.document.line_index.offset(position);
         let privileged = self.is_core_source_uri(&uri);
         let line_prefix = request.document.text[..offset].rsplit('\n').next().unwrap_or_default();
-        let import_items = crate::import_completion::detect_import_context(
-            line_prefix,
-        )
-        .map(|context| crate::import_completion::import_completions(&request.semantic, &uri, &context))
-        .unwrap_or_default();
-        let mut items = if !import_items.is_empty() {
-            import_items
+        let import_context = crate::import_completion::detect_import_context(line_prefix);
+        let mut items = if let Some(context) = import_context {
+            match (request.compiler.as_deref(), request.compiler_module(), request.source_match) {
+                (Some(compiler), Some(module), SourceMatch::Exact) => crate::import_completion::import_completions(compiler, module, &context),
+                _ => Vec::new(),
+            }
         } else if let (Some(compiler), Some(module)) = (request.compiler.as_deref(), request.compiler_module())
             && matches!(request.source_match, SourceMatch::Exact)
         {
