@@ -1,10 +1,11 @@
+use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
 use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
-use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::{SemanticWorkspaceInput, TypeHierarchy, analyze_single_module, analyze_workspace};
 use std::collections::BTreeMap;
@@ -23,6 +24,155 @@ fn single_module_analysis_succeeds() {
     assert!(!analysis.snapshot.has_errors());
     assert!(analysis.snapshot.sources.contains_key(&module));
     assert!(analysis.snapshot.surfaces.contains_key(&DeclarationId::new(module.clone(), "Point".into())));
+}
+
+/// COMPOSED: an exported class method remains callable through an imported class identity.
+#[test]
+fn exported_constructor_and_method_feed_importing_client_summary() {
+    let project = ResolvedProjectId::from_raw(1);
+    let api_module = ModuleId::resolved(
+        project,
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("api").unwrap()]),
+    );
+    let client_module = ModuleId::resolved(
+        project,
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("client").unwrap()]),
+    );
+    let api_source: Arc<str> = Arc::from(
+        r#"
+class Service {
+  @constructor new() {}
+
+  @class
+  serve() -> Int { 7 }
+}
+export Service
+"#,
+    );
+    let client_source: Arc<str> = Arc::from(
+        r#"
+import app.api.Service
+
+class Client {
+  @class
+  run() { Service.serve() }
+}
+export Client
+"#,
+    );
+    let api_program = Arc::new(phalcom_ast::parse(&api_source, 0).program);
+    let client_program = Arc::new(phalcom_ast::parse(&client_source, 0).program);
+
+    let mut sources = BTreeMap::new();
+    sources.insert(
+        api_module.clone(),
+        Arc::new(ParsedModuleUnit::new(api_module.clone(), ModuleKind::Module, None, api_source, api_program)),
+    );
+    sources.insert(
+        client_module.clone(),
+        Arc::new(ParsedModuleUnit::new(client_module.clone(), ModuleKind::Module, None, client_source.clone(), client_program)),
+    );
+
+    let service_symbol = SymbolId {
+        module: api_module.clone(),
+        name: "Service".into(),
+    };
+    let client_symbol = SymbolId {
+        module: client_module.clone(),
+        name: "Client".into(),
+    };
+    let service_export = LinkedExport {
+        public_name: "Service".into(),
+        target: LinkedExportTarget::Binding(service_symbol.clone()),
+        range: Default::default(),
+    };
+    let client_export = LinkedExport {
+        public_name: "Client".into(),
+        target: LinkedExportTarget::Binding(client_symbol),
+        range: Default::default(),
+    };
+    let mut modules = BTreeMap::new();
+    modules.insert(
+        api_module.clone(),
+        LinkedModule {
+            interface: LinkedModuleInterface {
+                module: api_module.clone(),
+                kind: ModuleKind::Module,
+                exports: BTreeMap::from([("Service".into(), service_export)]),
+                metadata: ModuleMetadata::default(),
+            },
+            bindings: ModuleBindingLayout {
+                local_globals: BTreeMap::from([("Service".into(), GlobalBindingId(0))]),
+                imports: BTreeMap::new(),
+            },
+            linked_reads: Vec::new(),
+            runtime_dependencies: Vec::new(),
+        },
+    );
+    modules.insert(
+        client_module.clone(),
+        LinkedModule {
+            interface: LinkedModuleInterface {
+                module: client_module.clone(),
+                kind: ModuleKind::Module,
+                exports: BTreeMap::from([("Client".into(), client_export)]),
+                metadata: ModuleMetadata::default(),
+            },
+            bindings: ModuleBindingLayout {
+                local_globals: BTreeMap::from([("Client".into(), GlobalBindingId(0))]),
+                imports: BTreeMap::from([("Service".into(), ImportBindingId(0))]),
+            },
+            linked_reads: vec![LinkedReadSpec::Binding(service_symbol)],
+            runtime_dependencies: vec![api_module.clone()],
+        },
+    );
+
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules,
+        graphs: phalcom_modules::graph::ModuleGraphs::default(),
+        entry: client_module.clone(),
+        initialization_order: vec![api_module.clone(), client_module.clone()],
+    });
+    let analysis = analyze_workspace(SemanticWorkspaceInput {
+        linked,
+        sources,
+        generation: 1,
+    });
+
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:#?}", analysis.snapshot.diagnostics);
+    let client_decl = DeclarationId::new(client_module.clone(), "Client".into());
+    let run_id = CallableId::new(
+        client_decl,
+        Selector::method("run", Vec::new()).unwrap(),
+        DispatchSide::Class,
+    );
+    let run = analysis.snapshot.callable_analyses.get(&run_id).expect("Client.run analysis");
+    let serve = run
+        .expressions
+        .values()
+        .find(|expression| client_source.get(expression.range.start..expression.range.end) == Some("Service.serve()"))
+        .expect("imported Service.serve() expression");
+    let int_ty = analysis
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(ModuleId::core(), "Int".into()))
+        .expect("Int type");
+    assert_eq!(serve.knowledge.ty(), Some(int_ty));
+    assert_eq!(
+        serve.callable.as_ref(),
+        Some(&CallableId::new(
+            DeclarationId::new(api_module.clone(), "Service".into()),
+            Selector::method("serve", Vec::new()).unwrap(),
+            DispatchSide::Class,
+        ))
+    );
+    assert!(
+        run.semantic_dependencies
+            .iter()
+            .any(|dependency| matches!(dependency, phalcom_semantic::checker::analysis::SemanticDependency::LinkedInterface(module) if module == &api_module)),
+        "client must record linked API interface dependency: {run:#?}"
+    );
 }
 
 #[test]
