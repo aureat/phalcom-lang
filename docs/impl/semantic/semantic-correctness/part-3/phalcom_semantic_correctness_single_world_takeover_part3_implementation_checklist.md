@@ -73,7 +73,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Retain TypeStore across ordinary revisions.
 - [x] Invalidate removed-module reverse closure.
 - [x] Publish semantic errors with current products.
-- [~] Discard cancelled, budget-exceeded, and stale candidates. Status: cancellation and budget-exceeded publication are verified; stale candidate coverage remains open.
+- [x] Discard cancelled, budget-exceeded, and stale candidates. Status: compiler cancellation/budget and LSP stale/latest-wins publication are verified.
 - [ ] Retain last-known-good on infrastructure failure.
 - [ ] Add structural recomputation counters.
 
@@ -209,7 +209,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 18. Source-position semantic queries require source-revision coherence. Status: Exact/Stale/Unmapped classification landed; full consumer audit remains open.
 - [ ] 19. Stale semantic diagnostics are not rendered against current open-buffer ranges. Status: pending.
 - [x] 20. Semantic errors still publish current semantic products. Status: verified by focused semantic integration regression.
-- [ ] 21. Cancelled/stale candidate updates never publish. Status: pending.
+- [x] 21. Cancelled/stale candidate updates never publish. Status: verified by compiler and LSP focused regressions.
 - [ ] 22. Last-known-good publication survives infrastructure failure. Status: partial.
 - [ ] 23. Formal and advisory facts remain distinct internally. Status: partial.
 - [ ] 24. Advisory facts cannot emit hard type diagnostics. Status: partial.
@@ -325,7 +325,10 @@ Every item remains unchecked until independently evidenced. Initial status descr
   Evidence: a module with an unresolved annotation retains semantic diagnostics while publishing source, formal projection, source index, callable analysis, and advisory module products.
 - [x] Cancelled candidate publication regression.
   Result: `cargo test -p phalcom-semantic --test semantic incremental::type_store_revisions::cancelled_update_preserves_last_known_good -- --nocapture` — 1 passed.
-  Evidence: cancelled and zero-budget revisions preserve both last-known-good and current published snapshots, including the prior source text; stale-candidate path remains open.
+  Evidence: cancelled and zero-budget revisions preserve both last-known-good and current published snapshots, including the prior source text.
+- [x] Stale/latest-wins candidate publication regression.
+  Result: `cargo test -p phalcom-lsp --lib analysis_service::tests -- --nocapture` — 17 passed.
+  Evidence: gated stale batches, coalesced revisions, generation ordering, and counter publication tests confirm superseded work emits `StaleBatchDiscarded` and only newest revisions publish.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.
