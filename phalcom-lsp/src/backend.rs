@@ -65,6 +65,8 @@ use phalcom_semantic::types::relation::TypeHierarchy;
 
 use crate::workspace_scan::AnalysisMode;
 
+type CompilerCallableHover = (String, SelectorSite, Option<hover::PhaldocDoc>, FormalPresentation, Option<InferredValue>);
+
 fn import_path_range_at_offset(program: &phalcom_ast::ast::Program, offset: usize) -> Option<phalcom_common::range::SourceRange> {
     program.preamble.dependencies.iter().find_map(|dependency| {
         let path = match dependency {
@@ -971,7 +973,7 @@ impl Backend {
         &self,
         request: &RequestContext,
         callable: &phalcom_semantic::identity::CallableId,
-    ) -> Option<(String, SelectorSite, Option<hover::PhaldocDoc>, FormalPresentation, Option<InferredValue>)> {
+    ) -> Option<CompilerCallableHover> {
         let compiler = request.compiler.as_deref()?;
         let signature = compiler.callable_signatures.get(callable)?;
         let owner = request.semantic.class_for_canonical(&callable.owner);
@@ -983,10 +985,7 @@ impl Backend {
                 phalcom_semantic::DispatchSide::Class => crate::semantic::DispatchSide::Class,
             },
         };
-        let compiler_side = match callable.side {
-            phalcom_semantic::DispatchSide::Instance => phalcom_semantic::DispatchSide::Instance,
-            phalcom_semantic::DispatchSide::Class => phalcom_semantic::DispatchSide::Class,
-        };
+        let compiler_side = callable.side;
         let compiler_kind = compiler
             .surfaces
             .get(&callable.owner)
