@@ -16,7 +16,7 @@ fn module(project: ResolvedProjectId, path: &[&str]) -> ModuleId {
         ModulePath::from_components(
             path.iter()
                 .map(|component| ModuleComponent::from_identifier(component).expect("valid module component"))
-                .collect(),
+                .collect::<Vec<_>>(),
         ),
     )
 }
