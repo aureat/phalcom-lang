@@ -258,7 +258,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                 .emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                                     ctx.current_module.clone(),
                                     DiagnosticCode::AssignmentToImmutable,
-                                    format!("cannot assign to immutable binding `{}`", var_name),
+                                    format!("Cannot reassign immutable `const` binding `{}`; declare it with `let` to allow mutation.", var_name),
                                     assign.range,
                                 ))
                                 .expect("error diagnostic has cause");

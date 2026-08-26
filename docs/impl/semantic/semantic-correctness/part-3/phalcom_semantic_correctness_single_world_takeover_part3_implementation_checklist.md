@@ -361,9 +361,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] `cargo test -p phalcom-semantic`
   Result: 382 passed, 10 ignored.
   Evidence: full semantic unit/integration suite, including publication effects and trusted fixed-return coverage.
-- [ ] `cargo test -p phalcom-core --test lang -- --nocapture`
-  Result: 53 passed, 1 failed, 4 ignored.
-  Evidence: all `System.print` Unit expectations now pass; remaining failure is the existing `compile_error_destructure_no_initializer` diagnostic wording mismatch (`binding.const_requires_initializer` versus the compiler fixture's `requires an initializer to unpack`).
+- [x] `cargo test -p phalcom-core --test lang -- --nocapture`
+  Result: 54 passed, 4 ignored.
+  Evidence: compiler language fixtures now accept canonical destructuring-initializer and immutable-const diagnostic wording; the focused `compile_errors` target also passed all 58 cases.
 - [x] `cargo test -p phalcom-core --test native_contracts -- --nocapture`
   Result: 3 passed.
   Evidence: System.print Unit metadata/runtime and System.gc None metadata/runtime.
@@ -378,8 +378,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] cargo check --workspace
 - [x] cargo test -p phalcom-modules
 - [x] cargo test -p phalcom-semantic
-- [ ] cargo test -p phalcom-core
-  Result: core unit/integration/invariant targets pass; language aggregate is 53 passed, 1 failed, 4 ignored for the same diagnostic wording mismatch.
+- [x] cargo test -p phalcom-core
+  Result: full core package suite passed; language aggregate is 54 passed, 4 ignored.
+  Evidence: unit, language, module-linker, reflection, native-contract, semantic-analysis, invariant, and universe targets passed.
 - [x] cargo test -p phalcom-lsp
   Result: full package target set passed; see focused record above.
 - [ ] cargo clippy --workspace

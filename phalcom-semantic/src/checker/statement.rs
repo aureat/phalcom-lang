@@ -38,11 +38,16 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             let mut val_typed = if let Some(expr) = &binding.value {
                 analyze_expression(ctx, expr, &expected_init)
             } else {
-                if binding.kind == BindingKind::Const {
+                if binding.kind == BindingKind::Const || !matches!(binding.pattern, Pattern::Name { .. }) {
+                    let message = if matches!(binding.pattern, Pattern::Name { .. }) {
+                        "const binding requires an initializer"
+                    } else {
+                        "a destructuring let/const pattern requires an initializer to unpack"
+                    };
                     ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::ConstWithoutInitializer,
-                        "const binding requires an initializer",
+                        message,
                         binding.range,
                     ));
                 }
