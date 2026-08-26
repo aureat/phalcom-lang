@@ -121,7 +121,29 @@ impl ModuleLinker {
     /// Resolution remains a separate phase so filesystem/package policy cannot
     /// accidentally leak into symbol linking.
     pub fn link(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<LinkedProgram, LinkError> {
-        let reachable = self.reachable_interfaces(&entry, resolved)?;
+        self.link_inner(entry, resolved, false)
+    }
+
+    /// Links the currently available source universe while retaining modules
+    /// whose imports are temporarily unresolved. This is used by persistent
+    /// workspace updates so a deleted dependency can publish the importer and
+    /// its semantic diagnostics instead of retaining the removed module in the
+    /// last-known-good snapshot.
+    pub fn link_with_unresolved_imports(
+        &self,
+        entry: ModuleId,
+        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+    ) -> Result<LinkedProgram, LinkError> {
+        self.link_inner(entry, resolved, true)
+    }
+
+    fn link_inner(
+        &self,
+        entry: ModuleId,
+        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+        allow_unresolved_imports: bool,
+    ) -> Result<LinkedProgram, LinkError> {
+        let reachable = self.reachable_interfaces(&entry, resolved, allow_unresolved_imports)?;
         let reachable_interfaces = self
             .interfaces
             .iter()
@@ -129,7 +151,7 @@ impl ModuleLinker {
             .map(|(module, interface)| (module.clone(), interface.clone()))
             .collect();
         let reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
-        let mut context = LinkContext::new(&reachable_linker, resolved);
+        let mut context = LinkContext::new(&reachable_linker, resolved, allow_unresolved_imports);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
             modules,
@@ -139,7 +161,12 @@ impl ModuleLinker {
         })
     }
 
-    fn reachable_interfaces(&self, entry: &ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<BTreeSet<ModuleId>, LinkError> {
+    fn reachable_interfaces(
+        &self,
+        entry: &ModuleId,
+        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+        allow_unresolved_imports: bool,
+    ) -> Result<BTreeSet<ModuleId>, LinkError> {
         if !self.interfaces.contains_key(entry) {
             return Err(LinkError::MissingModule { module: entry.clone() });
         }
@@ -166,15 +193,20 @@ impl ModuleLinker {
                     ImportSurface::Selective(decl) => (&decl.path, decl.range),
                     ImportSurface::ReExport(decl) => (&decl.path, decl.range),
                 };
-                let target = resolved
+                let Some(target) = resolved
                     .get(&(module.clone(), path.0.to_string()))
                     .cloned()
                     .filter(|target| self.interfaces.contains_key(target))
-                    .ok_or_else(|| LinkError::UnresolvedImport {
+                else {
+                    if allow_unresolved_imports {
+                        continue;
+                    }
+                    return Err(LinkError::UnresolvedImport {
                         module: module.clone(),
                         path: path.0.to_string(),
                         range: path.1,
-                    })?;
+                    });
+                };
                 if reachable.insert(target.clone()) {
                     pending.push(target.clone());
                 }
@@ -217,7 +249,7 @@ impl ModuleLinker {
                     name: reference.root.clone().into_boxed_str(),
                 });
             }
-            let mut context = LinkContext::new(self, resolved);
+            let mut context = LinkContext::new(self, resolved, false);
             context.collect_imports_and_graphs()?;
             for import in &interface.imports {
                 let Some((path, remote, range)) = (match import {
@@ -282,7 +314,7 @@ impl ModuleLinker {
             });
         }
         let name = reference.leaf_name();
-        let mut context = LinkContext::new(self, resolved);
+        let mut context = LinkContext::new(self, resolved, false);
         context.collect_imports_and_graphs()?;
         let export = context.resolve_export(&target, name)?;
         let symbol = export.symbol().cloned().ok_or_else(|| LinkError::MissingBinding {
@@ -297,6 +329,7 @@ impl ModuleLinker {
 struct LinkContext<'a> {
     linker: &'a ModuleLinker,
     resolved: &'a BTreeMap<(ModuleId, String), ModuleId>,
+    allow_unresolved_imports: bool,
     import_targets: BTreeMap<(ModuleId, String), LinkedReadSpec>,
     import_symbols: BTreeMap<(ModuleId, String), Option<SymbolId>>,
     linked_exports: BTreeMap<(ModuleId, String), LinkedExport>,
@@ -307,10 +340,11 @@ struct LinkContext<'a> {
 type LinkBuild = (BTreeMap<ModuleId, LinkedModule>, ModuleGraphs, Vec<ModuleId>);
 
 impl<'a> LinkContext<'a> {
-    fn new(linker: &'a ModuleLinker, resolved: &'a BTreeMap<(ModuleId, String), ModuleId>) -> Self {
+    fn new(linker: &'a ModuleLinker, resolved: &'a BTreeMap<(ModuleId, String), ModuleId>, allow_unresolved_imports: bool) -> Self {
         Self {
             linker,
             resolved,
+            allow_unresolved_imports,
             import_targets: BTreeMap::new(),
             import_symbols: BTreeMap::new(),
             linked_exports: BTreeMap::new(),
@@ -385,7 +419,9 @@ impl<'a> LinkContext<'a> {
             for import in &interface.imports {
                 match import {
                     ImportSurface::Module(decl) => {
-                        let target = self.target(module, &decl.path, decl.range)?;
+                        let Some(target) = self.target_if_present(module, &decl.path, decl.range)? else {
+                            continue;
+                        };
                         reference_edges.push(ReferenceEdge {
                             from: module.clone(),
                             to: target.clone(),
@@ -413,7 +449,9 @@ impl<'a> LinkContext<'a> {
                         self.add_import(module, local, LinkedReadSpec::Module(target), None, decl.range)?;
                     }
                     ImportSurface::Selective(decl) => {
-                        let target = self.target(module, &decl.path, decl.range)?;
+                        let Some(target) = self.target_if_present(module, &decl.path, decl.range)? else {
+                            continue;
+                        };
                         for item in &decl.items {
                             reference_edges.push(ReferenceEdge {
                                 from: module.clone(),
@@ -442,7 +480,9 @@ impl<'a> LinkContext<'a> {
                         }
                     }
                     ImportSurface::ReExport(decl) => {
-                        let target = self.target(module, &decl.path, decl.range)?;
+                        let Some(target) = self.target_if_present(module, &decl.path, decl.range)? else {
+                            continue;
+                        };
                         for item in &decl.items {
                             reference_edges.push(ReferenceEdge {
                                 from: module.clone(),
@@ -481,7 +521,9 @@ impl<'a> LinkContext<'a> {
             for import in &interface.imports {
                 match import {
                     ImportSurface::Selective(decl) => {
-                        let target = self.target(module, &decl.path, decl.range)?;
+                        let Some(target) = self.target_if_present(module, &decl.path, decl.range)? else {
+                            continue;
+                        };
                         for item in &decl.items {
                             let local = item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone());
                             let linked_exp = self.resolve_export(&target, &item.name)?;
@@ -500,7 +542,9 @@ impl<'a> LinkContext<'a> {
                         }
                     }
                     ImportSurface::ReExport(decl) => {
-                        let target = self.target(module, &decl.path, decl.range)?;
+                        let Some(target) = self.target_if_present(module, &decl.path, decl.range)? else {
+                            continue;
+                        };
                         for item in &decl.items {
                             let local = item.local_or_remote_name.clone();
                             let linked_exp = self.resolve_export(&target, &item.local_or_remote_name)?;
@@ -549,6 +593,14 @@ impl<'a> LinkContext<'a> {
                 path: path.to_string(),
                 range,
             })
+    }
+
+    fn target_if_present(&self, module: &ModuleId, path: &ImportPath, range: SourceRange) -> Result<Option<ModuleId>, LinkError> {
+        match self.target(module, path, range) {
+            Ok(target) => Ok(Some(target)),
+            Err(LinkError::UnresolvedImport { .. }) if self.allow_unresolved_imports => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     fn resolve_export(&mut self, module: &ModuleId, name: &str) -> Result<LinkedExport, LinkError> {

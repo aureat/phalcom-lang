@@ -1,5 +1,7 @@
 use crate::support::{MarkedSource, TestLsp, TestWorkspace, completion_labels};
 use serde_json::json;
+use std::fs;
+use tower_lsp::lsp_types::Url;
 
 #[tokio::test]
 async fn same_named_classes_in_different_modules_keep_distinct_identity() {
@@ -84,6 +86,67 @@ async fn open_change_close_reopen_preserves_latest_compiler_world() {
     let reopened_labels = completion_labels(&lsp.completion(&uri, after.position("completion")).await);
     assert!(reopened_labels.iter().any(|label| label == "newOnly()"), "reopened compiler world: {reopened_labels:#?}");
     assert!(!reopened_labels.iter().any(|label| label == "oldOnly()"), "reopened stale world: {reopened_labels:#?}");
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
+async fn watched_file_rename_and_delete_follow_compiler_module_identity() {
+    let workspace = TestWorkspace::from_fixture_dir("workspace");
+    let provider_uri = workspace.file_uri("provider.ph");
+    let renamed_uri = workspace.file_uri("renamed-provider.ph");
+    let consumer_uri = workspace.file_uri("provider_consumer.ph");
+    let provider = "class Product { oldMethod() {} }\n";
+    let consumer_before = MarkedSource::parse(
+        "import .provider as Provider\n\nProvider.Product.new()./*@product*/oldMethod()\n",
+    );
+    workspace.write("provider.ph", provider);
+
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(Some(&workspace.uri())).await;
+    lsp.open_and_wait(&provider_uri, provider).await;
+    lsp.open_and_wait(&consumer_uri, &consumer_before.text).await;
+
+    let initial = completion_labels(&lsp.completion(&consumer_uri, consumer_before.position("product")).await);
+    assert!(initial.iter().any(|label| label == "oldMethod()"), "initial provider surface: {initial:#?}");
+
+    let provider_path = Url::parse(&provider_uri).expect("provider URI").to_file_path().expect("provider path");
+    let renamed_path = Url::parse(&renamed_uri).expect("renamed URI").to_file_path().expect("renamed path");
+    fs::rename(&provider_path, &renamed_path).expect("rename provider source");
+
+    let consumer_after = MarkedSource::parse(
+        "import .renamed_provider as Provider\n\nProvider.Product.new()./*@product*/oldMethod()\n",
+    );
+    let before_change = lsp.counter_snapshot();
+    lsp.change(&consumer_uri, &consumer_after.text).await;
+    lsp.wait_for_semantic_publication_after(before_change).await;
+    let before_watched_rename = lsp.counter_snapshot();
+    lsp.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({
+            "changes": [
+                { "uri": provider_uri, "type": 3 },
+                { "uri": renamed_uri, "type": 1 }
+            ]
+        }),
+    )
+    .await;
+    lsp.wait_for_semantic_publication_after(before_watched_rename).await;
+
+    let after_rename = completion_labels(&lsp.completion(&consumer_uri, consumer_after.position("product")).await);
+    assert!(after_rename.iter().any(|label| label == "oldMethod()"), "renamed provider surface: {after_rename:#?}");
+
+    fs::remove_file(&renamed_path).expect("delete renamed provider source");
+    let before_delete = lsp.counter_snapshot();
+    lsp.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({ "changes": [{ "uri": renamed_uri, "type": 3 }] }),
+    )
+    .await;
+    lsp.wait_for_semantic_publication_after(before_delete).await;
+
+    let after_delete = completion_labels(&lsp.completion(&consumer_uri, consumer_after.position("product")).await);
+    assert!(!after_delete.iter().any(|label| label == "oldMethod()"), "deleted provider remained in compiler world: {after_delete:#?}");
 
     lsp.finish().await;
 }

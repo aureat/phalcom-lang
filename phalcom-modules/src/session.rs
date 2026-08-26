@@ -232,6 +232,7 @@ impl WorkspaceModuleSession {
                     .remove(&source)
                     .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
                 self.provider.remove_overlay(&module);
+                self.provider.base().clear_cache();
                 self.sources_by_module.remove(&module);
                 identity_changes.insert(module);
             }
@@ -479,6 +480,7 @@ impl WorkspaceModuleSession {
                     Err(error) if module.project.as_synthetic().is_some() => self
                         .resolve_standalone_import(&module, path)
                         .ok_or(WorkspaceModuleSessionError::Resolution(error))?,
+                    Err(ModuleResolutionError::ModuleNotFound(_)) => continue,
                     Err(error) => return Err(WorkspaceModuleSessionError::Resolution(error)),
                 };
                 resolved.insert((module.clone(), path.to_string()), target.clone());
@@ -505,7 +507,7 @@ impl WorkspaceModuleSession {
             let mut modules = BTreeMap::new();
             let mut graphs = crate::graph::ModuleGraphs::default();
             for component_entry in parsed_sources.keys() {
-                let component = linker.link(component_entry.clone(), &resolved)?;
+                let component = linker.link_with_unresolved_imports(component_entry.clone(), &resolved)?;
                 modules.extend(component.modules);
                 graphs.merge_from(&component.graphs);
             }
