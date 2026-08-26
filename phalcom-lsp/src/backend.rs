@@ -61,6 +61,7 @@ use crate::semantic::{FileRevision, InferredValue, OccurrenceRole, SemanticDb, S
 use crate::semantic_tokens;
 use crate::signature_help;
 use phalcom_semantic::FormalPresentation;
+use phalcom_semantic::types::relation::TypeHierarchy;
 
 use crate::workspace_scan::AnalysisMode;
 
@@ -1020,6 +1021,64 @@ impl Backend {
         ))
     }
 
+    /// Builds class-hover inputs from compiler declaration identity and
+    /// hierarchy products. Source metadata is used only to harvest Phaldoc.
+    fn compiler_class_hover(
+        &self,
+        request: &RequestContext,
+        declaration: &phalcom_semantic::identity::DeclarationId,
+    ) -> Option<(crate::semantic::ClassId, Option<crate::semantic::ClassId>, Option<hover::PhaldocDoc>)> {
+        let compiler = request.compiler.as_deref()?;
+        compiler.surfaces.get(declaration)?;
+        let class = request.semantic.class_for_canonical(declaration);
+        let superclass = compiler
+            .hierarchy
+            .superclass(declaration)
+            .map(|superclass| request.semantic.class_for_canonical(superclass));
+        let phaldoc = request.semantic.class_surface(&class).and_then(|metadata| {
+            let definition_uri = Url::parse(class.module.as_str()).ok()?;
+            self.with_source_snapshot(&definition_uri, |text, _, line_index| {
+                hover::harvest_doc_for_declaration(
+                    text,
+                    line_index,
+                    hover::DeclarationDocTarget::Class {
+                        declaration: metadata.source_range,
+                        name: metadata.name_range,
+                    },
+                )
+            })
+            .flatten()
+        });
+        Some((class, superclass, phaldoc))
+    }
+
+    /// Builds field-hover inputs from compiler field identity and advisory
+    /// field products. Protocol surfaces contribute no lookup decision.
+    fn compiler_field_hover(
+        &self,
+        request: &RequestContext,
+        field: &phalcom_semantic::identity::FieldId,
+    ) -> Option<(String, SelectorSite, Option<InferredValue>)> {
+        let compiler = request.compiler.as_deref()?;
+        let side = field.side;
+        let surface = compiler.surfaces.get(&field.owner)?.surface(side);
+        surface.get_field(&field.name)?;
+        let owner = request.semantic.class_for_canonical(&field.owner);
+        let lsp_side = match side {
+            phalcom_semantic::DispatchSide::Instance => crate::semantic::DispatchSide::Instance,
+            phalcom_semantic::DispatchSide::Class => crate::semantic::DispatchSide::Class,
+        };
+        Some((
+            field.name.to_string(),
+            SelectorSite {
+                owner: owner.clone(),
+                receiver: None,
+                kind: crate::index::MemberKind::Field,
+            },
+            request.semantic.field_value(&owner, &field.name, lsp_side),
+        ))
+    }
+
     fn compiler_uri_for_module(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
         let published = self.semantic.snapshot();
         if let Some(uri) = published.documents.get_by_module(module) {
@@ -1382,20 +1441,43 @@ impl Backend {
         let span = request.document.line_index.range(occurrence.range.start..occurrence.range.end);
 
         if matches!(request.source_match, SourceMatch::Exact)
-            && let Some(phalcom_semantic::SemanticTargetId::Callable(callable)) = self.compiler_target_at_request(request, offset)
-            && let Some((selector, site, phaldoc, formal, advisory)) = self.compiler_callable_hover(request, &callable)
-            && let Some(contents) = hover::render_selector_hover_with_formal_value(
-                &selector,
-                &[site],
-                phaldoc.as_ref(),
-                Some(&formal),
-                advisory.as_ref(),
-            )
+            && let Some(target) = self.compiler_target_at_request(request, offset)
         {
-            return Some(Hover {
-                contents: markdown_contents(contents),
-                range: Some(span),
-            });
+            match target {
+                phalcom_semantic::SemanticTargetId::Callable(callable)
+                    if let Some((selector, site, phaldoc, formal, advisory)) = self.compiler_callable_hover(request, &callable)
+                    && let Some(contents) = hover::render_selector_hover_with_formal_value(
+                        &selector,
+                        &[site],
+                        phaldoc.as_ref(),
+                        Some(&formal),
+                        advisory.as_ref(),
+                    ) =>
+                {
+                    return Some(Hover {
+                        contents: markdown_contents(contents),
+                        range: Some(span),
+                    });
+                }
+                phalcom_semantic::SemanticTargetId::Declaration(declaration)
+                    if let Some((class, superclass, phaldoc)) = self.compiler_class_hover(request, &declaration) =>
+                {
+                    return Some(Hover {
+                        contents: markdown_contents(hover::render_class_hover(&class, superclass.as_ref(), phaldoc.as_ref())),
+                        range: Some(span),
+                    });
+                }
+                phalcom_semantic::SemanticTargetId::Field(field)
+                    if let Some((name, site, advisory)) = self.compiler_field_hover(request, &field)
+                    && let Some(contents) = hover::render_selector_hover_with_value(&name, &[site], None, advisory.as_ref()) =>
+                {
+                    return Some(Hover {
+                        contents: markdown_contents(contents),
+                        range: Some(span),
+                    });
+                }
+                _ => {}
+            }
         }
 
         match occurrence.target {
