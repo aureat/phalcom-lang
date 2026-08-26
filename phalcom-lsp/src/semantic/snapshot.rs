@@ -887,6 +887,38 @@ impl SemanticSnapshot {
         self.parameter_facts.get(&(id.clone(), name.to_string())).cloned()
     }
 
+    /// Reads one exact compiler advisory parameter fact by its source binding
+    /// range. The compiler source index supplies callable identity and
+    /// parameter slot; no protocol member-surface scan is needed.
+    pub(crate) fn compiler_parameter_at(
+        &self,
+        compiler: &CompilerSemanticSnapshot,
+        module: &phalcom_modules::ModuleId,
+        declaration_range: SourceRange,
+    ) -> Option<InferredValue> {
+        let source = compiler.source_index().module(module)?;
+        let binding = source
+            .structure
+            .bindings
+            .values()
+            .find(|binding| binding.declaration_range == declaration_range)?;
+        let phalcom_semantic::SourceOwner::Callable(callable) = &binding.declaration_site.owner else {
+            return None;
+        };
+        let signature = compiler
+            .surfaces
+            .get(&callable.owner)?
+            .surface(callable.side)
+            .get_callable(&callable.selector)?;
+        let parameter = signature
+            .parameters
+            .iter()
+            .position(|parameter| parameter.local_name == binding.name.as_ref())?;
+        let slot = phalcom_semantic::AdvisoryParameterSlot::new(callable.clone(), parameter as u32);
+        let fact = compiler.advisory.parameter(&slot)?;
+        Some(self.compiler_advisory_fact(fact, declaration_range))
+    }
+
     fn canonical_callable_for_lsp(&self, callable: &CallableId) -> Option<phalcom_semantic::identity::CallableId> {
         self.canonical_callables.get(callable).cloned()
     }

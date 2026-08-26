@@ -567,7 +567,11 @@ fn collect_file_semantic_hints(
                 if annotations.has_parameter(param.name_range) {
                     continue;
                 }
-                let param_val = global_snapshot.and_then(|db| db.parameter_at(&member.callable, &param.name));
+                let param_val = if let Some((compiler, module)) = compiler_snapshot.zip(compiler_module) {
+                    global_snapshot.and_then(|db| db.compiler_parameter_at(compiler, module, param.name_range))
+                } else {
+                    global_snapshot.and_then(|db| db.parameter_at(&member.callable, &param.name))
+                };
                 if let Some(val) = param_val {
                     if should_render(policy, &val.confidence, &val.shape) {
                         let rendered = render_shape(&val.shape);

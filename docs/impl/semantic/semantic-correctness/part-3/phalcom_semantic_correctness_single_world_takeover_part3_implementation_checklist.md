@@ -249,7 +249,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 
 - [x] 50. Diagnostics consume the compiler snapshot directly. Status: diagnostic publication now accepts the pinned compiler snapshot and boundary module map directly; stage 1 and stage 7 diagnostics pass.
 - [~] 51. Hover consumes compiler source-site/presentation views directly. Status: callable, class, and field targets now read pinned compiler identity/surface/hierarchy/advisory products directly; lexical binding and receiver-member presentation adapters remain.
-- [~] 52. Inlay hints consume compiler source sites directly. Status: formal binding lane is compiler-first; field, parameter, return, and closure lanes remain compatibility-backed.
+- [~] 52. Inlay hints consume compiler source sites directly. Status: local binding and parameter lanes now use compiler source-index sites/products; field, return, and closure source enumeration remains compatibility-backed.
 - [x] 53. Signature help resolves canonical compiler callable signatures. Status: exact-source path projects canonical compiler signatures with formal terms and advisory fallback; focused integration passes.
 - [ ] 54. Completion consumes compiler receiver/surface/advisory products. Status: partial.
 - [x] 55. Definition consumes compiler target/location indexes. Status: exact-source compiler target/location path is primary; focused navigation tests pass.
@@ -335,6 +335,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [~] Compiler-owned hover target cutover.
   Result: `cargo test -p phalcom-lsp --test integration stage4_hover:: -- --nocapture` — 11 passed; `cargo test -p phalcom-lsp --test integration workspace_semantics -- --nocapture` — 9 passed; `cargo test -p phalcom-lsp --test integration semantic_consistency:: -- --nocapture` — 3 passed; `cargo check -p phalcom-lsp` passed.
   Evidence: exact-source callable, class, and field hovers select canonical compiler target/surface/hierarchy products and compiler formal/advisory presentations before protocol rendering. Lexical binding and receiver-member presentation adapters remain bounded follow-up work.
+- [~] Compiler-owned inlay parameter cutover.
+  Result: `cargo test -p phalcom-lsp --test integration stage6_inlay_hints:: -- --nocapture` — 2 passed; `cargo test -p phalcom-lsp --test integration semantic_consistency:: -- --nocapture` — 3 passed; `cargo check -p phalcom-lsp` passed.
+  Evidence: exact-source parameter hints resolve canonical callable identity and parameter slot from compiler source bindings/signatures before reading advisory parameter products; field, return, and closure source enumeration remains bounded follow-up work.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
