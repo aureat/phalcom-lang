@@ -240,9 +240,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 43. Compiler native import establishes Unit for System.print. Status: focused semantic test passes.
 - [x] 44. A System.print call expression is Established Unit. Status: focused semantic test passes.
 - [x] 45. A method with System.print as its normal tail is Established Unit. Status: focused semantic test passes.
-- [ ] 46. Such a method's inlay/hover never reports Option. Status: pending end-to-end regression.
-- [ ] 47. Trusted fixed-return formal contracts take precedence over advisory summaries generally. Status: pending generic regression.
-- [ ] 48. Native metadata self-consistency audit passes. Status: pending.
+- [x] 46. Such a method's inlay/hover never reports Option. Status: current LSP semantic-consistency regression passes for `System.print` normal-tail hover and return inlay.
+- [x] 47. Trusted fixed-return formal contracts take precedence over advisory summaries generally. Status: generic fixed-return regression passes; incompatible advisory shape remains incomparable and cannot replace established formal knowledge.
+- [x] 48. Native metadata self-consistency audit passes. Status: current native-contract target passes metadata/runtime checks for `System.print` and `System.gc`.
 - [x] 49. System.gc native metadata is reconciled to canonical documented None without changing it to Unit. Status: focused native-contract test passes.
 
 ### Compiler snapshot consumers
@@ -361,6 +361,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Current compiler package rerun.
   Result: `cargo test -p phalcom-core -- --nocapture` — all package targets passed: 81 unit, 191 integration, 48 invariants, 58 language, and contract/spec targets; 4 language tests ignored by design.
   Evidence: core/runtime/native contract surface remains green after semantic/LSP changes.
+- [x] Trusted native return IDE regression.
+  Result: `cargo test -p phalcom-lsp --test integration semantic_consistency::trusted_system_print_return_never_surfaces_as_option_in_ide_hints -- --nocapture` — 1 passed; `cargo test -p phalcom-semantic --test semantic capabilities::generics::independent_fixed_generic_return_stays_established -- --nocapture` — 1 passed; `cargo test -p phalcom-core --test native_contracts -- --nocapture` — 3 passed.
+  Evidence: `System.print` normal-tail hover and return inlay never report `Option`; generic fixed-return precedence and native metadata/runtime contracts remain green.
 - [x] `cargo test -p phalcom-semantic --test semantic -- --nocapture`
   Result: 382 passed, 10 ignored.
   Evidence: trusted native Unit call/tail publication and compiler semantic baseline.

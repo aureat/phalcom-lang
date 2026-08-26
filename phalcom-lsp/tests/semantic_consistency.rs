@@ -26,6 +26,24 @@ async fn completion_and_inlay_hints_share_the_same_semantic_fact() {
 }
 
 #[tokio::test]
+async fn trusted_system_print_return_never_surfaces_as_option_in_ide_hints() {
+    let uri = "file:///tmp/phalcom-system-print-return.ph";
+    let source = "class Demo {\n  run() {\n    System.print(\"hello\")\n  }\n}\n";
+
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(None).await;
+    lsp.open_and_wait(uri, source).await;
+
+    let hover = lsp.hover(uri, tower_lsp::lsp_types::Position::new(2, 12)).await;
+    assert!(!hover.to_string().contains("Option"), "trusted System.print hover must not report Option: {hover:#?}");
+
+    let hints = hint_labels(&lsp.inlay_hints(uri, 100).await);
+    assert!(!hints.iter().any(|label| label.contains("Option")), "trusted System.print inlay must not report Option: {hints:#?}");
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
 async fn local_binding_definition_and_references_are_precise() {
     let relative = "semantic/binding_goto_def.ph";
     let fixture = load_fixture(relative);
