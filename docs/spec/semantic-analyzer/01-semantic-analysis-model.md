@@ -1,15 +1,11 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 01 — Semantic Analysis Model
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Define the analyzer-wide semantic machine: the products it computes, the authority and ownership boundaries between subsystems, the internal information-flow model, and the externally observable behavior that all subsystem implementations must preserve.
 
 **Scope:** This document specifies the conceptual implementation model and externally observable contract of Phalcom's compiler-owned semantic analyzer. It is intentionally more concrete than the language-level typing specification and intentionally less concrete than the Rust source. It defines what semantic information exists, which subsystem owns it, how it flows through analysis, and what consumers may rely on.
-
-**Normative sources:** *Phalcom Semantic Correctness / Single-World Takeover — Part 1: Formal Semantic Epistemic Foundation* together with *Part 1 Corrections and Amendments*. Where those documents differ, the amendments take precedence.
-
-**Repository grounding:** The implementation shape referenced by non-normative notes was reviewed against `aureat/phalcom-lang` through `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d` (`fix(semantic): preserve generic evidence and advisory agreement`, 2026-08-25). File names and concrete types may evolve; the semantics specified here do not depend on those names.
 
 ---
 
@@ -95,15 +91,17 @@ Formal knowledge is eligible to participate in hard semantic judgments such as a
 The dependency direction is:
 
 ```text
-source + language semantics
-        ↓
-formal semantic analyzer
+source/module state + language semantics
         ↓
 formal semantic products
         ↓
-advisory projection / advisory comparison
+canonical source identity and projection
         ↓
-presentation / LSP
+advisory semantic products
+        ↓
+immutable published semantic snapshot
+        ↓
+semantic consumers / presentation / LSP
 ```
 
 The reverse direction is prohibited:
@@ -150,6 +148,22 @@ A publication index may mirror flow facts for read-side access, but a mirror is 
 ### 4.4 Query/database ownership
 
 Incremental query products are semantic authority for the products they own. Mutable helper caches, presentation caches, advisory engines, and LSP-local mirrors are never alternate sources of truth for formal semantic results.
+
+### 4.5 Analyzer-wide consistency invariants
+
+Every conforming implementation preserves these laws:
+
+1. `Invalid(C)` is represented in causal invalidity and in the explanation/diagnostic ownership graph.
+2. Established evidence is produced only by an authorized formal derivation.
+3. Derived knowledge is no stronger than every premise that influences it unless independent evidence establishes the proposition.
+4. Unknown reasons are preserved, intentionally transformed, or combined through an explicit bounded abstraction; they are never replaced arbitrarily.
+5. Canonical semantic identity is carried when available and is not reconstructed from names, ranges, or spelling.
+6. A published snapshot describes one coherent semantic world.
+7. A failed, cancelled, stale, budget-exhausted, or internally failed candidate cannot partially mutate the committed world.
+8. Advisory facts cannot strengthen, repair, or invalidate formal facts.
+9. Consumers query published products; they do not reconstruct competing semantic authority.
+
+Chapters 10–13 own identity/source attachments, advisory authority, workspace transactions/publication, and consumer request consistency respectively.
 
 ---
 
@@ -452,12 +466,6 @@ This document does not specify:
 - query granularity below the existing callable/declaration product boundaries unless semantic identity requires it;
 - machine-code lowering;
 - optimization rules that consume established evidence;
-- complete Part 2/3 LSP migration.
+- migration sequencing, implementation checklists, and release status.
 
 The purpose is to specify the semantic machine, not freeze its current implementation syntax.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

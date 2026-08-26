@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 04 — Expression Analysis and Contextual Typing
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify the common expression-analysis pipeline, synthesis versus checking, contextual expectations, nested-result propagation, and publication of expression semantics.
 
@@ -319,6 +319,39 @@ dispatch invalid due to relation
 resolution unavailable
 ```
 
+### 11.1 Common semantic-operation obligations
+
+Every expression operation must:
+
+1. analyze each semantically required operand or argument;
+2. preserve each input's complete semantic product;
+3. resolve canonical operation/dispatch identity where resolution succeeds;
+4. perform every required contract or relation judgment;
+5. derive result knowledge from its actual semantic dependencies;
+6. derive operation status separately from result knowledge;
+7. join causal invalidity without losing owning causes; and
+8. publish denotation, identity, and explanation attachments that consumers require.
+
+These are observable obligations, not a mandatory implementation sequence. An operation may omit inapplicable work, but syntax-specific fast paths must publish a product equivalent to the general semantic rule.
+
+| Operation family | Required relation/identity work | Result basis |
+|---|---|---|
+| method/callable invocation | canonical callee, argument mapping, parameter relations | callable authority matrix in chapter 08 |
+| unary/binary operator | canonical selector/dispatch and operand relations | resolved operator contract |
+| getter/field read | canonical target and visibility | declared/resolved member semantics |
+| setter/field write | canonical target, mutability, value relation | assignment/write semantics plus independent result rule |
+| subscript get/set | canonical protocol operation and key/value relations | resolved protocol contract |
+| constructor call | canonical class-side callable and constructor semantics | concrete receiver instance semantics |
+| iteration | canonical iteration protocol and element contract | resolved iterator/element semantics |
+
+Calling a relation or dispatch helper and discarding its structured outcome is non-conforming when that outcome can affect status, causality, knowledge, identity, or explanation.
+
+### 11.2 Representative invalid-but-known products
+
+For `1 + "x"`, exact operator resolution may retain a fixed result while the operand relation owns an invalid cause. For `map[wrongKey]`, the resolved subscript return may survive an invalid key relation. For `object.field = badValue`, the assignment expression must carry the mismatch cause even when language assignment semantics independently determine its value result.
+
+Each case publishes knowledge, status, causal invalidity, target identity, and explanation separately.
+
 ---
 
 ## 12. Branch expressions
@@ -364,6 +397,21 @@ Object
 unless the language typing rule genuinely yields that type.
 
 Contextual synthesis is allowed only through explicit context rules.
+
+### 13.1 Complete-component law
+
+A compound literal must account for every semantically reachable component. It must not derive its element, key, value, field, or tuple type by filtering components down to those that happen to expose concrete `TypeId` values.
+
+| Components | Required behavior |
+|---|---|
+| known + known | join all component knowledge |
+| known + assumed | result no stronger than assumed where both influence it |
+| known + unknown | preserve unknown/blocked result and reason unless context independently resolves it |
+| known + dynamic | preserve the dynamic boundary according to collection typing rules |
+| expansion with unknown element type | report honest unknown/blocked component contribution |
+| empty literal + legitimate context | derive only through the explicit contextual typing rule |
+
+Unreachable components may be excluded only through the analyzer's reachability semantics, not because their facts are inconvenient or incomplete.
 
 ---
 
@@ -562,9 +610,3 @@ Coverage should include:
 - terminal relation outcomes;
 - branch knowledge joins;
 - unsupported expression forms failing closed.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

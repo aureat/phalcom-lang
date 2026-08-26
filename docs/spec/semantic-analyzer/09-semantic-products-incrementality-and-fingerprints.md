@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 09 — Semantic Products, Incrementality, and Fingerprints
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify semantic product identity, dependency ownership, fingerprint equivalence, invalidation, and the distinction between semantic changes and incidental source/allocator changes.
 
@@ -111,6 +111,46 @@ What is normative is the equivalence relation.
 For a callable-body product, semantically relevant dimensions include the parts of expression/binding/call/diagnostic state that downstream consumers are allowed to observe.
 
 If a status or evidence-strength change can alter downstream behavior, the fingerprint must detect it either directly in that product or through a guaranteed dependent product.
+
+### 4.1 Fingerprint domains
+
+Implementations must distinguish the semantic questions represented by fingerprints:
+
+```text
+InputFingerprint
+    whether the semantic inputs consumed by a product are equivalent
+
+ProductFingerprint
+    whether the published semantic meaning of the product is equivalent
+
+PresentationFingerprint
+    whether independently observable source-position or presentation data is equivalent
+```
+
+Names and physical representations may differ. One fingerprint may encode several domains only when its equivalence relation remains explicit and cannot cause semantic reuse from presentation-only equality.
+
+### 4.2 Computation and publication effects
+
+These terms are distinct:
+
+| Term | Meaning |
+|---|---|
+| `Recomputed` | computation executed |
+| `Changed` | resulting semantic product differs |
+| `PresentationChanged` | positional/presentation product differs while semantic product may remain equal |
+| `Invalidated` | prior product is no longer reusable |
+| `Published` | product belongs to committed snapshot |
+
+Therefore:
+
+```text
+source edited        != formal product changed
+product recomputed   != product changed
+range-only edit      may mean presentation changed without semantic changed
+candidate computed   != candidate published
+```
+
+Counters and update reports must not use one of these terms as an undocumented approximation for another.
 
 ---
 
@@ -341,7 +381,7 @@ old source-site mapping
 
 if those products are semantically incompatible.
 
-The persistent-session/lifecycle design may determine exact publication mechanics, but coherence is normative.
+Workspace transactions and publication mechanics must satisfy chapter 12. Consumer pinning and request consistency must satisfy chapter 13.
 
 ---
 
@@ -512,9 +552,3 @@ Consumers may rely on:
 ### Differential
 
 - cold analysis versus incremental analysis after edit sequence produces normalized equivalent semantic products.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

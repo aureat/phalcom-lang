@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 07 — Generic Inference Engine
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify Phalcom's generic inference model: inference variables, kinds, constraints, solver progress, failure evidence, epistemic support, expected-result constraints, and call-result publication.
 
@@ -403,7 +403,7 @@ pair<T, U>(...) -> Result<T, U>
 
 if solving fails terminally, the analyzer must not publish a partially substituted `Result<Int, U>` as though it were a formal result unless the language has a separately specified partial-type product.
 
-Part 1's model instead publishes the appropriate unknown/terminal semantics.
+The semantic product model instead publishes the appropriate unknown/terminal semantics.
 
 Only an inference-independent fixed concrete return survives failure.
 
@@ -454,6 +454,15 @@ Path compression or other union-find optimizations are implementation choices.
 
 Correctness takes precedence over a premature solver micro-optimization.
 
+### 21.1 Ownership boundaries
+
+- Chapter 02 owns evidence authority and support monotonicity.
+- Chapter 06 owns terminal relation-outcome preservation.
+- This chapter owns inference variables, constraints, substitution, solver convergence, and return-influencing support.
+- Chapter 08 owns publication of the solved callable result.
+
+The generic solver must not duplicate evidence constructors, relation-consumer policy, or call-site publication rules under solver-specific names.
+
 ---
 
 ## 22. External behavior guarantees
@@ -498,9 +507,3 @@ Consumers may rely on:
 - expected result selects valid substitution without fabricating support;
 - expected result does not rescue contradiction;
 - generic failure diagnostic points to real call/argument/constraint evidence.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 03 — Analysis Status, Causality, Invalidity, and Recovery
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify how semantic operations report completion or failure independently from type knowledge, how diagnostic causes are owned and propagated, and how the analyzer preserves useful semantics in invalid programs.
 
@@ -143,6 +143,31 @@ Multiple + anything -> Multiple
 ```
 
 It does not spontaneously return to `Clean` unless the semantic path itself is rebuilt from clean inputs in a new analysis.
+
+### 3.2 Status/cause coherence
+
+The three result dimensions remain independent, but their representations must agree:
+
+- `Invalid(C)` owns diagnostic cause `C`.
+- The causal summary for that result must semantically include `C`: `One(C)` when it is the only root, otherwise `Multiple`.
+- The explanation/diagnostic graph must retain the exact owning cause even when the hot causal summary is `Multiple`.
+- `Clean` cannot describe the same owning judgment as `Invalid(C)`.
+- `Suppressed(S)` requires a missing premise whose absence is explained by non-clean upstream cause summary `S`.
+- Source-range overlap or an unrelated diagnostic must not determine expression status or cause ownership.
+
+### 3.3 Legal result combinations
+
+| Knowledge | Status | Legal | Meaning |
+|---|---|---:|---|
+| `Established(T)` | `Ready` | yes | exact analysis completed |
+| `Established(T)` | `Invalid(C)` | yes | result independently known; local judgment refuted |
+| `Established(T)` | `Suppressed(S)` | conditional | the known result is independent, but a separate required judgment lacked an upstream-invalid premise |
+| `Unknown(R)` | `Ready` | yes | operation completed honestly without a concrete proposition |
+| `Unknown(R)` | `Invalid(C)` | yes | owning contradiction and no independent result |
+| `Dynamic(D)` | `DynamicBoundary(D)` | yes | runtime authority is intentional |
+| known knowledge | `Cancelled` / `BudgetExceeded` | conditional | knowledge was independently established before unfinished dependent work |
+
+The conditional rows require an explicit independence argument. They must not be produced by copying a contract, expected type, or stale cached result into the knowledge field.
 
 ---
 
@@ -484,9 +509,3 @@ At minimum, regression coverage should include:
 7. Budget exhaustion remains budget exhaustion.
 8. Dynamic boundary does not become unknown.
 9. Cause renumbering alone does not change semantic product identity.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

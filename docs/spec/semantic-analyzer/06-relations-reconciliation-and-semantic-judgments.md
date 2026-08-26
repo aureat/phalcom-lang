@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 06 — Relations, Reconciliation, and Semantic Judgments
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify how formal semantic relations report outcomes and how consumers translate those outcomes into binding consistency, diagnostics, expression status, call validity, and inference behavior without losing information.
 
@@ -389,6 +389,25 @@ A normative conceptual mapping is:
 
 The exact surrounding `AnalysisStatus` may differ by operation, but no outcome may be silently treated as `Assignable`.
 
+### 16.1 Consumer matrix
+
+| Relation outcome | Binding declaration / assignment | Call argument / setter / subscript / operator | Return | Generic constraint |
+|---|---|---|---|---|
+| `Assignable` | validate contract; preserve actual fact | continue; preserve operands | accept path | add satisfied evidence |
+| `Refuted` | own mismatch; retain actual/current recovery fact | owning operation creates one cause; independent result may survive | own return mismatch | retain real conflict evidence |
+| `DynamicBoundary` | mark runtime-dependent consistency | propagate dynamic semantics | preserve dynamic boundary | do not claim static satisfaction |
+| `Blocked` | leave consistency unresolved | propagate blocked reason | callable path incomplete | solver blocked with dependency |
+| `Uncertain` | apply explicit uncertainty policy | preserve uncertainty; no fabricated success | summary remains uncertain | retain underconstrained/ambiguous state |
+| `Cancelled` | do not commit unfinished transition | propagate cancellation | callable analysis cancelled | cancel solver transaction |
+| `BudgetExceeded` | do not claim validation | propagate budget report | partial result only when independent | preserve budget report |
+| `InternalFailure` | contain incident; no source mismatch | propagate/contain internal failure | callable incomplete | abort affected solver product |
+
+Every cell also preserves upstream causal invalidity and the relation's explanation evidence. Result knowledge survives only when its derivation is independent of the failed or unfinished relation.
+
+### 16.2 Complete-outcome consumption
+
+A consumer must consume the complete `RelationOutcome`. Calling a relation only for incidental side effects and discarding its status, evidence, operands, cause, or terminal payload is non-conforming unless the consumer proves those fields have no observable consequence for that operation.
+
 ---
 
 ## 17. Relation purity and diagnostics
@@ -451,9 +470,3 @@ generic constraint/inference
 Not every terminal state must have a source-level syntax fixture if it is not naturally source-triggerable. Internal tests may inject relation outcomes through the lowest legitimate semantic API.
 
 The critical rule is that every variant be exercised through at least one consumer that would otherwise be capable of collapsing it.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

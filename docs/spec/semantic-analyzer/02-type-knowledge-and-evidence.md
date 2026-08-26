@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 02 — Type Knowledge, Evidence, Authority, and Provenance
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify how the analyzer represents knowledge about runtime value types, how that knowledge obtains authority, how its strength changes, and how provenance is preserved through derived facts.
 
@@ -126,7 +126,7 @@ A checker coverage gap remains a coverage gap. It does not become `Unit`, `Objec
 
 ### 4.2 Unknown reason preservation
 
-Aggregation should preserve semantically meaningful unknown reasons where practical. A summary operation must not replace every non-concrete result with a generic `UncheckedExpression` reason.
+Aggregation must preserve semantically meaningful unknown reasons through the published reason or its bounded explanation. A summary operation must not replace every non-concrete result with a generic `UncheckedExpression` reason.
 
 If multiple reasons converge, the implementation may use a deterministic aggregate class, explanation node, or stable precedence rule. Arbitrary first-input selection should not determine semantics.
 
@@ -189,7 +189,7 @@ The following transformations are normative:
 |---|---|---|
 | literal result | Established | literal/syntax semantics |
 | exact `@constructor` result | Established | constructor semantics |
-| exact ordinary callable return | Established | callable signature/contract |
+| canonical exact ordinary callable return from trusted formal contract | Established | callable signature/contract |
 | trusted native result | Established | native signature |
 | solved generic result from established support | Established | generic inference |
 | solved generic result from any return-influencing assumed support | Assumed | generic inference |
@@ -280,6 +280,50 @@ Assumed(Int) + Assumed(Int) != Established(Int)
 ```
 
 Likewise, a subtype relation successfully proven using an assumed premise does not upgrade the premise.
+
+### 8.4 Epistemic support law
+
+A derived proposition may be `Established` only when one of these conditions holds:
+
+1. every premise on which that proposition semantically depends is established; or
+2. an authorized formal derivation supplies evidence sufficient to establish the proposition independently of weaker premises.
+
+The relevant premises are the premises that influence the proposition. An assumed argument that does not influence a fixed return does not weaken that return; an assumed callable value or return-influencing argument does.
+
+```text
+Assumed((Int) -> String) used as the callee premise
+    -> call result is at most Assumed(String)
+
+canonical resolved callable with an independently trusted fixed return String
+    -> result may be Established(String)
+```
+
+Inference support follows the more specific rules in `07-generic-inference-engine.md`. Call-result authority follows `08-callable-analysis-and-publication.md`.
+
+### 8.5 Unknown-reason preservation
+
+An operation must preserve a specific `UnknownReason` unless a real semantic transformation produces a more accurate reason or an explicit information-preserving abstraction combines several reasons.
+
+It must not replace a reason merely because the consumer lacks a concrete `TypeId`.
+
+```text
+UnresolvedName -> UnannotatedDeclaration       forbidden
+InferenceCancelled -> UnannotatedDeclaration   forbidden
+SyntaxError -> UncheckedExpression             forbidden
+```
+
+At joins, multiple reasons may become a deterministic aggregate, bounded summary, or stable precedence result when the full explanation graph retains the contributing reasons. Arbitrary traversal order must not decide the published reason.
+
+### 8.6 Knowledge-composition table
+
+| Supporting premise | Pure transformation that depends on it | Independent exact derivation | Contextual derivation | Reachable join |
+|---|---|---|---|---|
+| `Established(T)` | preserve `Established` | `Established` | strength justified by the contextual rule | weakest justified branch strength |
+| `Assumed(T)` | at most `Assumed` | may be `Established` only when independent | at most `Assumed` unless independent evidence exists | at most `Assumed` |
+| `Unknown(R)` | preserve/transform `Unknown(R)` | may retain an independent result | unknown unless the rule does not require the missing premise | unknown or bounded aggregate |
+| `Dynamic(D)` | preserve the dynamic boundary | may retain an independent result | dynamic unless the rule is independent | dynamic according to the join domain |
+
+“Independent” is a semantic dependency claim and must be represented by the operation's derivation, not inferred from the fact that a concrete return type happens to be available.
 
 ---
 
@@ -470,9 +514,3 @@ map_type(Assumed(T))                    -> Assumed(mapped T)
 ```
 
 Composition tests should assert full products. A test of a refuted annotation is incomplete if it checks only the final `TypeId`; it must check contract, current knowledge, evidence strength, consistency, causal state, and any downstream behavior whose correctness depends on those facts.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

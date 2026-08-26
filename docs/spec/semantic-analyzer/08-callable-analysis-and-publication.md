@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 08 — Callable Analysis, Body Entry, Return Summaries, and Publication
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify how callable signatures become body-entry contracts, how body analysis accumulates semantic products, how return information is summarized, and how exact callable semantics are projected back to call sites.
 
@@ -272,6 +272,21 @@ Established/Assumed(..., GenericInference)
 
 This path is distinct from fixed return promotion.
 
+### 10.5 Call-result authority matrix
+
+| Callee basis | Return basis | Published result authority |
+|---|---|---|
+| canonical resolved declaration | trusted fixed formal signature | `Established` |
+| trusted native/intrinsic | canonical native contract | `Established` |
+| exact constructor dispatch | `Self`/constructor semantics | `Established` |
+| generic solution with established return-influencing support | solved return | `Established` |
+| generic solution with assumed return-influencing support | solved return | `Assumed` |
+| callable-valued premise known only as `Assumed` | fixed callable form | at most `Assumed`, absent independent authority |
+| unknown callee | none | `Unknown` with preserved reason |
+| dynamic callee | runtime dispatch | `Dynamic` / `DynamicBoundary` |
+
+Concrete return syntax alone is insufficient authority. Promotion requires canonical callable semantics or another authorized derivation, and the result must be weakened by every premise that actually influences it.
+
 ---
 
 ## 11. Independent result knowledge and call invalidity
@@ -338,6 +353,20 @@ class CellNum {
 ```
 
 The body of `of()` can establish `CellNum` from constructor semantics. Its return summary can then make the exact `CellNum.of()` call contract/result available to callers according to signature/body inference policy.
+
+### 13.1 Callable identity versus body representation
+
+Callable semantic identity and executable/body representation are distinct.
+
+```text
+CallableId
+    identifies public semantic callable, owner, selector, and dispatch side
+
+body/execution identity
+    identifies analyzed or executable implementation body
+```
+
+A constructor's canonical public callable identity remains class-side even when its implementation body is analyzed or executed using an instance receiver. Body representation must not rewrite that identity or trigger a generic class-side-to-instance-side dispatch fallback. Chapter 10 owns identity and attachment lifetimes; this chapter owns the call/constructor consequence.
 
 The explanation chain should distinguish:
 
@@ -463,9 +492,3 @@ Consumers may rely on:
 
 - cancellation and budget at body level remain distinguishable;
 - partial body publication does not masquerade as complete verification.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.

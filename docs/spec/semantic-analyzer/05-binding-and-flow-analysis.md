@@ -1,7 +1,7 @@
-# Phalcom Semantic Analyzer Implementation Specification
+# Phalcom Semantic Analyzer Specification
 ## 05 — Binding and Flow Analysis
 
-**Status:** Normative semantic implementation specification.
+**Status:** Normative semantic-analyzer specification.
 
 **Purpose:** Specify the semantic state of bindings and the behavior of declaration, initialization, reassignment, branch merge, loop analysis, widening, and flow publication.
 
@@ -46,6 +46,8 @@ A lexical name lookup resolves to a binding identity. The same source name can c
 The same `BindingId` across incoming control-flow states denotes the same binding. Therefore declaration-stable properties associated with that identity—especially its persistent contract and mutability—must not silently disagree at a flow join.
 
 Such disagreement indicates an analyzer invariant failure or malformed flow construction, not ordinary user-level type uncertainty.
+
+`BindingId` is body-analysis identity. `SourceSiteId` is source-site identity. Their correspondence must be published explicitly and canonically; equality of spelling, source range, or nearest declaration is not a valid attachment algorithm. Identity lifetimes and attachments are specified in `10-semantic-identity-source-sites-and-attachments.md`.
 
 ---
 
@@ -265,6 +267,20 @@ When a mutable write violates the persistent contract, recovery should preserve 
 This allows subsequent analysis to reflect the program actually written rather than pretending the invalid assignment never affected value flow.
 
 Immutable-write recovery is different: the write is not semantically permitted to mutate the binding.
+
+### 8.4 Binding transition matrix
+
+| Persistent contract | RHS/current knowledge | Relation outcome | Resulting current knowledge | Consistency | Operation status / cause |
+|---|---|---|---|---|---|
+| none | known/assumed | not required | actual RHS knowledge | unconstrained | preserve RHS status/cause |
+| present | known | `Assignable` | actual RHS knowledge | validated | ready plus upstream causes |
+| present | known | `Refuted` | actual RHS knowledge for permitted mutable write | refuted | invalid with owning cause |
+| present | assumption-eligible unknown | assumption rule applies | `Assumed(contract)` | assumed | ready or causally non-clean as justified |
+| present | non-eligible unknown | `Uncertain`/blocked | preserve honest unknown | unresolved | propagate structured outcome |
+| present | dynamic | `DynamicBoundary` | dynamic | runtime-dependent | dynamic boundary |
+| any | blocked/cancelled/budget/internal | matching terminal outcome | retain only independent prior/result facts | unresolved | propagate terminal outcome unchanged |
+
+Declaration initialization and reassignment may refine individual cells where their language semantics differ. They must preserve the same contract/current/consistency/status dimensions and may not collapse a terminal outcome into successful assignment.
 
 ---
 
@@ -562,9 +578,3 @@ Consumers may rely on:
 
 - epistemic status changes alter semantic identity where observable;
 - incidental ordering changes do not.
-
----
-
-## Source basis
-
-This specification is derived from the Part 1 Formal Semantic Epistemic Foundation specification and its Corrections and Amendments. The amendments take precedence on generic failure evidence, inference support, suppression-cause representation, and semantic fingerprinting. Repository implementation notes were re-grounded against `aureat/phalcom-lang` `main` at `c3b82e4b88469ef9fc79aa65a03e0bed95dc908d`; such notes are non-normative and may be updated as the code evolves.
