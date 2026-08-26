@@ -1,4 +1,4 @@
-//! Workspace symbol index: `selector -> definitions`/`selector -> references`.
+//! Text-only compatibility index: `selector -> definitions`/`selector -> references`.
 //!
 //! Stage 2 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md`). Built by scanning
 //! every `.ph` file under the workspace root(s) at `initialize`, then kept
@@ -270,9 +270,11 @@ struct FileContribution {
     classes: Vec<String>,
 }
 
-/// The workspace symbol index: definitions and references, both keyed by
-/// ADR-0012 comma-form selector, plus a class-member map (Stage 3) keyed by
-/// bare class name for receiver-aware completion.
+/// Text-derived workspace compatibility index. Exact compiler-covered
+/// requests must not consult this index for semantic identity, dispatch, or
+/// module meaning. It remains available only for stale/unmapped protocol
+/// fallback and legacy text navigation while the duplicate LSP semantic layer
+/// is being removed.
 #[derive(Default)]
 pub struct WorkspaceIndex {
     definitions: SelectorMap,

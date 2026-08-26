@@ -5,10 +5,11 @@
 //! [`DocumentStore`] and publish live, multi-error diagnostics.
 //!
 //! Stage 2 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 2"): a
-//! [`WorkspaceIndex`] scanned from every `.ph` file under the workspace
-//! root(s) at `initialize`, kept current per-file on `did_open`/`did_change`,
-//! and served through `textDocument/definition`, `textDocument/references`,
-//! and `workspace/symbol`.
+//! text-only [`WorkspaceIndex`] scanned from every `.ph` file under the
+//! workspace root(s) at `initialize`, kept current per-file on
+//! `did_open`/`did_change`, and retained only for stale/unmapped compatibility
+//! fallback. Exact compiler-covered definition, reference, and workspace
+//! symbol requests use compiler source indexes.
 //!
 //! Stage 3 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 3"):
 //! receiver-aware `textDocument/completion`, resolving the receiver through
@@ -344,11 +345,9 @@ pub struct Backend {
     /// The open-document store: text + cached parse + cached [`LineIndex`]
     /// per open file.
     documents: DocumentStore,
-    /// The workspace-wide selector index (Stage 2): every `ClassMember`
-    /// definition and send-site reference, keyed by ADR-0012 comma-form
-    /// selector. Backed by a concurrent map internally, so it can be read
-    /// and written from concurrent `&self` handlers without a server-wide
-    /// lock — no `Arc`/`Mutex` wrapper needed around it here.
+    /// Text-only workspace compatibility index. Exact compiler-covered
+    /// semantic requests bypass it; stale/unmapped requests may use it while
+    /// the duplicate LSP semantic layer is being removed.
     index: Arc<WorkspaceIndex>,
     /// Immutable semantic publication reader; compiler snapshots are pinned
     /// from this handle at request entry.

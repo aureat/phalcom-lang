@@ -133,7 +133,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Workspace symbols use compiler declaration/source index first, with text-index fallback.
 - [ ] Snapshot-local identities cannot alias across revisions.
 - [ ] All semantic WorkspaceIndex consumers are removed.
-- [ ] WorkspaceIndex is deleted or reduced to a documented non-semantic text-only role.
+- [x] WorkspaceIndex is deleted or reduced to a documented non-semantic text-only role. Status: retained only for stale/unmapped compatibility fallback; exact compiler-covered requests bypass it.
 
 ### Task 11: Modules and core navigation
 
@@ -268,7 +268,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [ ] 65. Duplicate LSP semantic engine/database is deleted. Status: pending.
 - [ ] 66. Duplicate LSP semantic IDs are deleted. Status: pending.
 - [ ] 67. Duplicate LSP scope/occurrence/dispatch/module graph/advisory solver is deleted. Status: pending.
-- [ ] 68. WorkspaceIndex semantic authority is deleted. Status: pending.
+- [x] 68. WorkspaceIndex semantic authority is deleted. Status: exact compiler-covered requests bypass the documented text-only compatibility index; remaining use is limited to stale/unmapped fallback while duplicate LSP deletion proceeds.
 - [ ] 69. Cold and incremental final semantic products pass parity tests. Status: pending.
 - [ ] 70. Open/change/close lifecycle tests pass. Status: pending.
 - [ ] 71. Delete/rename lifecycle tests pass. Status: pending.
@@ -326,6 +326,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Request-path formal/advisory solver audit.
   Result: source audit of request handlers and semantic adapters passed; focused consumer gates remain green.
   Evidence: request handlers read immutable formal/advisory products and never call the compiler analyzer or advisory solver. `SemanticSnapshot::infer_expression` remains a compatibility-only expression fallback for missing compiler coverage; duplicate authority and AST surface reconstruction remain open.
+- [x] WorkspaceIndex authority-boundary audit.
+  Result: source comments and request branches reviewed; full LSP integration remains green.
+  Evidence: `WorkspaceIndex` is documented and used as a text-derived stale/unmapped compatibility index. Exact compiler-covered definition, references, workspace symbols, completion, and hover branches do not consult it for semantic identity or dispatch.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
