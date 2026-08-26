@@ -73,7 +73,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Retain TypeStore across ordinary revisions.
 - [x] Invalidate removed-module reverse closure.
 - [x] Publish semantic errors with current products.
-- [~] Discard cancelled, budget-exceeded, and stale candidates. Status: cancellation publication is verified; budget/stale candidate coverage remains open.
+- [~] Discard cancelled, budget-exceeded, and stale candidates. Status: cancellation and budget-exceeded publication are verified; stale candidate coverage remains open.
 - [ ] Retain last-known-good on infrastructure failure.
 - [ ] Add structural recomputation counters.
 
@@ -325,7 +325,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
   Evidence: a module with an unresolved annotation retains semantic diagnostics while publishing source, formal projection, source index, callable analysis, and advisory module products.
 - [x] Cancelled candidate publication regression.
   Result: `cargo test -p phalcom-semantic --test semantic incremental::type_store_revisions::cancelled_update_preserves_last_known_good -- --nocapture` — 1 passed.
-  Evidence: a cancelled revision preserves both last-known-good and current published snapshots, including the prior source text; budget-exceeded and stale-candidate paths remain open.
+  Evidence: cancelled and zero-budget revisions preserve both last-known-good and current published snapshots, including the prior source text; stale-candidate path remains open.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.

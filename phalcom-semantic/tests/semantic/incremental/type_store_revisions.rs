@@ -148,7 +148,7 @@ fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
 
 #[test]
 fn cancelled_update_preserves_last_known_good() {
-    use phalcom_semantic::db::{CancellationToken, QueryBudget};
+    use phalcom_semantic::db::{CancellationToken, QueryBudget, QueryOutcome};
 
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(1),
@@ -186,6 +186,23 @@ class Worker {
     assert_eq!(last_good.generation, 1);
     let published = session.last_snapshot().expect("published snapshot exists");
     assert_eq!(published.generation, 1, "cancelled candidate must not replace published snapshot");
+    assert_eq!(published.sources[&module].text.as_ref(), src1);
+
+    let src3 = r#"
+class Worker {
+  work -> Int {
+    300
+  }
+}
+"#;
+    let budgeted = session.update_with_budget_and_cancel(
+        build_input(module.clone(), src3, 3),
+        QueryBudget::new(0),
+        &CancellationToken::new(),
+    );
+    assert!(matches!(budgeted, Err(QueryOutcome::BudgetExceeded(_))));
+    let published = session.last_snapshot().expect("published snapshot remains available");
+    assert_eq!(published.generation, 1, "budget-exceeded candidate must not replace published snapshot");
     assert_eq!(published.sources[&module].text.as_ref(), src1);
 }
 
