@@ -341,6 +341,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Open/change/close/reopen compiler-world lifecycle regression.
   Result: `cargo test -p phalcom-lsp --test integration workspace_semantics::open_change_close_reopen_preserves_latest_compiler_world -- --nocapture` — 1 passed.
   Evidence: compiler-backed completion exposes the initial member, replaces it after `didChange`, and retains only the latest member after `didClose` followed by `didOpen`; stale completion is absent in both updated states.
+- [x] Workspace clippy and lifecycle retry-path cleanup.
+  Result: `cargo test -p phalcom-lsp --lib analysis_service::tests -- --nocapture` — 17 passed; `cargo test -p phalcom-lsp --test integration workspace_semantics -- --nocapture` — 10 passed; `cargo clippy --workspace` passed.
+  Evidence: overlay recovery behavior remains green after converting the single-attempt retry loop to explicit control flow; workspace lint reaches successful completion with warnings only.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
@@ -440,7 +443,8 @@ Every item remains unchecked until independently evidenced. Initial status descr
   Evidence: unit, language, module-linker, reflection, native-contract, semantic-analysis, invariant, and universe targets passed.
 - [x] cargo test -p phalcom-lsp
   Result: full package target set passed; see focused record above.
-- [ ] cargo clippy --workspace
+- [x] cargo clippy --workspace
+  Result: passed with existing non-denied style warnings; the worker retry path no longer triggers denied `clippy::never_loop`.
 
 ### Audit evidence
 

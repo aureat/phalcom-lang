@@ -1061,31 +1061,29 @@ fn publish_persistent_compiler_workspace(
         .into_iter()
         .map(|(uri, location, text, revision, program)| (uri, (location, text, revision, program)))
         .collect::<BTreeMap<_, _>>();
-    let update = loop {
-        match identity.session.module_session_mut().set_overlays_with_programs(active.values().map(|(location, text, revision, program)| {
-            (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
-        })) {
-            Ok(update) => break update,
-            Err(_) if active.len() > 1 => {
-                let mut recovered = None;
-                for uri in active.keys().cloned().collect::<Vec<_>>() {
-                    let mut trial = active.clone();
-                    trial.remove(&uri);
-                    if let Ok(update) = identity.session.module_session_mut().set_overlays_with_programs(
-                        trial.values().map(|(location, text, revision, program)| {
-                            (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
-                        }),
-                    ) {
-                        recovered = Some((trial, update));
-                        break;
-                    }
+    let update = match identity.session.module_session_mut().set_overlays_with_programs(active.values().map(|(location, text, revision, program)| {
+        (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
+    })) {
+        Ok(update) => update,
+        Err(_) if active.len() > 1 => {
+            let mut recovered = None;
+            for uri in active.keys().cloned().collect::<Vec<_>>() {
+                let mut trial = active.clone();
+                trial.remove(&uri);
+                if let Ok(update) = identity.session.module_session_mut().set_overlays_with_programs(
+                    trial.values().map(|(location, text, revision, program)| {
+                        (location.clone(), text.clone(), *revision, Arc::new(program.clone()))
+                    }),
+                ) {
+                    recovered = Some((trial, update));
+                    break;
                 }
-                let Some((next, update)) = recovered else { return None };
-                active = next;
-                break update;
             }
-            Err(_) => return None,
+            let Some((next, update)) = recovered else { return None };
+            active = next;
+            update
         }
+        Err(_) => return None,
     };
     for (uri, (location, _, _, _)) in active {
         if let Some(module) = identity.session.module_session().module_for_source(&location.source_id).cloned() {
