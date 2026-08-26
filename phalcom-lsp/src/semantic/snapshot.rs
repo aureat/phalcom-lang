@@ -259,33 +259,40 @@ impl SemanticSnapshot {
 
     /// Returns all references to a `SemanticTarget` in the workspace.
     pub fn references_for_target(&self, uri: &Url, target: &SemanticTarget) -> Vec<(Url, SourceRange, OccurrenceRole)> {
-        if let Some(compiler_snapshot) = self.current_compiler_snapshot()
-            && let Some(canonical) = self.canonical_target_for_lsp(uri, target, compiler_snapshot)
-            && let Some(sites) = compiler_snapshot.occurrences_for_target(&canonical)
-        {
-            let mut results = Vec::new();
-            for site in sites {
-                let module = match &site.owner {
-                    phalcom_semantic::identity::SourceOwner::Module(module) => module,
-                    phalcom_semantic::identity::SourceOwner::Callable(callable) => &callable.owner.module,
-                };
-                let Some(source) = compiler_snapshot.source_site(site) else { continue };
-                let Some(file_uri) = self.documents.get_by_module(module) else { continue };
-                let role = compiler_snapshot
-                    .source_index()
-                    .module(module)
-                    .and_then(|module| module.occurrences.occurrence_for_site(site))
-                    .map(|occurrence| match occurrence.role {
-                        phalcom_semantic::source_index::OccurrenceRole::Declaration => OccurrenceRole::Declaration,
-                        phalcom_semantic::source_index::OccurrenceRole::Read => OccurrenceRole::Read,
-                        phalcom_semantic::source_index::OccurrenceRole::Write => OccurrenceRole::Write,
-                        phalcom_semantic::source_index::OccurrenceRole::Call => OccurrenceRole::Call,
-                        phalcom_semantic::source_index::OccurrenceRole::Reference => OccurrenceRole::Reference,
-                    })
-                    .unwrap_or(OccurrenceRole::Reference);
-                results.push((file_uri.clone(), source.range, role));
+        if let Some(compiler_snapshot) = self.current_compiler_snapshot() {
+            if let Some(canonical) = self.canonical_target_for_lsp(uri, target, compiler_snapshot)
+                && let Some(sites) = compiler_snapshot.occurrences_for_target(&canonical)
+            {
+                let mut results = Vec::new();
+                for site in sites {
+                    let module = match &site.owner {
+                        phalcom_semantic::identity::SourceOwner::Module(module) => module,
+                        phalcom_semantic::identity::SourceOwner::Callable(callable) => &callable.owner.module,
+                    };
+                    let Some(source) = compiler_snapshot.source_site(site) else { continue };
+                    let Some(file_uri) = self.documents.get_by_module(module) else { continue };
+                    let role = compiler_snapshot
+                        .source_index()
+                        .module(module)
+                        .and_then(|module| module.occurrences.occurrence_for_site(site))
+                        .map(|occurrence| match occurrence.role {
+                            phalcom_semantic::source_index::OccurrenceRole::Declaration => OccurrenceRole::Declaration,
+                            phalcom_semantic::source_index::OccurrenceRole::Read => OccurrenceRole::Read,
+                            phalcom_semantic::source_index::OccurrenceRole::Write => OccurrenceRole::Write,
+                            phalcom_semantic::source_index::OccurrenceRole::Call => OccurrenceRole::Call,
+                            phalcom_semantic::source_index::OccurrenceRole::Reference => OccurrenceRole::Reference,
+                        })
+                        .unwrap_or(OccurrenceRole::Reference);
+                    results.push((file_uri.clone(), source.range, role));
+                }
+                return results;
             }
-            return results;
+            // A current compiler snapshot owns this mapped request even when
+            // its occurrence has only an unresolved hint. Do not replace that
+            // bounded result with a legacy workspace-wide scan.
+            if self.documents.get_by_uri(uri).is_some() {
+                return Vec::new();
+            }
         }
         match target {
             SemanticTarget::Binding(_) => {
