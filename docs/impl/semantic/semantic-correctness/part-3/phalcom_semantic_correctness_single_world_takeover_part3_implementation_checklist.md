@@ -207,7 +207,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 16. The LSP worker publishes one compiler Arc<SemanticSnapshot>. Status: focused worker test passes; all consumers remain open.
 - [x] 17. A request pins one compiler snapshot handle. Status: source implementation landed; concurrent immutability test remains open.
 - [x] 18. Source-position semantic queries require source-revision coherence. Status: Exact/Stale/Unmapped classification landed; full consumer audit remains open.
-- [ ] 19. Stale semantic diagnostics are not rendered against current open-buffer ranges. Status: pending.
+- [x] 19. Stale semantic diagnostics are not rendered against current open-buffer ranges. Status: syntax-only publication is retained until compiler source text matches; stage 7 stale/recovery diagnostics pass.
 - [x] 20. Semantic errors still publish current semantic products. Status: verified by focused semantic integration regression.
 - [x] 21. Cancelled/stale candidate updates never publish. Status: verified by compiler and LSP focused regressions.
 - [ ] 22. Last-known-good publication survives infrastructure failure. Status: partial.
@@ -221,7 +221,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 27. Ordinary advisory type labels contain no advisory glyph. Status: UX audit passed.
 - [x] 28. Inlay hints contain no advisory glyph. Status: UX audit passed.
 - [x] 29. Signature help contains no advisory glyph. Status: UX audit passed.
-- [ ] 30. Completion items contain no advisory glyph/status decoration. Status: pending.
+- [x] 30. Completion items contain no advisory glyph/status decoration. Status: stage 3 completion presentation regression passes.
 - [x] 31. Production hover contains no Confidence taxonomy. Status: UX audit passed.
 - [x] 32. Production hover contains no Observed type/Observed return boilerplate. Status: UX audit passed.
 - [ ] 33. Hover primary line uses canonical ordinary Phalcom spelling. Status: partial.
@@ -247,7 +247,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 
 ### Compiler snapshot consumers
 
-- [ ] 50. Diagnostics consume the compiler snapshot directly. Status: pending.
+- [x] 50. Diagnostics consume the compiler snapshot directly. Status: diagnostic publication now accepts the pinned compiler snapshot and boundary module map directly; stage 1 and stage 7 diagnostics pass.
 - [ ] 51. Hover consumes compiler source-site/presentation views directly. Status: pending.
 - [~] 52. Inlay hints consume compiler source sites directly. Status: formal binding lane is compiler-first; field, parameter, return, and closure lanes remain compatibility-backed.
 - [x] 53. Signature help resolves canonical compiler callable signatures. Status: exact-source path projects canonical compiler signatures with formal terms and advisory fallback; focused integration passes.
@@ -317,6 +317,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Compiler-owned import completion cutover.
   Result: `cargo test -p phalcom-lsp --test integration stage3_completion:: -- --nocapture` — 4 passed; `cargo test -p phalcom-lsp --test integration workspace_semantics -- --nocapture` — 9 passed; `cargo check -p phalcom-lsp -p phalcom-modules` passed.
   Evidence: import/module completion now accepts the pinned compiler semantic snapshot and canonical importer module directly; no protocol semantic snapshot or URI-based fallback participates on exact-source requests.
+- [x] Compiler-owned diagnostic publication cutover.
+  Result: `cargo test -p phalcom-lsp --test integration stage1_diagnostics:: -- --nocapture` — 1 passed; `cargo test -p phalcom-lsp --test integration stage7_static_diagnostics:: -- --nocapture` — 2 passed; `cargo check -p phalcom-lsp` passed.
+  Evidence: syntax diagnostics remain available without compiler publication; semantic diagnostics are read from the compiler snapshot only after canonical module and source-text coherence checks, preventing stale semantic ranges from being published.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.

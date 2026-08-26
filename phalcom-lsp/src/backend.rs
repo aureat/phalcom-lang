@@ -160,38 +160,34 @@ struct DiagnosticPublication {
     version: Option<i32>,
 }
 
-fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticSnapshot, uri: &Url) -> Option<DiagnosticPublication> {
+fn combined_diagnostics_for(
+    documents: &DocumentStore,
+    compiler_snapshot: Option<&crate::semantic::CompilerSemanticSnapshot>,
+    document_modules: &crate::semantic::DocumentModuleMap,
+    uri: &Url,
+) -> Option<DiagnosticPublication> {
     let document = documents.snapshot(uri)?;
     let mut diagnostics = syntax_errors_to_diagnostics(&document.parse.errors, &document.line_index);
     let syntax_only = |diagnostics| DiagnosticPublication {
         diagnostics,
         version: document.version,
     };
-    let Some(module) = semantic.module_for_uri(uri) else {
+    let Some(module) = document_modules.get_by_uri(uri) else {
         return Some(syntax_only(diagnostics));
     };
-    let Some(file) = semantic.file(module) else {
+    let Some(compiler_snapshot) = compiler_snapshot else {
         return Some(syntax_only(diagnostics));
     };
-    let Some(compiler_snapshot) = semantic.compiler_snapshot.as_deref() else {
-        return Some(syntax_only(diagnostics));
-    };
-    if file.revision != document.revision || compiler_snapshot.generation != semantic.generation.0 {
-        return Some(syntax_only(diagnostics));
-    }
-    let Some(static_module) = semantic.documents.get_by_uri(uri) else {
-        return Some(syntax_only(diagnostics));
-    };
-    let Some(static_source) = compiler_snapshot.sources.get(static_module) else {
+    let Some(static_source) = compiler_snapshot.sources.get(module) else {
         return Some(syntax_only(diagnostics));
     };
     if static_source.text.as_ref() != document.text.as_ref() {
         return Some(syntax_only(diagnostics));
     }
-    if let Some(semantic_diagnostics) = compiler_snapshot.diagnostics.get(static_module) {
+    if let Some(semantic_diagnostics) = compiler_snapshot.diagnostics.get(module) {
         let mut diagnostic_sources = BTreeMap::new();
         for (module, source) in compiler_snapshot.sources.iter() {
-            if let Some(source_uri) = semantic.documents.get_by_module(module) {
+            if let Some(source_uri) = document_modules.get_by_module(module) {
                 diagnostic_sources.insert(
                     module.clone(),
                     SemanticDiagnosticSource {
@@ -202,7 +198,7 @@ fn combined_diagnostics_for(documents: &DocumentStore, semantic: &SemanticSnapsh
             }
         }
         diagnostic_sources.insert(
-            static_module.clone(),
+            module.clone(),
             SemanticDiagnosticSource {
                 uri: uri.clone(),
                 line_index: (*document.line_index).clone(),
@@ -533,7 +529,7 @@ impl Backend {
             self.index.update_file(uri.clone(), &doc.parse.program);
         });
         let semantic = self.semantic.snapshot();
-        let diagnostics = combined_diagnostics_for(&self.documents, &semantic, &uri)
+        let diagnostics = combined_diagnostics_for(&self.documents, semantic.compiler_snapshot.as_deref(), &semantic.documents, &uri)
             .map(|publication| publication.diagnostics)
             .unwrap_or_default();
         self.client.publish_diagnostics(uri, diagnostics, version).await;
@@ -2096,7 +2092,12 @@ impl LanguageServer for Backend {
                         AnalysisEvent::Published { effects, .. } => {
                             let semantic_snapshot = semantic.snapshot();
                             for uri in documents.open_uris() {
-                                let Some(publication) = combined_diagnostics_for(&documents, &semantic_snapshot, &uri) else {
+                                let Some(publication) = combined_diagnostics_for(
+                                    &documents,
+                                    semantic_snapshot.compiler_snapshot.as_deref(),
+                                    &semantic_snapshot.documents,
+                                    &uri,
+                                ) else {
                                     continue;
                                 };
                                 client.publish_diagnostics(uri, publication.diagnostics, publication.version).await;
