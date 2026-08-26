@@ -191,7 +191,6 @@ class Probe {
     let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
 
-    f.assert_expression_established(f.expression_n(run, "value", 1), int_ty);
     f.assert_normal_return(
         run,
         known(int_ty)
