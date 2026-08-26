@@ -184,6 +184,9 @@ class Worker {
     // Last known good snapshot is still generation 1
     let last_good = session.last_known_good_snapshot().expect("last known good snapshot exists");
     assert_eq!(last_good.generation, 1);
+    let published = session.last_snapshot().expect("published snapshot exists");
+    assert_eq!(published.generation, 1, "cancelled candidate must not replace published snapshot");
+    assert_eq!(published.sources[&module].text.as_ref(), src1);
 }
 
 #[test]
