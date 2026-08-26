@@ -274,7 +274,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [ ] 71. Delete/rename lifecycle tests pass. Status: pending.
 - [ ] 72. Project configuration lifecycle tests pass. Status: pending.
 - [ ] 73. Cancellation/latest-wins tests pass. Status: pending.
-- [ ] 74. Concurrent old-snapshot request immutability test passes. Status: pending.
+- [x] 74. Concurrent old-snapshot request immutability test passes. Status: `request_context` unit test passes in the current full LSP library run.
 - [x] 75. Body-only edit structural counters show no project-universe rebuild. Status: verified by incremental stats regression.
 - [ ] 76. Unrelated callables remain reused after isolated body edit. Status: pending.
 - [ ] 77. Presentation-only/semantic-token refreshes are fingerprint-driven. Status: pending.
@@ -284,7 +284,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 78. cargo check --workspace passes. Status: verified.
 - [x] 79. cargo test -p phalcom-modules passes. Status: verified.
 - [x] 80. cargo test -p phalcom-semantic passes. Status: verified.
-- [ ] 81. cargo test -p phalcom-core passes. Status: unverified.
+- [x] 81. cargo test -p phalcom-core passes. Status: current package run passes all 81 unit, 191 integration, 48 invariant, 58 language, and remaining contract targets; 4 language tests are ignored by design.
 - [x] 82. cargo test -p phalcom-lsp passes. Status: verified.
 - [ ] 83. IDE golden acceptance tests pass. Status: pending.
 - [x] 84. UX forbidden-pattern audit is manually reviewed. Status: verified; no forbidden production strings remain.
@@ -355,6 +355,12 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] `cargo test -p phalcom-core --test native_contracts -- --nocapture`
   Result: passed.
   Evidence: System.print Unit metadata/runtime and System.gc None metadata/runtime.
+- [x] Current consolidated LSP consumer rerun.
+  Result: `cargo test -p phalcom-lsp --lib -- --nocapture` — 246 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
+  Evidence: import completion, compiler-owned diagnostic publication, workspace propagation, request pinning, hover, completion, semantic tokens, inlay hints, navigation, and lifecycle consumers remain green after the latest cutover slices.
+- [x] Current compiler package rerun.
+  Result: `cargo test -p phalcom-core -- --nocapture` — all package targets passed: 81 unit, 191 integration, 48 invariants, 58 language, and contract/spec targets; 4 language tests ignored by design.
+  Evidence: core/runtime/native contract surface remains green after semantic/LSP changes.
 - [x] `cargo test -p phalcom-semantic --test semantic -- --nocapture`
   Result: 382 passed, 10 ignored.
   Evidence: trusted native Unit call/tail publication and compiler semantic baseline.
