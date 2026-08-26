@@ -72,7 +72,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Publish one coherent snapshot atom.
 - [x] Retain TypeStore across ordinary revisions.
 - [x] Invalidate removed-module reverse closure.
-- [ ] Publish semantic errors with current products.
+- [x] Publish semantic errors with current products.
 - [ ] Discard cancelled, budget-exceeded, and stale candidates.
 - [ ] Retain last-known-good on infrastructure failure.
 - [ ] Add structural recomputation counters.
@@ -208,7 +208,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 17. A request pins one compiler snapshot handle. Status: source implementation landed; concurrent immutability test remains open.
 - [x] 18. Source-position semantic queries require source-revision coherence. Status: Exact/Stale/Unmapped classification landed; full consumer audit remains open.
 - [ ] 19. Stale semantic diagnostics are not rendered against current open-buffer ranges. Status: pending.
-- [ ] 20. Semantic errors still publish current semantic products. Status: partial.
+- [x] 20. Semantic errors still publish current semantic products. Status: verified by focused semantic integration regression.
 - [ ] 21. Cancelled/stale candidate updates never publish. Status: pending.
 - [ ] 22. Last-known-good publication survives infrastructure failure. Status: partial.
 - [ ] 23. Formal and advisory facts remain distinct internally. Status: partial.
@@ -320,6 +320,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Removed-module reverse invalidation regression.
   Result: `cargo test -p phalcom-semantic --test semantic incremental::callable_dependencies -- --nocapture` — 9 passed.
   Evidence: removing an imported provider invalidates its parsed/interface/declaration/callable products, the dependent client body, and the provider advisory roots; reverse advisory edges are no longer left outside the removal closure.
+- [x] Semantic-error publication regression.
+  Result: `cargo test -p phalcom-semantic --test semantic integration::advisory -- --nocapture` — 16 passed.
+  Evidence: a module with an unresolved annotation retains semantic diagnostics while publishing source, formal projection, source index, callable analysis, and advisory module products.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.

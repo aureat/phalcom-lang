@@ -133,6 +133,12 @@ fn formal_projection_preserves_causal_invalidity_and_binding_contracts() {
     let source = "class Probe { @class run() { let x: Int = 42\nlet y: Missing = 42\n } }\n";
     let mut session = SemanticWorkspaceSession::new();
     let update = session.update(input(module.clone(), source, 1));
+    assert!(update.snapshot.has_errors(), "fixture must retain its semantic error");
+    assert!(update.snapshot.sources.contains_key(&module), "semantic errors must not drop source publication");
+    assert!(update.snapshot.diagnostics.get(&module).is_some_and(|diagnostics| !diagnostics.is_empty()));
+    assert!(!update.snapshot.formal_projection().is_empty(), "semantic errors must not drop formal products");
+    assert!(update.snapshot.source_index().module(&module).is_some(), "semantic errors must not drop source index");
+    assert!(update.snapshot.advisory().module(&module).is_some(), "semantic errors must not drop advisory products");
     let callable = CallableId::new(
         DeclarationId::new(module.clone(), "Probe".into()),
         Selector::method("run", []).unwrap(),
