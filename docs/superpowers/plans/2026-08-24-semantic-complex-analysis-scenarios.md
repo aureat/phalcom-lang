@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add one semantic integration test file with ten deliberately cross-cutting Phalcom programs that measure whether the analyzer preserves precise facts, conservative uncertainty, control-flow reachability, dispatch identity, and incremental dependencies.
+**Goal:** Add ten deliberately cross-cutting Phalcom programs to the semantic integration harness. Keep each scenario beside its semantic capability owner so failures identify the affected tier instead of accumulating in one catch-all integration file.
 
-**Architecture:** Create `phalcom-semantic/tests/semantic_complex_analysis.rs`. Reuse the existing single-module analysis helper pattern from `semantic_authority_composition.rs` for source-local scenarios, and use `SemanticWorkspaceSession` for module and revision scenarios. Assertions target `CallableAnalysis`, `BodyExitFacts`, `BindingState`, `ExpressionAnalysis`, flow-graph nodes, diagnostics, dependency edges, and snapshot reuse rather than UI output.
+**Architecture:** Add source-local scenarios to existing files under `phalcom-semantic/tests/semantic/capabilities/`, with dedicated `higher_order.rs` and `dynamic_boundaries.rs` modules where no current file owns the behavior. Keep cross-module scenarios in `semantic/integration/` and revision/cache scenarios in `semantic/incremental/`, matching the harness taxonomy. Reuse `Fixture`, `WorkspaceFixture`, and existing workspace-session builders. Assertions target `CallableAnalysis`, `BodyExitFacts`, `BindingState`, `ExpressionAnalysis`, flow-graph nodes, diagnostics, dependency edges, and snapshot reuse rather than UI output.
 
 **Tech Stack:** Rust integration tests, `phalcom_semantic::analyze_single_module`, `SemanticWorkspaceSession`, `TypeKnowledge`, `EvidenceAuthority`, `CallableId`, `DispatchSide`, flow graphs, and snapshot dependency/invalidation APIs.
 
@@ -12,7 +12,9 @@
 
 ## Global Constraints
 
-- Keep this as a new integration file; do not enlarge `semantic_authority_composition.rs`.
+- Keep source-level capability tests under `phalcom-semantic/tests/semantic/capabilities/`; do not create a parallel top-level integration binary.
+- Add each scenario to its narrowest existing capability file; create a file only when no current capability owns behavior.
+- Keep module-linking and incremental-cache scenarios in their existing `integration/` and `incremental/` categories.
 - Test semantic products directly before adding any runtime/compiler assertion.
 - A dynamic or reflective construct must remain `Dynamic`, `Unknown`, or opaque where proof is unavailable; never assert a concrete type merely because one use site happens to suggest it.
 - Every test must identify its semantic tier: flow, dispatch, callable summary, module, or incremental analysis.
