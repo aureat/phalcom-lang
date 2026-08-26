@@ -714,13 +714,13 @@ pub fn render_binding_hover_with_formal_and_declared(
         sections.push(format!("`{}`: `{}`", binding.name, formal.text()));
         if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
             sections.push(crate::presentation::advisory_hover(
-                "Observed type",
+                "runtime value",
                 &crate::semantic::render_value_shape(&value.shape),
             ));
         }
     } else if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
         sections.push(crate::presentation::advisory_hover(
-            "Observed type",
+            "runtime value",
             &crate::semantic::render_value_shape(&value.shape),
         ));
     }
@@ -893,9 +893,15 @@ pub fn render_selector_hover_with_formal_value(
 
     if let Some(formal) = formal {
         sections.push(format!("Return type: `{}`", formal.text()));
+        if matches!(formal, FormalPresentation::Unknown)
+            && let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic)
+        {
+            let subject = if is_field { "runtime value" } else { "return value" };
+            sections.push(crate::presentation::advisory_hover(subject, &crate::semantic::render_value_shape(&value.shape)));
+        }
     } else if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
-        let label = if is_field { "Observed value" } else { "Observed return" };
-        sections.push(crate::presentation::advisory_hover(label, &crate::semantic::render_value_shape(&value.shape)));
+        let subject = if is_field { "runtime value" } else { "return value" };
+        sections.push(crate::presentation::advisory_hover(subject, &crate::semantic::render_value_shape(&value.shape)));
     }
 
     if let Some(contract_view) = render_contract_view(selector) {
@@ -1153,6 +1159,23 @@ mod tests {
         assert!(rendered.contains("Return type: `Dynamic`"));
         assert!(!rendered.contains("Formal return"));
         assert!(!rendered.contains("Observed return"));
+    }
+
+    #[test]
+    fn render_selector_hover_uses_advisory_return_when_formal_is_unknown() {
+        let sites = vec![SelectorSite {
+            owner: ClassId::new(crate::semantic::ModuleId::new("file:///factory.ph"), "Factory"),
+            receiver: None,
+            kind: crate::index::MemberKind::Method,
+        }];
+        let inferred = InferredValue::flow(
+            ValueShape::Instance(crate::semantic::ClassId::new(crate::semantic::ModuleId::new("phalcom://core"), "String")),
+            (0..0).into(),
+        );
+        let rendered = render_selector_hover_with_formal_value("make()", &sites, None, Some(&FormalPresentation::Unknown), Some(&inferred)).unwrap();
+        assert!(rendered.contains("Return type: `Unknown`"));
+        assert!(rendered.contains("`String`"));
+        assert!(rendered.contains("Inferred from local flow."));
     }
 
     #[test]

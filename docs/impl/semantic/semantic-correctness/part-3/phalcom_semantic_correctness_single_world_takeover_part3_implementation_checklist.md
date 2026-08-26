@@ -43,7 +43,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 
 - [x] Add plain-label and forbidden-pattern tests.
 - [x] Add contextual evidence wording tests.
-- [ ] Add formal/advisory disagreement tests.
+- [x] Add formal/advisory disagreement tests.
 - [x] Add System.print and System.gc metadata/runtime coherence tests.
 
 ### Task 2: Trusted fixed returns
@@ -305,6 +305,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Persistent module lifecycle transition regression.
   Result: `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 6 passed.
   Evidence: standalone rename/move is represented as remove-old plus add-new; project configuration reset, batch overlay linking, overlay precedence, close-to-disk fallback, removal, and relative import identity all pass.
+- [x] Formal/advisory hover precedence regression.
+  Result: `cargo test -p phalcom-lsp --lib hover::tests -- --nocapture` — 23 passed; `cargo test -p phalcom-lsp --test professional_semantic_presentation -- --nocapture` — 2 passed; Stage 4 hover integration — 11 passed.
+  Evidence: formal Dynamic remains primary; formal Unknown remains visible while concrete advisory return evidence is shown as contextual local-flow information; legacy observed/confidence labels remain absent from rendered output.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.
