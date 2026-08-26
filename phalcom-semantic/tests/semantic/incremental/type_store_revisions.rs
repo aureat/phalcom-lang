@@ -129,8 +129,12 @@ fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
     assert!(first.effects.module_graph_changed);
     assert!(first.stats.project_graph_rebuilt);
     assert_eq!(first.stats.modules_relinked, 1);
+    assert_eq!(first.stats.modules_recomputed, 1);
+    assert_eq!(first.stats.callables_recomputed, 1);
+    assert_eq!(first.stats.callables_reused, 0);
     assert_eq!(first.stats.source_indexes_recomputed, 1);
     assert_eq!(first.stats.advisory_sources_recomputed, 1);
+    assert_eq!(first.stats.advisory_callables_recomputed, 1);
 
     let second = session.update(build_input(module.clone(), "class Sample { value() -> Int { 2 } }", 2));
 
@@ -142,8 +146,12 @@ fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
     assert!(!second.effects.module_graph_changed);
     assert!(!second.stats.project_graph_rebuilt);
     assert_eq!(second.stats.modules_relinked, 0);
+    assert_eq!(second.stats.modules_recomputed, 1);
+    assert_eq!(second.stats.callables_recomputed, 1);
+    assert_eq!(second.stats.callables_reused, 0);
     assert_eq!(second.stats.source_indexes_recomputed, 1);
     assert_eq!(second.stats.advisory_sources_recomputed, 1);
+    assert_eq!(second.stats.advisory_callables_recomputed, 1);
 }
 
 #[test]

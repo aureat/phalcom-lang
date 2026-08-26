@@ -75,7 +75,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [x] Publish semantic errors with current products.
 - [x] Discard cancelled, budget-exceeded, and stale candidates. Status: compiler cancellation/budget and LSP stale/latest-wins publication are verified.
 - [ ] Retain last-known-good on infrastructure failure.
-- [ ] Add structural recomputation counters.
+- [x] Add structural recomputation counters.
 
 ### Task 5: Worker cutover
 
@@ -275,7 +275,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [ ] 72. Project configuration lifecycle tests pass. Status: pending.
 - [ ] 73. Cancellation/latest-wins tests pass. Status: pending.
 - [ ] 74. Concurrent old-snapshot request immutability test passes. Status: pending.
-- [ ] 75. Body-only edit structural counters show no project-universe rebuild. Status: pending.
+- [x] 75. Body-only edit structural counters show no project-universe rebuild. Status: verified by incremental stats regression.
 - [ ] 76. Unrelated callables remain reused after isolated body edit. Status: pending.
 - [ ] 77. Presentation-only/semantic-token refreshes are fingerprint-driven. Status: pending.
 
@@ -329,6 +329,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Stale/latest-wins candidate publication regression.
   Result: `cargo test -p phalcom-lsp --lib analysis_service::tests -- --nocapture` — 17 passed.
   Evidence: gated stale batches, coalesced revisions, generation ordering, and counter publication tests confirm superseded work emits `StaleBatchDiscarded` and only newest revisions publish.
+- [x] Structural recomputation counter regression.
+  Result: `cargo test -p phalcom-semantic --test semantic incremental::type_store_revisions::publication_effects_distinguish_initial_graph_build_from_body_edit -- --nocapture` — 1 passed.
+  Evidence: initial publication counts graph/module/callable work; body-only edit keeps TypeStore and project graph/module-link counters stable while reporting only affected module/callable/source/advisory recomputation.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.
