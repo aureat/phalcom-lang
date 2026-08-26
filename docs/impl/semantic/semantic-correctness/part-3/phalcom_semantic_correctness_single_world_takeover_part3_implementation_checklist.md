@@ -138,7 +138,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 ### Task 11: Modules and core navigation
 
 - [x] Import completion uses ModuleQueryFacade/module query products from the pinned compiler snapshot on exact-source requests; stale/unmapped requests do not project older module semantics.
-- [ ] Request path performs no filesystem semantic resolution.
+- [x] Request path performs no filesystem semantic resolution. Request handlers use pinned documents, compiler products, and worker-maintained source metadata; filesystem reads remain in worker scan/refresh code.
 - [ ] Core/native locations use canonical source provenance.
 - [ ] Virtual source content remains protocol adaptation only.
 
@@ -258,7 +258,7 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] 58. Import/module completion consumes ModuleQueryFacade. Status: exact-source requests pass the pinned compiler snapshot and its module-query facade directly; stale/unmapped requests return no semantic import result. Stage 3 import completion passes.
 - [ ] 59. Core/native navigation consumes canonical source provenance. Status: partial.
 - [x] 60. Semantic token semantic refinement consumes compiler occurrences. Status: direct source-index path plus focused LSP build/tests verified.
-- [ ] 61. No semantic handler performs filesystem resolution on request path. Status: pending audit.
+- [x] 61. No semantic handler performs filesystem resolution on request path. Status: request-path audit found no filesystem reads; source reads are confined to analysis-service worker scan/refresh functions.
 - [ ] 62. No semantic handler runs formal analysis on request path. Status: pending audit.
 - [ ] 63. No semantic handler runs advisory solving on request path. Status: pending audit.
 - [ ] 64. No semantic handler rebuilds declaration/module surfaces from AST. Status: pending audit.
@@ -320,6 +320,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Compiler-owned diagnostic publication cutover.
   Result: `cargo test -p phalcom-lsp --test integration stage1_diagnostics:: -- --nocapture` — 1 passed; `cargo test -p phalcom-lsp --test integration stage7_static_diagnostics:: -- --nocapture` — 2 passed; `cargo check -p phalcom-lsp` passed.
   Evidence: syntax diagnostics remain available without compiler publication; semantic diagnostics are read from the compiler snapshot only after canonical module and source-text coherence checks, preventing stale semantic ranges from being published.
+- [x] Request-path filesystem audit.
+  Result: source audit of `phalcom-lsp/src/backend.rs`, request consumers, and `analysis_service.rs` passed; focused hover, navigation, completion, inlay, token, and diagnostic gates remain green.
+  Evidence: `std::fs::read_to_string` occurs only in worker scan/refresh functions; request handlers use pinned documents, compiler products, caches, and URI conversion without filesystem semantic resolution. Formal/advisory compatibility analysis and AST surface construction remain explicitly open for later demotion.
 - [x] Trusted native fixed-return precedence regression.
   Result: `cargo test -p phalcom-semantic --test semantic callable_publication::trusted_returns -- --nocapture` — 2 passed.
   Evidence: table-driven `System.print`/`System.gc` call and normal-tail products remain Established with canonical `Unit`/`None` types and NativeSignature origin; an incompatible advisory `Int` shape is classified as incomparable and leaves formal `System.print` knowledge unchanged.
