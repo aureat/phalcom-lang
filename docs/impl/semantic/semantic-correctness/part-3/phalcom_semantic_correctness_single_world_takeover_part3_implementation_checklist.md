@@ -123,7 +123,7 @@ Plan: docs/impl/semantic/semantic-correctness/part-3/phalcom_semantic_correctnes
 - [ ] Resolve receiver through compiler source/advisory products.
 - [ ] Preserve self, super, class object, union, native/core, and incomplete-dot behavior.
 - [ ] Use bounded lexical/global fallback only for stale/unmapped source.
-- [ ] Completion items contain no advisory decoration.
+- [x] Completion items contain no advisory decoration.
 
 ### Task 10: Navigation and WorkspaceIndex deletion
 
@@ -311,6 +311,9 @@ Every item remains unchecked until independently evidenced. Initial status descr
 - [x] Request snapshot pinning regression.
   Result: `cargo test -p phalcom-lsp --lib request_context::tests -- --nocapture` — 1 passed.
   Evidence: a request-held compiler `Arc<SemanticSnapshot>` remains immutable and readable from a concurrent reader after a later workspace publication.
+- [x] Completion presentation parity regression.
+  Result: `cargo test -p phalcom-lsp --test integration stage3_completion:: -- --nocapture` — 4 passed.
+  Evidence: receiver-aware, field, union, and import completion remain green; completion payloads contain no advisory glyph, confidence taxonomy, or observed-value boilerplate.
 - [x] Focused consumer/lifecycle rerun after continuation slice.
   Result: `cargo check -p phalcom-lsp -p phalcom-modules` passed; `cargo test -p phalcom-modules --test workspace_session -- --nocapture` — 5 passed; `cargo test -p phalcom-lsp --test integration -- --nocapture` — 53 passed, 2 ignored; module navigation — 3 passed; professional presentation — 2 passed; single-world cutover — 2 passed.
   Evidence: stage 1–7 integration, workspace semantic propagation, module navigation, presentation, persistent identity, and snapshot-store reuse remain green after compiler advisory changes.
