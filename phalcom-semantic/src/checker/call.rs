@@ -6,6 +6,7 @@ use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
+use crate::checker::incident::{InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use crate::checker::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
@@ -15,7 +16,6 @@ use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, Unkn
 use crate::types::id::TypeId;
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
 use crate::types::store::TypeData;
-use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{Expr, PackItem, PackLabel};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -624,307 +624,280 @@ fn apply_generic_callable_inner(
     expected: &ExpectedType,
     call_range: SourceRange,
 ) -> TypeKnowledge {
-    // 1. Generic Callable Resolution via InferenceSession
-    if let Some(ref generic_sig) = signature.generics {
-        if !generic_sig.parameters.is_empty() {
-            let mut session = InferenceSession::new();
-            let var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
+    let Some(generic_sig) = signature.generics.as_ref().filter(|generics| !generics.parameters.is_empty()) else {
+        return promote_exact_return(&signature.return_type, exact_return_origin(signature.kind), call_range);
+    };
 
-            let Some(call_id) = ctx.current_expression_id() else {
-                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
-            };
-            let generic_callable = match &generic_sig.owner {
-                TypeParameterOwner::Callable(callable) => callable.clone(),
-                TypeParameterOwner::Declaration(declaration) => {
-                    crate::identity::CallableId::new(declaration.clone(), signature.selector.clone(), ctx.current_side)
-                }
-            };
-            for (constraint_index, constraint) in generic_sig.constraints.iter().enumerate() {
-                let relation = match constraint {
-                    GenericConstraint::Subtype { lower, upper } => {
-                        let lower = session.type_term_to_inference(lower, &var_map, ctx.store);
-                        let upper = session.type_term_to_inference(upper, &var_map, ctx.store);
-                        match (lower, upper) {
-                            (Ok(lower), Ok(upper)) => InferenceRelation::Subtype(lower, upper),
-                            _ => return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
-                        }
-                    }
-                    GenericConstraint::Equivalent { left, right } => {
-                        let left = session.type_term_to_inference(left, &var_map, ctx.store);
-                        let right = session.type_term_to_inference(right, &var_map, ctx.store);
-                        match (left, right) {
-                            (Ok(left), Ok(right)) => InferenceRelation::Equivalent(left, right),
-                            _ => return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
-                        }
-                    }
-                };
-                session.add_constraint(
-                    relation,
-                    ConstraintOrigin::GenericWhere {
-                        callable: generic_callable.clone(),
-                        constraint_index: constraint_index as u16,
-                    },
-                    None,
-                );
+    let mut session = InferenceSession::new();
+    let var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
+    let Some(call_id) = ctx.current_expression_id() else {
+        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+        return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+    };
+    let return_term = signature
+        .return_type
+        .ty()
+        .map(|return_type| session.type_id_to_inference(return_type, &var_map, ctx.store));
+    let fixed_return = return_term.as_ref().and_then(|term| {
+        (!session.term_has_variables(term)).then(|| promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
+    });
+
+    let binding_plan = match bind_static_arguments(args, &signature.parameters) {
+        Ok(plan) => plan,
+        Err(failures) => {
+            emit_shape_failures(ctx, &failures, call_range);
+            for argument in args.iter().copied() {
+                let typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
+                record_generic_argument_capture(ctx, &typed);
             }
-            let mut positional_idx = 0;
+            return fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked));
+        }
+    };
 
-            for arg in args.iter().copied() {
-                if matches!(arg, ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. }) {
-                    analyze_application_argument(ctx, arg, &ExpectedType::None);
-                    return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+    let generic_callable = match &generic_sig.owner {
+        TypeParameterOwner::Callable(callable) => callable.clone(),
+        TypeParameterOwner::Declaration(declaration) => crate::identity::CallableId::new(declaration.clone(), signature.selector.clone(), ctx.current_side),
+    };
+    for (constraint_index, constraint) in generic_sig.constraints.iter().enumerate() {
+        let relation = match constraint {
+            GenericConstraint::Subtype { lower, upper } => {
+                let lower = session.type_term_to_inference(lower, &var_map, ctx.store);
+                let upper = session.type_term_to_inference(upper, &var_map, ctx.store);
+                match (lower, upper) {
+                    (Ok(lower), Ok(upper)) => InferenceRelation::Subtype(lower, upper),
+                    _ => {
+                        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+                        return fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked));
+                    }
                 }
-
-                let parameter_index = match arg {
-                    ApplicationArgument::Positional { .. } | ApplicationArgument::PreAnalyzed { label: None, .. } => {
-                        let mut found = None;
-                        while positional_idx < signature.parameters.len() {
-                            let index = positional_idx;
-                            positional_idx += 1;
-                            if signature.parameters[index].external_label.is_none() {
-                                found = Some(index);
-                                break;
-                            }
-                        }
-                        found
+            }
+            GenericConstraint::Equivalent { left, right } => {
+                let left = session.type_term_to_inference(left, &var_map, ctx.store);
+                let right = session.type_term_to_inference(right, &var_map, ctx.store);
+                match (left, right) {
+                    (Ok(left), Ok(right)) => InferenceRelation::Equivalent(left, right),
+                    _ => {
+                        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+                        return fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked));
                     }
-                    ApplicationArgument::Labeled { label, .. } | ApplicationArgument::PreAnalyzed { label: Some(label), .. } => signature
-                        .parameters
-                        .iter()
-                        .position(|parameter| parameter.external_label.as_deref() == Some(label)),
-                    ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => {
-                        unreachable!("dynamic arguments return before generic binding")
-                    }
-                };
+                }
+            }
+        };
+        session.add_constraint(
+            relation,
+            ConstraintOrigin::GenericWhere {
+                callable: generic_callable.clone(),
+                constraint_index: constraint_index as u16,
+            },
+            None,
+        );
+    }
 
-                let Some(parameter_index) = parameter_index else {
-                    analyze_application_argument(ctx, arg, &ExpectedType::None);
-                    continue;
-                };
-                let parameter = &signature.parameters[parameter_index];
-                let Some(parameter_ty) = parameter.ty.ty() else {
-                    return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
-                };
-                let parameter_term = session.type_id_to_inference(parameter_ty, &var_map, ctx.store);
-                let argument_expected = ExpectedType::inference_from(parameter_term.clone(), ExpectationOrigin::GenericArgument);
-                let argument_typed = analyze_application_argument(ctx, arg, &argument_expected);
-                if let Some(argument_ty) = argument_typed.knowledge.ty()
-                    && let Some(support) = inference_support(&argument_typed.knowledge)
-                {
-                    let explanation = argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
+    for (argument_index, argument) in args.iter().copied().enumerate() {
+        let Some(binding) = binding_plan.bindings.iter().find(|binding| binding.argument_index == argument_index) else {
+            continue;
+        };
+        let parameter = &signature.parameters[binding.parameter_index];
+        let Some(parameter_ty) = parameter.ty.ty() else {
+            let typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
+            record_generic_argument_capture(ctx, &typed);
+            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            continue;
+        };
+        let parameter_term = session.type_id_to_inference(parameter_ty, &var_map, ctx.store);
+        let argument_expected = ExpectedType::inference_from(parameter_term.clone(), ExpectationOrigin::GenericArgument);
+        let argument_typed = analyze_application_argument(ctx, argument, &argument_expected);
+        record_generic_argument_capture(ctx, &argument_typed);
+        let explanation = argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
+        let origin = argument_typed
+            .expression_id
+            .map(|argument_id| ConstraintOrigin::Argument {
+                call: call_id,
+                argument: argument_id,
+                parameter_index: binding.parameter_index as u16,
+            })
+            .unwrap_or(ConstraintOrigin::Explicit);
+        session.record_required_premise(&parameter_term, origin.clone(), &argument_typed.knowledge, explanation);
+        match &argument_typed.knowledge {
+            TypeKnowledge::Known(evidence) => {
+                if let Some(support) = inference_support(&argument_typed.knowledge) {
                     session.add_constraint_with_support(
-                        InferenceRelation::Subtype(InferenceTerm::Canonical(argument_ty), parameter_term),
-                        ConstraintOrigin::Argument {
-                            call: call_id,
-                            argument: argument_typed.expression_id.expect("analyzed argument has expression identity"),
-                            parameter_index: parameter_index as u16,
-                        },
+                        InferenceRelation::Subtype(InferenceTerm::Canonical(evidence.ty()), parameter_term),
+                        origin,
                         explanation,
                         support,
                     );
                 }
             }
+            TypeKnowledge::Unknown(reason) => {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+            }
+            TypeKnowledge::Dynamic(reason) => {
+                ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone()));
+            }
+        }
+    }
 
-            let return_term = signature
-                .return_type
-                .ty()
-                .map(|ret_ty| session.type_id_to_inference(ret_ty, &var_map, ctx.store));
-            let fixed_return = return_term.as_ref().and_then(|term| {
-                if session.term_has_variables(term) {
-                    None
-                } else {
-                    Some(promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
-                }
+    let argument_outcome = ctx.solve_inference(&mut session);
+    let pre_context_result = match &argument_outcome {
+        crate::checker::inference::InferenceOutcome::Solved(_) => {
+            Some(publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range))
+        }
+        _ => None,
+    };
+
+    let outcome = if matches!(
+        &argument_outcome,
+        crate::checker::inference::InferenceOutcome::Solved(_) | crate::checker::inference::InferenceOutcome::Underconstrained(_)
+    ) && !expected.is_none()
+    {
+        if let Some(return_term) = return_term.as_ref() {
+            let expected_term = expected.ty().map(InferenceTerm::Canonical).or_else(|| match expected {
+                ExpectedType::Inference { term, .. } => Some(term.clone()),
+                _ => None,
             });
-
-            // Solve value-derived constraints before applying contextual result
-            // constraints. If the context contradicts a value-supported
-            // instantiation, preserve that call fact so the enclosing binding
-            // can report the actual-vs-declared mismatch instead of erasing it.
-            let argument_outcome = session.solve(ctx.store, &ctx.hierarchy);
-            let argument_return = if let crate::checker::inference::InferenceOutcome::Solved(solution) = &argument_outcome {
-                if let Some(ret_ty) = signature.return_type.ty() {
-                    let mut subst = TypeSubstitution::new();
-                    for (&param_id, var_term) in &var_map {
-                        if let InferenceTerm::Var(v) = var_term {
-                            if let Some(&solved_ty) = solution.substitutions.get(v) {
-                                subst.bind(param_id, solved_ty);
-                            }
-                        }
-                    }
-                    let specialized_ret = subst.apply(ctx.store, ret_ty);
-                    let support = return_term.as_ref().and_then(|term| session.term_support(term));
-                    match (return_term.as_ref().is_some_and(|term| session.term_has_variables(term)), support) {
-                        (true, Some(InferenceSupport::Established)) => {
-                            Some(TypeKnowledge::established(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range))
-                        }
-                        (true, Some(InferenceSupport::Assumed)) => {
-                            Some(TypeKnowledge::assumed(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range))
-                        }
-                        (false, _) => fixed_return.clone(),
-                        (true, None) => None,
-                    }
-                } else {
-                    fixed_return.clone()
-                }
-            } else {
-                None
-            };
-
-            let outcome = if matches!(
-                &argument_outcome,
-                crate::checker::inference::InferenceOutcome::Solved(_) | crate::checker::inference::InferenceOutcome::Underconstrained(_)
-            ) {
-                if let Some(ret_term) = return_term.as_ref() {
-                    if let Some(exp_ty) = expected.ty() {
-                        session.add_constraint(
-                            InferenceRelation::Subtype(ret_term.clone(), InferenceTerm::Canonical(exp_ty)),
-                            ConstraintOrigin::ExpectedResult { expression: call_id },
-                            None,
-                        );
-                    } else if let ExpectedType::Inference { term: exp_term, .. } = expected {
-                        session.add_constraint(
-                            InferenceRelation::Subtype(ret_term.clone(), exp_term.clone()),
-                            ConstraintOrigin::ExpectedResult { expression: call_id },
-                            None,
-                        );
-                    }
-                }
-                if expected.is_none() {
-                    argument_outcome
-                } else {
-                    session.solve(ctx.store, &ctx.hierarchy)
-                }
-            } else {
-                argument_outcome
-            };
-            match &outcome {
-                crate::checker::inference::InferenceOutcome::Blocked(reason) => {
-                    ctx.record_call_status(AnalysisStatus::Blocked(reason.clone()));
-                }
-                crate::checker::inference::InferenceOutcome::Cancelled => ctx.record_call_status(AnalysisStatus::Cancelled),
-                crate::checker::inference::InferenceOutcome::BudgetExceeded(report) => {
-                    ctx.record_call_status(AnalysisStatus::BudgetExceeded(report.clone()));
-                }
-                _ => {}
+            if let Some(expected_term) = expected_term {
+                session.add_constraint(
+                    InferenceRelation::Subtype(return_term.clone(), expected_term),
+                    ConstraintOrigin::ExpectedResult { expression: call_id },
+                    None,
+                );
             }
-            return match &outcome {
-                crate::checker::inference::InferenceOutcome::Solved(solution) => {
-                    if let Some(ret_ty) = signature.return_type.ty() {
-                        let mut subst = TypeSubstitution::new();
-                        for (&param_id, var_term) in &var_map {
-                            if let InferenceTerm::Var(v) = var_term {
-                                if let Some(&solved_ty) = solution.substitutions.get(v) {
-                                    subst.bind(param_id, solved_ty);
-                                }
-                            }
-                        }
-                        let specialized_ret = subst.apply(ctx.store, ret_ty);
-                        let support = return_term.as_ref().and_then(|term| session.term_support(term));
-                        match (session.term_has_variables(return_term.as_ref().expect("generic return term")), support) {
-                            (true, Some(InferenceSupport::Established)) => {
-                                TypeKnowledge::established(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range)
-                            }
-                            (true, Some(InferenceSupport::Assumed)) => {
-                                TypeKnowledge::assumed(specialized_ret, EvidenceOrigin::GenericInference).with_range(call_range)
-                            }
-                            (true, None) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
-                            (false, _) => fixed_return.expect("fixed generic return must be available"),
-                        }
-                    } else {
-                        promote_exact_return(&signature.return_type, exact_return_origin(signature.kind), call_range)
-                    }
-                }
-                crate::checker::inference::InferenceOutcome::Underconstrained(_) => terminal_generic_return(&outcome, fixed_return),
-                crate::checker::inference::InferenceOutcome::Conflicting(_) => {
-                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::ArgumentMismatch,
-                        "generic argument does not satisfy type constraints",
-                        call_range,
-                    ));
-                    terminal_generic_return(&outcome, argument_return.or(fixed_return))
-                }
-                crate::checker::inference::InferenceOutcome::Blocked(_)
-                | crate::checker::inference::InferenceOutcome::Cancelled
-                | crate::checker::inference::InferenceOutcome::BudgetExceeded(_) => terminal_generic_return(&outcome, fixed_return),
-            };
         }
+        ctx.solve_inference(&mut session)
+    } else {
+        argument_outcome
+    };
+
+    match &outcome {
+        crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
+            if !ctx.call_status_is_recorded() {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            }
+        }
+        crate::checker::inference::InferenceOutcome::Conflicting(conflict) => {
+            let range = conflict_source_range(ctx, conflict, call_range);
+            if let Some(cause) = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ArgumentMismatch,
+                generic_conflict_message(conflict),
+                range,
+            )) {
+                ctx.record_call_status(AnalysisStatus::Invalid(cause));
+            }
+        }
+        crate::checker::inference::InferenceOutcome::Blocked(reason) => {
+            ctx.record_call_status(AnalysisStatus::Blocked(reason.clone()));
+        }
+        crate::checker::inference::InferenceOutcome::Cancelled => ctx.record_call_status(AnalysisStatus::Cancelled),
+        crate::checker::inference::InferenceOutcome::BudgetExceeded(report) => {
+            ctx.record_call_status(AnalysisStatus::BudgetExceeded(report.clone()));
+        }
+        crate::checker::inference::InferenceOutcome::InternalFailure(failure) => {
+            let incident = ctx.record_internal_incident(
+                InternalSemanticIncidentKind::InferenceInvariantViolation,
+                InternalSemanticIncidentDetails::Message {
+                    message: format!("generic inference invariant failure: {failure:?}").into_boxed_str(),
+                },
+                Some(call_range),
+            );
+            ctx.record_call_status(AnalysisStatus::InternalFailure(incident));
+        }
+        crate::checker::inference::InferenceOutcome::Solved(_) => {}
     }
 
-    // 2. Non-generic Callable Resolution
-    let mut positional_idx = 0;
-    for arg in args {
-        match arg {
-            ApplicationArgument::Positional { range, .. } => {
-                let mut matched_param = None;
-                while positional_idx < signature.parameters.len() {
-                    let param = &signature.parameters[positional_idx];
-                    positional_idx += 1;
-                    if param.external_label.is_none() {
-                        matched_param = Some(param);
-                        break;
-                    }
-                }
-                let expected_arg = matched_param
-                    .and_then(|p| p.ty.ty())
-                    .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
-                    .unwrap_or_default();
-                let arg_typed = analyze_application_argument(ctx, *arg, &expected_arg);
-                if let Some(param) = matched_param {
-                    ctx.apply_assignability(
-                        &arg_typed.knowledge,
-                        &param.ty,
-                        DiagnosticCode::ArgumentMismatch,
-                        format!("positional argument `{}` does not match expected parameter type", param.local_name),
-                        *range,
-                    );
-                }
-            }
-            ApplicationArgument::Labeled { label: text, range, .. } => {
-                let mut matched_param = None;
-                for param in &signature.parameters {
-                    if let Some(ref ext_label) = param.external_label {
-                        if ext_label == text {
-                            matched_param = Some(param);
-                            break;
-                        }
-                    }
-                }
-                let expected_arg = matched_param
-                    .and_then(|p| p.ty.ty())
-                    .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
-                    .unwrap_or_default();
-                let arg_typed = analyze_application_argument(ctx, *arg, &expected_arg);
-                if let Some(param) = matched_param {
-                    ctx.apply_assignability(
-                        &arg_typed.knowledge,
-                        &param.ty,
-                        DiagnosticCode::ArgumentMismatch,
-                        format!("argument for label `{}:` does not match expected parameter type", text),
-                        *range,
-                    );
-                }
-            }
-            ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => {
-                analyze_application_argument(ctx, *arg, &ExpectedType::None);
+    match &outcome {
+        crate::checker::inference::InferenceOutcome::Solved(_) => {
+            publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range)
+        }
+        crate::checker::inference::InferenceOutcome::Conflicting(_)
+        | crate::checker::inference::InferenceOutcome::Blocked(_)
+        | crate::checker::inference::InferenceOutcome::Cancelled
+        | crate::checker::inference::InferenceOutcome::BudgetExceeded(_)
+        | crate::checker::inference::InferenceOutcome::InternalFailure(_) => terminal_generic_return_with_fallback(&outcome, pre_context_result, fixed_return),
+        crate::checker::inference::InferenceOutcome::Underconstrained(_) => incomplete_generic_return(&session, return_term.as_ref(), &outcome, fixed_return),
+    }
+}
+
+fn incomplete_generic_return(
+    session: &InferenceSession,
+    return_term: Option<&InferenceTerm>,
+    outcome: &crate::checker::inference::InferenceOutcome,
+    fixed_return: Option<TypeKnowledge>,
+) -> TypeKnowledge {
+    if let Some(return_term) = return_term {
+        match session.proof_state_for_term(return_term) {
+            crate::checker::inference::InferenceProofState::Unknown(reason) => return TypeKnowledge::Unknown(reason),
+            crate::checker::inference::InferenceProofState::Dynamic(reason) => return TypeKnowledge::Dynamic(reason),
+            crate::checker::inference::InferenceProofState::Established | crate::checker::inference::InferenceProofState::Assumed => {}
+        }
+    }
+    terminal_generic_return(outcome, fixed_return)
+}
+
+fn record_generic_argument_capture(ctx: &mut CheckingContext<'_>, typed: &TypedExpression) {
+    let explanation = typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
+    ctx.record_call_dependency(typed.causal_invalidity, explanation);
+    if !typed.status.is_ready() {
+        ctx.record_call_status(typed.status.clone());
+    }
+}
+
+fn publish_generic_return(
+    ctx: &mut CheckingContext<'_>,
+    session: &InferenceSession,
+    return_term: Option<&InferenceTerm>,
+    signature_return: &TypeKnowledge,
+    call_range: SourceRange,
+) -> TypeKnowledge {
+    let Some(return_term) = return_term else {
+        return promote_exact_return(signature_return, exact_return_origin(CallableSemanticKind::Ordinary), call_range);
+    };
+    if !session.term_has_variables(return_term) {
+        return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
+    }
+    let proof = session.proof_state_for_term(return_term);
+    match proof {
+        crate::checker::inference::InferenceProofState::Unknown(reason) => TypeKnowledge::Unknown(reason),
+        crate::checker::inference::InferenceProofState::Dynamic(reason) => TypeKnowledge::Dynamic(reason),
+        crate::checker::inference::InferenceProofState::Established | crate::checker::inference::InferenceProofState::Assumed => {
+            let Ok(ty) = session.materialize(return_term, ctx.store) else {
+                let incident = ctx.record_internal_incident(
+                    InternalSemanticIncidentKind::InferenceInvariantViolation,
+                    InternalSemanticIncidentDetails::Message {
+                        message: "solved generic return could not be materialized".into(),
+                    },
+                    Some(call_range),
+                );
+                ctx.record_call_status(AnalysisStatus::InternalFailure(incident));
                 return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
-            }
-            ApplicationArgument::PreAnalyzed { .. } => {
-                let arg_typed = analyze_application_argument(ctx, *arg, &ExpectedType::None);
-                if !arg_typed.status.is_ready() {
-                    ctx.record_call_status(arg_typed.status);
+            };
+            match proof {
+                crate::checker::inference::InferenceProofState::Established => {
+                    TypeKnowledge::established(ty, EvidenceOrigin::GenericInference).with_range(call_range)
+                }
+                crate::checker::inference::InferenceProofState::Assumed => TypeKnowledge::assumed(ty, EvidenceOrigin::GenericInference).with_range(call_range),
+                crate::checker::inference::InferenceProofState::Unknown(_) | crate::checker::inference::InferenceProofState::Dynamic(_) => {
+                    unreachable!("proof state matched above")
                 }
             }
         }
     }
+}
 
-    // Successful non-generic dispatch establishes that this call reached a
-    // concrete callable contract. Keep the contract's type, but upgrade the
-    // call-site evidence to `Proven`; the declaration remains `Declared` in
-    // the published surface and can still be checked independently against
-    // the body.
-    promote_exact_return(&signature.return_type, exact_return_origin(signature.kind), call_range)
+fn conflict_source_range(ctx: &CheckingContext<'_>, conflict: &crate::checker::inference::InferenceConflict, fallback: SourceRange) -> SourceRange {
+    match conflict.origin.as_ref() {
+        Some(ConstraintOrigin::Argument { argument, .. }) => ctx.expressions.get(argument).map(|analysis| analysis.range).unwrap_or(fallback),
+        _ => fallback,
+    }
+}
+
+fn generic_conflict_message(conflict: &crate::checker::inference::InferenceConflict) -> String {
+    match &conflict.failure {
+        crate::checker::inference::InferenceFailureReason::ConflictingBounds { .. } => "generic argument does not satisfy type constraints".into(),
+        crate::checker::inference::InferenceFailureReason::StructuralMismatch { .. } => "generic argument constraints conflict".into(),
+        failure => format!("generic inference failed: {failure:?}"),
+    }
 }
 
 fn apply_generic_callable(
@@ -1086,8 +1059,17 @@ fn terminal_generic_return(outcome: &crate::checker::inference::InferenceOutcome
         crate::checker::inference::InferenceOutcome::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
         crate::checker::inference::InferenceOutcome::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),
         crate::checker::inference::InferenceOutcome::BudgetExceeded(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded),
+        crate::checker::inference::InferenceOutcome::InternalFailure(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
         crate::checker::inference::InferenceOutcome::Solved(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
     }
+}
+
+fn terminal_generic_return_with_fallback(
+    outcome: &crate::checker::inference::InferenceOutcome,
+    complete_pre_context: Option<TypeKnowledge>,
+    fixed_return: Option<TypeKnowledge>,
+) -> TypeKnowledge {
+    complete_pre_context.unwrap_or_else(|| terminal_generic_return(outcome, fixed_return))
 }
 
 fn inference_support(knowledge: &TypeKnowledge) -> Option<InferenceSupport> {

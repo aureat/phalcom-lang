@@ -485,6 +485,13 @@ impl<'a> CheckingContext<'a> {
         self.control.is_cancelled()
     }
 
+    pub(crate) fn solve_inference(
+        &mut self,
+        session: &mut crate::checker::inference::InferenceSession,
+    ) -> crate::checker::inference::InferenceOutcome {
+        session.solve_with_control(self.store, &self.hierarchy, &self.control)
+    }
+
     pub fn alloc_expression_id(&mut self) -> ExpressionId {
         let local = LocalExpressionId(self.next_local_expr_id);
         self.next_local_expr_id += 1;
@@ -542,6 +549,10 @@ impl<'a> CheckingContext<'a> {
         } else {
             self.record_terminal_status(status);
         }
+    }
+
+    pub(crate) fn call_status_is_recorded(&self) -> bool {
+        self.call_dependency_frames.last().is_some_and(|frame| frame.status.is_some())
     }
 
     pub(crate) fn record_terminal_status(&mut self, status: AnalysisStatus) {

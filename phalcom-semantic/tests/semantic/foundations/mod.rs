@@ -10,6 +10,7 @@ mod expression_analysis;
 mod expression_composition;
 mod expression_engine;
 mod flow_graph;
+mod generic_inference_proof_integrity;
 mod generics_core;
 mod identity_diagnostics;
 mod inference;

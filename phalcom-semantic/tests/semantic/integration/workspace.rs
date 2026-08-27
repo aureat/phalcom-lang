@@ -167,11 +167,26 @@ export Client
             DispatchSide::Class,
         ))
     );
+    assert!(run.dependencies.iter().any(|dependency| dependency.owner.module == api_module));
     assert!(
-        run.semantic_dependencies
-            .iter()
-            .any(|dependency| matches!(dependency, phalcom_semantic::checker::analysis::SemanticDependency::LinkedInterface(module) if module == &api_module)),
-        "client must record linked API interface dependency: {run:#?}"
+        run.semantic_dependencies.iter().any(|dependency| {
+            matches!(
+                dependency,
+                phalcom_semantic::checker::analysis::SemanticDependency::CallableSignature(callable)
+                    if callable.owner.module == api_module
+            )
+        }),
+        "client must record API callable-signature dependency: {run:#?}"
+    );
+    assert!(
+        run.semantic_dependencies.iter().any(|dependency| {
+            matches!(
+                dependency,
+                phalcom_semantic::checker::analysis::SemanticDependency::LinkedInterface(module)
+                    if module == &client_module
+            )
+        }),
+        "client must record its linked interface dependency: {run:#?}"
     );
 }
 

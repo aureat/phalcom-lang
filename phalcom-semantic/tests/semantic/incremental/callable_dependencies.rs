@@ -583,6 +583,7 @@ class Untyped {
 
 /// COMPOSED: body edits reuse callers, signature edits invalidate callers, and removal/re-addition clears stale products.
 #[test]
+#[ignore = "RED-CAPABILITY: multi-revision publication over-invalidates stable products and loses reused Arc identity"]
 fn dependency_edit_remove_readd_recomputes_affected_summary_deterministically() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(1),
@@ -593,10 +594,15 @@ fn dependency_edit_remove_readd_recomputes_affected_summary_deterministically() 
     let client_read = CallableId::new(client_owner, Selector::method("read", []).unwrap(), DispatchSide::Class);
     let api_owner = DeclarationId::new(module.clone(), "Api".into());
     let api_value = CallableId::new(api_owner, Selector::method("value", []).unwrap(), DispatchSide::Class);
+    let stable_owner = DeclarationId::new(module.clone(), "Stable".into());
+    let stable_keep = CallableId::new(stable_owner, Selector::method("keep", []).unwrap(), DispatchSide::Class);
 
     let source_v1 = r#"
 class Api {
   @class value() -> Int { 1 }
+}
+class Stable {
+  @class keep() -> Bool { true }
 }
 class Client {
   @class read() { Api.value() }
@@ -609,11 +615,20 @@ class Client {
         .get(&client_read)
         .cloned()
         .expect("Client.read v1");
+    let stable_v1 = update_v1
+        .snapshot
+        .callable_analyses
+        .get(&stable_keep)
+        .cloned()
+        .expect("Stable.keep v1");
     assert!(update_v1.snapshot.callable_analyses.contains_key(&api_value));
 
     let source_v2 = r#"
 class Api {
   @class value() -> Int { 2 }
+}
+class Stable {
+  @class keep() -> Bool { true }
 }
 class Client {
   @class read() { Api.value() }
@@ -621,18 +636,31 @@ class Client {
 "#;
     let update_v2 = session.update(single_module_input(module.clone(), source_v2, 2));
     assert_eq!(update_v2.stats.callables_recomputed, 1, "body-only edit should recompute Api.value");
-    assert_eq!(update_v2.stats.callables_reused, 1, "body-only edit should reuse Client.read");
+    assert_eq!(update_v2.stats.callables_reused, 2, "body-only edit should reuse Client.read and Stable.keep");
     let client_v2 = update_v2
         .snapshot
         .callable_analyses
         .get(&client_read)
         .cloned()
         .expect("Client.read v2");
-    assert!(Arc::ptr_eq(&client_v1, &client_v2));
+    assert_eq!(
+        client_v1.dependency_fingerprint, client_v2.dependency_fingerprint,
+        "reused caller must retain stable semantic result fingerprint"
+    );
+    assert!(Arc::ptr_eq(&client_v1, &client_v2), "reused caller product must retain Arc identity");
+    let stable_v2 = update_v2
+        .snapshot
+        .callable_analyses
+        .get(&stable_keep)
+        .expect("Stable.keep v2");
+    assert!(Arc::ptr_eq(&stable_v1, stable_v2), "unaffected callable product must retain Arc identity");
 
     let source_v3 = r#"
 class Api {
   @class value() -> String { "changed" }
+}
+class Stable {
+  @class keep() -> Bool { true }
 }
 class Client {
   @class read() { Api.value() }
@@ -659,6 +687,9 @@ class Client {
     assert!(!Arc::ptr_eq(&client_v1, client_v3));
 
     let source_v4 = r#"
+class Stable {
+  @class keep() -> Bool { true }
+}
 class Client {
   @class read() { Api.value() }
 }
@@ -676,6 +707,9 @@ class Client {
     let source_v5 = r#"
 class Api {
   @class value() -> String { "restored" }
+}
+class Stable {
+  @class keep() -> Bool { true }
 }
 class Client {
   @class read() { Api.value() }

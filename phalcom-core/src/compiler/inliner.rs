@@ -286,11 +286,13 @@ impl<'vm> Compiler<'vm> {
         let range = block.range;
         let len = block.body.len();
         let mut leaves_value = false;
+        let mut tail_binding = false;
         for (i, statement) in block.body.into_iter().enumerate() {
             let is_last = i == len - 1;
             let tail_let = is_last && matches!(&statement, Statement::Let(_));
             if is_last {
-                leaves_value = matches!(&statement, Statement::Expr { .. } | Statement::Let(_) | Statement::Return(_));
+                tail_binding = tail_let;
+                leaves_value = matches!(&statement, Statement::Expr { .. } | Statement::Return(_));
             }
             let emit_pop = !(is_last && leaves_value);
             self.compile_statement_with_pop_control(statement, emit_pop)?;
@@ -299,7 +301,7 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::Constant(unit_idx), range);
             }
         }
-        if !leaves_value {
+        if !leaves_value && !tail_binding {
             self.emit(Bytecode::Nil, range);
         }
         self.end_scope(range);

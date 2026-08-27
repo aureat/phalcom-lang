@@ -23,47 +23,41 @@
 
 ---
 
-### Task 1: Create shared test harness
+### Task 1: Register capability-owned scenarios
 
 **Files:**
-- Create: `phalcom-semantic/tests/semantic_complex_analysis.rs`
-- Reference: `phalcom-semantic/tests/semantic_authority_composition.rs`
+- Modify: `phalcom-semantic/tests/semantic/capabilities/mod.rs`
+- Create: `phalcom-semantic/tests/semantic/capabilities/higher_order.rs`
+- Create: `phalcom-semantic/tests/semantic/capabilities/dynamic_boundaries.rs`
+- Reuse: `phalcom-semantic/tests/semantic/support/fixture.rs`
 
-- [ ] **Step 1: Add analysis and lookup helpers.**
+- [x] **Step 1: Register new capability modules and reuse existing fixture helpers.**
 
-Add helpers equivalent to the existing authority-composition test:
+Keep source-local capability tests in existing capability files. Use `Fixture`
+for single-module products, existing workspace builder patterns for linked
+modules, and existing incremental input/session helpers for revision tests.
+Mark unsupported or currently failing expectations with explicit `GATED` or
+`RED-CAPABILITY` ignore reasons.
 
-```rust
-fn analyze(source_text: &str) -> (ModuleId, Arc<str>, Analysis);
-fn callable_analysis<'a>(analysis: &'a Analysis, id: &CallableId) -> &'a CallableAnalysis;
-fn zero_arg_callable(module: &ModuleId, owner: &str, name: &str, side: DispatchSide) -> CallableId;
-fn binding<'a>(analysis: &'a CallableAnalysis, name: &str) -> &'a BindingState;
-```
-
-Add a second helper for resolved workspace modules:
-
-```rust
-fn single_module_input(module: ModuleId, source: &str, revision: u64) -> ModuleInput;
-```
-
-- [ ] **Step 2: Run the new target before adding scenarios.**
+- [x] **Step 2: Run the capability target after registration.**
 
 Run:
 
 ```sh
-cargo test -p phalcom-semantic --test semantic_complex_analysis
+cargo test -p phalcom-semantic --test semantic capabilities::
 ```
 
-Expected: the target compiles and reports zero tests before scenario tests are added.
+Expected: canonical capability tests compile through the single `semantic`
+integration binary.
 
 ---
 
 ### Task 2: Branch joins and flow-sensitive refinement
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/capabilities/flow_branches.rs`
 
-- [ ] **Step 1: Add `branch_join_keeps_union_and_refines_each_arm`.**
+- [x] **Step 1: Add `refined_branch_with_abrupt_else_publishes_only_normal_value`.**
 
 Use a method with an `Object` parameter:
 
@@ -81,12 +75,12 @@ class Probe {
 
 Assert that the callable is complete, both normal paths are represented, the summary is a known `Int | String` union, and no arm is incorrectly treated as `Dynamic` or `Never`. Inspect the `value` occurrences in each branch to confirm the positive arm narrows to `Int` while the merge does not retain the arm-only refinement.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
 Run:
 
 ```sh
-cargo test -p phalcom-semantic --test semantic_complex_analysis branch_join_keeps_union_and_refines_each_arm -- --nocapture
+cargo test -p phalcom-semantic --test semantic capabilities::flow_branches::refined_branch_with_abrupt_else_publishes_only_normal_value -- --nocapture
 ```
 
 Expected: PASS if branch transfer and join are implemented; otherwise the failure must identify whether narrowing, union construction, or merge reachability is missing.
@@ -96,9 +90,9 @@ Expected: PASS if branch transfer and join are implemented; otherwise the failur
 ### Task 3: Loop fixed point, `break`, and `continue`
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/capabilities/flow_loops.rs`
 
-- [ ] **Step 1: Add `loop_fixpoint_preserves_mutated_integer_and_abrupt_edges`.**
+- [x] **Step 1: Add `loop_fixpoint_preserves_mutated_integer_and_abrupt_edges`.**
 
 Use a `while` loop containing mutation and `continue`, followed by a `for` loop containing `break`:
 
@@ -123,7 +117,7 @@ class Probe {
 
 Assert complete analysis, `Int` knowledge for `total`, a `LoopHeader` and `BackEdge` in the flow graph, and a normal `Int` summary. Assert that `continue` and `break` do not erase the reachable tail or manufacture an extra normal return.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
 Run the same target with the test filter `loop_fixpoint_preserves_mutated_integer_and_abrupt_edges`.
 
@@ -132,9 +126,9 @@ Run the same target with the test filter `loop_fixpoint_preserves_mutated_intege
 ### Task 4: Closure capture and non-local return context
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/capabilities/callable_publication.rs`
 
-- [ ] **Step 1: Add `escaped_closure_keeps_capture_and_non_local_return_isolated`.**
+- [x] **Step 1: Add `closure_capture_and_non_local_return_keep_outer_summary_separate`.**
 
 Analyze both a closure that captures a local and a closure containing a non-local `return`:
 
@@ -152,18 +146,18 @@ class Maker {
 
 Assert that `make` records a callable/block result rather than `Unit`, that the block captures `seed`, and that `makeReturningBlock` does not receive a spurious return-annotation mismatch from the nested `return`. Verify the outer callable remains complete and its normal summary is not polluted by the nested block’s separate control context.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
-Run the target with `escaped_closure_keeps_capture_and_non_local_return_isolated`.
+Run the target with `closure_capture_and_non_local_return_keep_outer_summary_separate`.
 
 ---
 
 ### Task 5: Higher-order callback summary propagation
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Create: `phalcom-semantic/tests/semantic/capabilities/higher_order.rs`
 
-- [ ] **Step 1: Add `higher_order_block_call_propagates_captured_result`.**
+- [x] **Step 1: Add `higher_order_block_call_propagates_captured_result`.**
 
 Use a local block, capture a parameter, and invoke it through `call()`:
 
@@ -178,7 +172,7 @@ class Probe {
 
 Assert that the block’s captured parameter remains `Int`, the call expression is a known `Int` with proven/contract evidence where available, and `apply` receives an inferred `Int` summary. This separates block construction from block execution and catches analyzers that infer only the closure object type.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
 Run the target with `higher_order_block_call_propagates_captured_result`.
 
@@ -187,9 +181,9 @@ Run the target with `higher_order_block_call_propagates_captured_result`.
 ### Task 6: Inheritance, `super`, and class/instance-side separation
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/capabilities/dispatch_capabilities.rs`
 
-- [ ] **Step 1: Add `super_dispatch_preserves_side_and_inherited_constructor_identity`.**
+- [x] **Step 1: Add `constructor_super_chain_preserves_instance_and_class_side_results`.**
 
 Use both instance-side and class-side overrides:
 
@@ -222,18 +216,18 @@ class Probe {
 
 Assert that `object` is `Derived`, `number` is `Int`, and `text` is `String`. Inspect call denotations/dependencies to verify instance `super.value` does not resolve through the class side and class `super.label` does not resolve through the instance side.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
-Run the target with `super_dispatch_preserves_side_and_inherited_constructor_identity`.
+Run the target with `constructor_super_chain_preserves_instance_and_class_side_results`.
 
 ---
 
 ### Task 7: Field initializer, constructor write, and later mutation
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/capabilities/fields.rs`
 
-- [ ] **Step 1: Add `field_facts_survive_constructor_and_general_writes`.**
+- [x] **Step 1: Add `field_facts_survive_constructor_and_general_writes`.**
 
 Use a typed field, constructor initialization, a mutating method, and a read method:
 
@@ -263,7 +257,7 @@ class Probe {
 
 Assert field/parameter facts remain `Int` across initializer, constructor assignment, general assignment, and reads. Confirm the mutation invalidates only dependent refinements and does not make unrelated local facts dynamic.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
 Run the target with `field_facts_survive_constructor_and_general_writes`.
 
@@ -272,10 +266,10 @@ Run the target with `field_facts_survive_constructor_and_general_writes`.
 ### Task 8: Reflection and dynamic pack conservatism
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Create: `phalcom-semantic/tests/semantic/capabilities/dynamic_boundaries.rs`
 - Reference: `phalcom-core/tests/lang/reflection/reflection_perform_user_method_with_args.ph`
 
-- [ ] **Step 1: Add `reflective_dynamic_pack_stays_conservative_but_keeps_known_independent_facts`.**
+- [x] **Step 1: Add `dynamic_spread_preserves_independent_known_fact` and `reflective_dynamic_pack_stays_conservative_but_keeps_known_fact`.**
 
 Use a user-defined method and reflective `perform` with a dynamic outgoing pack:
 
@@ -295,19 +289,19 @@ class Probe {
 
 Assert that the reflective call is marked dynamic/opaque rather than falsely proven as `Int`, while the independent `known` binding remains exact `Int`. Record whether the callable status is complete-with-boundary or blocked; do not accept a false diagnostic caused solely by the dynamic send.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
-Run the target with `reflective_dynamic_pack_stays_conservative_but_keeps_known_independent_facts`.
+Run the target with `reflective_dynamic_pack_stays_conservative_but_keeps_known_fact`.
 
 ---
 
 ### Task 9: Cross-module import/export and dispatch dependency
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/integration/workspace.rs`
 - Reference: `phalcom-semantic/tests/workspace.rs`
 
-- [ ] **Step 1: Add `cross_module_exported_constructor_and_method_feed_client_summary`.**
+- [x] **Step 1: Add `exported_constructor_and_method_feed_importing_client_summary`.**
 
 Create resolved modules `app.api` and `app.client`:
 
@@ -334,18 +328,18 @@ export Client
 
 Assert exported identity resolution, client-to-API dependency edges, and an inferred `Int` result in `Client.run`. Also assert that the API declaration does not leak unrelated names into the client scope.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
-Run the target with `cross_module_exported_constructor_and_method_feed_client_summary`.
+Run the target with `exported_constructor_and_method_feed_importing_client_summary`.
 
 ---
 
 ### Task 10: Collection shapes, destructuring, and rest bindings
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/capabilities/patterns.rs`
 
-- [ ] **Step 1: Add `collection_and_destructure_facts_preserve_element_shapes`.**
+- [x] **Step 1: Add `collection_and_destructure_facts_preserve_element_shapes`.**
 
 Use nested collection literals, tuple/list destructuring, and a rest binding:
 
@@ -364,18 +358,18 @@ class Probe {
 
 Assert that `head` is known as `Int`, `tail` retains a list/pack shape rather than collapsing to `Dynamic`, and the tuple/record expressions preserve their field or positional structure. Verify that rest capture does not erase the independently known type of `head`.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
-Run the target with `collection_and_destructure_facts_preserve_element_shapes`.
+Run the target with `collection_and_destructure_facts_preserve_element_shapes -- --ignored`.
 
 ---
 
 ### Task 11: Incremental edit, removal, re-addition, and deterministic recovery
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Modify: `phalcom-semantic/tests/semantic/incremental/callable_dependencies.rs`
 
-- [ ] **Step 1: Add `dependency_edit_remove_readd_recomputes_only_affected_summary`.**
+- [x] **Step 1: Add `dependency_edit_remove_readd_recomputes_affected_summary_deterministically`.**
 
 Drive one `SemanticWorkspaceSession` through four revisions:
 
@@ -386,35 +380,39 @@ Drive one `SemanticWorkspaceSession` through four revisions:
 
 Assert recomputed/reused counts, `Arc` identity for unaffected products, reverse dependency edges, diagnostics, and stable snapshot output across two identical revision sequences. This is the highest-value incremental scenario because it tests semantic result correctness and cache ownership together.
 
-- [ ] **Step 2: Run the focused test.**
+- [x] **Step 2: Run the focused test.**
 
-Run the target with `dependency_edit_remove_readd_recomputes_only_affected_summary`.
+Run the target with `dependency_edit_remove_readd_recomputes_affected_summary_deterministically -- --ignored`.
 
 ---
 
 ### Task 12: Full verification and failure classification
 
 **Files:**
-- Modify: `phalcom-semantic/tests/semantic_complex_analysis.rs`
+- Verify: capability, integration, incremental, and compiler regression targets
 
-- [ ] **Step 1: Run the complete new integration file.**
+- [x] **Step 1: Run the categorized semantic targets.**
 
 ```sh
-cargo test -p phalcom-semantic --test semantic_complex_analysis -- --nocapture
+cargo test -p phalcom-semantic --test semantic capabilities::
+cargo test -p phalcom-semantic --test semantic integration::workspace::exported_constructor_and_method_feed_importing_client_summary
+cargo test -p phalcom-semantic --test semantic incremental::callable_dependencies::dependency_edit_remove_readd_recomputes_affected_summary_deterministically -- --ignored
+cargo test -p phalcom-core --test invariants tail_let_and_const_blocks_return_unit_not_initializer_value
+cargo test -p phalcom-core --test invariants inlined_tail_let_produces_unit_for_consumers
 ```
 
-- [ ] **Step 2: Classify failures by semantic tier.**
+- [x] **Step 2: Classify failures by semantic tier.**
 
 For each failing scenario, record whether failure is parser coverage, source collection, local transfer/join, dispatch identity, callable-summary convergence, dynamic-boundary policy, module resolution, or invalidation. Do not weaken expected assertions to make a test pass.
 
 - [ ] **Step 3: Run neighboring regression suites.**
 
 ```sh
-cargo test -p phalcom-semantic --test semantic_authority_composition --test callable_dependency_invalidation --test product_stability_invalidation
+cargo test -p phalcom-semantic --test semantic capabilities:: -- --ignored
 cargo test -p phalcom-core --test invariants
 ```
 
-- [ ] **Step 4: Update graphify after code changes.**
+- [x] **Step 4: Update graphify after code changes.**
 
 Run:
 
@@ -422,10 +420,10 @@ Run:
 graphify update .
 ```
 
-- [ ] **Step 5: Commit the new integration test separately.**
+- [ ] **Step 5: Commit categorized tests separately.**
 
 ```sh
-git add phalcom-semantic/tests/semantic_complex_analysis.rs
+git add phalcom-semantic/tests/semantic/capabilities phalcom-semantic/tests/semantic/integration/workspace.rs phalcom-semantic/tests/semantic/incremental/callable_dependencies.rs
 git commit -m "test semantic analyzer complex scenarios"
 ```
 

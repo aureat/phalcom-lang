@@ -3,7 +3,9 @@
 //! Law: InferVarId != TypeId. Inference variables are session-local reasoning entities,
 //! never interned into canonical TypeStore or published in snapshots.
 
+use super::context::CheckerControl;
 use crate::identity::{CallableId, ExplanationId, ExpressionId, InferVarId};
+use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
@@ -68,6 +70,8 @@ pub struct InferenceVariable {
     pub kind: KindId,
     pub state: InferVarState,
     pub support: Option<InferenceSupport>,
+    /// Complete proof state for value premises that can influence this variable.
+    pub proof: Option<InferenceProofState>,
 }
 
 /// Value evidence supporting an inferred generic variable.
@@ -85,6 +89,62 @@ impl InferenceSupport {
             Self::Established
         }
     }
+}
+
+/// Proof state for required value premises participating in generic inference.
+///
+/// This domain is intentionally separate from solver support: a solved
+/// substitution can still depend on an unavailable or dynamic source value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InferenceProofState {
+    Established,
+    Assumed,
+    Unknown(UnknownReason),
+    Dynamic(DynamicReason),
+}
+
+impl InferenceProofState {
+    /// Converts complete expression knowledge into solver-local proof state.
+    pub fn from_knowledge(knowledge: &TypeKnowledge) -> Self {
+        match knowledge {
+            TypeKnowledge::Known(evidence) => match evidence.status() {
+                EvidenceStatus::Established => Self::Established,
+                EvidenceStatus::Assumed => Self::Assumed,
+            },
+            TypeKnowledge::Unknown(reason) => Self::Unknown(reason.clone()),
+            TypeKnowledge::Dynamic(reason) => Self::Dynamic(reason.clone()),
+        }
+    }
+
+    /// Meets required premises without discarding the weakest epistemic state.
+    pub fn meet(self, other: Self) -> Self {
+        use InferenceProofState::{Assumed, Dynamic, Established, Unknown};
+
+        match (self, other) {
+            (Unknown(left), Unknown(right)) => Unknown(crate::types::evidence::join_unknown_reason(left, right)),
+            (Unknown(reason), _) | (_, Unknown(reason)) => Unknown(reason),
+            (Dynamic(left), Dynamic(right)) => Dynamic(crate::types::evidence::join_dynamic_reason(left, right)),
+            (Dynamic(reason), _) | (_, Dynamic(reason)) => Dynamic(reason),
+            (Assumed, _) | (_, Assumed) => Assumed,
+            (Established, Established) => Established,
+        }
+    }
+}
+
+/// A required generic value premise, retained even when no canonical type can
+/// be extracted from its expression knowledge.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequiredInferencePremise {
+    pub term: InferenceTerm,
+    pub origin: ConstraintOrigin,
+    pub proof: InferenceProofState,
+    pub explanation: Option<ExplanationId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct InferenceSubtypeEdge {
+    sub: InferVarId,
+    sup: InferVarId,
 }
 
 /// Kind of constraint relation.
@@ -170,6 +230,7 @@ pub enum InferenceOutcome {
     Blocked(BlockReason),
     Cancelled,
     BudgetExceeded(BudgetReport),
+    InternalFailure(InferenceFailureReason),
 }
 
 impl InferenceOutcome {
@@ -190,6 +251,9 @@ pub struct InferenceSession {
     upper_bounds: HashMap<InferVarId, Vec<TypeId>>,
     var_aliases: HashMap<InferVarId, InferVarId>,
     var_terms: HashMap<InferVarId, InferenceTerm>,
+    required_premises: Vec<RequiredInferencePremise>,
+    subtype_edges: Vec<InferenceSubtypeEdge>,
+    bound_origins: HashMap<(InferVarId, TypeId), (u32, ConstraintOrigin)>,
     next_var_index: u32,
 }
 
@@ -212,6 +276,7 @@ impl InferenceSession {
             kind,
             state: InferVarState::Unsolved,
             support,
+            proof: None,
         });
         var
     }
@@ -252,6 +317,44 @@ impl InferenceSession {
             explanation,
             support: Some(support),
         });
+    }
+
+    /// Records one generic argument as a proof premise before any type-id
+    /// filtering occurs.
+    pub fn record_required_premise(&mut self, term: &InferenceTerm, origin: ConstraintOrigin, knowledge: &TypeKnowledge, explanation: Option<ExplanationId>) {
+        let proof = InferenceProofState::from_knowledge(knowledge);
+        self.record_term_proof_state(term, proof.clone());
+        self.required_premises.push(RequiredInferencePremise {
+            term: term.clone(),
+            origin,
+            proof,
+            explanation,
+        });
+    }
+
+    /// Returns proof state for all inference variables occurring in a term.
+    pub fn proof_state_for_term(&self, term: &InferenceTerm) -> InferenceProofState {
+        let mut variables = self.term_variables(term).into_iter();
+        let Some(first) = variables.next() else {
+            return InferenceProofState::Established;
+        };
+        let mut proof = self
+            .variable_by_representative(first)
+            .and_then(|variable| variable.proof.clone())
+            .unwrap_or(InferenceProofState::Unknown(UnknownReason::UnderconstrainedTypeVariable));
+        for variable in variables {
+            let current = self
+                .variable_by_representative(variable)
+                .and_then(|candidate| candidate.proof.clone())
+                .unwrap_or(InferenceProofState::Unknown(UnknownReason::UnderconstrainedTypeVariable));
+            proof = proof.meet(current);
+        }
+        proof
+    }
+
+    fn variable_by_representative(&self, variable: InferVarId) -> Option<&InferenceVariable> {
+        let representative = self.find_var(variable);
+        self.variables.iter().find(|candidate| candidate.id == representative)
     }
 
     /// Instantiates fresh inference variables for each generic parameter in `generic_sig`.
@@ -332,45 +435,65 @@ impl InferenceSession {
 
     /// Solves all accumulated constraints.
     pub fn solve(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) -> InferenceOutcome {
+        let control = CheckerControl::default();
+        self.solve_with_control(store, hierarchy, &control)
+    }
+
+    /// Solves all accumulated constraints while consuming the caller's shared
+    /// cancellation token and query budget.
+    pub fn solve_with_control(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, control: &CheckerControl) -> InferenceOutcome {
         // Multi-pass iterative constraint solving
         let max_passes = 16;
         let mut converged = false;
         for _ in 0..max_passes {
+            if control.is_cancelled() {
+                return InferenceOutcome::Cancelled;
+            }
             let mut changed = false;
             let constraints = self.constraints.clone();
             for (constraint_index, constraint) in constraints.iter().enumerate() {
+                if control.is_cancelled() {
+                    return InferenceOutcome::Cancelled;
+                }
+                if let Err(report) = control.charge_step() {
+                    return InferenceOutcome::BudgetExceeded(report);
+                }
                 let effect = match &constraint.relation {
                     InferenceRelation::Equivalent(left, right) => self.unify_terms(left, right, store),
                     InferenceRelation::Subtype(sub, sup) => self.subtype_terms(sub, sup, store, hierarchy),
                 };
                 match effect {
-                    Ok(effect) => changed |= effect.is_changed(),
+                    Ok(effect) => {
+                        changed |= effect.is_changed();
+                        self.record_bound_origin(&constraint.relation, constraint.origin.clone(), constraint_index as u32, store);
+                    }
                     Err(failure) => {
-                        self.mark_failure(&failure);
-                        return InferenceOutcome::Conflicting(InferenceConflict {
-                            constraint_index: Some(constraint_index as u32),
-                            origin: Some(constraint.origin.clone()),
-                            failure,
-                        });
+                        return self.failure_outcome(failure, Some(constraint_index as u32), Some(constraint.origin.clone()));
                     }
                 }
+            }
+
+            match self.propagate_subtype_edges(store, hierarchy, control) {
+                Ok(effect) => changed |= effect.is_changed(),
+                Err(outcome) => return outcome,
             }
 
             // Try to resolve remaining var_terms
             let var_terms = self.var_terms.clone();
             for (var, term) in var_terms {
+                if control.is_cancelled() {
+                    return InferenceOutcome::Cancelled;
+                }
+                if let Err(report) = control.charge_step() {
+                    return InferenceOutcome::BudgetExceeded(report);
+                }
                 let rep = self.find_var(var);
                 if !self.substitutions.contains_key(&rep) {
                     if let Ok(ty) = self.materialize(&term, store) {
                         match self.bind(rep, ty, store) {
                             Ok(effect) => changed |= effect.is_changed(),
                             Err(failure) => {
-                                self.mark_failure(&failure);
-                                return InferenceOutcome::Conflicting(InferenceConflict {
-                                    constraint_index: None,
-                                    origin: None,
-                                    failure,
-                                });
+                                return self.failure_outcome(failure, None, None);
                             }
                         }
                     }
@@ -380,6 +503,12 @@ impl InferenceSession {
             // Try to resolve from lower/upper bounds
             let vars_to_check: Vec<InferVarId> = self.variables.iter().map(|v| self.find_var(v.id)).collect();
             for rep in vars_to_check {
+                if control.is_cancelled() {
+                    return InferenceOutcome::Cancelled;
+                }
+                if let Err(report) = control.charge_step() {
+                    return InferenceOutcome::BudgetExceeded(report);
+                }
                 if !self.substitutions.contains_key(&rep) {
                     if let Some(lowers) = self.lower_bounds.get(&rep).cloned() {
                         if !lowers.is_empty() {
@@ -400,23 +529,22 @@ impl InferenceSession {
                                         lower: candidate,
                                         upper: failed_upper.expect("failed upper recorded with non-empty failure"),
                                     };
-                                    self.mark_failure(&failure);
-                                    return InferenceOutcome::Conflicting(InferenceConflict {
-                                        constraint_index: None,
-                                        origin: None,
-                                        failure,
-                                    });
+                                    let upper = match &failure {
+                                        InferenceFailureReason::ConflictingBounds { upper, .. } => *upper,
+                                        _ => unreachable!("bound reconciliation creates ConflictingBounds"),
+                                    };
+                                    let (constraint_index, origin) = self
+                                        .bound_origins
+                                        .get(&(rep, upper))
+                                        .map(|(index, origin)| (Some(*index), Some(origin.clone())))
+                                        .unwrap_or((None, None));
+                                    return self.failure_outcome(failure, constraint_index, origin);
                                 }
                             }
                             match self.bind(rep, candidate, store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    self.mark_failure(&failure);
-                                    return InferenceOutcome::Conflicting(InferenceConflict {
-                                        constraint_index: None,
-                                        origin: None,
-                                        failure,
-                                    });
+                                    return self.failure_outcome(failure, None, None);
                                 }
                             }
                         }
@@ -425,12 +553,7 @@ impl InferenceSession {
                             match self.bind(rep, uppers[0], store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    self.mark_failure(&failure);
-                                    return InferenceOutcome::Conflicting(InferenceConflict {
-                                        constraint_index: None,
-                                        origin: None,
-                                        failure,
-                                    });
+                                    return self.failure_outcome(failure, None, None);
                                 }
                             }
                         }
@@ -475,6 +598,134 @@ impl InferenceSession {
                     .filter_map(|variable| variable.support.map(|support| (variable.id, support)))
                     .collect(),
             })
+        }
+    }
+
+    fn failure_outcome(&mut self, failure: InferenceFailureReason, constraint_index: Option<u32>, origin: Option<ConstraintOrigin>) -> InferenceOutcome {
+        self.mark_failure(&failure);
+        if matches!(failure, InferenceFailureReason::MissingVariableMetadata { .. }) {
+            InferenceOutcome::InternalFailure(failure)
+        } else {
+            InferenceOutcome::Conflicting(InferenceConflict {
+                constraint_index,
+                origin,
+                failure,
+            })
+        }
+    }
+
+    fn record_bound_origin(&mut self, relation: &InferenceRelation, origin: ConstraintOrigin, constraint_index: u32, store: &mut TypeStore) {
+        match relation {
+            InferenceRelation::Subtype(InferenceTerm::Var(variable), term) => {
+                let representative = self.find_var(*variable);
+                if let Ok(ty) = self.materialize(term, store) {
+                    self.bound_origins.entry((representative, ty)).or_insert((constraint_index, origin));
+                }
+            }
+            InferenceRelation::Subtype(term, InferenceTerm::Var(variable)) => {
+                let representative = self.find_var(*variable);
+                if let Ok(ty) = self.materialize(term, store) {
+                    self.bound_origins.entry((representative, ty)).or_insert((constraint_index, origin));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn propagate_subtype_edges(
+        &mut self,
+        store: &mut TypeStore,
+        hierarchy: &dyn TypeHierarchy,
+        control: &CheckerControl,
+    ) -> Result<SolveEffect, InferenceOutcome> {
+        let edges = self.subtype_edges.clone();
+        let mut changed = false;
+        for edge in edges {
+            if control.is_cancelled() {
+                return Err(InferenceOutcome::Cancelled);
+            }
+            if let Err(report) = control.charge_step() {
+                return Err(InferenceOutcome::BudgetExceeded(report));
+            }
+            let sub = self.find_var(edge.sub);
+            let sup = self.find_var(edge.sup);
+            if sub == sup {
+                continue;
+            }
+
+            let sub_ty = self.substitutions.get(&sub).copied();
+            let sup_ty = self.substitutions.get(&sup).copied();
+            match (sub_ty, sup_ty) {
+                (Some(sub_ty), Some(sup_ty)) => {
+                    if !is_subtype(store, hierarchy, sub_ty, sup_ty) {
+                        let failure = InferenceFailureReason::StructuralMismatch {
+                            left: Box::new(InferenceTerm::Var(sub)),
+                            right: Box::new(InferenceTerm::Var(sup)),
+                        };
+                        return Err(self.failure_outcome(failure, None, None));
+                    }
+                }
+                (Some(sub_ty), None) => {
+                    let added = self.add_lower_bound(sup, sub_ty);
+                    changed |= added;
+                    if added {
+                        self.propagate_variable_evidence(sub, sup);
+                    }
+                }
+                (None, Some(sup_ty)) => {
+                    changed |= self.add_upper_bound(sub, sup_ty);
+                }
+                (None, None) => {
+                    let lower_bounds = self.lower_bounds.get(&sub).cloned().unwrap_or_default();
+                    for lower in lower_bounds {
+                        let added = self.add_lower_bound(sup, lower);
+                        changed |= added;
+                        if added {
+                            self.propagate_variable_evidence(sub, sup);
+                        }
+                    }
+                    let upper_bounds = self.upper_bounds.get(&sup).cloned().unwrap_or_default();
+                    for upper in upper_bounds {
+                        changed |= self.add_upper_bound(sub, upper);
+                    }
+                }
+            }
+        }
+        Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+    }
+
+    fn add_lower_bound(&mut self, variable: InferVarId, ty: TypeId) -> bool {
+        let representative = self.find_var(variable);
+        let bounds = self.lower_bounds.entry(representative).or_default();
+        if bounds.contains(&ty) {
+            false
+        } else {
+            bounds.push(ty);
+            true
+        }
+    }
+
+    fn add_upper_bound(&mut self, variable: InferVarId, ty: TypeId) -> bool {
+        let representative = self.find_var(variable);
+        let bounds = self.upper_bounds.entry(representative).or_default();
+        if bounds.contains(&ty) {
+            false
+        } else {
+            bounds.push(ty);
+            true
+        }
+    }
+
+    fn propagate_variable_evidence(&mut self, from: InferVarId, to: InferVarId) {
+        let from_rep = self.find_var(from);
+        let support = self.variable_by_representative(from_rep).and_then(|variable| variable.support);
+        let proof = self.variable_by_representative(from_rep).and_then(|variable| variable.proof.clone());
+        if let Some(support) = support {
+            self.record_variable_support(to, support);
+        }
+        if let Some(proof) = proof {
+            self.record_variable_proof(to, proof);
         }
     }
 
@@ -548,6 +799,35 @@ impl InferenceSession {
         }
     }
 
+    fn record_term_proof_state(&mut self, term: &InferenceTerm, proof: InferenceProofState) {
+        match term {
+            InferenceTerm::Var(variable) => self.record_variable_proof(*variable, proof),
+            InferenceTerm::Applied { origin, arguments } => {
+                self.record_term_proof_state(origin, proof.clone());
+                for argument in arguments.iter() {
+                    self.record_term_proof_state(argument, proof.clone());
+                }
+            }
+            InferenceTerm::Union(members) => {
+                for member in members.iter() {
+                    self.record_term_proof_state(member, proof.clone());
+                }
+            }
+            InferenceTerm::Tuple(elements) => {
+                for element in elements.iter() {
+                    self.record_term_proof_state(&element.term, proof.clone());
+                }
+            }
+            InferenceTerm::Callable(callable) => {
+                for parameter in callable.parameters.iter() {
+                    self.record_term_proof_state(&parameter.term, proof.clone());
+                }
+                self.record_term_proof_state(&callable.return_type, proof);
+            }
+            InferenceTerm::Canonical(_) => {}
+        }
+    }
+
     fn record_term_support(&mut self, term: &InferenceTerm, support: InferenceSupport) {
         match term {
             InferenceTerm::Var(variable) => self.record_variable_support(*variable, support),
@@ -583,6 +863,16 @@ impl InferenceSession {
             candidate.support = Some(match candidate.support {
                 Some(previous) => previous.join(support),
                 None => support,
+            });
+        }
+    }
+
+    fn record_variable_proof(&mut self, variable: InferVarId, proof: InferenceProofState) {
+        let representative = self.find_var(variable);
+        if let Some(candidate) = self.variables.iter_mut().find(|candidate| candidate.id == representative) {
+            candidate.proof = Some(match candidate.proof.take() {
+                Some(previous) => previous.meet(proof),
+                None => proof,
             });
         }
     }
@@ -709,9 +999,20 @@ impl InferenceSession {
                             .and_then(|candidate| candidate.support),
                     )
                     .reduce(InferenceSupport::join);
+                let proof = self
+                    .variables
+                    .iter()
+                    .filter(|candidate| candidate.id == rep1 || candidate.id == rep2)
+                    .filter_map(|candidate| candidate.proof.clone())
+                    .reduce(InferenceProofState::meet);
                 self.var_aliases.insert(rep1, rep2);
                 if let Some(support) = support {
                     self.record_variable_support(rep2, support);
+                }
+                if let Some(proof) = proof {
+                    if let Some(candidate) = self.variables.iter_mut().find(|candidate| candidate.id == rep2) {
+                        candidate.proof = Some(proof);
+                    }
                 }
                 // Merge bounds
                 if let Some(lowers) = self.lower_bounds.remove(&rep1) {
@@ -719,6 +1020,11 @@ impl InferenceSession {
                 }
                 if let Some(uppers) = self.upper_bounds.remove(&rep1) {
                     self.upper_bounds.entry(rep2).or_default().extend(uppers);
+                }
+                let origins = std::mem::take(&mut self.bound_origins);
+                for ((variable, ty), origin) in origins {
+                    let representative = if variable == rep1 { rep2 } else { variable };
+                    self.bound_origins.entry((representative, ty)).or_insert(origin);
                 }
                 Ok(SolveEffect::Changed)
             }
@@ -801,19 +1107,40 @@ impl InferenceSession {
         hier: &dyn TypeHierarchy,
     ) -> Result<SolveEffect, InferenceFailureReason> {
         match (sub, sup) {
+            (InferenceTerm::Var(sub_var), InferenceTerm::Var(sup_var)) => {
+                let sub_rep = self.find_var(*sub_var);
+                let sup_rep = self.find_var(*sup_var);
+                if sub_rep == sup_rep {
+                    return Ok(SolveEffect::Unchanged);
+                }
+                if let Some(sub_ty) = self.substitutions.get(&sub_rep).copied() {
+                    return self.subtype_terms(&InferenceTerm::Canonical(sub_ty), sup, store, hier);
+                }
+                if let Some(sup_ty) = self.substitutions.get(&sup_rep).copied() {
+                    return self.subtype_terms(sub, &InferenceTerm::Canonical(sup_ty), store, hier);
+                }
+                if self
+                    .subtype_edges
+                    .iter()
+                    .any(|edge| self.find_var(edge.sub) == sub_rep && self.find_var(edge.sup) == sup_rep)
+                {
+                    Ok(SolveEffect::Unchanged)
+                } else {
+                    self.subtype_edges.push(InferenceSubtypeEdge { sub: sub_rep, sup: sup_rep });
+                    Ok(SolveEffect::Changed)
+                }
+            }
             (InferenceTerm::Var(v), term) => {
                 let rep = self.find_var(*v);
                 if let Some(ty) = self.substitutions.get(&rep).copied() {
                     let canon = InferenceTerm::Canonical(ty);
                     self.subtype_terms(&canon, term, store, hier)
                 } else if let Ok(ty) = self.materialize(term, store) {
-                    let bounds = self.upper_bounds.entry(rep).or_default();
-                    if bounds.contains(&ty) {
-                        Ok(SolveEffect::Unchanged)
+                    Ok(if self.add_upper_bound(rep, ty) {
+                        SolveEffect::Changed
                     } else {
-                        bounds.push(ty);
-                        Ok(SolveEffect::Changed)
-                    }
+                        SolveEffect::Unchanged
+                    })
                 } else {
                     self.unify_terms(sub, sup, store)
                 }
@@ -824,13 +1151,11 @@ impl InferenceSession {
                     let canon = InferenceTerm::Canonical(ty);
                     self.subtype_terms(term, &canon, store, hier)
                 } else if let Ok(ty) = self.materialize(term, store) {
-                    let bounds = self.lower_bounds.entry(rep).or_default();
-                    if bounds.contains(&ty) {
-                        Ok(SolveEffect::Unchanged)
+                    Ok(if self.add_lower_bound(rep, ty) {
+                        SolveEffect::Changed
                     } else {
-                        bounds.push(ty);
-                        Ok(SolveEffect::Changed)
-                    }
+                        SolveEffect::Unchanged
+                    })
                 } else {
                     self.unify_terms(sub, sup, store)
                 }
@@ -904,5 +1229,28 @@ impl InferenceSession {
                 }))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InferenceFailureReason, InferenceOutcome, InferenceSession};
+    use crate::identity::InferVarId;
+
+    #[test]
+    fn missing_variable_metadata_is_an_internal_failure() {
+        let mut session = InferenceSession::new();
+        let outcome = session.failure_outcome(
+            InferenceFailureReason::MissingVariableMetadata {
+                var: InferVarId::from_index(99),
+            },
+            None,
+            None,
+        );
+
+        assert!(matches!(
+            outcome,
+            InferenceOutcome::InternalFailure(InferenceFailureReason::MissingVariableMetadata { .. })
+        ));
     }
 }

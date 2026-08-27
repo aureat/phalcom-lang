@@ -1,8 +1,12 @@
 use phalcom_modules::DeclarationId;
 use phalcom_modules::identity::ModuleId;
+use phalcom_semantic::checker::context::CheckerControl;
 use phalcom_semantic::checker::inference::{
-    ConstraintOrigin, InferenceFailureReason, InferenceOutcome, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm,
+    ConstraintOrigin, InferenceFailureReason, InferenceOutcome, InferenceProofState, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm,
+    InferenceTupleElement,
 };
+use phalcom_semantic::db::{CancellationToken, QueryBudget};
+use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
@@ -250,6 +254,47 @@ fn conflicting_constraint_retains_real_origin_and_terms() {
 }
 
 #[test]
+fn conflicting_bounds_retain_failed_upper_bound_origin() {
+    let mut store = TypeStore::new();
+    let mut hierarchy = MapTypeHierarchy::new();
+    let int_decl = test_decl("Int");
+    let number_decl = test_decl("Number");
+    let string_decl = test_decl("String");
+    hierarchy.insert(int_decl.clone(), number_decl.clone());
+    let int_ty = store.nominal(int_decl);
+    let number_ty = store.nominal(number_decl);
+    let string_ty = store.nominal(string_decl);
+    let mut session = InferenceSession::new();
+    let variable = session.fresh_variable(KindId::TYPE);
+    let first_expression =
+        phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(1));
+    let failed_expression =
+        phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(2));
+
+    session.add_constraint(
+        InferenceRelation::Subtype(InferenceTerm::Canonical(int_ty), InferenceTerm::Var(variable)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Subtype(InferenceTerm::Var(variable), InferenceTerm::Canonical(number_ty)),
+        ConstraintOrigin::ExpectedResult { expression: first_expression },
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Subtype(InferenceTerm::Var(variable), InferenceTerm::Canonical(string_ty)),
+        ConstraintOrigin::ExpectedResult { expression: failed_expression },
+        None,
+    );
+
+    let InferenceOutcome::Conflicting(conflict) = session.solve(&mut store, &hierarchy) else {
+        panic!("expected final conflicting-bound reconciliation");
+    };
+    assert_eq!(conflict.constraint_index, Some(2));
+    assert_eq!(conflict.origin, Some(ConstraintOrigin::ExpectedResult { expression: failed_expression }));
+}
+
+#[test]
 fn generic_support_tracks_value_evidence_and_ignores_plain_context() {
     let mut store = TypeStore::new();
     let hier = MapTypeHierarchy::new();
@@ -299,4 +344,197 @@ fn binding_inference_variable_checks_canonical_kind() {
         }
     );
     assert_ne!(store.kind_of(higher_kind_form), KindId::TYPE);
+}
+
+#[test]
+fn inference_proof_state_meet_preserves_unavailable_reasons() {
+    let unknown = InferenceProofState::Unknown(UnknownReason::UnresolvedName("missing".into()));
+    assert_eq!(InferenceProofState::Established.meet(unknown.clone()), unknown);
+    assert_eq!(unknown.clone().meet(InferenceProofState::Dynamic(DynamicReason::ExplicitEscape)), unknown,);
+    assert_eq!(
+        InferenceProofState::Established.meet(InferenceProofState::Assumed),
+        InferenceProofState::Assumed,
+    );
+}
+
+#[test]
+fn aliases_and_compound_returns_meet_proof_states() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let mut session = InferenceSession::new();
+    let established = session.fresh_variable(KindId::TYPE);
+    let assumed = session.fresh_variable(KindId::TYPE);
+    let established_term = InferenceTerm::Var(established);
+    let assumed_term = InferenceTerm::Var(assumed);
+
+    session.record_required_premise(
+        &established_term,
+        ConstraintOrigin::Explicit,
+        &TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+        None,
+    );
+    session.record_required_premise(
+        &assumed_term,
+        ConstraintOrigin::Explicit,
+        &TypeKnowledge::assumed(int_ty, EvidenceOrigin::Syntax),
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(established_term.clone(), assumed_term.clone()),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(established_term.clone(), InferenceTerm::Canonical(int_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hierarchy).is_solved());
+    assert_eq!(session.proof_state_for_term(&established_term), InferenceProofState::Assumed,);
+
+    let compound = InferenceTerm::Tuple(
+        vec![
+            InferenceTupleElement {
+                label: None,
+                term: established_term,
+            },
+            InferenceTupleElement {
+                label: None,
+                term: InferenceTerm::Var(session.fresh_variable(KindId::TYPE)),
+            },
+        ]
+        .into_boxed_slice(),
+    );
+    assert_eq!(
+        session.proof_state_for_term(&compound),
+        InferenceProofState::Unknown(UnknownReason::UnderconstrainedTypeVariable),
+    );
+}
+
+#[test]
+fn return_proof_remembers_unknown_required_premise_after_substitution_solves() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let mut session = InferenceSession::new();
+    let variable = session.fresh_variable(KindId::TYPE);
+    let term = InferenceTerm::Var(variable);
+
+    session.record_required_premise(
+        &term,
+        ConstraintOrigin::Explicit,
+        &TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+        None,
+    );
+    session.add_constraint_with_support(
+        InferenceRelation::Subtype(InferenceTerm::Canonical(int_ty), term.clone()),
+        ConstraintOrigin::Explicit,
+        None,
+        InferenceSupport::Established,
+    );
+    session.record_required_premise(
+        &term,
+        ConstraintOrigin::Explicit,
+        &TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into())),
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hier).is_solved());
+    assert_eq!(
+        session.proof_state_for_term(&term),
+        InferenceProofState::Unknown(UnknownReason::UnresolvedName("missing".into())),
+    );
+}
+
+#[test]
+fn expected_only_selection_does_not_seed_generic_proof() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let int_ty = store.nominal(test_decl("Int"));
+    let mut session = InferenceSession::new();
+    let variable = session.fresh_variable(KindId::TYPE);
+    let term = InferenceTerm::Var(variable);
+    session.add_constraint(
+        InferenceRelation::Subtype(term.clone(), InferenceTerm::Canonical(int_ty)),
+        ConstraintOrigin::ExpectedResult {
+            expression: phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(1)),
+        },
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hier).is_solved());
+    assert_eq!(
+        session.proof_state_for_term(&term),
+        InferenceProofState::Unknown(UnknownReason::UnderconstrainedTypeVariable),
+    );
+}
+
+#[test]
+fn variable_subtype_constraint_is_directed_and_permutation_stable() {
+    let mut store = TypeStore::new();
+    let mut hierarchy = MapTypeHierarchy::new();
+    let int_decl = test_decl("Int");
+    let number_decl = test_decl("Number");
+    hierarchy.insert(int_decl.clone(), number_decl.clone());
+    let int_ty = store.nominal(int_decl);
+    let number_ty = store.nominal(number_decl);
+
+    for permutation in [0_u8, 1_u8] {
+        let mut session = InferenceSession::new();
+        let sub = session.fresh_variable(KindId::TYPE);
+        let sup = session.fresh_variable(KindId::TYPE);
+        let directed = InferenceRelation::Subtype(InferenceTerm::Var(sub), InferenceTerm::Var(sup));
+        let bind_sub = InferenceRelation::Equivalent(InferenceTerm::Var(sub), InferenceTerm::Canonical(int_ty));
+        let bind_sup = InferenceRelation::Equivalent(InferenceTerm::Var(sup), InferenceTerm::Canonical(number_ty));
+        if permutation == 0 {
+            session.add_constraint(directed, ConstraintOrigin::Explicit, None);
+            session.add_constraint(bind_sub, ConstraintOrigin::Explicit, None);
+            session.add_constraint(bind_sup, ConstraintOrigin::Explicit, None);
+        } else {
+            session.add_constraint(bind_sub, ConstraintOrigin::Explicit, None);
+            session.add_constraint(bind_sup, ConstraintOrigin::Explicit, None);
+            session.add_constraint(directed, ConstraintOrigin::Explicit, None);
+        }
+        let outcome = session.solve(&mut store, &hierarchy);
+        let InferenceOutcome::Solved(solution) = outcome else {
+            panic!("directed subtype relation should accept Int <: Number");
+        };
+        assert_eq!(solution.substitutions.get(&sub), Some(&int_ty));
+        assert_eq!(solution.substitutions.get(&sup), Some(&number_ty));
+    }
+}
+
+#[test]
+fn inference_solver_observes_cancellation_and_budget() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let token = CancellationToken::new();
+    token.cancel();
+    let control = CheckerControl::new(QueryBudget::default(), &token);
+    let mut cancelled = InferenceSession::new();
+    let variable = cancelled.fresh_variable(KindId::TYPE);
+    cancelled.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(variable), InferenceTerm::Var(variable)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    assert!(matches!(
+        cancelled.solve_with_control(&mut store, &hierarchy, &control),
+        InferenceOutcome::Cancelled
+    ));
+
+    let mut budgeted = InferenceSession::new();
+    let variable = budgeted.fresh_variable(KindId::TYPE);
+    budgeted.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(variable), InferenceTerm::Var(variable)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    let control = CheckerControl::new(QueryBudget::new(0), &CancellationToken::new());
+    assert!(matches!(
+        budgeted.solve_with_control(&mut store, &hierarchy, &control),
+        InferenceOutcome::BudgetExceeded(_)
+    ));
 }

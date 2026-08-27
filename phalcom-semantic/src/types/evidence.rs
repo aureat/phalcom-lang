@@ -258,7 +258,7 @@ pub(crate) fn compose_required_knowledge(
 /// Merges epistemic reasons with a stable, commutative precedence. More
 /// specific solver/control-flow failures outrank ordinary missing-name
 /// evidence, so predecessor iteration order cannot change the published fact.
-fn join_unknown_reason(left: UnknownReason, right: UnknownReason) -> UnknownReason {
+pub(crate) fn join_unknown_reason(left: UnknownReason, right: UnknownReason) -> UnknownReason {
     let left_rank = unknown_reason_rank(&left);
     let right_rank = unknown_reason_rank(&right);
     if left_rank != right_rank {
@@ -289,7 +289,7 @@ fn unknown_reason_rank(reason: &UnknownReason) -> u8 {
     }
 }
 
-fn join_dynamic_reason(left: DynamicReason, right: DynamicReason) -> DynamicReason {
+pub(crate) fn join_dynamic_reason(left: DynamicReason, right: DynamicReason) -> DynamicReason {
     let left_key = format!("{left:?}");
     let right_key = format!("{right:?}");
     if left_key >= right_key { left } else { right }

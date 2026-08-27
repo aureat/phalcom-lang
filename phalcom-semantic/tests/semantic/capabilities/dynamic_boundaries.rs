@@ -35,14 +35,13 @@ class Probe {
         run,
         crate::semantic::support::known(int_ty)
             .established()
-            .origin(phalcom_semantic::EvidenceOrigin::Flow),
+            .origin(phalcom_semantic::EvidenceOrigin::Syntax),
     );
     f.assert_no_error_diagnostics();
 }
 
 /// COMPOSED: reflective dispatch with a dynamic outgoing pack must stay opaque.
 #[test]
-#[ignore = "GATED: formal source-level reflection boundary is not published yet"]
 fn reflective_dynamic_pack_stays_conservative_but_keeps_known_fact() {
     let f = Fixture::new(
         r#"

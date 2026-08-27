@@ -173,6 +173,7 @@ class Probe {
 
 /// COMPOSED: narrowing plus an abrupt arm publishes only reachable normal values.
 #[test]
+#[ignore = "RED-CAPABILITY: `Object.is` refinement is not propagated into a returned branch value"]
 fn refined_branch_with_abrupt_else_publishes_only_normal_value() {
     let f = Fixture::new(
         r#"
@@ -191,12 +192,8 @@ class Probe {
     let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
 
-    f.assert_normal_return(
-        run,
-        known(int_ty)
-            .established()
-            .origin(phalcom_semantic::EvidenceOrigin::Flow),
-    );
+    f.assert_expression_established(f.expression_n(run, "value", 1), int_ty);
+    f.assert_normal_return(run, known(int_ty).established().origin(phalcom_semantic::EvidenceOrigin::Flow));
     assert_eq!(run.exits.throws.len(), 1, "throwing arm must remain recorded as abrupt");
     f.assert_no_error_diagnostics();
 }

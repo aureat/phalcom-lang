@@ -357,6 +357,7 @@ impl<'vm> Compiler<'vm> {
         // `compile_inline_block_body` so the fast (inlined) and fallback paths
         // agree on the fall-off-end result.
         let mut leaves_value = false;
+        let mut tail_binding = false;
         for (i, statement) in statements.into_iter().enumerate() {
             let is_last = i == len - 1;
             let tail_let = is_last && matches!(&statement, Statement::Let(_));
@@ -364,7 +365,8 @@ impl<'vm> Compiler<'vm> {
                 if let Statement::Return(_) = statement {
                     last_is_return = true;
                 }
-                leaves_value = matches!(&statement, Statement::Expr { .. } | Statement::Let(_) | Statement::Return(_));
+                tail_binding = tail_let;
+                leaves_value = matches!(&statement, Statement::Expr { .. } | Statement::Return(_));
             }
             self.compile_statement_with_pop_control(statement, !is_last)?;
             if tail_let && !is_constructor {
@@ -379,7 +381,7 @@ impl<'vm> Compiler<'vm> {
         if !last_is_return {
             if self.functions.last().unwrap().is_constructor {
                 self.emit(Bytecode::GetLocal(0), EmptySourceRange);
-            } else if !leaves_value {
+            } else if !leaves_value && !tail_binding {
                 self.emit(Bytecode::Nil, EmptySourceRange);
             }
             self.emit(Bytecode::Return, EmptySourceRange);

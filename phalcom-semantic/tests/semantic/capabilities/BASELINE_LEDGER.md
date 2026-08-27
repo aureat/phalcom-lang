@@ -70,3 +70,23 @@ tests are tracked separately in `generics.rs`.
 - `mixed_generic_return_uses_weakest_value_support`
 - `independent_fixed_generic_return_stays_established`
 - `expected_context_cannot_fabricate_missing_generic_return`
+
+## Complex scenario coverage
+
+These scenarios exercise combinations of capabilities. Ownership follows the
+semantic harness taxonomy: local source behavior lives under `capabilities`,
+module linking under `integration`, and revision/cache behavior under
+`incremental`.
+
+| Scenario | Owner | Status | Test |
+| --- | --- | --- | --- |
+| Refinement plus abrupt branch | `flow_branches` | RED-CAPABILITY | `refined_branch_with_abrupt_else_publishes_only_normal_value` |
+| Loop fixed point plus `break`/`continue` | `flow_loops` | READY | `loop_fixpoint_preserves_mutated_integer_and_abrupt_edges` |
+| Closure capture plus nested return | `callable_publication` | READY | `closure_capture_and_non_local_return_keep_outer_summary_separate` |
+| Higher-order closure invocation | `higher_order` | GATED | `higher_order_block_call_propagates_captured_result` |
+| Constructor plus instance/class `super` | `dispatch_capabilities` | READY | `constructor_super_chain_preserves_instance_and_class_side_results` |
+| Field initializer/write/read lifecycle | `fields` | GATED | `field_facts_survive_constructor_and_general_writes` |
+| Dynamic spread and reflection boundary | `dynamic_boundaries` | READY | `dynamic_spread_preserves_independent_known_fact`; `reflective_dynamic_pack_stays_conservative_but_keeps_known_fact` |
+| Collection rest plus product destructuring | `patterns` | GATED | `collection_and_destructure_facts_preserve_element_shapes` |
+| Exported class method through import | `integration::workspace` | READY | `exported_constructor_and_method_feed_importing_client_summary` |
+| Dependency edit/remove/re-add lifecycle | `incremental::callable_dependencies` | RED-CAPABILITY | `dependency_edit_remove_readd_recomputes_affected_summary_deterministically` |
