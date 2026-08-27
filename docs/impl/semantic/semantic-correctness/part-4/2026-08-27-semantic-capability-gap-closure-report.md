@@ -97,5 +97,6 @@ claimed by this report.
 ## Provenance
 
 Technical 03 base: `f0bec822bf7e9cdeada55faa0f27a1e3cda208ca` (already present on
-`origin/main` at handoff). Implementation commit: `7be08a22`. Documentation
-commit is recorded in the delivery summary and Git history.
+`origin/main` at handoff). Implementation commit on final `main`: `82024c78`
+(source work unit `7be08a22`). Documentation commit is recorded in the delivery
+summary and Git history.

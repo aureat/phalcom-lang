@@ -20,7 +20,6 @@ use crate::types::native::register_native_surfaces;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded};
 use crate::types::store::{TypeData, TypeStore};
-use crate::surface::DeclarationSurface;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
