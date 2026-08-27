@@ -9,7 +9,8 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, FieldI
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::{
     FormalFactRef, FormalSemanticProjection, ModuleId, OccurrenceIndex, OccurrenceKind, OccurrenceRole, SemanticOccurrence, SemanticRevision, SemanticTargetId,
-    SnapshotId, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceSemanticIndex, TypeStoreId, WorkspaceId, build_source_scope_index,
+    SnapshotId, SourceBindingKind, SourceCallableKind, SourceIndexContext, SourceNameResolution, SourceSemanticIndex, TypeStoreId, WorkspaceId,
+    build_source_scope_index,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -95,6 +96,42 @@ fn lexical_scope_preserves_source_order_and_nested_shadowing() {
         index.resolve_name(index.root, "Sample", 0),
         SourceNameResolution::Target(SemanticTargetId::Declaration(_))
     ));
+}
+
+#[test]
+fn source_index_publishes_canonical_member_source_metadata() {
+    let source = "class Sample {\n  const _field: Int = 1\n  compute(value: Int) -> Int { value }\n}\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+    let module = ModuleId::core();
+    let index = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
+    let declaration = DeclarationId::new(module.clone(), "Sample".into());
+    let callable = CallableId::new(
+        declaration.clone(),
+        Selector::method("compute", vec![phalcom_common::selector::SelectorSlot::Label("value".into())]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let field = FieldId::new(declaration.clone(), "_field", DispatchSide::Instance);
+
+    let declaration_source = index.declaration_sources.get(&declaration).expect("class metadata");
+    assert_eq!(declaration_source.name.as_ref(), "Sample");
+    let class_name_start = source.find("Sample").unwrap();
+    assert_eq!(declaration_source.name_range, (class_name_start..class_name_start + "Sample".len()).into());
+    assert_eq!(declaration_source.declaration_range, (0..source.rfind('}').unwrap() + 1).into());
+
+    let callable_source = index.callable_sources.get(&callable).expect("method metadata");
+    assert_eq!(callable_source.kind, SourceCallableKind::Method);
+    let parameter_start = source.find("value").unwrap();
+    assert_eq!(
+        callable_source.parameter_name_ranges.as_ref(),
+        &[(parameter_start..parameter_start + "value".len()).into()]
+    );
+    assert!(callable_source.has_explicit_return_annotation);
+
+    let field_source = index.field_sources.get(&field).expect("field metadata");
+    assert!(field_source.has_explicit_annotation);
+    let field_start = source.find("_field").unwrap();
+    assert_eq!(field_source.name_range, (field_start..field_start + "_field".len()).into());
 }
 
 #[test]

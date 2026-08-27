@@ -42,7 +42,7 @@ use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, Declar
 use phalcom_modules::graph::{SemanticEdge, SemanticEdgeKind, SemanticNodeId};
 use phalcom_modules::interface::{InterfaceBuilder, LinkedExportTarget};
 use phalcom_modules::linker::LinkedProgram;
-use phalcom_modules::{WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceMutation};
+use phalcom_modules::{WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -199,6 +199,30 @@ impl SemanticWorkspaceSession {
     pub fn apply_module_mutation(&mut self, mutation: WorkspaceSourceMutation) -> Result<SemanticWorkspaceUpdate, WorkspaceModuleSessionError> {
         let update = self.module_session.apply(mutation)?;
         Ok(self.update_module_workspace(update))
+    }
+
+    /// Applies one heterogeneous module/source batch and publishes one
+    /// canonical semantic snapshot for the resulting workspace generation.
+    pub fn apply_module_mutations<I>(&mut self, mutations: I) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError>
+    where
+        I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
+    {
+        let update = self.module_session.apply_batch(mutations)?;
+        Ok(self.update_module_workspace(update))
+    }
+
+    /// Applies one heterogeneous module/source batch and publishes it at an
+    /// externally coordinated generation supplied by the workspace worker.
+    pub fn apply_module_mutations_at_generation<I>(
+        &mut self,
+        mutations: I,
+        generation: u64,
+    ) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError>
+    where
+        I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
+    {
+        let update = self.module_session.apply_batch(mutations)?;
+        Ok(self.update_module_workspace_at_generation(update, generation))
     }
 
     /// Publishes semantic products for an already-linked module workspace update.

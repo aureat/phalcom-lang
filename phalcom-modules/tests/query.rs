@@ -61,7 +61,9 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
         },
     );
 
-    let facade = ModuleQueryFacade::new(&universe, &unlinked, &linked, &resolved, &sources);
+    let source_modules = BTreeMap::from([(SourceId("/workspace/src/math.ph".into()), child.clone())]);
+    let display_path_modules = BTreeMap::from([(std::path::PathBuf::from("/workspace/src/math.ph"), child.clone())]);
+    let facade = ModuleQueryFacade::new(&universe, &unlinked, &linked, &resolved, &sources, &source_modules, &display_path_modules);
     let roots = facade.import_roots(&root);
     assert!(roots.contains_key(&component("std")));
     assert!(roots.contains_key(&component("universe")));
@@ -73,6 +75,8 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
         facade.definition_source(&child).unwrap().display_path.to_string_lossy(),
         "/workspace/src/math.ph"
     );
+    assert_eq!(facade.module_for_source(&SourceId("/workspace/src/math.ph".into())), Some(&child));
+    assert_eq!(facade.module_for_display_path(std::path::Path::new("/workspace/src/math.ph")), Some(&child));
 }
 
 #[test]
@@ -104,6 +108,8 @@ fn facade_rejects_unexposed_package_children() {
     let resolved = BTreeMap::new();
     let sources = BTreeMap::new();
 
-    let facade = ModuleQueryFacade::new(&universe, &unlinked, &linked, &resolved, &sources);
+    let source_modules = BTreeMap::new();
+    let display_path_modules = BTreeMap::new();
+    let facade = ModuleQueryFacade::new(&universe, &unlinked, &linked, &resolved, &sources, &source_modules, &display_path_modules);
     assert!(facade.import_children(&root, &ModulePath::root()).is_empty());
 }

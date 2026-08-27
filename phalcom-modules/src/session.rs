@@ -10,7 +10,7 @@ use crate::manifest::DependencyProvider;
 use crate::project::{ProjectUniverse, discover_owning_project};
 use crate::resolver::ModuleResolver;
 use crate::source::{FilesystemSourceProvider, ModuleKind, OverlaySourceProvider, ParsedModuleUnit, SourceOverlay, SourceProvider};
-use phalcom_ast::ast::{ImportPath, ImportRoot};
+use phalcom_ast::ast::{ImportPath, ImportRoot, Program};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -50,6 +50,43 @@ pub enum WorkspaceSourceMutation {
     RemoveSource {
         source: SourceId,
     },
+}
+
+/// Heterogeneous source mutation batch at module-infrastructure boundary.
+#[derive(Clone, Debug)]
+pub enum WorkspaceSourceBatchMutation {
+    SetOverlay {
+        source: SourceLocation,
+        text: Arc<str>,
+        revision: SourceRevision,
+        recovered_program: Option<Arc<Program>>,
+    },
+    RemoveOverlay {
+        source: SourceId,
+    },
+    RefreshDisk {
+        source: SourceLocation,
+        revision: SourceRevision,
+    },
+    RemoveSource {
+        source: SourceId,
+    },
+}
+
+impl From<WorkspaceSourceMutation> for WorkspaceSourceBatchMutation {
+    fn from(value: WorkspaceSourceMutation) -> Self {
+        match value {
+            WorkspaceSourceMutation::SetOverlay { source, text, revision } => Self::SetOverlay {
+                source,
+                text,
+                revision,
+                recovered_program: None,
+            },
+            WorkspaceSourceMutation::RemoveOverlay { source } => Self::RemoveOverlay { source },
+            WorkspaceSourceMutation::RefreshDisk { source, revision } => Self::RefreshDisk { source, revision },
+            WorkspaceSourceMutation::RemoveSource { source } => Self::RemoveSource { source },
+        }
+    }
 }
 
 /// Products published after one source mutation.
@@ -183,67 +220,125 @@ impl WorkspaceModuleSession {
     }
 
     pub fn apply(&mut self, mutation: WorkspaceSourceMutation) -> Result<WorkspaceModuleUpdate, WorkspaceModuleSessionError> {
+        self.apply_batch(std::iter::once(mutation.into()))
+    }
+
+    pub fn apply_batch<I>(&mut self, mutations: I) -> Result<WorkspaceModuleUpdate, WorkspaceModuleSessionError>
+    where
+        I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
+    {
+        let mut staged = Self {
+            universe: self.universe.clone(),
+            provider: OverlaySourceProvider::new(FilesystemSourceProvider::new()),
+            project_roots: self.project_roots.clone(),
+            modules_by_source: self.modules_by_source.clone(),
+            sources_by_module: self.sources_by_module.clone(),
+            standalone_projects: self.standalone_projects.clone(),
+            synthetic_ids: self.synthetic_ids.clone(),
+            linked: self.linked.clone(),
+            generation: self.generation,
+        };
+        Self::seed_open_overlays(&staged.provider, &staged.sources_by_module);
+
         let before: BTreeSet<_> = self.sources_by_module.keys().cloned().collect();
         let mut changed = BTreeSet::new();
         let mut identity_changes = BTreeSet::new();
+        let mut clear_base_cache = false;
 
-        match mutation {
-            WorkspaceSourceMutation::SetOverlay { source, text, revision } => {
-                let module = self.module_for_location(&source)?;
-                let kind = self.kind_for_source(&module, &source);
-                let parsed = parse_source(module.clone(), kind, source.clone(), text)?;
-                self.provider
-                    .set_overlay(SourceOverlay::new(module.clone(), kind, source.clone(), parsed.text.clone()));
-                self.insert_state(module.clone(), kind, source, revision, parsed, true);
-                changed.insert(module);
-            }
-            WorkspaceSourceMutation::RemoveOverlay { source } => {
-                let module = self
-                    .modules_by_source
-                    .get(&source)
-                    .cloned()
-                    .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
-                self.provider.remove_overlay(&module);
-                let state = self
-                    .sources_by_module
-                    .get(&module)
-                    .cloned()
-                    .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
-                let text = self.provider.base().read(&source)?;
-                let parsed = parse_source(module.clone(), state.kind, state.location.clone(), text)?;
-                self.insert_state(module.clone(), state.kind, state.location, state.revision, parsed, false);
-                changed.insert(module);
-            }
-            WorkspaceSourceMutation::RefreshDisk { source, revision } => {
-                let module = self.module_for_location(&source)?;
-                if let Some(existing) = self.sources_by_module.get(&module) {
-                    if existing.open_overlay {
-                        self.provider.remove_overlay(&module);
-                    }
+        for mutation in mutations {
+            match mutation {
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source,
+                    text,
+                    revision,
+                    recovered_program,
+                } => {
+                    let module = staged.module_for_location(&source)?;
+                    let kind = staged.kind_for_source(&module, &source);
+                    let text_for_parse = text.clone();
+                    let parsed = recovered_program.map_or_else(
+                        || parse_source(module.clone(), kind, source.clone(), text_for_parse),
+                        |program| {
+                            Ok(Arc::new(ParsedModuleUnit::new(
+                                module.clone(),
+                                kind,
+                                Some(source.clone()),
+                                text.clone(),
+                                program,
+                            )))
+                        },
+                    )?;
+                    staged
+                        .provider
+                        .set_overlay(SourceOverlay::new(module.clone(), kind, source.clone(), parsed.text.clone()));
+                    staged.insert_state(module.clone(), kind, source, revision, parsed, true);
+                    changed.insert(module);
                 }
-                self.provider.base().clear_cache();
-                let text = self.provider.base().read(&source.source_id)?;
-                let kind = self.kind_for_source(&module, &source);
-                let parsed = parse_source(module.clone(), kind, source.clone(), text)?;
-                self.insert_state(module.clone(), kind, source, revision, parsed, false);
-                changed.insert(module);
-            }
-            WorkspaceSourceMutation::RemoveSource { source } => {
-                let module = self
-                    .modules_by_source
-                    .remove(&source)
-                    .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
-                self.provider.remove_overlay(&module);
-                self.provider.base().clear_cache();
-                self.sources_by_module.remove(&module);
-                identity_changes.insert(module);
+                WorkspaceSourceBatchMutation::RemoveOverlay { source } => {
+                    let module = staged
+                        .modules_by_source
+                        .get(&source)
+                        .cloned()
+                        .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
+                    staged.provider.remove_overlay(&module);
+                    let state = staged
+                        .sources_by_module
+                        .get(&module)
+                        .cloned()
+                        .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
+                    let text = staged.provider.base().read(&source)?;
+                    let parsed = parse_source(module.clone(), state.kind, state.location.clone(), text)?;
+                    staged.insert_state(module.clone(), state.kind, state.location, state.revision, parsed, false);
+                    changed.insert(module);
+                }
+                WorkspaceSourceBatchMutation::RefreshDisk { source, revision } => {
+                    let module = staged.module_for_location(&source)?;
+                    if let Some(existing) = staged.sources_by_module.get(&module) {
+                        if existing.open_overlay {
+                            staged.provider.remove_overlay(&module);
+                        }
+                    }
+                    staged.provider.base().clear_cache();
+                    clear_base_cache = true;
+                    let text = staged.provider.base().read(&source.source_id)?;
+                    let kind = staged.kind_for_source(&module, &source);
+                    let parsed = parse_source(module.clone(), kind, source.clone(), text)?;
+                    staged.insert_state(module.clone(), kind, source, revision, parsed, false);
+                    changed.insert(module);
+                }
+                WorkspaceSourceBatchMutation::RemoveSource { source } => {
+                    let module = staged
+                        .modules_by_source
+                        .remove(&source)
+                        .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
+                    staged.provider.remove_overlay(&module);
+                    staged.provider.base().clear_cache();
+                    clear_base_cache = true;
+                    staged.sources_by_module.remove(&module);
+                    identity_changes.insert(module);
+                }
             }
         }
 
-        self.generation = self.generation.saturating_add(1);
-        let after: BTreeSet<_> = self.sources_by_module.keys().cloned().collect();
+        staged.generation = staged.generation.saturating_add(1);
+        let after: BTreeSet<_> = staged.sources_by_module.keys().cloned().collect();
         let removed_modules = before.difference(&after).cloned().collect();
-        self.rebuild(changed, removed_modules, identity_changes)
+        let update = staged.rebuild(changed, removed_modules, identity_changes)?;
+
+        self.universe = staged.universe;
+        self.project_roots = staged.project_roots;
+        self.modules_by_source = staged.modules_by_source;
+        self.sources_by_module = staged.sources_by_module;
+        self.standalone_projects = staged.standalone_projects;
+        self.synthetic_ids = staged.synthetic_ids;
+        self.linked = staged.linked;
+        self.generation = staged.generation;
+        self.provider.clear_overlays();
+        if clear_base_cache {
+            self.provider.base().clear_cache();
+        }
+        Self::seed_open_overlays(&self.provider, &self.sources_by_module);
+        Ok(update)
     }
 
     /// Applies several source overlays before rebuilding interfaces and links once.
@@ -251,7 +346,12 @@ impl WorkspaceModuleSession {
     where
         I: IntoIterator<Item = (SourceLocation, Arc<str>, SourceRevision)>,
     {
-        self.set_overlay_batch(overlays.into_iter().map(|(source, text, revision)| (source, text, revision, None)))
+        self.apply_batch(overlays.into_iter().map(|(source, text, revision)| WorkspaceSourceBatchMutation::SetOverlay {
+            source,
+            text,
+            revision,
+            recovered_program: None,
+        }))
     }
 
     /// Applies source overlays with parser output supplied by the boundary
@@ -263,68 +363,16 @@ impl WorkspaceModuleSession {
     where
         I: IntoIterator<Item = (SourceLocation, Arc<str>, SourceRevision, Arc<phalcom_ast::ast::Program>)>,
     {
-        self.set_overlay_batch(
+        self.apply_batch(
             overlays
                 .into_iter()
-                .map(|(source, text, revision, program)| (source, text, revision, Some(program))),
+                .map(|(source, text, revision, recovered_program)| WorkspaceSourceBatchMutation::SetOverlay {
+                    source,
+                    text,
+                    revision,
+                    recovered_program: Some(recovered_program),
+                }),
         )
-    }
-
-    fn set_overlay_batch<I>(&mut self, overlays: I) -> Result<WorkspaceModuleUpdate, WorkspaceModuleSessionError>
-    where
-        I: IntoIterator<Item = (SourceLocation, Arc<str>, SourceRevision, Option<Arc<phalcom_ast::ast::Program>>)>,
-    {
-        let before: BTreeSet<_> = self.sources_by_module.keys().cloned().collect();
-        let previous_modules_by_source = self.modules_by_source.clone();
-        let previous_sources_by_module = self.sources_by_module.clone();
-        let previous_linked = self.linked.clone();
-        let previous_generation = self.generation;
-        let mut changed = BTreeSet::new();
-        // Parse and resolve every item before mutating overlay/state maps. A
-        // malformed batch therefore leaves the previous coherent publication
-        // and source lifecycle intact.
-        let mut staged = Vec::new();
-        for (source, text, revision, program) in overlays {
-            let module = self.module_for_location(&source)?;
-            let kind = self.kind_for_source(&module, &source);
-            let parsed = program.map_or_else(
-                || parse_source(module.clone(), kind, source.clone(), text.clone()),
-                |program| {
-                    Ok(Arc::new(ParsedModuleUnit::new(
-                        module.clone(),
-                        kind,
-                        Some(source.clone()),
-                        text.clone(),
-                        program,
-                    )))
-                },
-            )?;
-            staged.push((module, kind, source, revision, parsed));
-        }
-        for (module, kind, source, revision, parsed) in staged {
-            self.provider
-                .set_overlay(SourceOverlay::new(module.clone(), kind, source.clone(), parsed.text.clone()));
-            self.insert_state(module.clone(), kind, source, revision, parsed, true);
-            changed.insert(module);
-        }
-        self.generation = self.generation.saturating_add(1);
-        let after: BTreeSet<_> = self.sources_by_module.keys().cloned().collect();
-        let removed_modules = before.difference(&after).cloned().collect();
-        match self.rebuild(changed, removed_modules, BTreeSet::new()) {
-            Ok(update) => Ok(update),
-            Err(error) => {
-                self.modules_by_source = previous_modules_by_source;
-                self.sources_by_module = previous_sources_by_module;
-                self.linked = previous_linked;
-                self.generation = previous_generation;
-                self.provider.clear_overlays();
-                for state in self.sources_by_module.values().filter(|state| state.open_overlay) {
-                    self.provider
-                        .set_overlay(SourceOverlay::new(state.module.clone(), state.kind, state.location.clone(), state.text.clone()));
-                }
-                Err(error)
-            }
-        }
     }
 
     pub fn set_overlay(
@@ -452,6 +500,12 @@ impl WorkspaceModuleSession {
         );
     }
 
+    fn seed_open_overlays(provider: &OverlaySourceProvider<FilesystemSourceProvider>, sources_by_module: &BTreeMap<ModuleId, WorkspaceSourceState>) {
+        for state in sources_by_module.values().filter(|state| state.open_overlay) {
+            provider.set_overlay(SourceOverlay::new(state.module.clone(), state.kind, state.location.clone(), state.text.clone()));
+        }
+    }
+
     fn rebuild(
         &mut self,
         changed_modules: BTreeSet<ModuleId>,
@@ -577,4 +631,189 @@ fn parse_source(module: ModuleId, kind: ModuleKind, location: SourceLocation, te
         });
     }
     Ok(Arc::new(ParsedModuleUnit::new(module, kind, Some(location), text, Arc::new(result.program))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn write_source(root: &std::path::Path, name: &str, text: &str) -> SourceLocation {
+        let path = root.join(name);
+        let content = if text.ends_with('\n') { text.to_string() } else { format!("{text}\n") };
+        fs::write(&path, content).unwrap();
+        SourceLocation {
+            source_id: SourceId(path.to_string_lossy().into()),
+            display_path: path,
+        }
+    }
+
+    fn parse_program(text: &str) -> Arc<Program> {
+        let owned = if text.ends_with('\n') { text.to_string() } else { format!("{text}\n") };
+        let result = phalcom_ast::parse(&owned, 0);
+        assert!(result.errors.is_empty(), "test fixture should parse cleanly");
+        Arc::new(result.program)
+    }
+
+    #[test]
+    fn batch_updates_multiple_sources_with_one_generation_increment() {
+        let root = tempdir().unwrap();
+        let a = write_source(root.path(), "a.ph", "class A {}");
+        let b = write_source(root.path(), "b.ph", "class B {}");
+        let mut session = WorkspaceModuleSession::new();
+
+        let update = session
+            .apply_batch([
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: a.clone(),
+                    text: Arc::from("class A2 {}\n"),
+                    revision: SourceRevision(1),
+                    recovered_program: None,
+                },
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: b.clone(),
+                    text: Arc::from("class B2 {}\n"),
+                    revision: SourceRevision(2),
+                    recovered_program: None,
+                },
+            ])
+            .unwrap();
+
+        assert_eq!(session.generation(), 1);
+        assert_eq!(session.sources().len(), 2);
+        assert_eq!(update.changed_modules.len(), 2);
+        assert!(update.removed_modules.is_empty());
+    }
+
+    #[test]
+    fn batch_update_and_remove_rebuild_once_and_publish_consistent_sources() {
+        let root = tempdir().unwrap();
+        let a = write_source(root.path(), "a.ph", "class A {}");
+        let b = write_source(root.path(), "b.ph", "class B {}");
+        let mut session = WorkspaceModuleSession::new();
+
+        session
+            .apply_batch([
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: a.clone(),
+                    text: Arc::from("class A {}\n"),
+                    revision: SourceRevision(1),
+                    recovered_program: None,
+                },
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: b.clone(),
+                    text: Arc::from("class B {}\n"),
+                    revision: SourceRevision(2),
+                    recovered_program: None,
+                },
+            ])
+            .unwrap();
+
+        let a_module = session.module_for_source(&a.source_id).cloned().unwrap();
+        let b_module = session.module_for_source(&b.source_id).cloned().unwrap();
+        let generation_before = session.generation();
+
+        let update = session
+            .apply_batch([
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: a.clone(),
+                    text: Arc::from("class A2 {}\n"),
+                    revision: SourceRevision(3),
+                    recovered_program: None,
+                },
+                WorkspaceSourceBatchMutation::RemoveSource { source: b.source_id.clone() },
+            ])
+            .unwrap();
+
+        assert_eq!(session.generation(), generation_before + 1);
+        assert_eq!(update.changed_modules, BTreeSet::from([a_module.clone()]));
+        assert_eq!(update.removed_modules, BTreeSet::from([b_module.clone()]));
+        assert_eq!(session.source(&a_module).unwrap().text.as_ref(), "class A2 {}\n");
+        assert!(session.source(&b_module).is_none());
+        assert!(session.module_for_source(&b.source_id).is_none());
+    }
+
+    #[test]
+    fn batch_accepts_recovered_program_for_invalid_live_text() {
+        let root = tempdir().unwrap();
+        let source = write_source(root.path(), "a.ph", "class A {}");
+        let mut session = WorkspaceModuleSession::new();
+        let recovered_program = parse_program("class Recovery {}");
+        let invalid_text: Arc<str> = Arc::from("class A {");
+
+        let update = session
+            .apply_batch([WorkspaceSourceBatchMutation::SetOverlay {
+                source: source.clone(),
+                text: invalid_text.clone(),
+                revision: SourceRevision(1),
+                recovered_program: Some(recovered_program.clone()),
+            }])
+            .unwrap();
+
+        let module = session.module_for_source(&source.source_id).cloned().unwrap();
+        let state = session.source(&module).unwrap();
+        assert_eq!(update.changed_modules, BTreeSet::from([module.clone()]));
+        assert_eq!(state.text.as_ref(), invalid_text.as_ref());
+        assert!(Arc::ptr_eq(&state.parsed.program, &recovered_program));
+        assert!(Arc::ptr_eq(&update.sources[&module].program, &recovered_program));
+    }
+
+    #[test]
+    fn batch_rolls_back_when_rebuild_fails() {
+        let root = tempdir().unwrap();
+        let a = write_source(root.path(), "a.ph", "class A {}");
+        let b = write_source(root.path(), "b.ph", "class B {}");
+        let mut session = WorkspaceModuleSession::new();
+
+        session
+            .apply_batch([
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: a.clone(),
+                    text: Arc::from("class A {}\n"),
+                    revision: SourceRevision(1),
+                    recovered_program: None,
+                },
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: b.clone(),
+                    text: Arc::from("class B {}\n"),
+                    revision: SourceRevision(2),
+                    recovered_program: None,
+                },
+            ])
+            .unwrap();
+
+        let a_module = session.module_for_source(&a.source_id).cloned().unwrap();
+        let b_module = session.module_for_source(&b.source_id).cloned().unwrap();
+        let generation_before = session.generation();
+        let linked_before = session.linked().cloned().unwrap();
+        let a_before = session.source(&a_module).unwrap().text.clone();
+        let b_before = session.source(&b_module).unwrap().text.clone();
+
+        let err = session
+            .apply_batch([
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: a.clone(),
+                    text: Arc::from("class A2 {}\n"),
+                    revision: SourceRevision(3),
+                    recovered_program: None,
+                },
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: b.clone(),
+                    text: Arc::from("class B {} class B {}\n"),
+                    revision: SourceRevision(4),
+                    recovered_program: None,
+                },
+            ])
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            WorkspaceModuleSessionError::Interface(_) | WorkspaceModuleSessionError::Parse { .. } | WorkspaceModuleSessionError::Link(_)
+        ));
+        assert_eq!(session.generation(), generation_before);
+        assert!(Arc::ptr_eq(session.linked().unwrap(), &linked_before));
+        assert_eq!(session.source(&a_module).unwrap().text, a_before);
+        assert_eq!(session.source(&b_module).unwrap().text, b_before);
+    }
 }

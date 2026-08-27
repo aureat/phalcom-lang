@@ -5,13 +5,70 @@ use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, Li
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
+use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::id::KindId;
-use phalcom_semantic::{SemanticWorkspaceInput, TypeHierarchy, analyze_single_module, analyze_workspace};
+use phalcom_semantic::{SemanticWorkspaceInput, SemanticWorkspaceSession, TypeHierarchy, analyze_single_module, analyze_workspace};
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
+
+fn batch_source(path: &str) -> SourceLocation {
+    SourceLocation {
+        source_id: SourceId(path.into()),
+        display_path: path.into(),
+    }
+}
+
+#[test]
+fn semantic_batch_publishes_once_and_retains_workspace_store_and_modules() {
+    let left = batch_source("/tmp/phalcom-semantic-batch-left.ph");
+    let right = batch_source("/tmp/phalcom-semantic-batch-right.ph");
+    let mut session = SemanticWorkspaceSession::new();
+
+    let first = session
+        .apply_module_mutations_at_generation(
+            [WorkspaceSourceBatchMutation::SetOverlay {
+                source: left.clone(),
+                text: Arc::from("class Left { value() {} }\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            }],
+            10,
+        )
+        .expect("initial semantic publication");
+    let left_module = first.snapshot.module_for_source(&left.source_id).cloned().expect("left module");
+    let workspace = first.snapshot.id.workspace();
+    let store = first.snapshot.store.id();
+
+    let second = session
+        .apply_module_mutations_at_generation(
+            [
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: left.clone(),
+                    text: Arc::from("class Left { value() {} changed() {} }\n"),
+                    revision: SourceRevision(2),
+                    recovered_program: None,
+                },
+                WorkspaceSourceBatchMutation::SetOverlay {
+                    source: right.clone(),
+                    text: Arc::from("class Right { value() {} }\n"),
+                    revision: SourceRevision(1),
+                    recovered_program: None,
+                },
+            ],
+            11,
+        )
+        .expect("coalesced semantic publication");
+
+    assert_eq!(second.snapshot.generation, 11);
+    assert_eq!(second.snapshot.id.workspace(), workspace);
+    assert_eq!(second.snapshot.store.id(), store);
+    assert_eq!(session.module_session().generation(), 2);
+    assert_eq!(second.snapshot.module_for_source(&left.source_id), Some(&left_module));
+    assert!(second.snapshot.module_for_source(&right.source_id).is_some());
+}
 
 #[test]
 fn single_module_analysis_succeeds() {

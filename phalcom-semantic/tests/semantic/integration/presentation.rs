@@ -1,5 +1,6 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
+use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::BlockReason;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};
 use phalcom_semantic::checker::flow::graph::FlowGraph;
@@ -7,12 +8,81 @@ use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::explain::ExplanationArena;
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, LocalExpressionId, ModuleId};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
-use phalcom_semantic::{DispatchSide, FormalPresentation, FormalSiteId, SemanticPresentationIndex, TypePresenter, TypeStore};
+use phalcom_semantic::{
+    AdvisoryPresenter, CallableParameterSemantic, CallablePresentation, CallableSemanticSignature, DispatchSide, FormalPresentation, FormalSiteId,
+    SemanticPresentationIndex, TypePresenter, TypeStore,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn declaration(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::core(), name.into())
+}
+
+#[test]
+fn advisory_presenter_formats_canonical_runtime_shapes() {
+    let int = declaration("Int");
+    let string = declaration("String");
+    let int_shape = phalcom_semantic::ValueShape::Instance(int.clone());
+    let string_shape = phalcom_semantic::ValueShape::Instance(string);
+
+    assert_eq!(AdvisoryPresenter::present_shape(&int_shape), "Int");
+    assert_eq!(
+        AdvisoryPresenter::present_shape(&phalcom_semantic::ValueShape::ClassObject(int.clone())),
+        "Int class"
+    );
+    assert_eq!(
+        AdvisoryPresenter::present_shape(&phalcom_semantic::ValueShape::Tuple(Arc::from([int_shape.clone(), string_shape.clone()]))),
+        "(Int, String)"
+    );
+    assert_eq!(
+        AdvisoryPresenter::present_shape(&phalcom_semantic::ValueShape::ExactList(Arc::from([int_shape.clone(), int_shape.clone()]))),
+        "List<Int>"
+    );
+    assert_eq!(
+        AdvisoryPresenter::present_shape(&phalcom_semantic::ValueShape::record([
+            ("value", int_shape.clone()),
+            ("name", string_shape.clone()),
+        ])),
+        "#{name: String, value: Int}"
+    );
+    assert_eq!(
+        AdvisoryPresenter::present_shape(&phalcom_semantic::ValueShape::bounded_union([int_shape, string_shape])),
+        "Int | String"
+    );
+}
+
+#[test]
+fn callable_presentation_joins_canonical_signature_and_source_kind() {
+    let owner = declaration("Owner");
+    let selector = Selector::method("value", vec![]).expect("selector");
+    let callable = phalcom_semantic::CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+    let mut store = TypeStore::new();
+    let int = store.nominal(declaration("Int"));
+    let signature = CallableSemanticSignature {
+        callable: callable.clone(),
+        owner,
+        side: DispatchSide::Instance,
+        selector,
+        generics: None,
+        parameters: vec![CallableParameterSemantic::new(0, "value", int.into())].into_boxed_slice(),
+        return_type: int.into(),
+        source: None,
+        implementation: ImplementationKind::Source,
+        native_id: None,
+        effects: EffectSpec::Unknown,
+        raises: RaisesSpec::Unknown,
+        flow: ReturnFlowSpec::Value,
+        lifecycle: NativeLifecycleSpec::UNKNOWN,
+    };
+
+    let presentation = CallablePresentation::from_signature(&signature, None, &TypePresenter::new(&store));
+    assert_eq!(presentation.callable, callable);
+    assert_eq!(presentation.selector, "value()");
+    assert_eq!(presentation.owner_name, "Owner".into());
+    assert_eq!(presentation.parameters[0].type_, FormalPresentation::Known("Int".into()));
+    assert_eq!(presentation.return_type, FormalPresentation::Known("Int".into()));
+    assert_eq!(presentation.documentation, None);
 }
 
 #[test]

@@ -10,6 +10,7 @@ pub mod db;
 pub mod declarations;
 pub mod diagnostic;
 pub mod dispatch;
+pub mod editor;
 pub mod effects;
 pub mod explain;
 pub mod export;
@@ -49,6 +50,7 @@ pub use core_surface::*;
 pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
+pub use editor::{AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, ReceiverAlternative, ReceiverMode, ResolvedReceiver, VisibleSymbol};
 pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
     infer_intraprocedural_effects,
@@ -63,9 +65,10 @@ pub use identity::{
     SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
+pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use presentation::{
-    FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation, FormalSemanticProjection, FormalSiteId, FormalTypeSite,
-    SemanticPresentationIndex, SemanticSiteView, TypePresenter,
+    AdvisoryPresenter, CallablePresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
+    FormalSemanticProjection, FormalSiteId, FormalTypeSite, ParameterPresentation, SemanticPresentationIndex, SemanticSiteView, TypePresenter,
 };
 pub use prover::{
     Counterexample, ProofBinaryOp, ProofEvidence, ProofObligationKind, ProofOpaqueReason, ProofTerm, ProofUnaryOp, VcStatus, VcUnknownReason,
@@ -84,6 +87,7 @@ pub use workspace_inputs::*;
 
 pub use source::ParsedSourceUnit;
 pub use source_index::{CallableSourceAttachment, ModuleSourceIndex, SourceAttachmentError, SourceIndexFingerprints, SourceSemanticIndex};
+pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind};
 pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{
     SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex, build_source_scope_index,

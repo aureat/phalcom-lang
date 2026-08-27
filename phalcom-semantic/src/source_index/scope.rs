@@ -6,6 +6,49 @@ use crate::identity::{CallableId, DeclarationId, ModuleId, SemanticTargetId, Sou
 use crate::source_index::site::SourceSite;
 use phalcom_common::range::SourceRange;
 
+/// Canonical source-level kind for a callable declaration.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SourceCallableKind {
+    Method,
+    Getter,
+    Setter,
+    IndexGet,
+    IndexSet,
+    Constructor,
+}
+
+/// Canonical source metadata for one declaration identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeclarationSourceInfo {
+    pub id: DeclarationId,
+    pub name: Box<str>,
+    pub declaration_site: SourceSiteId,
+    pub name_range: SourceRange,
+    pub declaration_range: SourceRange,
+}
+
+/// Canonical source metadata for one callable identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallableSourceInfo {
+    pub id: CallableId,
+    pub kind: SourceCallableKind,
+    pub declaration_site: SourceSiteId,
+    pub name_range: SourceRange,
+    pub declaration_range: SourceRange,
+    pub parameter_name_ranges: std::sync::Arc<[SourceRange]>,
+    pub has_explicit_return_annotation: bool,
+}
+
+/// Canonical source metadata for one field identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FieldSourceInfo {
+    pub id: crate::identity::FieldId,
+    pub declaration_site: SourceSiteId,
+    pub name_range: SourceRange,
+    pub declaration_range: SourceRange,
+    pub has_explicit_annotation: bool,
+}
+
 /// Dense lexical scope identity within one source-index snapshot.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SourceScopeId(pub u32);
@@ -65,6 +108,9 @@ pub struct SourceScopeIndex {
     pub bindings: BTreeMap<SourceSiteId, SourceBindingInfo>,
     pub sites: BTreeMap<SourceSiteId, SourceSite>,
     pub targets: BTreeMap<SourceSiteId, SemanticTargetId>,
+    pub declaration_sources: BTreeMap<DeclarationId, DeclarationSourceInfo>,
+    pub callable_sources: BTreeMap<CallableId, CallableSourceInfo>,
+    pub field_sources: BTreeMap<crate::identity::FieldId, FieldSourceInfo>,
     /// Current source ranges for callable bodies and their expression order.
     /// These presentation facts remain current when a semantic callable
     /// product is reused across source-position movement.
@@ -97,6 +143,9 @@ impl SourceScopeIndex {
             bindings: BTreeMap::new(),
             sites: BTreeMap::new(),
             targets: BTreeMap::new(),
+            declaration_sources: BTreeMap::new(),
+            callable_sources: BTreeMap::new(),
+            field_sources: BTreeMap::new(),
             callable_body_ranges: BTreeMap::new(),
             callable_expression_ranges: BTreeMap::new(),
             scope_order: vec![root],

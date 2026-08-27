@@ -12,11 +12,12 @@ use crate::surface::DeclarationSurface;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_modules::graph::SemanticGraph;
-use phalcom_modules::identity::SourceLocation;
+use phalcom_modules::identity::{SourceId, SourceLocation};
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::query::ModuleQueryFacade;
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 fn collect_internal_incidents(
@@ -38,6 +39,8 @@ pub struct ModuleQueryProducts {
     pub linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
     pub resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
     pub sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
+    pub source_modules: Arc<BTreeMap<SourceId, ModuleId>>,
+    pub display_path_modules: Arc<BTreeMap<PathBuf, ModuleId>>,
 }
 
 impl ModuleQueryProducts {
@@ -48,12 +51,21 @@ impl ModuleQueryProducts {
         resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
         sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
     ) -> Self {
+        let source_modules = Arc::new(sources.iter().map(|(module, location)| (location.source_id.clone(), module.clone())).collect());
+        let display_path_modules = Arc::new(
+            sources
+                .iter()
+                .map(|(module, location)| (location.display_path.clone(), module.clone()))
+                .collect(),
+        );
         Self {
             universe,
             unlinked,
             linked,
             resolved_imports,
             sources,
+            source_modules,
+            display_path_modules,
         }
     }
 
@@ -64,6 +76,8 @@ impl ModuleQueryProducts {
             linked: Arc::new(BTreeMap::new()),
             resolved_imports: Arc::new(BTreeMap::new()),
             sources: Arc::new(BTreeMap::new()),
+            source_modules: Arc::new(BTreeMap::new()),
+            display_path_modules: Arc::new(BTreeMap::new()),
         }
     }
 }
@@ -235,7 +249,25 @@ impl SemanticSnapshot {
             &self.module_products.linked,
             &self.module_products.resolved_imports,
             &self.module_products.sources,
+            &self.module_products.source_modules,
+            &self.module_products.display_path_modules,
         )
+    }
+
+    /// Returns the protocol-neutral editor query facade for this snapshot.
+    pub fn editor(&self) -> crate::editor::EditorSemanticQuery<'_> {
+        crate::editor::EditorSemanticQuery::new(self)
+    }
+
+    /// Returns the canonical module associated with a source-provider identity.
+    pub fn module_for_source(&self, source: &SourceId) -> Option<&ModuleId> {
+        self.module_products.source_modules.get(source)
+    }
+
+    /// Returns the canonical module associated with an already-produced display path.
+    /// This query performs no filesystem work or path canonicalization.
+    pub fn module_for_display_path(&self, path: &std::path::Path) -> Option<&ModuleId> {
+        self.module_products.display_path_modules.get(path)
     }
 
     pub fn id(&self) -> SnapshotId {

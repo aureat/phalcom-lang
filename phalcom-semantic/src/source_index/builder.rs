@@ -1,9 +1,12 @@
 //! AST-to-source-scope construction under compiler ownership.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId};
-use crate::source_index::scope::{SourceBindingInfo, SourceBindingKind, SourceScopeId, SourceScopeIndex};
+use crate::source_index::scope::{
+    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceScopeId, SourceScopeIndex,
+};
 use crate::source_index::site::{SourceSite, SourceSiteKind};
 use phalcom_ast::ast::{BindingKind, BlockExpr, ClassDef, ClassMember, Expr, ForStatement, LetBinding, MemberBody, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
@@ -191,7 +194,17 @@ impl SourceScopeBuilder<'_> {
             SourceSiteKind::Declaration(declaration.clone()),
         );
         self.index.register_class(class.name.clone(), declaration.clone());
-        self.index.register_target(site, SemanticTargetId::Declaration(declaration.clone()));
+        self.index.register_target(site.clone(), SemanticTargetId::Declaration(declaration.clone()));
+        self.index.declaration_sources.insert(
+            declaration.clone(),
+            DeclarationSourceInfo {
+                id: declaration.clone(),
+                name: class.name.clone().into(),
+                declaration_site: site,
+                name_range: class.name_range,
+                declaration_range: class.range,
+            },
+        );
         for member in &class.members {
             self.visit_member(parent, &declaration, member);
         }
@@ -209,6 +222,12 @@ impl SourceScopeBuilder<'_> {
                     &method.params,
                     &method.body,
                     SourceBindingKind::MethodParameter,
+                    if method.is_constructor {
+                        SourceCallableKind::Constructor
+                    } else {
+                        SourceCallableKind::Method
+                    },
+                    method.return_annotation.is_some(),
                 );
             }
             ClassMember::Getter(getter) => {
@@ -226,6 +245,8 @@ impl SourceScopeBuilder<'_> {
                     &[],
                     &getter.body,
                     SourceBindingKind::MethodParameter,
+                    SourceCallableKind::Getter,
+                    getter.return_annotation.is_some(),
                 );
             }
             ClassMember::Setter(setter) => {
@@ -243,6 +264,8 @@ impl SourceScopeBuilder<'_> {
                     std::slice::from_ref(&setter.param),
                     &setter.body,
                     SourceBindingKind::SetterParameter,
+                    SourceCallableKind::Setter,
+                    setter.return_annotation.is_some(),
                 );
             }
             ClassMember::Index(index) => {
@@ -265,6 +288,11 @@ impl SourceScopeBuilder<'_> {
                     &parameters,
                     &MemberBody::Block(index.body.clone()),
                     SourceBindingKind::IndexParameter,
+                    match &index.accessor {
+                        phalcom_ast::ast::IndexAccessor::Get => SourceCallableKind::IndexGet,
+                        phalcom_ast::ast::IndexAccessor::Set { .. } => SourceCallableKind::IndexSet,
+                    },
+                    index.return_annotation.is_some(),
                 );
             }
             ClassMember::Field(field) => {
@@ -274,7 +302,17 @@ impl SourceScopeBuilder<'_> {
                     field.name_range,
                     SourceSiteKind::Field(field_id.clone()),
                 );
-                self.index.register_target(site, SemanticTargetId::Field(field_id));
+                self.index.register_target(site.clone(), SemanticTargetId::Field(field_id.clone()));
+                self.index.field_sources.insert(
+                    field_id.clone(),
+                    FieldSourceInfo {
+                        id: field_id,
+                        declaration_site: site,
+                        name_range: field.name_range,
+                        declaration_range: field.range,
+                        has_explicit_annotation: field.annotation.is_some(),
+                    },
+                );
                 if let Some(default) = &field.default {
                     self.visit_expr(parent, default);
                 }
@@ -303,13 +341,28 @@ impl SourceScopeBuilder<'_> {
         parameters: &[phalcom_ast::ast::ParameterDef],
         body: &MemberBody,
         parameter_kind: SourceBindingKind,
+        kind: SourceCallableKind,
+        has_explicit_return_annotation: bool,
     ) {
         let declaration_site = self.allocate_site(
             SourceOwner::Module(self.index.module.clone()),
             name_range,
             SourceSiteKind::Callable(callable.clone()),
         );
-        self.index.register_target(declaration_site, SemanticTargetId::Callable(callable.clone()));
+        self.index
+            .register_target(declaration_site.clone(), SemanticTargetId::Callable(callable.clone()));
+        self.index.callable_sources.insert(
+            callable.clone(),
+            CallableSourceInfo {
+                id: callable.clone(),
+                kind,
+                declaration_site,
+                name_range,
+                declaration_range: body_range,
+                parameter_name_ranges: Arc::from(parameters.iter().map(|parameter| parameter.name_range).collect::<Vec<_>>().into_boxed_slice()),
+                has_explicit_return_annotation,
+            },
+        );
         self.index.callable_body_ranges.insert(callable.clone(), body_range);
         let previous_owner = std::mem::replace(&mut self.current_owner, SourceOwner::Callable(callable));
         let scope = self.new_scope(parent, body_range);

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::checker::CallableAnalysis;
 use crate::db::ProductFingerprint;
-use crate::identity::{BindingId, CallableId, ExpressionId, ModuleId, SemanticTargetId, SourceSiteId};
+use crate::identity::{BindingId, CallableId, DeclarationId, ExpressionId, FieldId, ModuleId, SemanticTargetId, SourceSiteId};
 use crate::source_index::interval::{RangeEntry, RangeIndex};
 
 pub mod builder;
@@ -22,7 +22,10 @@ pub mod site;
 
 pub use builder::{SourceIndexContext, build_source_scope_index};
 pub use occurrence::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
-pub use scope::{SourceBindingInfo, SourceBindingKind, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex};
+pub use scope::{
+    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceNameResolution, SourceScope,
+    SourceScopeId, SourceScopeIndex,
+};
 pub use site::{SourceSite, SourceSiteKind};
 
 /// Formal source-site attachment failure. Construction fails closed instead of
@@ -459,6 +462,39 @@ impl SourceSemanticIndex {
     /// Returns the immutable module shard for typed DB publication.
     pub fn module_arc(&self, module: &ModuleId) -> Option<Arc<ModuleSourceIndex>> {
         self.modules.get(module).cloned()
+    }
+
+    /// Returns module shard owning one snapshot-local source site.
+    pub fn module_for_site(&self, site: &SourceSiteId) -> Option<&ModuleSourceIndex> {
+        let module = match &site.owner {
+            crate::identity::SourceOwner::Module(module)
+            | crate::identity::SourceOwner::Callable(crate::identity::CallableId {
+                owner: crate::identity::DeclarationId { module, .. },
+                ..
+            }) => module,
+        };
+        self.module(module)
+    }
+
+    /// Returns exact canonical target attached to one source site.
+    pub fn target_for(&self, site: &SourceSiteId) -> Option<&SemanticTargetId> {
+        let module = self.module_for_site(site)?;
+        module.occurrences.target_for(site).or_else(|| module.structure.target_for(site))
+    }
+
+    /// Returns canonical source metadata for one declaration identity.
+    pub fn declaration_source(&self, id: &DeclarationId) -> Option<&DeclarationSourceInfo> {
+        self.modules.get(&id.module)?.structure.declaration_sources.get(id)
+    }
+
+    /// Returns canonical source metadata for one callable identity.
+    pub fn callable_source(&self, id: &CallableId) -> Option<&CallableSourceInfo> {
+        self.modules.get(&id.owner.module)?.structure.callable_sources.get(id)
+    }
+
+    /// Returns canonical source metadata for one field identity.
+    pub fn field_source(&self, id: &FieldId) -> Option<&FieldSourceInfo> {
+        self.modules.get(&id.owner.module)?.structure.field_sources.get(id)
     }
 
     /// Returns source site selected at a byte offset.

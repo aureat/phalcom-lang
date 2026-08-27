@@ -1,11 +1,14 @@
 //! Pure presentation projections over compiler-owned semantic products.
 
+use crate::advisory::ValueShape;
 use crate::advisory::{AdvisoryFact, AdvisoryTargetResolution};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::{AnalysisStatus, BindingConsistency, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
 use crate::identity::{CallableId, ExpressionId, ModuleId, SourceSiteId};
+use crate::signature::CallableSemanticSignature;
 use crate::source_index::SourceSemanticIndex;
 use crate::source_index::interval::{RangeEntry, RangeIndex};
+use crate::source_index::{CallableSourceInfo, SourceCallableKind};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
@@ -102,6 +105,107 @@ impl<'a> TypePresenter<'a> {
             CallableAnalysisStatus::BudgetExceeded => FormalPresentation::BudgetExceeded,
             CallableAnalysisStatus::InternalFailure(_) => FormalPresentation::InternalFailure,
         }
+    }
+}
+
+/// Protocol-neutral rendering of compiler-owned advisory runtime shapes.
+///
+/// This formatter deliberately emits language-level text only. It does not
+/// depend on, or construct, any editor protocol type.
+pub struct AdvisoryPresenter;
+
+impl AdvisoryPresenter {
+    /// Presents one canonical advisory shape deterministically.
+    pub fn present_shape(shape: &ValueShape) -> String {
+        match shape {
+            ValueShape::Unknown => "?".to_string(),
+            ValueShape::Never => "Never".to_string(),
+            ValueShape::Unit => "Unit".to_string(),
+            ValueShape::Instance(declaration) => declaration.name.to_string(),
+            ValueShape::ClassObject(declaration) => format!("{} class", declaration.name),
+            ValueShape::Module(module) => module.to_string(),
+            ValueShape::Tuple(elements) => format!("({})", elements.iter().map(Self::present_shape).collect::<Vec<_>>().join(", ")),
+            ValueShape::ExactList(elements) => format!("List<{}>", Self::present_shape(&ValueShape::bounded_union(elements.iter().cloned()))),
+            ValueShape::Record(fields) => format!(
+                "#{{{}}}",
+                fields
+                    .iter()
+                    .map(|(label, value)| format!("{label}: {}", Self::present_shape(value)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            ValueShape::List(element) => format!("List<{}>", Self::present_shape(element)),
+            ValueShape::Set(element) => format!("Set<{}>", Self::present_shape(element)),
+            ValueShape::Map { key, value } => format!("Map<{}, {}>", Self::present_shape(key), Self::present_shape(value)),
+            ValueShape::Range(element) => format!("Range<{}>", Self::present_shape(element)),
+            ValueShape::Callable(_) => "Callable".to_string(),
+            ValueShape::Selector(selector) => format!("#{selector}"),
+            ValueShape::SelectorPattern(pattern) => format!("#{pattern}"),
+            ValueShape::Family { spec, .. } => match spec {
+                phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector) => format!("Family<#{selector}>"),
+                phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern) => format!("Family<#{pattern}>"),
+            },
+            ValueShape::Method(callable) => format!("Method<{}>", callable.selector),
+            ValueShape::MethodFamily(family) => format!("MethodFamily<#{pattern}>", pattern = family.pattern),
+            ValueShape::BoundMethod { method, .. } => format!("BoundMethod<{}>", method.selector),
+            ValueShape::BoundMethodFamily { family, .. } => format!("BoundMethodFamily<#{pattern}>", pattern = family.pattern),
+            ValueShape::Union(alternatives) => alternatives.iter().map(Self::present_shape).collect::<Vec<_>>().join(" | "),
+        }
+    }
+}
+
+/// Protocol-neutral presentation of one callable parameter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParameterPresentation {
+    pub index: u32,
+    pub name: Box<str>,
+    pub external_label: Option<Box<str>>,
+    pub rest: phalcom_ast::ast::RestMode,
+    pub type_: FormalPresentation,
+}
+
+/// Protocol-neutral presentation of one canonical callable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallablePresentation {
+    pub callable: CallableId,
+    pub selector: String,
+    pub kind: SourceCallableKind,
+    pub owner_name: Box<str>,
+    pub parameters: Arc<[ParameterPresentation]>,
+    pub return_type: FormalPresentation,
+    pub documentation: Option<Arc<str>>,
+}
+
+impl CallablePresentation {
+    /// Projects canonical signature/source products into editor-neutral text.
+    pub fn from_signature(signature: &CallableSemanticSignature, source: Option<&CallableSourceInfo>, presenter: &TypePresenter<'_>) -> Self {
+        let parameters = signature
+            .parameters
+            .iter()
+            .map(|parameter| ParameterPresentation {
+                index: parameter.index,
+                name: parameter.local_name.clone(),
+                external_label: parameter.external_label.clone(),
+                rest: parameter.rest,
+                type_: present_type_term(&parameter.ty, presenter),
+            })
+            .collect::<Vec<_>>();
+        Self {
+            callable: signature.callable.clone(),
+            selector: signature.selector.to_string(),
+            kind: source.map_or(SourceCallableKind::Method, |source| source.kind),
+            owner_name: signature.owner.name.clone(),
+            parameters: Arc::from(parameters.into_boxed_slice()),
+            return_type: present_type_term(&signature.return_type, presenter),
+            documentation: None,
+        }
+    }
+}
+
+fn present_type_term(term: &crate::types::TypeTerm, presenter: &TypePresenter<'_>) -> FormalPresentation {
+    match term {
+        crate::types::TypeTerm::Canonical(ty) => FormalPresentation::Known(presenter.present_type(*ty)),
+        crate::types::TypeTerm::SelfType(_) | crate::types::TypeTerm::Infer(_) => FormalPresentation::Unknown,
     }
 }
 

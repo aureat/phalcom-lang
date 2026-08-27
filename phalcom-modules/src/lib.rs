@@ -50,6 +50,9 @@ pub use package_info::{
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
 pub use query::ModuleQueryFacade;
 pub use resolver::ModuleResolver;
-pub use session::{SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceMutation, WorkspaceSourceState};
+pub use session::{
+    SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation,
+    WorkspaceSourceState,
+};
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};

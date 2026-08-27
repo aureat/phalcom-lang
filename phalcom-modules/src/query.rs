@@ -6,10 +6,11 @@
 //! through this view; LSP consumers can then query those products without
 //! reconstructing module meaning.
 
-use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceLocation};
+use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, SourceId, SourceLocation};
 use crate::interface::{LinkedExport, LinkedModuleInterface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 /// Query target for an import root with self-package distinction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +34,8 @@ pub struct ModuleQueryFacade<'a> {
     linked: &'a BTreeMap<ModuleId, LinkedModuleInterface>,
     resolved_imports: &'a BTreeMap<(ModuleId, String), ModuleId>,
     sources: &'a BTreeMap<ModuleId, SourceLocation>,
+    source_modules: &'a BTreeMap<SourceId, ModuleId>,
+    display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
 }
 
 impl<'a> ModuleQueryFacade<'a> {
@@ -43,6 +46,8 @@ impl<'a> ModuleQueryFacade<'a> {
         linked: &'a BTreeMap<ModuleId, LinkedModuleInterface>,
         resolved_imports: &'a BTreeMap<(ModuleId, String), ModuleId>,
         sources: &'a BTreeMap<ModuleId, SourceLocation>,
+        source_modules: &'a BTreeMap<SourceId, ModuleId>,
+        display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
     ) -> Self {
         Self {
             universe,
@@ -50,6 +55,8 @@ impl<'a> ModuleQueryFacade<'a> {
             linked,
             resolved_imports,
             sources,
+            source_modules,
+            display_path_modules,
         }
     }
 
@@ -201,6 +208,19 @@ impl<'a> ModuleQueryFacade<'a> {
     /// Returns canonical source provenance for a module definition.
     pub fn definition_source(&self, module: &ModuleId) -> Option<&SourceLocation> {
         self.sources.get(module)
+    }
+
+    /// Returns the canonical module for an exact source-provider identity.
+    pub fn module_for_source(&self, source: &SourceId) -> Option<&ModuleId> {
+        self.source_modules.get(source)
+    }
+
+    /// Returns the canonical module for an already-produced display path.
+    ///
+    /// This is a pure snapshot lookup. It does not canonicalize or read the
+    /// filesystem.
+    pub fn module_for_display_path(&self, path: &Path) -> Option<&ModuleId> {
+        self.display_path_modules.get(path)
     }
 
     /// Returns importers that consumed a resolved module target.
