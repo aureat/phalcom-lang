@@ -5,7 +5,7 @@ on:
     branches: [codex/lsp-single-world-retirement]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: semantic-constructor-probe-${{ github.ref }}
@@ -19,47 +19,8 @@ jobs:
         with:
           ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Apply source member-side repair
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('phalcom-semantic/src/source_index/builder.rs')
-          text = p.read_text()
-          replacements = [
-              (
-                  '    fn visit_member(&mut self, parent: SourceScopeId, declaration: &DeclarationId, member: &ClassMember) {\n        match member {\n            ClassMember::Method(method) => {\n                let Some(callable) = self.method_callable(declaration, method) else { return };',
-                  '    fn visit_member(&mut self, parent: SourceScopeId, declaration: &DeclarationId, member: &ClassMember) {\n        let member_side = crate::checker::declaration::member_side(member);\n        match member {\n            ClassMember::Method(method) => {\n                let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");\n                let Some(callable) = self.method_callable(declaration, method, is_constructor, member_side) else { return };'
-              ),
-              ('                    if method.is_constructor {\n                        SourceCallableKind::Constructor', '                    if is_constructor {\n                        SourceCallableKind::Constructor'),
-              ('CallableId::new(declaration.clone(), selector, side(getter.is_static))', 'CallableId::new(declaration.clone(), selector, member_side)'),
-              ('CallableId::new(declaration.clone(), selector, side(setter.is_static))', 'CallableId::new(declaration.clone(), selector, member_side)'),
-              ('let callable = CallableId::new(declaration.clone(), selector, DispatchSide::Instance);', 'let callable = CallableId::new(declaration.clone(), selector, member_side);'),
-              ('let field_id = FieldId::new(declaration.clone(), field.name.clone(), side(field.is_static));', 'let field_id = FieldId::new(declaration.clone(), field.name.clone(), member_side);'),
-              (
-                  '    fn method_callable(&self, declaration: &DeclarationId, method: &phalcom_ast::ast::MethodDef) -> Option<CallableId> {\n        let slots = method.params.iter().map(parameter_slot).collect::<Vec<_>>();\n        Selector::method(&method.name, slots).ok().map(|selector| {\n            CallableId::new(\n                declaration.clone(),\n                selector,\n                if method.is_constructor { DispatchSide::Class } else { side(method.is_static) },\n            )\n        })\n    }',
-                  '    fn method_callable(\n        &self,\n        declaration: &DeclarationId,\n        method: &phalcom_ast::ast::MethodDef,\n        is_constructor: bool,\n        member_side: DispatchSide,\n    ) -> Option<CallableId> {\n        let slots = method.params.iter().map(parameter_slot).collect::<Vec<_>>();\n        Selector::method(&method.name, slots).ok().map(|selector| {\n            CallableId::new(\n                declaration.clone(),\n                selector,\n                if is_constructor { DispatchSide::Class } else { member_side },\n            )\n        })\n    }'
-              ),
-              ('\nfn side(is_static: bool) -> DispatchSide {\n    if is_static { DispatchSide::Class } else { DispatchSide::Instance }\n}\n', '\n'),
-          ]
-          for old, new in replacements:
-              if old not in text:
-                  raise SystemExit(f'missing patch anchor: {old[:140]!r}')
-              text = text.replace(old, new, 1)
-          p.write_text(text)
-          PY
-          cargo +stable fmt --all
-          git diff --check
-      - name: Regression test
+      - name: Semantic factory identity
         run: cargo test -p phalcom-semantic --test semantic constructor_factory_publishes_target_and_inferred_signature -- --nocapture
-      - name: Source-index suite
-        run: cargo test -p phalcom-semantic --test semantic source_index -- --nocapture
-      - name: Commit repair
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add phalcom-semantic/src/source_index/builder.rs
-          git commit -m 'fix(semantic): canonicalize source member dispatch sides'
-          git push origin HEAD:codex/lsp-single-world-retirement
+      - name: LSP factory composition
+        run: cargo test -p phalcom-lsp --test integration composition1::constructor_factory_inference_is_authoritative_across_lsp_features -- --nocapture
