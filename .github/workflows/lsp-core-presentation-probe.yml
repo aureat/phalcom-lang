@@ -1,0 +1,27 @@
+name: LSP core presentation probe
+
+on:
+  push:
+    branches: [codex/lsp-single-world-retirement]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lsp-core-presentation-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/lsp-single-world-retirement
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Core presentation coherence RED
+        run: cargo test -p phalcom-lsp --lib compiler_core_presentation_text_is_an_exact_source -- --nocapture
