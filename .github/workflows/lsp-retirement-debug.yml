@@ -1,0 +1,25 @@
+name: LSP retirement debug
+
+on:
+  push:
+    branches: [codex/lsp-single-world-retirement]
+
+concurrency:
+  group: lsp-retirement-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  lsp-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check LSP library
+        run: cargo check -p phalcom-lsp --lib
+      - name: Run LSP integration suite
+        run: cargo test -p phalcom-lsp --test integration -- --nocapture
