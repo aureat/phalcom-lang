@@ -329,6 +329,49 @@ dog.speak()
     );
 }
 
+#[test]
+fn partial_call_candidates_are_selected_by_canonical_receiver_surface() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Service {
+  compute(_ x: Int, label y: Int) -> Int { x }
+  run() { self.compute(1) }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let snapshot = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).snapshot;
+    let service = DeclarationId::new(module.clone(), "Service".into());
+    let compute = CallableId::new(
+        service,
+        Selector::method("compute", vec![SelectorSlot::Positional, SelectorSlot::Label("label".to_string())]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let receiver_start = source.find("self.compute").expect("self receiver");
+    let receiver = snapshot
+        .editor()
+        .resolve_receiver_at(
+            &module,
+            SourceRange {
+                start: receiver_start,
+                end: receiver_start + "self".len(),
+            },
+        )
+        .expect("self receiver");
+    let access = snapshot.editor().access_context_at(&module, receiver_start);
+    let prefix = Selector::method("compute", Vec::new()).unwrap();
+    let candidates = snapshot
+        .editor()
+        .callable_candidates(&receiver, &phalcom_semantic::PartialCallPattern::from_selector_prefix(&prefix), &access);
+    assert_eq!(
+        candidates,
+        vec![compute],
+        "empty written slot prefix must select the receiver's compatible canonical method"
+    );
+}
+
 fn builtin_annotation_snapshot() -> (ModuleId, Arc<str>, Arc<phalcom_semantic::SemanticSnapshot>, SemanticTargetId) {
     let module = ModuleId::resolved(ResolvedProjectId::from_raw(77), ModulePath::root());
     let source: Arc<str> = Arc::from("const x: Int = 42\n");

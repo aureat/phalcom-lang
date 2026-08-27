@@ -9,7 +9,7 @@ use crate::surface::MemberVisibility;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::relation::TypeHierarchy;
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -54,6 +54,26 @@ pub struct EditorMember {
     pub target: EditorMemberTarget,
     pub owner: DeclarationId,
     pub visibility: MemberVisibility,
+}
+
+/// Structural prefix of a call being written. This is intentionally
+/// protocol-neutral: syntax recovery supplies only slots already present in
+/// source, while semantic candidate selection remains compiler-owned.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartialCallPattern {
+    pub base: SelectorBase,
+    pub kind: SelectorKind,
+    pub written_slots: Arc<[SelectorSlot]>,
+}
+
+impl PartialCallPattern {
+    pub fn from_selector_prefix(selector: &Selector) -> Self {
+        Self {
+            base: selector.base.clone(),
+            kind: selector.kind,
+            written_slots: Arc::from(selector.slots.to_vec()),
+        }
+    }
 }
 
 /// One visible lexical symbol and its canonical target.
@@ -351,6 +371,49 @@ impl<'a> EditorSemanticQuery<'a> {
                 EditorMemberTarget::Field(field) => field.name.as_ref() == selector.encode().as_str(),
             })
             .collect()
+    }
+
+    /// Returns canonical callable candidates compatible with the structural
+    /// prefix already written at an incomplete call site. Exact dispatch for
+    /// each candidate selector is rechecked from every receiver alternative,
+    /// so overridden superclass members cannot become accidental candidates.
+    pub fn callable_candidates(&self, receiver: &ResolvedReceiver, pattern: &PartialCallPattern, access: &AccessContext) -> Vec<CallableId> {
+        let mut candidates = self
+            .members_for_receiver(receiver, access)
+            .into_iter()
+            .filter_map(|member| match member.target {
+                EditorMemberTarget::Callable(callable)
+                    if callable.selector.base == pattern.base
+                        && callable.selector.kind == pattern.kind
+                        && callable.selector.slots.len() >= pattern.written_slots.len()
+                        && callable
+                            .selector
+                            .slots
+                            .iter()
+                            .zip(pattern.written_slots.iter())
+                            .all(|(candidate, written)| candidate == written) =>
+                {
+                    Some(callable)
+                }
+                _ => None,
+            })
+            .filter(|callable| {
+                receiver.alternatives.iter().any(|alternative| {
+                    let side = match alternative.mode {
+                        ReceiverMode::Instance => crate::identity::DispatchSide::Instance,
+                        ReceiverMode::Class => crate::identity::DispatchSide::Class,
+                    };
+                    self.snapshot
+                        .dispatch
+                        .resolve_callable_id(self.snapshot.hierarchy.as_ref(), &alternative.declaration, side, &callable.selector)
+                        .as_ref()
+                        == Some(callable)
+                })
+            })
+            .collect::<Vec<_>>();
+        candidates.sort();
+        candidates.dedup();
+        candidates
     }
 
     /// Returns compiler-owned lexical bindings visible at a source position.

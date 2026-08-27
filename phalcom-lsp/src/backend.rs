@@ -1091,20 +1091,26 @@ fn compiler_signature_for_call<'a>(
     module: &phalcom_modules::ModuleId,
     site: &signature_help::CallSite,
 ) -> Option<&'a phalcom_semantic::CallableSemanticSignature> {
-    let callable = compiler
-        .formal_fact_at(module, site.name_range.start)
-        .and_then(|fact| match &fact.fact {
-            phalcom_semantic::FormalFactRef::Callable(callable) | phalcom_semantic::FormalFactRef::Expression { callable, .. } => Some(callable),
-            phalcom_semantic::FormalFactRef::Binding { .. } => None,
-        })
-        .or_else(|| {
-            compiler
-                .occurrence_at(module, site.name_range.start)
-                .and_then(|occurrence| match occurrence.target {
-                    Some(phalcom_semantic::SemanticTargetId::Callable(callable)) => Some(callable),
-                    _ => None,
-                })
-        })?;
+    let exact = compiler
+        .occurrence_at(module, site.name_range.start)
+        .filter(|occurrence| occurrence.occurrence.role == phalcom_semantic::OccurrenceRole::Call)
+        .and_then(|occurrence| match occurrence.target {
+            Some(phalcom_semantic::SemanticTargetId::Callable(callable)) => Some(callable.clone()),
+            _ => None,
+        });
+    if let Some(callable) = exact {
+        return compiler.callable_signatures().get(&callable);
+    }
+
+    let receiver_range = site.receiver_range?;
+    let receiver = compiler.editor().resolve_receiver_at(module, receiver_range)?;
+    let selector = phalcom_common::selector::Selector::try_decode_exact(&site.selector).ok()?;
+    let pattern = phalcom_semantic::PartialCallPattern::from_selector_prefix(&selector);
+    let access = compiler.editor().access_context_at(module, site.name_range.start);
+    let candidates = compiler.editor().callable_candidates(&receiver, &pattern, &access);
+    let [callable] = candidates.as_slice() else {
+        return None;
+    };
     compiler.callable_signatures().get(callable)
 }
 
