@@ -168,3 +168,73 @@ class Probe {
         "known Self-returning Class.new must project the concrete receiver into advisory binding shape"
     );
 }
+
+#[test]
+fn receiver_query_falls_back_to_authoritative_binding_fact() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from(
+        r#"
+class CellNum {
+  _raw: Int
+
+  @constructor
+  new(_ raw: Int) {
+    _raw = raw
+  }
+
+  @class
+  of(_ raw: Int) {
+    CellNum.new(raw)
+  }
+
+  value() -> Int {
+    _raw
+  }
+}
+
+const x: Int = CellNum.of(42)
+
+class Probe {
+  run() {
+    x.value()
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let snapshot = analysis.snapshot;
+
+    let cell = DeclarationId::new(module.clone(), "CellNum".into());
+    let module_index = snapshot.source_index.module(&module).expect("source index");
+    let binding = module_index
+        .structure
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "x")
+        .expect("top-level x binding");
+    assert_eq!(
+        snapshot.advisory_fact(&binding.declaration_site).map(|fact| &fact.shape),
+        Some(&ValueShape::Instance(cell.clone())),
+        "factory result must remain the authoritative advisory binding shape despite the bad Int annotation"
+    );
+
+    let receiver_start = source.rfind("x.value()").expect("x receiver");
+    let receiver = snapshot
+        .editor()
+        .resolve_receiver_at(
+            &module,
+            SourceRange {
+                start: receiver_start,
+                end: receiver_start + 1,
+            },
+        )
+        .expect("binding receiver must resolve from compiler-owned facts");
+    assert!(
+        receiver.alternatives.iter().any(|alternative| {
+            alternative.declaration == cell && matches!(alternative.mode, phalcom_semantic::ReceiverMode::Instance)
+        }),
+        "receiver query must consult the binding declaration fact when the use-site expression has no usable fact: {receiver:#?}"
+    );
+}
