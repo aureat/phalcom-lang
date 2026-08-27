@@ -1,0 +1,23 @@
+name: Semantic constructor probe
+
+on:
+  push:
+    branches: [codex/lsp-single-world-retirement]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semantic-constructor-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/lsp-single-world-retirement
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p phalcom-semantic --test constructor_factory_probe -- --nocapture
