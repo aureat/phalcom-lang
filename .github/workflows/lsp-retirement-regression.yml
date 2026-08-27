@@ -24,8 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply advisory target publication candidate
-        run: python .github/scripts/apply-advisory-target-publication.py
+      - name: Apply partial call query candidate
+        run: python .github/scripts/apply-partial-call-signature-query.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
@@ -34,21 +34,21 @@ jobs:
         run: |
           cargo check -p phalcom-semantic
           cargo check -p phalcom-lsp --lib
-      - name: Validate compiler advisory target publication
-        run: cargo test -p phalcom-semantic --test semantic advisory_inherited_call_publishes_defining_callable_target -- --nocapture
-      - name: Validate inherited LSP hover
+      - name: Validate semantic candidate selection
+        run: cargo test -p phalcom-semantic --test semantic partial_call_candidates_are_selected_by_canonical_receiver_surface -- --nocapture
+      - name: Validate incomplete signature help
+        run: cargo test -p phalcom-lsp --test integration signature_help_recovers_incomplete_receiver_call -- --nocapture
+      - name: Revalidate inherited hover
         run: cargo test -p phalcom-lsp --test integration inherited_hover_reports_the_defining_owner_not_the_receiver_class -- --nocapture
-      - name: Revalidate constructor composition
-        run: cargo test -p phalcom-lsp --test integration constructor_factory_inference_is_authoritative_across_lsp_features -- --nocapture
-      - name: Commit validated advisory target publication
+      - name: Commit validated partial call query
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-semantic/src/advisory/analyzer.rs \
-                  phalcom-semantic/src/advisory/flow.rs \
-                  phalcom-semantic/src/session.rs \
+          git add phalcom-semantic/src/editor.rs \
+                  phalcom-semantic/src/lib.rs \
+                  phalcom-lsp/src/backend.rs \
                   phalcom-semantic/tests/constructor_factory_probe.rs
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(semantic): publish advisory callable targets'
+            git commit -m 'feat(semantic): query partial callable candidates'
             git push origin HEAD:codex/lsp-single-world-retirement
           fi
