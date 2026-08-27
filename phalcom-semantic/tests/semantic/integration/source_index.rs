@@ -9,8 +9,8 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, FieldI
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::{
     FormalFactRef, FormalSemanticProjection, ModuleId, OccurrenceIndex, OccurrenceKind, OccurrenceRole, SemanticOccurrence, SemanticRevision, SemanticTargetId,
-    SnapshotId, SourceBindingKind, SourceCallableKind, SourceIndexContext, SourceNameResolution, SourceSemanticIndex, TypeStoreId, WorkspaceId,
-    build_source_scope_index,
+    SnapshotId, SourceBindingKind, SourceCallableKind, SourceIndexContext, SourceNameResolution, SourceReceiverKind, SourceSemanticIndex, TypeStoreId,
+    WorkspaceId, build_source_scope_index,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -132,6 +132,40 @@ fn source_index_publishes_canonical_member_source_metadata() {
     assert!(field_source.has_explicit_annotation);
     let field_start = source.find("_field").unwrap();
     assert_eq!(field_source.name_range, (field_start..field_start + "_field".len()).into());
+}
+
+#[test]
+fn source_index_records_implicit_receiver_identity() {
+    let source = "class Base { value() {} }\nclass Child is Base { show() { self.value(); super.value() } }\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::core();
+    let scopes = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
+    let programs = BTreeMap::from([(
+        module.clone(),
+        Arc::new(phalcom_semantic::source::ParsedModuleUnit::new(
+            module.clone(),
+            phalcom_modules::source::ModuleKind::Module,
+            None,
+            Arc::from(source),
+            Arc::new(parsed.program),
+        )),
+    )]);
+    let source_index = SourceSemanticIndex::from_scope_indices_with_programs(BTreeMap::from([(module.clone(), scopes)]), &programs);
+    let occurrences = &source_index.module(&module).expect("module index").occurrences;
+    let self_site = occurrences
+        .all()
+        .iter()
+        .find(|occurrence| source.get(occurrence.range.start..occurrence.range.end) == Some("self"))
+        .expect("self occurrence");
+    let super_site = occurrences
+        .all()
+        .iter()
+        .find(|occurrence| source.get(occurrence.range.start..occurrence.range.end) == Some("super"))
+        .expect("super occurrence");
+    let structure = &source_index.module(&module).expect("module index").structure;
+    assert_eq!(structure.receiver_kind(&self_site.site), Some(SourceReceiverKind::SelfValue));
+    assert_eq!(structure.receiver_kind(&super_site.site), Some(SourceReceiverKind::SuperValue));
 }
 
 #[test]

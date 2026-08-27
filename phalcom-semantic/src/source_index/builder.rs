@@ -23,6 +23,8 @@ pub struct SourceIndexContext {
     /// written logical path. This prevents source indexing from falling back
     /// to a disconnected default context.
     pub resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
+    /// Canonical callable targets keyed by declaration and exact selector.
+    pub callable_targets: BTreeMap<(DeclarationId, Selector), CallableId>,
 }
 
 impl SourceIndexContext {

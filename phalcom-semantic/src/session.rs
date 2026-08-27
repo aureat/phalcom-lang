@@ -211,27 +211,9 @@ impl SemanticWorkspaceSession {
         Ok(self.update_module_workspace(update))
     }
 
-    /// Applies one heterogeneous module/source batch and publishes it at an
-    /// externally coordinated generation supplied by the workspace worker.
-    pub fn apply_module_mutations_at_generation<I>(
-        &mut self,
-        mutations: I,
-        generation: u64,
-    ) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError>
-    where
-        I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
-    {
-        let update = self.module_session.apply_batch(mutations)?;
-        Ok(self.update_module_workspace_at_generation(update, generation))
-    }
-
     /// Publishes semantic products for an already-linked module workspace update.
     pub fn update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> SemanticWorkspaceUpdate {
-        self.update_module_workspace_at_generation(update, self.module_session.generation())
-    }
-
-    /// Publishes a persistent module workspace at an externally coordinated generation.
-    pub fn update_module_workspace_at_generation(&mut self, update: WorkspaceModuleUpdate, generation: u64) -> SemanticWorkspaceUpdate {
+        let generation = self.module_session.generation();
         self.update(SemanticWorkspaceInput {
             linked: update.linked,
             sources: update.sources,
@@ -1152,11 +1134,27 @@ fn build_source_semantic_index(
             }
         }
     }
-    let scopes = sources
+    let scopes: BTreeMap<ModuleId, crate::source_index::SourceScopeIndex> = sources
         .iter()
         .map(|(module, source)| (module.clone(), build_source_scope_index(module.clone(), &source.program, &context)))
         .collect();
-    let mut index = SourceSemanticIndex::from_scope_indices_with_programs(scopes, sources);
+    for structure in scopes.values() {
+        for callable in structure.callable_sources.values() {
+            context
+                .callable_targets
+                .insert((callable.id.owner.clone(), callable.id.selector.clone()), callable.id.clone());
+        }
+    }
+    for (module, source) in sources {
+        for statement in &source.program.statements {
+            let phalcom_ast::ast::Statement::Class(class) = statement else { continue };
+            context
+                .targets
+                .entry((module.clone(), class.name.clone()))
+                .or_insert_with(|| SemanticTargetId::Declaration(DeclarationId::new(module.clone(), class.name.clone().into())));
+        }
+    }
+    let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(scopes, sources, Some(&context));
     for analysis in callable_analyses.values() {
         let module = &analysis.callable.owner.module;
         if index.module(module).is_some() {

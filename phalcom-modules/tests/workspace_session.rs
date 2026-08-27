@@ -1,4 +1,4 @@
-use phalcom_modules::{ModuleId, NullDependencyProvider, SourceId, SourceLocation, SourceRevision, WorkspaceModuleSession};
+use phalcom_modules::{ModuleId, NullDependencyProvider, SourceId, SourceLocation, SourceRevision, WorkspaceModuleSession, WorkspaceSourceBatchMutation};
 use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -163,4 +163,83 @@ fn workspace_root_reset_rebuilds_project_graph_and_preserves_open_overlay() {
     assert!(!update.removed_modules.is_empty());
     assert_eq!(&*session.source(&module).unwrap().text, "class Main { open() {} }\n");
     assert!(session.source(&module).unwrap().open_overlay);
+}
+
+#[test]
+fn disk_snapshot_is_not_an_open_overlay() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("disk.ph");
+    fs::write(&file, "class DiskOnDisk {}\n").unwrap();
+    let source = location(&file);
+    let mut session = WorkspaceModuleSession::new();
+
+    let update = session
+        .apply_batch([WorkspaceSourceBatchMutation::SetDiskSnapshot {
+            source: source.clone(),
+            text: Arc::from("class DiskOnDisk {}\n"),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .unwrap();
+    let module = update.sources.keys().next().unwrap();
+
+    assert!(!session.source(module).unwrap().open_overlay);
+    assert_eq!(session.source(module).unwrap().text.as_ref(), "class DiskOnDisk {}\n");
+}
+
+#[test]
+fn scanner_style_disk_snapshot_replaces_overlay_without_opening_it() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("refresh.ph");
+    fs::write(&file, "class Disk {}").unwrap();
+    let source = location(&file);
+    let mut session = WorkspaceModuleSession::new();
+    let first = session.set_overlay(source.clone(), Arc::from("class Overlay {}\n"), SourceRevision(1)).unwrap();
+    let module = first.sources.keys().next().unwrap().clone();
+
+    session
+        .apply_batch([WorkspaceSourceBatchMutation::SetDiskSnapshot {
+            source,
+            text: Arc::from("class DiskRefresh {}\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .unwrap();
+
+    let state = session.source(&module).unwrap();
+    assert!(!state.open_overlay);
+    assert_eq!(state.text.as_ref(), "class DiskRefresh {}\n");
+}
+
+#[test]
+fn mixed_overlay_and_disk_batch_rebuilds_once() {
+    let temp = TempDir::new().unwrap();
+    let overlay_file = temp.path().join("overlay.ph");
+    let disk_file = temp.path().join("disk.ph");
+    fs::write(&overlay_file, "class Overlay {}").unwrap();
+    fs::write(&disk_file, "class Disk {}").unwrap();
+    let mut session = WorkspaceModuleSession::new();
+    let generation = session.generation();
+
+    session
+        .apply_batch([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&overlay_file),
+                text: Arc::from("class OverlayLive {}\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetDiskSnapshot {
+                source: location(&disk_file),
+                text: Arc::from("class DiskSnapshot {}\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .unwrap();
+
+    assert_eq!(session.generation(), generation + 1);
+    assert_eq!(session.sources().len(), 2);
+    assert!(session.sources().values().any(|state| state.open_overlay));
+    assert!(session.sources().values().any(|state| !state.open_overlay));
 }

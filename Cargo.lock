@@ -1092,7 +1092,6 @@ dependencies = [
  "phalcom-ast",
  "phalcom-common",
  "phalcom-modules",
- "phalcom-native-surface",
  "phalcom-semantic",
  "serde",
  "serde_json",

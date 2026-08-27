@@ -1,12 +1,11 @@
 //! Integration tests for LSP `phalcom/analysisLog` structured notifications.
 
-use std::fs;
-use std::sync::Arc;
-
 use phalcom_lsp::analysis_service::{AnalysisEvent, AnalysisService, WorkspaceScanRequest};
 use phalcom_lsp::analysis_status::AnalysisPhase;
-use phalcom_lsp::semantic::SemanticDb;
 use phalcom_lsp::workspace_scan::AnalysisMode;
+use phalcom_modules::SourceRevision;
+use std::fs;
+use std::sync::Arc;
 
 #[test]
 fn structured_analysis_log_events_emitted_with_session_sequence() {
@@ -16,8 +15,7 @@ fn structured_analysis_log_events_emitted_with_session_sequence() {
     let file_path = root.join("main.ph");
     fs::write(&file_path, "class Main { main() {} }\n").expect("write main file");
 
-    let db = Arc::new(SemanticDb::new());
-    let (service, mut rx) = AnalysisService::new(db);
+    let (service, mut rx) = AnalysisService::new();
 
     service.configure_workspace(WorkspaceScanRequest {
         roots: vec![root.clone()],
@@ -53,7 +51,8 @@ fn structured_analysis_log_events_emitted_with_session_sequence() {
     let source = "class Main { main() { let y = 100; } }\n";
     let program = phalcom_ast::parse(source, 0).program;
     service.mark_open(uri.clone());
-    service.enqueue_file_update(uri, phalcom_lsp::semantic::FileRevision(2), program);
+    let text: Arc<str> = Arc::from(source);
+    service.enqueue_file_update(uri, SourceRevision(2), text, Arc::new(program));
     service.flush();
 
     while let Ok(event) = rx.try_recv() {

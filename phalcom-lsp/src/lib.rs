@@ -21,10 +21,10 @@
 //!   `Diagnostic`.
 //! - [`documents`] — the open-document store (text + cached parse + cached
 //!   [`line_index::LineIndex`]).
-//! - [`semantic`] — the VM-free live semantic database and bounded local
-//!   runtime-value inference.
+//! - [`analysis_service`] — one persistent compiler-owned semantic session and
+//!   its published snapshot.
 //! - [`completion`] — receiver-aware [`textDocument/completion`] from the
-//!   live semantic database plus snippet rendering.
+//!   published compiler snapshot plus snippet rendering.
 //! - [`hover`] — [`textDocument/hover`] (Stage 4): keyword blurbs, selector
 //!   signature/kind/defining-class rendering, and the Phaldoc harvest.
 //! - [`semantic_tokens`] — flat, lexer-driven [`textDocument/semanticTokens/
@@ -48,7 +48,6 @@ pub mod diagnostics;
 pub mod documents;
 pub mod hover;
 pub mod import_completion;
-pub mod index;
 pub mod inlay_hints;
 pub mod line_index;
 pub mod parity;
@@ -57,9 +56,9 @@ pub mod presentation;
 pub(crate) mod publication;
 pub mod request_context;
 pub mod selectors;
-pub mod semantic;
 pub mod semantic_tokens;
 pub mod signature_help;
+pub(crate) mod source_transport;
 pub mod workspace_scan;
 
 pub use analysis_log::{AnalysisLogEvent, AnalysisLogLevel, AnalysisLogNotification};

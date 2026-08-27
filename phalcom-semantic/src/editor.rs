@@ -4,7 +4,7 @@ use crate::advisory::ValueShape;
 use crate::advisory::advisory_shape_from_formal;
 use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
 use crate::snapshot::SemanticSnapshot;
-use crate::source_index::{OccurrenceRole, SourceBindingInfo};
+use crate::source_index::{OccurrenceHint, OccurrenceRole, SourceBindingInfo};
 use crate::surface::MemberVisibility;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::relation::TypeHierarchy;
@@ -42,7 +42,7 @@ pub struct AccessContext {
 }
 
 /// Canonical member target returned to protocol adapters.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum EditorMemberTarget {
     Callable(CallableId),
     Field(FieldId),
@@ -77,7 +77,11 @@ impl<'a> EditorSemanticQuery<'a> {
 
     /// Returns exact canonical target at a source position.
     pub fn target_at(&self, module: &ModuleId, offset: usize) -> Option<SemanticTargetId> {
-        self.snapshot.occurrence_at(module, offset).and_then(|view| view.target.cloned())
+        let occurrence = self.snapshot.occurrence_at(module, offset)?;
+        occurrence
+            .target
+            .cloned()
+            .or_else(|| self.snapshot.advisory.target(&occurrence.occurrence.site).map(|target| target.target.clone()))
     }
 
     /// Returns declaration sites for one canonical target.
@@ -129,84 +133,81 @@ impl<'a> EditorSemanticQuery<'a> {
     /// range. No request-time AST inference or name guessing is performed.
     pub fn resolve_receiver_at(&self, module: &ModuleId, range: SourceRange) -> Option<ResolvedReceiver> {
         let occurrence_site = self.snapshot.occurrence_at(module, range.start).map(|view| view.occurrence.site.clone());
-        let expression_site = [range.start, range.end.saturating_sub(1)]
-            .into_iter()
-            .filter_map(|offset| self.snapshot.source_index.expression_site_at(module, offset))
-            .max_by_key(|site| site.range.len())
+        let expression_site = self
+            .snapshot
+            .source_index
+            .expression_site_at(module, range.end.saturating_sub(1))
+            .or_else(|| self.snapshot.source_index.expression_site_at(module, range.start))
             .map(|site| site.id.clone());
         let site = expression_site.clone().or(occurrence_site.clone());
-        let access = site.as_ref().and_then(|site| match &site.owner {
-            SourceOwner::Callable(callable) => Some(AccessContext {
-                enclosing_declaration: Some(callable.owner.clone()),
-                enclosing_callable: Some(callable.clone()),
-            }),
-            SourceOwner::Module(_) => None,
-        });
-        let source_text = self.snapshot.sources.get(module).and_then(|source| source.text.get(range.start..range.end));
-        if let Some(owner) = access.as_ref().and_then(|access| access.enclosing_declaration.as_ref()) {
-            if source_text.is_some_and(|text| text.trim() == "self") {
-                return Some(ResolvedReceiver {
-                    alternatives: Arc::from([ReceiverAlternative {
-                        declaration: owner.clone(),
-                        mode: ReceiverMode::Instance,
-                    }]),
-                });
-            }
-            if source_text.is_some_and(|text| text.trim() == "super") {
-                return self.snapshot.hierarchy.superclass(owner).cloned().map(|declaration| ResolvedReceiver {
-                    alternatives: Arc::from([ReceiverAlternative {
-                        declaration,
-                        mode: ReceiverMode::Instance,
-                    }]),
-                });
-            }
+        if let Some(receiver) = self.receiver_for_source_range(module, range) {
+            return Some(receiver);
         }
-        let target = site
-            .as_ref()
-            .and_then(|site| self.snapshot.source_index.target_for(site))
-            .or_else(|| occurrence_site.as_ref().and_then(|site| self.snapshot.source_index.target_for(site)));
-        let target_site = target.and_then(|target| match target {
+        let range_target = self
+            .snapshot
+            .source_index
+            .module(module)?
+            .occurrences
+            .all()
+            .iter()
+            .filter(|occurrence| range.start <= occurrence.range.start && occurrence.range.end <= range.end)
+            .filter_map(|occurrence| {
+                self.snapshot
+                    .source_index
+                    .target_for(&occurrence.site)
+                    .cloned()
+                    .or_else(|| self.snapshot.advisory.target(&occurrence.site).map(|target| target.target.clone()))
+            })
+            .find(|target| matches!(target, SemanticTargetId::Declaration(_)));
+        let target = range_target.or_else(|| {
+            site.as_ref()
+                .and_then(|site| self.snapshot.source_index.target_for(site))
+                .cloned()
+                .or_else(|| occurrence_site.as_ref().and_then(|site| self.snapshot.source_index.target_for(site)).cloned())
+        });
+        let constructor_receiver = target.as_ref().and_then(|target| {
+            let SemanticTargetId::Declaration(declaration) = target else { return None };
+            let source = self.snapshot.source_index.module(module)?;
+            let has_constructor_call = source.occurrences.all().iter().any(|occurrence| {
+                range.start <= occurrence.range.start
+                    && occurrence.range.end <= range.end
+                    && occurrence.role == OccurrenceRole::Call
+                    && matches!(&occurrence.hint, Some(OccurrenceHint::Name(name)) if name.as_ref() == "new")
+            });
+            has_constructor_call.then(|| ValueShape::Instance(declaration.clone()))
+        });
+        let target_site = target.as_ref().and_then(|target| match target {
             SemanticTargetId::Binding(binding) => Some(binding),
             _ => None,
         });
-        let fact_site = target_site.or(expression_site.as_ref()).or(occurrence_site.as_ref());
-        let shape = target_site
-            .as_ref()
-            .and_then(|site| self.formal_shape_for_site(site))
-            .or_else(|| self.formal_shape_at(module, range.start))
-            .or_else(|| {
-                fact_site
-                    .and_then(|site| self.snapshot.advisory_fact(site))
-                    .filter(|fact| !matches!(fact.shape, ValueShape::Unknown))
-                    .map(|fact| fact.shape.clone())
-            })
-            .or_else(|| {
-                occurrence_site
-                    .as_ref()
-                    .and_then(|site| self.snapshot.advisory_fact(site))
-                    .filter(|fact| !matches!(fact.shape, ValueShape::Unknown))
-                    .map(|fact| fact.shape.clone())
-            })
-            .or_else(|| match target {
-                Some(SemanticTargetId::Module(module)) => Some(ValueShape::Module(module.clone())),
-                Some(SemanticTargetId::Declaration(declaration)) => Some(ValueShape::ClassObject(declaration.clone())),
-                _ => None,
-            });
+        let fact_site = expression_site.as_ref().or(target_site).or(occurrence_site.as_ref());
+        let shape = constructor_receiver.or_else(|| {
+            expression_site
+                .as_ref()
+                .and_then(|site| self.formal_shape_for_site(site))
+                .or_else(|| {
+                    fact_site
+                        .and_then(|site| self.snapshot.advisory_fact(site))
+                        .filter(|fact| !matches!(fact.shape, ValueShape::Unknown))
+                        .map(|fact| fact.shape.clone())
+                })
+                .or_else(|| target_site.and_then(|site| self.formal_shape_for_site(site)))
+                .or_else(|| self.formal_shape_at(module, range.start))
+                .or_else(|| match target.as_ref() {
+                    Some(SemanticTargetId::Module(module)) => Some(ValueShape::Module(module.clone())),
+                    Some(SemanticTargetId::Declaration(declaration)) => Some(ValueShape::ClassObject(declaration.clone())),
+                    _ => None,
+                })
+        });
         let mut alternatives = Vec::new();
-        if let Some(shape) = shape {
+        if let Some(ref shape) = shape {
             collect_receiver_alternatives(&shape, &mut alternatives);
-            if alternatives.is_empty()
-                && let Some(source_text) = source_text
-                && let Some(receiver) = self.resolve_chained_receiver(&shape, source_text)
-            {
-                return Some(receiver);
-            }
         }
         if alternatives.is_empty()
-            && let Some(SemanticTargetId::Declaration(declaration)) = target.cloned()
+            && let Some(SemanticTargetId::Declaration(declaration)) = target.as_ref()
         {
             alternatives.push(ReceiverAlternative {
-                declaration,
+                declaration: declaration.clone(),
                 mode: ReceiverMode::Class,
             });
         }
@@ -215,6 +216,58 @@ impl<'a> EditorSemanticQuery<'a> {
         (!alternatives.is_empty()).then(|| ResolvedReceiver {
             alternatives: Arc::from(alternatives.into_boxed_slice()),
         })
+    }
+
+    fn receiver_for_source_site(&self, module: &ModuleId, site: &Option<SourceSiteId>) -> Option<ResolvedReceiver> {
+        let site = site.as_ref()?;
+        let kind = self.snapshot.source_index.module(module)?.structure.receiver_kind(site)?;
+        let SourceOwner::Callable(callable) = &site.owner else {
+            return None;
+        };
+        let declaration = match kind {
+            crate::source_index::SourceReceiverKind::SelfValue => callable.owner.clone(),
+            crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(&callable.owner).cloned()?,
+        };
+        Some(ResolvedReceiver {
+            alternatives: Arc::from([ReceiverAlternative {
+                declaration,
+                mode: ReceiverMode::Instance,
+            }]),
+        })
+    }
+
+    fn receiver_for_source_range(&self, module: &ModuleId, range: SourceRange) -> Option<ResolvedReceiver> {
+        let source = self.snapshot.source_index.module(module)?;
+        for (site, kind) in &source.structure.receiver_kinds {
+            let receiver_site = source.structure.site(site)?;
+            if receiver_site.range.start < range.start || receiver_site.range.end > range.end {
+                continue;
+            }
+            let callable = source
+                .structure
+                .callable_body_ranges
+                .iter()
+                .filter(|(_, range)| range.contains(receiver_site.range.start))
+                .min_by_key(|(_, range)| range.len())
+                .map(|(callable, _)| callable.clone());
+            let Some(callable) = callable else { continue };
+            let declaration = match kind {
+                crate::source_index::SourceReceiverKind::SelfValue => callable.owner,
+                crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(&callable.owner).cloned()?,
+            };
+            return Some(ResolvedReceiver {
+                alternatives: Arc::from([ReceiverAlternative {
+                    declaration,
+                    mode: ReceiverMode::Instance,
+                }]),
+            });
+        }
+        source
+            .occurrences
+            .all()
+            .iter()
+            .filter(|occurrence| range.start <= occurrence.range.start && occurrence.range.end <= range.end)
+            .find_map(|occurrence| self.receiver_for_source_site(module, &Some(occurrence.site.clone())))
     }
 
     fn formal_shape_at(&self, module: &ModuleId, offset: usize) -> Option<ValueShape> {
@@ -240,76 +293,6 @@ impl<'a> EditorSemanticQuery<'a> {
             crate::presentation::FormalFactRef::Callable(_) => return None,
         };
         (!matches!(&knowledge, TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_))).then(|| advisory_shape_from_formal(&self.snapshot.store, &knowledge))
-    }
-
-    fn resolve_chained_receiver(&self, shape: &ValueShape, source: &str) -> Option<ResolvedReceiver> {
-        let parts = dotted_expression_parts(source);
-        let mut current = shape.clone();
-        for part in parts.into_iter().skip(1) {
-            if let Some(name) = part.strip_suffix(')').and_then(|part| part.split_once('(').map(|(name, _)| name)) {
-                let (ValueShape::ClassObject(declaration) | ValueShape::Instance(declaration)) = &current else {
-                    return None;
-                };
-                let selector = Selector::try_decode_exact(&format!("{name}()")).ok()?;
-                let side = match current {
-                    ValueShape::ClassObject(_) => crate::identity::DispatchSide::Class,
-                    ValueShape::Instance(_) => crate::identity::DispatchSide::Instance,
-                    _ => unreachable!(),
-                };
-                let surface = self.snapshot.surfaces.get(declaration)?.surface(side);
-                let Some(callable) = surface.get_callable_id(&selector).cloned() else {
-                    if matches!(current, ValueShape::ClassObject(_)) && selector.encode() == "new()" {
-                        current = ValueShape::Instance(declaration.clone());
-                        continue;
-                    }
-                    return None;
-                };
-                let semantic_kind = surface.get_callable(&selector)?.kind;
-                current = if matches!(semantic_kind, crate::dispatch::CallableSemanticKind::Constructor) {
-                    ValueShape::Instance(declaration.clone())
-                } else if let Some(summary) = self.snapshot.advisory_callable(&callable) {
-                    summary.return_fact.shape.clone()
-                } else {
-                    return None;
-                };
-                continue;
-            }
-            let ValueShape::Module(module) = &current else { return None };
-            let queries = self.snapshot.module_queries();
-            current = if let Some(export) = queries.public_exports(module).and_then(|exports| exports.get(part)) {
-                match &export.target {
-                    phalcom_modules::interface::LinkedExportTarget::Module(target) => ValueShape::Module(target.clone()),
-                    phalcom_modules::interface::LinkedExportTarget::Binding(symbol) => {
-                        let declaration = crate::identity::DeclarationId::new(symbol.module.clone(), symbol.name.clone());
-                        self.snapshot
-                            .surfaces
-                            .contains_key(&declaration)
-                            .then_some(ValueShape::ClassObject(declaration))?
-                    }
-                }
-            } else {
-                let declaration = crate::identity::DeclarationId::new(module.clone(), (*part).into());
-                self.snapshot
-                    .surfaces
-                    .contains_key(&declaration)
-                    .then_some(ValueShape::ClassObject(declaration))?
-            };
-        }
-        match current {
-            ValueShape::Instance(declaration) => Some(ResolvedReceiver {
-                alternatives: Arc::from([ReceiverAlternative {
-                    declaration,
-                    mode: ReceiverMode::Instance,
-                }]),
-            }),
-            ValueShape::ClassObject(declaration) => Some(ResolvedReceiver {
-                alternatives: Arc::from([ReceiverAlternative {
-                    declaration,
-                    mode: ReceiverMode::Class,
-                }]),
-            }),
-            _ => None,
-        }
     }
 
     /// Returns all visible members across receiver alternatives, including
@@ -410,25 +393,6 @@ fn collect_receiver_alternatives(shape: &ValueShape, alternatives: &mut Vec<Rece
         ValueShape::Union(shapes) => shapes.iter().for_each(|shape| collect_receiver_alternatives(shape, alternatives)),
         _ => {}
     }
-}
-
-fn dotted_expression_parts(source: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let mut depth = 0usize;
-    for (offset, character) in source.char_indices() {
-        match character {
-            '(' | '[' | '{' => depth = depth.saturating_add(1),
-            ')' | ']' | '}' => depth = depth.saturating_sub(1),
-            '.' if depth == 0 => {
-                parts.push(source[start..offset].trim());
-                start = offset + character.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    parts.push(source[start..].trim());
-    parts
 }
 
 fn is_visible(hierarchy: &dyn TypeHierarchy, owner: &DeclarationId, visibility: MemberVisibility, access: &AccessContext) -> bool {

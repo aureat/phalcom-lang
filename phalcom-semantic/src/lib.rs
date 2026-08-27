@@ -87,7 +87,7 @@ pub use workspace_inputs::*;
 
 pub use source::ParsedSourceUnit;
 pub use source_index::{CallableSourceAttachment, ModuleSourceIndex, SourceAttachmentError, SourceIndexFingerprints, SourceSemanticIndex};
-pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind};
+pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind, SourceReceiverKind};
 pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{
     SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex, build_source_scope_index,

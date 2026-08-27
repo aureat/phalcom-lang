@@ -61,6 +61,12 @@ pub enum WorkspaceSourceBatchMutation {
         revision: SourceRevision,
         recovered_program: Option<Arc<Program>>,
     },
+    SetDiskSnapshot {
+        source: SourceLocation,
+        text: Arc<str>,
+        revision: SourceRevision,
+        recovered_program: Option<Arc<Program>>,
+    },
     RemoveOverlay {
         source: SourceId,
     },
@@ -272,6 +278,31 @@ impl WorkspaceModuleSession {
                         .provider
                         .set_overlay(SourceOverlay::new(module.clone(), kind, source.clone(), parsed.text.clone()));
                     staged.insert_state(module.clone(), kind, source, revision, parsed, true);
+                    changed.insert(module);
+                }
+                WorkspaceSourceBatchMutation::SetDiskSnapshot {
+                    source,
+                    text,
+                    revision,
+                    recovered_program,
+                } => {
+                    let module = staged.module_for_location(&source)?;
+                    let kind = staged.kind_for_source(&module, &source);
+                    let text_for_parse = text.clone();
+                    let parsed = recovered_program.map_or_else(
+                        || parse_source(module.clone(), kind, source.clone(), text_for_parse),
+                        |program| {
+                            Ok(Arc::new(ParsedModuleUnit::new(
+                                module.clone(),
+                                kind,
+                                Some(source.clone()),
+                                text.clone(),
+                                program,
+                            )))
+                        },
+                    )?;
+                    staged.provider.remove_overlay(&module);
+                    staged.insert_state(module.clone(), kind, source, revision, parsed, false);
                     changed.insert(module);
                 }
                 WorkspaceSourceBatchMutation::RemoveOverlay { source } => {
