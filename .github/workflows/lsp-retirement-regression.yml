@@ -1,0 +1,26 @@
+name: LSP retirement regression
+
+on:
+  push:
+    branches: [codex/lsp-single-world-retirement]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lsp-retirement-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/lsp-single-world-retirement
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check LSP library
+        run: cargo check -p phalcom-lsp --lib
+      - name: LSP integration suite
+        run: cargo test -p phalcom-lsp --test integration -- --nocapture
