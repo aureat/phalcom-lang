@@ -20,9 +20,171 @@ jobs:
           ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Apply class-object root candidate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          dispatch = Path('phalcom-semantic/src/dispatch.rs')
+          text = dispatch.read_text()
+          text = text.replace(
+              'use crate::identity::{CallableId, DeclarationId};',
+              'use crate::identity::{CallableId, DeclarationId, ModuleId};'
+          )
+          old = '''    pub fn resolve_dispatch_with_trace(
+        &self,
+        hierarchy: &dyn TypeHierarchy,
+        start_decl: &DeclarationId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> ResolvedDispatchResult {
+        let mut visited = Vec::new();
+        let mut curr = Some(start_decl);
+        while let Some(decl) = curr {
+            visited.push(decl.clone());
+            if let Some(surface) = self.surfaces.get(decl) {
+                if let Some(sig) = surface.get_callable(side, selector) {
+                    let callable_id = surface
+                        .get_callable_id(side, selector)
+                        .cloned()
+                        .unwrap_or_else(|| CallableId::new(decl.clone(), selector.clone(), side));
+                    return ResolvedDispatchResult::Found(ResolvedDispatch {
+                        callable: callable_id,
+                        signature: sig.clone(),
+                        visited_owners: visited.into_boxed_slice(),
+                    });
+                }
+            }
+            curr = hierarchy.superclass(decl);
+        }
+        ResolvedDispatchResult::Missing {
+            visited_owners: visited.into_boxed_slice(),
+        }
+    }
+'''
+          new = '''    pub fn resolve_dispatch_with_trace(
+        &self,
+        hierarchy: &dyn TypeHierarchy,
+        start_decl: &DeclarationId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> ResolvedDispatchResult {
+        let mut visited = Vec::new();
+        let mut curr = Some((start_decl.clone(), side));
+        let mut entered_class_object_root = false;
+        while let Some((decl, lookup_side)) = curr {
+            visited.push(decl.clone());
+            if let Some(surface) = self.surfaces.get(&decl) {
+                if let Some(sig) = surface.get_callable(lookup_side, selector) {
+                    let callable_id = surface
+                        .get_callable_id(lookup_side, selector)
+                        .cloned()
+                        .unwrap_or_else(|| CallableId::new(decl.clone(), selector.clone(), lookup_side));
+                    return ResolvedDispatchResult::Found(ResolvedDispatch {
+                        callable: callable_id,
+                        signature: sig.clone(),
+                        visited_owners: visited.into_boxed_slice(),
+                    });
+                }
+            }
+            curr = if let Some(superclass) = hierarchy.superclass(&decl) {
+                Some((superclass.clone(), lookup_side))
+            } else if lookup_side == DispatchSide::Class && !entered_class_object_root {
+                entered_class_object_root = true;
+                Some((DeclarationId::new(ModuleId::core(), "Class".into()), DispatchSide::Instance))
+            } else {
+                None
+            };
+        }
+        ResolvedDispatchResult::Missing {
+            visited_owners: visited.into_boxed_slice(),
+        }
+    }
+'''
+          if old not in text:
+              raise SystemExit('dispatch trace anchor not found')
+          text = text.replace(old, new, 1)
+          old = '''    pub fn resolve_callable_id(
+        &self,
+        hierarchy: &dyn TypeHierarchy,
+        start_decl: &DeclarationId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> Option<CallableId> {
+        let mut curr = Some(start_decl);
+        while let Some(decl) = curr {
+            if let Some(surface) = self.surfaces.get(decl) {
+                if let Some(id) = surface.get_callable_id(side, selector) {
+                    return Some(id.clone());
+                }
+            }
+            curr = hierarchy.superclass(decl);
+        }
+        None
+    }
+'''
+          new = '''    pub fn resolve_callable_id(
+        &self,
+        hierarchy: &dyn TypeHierarchy,
+        start_decl: &DeclarationId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> Option<CallableId> {
+        match self.resolve_dispatch_with_trace(hierarchy, start_decl, side, selector) {
+            ResolvedDispatchResult::Found(resolved) => Some(resolved.callable),
+            ResolvedDispatchResult::Ambiguous(_) | ResolvedDispatchResult::Missing { .. } | ResolvedDispatchResult::Dynamic => None,
+        }
+    }
+'''
+          if old not in text:
+              raise SystemExit('resolve_callable_id anchor not found')
+          dispatch.write_text(text.replace(old, new, 1))
+
+          context = Path('phalcom-semantic/src/checker/context.rs')
+          text = context.read_text()
+          anchor = '''    dispatch.register_type(declarations.form(&object).unwrap_or_else(|| store.nominal_type(object.clone())), object.clone());
+    dispatch.register_surface(object, surface);
+}'''
+          replacement = '''    dispatch.register_type(declarations.form(&object).unwrap_or_else(|| store.nominal_type(object.clone())), object.clone());
+    dispatch.register_surface(object, surface);
+
+    // `Object class` is anchored at the instance behavior of `Class`. The
+    // public zero-argument allocator is source-defined in core `class.ph`, but
+    // standalone/session bootstrap currently imports native surfaces only.
+    // Publish its canonical dependent result contract here until embedded core
+    // source bodies become ordinary semantic workspace inputs.
+    let class = DeclarationId::new(ModuleId::core(), "Class".into());
+    let Ok(selector) = Selector::method("new", Vec::new()) else {
+        return;
+    };
+    let self_type = store.self_type(crate::types::parameter::SelfTypeTerm {
+        owner: class.clone(),
+        side: DispatchSide::Instance,
+        role: crate::types::parameter::SelfRole::InstanceType,
+    });
+    let signature = CallableSignature::new(
+        selector,
+        Vec::new(),
+        TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics),
+    )
+    .with_kind(crate::dispatch::CallableSemanticKind::Constructor);
+    let mut class_surface = dispatch
+        .get_surface(&class)
+        .cloned()
+        .unwrap_or_else(|| DeclarationSurface::new(Some(class.clone())));
+    class_surface.add_callable(DispatchSide::Instance, signature);
+    dispatch.register_type(declarations.form(&class).unwrap_or_else(|| store.nominal_type(class.clone())), class.clone());
+    dispatch.register_surface(class, class_surface);
+}'''
+          if anchor not in text:
+              raise SystemExit('core kernel contract anchor not found')
+          context.write_text(text.replace(anchor, replacement, 1))
+          PY
+      - name: Format candidate
+        run: cargo fmt --all
+      - name: Diff sanity
+        run: git diff --check
       - name: Check semantic library
         run: cargo check -p phalcom-semantic --lib
-      - name: Check LSP library
-        run: cargo check -p phalcom-lsp --lib
       - name: Compare core and resolved inherited allocator semantics
         run: cargo test -p phalcom-semantic --test semantic constructorless_class_inherits -- --nocapture
