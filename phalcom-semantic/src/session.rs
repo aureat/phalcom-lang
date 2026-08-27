@@ -33,7 +33,7 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::TypeParameterOwner;
-use crate::types::relation::{MapTypeHierarchy, TypeHierarchy};
+use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
 use phalcom_ast::ast::{ClassMember, DependencyDecl, ImportDecl, PackItem, PackLabel, Statement};

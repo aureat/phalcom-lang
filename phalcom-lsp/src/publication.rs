@@ -12,6 +12,38 @@ pub(crate) struct SemanticPublication {
     current: RwLock<Option<Arc<phalcom_semantic::SemanticSnapshot>>>,
 }
 
+/// Read-only handle used by protocol scheduling and tests to observe whether
+/// an exact source document has reached the canonical semantic publication.
+///
+/// This handle exposes no semantic lookup or mutation operations. Feature
+/// requests continue to query the immutable compiler snapshot through their
+/// normal request context.
+#[derive(Clone)]
+pub struct SemanticPublicationHandle {
+    publication: Arc<SemanticPublication>,
+}
+
+impl SemanticPublicationHandle {
+    pub(crate) fn new(publication: Arc<SemanticPublication>) -> Self {
+        Self { publication }
+    }
+
+    /// Returns whether the latest canonical publication contains `text` for
+    /// the already-produced display path `path`.
+    ///
+    /// The comparison is exact and performs no filesystem reads or path
+    /// canonicalization.
+    pub fn contains_exact_source(&self, path: &std::path::Path, text: &str) -> bool {
+        let Some(snapshot) = self.publication.load() else {
+            return false;
+        };
+        let Some(module) = snapshot.module_for_display_path(path) else {
+            return false;
+        };
+        snapshot.sources.get(module).is_some_and(|source| source.text.as_ref() == text)
+    }
+}
+
 impl SemanticPublication {
     /// Creates an empty publication cell.
     pub(crate) fn new() -> Self {

@@ -446,6 +446,12 @@ impl Backend {
         self.analysis.perf_counters()
     }
 
+    /// Returns a read-only publication-coherence handle for integration
+    /// scheduling. It cannot perform semantic queries or mutate compiler state.
+    pub fn semantic_publication_handle(&self) -> crate::publication::SemanticPublicationHandle {
+        self.analysis.semantic_publication_handle()
+    }
+
     /// Serves canonical builtin/core source text to an editor content
     /// provider without mutating or refreshing semantic state.
     pub async fn source_text(&self, params: SourceTextParams) -> Result<Option<String>> {

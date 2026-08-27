@@ -525,6 +525,12 @@ impl AnalysisService {
         self.publication.load()
     }
 
+    /// Returns an opaque read-only handle to source coherence in the latest
+    /// canonical semantic publication.
+    pub(crate) fn semantic_publication_handle(&self) -> crate::publication::SemanticPublicationHandle {
+        crate::publication::SemanticPublicationHandle::new(self.publication.clone())
+    }
+
     /// Returns the counter set shared by this service and its semantic database.
     pub fn perf_counters(&self) -> PerfCountersHandle {
         self.counters.clone()

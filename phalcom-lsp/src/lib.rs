@@ -64,3 +64,4 @@ pub mod workspace_scan;
 pub use analysis_log::{AnalysisLogEvent, AnalysisLogLevel, AnalysisLogNotification};
 pub use analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStatusNotification, AnalysisStep};
 pub use backend::Backend;
+pub use publication::SemanticPublicationHandle;

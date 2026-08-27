@@ -10,8 +10,8 @@ use tokio::{
 use tower_lsp::lsp_types::Position;
 use tower_lsp::{LspService, Server};
 
-use phalcom_lsp::Backend;
 use phalcom_lsp::perf::{CounterSnapshot, PerfCountersHandle};
+use phalcom_lsp::{Backend, SemanticPublicationHandle};
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -21,6 +21,7 @@ pub struct TestLsp {
     next_id: i64,
     next_version: i32,
     counters: Arc<Mutex<Option<PerfCountersHandle>>>,
+    publication: Arc<Mutex<Option<SemanticPublicationHandle>>>,
 }
 
 impl TestLsp {
@@ -30,9 +31,12 @@ impl TestLsp {
 
         let counters = Arc::new(Mutex::new(None));
         let counters_for_backend = counters.clone();
+        let publication = Arc::new(Mutex::new(None));
+        let publication_for_backend = publication.clone();
         let (service, socket) = LspService::build(move |client| {
             let backend = Backend::new(client);
             *counters_for_backend.lock().expect("counter capture lock poisoned") = Some(backend.perf_counters());
+            *publication_for_backend.lock().expect("publication capture lock poisoned") = Some(backend.semantic_publication_handle());
             backend
         })
         .custom_method("phalcom/sourceText", Backend::source_text)
@@ -47,6 +51,7 @@ impl TestLsp {
             next_id: 1,
             next_version: 1,
             counters,
+            publication,
         }
     }
 
@@ -111,9 +116,33 @@ impl TestLsp {
     }
 
     pub async fn open_and_wait(&mut self, uri: &str, text: &str) {
-        let before = self.counter_snapshot();
         self.open(uri, text).await;
-        self.wait_for_semantic_publication_after(before).await;
+        self.wait_for_exact_source_publication(uri, text).await;
+    }
+
+    pub async fn change_and_wait(&mut self, uri: &str, text: &str) {
+        self.change(uri, text).await;
+        self.wait_for_exact_source_publication(uri, text).await;
+    }
+
+    async fn wait_for_exact_source_publication(&self, uri: &str, text: &str) {
+        let uri = tower_lsp::lsp_types::Url::parse(uri).expect("test URI");
+        let path = uri.to_file_path().expect("semantic test source must use a file URI");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            let published = self
+                .publication
+                .lock()
+                .expect("publication capture lock poisoned")
+                .as_ref()
+                .expect("backend publication handle captured during start")
+                .contains_exact_source(&path, text);
+            if published {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("exact semantic source was not published within the 30-second yield budget: {uri}");
     }
 
     pub async fn change(&mut self, uri: &str, text: &str) {
