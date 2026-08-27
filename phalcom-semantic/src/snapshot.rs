@@ -112,6 +112,9 @@ pub struct SemanticSnapshot {
     pub generation: u64,
     pub store: Arc<TypeStore>,
     pub sources: Arc<BTreeMap<ModuleId, Arc<ParsedModuleUnit>>>,
+    /// Read-only compiler-generated source documents used solely for semantic
+    /// provenance and editor presentation. They are never analysis inputs.
+    pub presentation_sources: Arc<BTreeMap<ModuleId, Arc<str>>>,
     pub surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
     pub dispatch: Arc<SurfaceDispatchResolver>,
     pub callable_signatures: Arc<CallableSignatureTable>,
@@ -154,6 +157,7 @@ impl SemanticSnapshot {
             generation,
             store,
             sources,
+            presentation_sources: Arc::new(BTreeMap::new()),
             surfaces,
             dispatch,
             callable_signatures,
@@ -196,6 +200,7 @@ impl SemanticSnapshot {
             generation,
             store,
             sources,
+            presentation_sources: Arc::new(BTreeMap::new()),
             surfaces,
             dispatch,
             callable_signatures,
@@ -218,6 +223,19 @@ impl SemanticSnapshot {
         self.internal_incidents = collect_internal_incidents(&callable_analyses);
         self.callable_analyses = callable_analyses;
         self
+    }
+
+    /// Attaches read-only compiler presentation sources. These documents
+    /// provide source coordinates for canonical declaration provenance but do
+    /// not participate in linking or semantic analysis.
+    pub fn with_presentation_sources(mut self, sources: Arc<BTreeMap<ModuleId, Arc<str>>>) -> Self {
+        self.presentation_sources = sources;
+        self
+    }
+
+    /// Returns exact compiler-owned presentation text for one virtual source.
+    pub fn presentation_source(&self, module: &ModuleId) -> Option<&str> {
+        self.presentation_sources.get(module).map(AsRef::as_ref)
     }
 
     /// Attaches one immutable compiler-owned source semantic index.

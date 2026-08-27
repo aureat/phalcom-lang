@@ -9,6 +9,7 @@ use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
+use crate::core_surface::render_canonical_core_source;
 use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
@@ -902,7 +903,8 @@ impl SemanticWorkspaceSession {
             Arc::new(sources_loc_map),
         ));
 
-        let mut source_index = build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref(), &resolver);
+        let (mut source_index, presentation_sources) =
+            build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref(), &resolver);
         if let Some(previous) = self.last_snapshot.as_deref() {
             for (module, current) in source_index.modules.clone() {
                 let Some(previous_module) = previous.source_index.module_arc(&module) else {
@@ -993,6 +995,7 @@ impl SemanticWorkspaceSession {
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
         );
+        snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
@@ -1080,7 +1083,7 @@ fn build_source_semantic_index(
     resolved_imports: &BTreeMap<(ModuleId, String), ModuleId>,
     linked: &LinkedProgram,
     type_resolver: &dyn TypeResolver,
-) -> SourceSemanticIndex {
+) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
     let mut context = SourceIndexContext {
         resolved_imports: resolved_imports.clone(),
         ..SourceIndexContext::default()
@@ -1167,7 +1170,26 @@ fn build_source_semantic_index(
             let _ = index.attach_formal_analysis(module, analysis);
         }
     }
-    index
+
+    let mut presentation_sources = BTreeMap::new();
+    let core = ModuleId::core();
+    if !sources.contains_key(&core) {
+        let text = render_canonical_core_source();
+        let parsed = phalcom_ast::parse(&text, 0);
+        assert!(
+            parsed.errors.is_empty(),
+            "compiler-owned canonical core presentation must parse: {:#?}",
+            parsed.errors
+        );
+        let structure = build_source_scope_index(core.clone(), &parsed.program, &SourceIndexContext::default());
+        let mut core_index = SourceSemanticIndex::from_scope_indices(BTreeMap::from([(core.clone(), structure)]));
+        let shard = core_index.modules.remove(&core).expect("canonical core presentation shard");
+        index.modules.insert(core.clone(), shard);
+        index.rebuild_target_occurrences();
+        presentation_sources.insert(core, text);
+    }
+
+    (index, presentation_sources)
 }
 
 /// Builds the advisory workspace from the same source/formal products that
