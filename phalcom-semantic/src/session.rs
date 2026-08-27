@@ -1379,6 +1379,17 @@ fn build_advisory_workspace(
                 }
             }
 
+            let target_site_for_range = |range: SourceRange| {
+                let candidates = module_index
+                    .occurrences
+                    .all()
+                    .iter()
+                    .filter(|occurrence| occurrence.range == range)
+                    .map(|occurrence| occurrence.site.clone())
+                    .collect::<Vec<_>>();
+                (candidates.len() == 1).then(|| candidates[0].clone())
+            };
+
             let mut member_bodies = BTreeMap::new();
             for statement in &source.program.statements {
                 let Statement::Class(class) = statement else { continue };
@@ -1462,6 +1473,12 @@ fn build_advisory_workspace(
                 } else {
                     return_fact
                 };
+                for (range, callable) in &flow.call_targets {
+                    if let Some(site) = target_site_for_range(*range) {
+                        let target = SemanticTargetId::Callable(callable.clone());
+                        targets.entry(site.clone()).or_insert_with(|| advisory_target_resolution(&site, &target));
+                    }
+                }
                 expressions.extend(flow.expressions);
                 bindings.extend(flow.bindings);
 
@@ -1536,6 +1553,12 @@ fn build_advisory_workspace(
                 crate::advisory::AdvisoryContributionSource::Module(module.clone()),
                 top_level.parameter_contributions.clone(),
             );
+            for (range, callable) in &top_level.call_targets {
+                if let Some(site) = target_site_for_range(*range) {
+                    let target = SemanticTargetId::Callable(callable.clone());
+                    targets.entry(site.clone()).or_insert_with(|| advisory_target_resolution(&site, &target));
+                }
+            }
             expressions.extend(top_level.expressions);
             bindings.extend(top_level.bindings);
 

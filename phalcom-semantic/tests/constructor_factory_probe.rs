@@ -66,7 +66,11 @@ const x: Int = CellNum.of(42)
         "constructor call must formally produce CellNum: {constructor_call:#?}"
     );
     assert!(
-        factory_analysis.exits.normal_return_values.iter().any(|knowledge| knowledge.ty() == Some(cell_ty)),
+        factory_analysis
+            .exits
+            .normal_return_values
+            .iter()
+            .any(|knowledge| knowledge.ty() == Some(cell_ty)),
         "CellNum.of must publish the constructor result as a normal return: {factory_analysis:#?}"
     );
 
@@ -109,11 +113,7 @@ class Probe {
     let person = DeclarationId::new(module.clone(), "Person".into());
     let person_ty = snapshot.declarations.form(&person).expect("Person type");
     let probe = DeclarationId::new(module.clone(), "Probe".into());
-    let make = CallableId::new(
-        probe,
-        Selector::method("make", Vec::new()).unwrap(),
-        DispatchSide::Instance,
-    );
+    let make = CallableId::new(probe, Selector::method("make", Vec::new()).unwrap(), DispatchSide::Instance);
     let default_new = CallableId::new(
         DeclarationId::new(ModuleId::core(), "Class".into()),
         Selector::method("new", Vec::new()).unwrap(),
@@ -143,9 +143,7 @@ class Probe {
         end: receiver_start + "Person".len(),
     };
     let editor = snapshot.editor();
-    let receiver = editor
-        .resolve_receiver_at(&module, receiver_range)
-        .expect("Person class-object receiver");
+    let receiver = editor.resolve_receiver_at(&module, receiver_range).expect("Person class-object receiver");
     let access = editor.access_context_at(&module, receiver_start);
     assert!(
         editor
@@ -294,10 +292,40 @@ class Probe {
         )
         .expect("binding receiver must resolve from compiler-owned facts");
     assert!(
-        receiver.alternatives.iter().any(|alternative| {
-            alternative.declaration == cell && matches!(alternative.mode, phalcom_semantic::ReceiverMode::Instance)
-        }),
+        receiver
+            .alternatives
+            .iter()
+            .any(|alternative| { alternative.declaration == cell && matches!(alternative.mode, phalcom_semantic::ReceiverMode::Instance) }),
         "receiver query must consult the binding declaration fact when the use-site expression has no usable fact: {receiver:#?}"
+    );
+}
+
+#[test]
+fn advisory_inherited_call_publishes_defining_callable_target() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Animal {
+  speak() {}
+}
+
+class Dog is Animal {}
+
+const dog = Dog.new()
+dog.speak()
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let snapshot = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).snapshot;
+
+    let animal = DeclarationId::new(module.clone(), "Animal".into());
+    let speak = CallableId::new(animal, Selector::method("speak", Vec::new()).unwrap(), DispatchSide::Instance);
+    let selector_offset = source.rfind("speak()").expect("call-site speak") + 1;
+    assert_eq!(
+        snapshot.editor().target_at(&module, selector_offset),
+        Some(SemanticTargetId::Callable(speak)),
+        "advisory dispatch must publish the canonical defining callable at the selector occurrence"
     );
 }
 
@@ -326,7 +354,11 @@ fn builtin_type_annotation_has_canonical_target() {
 fn builtin_declaration_has_canonical_definition_site() {
     let (_, _, snapshot, target) = builtin_annotation_snapshot();
     let sites = snapshot.editor().definition_sites(&target);
-    assert_eq!(sites.len(), 1, "builtin declaration must publish exactly one canonical definition site: {sites:#?}");
+    assert_eq!(
+        sites.len(),
+        1,
+        "builtin declaration must publish exactly one canonical definition site: {sites:#?}"
+    );
     let site = snapshot.source_site(&sites[0]).expect("builtin declaration source site");
     assert!(
         matches!(&site.id.owner, phalcom_semantic::SourceOwner::Module(owner) if owner == &ModuleId::core()),

@@ -40,6 +40,8 @@ pub struct AdvisoryFlowProduct {
     pub expressions: BTreeMap<SourceSiteId, AdvisoryFact>,
     /// Advisory facts observed at normal return statements.
     pub returns: Vec<AdvisoryFact>,
+    /// Canonical call targets keyed by the exact selector/name source range.
+    pub call_targets: Vec<(SourceRange, CallableId)>,
     /// Parameter facts contributed by resolved call sites in this traversal.
     pub parameter_contributions: BTreeMap<AdvisoryParameterSlot, AdvisoryFact>,
     /// Advisory facts observed for implicit field assignments.
@@ -172,6 +174,9 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
 }
 
 fn record_call_contributions(product: &mut AdvisoryFlowProduct, context: &AdvisoryFlowContext<'_>, call: AdvisoryCallObservation) {
+    if let Some(range) = call.target_range {
+        product.call_targets.push((range, call.target.clone()));
+    }
     let mut positional = 0;
     for argument in call.arguments {
         let index = if let Some(label) = argument.label.as_deref() {
