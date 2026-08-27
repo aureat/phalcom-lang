@@ -24,35 +24,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply partial call query candidate
-        run: python .github/scripts/apply-partial-call-signature-query.py
-      - name: Apply exact call-target correction
-        run: python .github/scripts/fix-partial-call-exact-target.py
+      - name: Add method-family root regression
+        run: python .github/scripts/add-method-family-root-regression.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
           git diff --check
-      - name: Compile semantic and LSP
-        run: |
-          cargo check -p phalcom-semantic
-          cargo check -p phalcom-lsp --lib
-      - name: Validate semantic candidate selection
-        run: cargo test -p phalcom-semantic --test semantic partial_call_candidates_are_selected_by_canonical_receiver_surface -- --nocapture
-      - name: Validate incomplete signature help
-        run: cargo test -p phalcom-lsp --test integration signature_help_recovers_incomplete_receiver_call -- --nocapture
-      - name: Revalidate inherited hover
-        run: cargo test -p phalcom-lsp --test integration inherited_hover_reports_the_defining_owner_not_the_receiver_class -- --nocapture
-      - name: Revalidate constructor composition
-        run: cargo test -p phalcom-lsp --test integration constructor_factory_inference_is_authoritative_across_lsp_features -- --nocapture
-      - name: Commit validated partial call query
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-semantic/src/editor.rs \
-                  phalcom-semantic/src/lib.rs \
-                  phalcom-lsp/src/backend.rs \
-                  phalcom-semantic/tests/constructor_factory_probe.rs
-          if ! git diff --cached --quiet; then
-            git commit -m 'feat(semantic): query partial callable candidates'
-            git push origin HEAD:codex/lsp-single-world-retirement
-          fi
+      - name: Compile semantic
+        run: cargo check -p phalcom-semantic
+      - name: Prove current family traversal misses class-object behavior root
+        run: cargo test -p phalcom-semantic --test semantic class_object_method_family_uses_canonical_dispatch_owner_chain -- --nocapture
