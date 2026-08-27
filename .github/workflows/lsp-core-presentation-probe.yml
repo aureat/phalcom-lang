@@ -23,5 +23,8 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
 
-      - name: Core presentation coherence RED
+      - name: Core presentation request coherence
         run: cargo test -p phalcom-lsp --lib compiler_core_presentation_text_is_an_exact_source -- --nocapture
+
+      - name: Core presentation source transport
+        run: cargo test -p phalcom-lsp --test integration core_source_text_matches_compiler_presentation_publication -- --nocapture
