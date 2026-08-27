@@ -26,6 +26,8 @@ jobs:
           components: rustfmt
       - name: Apply partial call query candidate
         run: python .github/scripts/apply-partial-call-signature-query.py
+      - name: Instrument signature adapter
+        run: python .github/scripts/instrument-signature-adapter.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
@@ -36,19 +38,5 @@ jobs:
           cargo check -p phalcom-lsp --lib
       - name: Validate semantic candidate selection
         run: cargo test -p phalcom-semantic --test semantic partial_call_candidates_are_selected_by_canonical_receiver_surface -- --nocapture
-      - name: Validate incomplete signature help
+      - name: Trace incomplete signature help
         run: cargo test -p phalcom-lsp --test integration signature_help_recovers_incomplete_receiver_call -- --nocapture
-      - name: Revalidate inherited hover
-        run: cargo test -p phalcom-lsp --test integration inherited_hover_reports_the_defining_owner_not_the_receiver_class -- --nocapture
-      - name: Commit validated partial call query
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-semantic/src/editor.rs \
-                  phalcom-semantic/src/lib.rs \
-                  phalcom-lsp/src/backend.rs \
-                  phalcom-semantic/tests/constructor_factory_probe.rs
-          if ! git diff --cached --quiet; then
-            git commit -m 'feat(semantic): query partial callable candidates'
-            git push origin HEAD:codex/lsp-single-world-retirement
-          fi
