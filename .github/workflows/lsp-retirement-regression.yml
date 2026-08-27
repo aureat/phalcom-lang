@@ -20,8 +20,10 @@ jobs:
           ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Check semantic and LSP libraries
-        run: cargo check -p phalcom-semantic --lib -p phalcom-lsp --lib
+      - name: Check semantic library
+        run: cargo check -p phalcom-semantic --lib
+      - name: Check LSP library
+        run: cargo check -p phalcom-lsp --lib
       - name: Inherited allocator semantic regression
         run: cargo test -p phalcom-semantic --test constructor_factory_probe constructorless_class_inherits_core_class_new_from_resolved_module -- --nocapture
       - name: Inherited allocator inlay regression
