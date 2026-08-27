@@ -1,104 +1,72 @@
-//! One coherent document and semantic generation for an editor request.
+//! Immutable document and canonical semantic snapshot pinned for one request.
 
 use std::sync::Arc;
 
+use phalcom_modules::{ModuleId, SourceId, SourceRevision};
+use phalcom_semantic::SemanticSnapshot;
 use tower_lsp::lsp_types::Url;
 
 use crate::documents::DocumentSnapshot;
-use crate::semantic::{CompilerSemanticSnapshot, FileRevision, FileSemanticSnapshot, ModuleId, SemanticSnapshot};
 
-/// Relationship between the live document and the pinned compiler source.
+/// Relationship between live document text and the pinned compiler source.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceMatch {
-    /// The compiler source text is the same as the document at request time.
+    /// Canonical source text matches the document at request time.
     Exact,
-    /// A compiler source exists, but it describes an older document revision.
+    /// Canonical source exists, but describes older text.
     Stale,
-    /// No compiler module/source is published for this URI.
+    /// No canonical module/source is published for this URI.
     Unmapped,
 }
 
 /// Immutable request inputs pinned at handler entry.
 #[derive(Clone)]
 pub struct RequestContext {
-    /// URI used to resolve the canonical compiler module.
+    /// URI used by the protocol request.
     pub uri: Url,
-    /// Current open-document data, including parsed source and line index.
+    /// Current open-document data, including recovered syntax and line index.
     pub document: DocumentSnapshot,
-    /// One published semantic generation used for the full request.
-    pub semantic: Arc<SemanticSnapshot>,
-    /// The exact compiler publication pinned for this request, when one is
-    /// available. It is the semantic source of truth for all new consumers.
-    pub compiler: Option<Arc<CompilerSemanticSnapshot>>,
-    /// Published module identity corresponding to the request URI.
-    pub module: Option<ModuleId>,
-    /// Source coherence classification used to suppress stale ranges.
+    /// One canonical immutable semantic snapshot, when published.
+    pub compiler: Option<Arc<SemanticSnapshot>>,
+    /// Canonical module identity corresponding to the request URI.
+    pub canonical_module: Option<ModuleId>,
+    /// Source coherence classification used to suppress stale semantic ranges.
     pub source_match: SourceMatch,
 }
 
 impl RequestContext {
-    /// Pins one document and one semantic generation.
-    pub fn new(document: DocumentSnapshot, semantic: Arc<SemanticSnapshot>, uri: &Url) -> Self {
-        let module = semantic.module_for_uri(uri).cloned();
-        let compiler = semantic.compiler_snapshot.clone();
-        let source_match = classify_source(&document, &semantic, compiler.as_deref(), uri);
+    /// Pins document data and one canonical snapshot for the request lifetime.
+    pub fn new_with_compiler(document: DocumentSnapshot, compiler: Option<Arc<SemanticSnapshot>>, uri: &Url) -> Self {
+        let canonical_module = compiler.as_deref().and_then(|snapshot| canonical_module_for_uri(snapshot, uri));
+        let source_match = classify_source(&document, compiler.as_deref(), canonical_module.as_ref());
         Self {
             uri: uri.clone(),
             document,
-            semantic,
             compiler,
-            module,
+            canonical_module,
             source_match,
         }
     }
 
-    /// Pins a separately published compiler handle alongside the protocol
-    /// adapter snapshot. Both are captured at one request boundary.
-    pub fn new_with_compiler(document: DocumentSnapshot, semantic: Arc<SemanticSnapshot>, compiler: Option<Arc<CompilerSemanticSnapshot>>, uri: &Url) -> Self {
-        let module = semantic.module_for_uri(uri).cloned();
-        let source_match = classify_source(&document, &semantic, compiler.as_deref(), uri);
-        Self {
-            uri: uri.clone(),
-            document,
-            semantic,
-            compiler,
-            module,
-            source_match,
-        }
+    /// Returns the canonical module identity for this request.
+    pub fn compiler_module(&self) -> Option<&ModuleId> {
+        self.canonical_module.as_ref()
     }
 
-    /// Returns current-file semantic products only when their source revision
-    /// matches the live document revision.
-    pub fn exact_file(&self) -> Option<&FileSemanticSnapshot> {
-        let module = self.module.as_ref()?;
-        let file = self.semantic.file(module)?;
-        (file.revision == self.document.revision).then_some(file)
-    }
-
-    /// Returns whether published source products are stale for this request.
+    /// Whether canonical products are unavailable or stale for this document.
     pub fn is_stale(&self) -> bool {
         !matches!(self.source_match, SourceMatch::Exact)
     }
-
-    /// Returns pinned published revision when one exists.
-    pub fn published_revision(&self) -> Option<FileRevision> {
-        self.module.as_ref().and_then(|module| self.semantic.file_revision(module))
-    }
-
-    /// Returns the canonical compiler module identity for this request.
-    pub fn compiler_module(&self) -> Option<&phalcom_modules::ModuleId> {
-        self.semantic.documents.get_by_uri(&self.uri)
-    }
 }
 
-fn classify_source(document: &DocumentSnapshot, semantic: &SemanticSnapshot, compiler: Option<&CompilerSemanticSnapshot>, uri: &Url) -> SourceMatch {
-    let Some(module) = semantic.documents.get_by_uri(uri) else {
+fn classify_source(document: &DocumentSnapshot, snapshot: Option<&SemanticSnapshot>, module: Option<&ModuleId>) -> SourceMatch {
+    let Some(snapshot) = snapshot else {
         return SourceMatch::Unmapped;
     };
-    let Some(compiler) = compiler else {
+    let Some(module) = module else {
         return SourceMatch::Unmapped;
     };
-    let Some(source) = compiler.sources.get(module) else {
+    let Some(source) = snapshot.sources.get(module) else {
         return SourceMatch::Unmapped;
     };
     if source.text.as_ref() == document.text.as_ref() {
@@ -108,15 +76,33 @@ fn classify_source(document: &DocumentSnapshot, semantic: &SemanticSnapshot, com
     }
 }
 
+fn canonical_module_for_uri(snapshot: &SemanticSnapshot, uri: &Url) -> Option<ModuleId> {
+    if let Ok(path) = uri.to_file_path()
+        && let Some(module) = snapshot.module_for_display_path(&path)
+    {
+        return Some(module.clone());
+    }
+    if uri.as_str() == crate::core_documents::CORE_MODULE_URI {
+        return Some(ModuleId::core());
+    }
+    if let Some(module) = crate::analysis_service::builtin_module_from_uri(uri)
+        && snapshot.sources.contains_key(&module)
+    {
+        return Some(module);
+    }
+    if uri.scheme() == "file" {
+        let source = SourceId(uri.to_file_path().ok()?.to_string_lossy().into());
+        return snapshot.module_for_source(&source).cloned();
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::documents::Document;
-    use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceMutation};
+    use phalcom_modules::{SourceLocation, WorkspaceSourceMutation};
     use phalcom_semantic::SemanticWorkspaceSession;
     use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::thread;
 
     #[test]
     fn old_request_keeps_immutable_compiler_snapshot_after_new_publication() {
@@ -138,16 +124,16 @@ mod tests {
         let old_id = old.id;
         let old_text = old.sources.values().next().expect("source publication").text.clone();
 
-        let document = Document::new_with_revision("class Main { old() {} }\n".to_string(), FileRevision(1));
-        let document = DocumentSnapshot {
+        let document = crate::documents::Document::new_with_revision("class Main { old() {} }\n".to_string(), SourceRevision(1));
+        let document = crate::documents::DocumentSnapshot {
             text: document.text,
             parse: document.parse,
             line_index: document.line_index,
             revision: document.revision,
             version: document.version,
         };
-        let request = RequestContext::new_with_compiler(document, Arc::new(SemanticSnapshot::default()), Some(old.clone()), &uri);
-        let reader = thread::spawn(move || {
+        let request = RequestContext::new_with_compiler(document, Some(old.clone()), &uri);
+        let reader = std::thread::spawn(move || {
             let pinned = request.compiler.expect("request must retain compiler snapshot");
             (pinned.id, pinned.sources.values().next().expect("pinned source").text.clone())
         });

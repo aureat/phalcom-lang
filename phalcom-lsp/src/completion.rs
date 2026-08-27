@@ -9,38 +9,12 @@ use phalcom_common::selector::SelectorKind;
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position};
 
 use crate::documents::{Document, DocumentSnapshot};
-use crate::semantic::ClassId;
-
-/// Whether a resolved receiver is an instance or a class object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ReceiverKind {
-    /// Offer instance-side members.
-    Instance,
-    /// Offer class-side members.
-    ClassObject,
-}
-
-/// Module-qualified receiver alternatives returned by semantic queries.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SemanticResolvedReceiver {
-    /// Candidate class identities and dispatch sides.
-    pub alternatives: Vec<(ClassId, ReceiverKind)>,
-}
-
-/// Compiler-owned receiver alternatives used by the cutover path.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompilerResolvedReceiver {
-    /// Canonical declaration identities and dispatch sides.
-    pub alternatives: Vec<(phalcom_semantic::DeclarationId, ReceiverKind)>,
-}
-
 /// Inputs for compiler-owned completion presentation.
 pub(crate) struct CompilerCompletionContext<'a> {
-    pub resolved: Option<&'a CompilerResolvedReceiver>,
+    pub resolved: Option<&'a phalcom_semantic::ResolvedReceiver>,
     pub lexical_class: Option<&'a phalcom_semantic::DeclarationId>,
     pub privileged: bool,
     pub module: &'a phalcom_modules::ModuleId,
-    pub program: &'a Program,
     pub text: &'a str,
     pub offset: usize,
 }
@@ -177,12 +151,12 @@ pub(crate) fn compiler_contextual_completions(db: &phalcom_semantic::SemanticSna
             Some(resolved) => resolved
                 .alternatives
                 .first()
-                .map(|(declaration, kind)| compiler_class_completions(db, declaration, *kind, context.lexical_class, context.privileged))
+                .map(|alternative| compiler_class_completions(db, &alternative.declaration, alternative.mode, context.lexical_class, context.privileged))
                 .unwrap_or_default(),
             None => Vec::new(),
         }
     } else {
-        compiler_visible_completions(db, context.module, context.program, context.offset)
+        compiler_visible_completions(db, context.module, context.offset)
     };
     items.sort_by(|left, right| left.label.cmp(&right.label));
     items.dedup_by(|left, right| left.label == right.label);
@@ -191,13 +165,13 @@ pub(crate) fn compiler_contextual_completions(db: &phalcom_semantic::SemanticSna
 
 fn compiler_union_completions(
     db: &phalcom_semantic::SemanticSnapshot,
-    resolved: &CompilerResolvedReceiver,
+    resolved: &phalcom_semantic::ResolvedReceiver,
     lexical_class: Option<&phalcom_semantic::DeclarationId>,
     privileged: bool,
 ) -> Vec<CompletionItem> {
     let mut by_label = std::collections::BTreeMap::<String, (CompletionItem, usize)>::new();
-    for (declaration, kind) in &resolved.alternatives {
-        for item in compiler_class_completions(db, declaration, *kind, lexical_class, privileged) {
+    for alternative in resolved.alternatives.iter() {
+        for item in compiler_class_completions(db, &alternative.declaration, alternative.mode, lexical_class, privileged) {
             by_label
                 .entry(item.label.clone())
                 .and_modify(|(_, coverage)| *coverage += 1)
@@ -219,44 +193,34 @@ fn compiler_union_completions(
 fn compiler_class_completions(
     db: &phalcom_semantic::SemanticSnapshot,
     declaration: &phalcom_semantic::DeclarationId,
-    receiver_kind: ReceiverKind,
+    receiver_mode: phalcom_semantic::ReceiverMode,
     lexical_class: Option<&phalcom_semantic::DeclarationId>,
-    privileged: bool,
+    _privileged: bool,
 ) -> Vec<CompletionItem> {
-    let side = match receiver_kind {
-        ReceiverKind::Instance => phalcom_semantic::DispatchSide::Instance,
-        ReceiverKind::ClassObject => phalcom_semantic::DispatchSide::Class,
+    let receiver = phalcom_semantic::ResolvedReceiver {
+        alternatives: std::sync::Arc::from([phalcom_semantic::ReceiverAlternative {
+            declaration: declaration.clone(),
+            mode: receiver_mode,
+        }]),
+    };
+    let access = phalcom_semantic::AccessContext {
+        enclosing_declaration: lexical_class.cloned(),
+        enclosing_callable: None,
     };
     let mut items = Vec::new();
-    let mut current = Some(declaration.clone());
-    let mut visited = std::collections::BTreeSet::new();
-    while let Some(owner) = current {
-        if !visited.insert(owner.clone()) {
-            break;
-        }
-        if let Some(surface) = db.surfaces.get(&owner) {
-            let members = surface.surface(side);
-            for name in members.fields.keys() {
-                let visibility = members.field_visibility.get(name).copied().unwrap_or_default();
-                if !member_visible(db, &owner, visibility, lexical_class, privileged) {
-                    continue;
-                }
-                items.push(CompletionItem {
-                    label: name.clone(),
-                    kind: Some(CompletionItemKind::FIELD),
-                    insert_text: Some(name.clone()),
-                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                    detail: Some(owner.name.to_string()),
-                    ..CompletionItem::default()
-                });
-            }
-            for signature in members.callable_signatures.values() {
-                let visibility = members.callable_visibility.get(&signature.selector).copied().unwrap_or_default();
-                if !member_visible(db, &owner, visibility, lexical_class, privileged) {
-                    continue;
-                }
-                let label = signature.selector.encode();
-                let (kind, insert_text, insert_text_format) = match signature.selector.kind {
+    for member in db.editor().members_for_receiver(&receiver, &access) {
+        match member.target {
+            phalcom_semantic::EditorMemberTarget::Field(field) => items.push(CompletionItem {
+                label: field.name.to_string(),
+                kind: Some(CompletionItemKind::FIELD),
+                insert_text: Some(field.name.to_string()),
+                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                detail: Some(member.owner.name.to_string()),
+                ..CompletionItem::default()
+            }),
+            phalcom_semantic::EditorMemberTarget::Callable(callable) => {
+                let label = callable.selector.encode();
+                let (kind, insert_text, insert_text_format) = match callable.selector.kind {
                     SelectorKind::Getter => (CompletionItemKind::PROPERTY, label.clone(), InsertTextFormat::PLAIN_TEXT),
                     SelectorKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(&label), InsertTextFormat::SNIPPET),
                     SelectorKind::Method | SelectorKind::SubscriptGet | SelectorKind::SubscriptSet => {
@@ -268,95 +232,24 @@ fn compiler_class_completions(
                     kind: Some(kind),
                     insert_text: Some(insert_text),
                     insert_text_format: Some(insert_text_format),
-                    detail: Some(owner.name.to_string()),
+                    detail: Some(member.owner.name.to_string()),
                     ..CompletionItem::default()
                 });
             }
         }
-        current = db.hierarchy.superclasses.get(&owner).cloned();
-    }
-    if receiver_kind == ReceiverKind::ClassObject && !items.iter().any(|item| item.label == "new()") {
-        items.push(CompletionItem {
-            label: "new()".to_string(),
-            kind: Some(CompletionItemKind::METHOD),
-            insert_text: Some("new()".to_string()),
-            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-            detail: Some(declaration.name.to_string()),
-            ..CompletionItem::default()
-        });
     }
     items.sort_by(|left, right| left.label.cmp(&right.label));
     items.dedup_by(|left, right| left.label == right.label);
     items
 }
 
-fn member_visible(
-    db: &phalcom_semantic::SemanticSnapshot,
-    owner: &phalcom_semantic::DeclarationId,
-    visibility: phalcom_semantic::MemberVisibility,
-    lexical_class: Option<&phalcom_semantic::DeclarationId>,
-    privileged: bool,
-) -> bool {
-    match visibility {
-        phalcom_semantic::MemberVisibility::Public => true,
-        phalcom_semantic::MemberVisibility::Private => lexical_class == Some(owner),
-        phalcom_semantic::MemberVisibility::Protected => {
-            let Some(mut current) = lexical_class.cloned() else { return false };
-            let mut visited = std::collections::BTreeSet::new();
-            while visited.insert(current.clone()) {
-                if current == *owner {
-                    return true;
-                }
-                let Some(parent) = db.hierarchy.superclasses.get(&current).cloned() else {
-                    break;
-                };
-                current = parent;
-            }
-            false
-        }
-        phalcom_semantic::MemberVisibility::Internal => privileged,
-    }
-}
-
-fn compiler_visible_completions(
-    db: &phalcom_semantic::SemanticSnapshot,
-    module: &phalcom_modules::ModuleId,
-    program: &Program,
-    offset: usize,
-) -> Vec<CompletionItem> {
-    let mut names = std::collections::BTreeSet::new();
-    if let Some(source) = db.source_index().module(module) {
-        names.extend(source.structure.visible_bindings_at(offset).into_iter().map(|binding| binding.name.to_string()));
-        names.extend(source.structure.sites.values().filter_map(|site| match &site.kind {
-            phalcom_semantic::SourceSiteKind::Declaration(declaration) if declaration.module == *module => Some(declaration.name.to_string()),
-            _ => None,
-        }));
-    }
-    for dependency in &program.preamble.dependencies {
-        match dependency {
-            phalcom_ast::ast::DependencyDecl::Import(import) => match import {
-                phalcom_ast::ast::ImportDecl::Module(import) => {
-                    if let Some(alias) = &import.alias {
-                        names.insert(alias.name.clone());
-                    } else if let Some(segment) = import.path.segments.last() {
-                        names.insert(segment.name.clone());
-                    }
-                }
-                phalcom_ast::ast::ImportDecl::Selective(import) => {
-                    names.extend(
-                        import
-                            .items
-                            .iter()
-                            .map(|item| item.alias.as_ref().map_or_else(|| item.name.clone(), |alias| alias.name.clone())),
-                    );
-                }
-            },
-            phalcom_ast::ast::DependencyDecl::ReExport(reexport) => {
-                names.extend(reexport.items.iter().map(|item| item.local_or_remote_name.clone()));
-            }
-            phalcom_ast::ast::DependencyDecl::Expose(_) => {}
-        }
-    }
+fn compiler_visible_completions(db: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId, offset: usize) -> Vec<CompletionItem> {
+    let names = db
+        .editor()
+        .visible_symbols_at(module, offset)
+        .into_iter()
+        .map(|symbol| symbol.name.to_string())
+        .collect::<std::collections::BTreeSet<_>>();
     names
         .into_iter()
         .map(|name| CompletionItem {

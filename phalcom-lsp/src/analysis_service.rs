@@ -13,18 +13,18 @@ use tower_lsp::lsp_types::Url;
 
 use crate::analysis_log::{AnalysisLogEvent, AnalysisLogLevel};
 use crate::analysis_status::{AnalysisPhase, AnalysisStatus, AnalysisStep, StatusTracker};
-use crate::index::WorkspaceIndex;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfContext, PerfCountersHandle, PerfSpan};
-use crate::semantic::{CompilerSemanticSnapshot, FileRevision, SemanticDb, SemanticEngine, SemanticGeneration, SemanticSnapshot, SourceAnalysisDepth};
+use crate::publication::SemanticPublication;
 use crate::workspace_scan::{AnalysisMode, ExcludeMatcher, ScanBudget, WorkspaceScanState};
+use phalcom_modules::SourceRevision;
 
 /// Closed-file source metadata populated by the worker before it publishes
 /// semantic state. Query handlers can read this cache without waiting for the
 /// asynchronous event notification task.
 #[derive(Clone, Debug)]
 pub(crate) struct CachedSource {
-    pub(crate) revision: FileRevision,
+    pub(crate) revision: SourceRevision,
     pub(crate) text: Arc<str>,
     pub(crate) program: Arc<Program>,
     pub(crate) line_index: Arc<LineIndex>,
@@ -49,11 +49,11 @@ pub struct WorkspaceScanRequest {
 #[derive(Default)]
 pub struct PendingWork {
     /// File update batch indexed by URL (latest revision wins).
-    pub file_updates: BTreeMap<Url, (FileRevision, Program)>,
+    pub file_updates: BTreeMap<Url, (SourceRevision, Program)>,
     /// Source text paired with worker-ingested updates when available.
     source_texts: BTreeMap<Url, Arc<str>>,
     /// Active core module replacement, if enqueued.
-    pub core_update: Option<(FileRevision, Program)>,
+    pub core_update: Option<(SourceRevision, Program)>,
     /// Source text paired with an active core replacement.
     core_text: Option<Arc<str>>,
     /// Enqueued file removals.
@@ -248,7 +248,7 @@ pub enum AnalysisEvent {
     /// A new semantic snapshot generation was published.
     Published {
         /// Published generation counter.
-        generation: SemanticGeneration,
+        generation: u64,
         /// Editor products changed in this publication.
         effects: PublicationEffects,
     },
@@ -273,7 +273,7 @@ pub enum AnalysisEvent {
         /// Source text retained for closed-file LSP metadata queries.
         text: Arc<str>,
         /// Revision assigned to the cached source snapshot.
-        revision: FileRevision,
+        revision: SourceRevision,
     },
     /// A worker-owned disk refresh found no source file at its URI.
     WorkspaceFileRemoved {
@@ -293,7 +293,7 @@ pub struct PublicationEffects {
 
 /// Front-end handle for managing background semantic analysis.
 pub struct AnalysisService {
-    db: Arc<SemanticDb>,
+    publication: Arc<SemanticPublication>,
     counters: PerfCountersHandle,
     shared: Arc<WorkerShared>,
 
@@ -305,24 +305,13 @@ impl AnalysisService {
     pub const DEBOUNCE_DURATION: Duration = Duration::from_millis(150);
 
     /// Creates a new `AnalysisService` with a dedicated background worker thread.
-    pub fn new(db: Arc<SemanticDb>) -> (Self, mpsc::UnboundedReceiver<AnalysisEvent>) {
-        Self::new_with_index(db, None)
-    }
-
-    /// Creates an analysis service that also maintains a concurrent shallow
-    /// workspace index while scanning.
-    pub fn new_with_index(db: Arc<SemanticDb>, workspace_index: Option<Arc<WorkspaceIndex>>) -> (Self, mpsc::UnboundedReceiver<AnalysisEvent>) {
-        Self::new_with_index_and_cache(db, workspace_index, None)
-    }
-
     /// Creates an analysis service with a worker-owned closed-source cache.
-    pub(crate) fn new_with_index_and_cache(
-        db: Arc<SemanticDb>,
-        workspace_index: Option<Arc<WorkspaceIndex>>,
+    pub(crate) fn new_with_publication(
+        publication: Arc<SemanticPublication>,
         source_cache: Option<SourceCache>,
     ) -> (Self, mpsc::UnboundedReceiver<AnalysisEvent>) {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let counters = db.perf_counters();
+        let counters = Arc::new(crate::perf::PerfCounters::new());
         let shared = Arc::new(WorkerShared {
             epoch: AtomicU64::new(0),
             pending: Mutex::new(PendingWork::default()),
@@ -338,8 +327,7 @@ impl AnalysisService {
             test_scan_gate: Mutex::new(None),
         });
 
-        let db_clone = db.clone();
-        let index_clone = workspace_index.clone();
+        let publication_clone = publication.clone();
         let source_cache_clone = source_cache.clone();
         let shared_clone = shared.clone();
         let event_tx_clone = event_tx.clone();
@@ -347,13 +335,13 @@ impl AnalysisService {
         let worker_thread = thread::Builder::new()
             .name("phalcom-lsp-analyzer".to_string())
             .spawn(move || {
-                worker_loop(db_clone, index_clone, source_cache_clone, shared_clone, event_tx_clone);
+                worker_loop(publication_clone, source_cache_clone, shared_clone, event_tx_clone);
             })
             .expect("failed to spawn phalcom-lsp analyzer thread");
 
         (
             Self {
-                db,
+                publication,
                 counters,
                 shared,
                 worker_thread: Some(worker_thread),
@@ -363,12 +351,12 @@ impl AnalysisService {
     }
 
     /// Enqueues or updates a source file revision for background semantic processing.
-    pub fn enqueue_file_update(&self, uri: Url, revision: FileRevision, program: Program) {
+    pub fn enqueue_file_update(&self, uri: Url, revision: SourceRevision, program: Program) {
         self.enqueue_file_update_with_source(uri, revision, Arc::from(""), program);
     }
 
     /// Enqueues one parsed source and its already-ingested text.
-    pub(crate) fn enqueue_file_update_with_source(&self, uri: Url, revision: FileRevision, text: Arc<str>, program: Program) {
+    pub(crate) fn enqueue_file_update_with_source(&self, uri: Url, revision: SourceRevision, text: Arc<str>, program: Program) {
         self.bump_source_epoch(&uri);
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         if !self.accepts_revision(&pending, &uri, revision) {
@@ -386,7 +374,7 @@ impl AnalysisService {
     }
 
     /// Enqueues one coalesced batch of source replacements.
-    pub fn enqueue_file_updates(&self, updates: Vec<(Url, FileRevision, Program)>) {
+    pub fn enqueue_file_updates(&self, updates: Vec<(Url, SourceRevision, Program)>) {
         if updates.is_empty() {
             return;
         }
@@ -409,13 +397,13 @@ impl AnalysisService {
     }
 
     /// Enqueues active core module replacement.
-    pub fn enqueue_core_update(&self, revision: FileRevision, program: Program) {
+    pub fn enqueue_core_update(&self, revision: SourceRevision, program: Program) {
         self.enqueue_core_update_with_source(revision, Arc::from(""), program);
     }
 
     /// Enqueues an already-ingested core source replacement.
-    pub(crate) fn enqueue_core_update_with_source(&self, revision: FileRevision, text: Arc<str>, program: Program) {
-        let uri = Url::parse(crate::semantic::CORE_MODULE_URI).expect("core module URI must parse");
+    pub(crate) fn enqueue_core_update_with_source(&self, revision: SourceRevision, text: Arc<str>, program: Program) {
+        let uri = Url::parse(crate::core_documents::CORE_MODULE_URI).expect("core module URI must parse");
         self.bump_source_epoch(&uri);
         let mut pending = self.shared.pending.lock().expect("worker pending lock poisoned");
         if !self.accepts_revision(&pending, &uri, revision) {
@@ -429,14 +417,11 @@ impl AnalysisService {
         self.shared.condvar.notify_all();
     }
 
-    fn accepts_revision(&self, pending: &PendingWork, uri: &Url, revision: FileRevision) -> bool {
+    fn accepts_revision(&self, pending: &PendingWork, uri: &Url, revision: SourceRevision) -> bool {
         if pending.file_updates.get(uri).is_some_and(|(queued, _)| *queued >= revision) {
             return false;
         }
-        if self.db.file_snapshot(uri).is_some_and(|file| file.revision >= revision) {
-            return false;
-        }
-        if uri.as_str() == crate::semantic::CORE_MODULE_URI && pending.core_update.as_ref().is_some_and(|(queued, _)| *queued >= revision) {
+        if uri.as_str() == crate::core_documents::CORE_MODULE_URI && pending.core_update.as_ref().is_some_and(|(queued, _)| *queued >= revision) {
             return false;
         }
         true
@@ -559,9 +544,9 @@ impl AnalysisService {
         }
     }
 
-    /// Access to the underlying semantic database snapshot handle.
-    pub fn db(&self) -> &Arc<SemanticDb> {
-        &self.db
+    /// Access to the immutable canonical publication handle.
+    pub(crate) fn publication(&self) -> &Arc<SemanticPublication> {
+        &self.publication
     }
 
     /// Returns the counter set shared by this service and its semantic database.
@@ -581,21 +566,19 @@ impl Drop for AnalysisService {
 
 /// Worker loop running on the dedicated background thread.
 fn worker_loop(
-    db: Arc<SemanticDb>,
-    workspace_index: Option<Arc<WorkspaceIndex>>,
+    publication: Arc<SemanticPublication>,
     source_cache: Option<SourceCache>,
     shared: Arc<WorkerShared>,
     event_tx: mpsc::UnboundedSender<AnalysisEvent>,
 ) {
-    // Worker owns mutable semantic state. `db` only publishes immutable
-    // snapshots for concurrent request readers.
-    let mut engine = SemanticEngine::new_with_counters(db.perf_counters());
+    // Worker owns one persistent canonical semantic session. The publication
+    // cell only exposes immutable snapshots to concurrent request readers.
+    let mut compiler_workspace_state = CompilerWorkspaceState::default();
     let mut scanner = None;
     let mut selected_core_uri = None;
     let mut core_initialized = false;
     let mut analysis_mode = AnalysisMode::Local;
     let mut source_catalog = BTreeMap::new();
-    let mut compiler_workspace_state = CompilerWorkspaceState::default();
     let mut workspace_roots = Vec::new();
     let mut configured_sysroot = None;
     let mut status_tracker = StatusTracker::new(analysis_mode);
@@ -652,22 +635,20 @@ fn worker_loop(
                 let _span = PerfSpan::start_with_context_and_counters(
                     "core_select_analyze",
                     PerfContext {
-                        generation: Some(db.generation().0),
+                        generation: compiler_workspace_state.session.last_snapshot().map(|snapshot| snapshot.generation),
                         epoch: Some(shared.epoch.load(Ordering::Acquire)),
                     },
                     shared.counters.clone(),
                 );
-                let core_source = crate::semantic::core_source::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
+                let core_source = crate::core_documents::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
                 selected_core_uri = core_source.physical_uri().cloned();
                 let _ = event_tx.send(AnalysisEvent::CoreSourceSelected {
                     uri: selected_core_uri.clone(),
                 });
-                let program = core_source.parse().program;
-                let generation = engine.update_core_surface_only(FileRevision(1), &program);
-                let effects = publish_engine(&db, &engine);
+                // Core declarations and native surfaces are bootstrapped by
+                // `SemanticWorkspaceSession`; selected source remains an LSP
+                // virtual-document concern and is not a second semantic input.
                 core_initialized = true;
-                status_tracker.set_generation(generation.0);
-                let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
                 let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
                     session: status_tracker.snapshot().session,
                     sequence: status_tracker.snapshot().sequence,
@@ -675,7 +656,7 @@ fn worker_loop(
                     phase: AnalysisPhase::SelectingCore,
                     event: "core.surface.loaded".to_string(),
                     epoch: Some(shared.epoch.load(Ordering::Acquire)),
-                    generation: Some(generation.0),
+                    generation: compiler_workspace_state.session.last_snapshot().map(|snapshot| snapshot.generation),
                     uri: selected_core_uri.clone(),
                     revision: Some(1),
                     batch_size: None,
@@ -691,29 +672,24 @@ fn worker_loop(
                 let batch = scan.step_with_counters(ScanBudget::default(), Some(&shared.counters));
                 let scan_complete = !scan.has_work();
                 let scan_env = ScanEnv {
-                    db: &db,
-                    workspace_index: workspace_index.as_deref(),
                     source_cache: source_cache.as_ref(),
                     shared: &shared,
                     event_tx: &event_tx,
                 };
                 process_scan_batch(
                     &scan_env,
-                    &mut engine,
+                    &mut compiler_workspace_state,
                     scan.mode,
                     batch,
                     &mut source_catalog,
                     selected_core_uri.as_ref(),
-                    StaticScanContext {
-                        identity: &mut compiler_workspace_state,
-                        refresh: scan_complete,
-                    },
+                    StaticScanContext { refresh: scan_complete },
                 );
                 let snap = shared.counters.snapshot();
                 let status = status_tracker.update_counts(
                     snap.workspace_files_discovered,
                     source_catalog.len() as u64,
-                    engine.snapshot().files.len() as u64,
+                    compiler_workspace_state.session.module_session().sources().len() as u64,
                 );
                 let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
                 let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
@@ -754,29 +730,24 @@ fn worker_loop(
                 let batch = scan.step_with_counters(ScanBudget::default(), Some(&shared.counters));
                 let scan_complete = !scan.has_work();
                 let scan_env = ScanEnv {
-                    db: &db,
-                    workspace_index: workspace_index.as_deref(),
                     source_cache: source_cache.as_ref(),
                     shared: &shared,
                     event_tx: &event_tx,
                 };
                 process_scan_batch(
                     &scan_env,
-                    &mut engine,
+                    &mut compiler_workspace_state,
                     scan.mode,
                     batch,
                     &mut source_catalog,
                     selected_core_uri.as_ref(),
-                    StaticScanContext {
-                        identity: &mut compiler_workspace_state,
-                        refresh: scan_complete,
-                    },
+                    StaticScanContext { refresh: scan_complete },
                 );
                 let snap = shared.counters.snapshot();
                 let status = status_tracker.update_counts(
                     snap.workspace_files_discovered,
                     source_catalog.len() as u64,
-                    engine.snapshot().files.len() as u64,
+                    compiler_workspace_state.session.module_session().sources().len() as u64,
                 );
                 let _ = event_tx.send(AnalysisEvent::Status(status));
                 if scan_complete {
@@ -789,7 +760,7 @@ fn worker_loop(
         }
 
         let is_first_time =
-            pending.file_updates.keys().any(|uri| db.file_snapshot(uri).is_none()) || pending.core_update.is_some() || pending.full_workspace_rebuild_requested;
+            compiler_workspace_state.session.last_snapshot().is_none() || pending.core_update.is_some() || pending.full_workspace_rebuild_requested;
 
         if !is_first_time {
             // Debounce / edit coalescing: wait for edits to settle
@@ -806,7 +777,7 @@ fn worker_loop(
             pending.is_processing = true;
             let mut file_updates = std::mem::take(&mut pending.file_updates);
             let core_update = pending.core_update.take();
-            let core_text = pending.core_text.take().unwrap_or_else(|| Arc::from(""));
+            let _core_text = pending.core_text.take().unwrap_or_else(|| Arc::from(""));
             let mut source_texts = std::mem::take(&mut pending.source_texts);
             let mut removals = std::mem::take(&mut pending.removals);
             let disk_refreshes = std::mem::take(&mut pending.disk_refreshes);
@@ -848,17 +819,15 @@ fn worker_loop(
             let _span = PerfSpan::start_with_context_and_counters(
                 "semantic_batch",
                 PerfContext {
-                    generation: Some(db.generation().0),
+                    generation: compiler_workspace_state.session.last_snapshot().map(|snapshot| snapshot.generation),
                     epoch: Some(batch_epoch),
                 },
                 shared.counters.clone(),
             );
 
-            let mut latest_generation = db.generation();
+            let mut latest_generation = compiler_workspace_state.session.last_snapshot().map_or(0, |snapshot| snapshot.generation);
             let mut next_source_catalog = source_catalog.clone();
             let scan_env = ScanEnv {
-                db: &db,
-                workspace_index: workspace_index.as_deref(),
                 source_cache: source_cache.as_ref(),
                 shared: &shared,
                 event_tx: &event_tx,
@@ -880,43 +849,48 @@ fn worker_loop(
                 let text = source_texts.remove(&uri).unwrap_or_else(|| Arc::from(""));
                 next_source_catalog.insert(canonical.clone(), (revision, text.clone(), program.clone()));
                 batch.push((uri.clone(), revision, text.clone(), program.clone()));
-                // Open documents may have entered the engine under their
-                // client URI before discovery established its canonical URI.
-                // Refresh both identities when both products already exist so
-                // imported callers never retain an older alias generation.
-                if canonical != uri && db.file_snapshot(&canonical).is_some() {
-                    batch.push((canonical, revision, text, program.clone()));
-                }
                 if analysis_mode == AnalysisMode::Local {
                     extend_import_closure_with_source(&uri, &program, &next_source_catalog, &mut seen, &mut batch);
                 }
             }
-            let core_update = core_update.map(|(revision, program)| (revision, core_text, program));
+            let _core_update = core_update;
             let cancelled = || shared.shutdown.load(Ordering::SeqCst) || shared.epoch.load(Ordering::Acquire) != batch_epoch;
             let _span = PerfSpan::start_with_context_and_counters(
                 "semantic_solve_flow_publish",
                 PerfContext {
-                    generation: Some(db.generation().0),
+                    generation: Some(latest_generation),
                     epoch: Some(batch_epoch),
                 },
                 shared.counters.clone(),
             );
-            let core_depth = if core_update.is_some() {
-                SourceAnalysisDepth::Deep
-            } else {
-                SourceAnalysisDepth::SurfaceOnly
-            };
-            let generation =
-                engine.apply_mutations_with_source_cancel_and_core_depth(removals.into_iter().collect(), batch, core_update, core_depth, &cancelled);
+            let mut mutations = Vec::new();
+            for uri in removals {
+                if let Some(source) = source_location_for_uri(&uri) {
+                    mutations.push(phalcom_modules::WorkspaceSourceBatchMutation::RemoveSource { source: source.source_id });
+                }
+            }
+            for (uri, revision, text, program) in batch {
+                let Some(source) = source_location_for_uri(&uri) else { continue };
+                mutations.push(phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                    source,
+                    text,
+                    revision: phalcom_modules::SourceRevision(revision.0),
+                    recovered_program: Some(Arc::new(program)),
+                });
+            }
+            let generation = compiler_workspace_state
+                .session
+                .apply_module_mutations_at_generation(mutations, latest_generation.saturating_add(1))
+                .ok();
             let solve_cancelled = generation.is_none();
             let mut effects = PublicationEffects::default();
-            if let Some(generation) = generation {
-                latest_generation = generation;
+            if let Some(publication_result) = generation {
+                latest_generation = publication_result.snapshot.generation;
                 source_catalog = next_source_catalog.clone();
-                let compiler_effects = refresh_compiler_workspace(&mut engine, &source_catalog, generation, &mut compiler_workspace_state);
                 if !cancelled() {
-                    effects = merge_publication_effects(publish_engine(&db, &engine), compiler_effects.unwrap_or_default());
-                    status_tracker.set_generation(generation.0);
+                    effects = publication_effects_from_compiler(&publication_result.effects);
+                    publication.publish(publication_result.snapshot);
+                    status_tracker.set_generation(latest_generation);
                     let status = status_tracker.transition(AnalysisPhase::Publishing, None);
                     let _ = event_tx.send(AnalysisEvent::Status(status));
                 }
@@ -957,7 +931,7 @@ fn worker_loop(
                 status_tracker.update_counts(
                     snap.workspace_files_discovered,
                     source_catalog.len() as u64,
-                    engine.snapshot().files.len() as u64,
+                    compiler_workspace_state.session.module_session().sources().len() as u64,
                 );
                 let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
                     session: status_tracker.snapshot().session,
@@ -966,12 +940,12 @@ fn worker_loop(
                     phase: AnalysisPhase::Publishing,
                     event: "snapshot.published".to_string(),
                     epoch: Some(batch_epoch),
-                    generation: Some(latest_generation.0),
+                    generation: Some(latest_generation),
                     uri: None,
                     revision: None,
                     batch_size: None,
                     duration_ms: None,
-                    message: Some(format!("published snapshot generation {}", latest_generation.0)),
+                    message: Some(format!("published snapshot generation {latest_generation}")),
                     counters: Some(snap),
                 }));
             }
@@ -1006,155 +980,10 @@ fn has_analysis_work(pending: &PendingWork) -> bool {
         || pending.full_workspace_rebuild_requested
 }
 
-struct CompilerWorkspacePublication {
-    snapshot: Arc<CompilerSemanticSnapshot>,
-    documents: crate::semantic::DocumentModuleMap,
-    effects: phalcom_semantic::SemanticPublicationEffects,
-}
-
 #[derive(Debug, Default)]
 struct CompilerWorkspaceState {
     catalog_sources: BTreeSet<phalcom_modules::SourceId>,
     session: phalcom_semantic::SemanticWorkspaceSession,
-}
-
-fn publish_compiler_workspace(
-    source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
-    documents: crate::semantic::DocumentModuleMap,
-    generation: u64,
-    identity: &mut CompilerWorkspaceState,
-) -> Option<CompilerWorkspacePublication> {
-    publish_persistent_compiler_workspace(source_catalog, documents, generation, identity)
-}
-
-fn publish_persistent_compiler_workspace(
-    source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
-    mut documents: crate::semantic::DocumentModuleMap,
-    generation: u64,
-    identity: &mut CompilerWorkspaceState,
-) -> Option<CompilerWorkspacePublication> {
-    let current_sources = source_catalog
-        .keys()
-        .filter_map(|uri| uri.to_file_path().ok())
-        .map(|path| phalcom_modules::SourceId(path.to_string_lossy().into()))
-        .collect::<BTreeSet<_>>();
-    let previous_sources = identity.catalog_sources.clone();
-    for source in previous_sources.difference(&current_sources) {
-        let _ = identity.session.module_session_mut().remove_source(source.clone());
-    }
-    identity.catalog_sources = current_sources;
-
-    documents.by_uri.clear();
-    documents.by_module.clear();
-    let overlays = source_catalog
-        .iter()
-        .filter_map(|(uri, (revision, text, program))| {
-            let path = uri.to_file_path().ok()?;
-            let location = phalcom_modules::SourceLocation {
-                source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
-                display_path: path,
-            };
-            Some((uri, location, text.clone(), phalcom_modules::SourceRevision(revision.0), program.clone()))
-        })
-        .collect::<Vec<_>>();
-    let mut active = overlays
-        .into_iter()
-        .map(|(uri, location, text, revision, program)| (uri, (location, text, revision, program)))
-        .collect::<BTreeMap<_, _>>();
-    let update = match identity.session.module_session_mut().set_overlays_with_programs(
-        active
-            .values()
-            .map(|(location, text, revision, program)| (location.clone(), text.clone(), *revision, Arc::new(program.clone()))),
-    ) {
-        Ok(update) => update,
-        Err(_) if active.len() > 1 => {
-            let mut recovered = None;
-            for uri in active.keys().cloned().collect::<Vec<_>>() {
-                let mut trial = active.clone();
-                trial.remove(&uri);
-                if let Ok(update) = identity.session.module_session_mut().set_overlays_with_programs(
-                    trial
-                        .values()
-                        .map(|(location, text, revision, program)| (location.clone(), text.clone(), *revision, Arc::new(program.clone()))),
-                ) {
-                    recovered = Some((trial, update));
-                    break;
-                }
-            }
-            let Some((next, update)) = recovered else { return None };
-            active = next;
-            update
-        }
-        Err(_) => return None,
-    };
-    for (uri, (location, _, _, _)) in active {
-        if let Some(module) = identity.session.module_session().module_for_source(&location.source_id).cloned() {
-            let aliases = documents.lsp_by_uri.keys().find(|candidate| canonical_uri(candidate) == *uri).cloned();
-            let document_uri = aliases.clone().unwrap_or_else(|| uri.clone());
-            documents.insert(document_uri, module.clone());
-            if let Some(alias) = aliases
-                && alias != *uri
-            {
-                documents.insert_alias(uri.clone(), module);
-            }
-        }
-    }
-
-    let semantic_update = identity.session.update_module_workspace_at_generation(update, generation);
-    for state in identity.session.module_session().sources().values() {
-        if let Some(uri) = phalcom_modules::builtin_module_uri(&state.module).and_then(|raw| Url::parse(&raw).ok()) {
-            documents.insert(uri, state.module.clone());
-        }
-    }
-    Some(CompilerWorkspacePublication {
-        snapshot: semantic_update.snapshot,
-        documents,
-        effects: semantic_update.effects,
-    })
-}
-
-fn refresh_compiler_workspace(
-    engine: &mut SemanticEngine,
-    source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
-    generation: SemanticGeneration,
-    identity: &mut CompilerWorkspaceState,
-) -> Option<PublicationEffects> {
-    let protocol_documents = engine.snapshot().documents.as_ref().clone();
-    let compiler_analysis = publish_compiler_workspace(source_catalog, protocol_documents.clone(), generation.0, identity);
-    // A parse/link/budget failure must not replace a coherent compiler
-    // publication with an empty candidate. The worker already reports syntax
-    // state separately; retain the session's last-known-good semantic world.
-    if let Some(publication) = compiler_analysis {
-        let effects = publication_effects_from_compiler(&publication.effects);
-        let mut documents = publication.documents;
-        attach_compiler_document_aliases(&mut documents, &protocol_documents, &publication.snapshot);
-        engine.set_compiler_analysis(Some((publication.snapshot, documents)));
-        Some(effects)
-    } else {
-        None
-    }
-}
-
-fn attach_compiler_document_aliases(
-    documents: &mut crate::semantic::DocumentModuleMap,
-    protocol_documents: &crate::semantic::DocumentModuleMap,
-    compiler: &CompilerSemanticSnapshot,
-) {
-    let compiler_modules_by_uri = compiler
-        .sources
-        .iter()
-        .filter_map(|(module, source)| {
-            let location = source.source.as_ref()?;
-            let uri = Url::from_file_path(&location.display_path).ok()?;
-            Some((canonical_uri(&uri), module.clone()))
-        })
-        .collect::<BTreeMap<_, _>>();
-    for alias in protocol_documents.lsp_by_uri.keys() {
-        let Some(module) = compiler_modules_by_uri.get(&canonical_uri(alias)) else {
-            continue;
-        };
-        documents.insert_alias(alias.clone(), module.clone());
-    }
 }
 
 pub(crate) fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::ModuleId> {
@@ -1178,42 +1007,11 @@ pub(crate) fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::Modu
     ))
 }
 
-fn publish_engine(db: &SemanticDb, engine: &SemanticEngine) -> PublicationEffects {
-    let previous = db.snapshot();
-    let next = Arc::new(engine.snapshot());
-    let effects = publication_effects(&previous, &next);
-    db.publish(next);
-    effects
-}
-
-fn publication_effects(previous: &SemanticSnapshot, next: &SemanticSnapshot) -> PublicationEffects {
-    let semantic_tokens_changed = previous.files.len() != next.files.len()
-        || next.files.iter().any(|(module, file)| {
-            previous
-                .files
-                .get(module)
-                .is_none_or(|old| !Arc::ptr_eq(&old.source, &file.source) || old.occurrences != file.occurrences)
-        });
-    let inlay_hints_changed = !Arc::ptr_eq(&previous.field_facts, &next.field_facts)
-        || !Arc::ptr_eq(&previous.parameter_facts, &next.parameter_facts)
-        || !Arc::ptr_eq(&previous.summaries, &next.summaries);
-    PublicationEffects {
-        inlay_hints_changed,
-        semantic_tokens_changed,
-    }
-}
-
 fn publication_effects_from_compiler(effects: &phalcom_semantic::SemanticPublicationEffects) -> PublicationEffects {
     PublicationEffects {
         inlay_hints_changed: !effects.formal_changed.is_empty() || !effects.advisory_changed.is_empty(),
         semantic_tokens_changed: !effects.source_index_changed.is_empty(),
     }
-}
-
-fn merge_publication_effects(mut primary: PublicationEffects, secondary: PublicationEffects) -> PublicationEffects {
-    primary.inlay_hints_changed |= secondary.inlay_hints_changed;
-    primary.semantic_tokens_changed |= secondary.semantic_tokens_changed;
-    primary
 }
 
 fn source_epoch(shared: &WorkerShared, uri: &Url) -> u64 {
@@ -1231,20 +1029,17 @@ fn is_open_source(shared: &WorkerShared, uri: &Url) -> bool {
 }
 
 struct ScanEnv<'a> {
-    db: &'a SemanticDb,
-    workspace_index: Option<&'a WorkspaceIndex>,
     source_cache: Option<&'a SourceCache>,
     shared: &'a WorkerShared,
     event_tx: &'a mpsc::UnboundedSender<AnalysisEvent>,
 }
 
-struct StaticScanContext<'a> {
-    identity: &'a mut CompilerWorkspaceState,
+struct StaticScanContext {
     refresh: bool,
 }
 
 struct DiskRefreshDelta<'a> {
-    file_updates: &'a mut BTreeMap<Url, (FileRevision, Program)>,
+    file_updates: &'a mut BTreeMap<Url, (SourceRevision, Program)>,
     source_texts: &'a mut BTreeMap<Url, Arc<str>>,
     removals: &'a mut BTreeSet<Url>,
 }
@@ -1264,9 +1059,6 @@ fn refresh_disk_sources(env: &ScanEnv<'_>, refreshes: BTreeSet<Url>, delta: &mut
             if env.shared.epoch.load(Ordering::Acquire) != ticket || source_epoch(env.shared, &uri) != source_ticket || is_open_source(env.shared, &uri) {
                 continue;
             }
-            if let Some(index) = env.workspace_index {
-                index.remove_file(&uri);
-            }
             if let Some(cache) = env.source_cache {
                 cache.write().expect("closed source cache lock poisoned").remove(&canonical_uri(&uri));
             }
@@ -1280,13 +1072,7 @@ fn refresh_disk_sources(env: &ScanEnv<'_>, refreshes: BTreeSet<Url>, delta: &mut
         }
         let source_text: Arc<str> = Arc::from(text.as_str());
         let program = Arc::new(parse.program);
-        let revision = env
-            .db
-            .file_snapshot(&uri)
-            .map_or(FileRevision(1), |file| FileRevision(file.revision.0.saturating_add(1)));
-        if let Some(index) = env.workspace_index {
-            index.update_file(uri.clone(), &program);
-        }
+        let revision = SourceRevision(1);
         if let Some(cache) = env.source_cache {
             cache.write().expect("closed source cache lock poisoned").insert(
                 canonical_uri(&uri),
@@ -1310,12 +1096,12 @@ fn refresh_disk_sources(env: &ScanEnv<'_>, refreshes: BTreeSet<Url>, delta: &mut
 
 fn process_scan_batch(
     env: &ScanEnv<'_>,
-    engine: &mut SemanticEngine,
+    identity: &mut CompilerWorkspaceState,
     mode: AnalysisMode,
     files: Vec<crate::workspace_scan::DiscoveredFile>,
-    source_catalog: &mut BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
+    source_catalog: &mut BTreeMap<Url, (SourceRevision, Arc<str>, Program)>,
     selected_core_uri: Option<&Url>,
-    static_context: StaticScanContext<'_>,
+    _static_context: StaticScanContext,
 ) {
     #[cfg(test)]
     if let Some(gate) = env.shared.test_scan_gate.lock().expect("test scan gate lock poisoned").clone() {
@@ -1350,7 +1136,7 @@ fn process_scan_batch(
         let _span = PerfSpan::start_with_context_and_counters(
             "workspace_source_parse",
             PerfContext {
-                generation: Some(env.db.generation().0),
+                generation: identity.session.last_snapshot().map(|snapshot| snapshot.generation),
                 epoch: Some(env.shared.epoch.load(Ordering::Acquire)),
             },
             env.shared.counters.clone(),
@@ -1358,13 +1144,7 @@ fn process_scan_batch(
         let parse = phalcom_ast::parser::parse(&text, 0);
         let source_text: Arc<str> = Arc::from(text.as_str());
         let program = Arc::new(parse.program);
-        let revision = env
-            .db
-            .file_snapshot(&discovered.uri)
-            .map_or(FileRevision(1), |file| FileRevision(file.revision.0.saturating_add(1)));
-        if let Some(index) = env.workspace_index {
-            index.update_file(discovered.uri.clone(), &program);
-        }
+        let revision = SourceRevision(1);
         if let Some(cache) = env.source_cache {
             cache.write().expect("closed source cache lock poisoned").insert(
                 canonical_uri(&discovered.uri),
@@ -1392,20 +1172,26 @@ fn process_scan_batch(
         let _span = PerfSpan::start_with_context_and_counters(
             "scan_semantic_publish",
             PerfContext {
-                generation: Some(env.db.generation().0),
+                generation: identity.session.last_snapshot().map(|snapshot| snapshot.generation),
                 epoch: Some(env.shared.epoch.load(Ordering::Acquire)),
             },
             env.shared.counters.clone(),
         );
-        let generation = engine.update_files_batch_with_source(semantic_files);
-        let compiler_effects = static_context
-            .refresh
-            .then(|| refresh_compiler_workspace(engine, source_catalog, generation, static_context.identity))
-            .flatten()
-            .unwrap_or_default();
-        let effects = merge_publication_effects(publish_engine(env.db, engine), compiler_effects);
-        env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
-        let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
+        let mutations = semantic_files.into_iter().filter_map(|(uri, revision, text, program)| {
+            let source = source_location_for_uri(&uri)?;
+            Some(phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source,
+                text,
+                revision: phalcom_modules::SourceRevision(revision.0),
+                recovered_program: Some(Arc::new(program)),
+            })
+        });
+        if let Ok(publication) = identity.session.apply_module_mutations(mutations) {
+            let generation = publication.snapshot.generation;
+            let effects = publication_effects_from_compiler(&publication.effects);
+            env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
+            let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
+        }
     }
     if mode == AnalysisMode::Local {
         let open_documents = env.shared.open_documents.lock().expect("open document lock poisoned").clone();
@@ -1425,20 +1211,26 @@ fn process_scan_batch(
             let _span = PerfSpan::start_with_context_and_counters(
                 "scan_local_publish",
                 PerfContext {
-                    generation: Some(env.db.generation().0),
+                    generation: identity.session.last_snapshot().map(|snapshot| snapshot.generation),
                     epoch: Some(env.shared.epoch.load(Ordering::Acquire)),
                 },
                 env.shared.counters.clone(),
             );
-            let generation = engine.update_files_batch_with_source(batch);
-            let compiler_effects = static_context
-                .refresh
-                .then(|| refresh_compiler_workspace(engine, source_catalog, generation, static_context.identity))
-                .flatten()
-                .unwrap_or_default();
-            let effects = merge_publication_effects(publish_engine(env.db, engine), compiler_effects);
-            env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
-            let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
+            let mutations = batch.into_iter().filter_map(|(uri, revision, text, program)| {
+                let source = source_location_for_uri(&uri)?;
+                Some(phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                    source,
+                    text,
+                    revision: phalcom_modules::SourceRevision(revision.0),
+                    recovered_program: Some(Arc::new(program)),
+                })
+            });
+            if let Ok(publication) = identity.session.apply_module_mutations(mutations) {
+                let generation = publication.snapshot.generation;
+                let effects = publication_effects_from_compiler(&publication.effects);
+                env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
+                let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
+            }
         }
     }
 }
@@ -1446,9 +1238,9 @@ fn process_scan_batch(
 fn extend_import_closure_with_source(
     uri: &Url,
     program: &Program,
-    source_catalog: &BTreeMap<Url, (FileRevision, Arc<str>, Program)>,
+    source_catalog: &BTreeMap<Url, (SourceRevision, Arc<str>, Program)>,
     seen: &mut BTreeSet<Url>,
-    batch: &mut Vec<(Url, FileRevision, Arc<str>, Program)>,
+    batch: &mut Vec<(Url, SourceRevision, Arc<str>, Program)>,
 ) {
     for dep in &program.preamble.dependencies {
         let path_str = match dep {
@@ -1521,6 +1313,14 @@ fn canonical_uri(uri: &Url) -> Url {
         })
         .and_then(|path| Url::from_file_path(path).ok())
         .unwrap_or_else(|| uri.clone())
+}
+
+fn source_location_for_uri(uri: &Url) -> Option<phalcom_modules::SourceLocation> {
+    let path = uri.to_file_path().ok()?;
+    Some(phalcom_modules::SourceLocation {
+        source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
+        display_path: path,
+    })
 }
 
 #[cfg(test)]

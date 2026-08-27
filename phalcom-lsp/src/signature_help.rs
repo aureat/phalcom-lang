@@ -4,8 +4,6 @@ use phalcom_ast::ast::RestMode;
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::{ParameterInformation, ParameterLabel, SignatureHelp, SignatureInformation};
 
-use crate::semantic::{CallableSignature, FormalCallablePresentation, MemberSurface};
-
 /// Syntax-only call context recovered from the pinned editor text.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallSite {
@@ -59,67 +57,12 @@ pub fn call_site_at(text: &str, offset: usize) -> Option<CallSite> {
     })
 }
 
-/// Renders one callable surface into LSP signature help.
-pub fn render_signature_help(
-    member: &MemberSurface,
-    formal: Option<&FormalCallablePresentation>,
-    advisory: Option<&CallableSignature>,
-    active_parameter: usize,
-) -> SignatureHelp {
-    let mut parameter_labels = Vec::with_capacity(member.params.len());
-    let mut parameters = Vec::with_capacity(member.params.len());
-    for (index, parameter) in member.params.iter().enumerate() {
-        let type_text = formal
-            .and_then(|signature| signature.parameters.get(index))
-            .map(|state| state.text())
-            .or_else(|| {
-                advisory
-                    .and_then(|signature| signature.parameters.get(index))
-                    .map(|parameter| crate::semantic::render_value_shape(&parameter.value.shape))
-            })
-            .unwrap_or_else(|| "Unknown".to_string());
-        let rest = match parameter.rest_mode {
-            RestMode::None => "",
-            RestMode::Positional => "*",
-            RestMode::Labeled => "**",
-            RestMode::Complete => "*",
-        };
-        let label = parameter
-            .label
-            .as_ref()
-            .map(|label| format!("{label}: {}{rest}: {type_text}", parameter.name))
-            .unwrap_or_else(|| format!("{}{rest}: {type_text}", parameter.name));
-        parameter_labels.push(label.clone());
-        parameters.push(ParameterInformation {
-            label: ParameterLabel::Simple(label),
-            documentation: None,
-        });
-    }
-
-    let return_text = formal
-        .map(|signature| signature.return_type.text())
-        .or_else(|| advisory.map(|signature| crate::semantic::render_value_shape(&signature.returns.shape)))
-        .unwrap_or_else(|| "Unknown".to_string());
-    let label = format!("{} -> {return_text}", member.selector.encode());
-    let active_parameter = (active_parameter < parameters.len()).then_some(active_parameter as u32);
-    SignatureHelp {
-        signatures: vec![SignatureInformation {
-            label,
-            documentation: None,
-            parameters: Some(parameters),
-            active_parameter,
-        }],
-        active_signature: Some(0),
-        active_parameter,
-    }
-}
-
 /// Renders one canonical compiler callable into LSP signature help.
 ///
 /// This adapter owns no semantic state and performs no resolution. It only
 /// projects the pinned compiler signature, using advisory shapes when the
 /// formal term is not yet displayable.
-pub fn render_compiler_signature_help(
+pub fn render_signature_help(
     signature: &phalcom_semantic::CallableSemanticSignature,
     store: &phalcom_semantic::TypeStore,
     advisory: Option<&phalcom_semantic::AdvisoryCallableSummary>,
@@ -135,7 +78,7 @@ pub fn render_compiler_signature_help(
                         .parameters
                         .iter()
                         .find(|(slot, _)| slot.index as usize == index)
-                        .map(|(_, fact)| render_compiler_shape(&fact.shape))
+                        .map(|(_, fact)| phalcom_semantic::AdvisoryPresenter::present_shape(&fact.shape))
                 })
             })
             .unwrap_or_else(|| "Unknown".to_string());
@@ -157,7 +100,7 @@ pub fn render_compiler_signature_help(
     }
 
     let return_text = compiler_term_text(&signature.return_type, &presenter)
-        .or_else(|| advisory.map(|summary| render_compiler_shape(&summary.return_fact.shape)))
+        .or_else(|| advisory.map(|summary| phalcom_semantic::AdvisoryPresenter::present_shape(&summary.return_fact.shape)))
         .unwrap_or_else(|| "Unknown".to_string());
     let active_parameter = (active_parameter < parameters.len()).then_some(active_parameter as u32);
     SignatureHelp {
@@ -176,45 +119,6 @@ fn compiler_term_text(term: &phalcom_semantic::types::TypeTerm, presenter: &phal
     match term {
         phalcom_semantic::types::TypeTerm::Canonical(ty) => Some(presenter.present_type(*ty)),
         phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => None,
-    }
-}
-
-fn render_compiler_shape(shape: &phalcom_semantic::ValueShape) -> String {
-    use phalcom_semantic::ValueShape;
-
-    match shape {
-        ValueShape::Unknown => "?".to_string(),
-        ValueShape::Never => "Never".to_string(),
-        ValueShape::Unit => "Unit".to_string(),
-        ValueShape::Instance(declaration) => declaration.name.to_string(),
-        ValueShape::ClassObject(declaration) => format!("{} class", declaration.name),
-        ValueShape::Module(module) => module.to_string(),
-        ValueShape::Tuple(elements) => format!("({})", elements.iter().map(render_compiler_shape).collect::<Vec<_>>().join(", ")),
-        ValueShape::ExactList(elements) => format!("List<{}>", render_compiler_shape(&ValueShape::bounded_union(elements.iter().cloned()))),
-        ValueShape::Record(fields) => format!(
-            "#{{{}}}",
-            fields
-                .iter()
-                .map(|(label, value)| format!("{label}: {}", render_compiler_shape(value)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        ValueShape::List(element) => format!("List<{}>", render_compiler_shape(element)),
-        ValueShape::Set(element) => format!("Set<{}>", render_compiler_shape(element)),
-        ValueShape::Map { key, value } => format!("Map<{}, {}>", render_compiler_shape(key), render_compiler_shape(value)),
-        ValueShape::Range(element) => format!("Range<{}>", render_compiler_shape(element)),
-        ValueShape::Callable(_) => "Callable".to_string(),
-        ValueShape::Selector(selector) => format!("#{selector}"),
-        ValueShape::SelectorPattern(pattern) => format!("#{pattern}"),
-        ValueShape::Family { spec, .. } => match spec {
-            phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector) => format!("Family<#{selector}>"),
-            phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern) => format!("Family<#{pattern}>"),
-        },
-        ValueShape::Method(callable) => format!("Method<{}>", callable.selector),
-        ValueShape::MethodFamily(family) => format!("MethodFamily<#{pattern}>", pattern = family.pattern),
-        ValueShape::BoundMethod { method, .. } => format!("BoundMethod<{}>", method.selector),
-        ValueShape::BoundMethodFamily { family, .. } => format!("BoundMethodFamily<#{pattern}>", pattern = family.pattern),
-        ValueShape::Union(alternatives) => alternatives.iter().map(render_compiler_shape).collect::<Vec<_>>().join(" | "),
     }
 }
 

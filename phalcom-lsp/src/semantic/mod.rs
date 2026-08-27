@@ -171,11 +171,8 @@ impl From<RebuildTraceData> for RebuildTrace {
 /// Thread-safe published semantic database wrapper owned by [`crate::backend::Backend`].
 pub struct SemanticDb {
     current: RwLock<Arc<SemanticSnapshot>>,
-    /// Direct handle to the compiler-owned immutable publication. The legacy
-    /// protocol adapter mirrors this pointer for compatibility, but request
-    /// code can pin the compiler snapshot without crossing another semantic
-    /// cache boundary.
-    compiler_current: RwLock<Option<Arc<CompilerSemanticSnapshot>>>,
+    /// Canonical compiler publication shared by all request readers.
+    publication: Arc<crate::publication::SemanticPublication>,
     #[cfg(test)]
     engine: Mutex<SemanticEngine>,
     counters: PerfCountersHandle,
@@ -199,7 +196,7 @@ impl SemanticDb {
         let engine = SemanticEngine::new_with_counters(counters.clone());
         Self {
             current: RwLock::new(Arc::new(SemanticSnapshot::default())),
-            compiler_current: RwLock::new(None),
+            publication: Arc::new(crate::publication::SemanticPublication::new()),
             #[cfg(test)]
             engine: Mutex::new(engine),
             counters,
@@ -223,12 +220,14 @@ impl SemanticDb {
 
     /// Returns the latest compiler-owned immutable publication.
     pub fn compiler_snapshot(&self) -> Option<Arc<CompilerSemanticSnapshot>> {
-        self.compiler_current.read().expect("compiler publication lock poisoned").clone()
+        self.publication.load()
     }
 
     /// Atomically publishes a new immutable snapshot.
     pub(crate) fn publish(&self, snapshot: Arc<SemanticSnapshot>) {
-        *self.compiler_current.write().expect("compiler publication lock poisoned") = snapshot.compiler_snapshot.clone();
+        if let Some(compiler) = snapshot.compiler_snapshot.clone() {
+            self.publication.publish(compiler);
+        }
         *self.current.write().expect("semantic publication lock poisoned") = snapshot;
     }
 

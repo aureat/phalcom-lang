@@ -406,34 +406,196 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
     }
     let visible_start = request.document.line_index.offset(visible.start);
     let visible_end = request.document.line_index.offset(visible.end);
-    let Some(module) = request.module.as_ref() else {
+    let Some(module) = request.compiler_module() else {
         return shallow_hints_snapshot(&request.document, request.module.as_ref(), visible_start, visible_end, policy, suppress_obvious);
     };
-    let Some(snapshot) = request.semantic.file(module) else {
+    let Some(snapshot) = request.compiler.as_deref() else {
         return shallow_hints_snapshot(&request.document, request.module.as_ref(), visible_start, visible_end, policy, suppress_obvious);
     };
-    if snapshot.revision != request.document.revision {
+    if !matches!(request.source_match, crate::request_context::SourceMatch::Exact) {
         return Vec::new();
-    };
-    let mut hints = Vec::new();
-    collect_file_semantic_hints(
+    }
+    canonical_hints_for_request(
         snapshot,
-        Some(&request.semantic),
-        request
-            .compiler
-            .as_deref()
-            .filter(|_| matches!(request.source_match, crate::request_context::SourceMatch::Exact)),
-        request.compiler_module(),
+        module,
+        &request.document.parse.program,
         &request.document.text,
         &request.document.line_index,
         visible_start,
         visible_end,
         policy,
         suppress_obvious,
-        &mut hints,
-    );
+    )
+}
+
+/// Builds request-facing hints exclusively from one canonical compiler
+/// snapshot. AST data supplies annotation suppression and source placement;
+/// every displayed type/value comes from formal or advisory products.
+#[allow(clippy::too_many_arguments)]
+fn canonical_hints_for_request(
+    snapshot: &CompilerSemanticSnapshot,
+    module: &phalcom_modules::ModuleId,
+    program: &Program,
+    text: &str,
+    line_index: &LineIndex,
+    visible_start: usize,
+    visible_end: usize,
+    policy: HintPolicy,
+    suppress_obvious: bool,
+) -> Vec<InlayHint> {
+    let Some(source) = snapshot.source_index().module(module) else {
+        return Vec::new();
+    };
+    let annotations = ExplicitAnnotationIndex::from_program(program);
+    let presenter = phalcom_semantic::TypePresenter::new(&snapshot.store);
+    let mut hints = Vec::new();
+
+    for binding in source.structure.bindings.values() {
+        if binding.kind == phalcom_semantic::source_index::SourceBindingKind::Import
+            || binding.declaration_range.end < visible_start
+            || binding.declaration_range.start > visible_end
+            || annotations.has_binding(binding.declaration_range)
+        {
+            continue;
+        }
+        let formal = snapshot
+            .formal_fact_at(module, binding.declaration_range.start)
+            .and_then(|fact| canonical_formal_for_binding(snapshot, fact, &presenter));
+        let advisory = snapshot.advisory_fact(&binding.declaration_site);
+        if suppress_obvious && formal.is_none() && obvious_initializer_text(text, binding.declaration_range) {
+            continue;
+        }
+        push_canonical_hint(&mut hints, line_index, binding.declaration_range.end, formal, advisory, policy, false);
+    }
+
+    for field in source.structure.field_sources.values() {
+        if field.declaration_range.end < visible_start || field.declaration_range.start > visible_end || field.has_explicit_annotation {
+            continue;
+        }
+        push_canonical_hint(
+            &mut hints,
+            line_index,
+            field.name_range.end,
+            None,
+            snapshot.advisory().field(&field.id),
+            policy,
+            false,
+        );
+    }
+
+    for callable in source.structure.callable_sources.values() {
+        let Some(signature) = snapshot.callable_signatures.get(&callable.id) else {
+            continue;
+        };
+        let advisory = snapshot.advisory_callable(&callable.id);
+        for parameter in signature.parameters.iter() {
+            let Some(name_range) = callable.parameter_name_ranges.get(parameter.index as usize).copied() else {
+                continue;
+            };
+            if name_range.end < visible_start || name_range.start > visible_end || annotations.has_parameter(name_range) {
+                continue;
+            }
+            let formal = canonical_formal_for_term(&parameter.ty, &presenter);
+            let advisory = advisory.and_then(|summary| summary.parameters.iter().find(|(slot, _)| slot.index == parameter.index).map(|(_, fact)| fact));
+            push_canonical_hint(&mut hints, line_index, name_range.end, formal, advisory, policy, false);
+        }
+
+        if !callable.has_explicit_return_annotation {
+            let formal = canonical_formal_for_term(&signature.return_type, &presenter);
+            let advisory = advisory.map(|summary| &summary.return_fact);
+            let offset = source
+                .structure
+                .callable_body_ranges
+                .get(&callable.id)
+                .map_or(callable.declaration_range.end, |range| range.end);
+            if offset >= visible_start && offset <= visible_end {
+                push_canonical_hint(&mut hints, line_index, offset, formal, advisory, policy, true);
+            }
+        }
+    }
+
     hints.sort_by_key(|hint| (hint.position.line, hint.position.character));
     hints
+}
+
+fn canonical_formal_for_binding(
+    snapshot: &CompilerSemanticSnapshot,
+    fact: &phalcom_semantic::FormalFactSite,
+    presenter: &phalcom_semantic::TypePresenter<'_>,
+) -> Option<phalcom_semantic::FormalPresentation> {
+    let knowledge = match &fact.fact {
+        phalcom_semantic::FormalFactRef::Binding { callable, binding } => snapshot.formal_binding(callable, *binding)?.current.clone(),
+        _ => return None,
+    };
+    Some(match fact.status {
+        phalcom_semantic::FormalFactStatus::Ready => presenter.present_knowledge(&knowledge),
+        phalcom_semantic::FormalFactStatus::Dynamic => phalcom_semantic::FormalPresentation::Dynamic,
+        phalcom_semantic::FormalFactStatus::Invalid | phalcom_semantic::FormalFactStatus::InvalidMultiple => phalcom_semantic::FormalPresentation::Invalid,
+        phalcom_semantic::FormalFactStatus::Blocked => phalcom_semantic::FormalPresentation::Blocked,
+        phalcom_semantic::FormalFactStatus::Cancelled => phalcom_semantic::FormalPresentation::Cancelled,
+        phalcom_semantic::FormalFactStatus::BudgetExceeded => phalcom_semantic::FormalPresentation::BudgetExceeded,
+        phalcom_semantic::FormalFactStatus::InternalFailure => phalcom_semantic::FormalPresentation::InternalFailure,
+        phalcom_semantic::FormalFactStatus::Partial => phalcom_semantic::FormalPresentation::Partial,
+        phalcom_semantic::FormalFactStatus::Unknown => phalcom_semantic::FormalPresentation::Unknown,
+    })
+}
+
+fn canonical_formal_for_term(
+    term: &phalcom_semantic::types::TypeTerm,
+    presenter: &phalcom_semantic::TypePresenter<'_>,
+) -> Option<phalcom_semantic::FormalPresentation> {
+    Some(match term {
+        phalcom_semantic::types::TypeTerm::Canonical(ty) => phalcom_semantic::FormalPresentation::Known(presenter.present_type(*ty)),
+        phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => phalcom_semantic::FormalPresentation::Unknown,
+    })
+}
+
+fn push_canonical_hint(
+    hints: &mut Vec<InlayHint>,
+    line_index: &LineIndex,
+    offset: usize,
+    formal: Option<phalcom_semantic::FormalPresentation>,
+    advisory: Option<&phalcom_semantic::AdvisoryFact>,
+    policy: HintPolicy,
+    return_hint: bool,
+) {
+    let formal_text = formal.and_then(|presentation| match &presentation {
+        phalcom_semantic::FormalPresentation::Known(_) | phalcom_semantic::FormalPresentation::Dynamic => Some(presentation.text()),
+        _ => None,
+    });
+    let (label, tooltip) = if let Some(text) = formal_text {
+        (format!(": {text}"), None)
+    } else {
+        let Some(fact) = advisory else { return };
+        if matches!(fact.shape, phalcom_semantic::ValueShape::Unknown)
+            || (policy == HintPolicy::Stable && matches!(fact.confidence, phalcom_semantic::AdvisoryConfidence::Heuristic))
+        {
+            return;
+        }
+        let rendered = phalcom_semantic::AdvisoryPresenter::present_shape(&fact.shape);
+        (
+            crate::presentation::inlay_type_label(&rendered, return_hint),
+            Some(crate::presentation::advisory_tooltip(
+                &rendered,
+                if return_hint { "return value" } else { "runtime value" },
+            )),
+        )
+    };
+    hints.push(InlayHint {
+        position: line_index.position(offset),
+        label: InlayHintLabel::String(label),
+        kind: Some(InlayHintKind::TYPE),
+        text_edits: None,
+        tooltip: tooltip.map(|value| {
+            InlayHintTooltip::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value,
+            })
+        }),
+        padding_left: Some(true),
+        padding_right: None,
+        data: None,
+    });
 }
 
 // These inputs are intentionally explicit: each is independently sourced from the pinned request snapshot.

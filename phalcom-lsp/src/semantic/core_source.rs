@@ -102,15 +102,6 @@ impl CoreSource {
             Self::Configured { .. } | Self::Workspace { .. } => phalcom_ast::parser::parse(self.text(), 0),
         }
     }
-
-    /// Returns the physical URI of the on-disk core file if present.
-    pub fn physical_uri(&self) -> Option<&Url> {
-        match self {
-            Self::Configured { physical_uri, .. } => Some(physical_uri),
-            Self::Workspace { physical_uri, .. } => Some(physical_uri),
-            Self::Bundled { .. } => None,
-        }
-    }
 }
 
 /// Parses bundled core source.

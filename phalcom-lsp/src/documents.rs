@@ -18,7 +18,7 @@ use phalcom_ast::parser::{self, Parse};
 use tower_lsp::lsp_types::Url;
 
 use crate::line_index::LineIndex;
-use crate::semantic::FileRevision;
+use phalcom_modules::SourceRevision;
 
 /// One open document's cached state: source text plus everything derived
 /// from it.
@@ -38,7 +38,7 @@ pub struct Document {
     /// byte-offset span in [`parse`](Self::parse) to LSP positions.
     pub line_index: Arc<LineIndex>,
     /// Monotonic semantic revision for this document.
-    pub revision: FileRevision,
+    pub revision: SourceRevision,
     /// Client-owned LSP document version, when opened through the protocol.
     pub version: Option<i32>,
 }
@@ -47,16 +47,16 @@ impl Document {
     /// Parses `text` and builds a fresh [`Document`] (parse tree + line
     /// index) from it.
     pub fn new(text: String) -> Self {
-        Self::new_with_revision_and_version(text, FileRevision(1), None)
+        Self::new_with_revision_and_version(text, SourceRevision(1), None)
     }
 
     /// Parses `text` at an explicitly assigned semantic revision.
-    pub fn new_with_revision(text: String, revision: FileRevision) -> Self {
+    pub fn new_with_revision(text: String, revision: SourceRevision) -> Self {
         Self::new_with_revision_and_version(text, revision, None)
     }
 
     /// Parses `text` with semantic and client-visible LSP revisions.
-    pub fn new_with_revision_and_version(text: String, revision: FileRevision, version: Option<i32>) -> Self {
+    pub fn new_with_revision_and_version(text: String, revision: SourceRevision, version: Option<i32>) -> Self {
         let parse = Arc::new(parser::parse(&text, 0));
         let line_index = Arc::new(LineIndex::new(&text));
         Self {
@@ -97,16 +97,16 @@ impl DocumentStore {
     /// Used by both `did_open` (first insert) and `did_change` (full-text
     /// replace, since sync mode is `Full`) — the operation is identical:
     /// reparse and overwrite.
-    pub fn open_or_update(&self, uri: Url, text: String) -> FileRevision {
+    pub fn open_or_update(&self, uri: Url, text: String) -> SourceRevision {
         self.open_or_update_versioned(uri, text, None)
     }
 
     /// Parses and stores one protocol document with its client version.
-    pub fn open_or_update_versioned(&self, uri: Url, text: String, version: Option<i32>) -> FileRevision {
+    pub fn open_or_update_versioned(&self, uri: Url, text: String, version: Option<i32>) -> SourceRevision {
         let revision = {
             let mut entry = self.revisions.entry(uri.clone()).or_insert(0);
             *entry += 1;
-            FileRevision(*entry)
+            SourceRevision(*entry)
         };
         self.documents.insert(uri, Document::new_with_revision_and_version(text, revision, version));
         revision
@@ -120,10 +120,10 @@ impl DocumentStore {
     }
 
     /// Advances a file revision after a close or disk-backed refresh.
-    pub fn bump_revision(&self, uri: &Url) -> FileRevision {
+    pub fn bump_revision(&self, uri: &Url) -> SourceRevision {
         let mut entry = self.revisions.entry(uri.clone()).or_insert(0);
         *entry += 1;
-        FileRevision(*entry)
+        SourceRevision(*entry)
     }
 
     /// Runs `f` against the [`Document`] for `uri`, if open.
@@ -165,7 +165,7 @@ pub struct DocumentSnapshot {
     /// UTF-16 line/offset index.
     pub line_index: Arc<LineIndex>,
     /// Semantic revision of this snapshot.
-    pub revision: FileRevision,
+    pub revision: SourceRevision,
     /// Client-owned LSP version of this snapshot.
     pub version: Option<i32>,
 }
