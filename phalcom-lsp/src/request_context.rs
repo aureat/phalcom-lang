@@ -19,7 +19,7 @@ pub enum SourceMatch {
     Unmapped,
 }
 
-/// Immutable request inputs pinned at handler entry.
+/// Immutable request inputs pinned for one request.
 #[derive(Clone)]
 pub struct RequestContext {
     /// URI used by the protocol request.
@@ -162,5 +162,25 @@ mod tests {
         assert_eq!(request.source_match, SourceMatch::Unmapped);
         assert!(request.is_stale());
         assert!(request.compiler_module().is_none());
+    }
+
+    #[test]
+    fn compiler_core_presentation_text_is_an_exact_source() {
+        let (_uri, location) = source();
+        let snapshot = published_snapshot(location, "class Request {}\n");
+        let core = ModuleId::core();
+        let text = snapshot
+            .presentation_source(&core)
+            .expect("semantic publication must retain canonical core presentation text")
+            .to_owned();
+        let core_uri = Url::parse(crate::core_documents::CORE_MODULE_URI).expect("core URI");
+
+        let request = context(&core_uri, &text, snapshot);
+        assert_eq!(request.compiler_module(), Some(&core));
+        assert_eq!(
+            request.source_match,
+            SourceMatch::Exact,
+            "the compiler's own presentation source must be coherent with the pinned semantic snapshot"
+        );
     }
 }
