@@ -1286,12 +1286,11 @@ fn build_advisory_workspace(
             crate::advisory::ValueShape::Instance(owner) => (owner, DispatchSide::Instance),
             _ => return None,
         };
-        let mut current = Some(owner.clone());
         let mut exact = Vec::new();
         let mut rest_candidates = Vec::new();
-        while let Some(declaration) = current {
-            if let Some(surface) = dispatch.get_surface(&declaration) {
-                let members = surface.surface(side);
+        for dispatch_owner in dispatch.dispatch_owners(hierarchy, owner, side) {
+            if let Some(surface) = dispatch.get_surface(&dispatch_owner.declaration) {
+                let members = surface.surface(dispatch_owner.side);
                 let mut selectors = members.callable_signatures.keys().collect::<Vec<_>>();
                 selectors.sort();
                 for selector in selectors {
@@ -1309,7 +1308,6 @@ fn build_advisory_workspace(
                     }
                 }
             }
-            current = hierarchy.superclass(&declaration).cloned();
         }
         exact.sort_by(|left, right| left.0.cmp(&right.0));
         exact.dedup();
