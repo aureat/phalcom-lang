@@ -213,9 +213,13 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_member(&mut self, parent: SourceScopeId, declaration: &DeclarationId, member: &ClassMember) {
+        let member_side = crate::checker::declaration::member_side(member);
         match member {
             ClassMember::Method(method) => {
-                let Some(callable) = self.method_callable(declaration, method) else { return };
+                let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
+                let Some(callable) = self.method_callable(declaration, method, is_constructor, member_side) else {
+                    return;
+                };
                 self.visit_callable(
                     parent,
                     callable,
@@ -224,7 +228,7 @@ impl SourceScopeBuilder<'_> {
                     &method.params,
                     &method.body,
                     SourceBindingKind::MethodParameter,
-                    if method.is_constructor {
+                    if is_constructor {
                         SourceCallableKind::Constructor
                     } else {
                         SourceCallableKind::Method
@@ -235,7 +239,7 @@ impl SourceScopeBuilder<'_> {
             ClassMember::Getter(getter) => {
                 let Some(callable) = Selector::getter(&getter.name)
                     .ok()
-                    .map(|selector| CallableId::new(declaration.clone(), selector, side(getter.is_static)))
+                    .map(|selector| CallableId::new(declaration.clone(), selector, member_side))
                 else {
                     return;
                 };
@@ -254,7 +258,7 @@ impl SourceScopeBuilder<'_> {
             ClassMember::Setter(setter) => {
                 let Some(callable) = Selector::setter(&setter.name)
                     .ok()
-                    .map(|selector| CallableId::new(declaration.clone(), selector, side(setter.is_static)))
+                    .map(|selector| CallableId::new(declaration.clone(), selector, member_side))
                 else {
                     return;
                 };
@@ -277,7 +281,7 @@ impl SourceScopeBuilder<'_> {
                     phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots),
                 };
                 let Some(selector) = selector.ok() else { return };
-                let callable = CallableId::new(declaration.clone(), selector, DispatchSide::Instance);
+                let callable = CallableId::new(declaration.clone(), selector, member_side);
                 let mut parameters = index.params.clone();
                 if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
                     parameters.push((**put).clone());
@@ -298,7 +302,7 @@ impl SourceScopeBuilder<'_> {
                 );
             }
             ClassMember::Field(field) => {
-                let field_id = FieldId::new(declaration.clone(), field.name.clone(), side(field.is_static));
+                let field_id = FieldId::new(declaration.clone(), field.name.clone(), member_side);
                 let site = self.allocate_site(
                     SourceOwner::Module(self.index.module.clone()),
                     field.name_range,
@@ -323,15 +327,17 @@ impl SourceScopeBuilder<'_> {
         }
     }
 
-    fn method_callable(&self, declaration: &DeclarationId, method: &phalcom_ast::ast::MethodDef) -> Option<CallableId> {
+    fn method_callable(
+        &self,
+        declaration: &DeclarationId,
+        method: &phalcom_ast::ast::MethodDef,
+        is_constructor: bool,
+        member_side: DispatchSide,
+    ) -> Option<CallableId> {
         let slots = method.params.iter().map(parameter_slot).collect::<Vec<_>>();
-        Selector::method(&method.name, slots).ok().map(|selector| {
-            CallableId::new(
-                declaration.clone(),
-                selector,
-                if method.is_constructor { DispatchSide::Class } else { side(method.is_static) },
-            )
-        })
+        Selector::method(&method.name, slots)
+            .ok()
+            .map(|selector| CallableId::new(declaration.clone(), selector, if is_constructor { DispatchSide::Class } else { member_side }))
     }
 
     fn visit_callable(
@@ -623,10 +629,6 @@ fn parameter_slot(parameter: &phalcom_ast::ast::ParameterDef) -> SelectorSlot {
         .label
         .as_ref()
         .map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone()))
-}
-
-fn side(is_static: bool) -> DispatchSide {
-    if is_static { DispatchSide::Class } else { DispatchSide::Instance }
 }
 
 fn statements_range(statements: &[Statement]) -> SourceRange {
