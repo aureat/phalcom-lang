@@ -23,6 +23,8 @@ jobs:
         with:
           ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Apply advisory target retention patch
         run: |
@@ -83,7 +85,7 @@ jobs:
               '''            let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());\n            parameter_contributions.replace_source(\n''',
               '''            let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());\n''' + top_merge + '''            parameter_contributions.replace_source(\n''')
           PY
-          cargo fmt --all
+          cargo +stable fmt --all
           git diff --check
       - name: Check LSP library
         run: cargo check -p phalcom-lsp --lib
