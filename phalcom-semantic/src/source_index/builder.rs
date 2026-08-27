@@ -397,6 +397,11 @@ impl SourceScopeBuilder<'_> {
 
     fn visit_member(&mut self, parent: SourceScopeId, declaration: &DeclarationId, member: &ClassMember) {
         let member_side = crate::checker::declaration::member_side(member);
+        let member_range = member.range();
+        let declaration_range = member
+            .attributes()
+            .first()
+            .map_or(member_range, |attribute| SourceRange::new(attribute.range.start, member_range.end));
         match member {
             ClassMember::Method(method) => {
                 let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
@@ -407,6 +412,7 @@ impl SourceScopeBuilder<'_> {
                     parent,
                     callable,
                     method.name_range,
+                    declaration_range,
                     method.range,
                     &method.params,
                     &method.body,
@@ -430,6 +436,7 @@ impl SourceScopeBuilder<'_> {
                     parent,
                     callable,
                     getter.name_range,
+                    declaration_range,
                     getter.range,
                     &[],
                     &getter.body,
@@ -449,6 +456,7 @@ impl SourceScopeBuilder<'_> {
                     parent,
                     callable,
                     setter.name_range,
+                    declaration_range,
                     setter.range,
                     std::slice::from_ref(&setter.param),
                     &setter.body,
@@ -473,6 +481,7 @@ impl SourceScopeBuilder<'_> {
                     parent,
                     callable,
                     index.name_range,
+                    declaration_range,
                     index.range,
                     &parameters,
                     &MemberBody::Block(index.body.clone()),
@@ -528,6 +537,7 @@ impl SourceScopeBuilder<'_> {
         parent: SourceScopeId,
         callable: CallableId,
         name_range: SourceRange,
+        declaration_range: SourceRange,
         body_range: SourceRange,
         parameters: &[phalcom_ast::ast::ParameterDef],
         body: &MemberBody,
@@ -549,7 +559,7 @@ impl SourceScopeBuilder<'_> {
                 kind,
                 declaration_site,
                 name_range,
-                declaration_range: body_range,
+                declaration_range,
                 parameter_name_ranges: Arc::from(parameters.iter().map(|parameter| parameter.name_range).collect::<Vec<_>>().into_boxed_slice()),
                 has_explicit_return_annotation,
             },
