@@ -203,11 +203,7 @@ class Worker {
   }
 }
 "#;
-    let budgeted = session.update_with_budget_and_cancel(
-        build_input(module.clone(), src3, 3),
-        QueryBudget::new(0),
-        &CancellationToken::new(),
-    );
+    let budgeted = session.update_with_budget_and_cancel(build_input(module.clone(), src3, 3), QueryBudget::new(0), &CancellationToken::new());
     assert!(matches!(budgeted, Err(QueryOutcome::BudgetExceeded(_))));
     let published = session.last_snapshot().expect("published snapshot remains available");
     assert_eq!(published.generation, 1, "budget-exceeded candidate must not replace published snapshot");

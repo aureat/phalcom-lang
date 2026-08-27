@@ -2,7 +2,7 @@
 
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_semantic::advisory::{compare_expression, AdvisoryAgreement, AdvisoryConfidence, AdvisoryFact, ValueShape};
+use phalcom_semantic::advisory::{AdvisoryAgreement, AdvisoryConfidence, AdvisoryFact, ValueShape, compare_expression};
 use phalcom_semantic::checker::analysis::CallableAnalysis;
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};

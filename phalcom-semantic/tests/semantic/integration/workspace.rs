@@ -30,14 +30,8 @@ fn single_module_analysis_succeeds() {
 #[test]
 fn exported_constructor_and_method_feed_importing_client_summary() {
     let project = ResolvedProjectId::from_raw(1);
-    let api_module = ModuleId::resolved(
-        project,
-        ModulePath::from_components(vec![ModuleComponent::from_identifier("api").unwrap()]),
-    );
-    let client_module = ModuleId::resolved(
-        project,
-        ModulePath::from_components(vec![ModuleComponent::from_identifier("client").unwrap()]),
-    );
+    let api_module = ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier("api").unwrap()]));
+    let client_module = ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier("client").unwrap()]));
     let api_source: Arc<str> = Arc::from(
         r#"
 class Service {
@@ -70,7 +64,13 @@ export Client
     );
     sources.insert(
         client_module.clone(),
-        Arc::new(ParsedModuleUnit::new(client_module.clone(), ModuleKind::Module, None, client_source.clone(), client_program)),
+        Arc::new(ParsedModuleUnit::new(
+            client_module.clone(),
+            ModuleKind::Module,
+            None,
+            client_source.clone(),
+            client_program,
+        )),
     );
 
     let service_symbol = SymbolId {
@@ -142,11 +142,7 @@ export Client
 
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:#?}", analysis.snapshot.diagnostics);
     let client_decl = DeclarationId::new(client_module.clone(), "Client".into());
-    let run_id = CallableId::new(
-        client_decl,
-        Selector::method("run", Vec::new()).unwrap(),
-        DispatchSide::Class,
-    );
+    let run_id = CallableId::new(client_decl, Selector::method("run", Vec::new()).unwrap(), DispatchSide::Class);
     let run = analysis.snapshot.callable_analyses.get(&run_id).expect("Client.run analysis");
     let serve = run
         .expressions

@@ -163,6 +163,7 @@ fn test_predicate_extraction_from_ast() {
 #[test]
 fn test_predicate_refinement_and_inversion() {
     let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
     let module = ModuleId::core();
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let str_decl = DeclarationId::new(module.clone(), "String".into());
@@ -184,7 +185,7 @@ fn test_predicate_refinement_and_inversion() {
 
     // 1. Filter by IsInstance { target: Int }
     let pred = FlowPredicate::IsInstance { binding: b1, target: int_ty };
-    apply_predicate(&mut state, &pred, &mut store);
+    apply_predicate(&mut state, &pred, &mut store, &hierarchy);
     assert_eq!(state.get_current_type(b1).and_then(|k| k.ty()), Some(int_ty));
     assert!(state.facts.contains(&pred));
 
@@ -202,7 +203,7 @@ fn test_predicate_refinement_and_inversion() {
         TypeKnowledge::established(union_ty, EvidenceOrigin::Syntax),
         true,
     );
-    apply_predicate(&mut state2, &inv, &mut store);
+    apply_predicate(&mut state2, &inv, &mut store, &hierarchy);
     assert_eq!(state2.get_current_type(b1).and_then(|k| k.ty()), Some(str_ty));
     assert!(state2.facts.contains(&inv));
 }
@@ -386,6 +387,7 @@ fn loop_widening_rejects_divergent_persistent_contracts() {
 #[test]
 fn test_mutation_invalidation_kills_dependent_facts() {
     let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
     let module = ModuleId::core();
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let str_decl = DeclarationId::new(module.clone(), "String".into());
@@ -423,8 +425,8 @@ fn test_mutation_invalidation_kills_dependent_facts() {
         literal: "\"hello\"".into(),
     };
 
-    apply_predicate(&mut state, &pred_x, &mut store);
-    apply_predicate(&mut state, &pred_y, &mut store);
+    apply_predicate(&mut state, &pred_x, &mut store, &hierarchy);
+    apply_predicate(&mut state, &pred_y, &mut store, &hierarchy);
 
     assert!(state.facts.contains(&pred_x));
     assert!(state.facts.contains(&pred_y));
@@ -440,6 +442,7 @@ fn test_mutation_invalidation_kills_dependent_facts() {
 #[test]
 fn test_flow_state_conservative_join_and_loop_widening() {
     let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
     let module = ModuleId::core();
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let str_decl = DeclarationId::new(module.clone(), "String".into());
@@ -467,8 +470,8 @@ fn test_flow_state_conservative_join_and_loop_widening() {
         binding: b1,
         literal: "10".into(),
     };
-    apply_predicate(&mut branch_a, &fact_shared, &mut store);
-    apply_predicate(&mut branch_a, &fact_a_only, &mut store);
+    apply_predicate(&mut branch_a, &fact_shared, &mut store, &hierarchy);
+    apply_predicate(&mut branch_a, &fact_a_only, &mut store, &hierarchy);
 
     let mut branch_b = FlowState::new();
     branch_b.declare(
@@ -479,7 +482,7 @@ fn test_flow_state_conservative_join_and_loop_widening() {
         TypeKnowledge::established(str_ty, EvidenceOrigin::Flow),
         true,
     );
-    apply_predicate(&mut branch_b, &fact_shared, &mut store);
+    apply_predicate(&mut branch_b, &fact_shared, &mut store, &hierarchy);
 
     let joined = FlowState::join(&[branch_a, branch_b], &mut store);
     assert!(joined.is_reachable());

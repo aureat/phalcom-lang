@@ -609,18 +609,8 @@ class Client {
 }
 "#;
     let update_v1 = session.update(single_module_input(module.clone(), source_v1, 1));
-    let client_v1 = update_v1
-        .snapshot
-        .callable_analyses
-        .get(&client_read)
-        .cloned()
-        .expect("Client.read v1");
-    let stable_v1 = update_v1
-        .snapshot
-        .callable_analyses
-        .get(&stable_keep)
-        .cloned()
-        .expect("Stable.keep v1");
+    let client_v1 = update_v1.snapshot.callable_analyses.get(&client_read).cloned().expect("Client.read v1");
+    let stable_v1 = update_v1.snapshot.callable_analyses.get(&stable_keep).cloned().expect("Stable.keep v1");
     assert!(update_v1.snapshot.callable_analyses.contains_key(&api_value));
 
     let source_v2 = r#"
@@ -637,22 +627,13 @@ class Client {
     let update_v2 = session.update(single_module_input(module.clone(), source_v2, 2));
     assert_eq!(update_v2.stats.callables_recomputed, 1, "body-only edit should recompute Api.value");
     assert_eq!(update_v2.stats.callables_reused, 2, "body-only edit should reuse Client.read and Stable.keep");
-    let client_v2 = update_v2
-        .snapshot
-        .callable_analyses
-        .get(&client_read)
-        .cloned()
-        .expect("Client.read v2");
+    let client_v2 = update_v2.snapshot.callable_analyses.get(&client_read).cloned().expect("Client.read v2");
     assert_eq!(
         client_v1.dependency_fingerprint, client_v2.dependency_fingerprint,
         "reused caller must retain stable semantic result fingerprint"
     );
     assert!(Arc::ptr_eq(&client_v1, &client_v2), "reused caller product must retain Arc identity");
-    let stable_v2 = update_v2
-        .snapshot
-        .callable_analyses
-        .get(&stable_keep)
-        .expect("Stable.keep v2");
+    let stable_v2 = update_v2.snapshot.callable_analyses.get(&stable_keep).expect("Stable.keep v2");
     assert!(Arc::ptr_eq(&stable_v1, stable_v2), "unaffected callable product must retain Arc identity");
 
     let source_v3 = r#"
@@ -668,11 +649,7 @@ class Client {
 "#;
     let update_v3 = session.update(single_module_input(module.clone(), source_v3, 3));
     assert_eq!(update_v3.stats.callables_recomputed, 2, "signature edit must invalidate caller");
-    let client_v3 = update_v3
-        .snapshot
-        .callable_analyses
-        .get(&client_read)
-        .expect("Client.read v3");
+    let client_v3 = update_v3.snapshot.callable_analyses.get(&client_read).expect("Client.read v3");
     let string_ty = update_v3
         .snapshot
         .declarations
@@ -716,11 +693,7 @@ class Client {
 }
 "#;
     let update_v5 = session.update(single_module_input(module, source_v5, 5));
-    let client_v5 = update_v5
-        .snapshot
-        .callable_analyses
-        .get(&client_read)
-        .expect("Client.read v5");
+    let client_v5 = update_v5.snapshot.callable_analyses.get(&client_read).expect("Client.read v5");
     let call_v5 = client_v5
         .expressions
         .values()

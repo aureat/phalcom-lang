@@ -129,11 +129,7 @@ impl ModuleLinker {
     /// workspace updates so a deleted dependency can publish the importer and
     /// its semantic diagnostics instead of retaining the removed module in the
     /// last-known-good snapshot.
-    pub fn link_with_unresolved_imports(
-        &self,
-        entry: ModuleId,
-        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
-    ) -> Result<LinkedProgram, LinkError> {
+    pub fn link_with_unresolved_imports(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<LinkedProgram, LinkError> {
         self.link_inner(entry, resolved, true)
     }
 

@@ -54,9 +54,7 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
     let consumer_module = module(project, &["consumer"]);
 
     let point_source: Arc<str> = Arc::from("class Point {}\nexport Point\n");
-    let consumer_source: Arc<str> = Arc::from(
-        "import app.shapes.point.Point\nclass Consumer {\n  probe() { Point }\n}\n",
-    );
+    let consumer_source: Arc<str> = Arc::from("import app.shapes.point.Point\nclass Consumer {\n  probe() { Point }\n}\n");
     let point_program = Arc::new(phalcom_ast::parse(&point_source, 0).program);
     let consumer_program = Arc::new(phalcom_ast::parse(&consumer_source, 0).program);
 
@@ -124,10 +122,7 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([
-            (point_module.clone(), point_linked),
-            (consumer_module.clone(), consumer_linked),
-        ]),
+        modules: BTreeMap::from([(point_module.clone(), point_linked), (consumer_module.clone(), consumer_linked)]),
         graphs: Default::default(),
         entry: consumer_module.clone(),
         initialization_order: vec![point_module.clone(), consumer_module.clone()],

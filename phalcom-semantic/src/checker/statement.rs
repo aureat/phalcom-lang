@@ -254,6 +254,29 @@ fn bind_declaration_pattern(
                 bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable, range);
             }
         }
+        Pattern::List { elements, rest, .. } => {
+            let list_origin = ctx.resolve_type_name("List").map(|decl| ctx.nominal_type_of(&decl));
+            let element_knowledge = list_origin
+                .map(|origin| crate::checker::composition::decompose_list_element(ctx.store, &fact.knowledge, origin))
+                .unwrap_or_else(|| fact.knowledge.clone());
+            for element in elements {
+                bind_declaration_pattern(
+                    ctx,
+                    element,
+                    ValueSemanticFact::new(element_knowledge.clone()),
+                    None,
+                    causal_invalidity,
+                    mutable,
+                    range,
+                );
+            }
+            if let Some(rest) = rest {
+                let rest_knowledge = list_origin
+                    .map(|origin| crate::checker::composition::decompose_list_rest(ctx.store, &fact.knowledge, origin))
+                    .unwrap_or_else(|| fact.knowledge.clone());
+                bind_declaration_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), None, causal_invalidity, mutable, range);
+            }
+        }
         _ => {}
     }
 }
@@ -272,6 +295,21 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
                     elements.len(),
                 ));
                 bind_pattern(ctx, element, component, causal_invalidity);
+            }
+        }
+        Pattern::List { elements, rest, .. } => {
+            let list_origin = ctx.resolve_type_name("List").map(|decl| ctx.nominal_type_of(&decl));
+            let element_knowledge = list_origin
+                .map(|origin| crate::checker::composition::decompose_list_element(ctx.store, &fact.knowledge, origin))
+                .unwrap_or_else(|| fact.knowledge.clone());
+            for element in elements {
+                bind_pattern(ctx, element, ValueSemanticFact::new(element_knowledge.clone()), causal_invalidity);
+            }
+            if let Some(rest) = rest {
+                let rest_knowledge = list_origin
+                    .map(|origin| crate::checker::composition::decompose_list_rest(ctx.store, &fact.knowledge, origin))
+                    .unwrap_or_else(|| fact.knowledge.clone());
+                bind_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), causal_invalidity);
             }
         }
         _ => {}
@@ -297,12 +335,7 @@ fn resolve_iteration_element_application(
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
             }
             crate::dispatch::ResolvedDispatchResult::Dynamic => {
-                return analyze_unresolved_application(
-                    ctx,
-                    premise,
-                    &[],
-                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
-                );
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
             }
             crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
         }
@@ -319,12 +352,7 @@ fn resolve_iteration_element_application(
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchAmbiguous);
             }
             crate::dispatch::ResolvedDispatchResult::Dynamic => {
-                return analyze_unresolved_application(
-                    ctx,
-                    premise,
-                    &[],
-                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
-                );
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
             }
             crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
         }
@@ -337,12 +365,7 @@ fn resolve_iteration_element_application(
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
             }
             crate::dispatch::ResolvedDispatchResult::Dynamic => {
-                return analyze_unresolved_application(
-                    ctx,
-                    premise,
-                    &[],
-                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
-                );
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
             }
             crate::dispatch::ResolvedDispatchResult::Missing { .. } => {}
         }

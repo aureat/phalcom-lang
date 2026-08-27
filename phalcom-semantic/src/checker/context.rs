@@ -7,18 +7,19 @@ use crate::checker::incident::{
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
+use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
-use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, TypeKnowledge};
+use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded};
 use crate::types::store::{TypeData, TypeStore};
+use crate::surface::DeclarationSurface;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
@@ -325,6 +326,7 @@ impl<'a> CheckingContext<'a> {
             register_native_surfaces(store, declarations, resolver, &current_module, &mut dispatch)
                 .expect("canonical native surface must import during checking");
         }
+        ensure_core_object_type_tests(store, declarations, &mut dispatch);
 
         Self::new_with_dispatch(store, hierarchy, resolver, declarations, dispatch, current_module)
     }
@@ -337,6 +339,8 @@ impl<'a> CheckingContext<'a> {
         dispatch: SurfaceDispatchResolver,
         current_module: ModuleId,
     ) -> Self {
+        let mut dispatch = dispatch;
+        ensure_core_object_type_tests(store, declarations, &mut dispatch);
         let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
         Self {
             store,
@@ -485,10 +489,7 @@ impl<'a> CheckingContext<'a> {
         self.control.is_cancelled()
     }
 
-    pub(crate) fn solve_inference(
-        &mut self,
-        session: &mut crate::checker::inference::InferenceSession,
-    ) -> crate::checker::inference::InferenceOutcome {
+    pub(crate) fn solve_inference(&mut self, session: &mut crate::checker::inference::InferenceSession) -> crate::checker::inference::InferenceOutcome {
         session.solve_with_control(self.store, &self.hierarchy, &self.control)
     }
 
@@ -1184,12 +1185,7 @@ impl<'a> CheckingContext<'a> {
         signature
     }
 
-    pub(crate) fn resolve_dispatch_target(
-        &mut self,
-        receiver: TypeId,
-        selector: &Selector,
-        lookup: crate::dispatch::DispatchLookup,
-    ) -> ResolvedDispatchResult {
+    pub(crate) fn resolve_dispatch_target(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> ResolvedDispatchResult {
         let Some((decl, side)) = self.dispatch_owner_for_lookup(receiver, lookup) else {
             return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
         };
@@ -1359,6 +1355,35 @@ impl<'a> CheckingContext<'a> {
     }
 }
 
+/// Keeps core type-test calls available to standalone semantic checking.
+/// Workspace sessions normally publish these declarations from the embedded
+/// core source; direct checker fixtures intentionally do not load that module.
+fn ensure_core_object_type_tests(store: &mut TypeStore, declarations: &DeclarationTypeTable, dispatch: &mut SurfaceDispatchResolver) {
+    let object = DeclarationId::new(ModuleId::core(), "Object".into());
+    let Some(bool_ty) = declarations.form(&DeclarationId::new(ModuleId::core(), "Bool".into())) else {
+        return;
+    };
+    eprintln!("core object fallback object={object:?} bool={bool_ty:?}");
+    let mut surface = dispatch.get_surface(&object).cloned().unwrap_or_else(|| DeclarationSurface::new(Some(object.clone())));
+    for method in ["is", "is!"] {
+        let Ok(selector) = Selector::method(method, [phalcom_common::selector::SelectorSlot::Positional]) else {
+            continue;
+        };
+        if surface.instance.get_callable(&selector).is_some() {
+            continue;
+        }
+        let parameter = CallableParameter::new("class", TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+        let signature = CallableSignature::new(
+            selector,
+            vec![parameter],
+            TypeKnowledge::established(bool_ty, EvidenceOrigin::DeclarationSemantics),
+        );
+        surface.add_callable(DispatchSide::Instance, signature);
+    }
+    dispatch.register_type(declarations.form(&object).unwrap_or_else(|| store.nominal_type(object.clone())), object.clone());
+    dispatch.register_surface(object, surface);
+}
+
 #[cfg(test)]
 mod tests {
     use super::CheckingContext;
@@ -1368,8 +1393,8 @@ mod tests {
     use crate::checker::incident::{InternalFailurePolicy, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
     use crate::declarations::bootstrap_universe_declarations;
     use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-    use crate::identity::{CallableId, DeclarationId, DispatchSide, ModuleId};
     use crate::dispatch::{CallableSignature, ResolvedDispatchResult};
+    use crate::identity::{CallableId, DeclarationId, DispatchSide, ModuleId};
     use crate::types::SimpleTypeResolver;
     use crate::types::id::TypeId;
     use crate::types::relation::MapTypeHierarchy;

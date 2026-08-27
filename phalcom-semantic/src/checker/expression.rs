@@ -11,7 +11,7 @@ use super::typed_expr::TypedExpression;
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
 use crate::diagnostic::DiagnosticCode;
-use crate::dispatch::{CallableParameter, CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
+use crate::dispatch::{CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
 use crate::identity::DeclarationId;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
@@ -867,9 +867,18 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
 
-    if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, &recv_typed.knowledge) {
+    if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, &recv_typed) {
         typed.causal_invalidity = typed.causal_invalidity.join(recv_typed.causal_invalidity);
         return typed;
+    }
+
+    if call.method == "call" {
+        if let Some(receiver_ty) = recv_typed.knowledge.ty() {
+            if let Some(target) = super::call::callable_value_target(ctx.store, receiver_ty, recv_typed.knowledge.status().unwrap_or(EvidenceStatus::Assumed)) {
+                let arguments = application_arguments(&call.args);
+                return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
+            }
+        }
     }
 
     let arguments = application_arguments(&call.args);
@@ -928,8 +937,9 @@ fn synthesize_control_method_call(
     ctx: &mut CheckingContext<'_>,
     call: &MethodCallExpr,
     expected: &ExpectedType,
-    receiver_knowledge: &TypeKnowledge,
+    receiver_typed: &TypedExpression,
 ) -> Option<TypedExpression> {
+    eprintln!("control={} recv={:?}", call.method, receiver_typed.knowledge);
     let positional_block = |index: usize| -> Option<&phalcom_ast::ast::BlockExpr> {
         call.args
             .iter()
@@ -953,7 +963,7 @@ fn synthesize_control_method_call(
     let receiver_is_bool = ctx
         .resolve_type_name("Bool")
         .map(|declaration| ctx.nominal_type_of(&declaration))
-        .zip(receiver_knowledge.ty())
+        .zip(receiver_typed.knowledge.ty())
         .is_some_and(|(bool_ty, receiver_ty)| bool_ty == receiver_ty);
     let receiver_is_literal_block = matches!(&call.object, Expr::Block(_));
 
@@ -963,9 +973,19 @@ fn synthesize_control_method_call(
             let else_block = labeled_block("ifFalse")?;
             let before = ctx.flow.clone();
 
+            ctx.flow = before.clone();
+            if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(ctx, &call.object, receiver_typed, true) {
+                let hierarchy = &ctx.hierarchy;
+                crate::checker::flow::apply_predicate(&mut ctx.flow, &predicate, ctx.store, hierarchy);
+                eprintln!("then predicate={predicate:?} flow={:?}", ctx.flow);
+            }
             let then_typed = analyze_control_block(ctx, then_block, expected);
             let then_flow = ctx.flow.clone();
             ctx.flow = before.clone();
+            if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(ctx, &call.object, receiver_typed, false) {
+                let hierarchy = &ctx.hierarchy;
+                crate::checker::flow::apply_predicate(&mut ctx.flow, &predicate, ctx.store, hierarchy);
+            }
             let else_typed = analyze_control_block(ctx, else_block, expected);
             let else_flow = ctx.flow.clone();
 
@@ -1064,28 +1084,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         };
         let arguments = application_arguments(&call.args);
         if let Some(ty) = fact.knowledge.ty() {
-            if let TypeData::Callable(c) = ctx.store.get(ty).clone() {
-                let mut parameters = Vec::with_capacity(c.parameters.len());
-                let mut slots = Vec::with_capacity(c.parameters.len());
-                for parameter in c.parameters.iter() {
-                    let mut formal =
-                        CallableParameter::new("argument", TypeKnowledge::assumed(parameter.ty, EvidenceOrigin::CallableSignature)).with_rest(parameter.rest);
-                    if let Some(label) = &parameter.label {
-                        formal = formal.with_label(label.to_string());
-                        slots.push(phalcom_common::selector::SelectorSlot::Label(label.to_string()));
-                    } else {
-                        slots.push(phalcom_common::selector::SelectorSlot::Positional);
-                    }
-                    parameters.push(formal);
-                }
-                let signature = CallableSignature::new(
-                    Selector::method("call", slots).expect("callable type selector"),
-                    parameters,
-                    TypeKnowledge::assumed(c.return_type, EvidenceOrigin::CallableSignature),
-                );
+            if let Some(target) = super::call::callable_value_target(ctx.store, ty, fact.knowledge.status().unwrap_or(EvidenceStatus::Assumed)) {
                 match super::call::static_call_shape(&arguments) {
                     StaticCallShape::Exact(_) => {
-                        let target = CallableApplicationTarget::callable_value(signature, fact.knowledge.status().unwrap_or(EvidenceStatus::Assumed));
                         return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
                     }
                     StaticCallShape::Dynamic(reason) => {

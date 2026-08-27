@@ -1,8 +1,8 @@
 mod advisory_domain;
 mod bidirectional_calls;
 mod binding_contracts;
-mod causal;
 mod canonical_call_application;
+mod causal;
 mod declarations;
 mod diagnostics;
 mod explanations;

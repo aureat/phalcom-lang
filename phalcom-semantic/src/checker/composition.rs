@@ -146,6 +146,36 @@ pub(crate) fn decompose_tuple_component(store: &TypeStore, parent: &TypeKnowledg
     }
 }
 
+/// Projects the homogeneous element knowledge from a formal `List<T>` value.
+///
+/// Unavailable and dynamic parents retain their exact epistemic reason; a
+/// malformed known shape does not manufacture an element type.
+pub(crate) fn decompose_list_element(store: &TypeStore, parent: &TypeKnowledge, list_origin: TypeId) -> TypeKnowledge {
+    project_applied_argument(store, parent, list_origin, 0)
+}
+
+/// Projects the rest binding from a formal `List<T>` value.
+///
+/// The rest value has the same `List<T>` shape and authority as its parent.
+/// Only a known application of the canonical List origin is decomposed.
+pub(crate) fn decompose_list_rest(store: &TypeStore, parent: &TypeKnowledge, list_origin: TypeId) -> TypeKnowledge {
+    match parent {
+        TypeKnowledge::Known(_) => {
+            let Some(parent_ty) = parent.ty() else {
+                unreachable!("Known knowledge has a type");
+            };
+            match store.get(parent_ty) {
+                TypeData::Applied { origin, arguments } if *origin == list_origin && arguments.len() == 1 => {
+                    parent.derive_known_type(parent_ty, EvidenceOrigin::PatternDecomposition)
+                }
+                _ => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
+            }
+        }
+        TypeKnowledge::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
+        TypeKnowledge::Dynamic(reason) => TypeKnowledge::Dynamic(reason.clone()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +275,17 @@ mod tests {
 
         let dynamic = TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape);
         assert_eq!(decompose_tuple_component(&store, &dynamic, 0, 2), dynamic);
+    }
+
+    #[test]
+    fn list_decomposition_preserves_unknown_and_dynamic_reasons() {
+        let store = TypeStore::new();
+        let unknown = TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()));
+        assert_eq!(decompose_list_element(&store, &unknown, TypeId::DUMMY), unknown);
+        assert_eq!(decompose_list_rest(&store, &unknown, TypeId::DUMMY), unknown);
+
+        let dynamic = TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape);
+        assert_eq!(decompose_list_element(&store, &dynamic, TypeId::DUMMY), dynamic);
+        assert_eq!(decompose_list_rest(&store, &dynamic, TypeId::DUMMY), dynamic);
     }
 }

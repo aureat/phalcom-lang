@@ -1,9 +1,11 @@
 //! Flow predicates for branch filtering and type refinement (Spec 04.5).
 
 use crate::checker::context::CheckingContext;
-use crate::identity::{BindingId, PredicateId};
+use crate::checker::typed_expr::TypedExpression;
+use crate::identity::{BindingId, CallableId, DeclarationId, DispatchSide, ModuleId, PredicateId};
 use crate::types::id::TypeId;
 use phalcom_ast::ast::{BinaryOp, Expr, PackItem, UnaryOp};
+use phalcom_common::selector::{Selector, SelectorSlot};
 
 /// A formal predicate asserted on a control flow path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -324,6 +326,40 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                 Some(FlowPredicate::Falsy { binding })
             }
         }
+        _ => None,
+    }
+}
+
+/// Extracts a predicate only when any type-test authority came from the
+/// canonical `Object#is`/`Object#is!` callable. Syntax that merely resembles
+/// those names cannot authorize formal refinement. Non-type-test predicates
+/// remain available to the ordinary syntax extractor.
+pub fn extract_trusted_predicate(
+    ctx: &mut CheckingContext<'_>,
+    condition: &Expr,
+    condition_typed: &TypedExpression,
+    truth: bool,
+) -> Option<FlowPredicate> {
+    eprintln!("trusted condition typed callable={:?} knowledge={:?}", condition_typed.callable, condition_typed.knowledge);
+    let predicate = extract_predicate(ctx, condition, truth)?;
+    if !matches!(predicate, FlowPredicate::IsInstance { .. } | FlowPredicate::IsNotInstance { .. }) {
+        return Some(predicate);
+    }
+
+    let method = type_test_method(condition)?;
+    let selector = Selector::method(method, [SelectorSlot::Positional]).ok()?;
+    let canonical = CallableId::new(
+        DeclarationId::new(ModuleId::core(), "Object".into()),
+        selector,
+        DispatchSide::Instance,
+    );
+    (condition_typed.callable.as_ref() == Some(&canonical)).then_some(predicate)
+}
+
+fn type_test_method(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Not) => type_test_method(&unary.expr),
+        Expr::MethodCall(call) if matches!(call.method.as_str(), "is" | "is!") => Some(call.method.as_str()),
         _ => None,
     }
 }

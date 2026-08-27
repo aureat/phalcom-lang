@@ -1,7 +1,9 @@
 //! Persistent compiler-owned module workspace lifecycle.
 
 use crate::error::{InterfaceError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
-use crate::identity::{ModuleComponent, ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator};
+use crate::identity::{
+    ModuleComponent, ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator,
+};
 use crate::interface::{ImportSurface, InterfaceBuilder};
 use crate::linker::{LinkError, LinkedProgram, ModuleLinker};
 use crate::manifest::DependencyProvider;

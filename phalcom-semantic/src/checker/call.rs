@@ -15,7 +15,7 @@ use crate::types::evidence::DynamicReason;
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
-use crate::types::store::TypeData;
+use crate::types::store::{TypeData, TypeStore};
 use phalcom_ast::ast::{Expr, PackItem, PackLabel};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -62,6 +62,37 @@ impl CallableApplicationTarget {
             authority: CallTargetAuthority::StructuralBuiltin,
         }
     }
+}
+
+/// Builds the canonical application target for a structural callable value.
+///
+/// Both direct invocation and explicit `.call()` invocation use this target so
+/// argument binding, generic proof, status propagation, and return publication
+/// remain identical.
+pub(crate) fn callable_value_target(store: &TypeStore, callable_ty: TypeId, authority: EvidenceStatus) -> Option<CallableApplicationTarget> {
+    let TypeData::Callable(callable) = store.get(callable_ty) else {
+        return None;
+    };
+
+    let mut parameters = Vec::with_capacity(callable.parameters.len());
+    let mut slots = Vec::with_capacity(callable.parameters.len());
+    for parameter in callable.parameters.iter() {
+        let mut formal = CallableParameter::new("argument", TypeKnowledge::assumed(parameter.ty, EvidenceOrigin::CallableSignature)).with_rest(parameter.rest);
+        if let Some(label) = &parameter.label {
+            formal = formal.with_label(label.to_string());
+            slots.push(SelectorSlot::Label(label.to_string()));
+        } else {
+            slots.push(SelectorSlot::Positional);
+        }
+        parameters.push(formal);
+    }
+
+    let signature = CallableSignature::new(
+        Selector::method("call", slots).ok()?,
+        parameters,
+        TypeKnowledge::assumed(callable.return_type, EvidenceOrigin::CallableSignature),
+    );
+    Some(CallableApplicationTarget::callable_value(signature, authority))
 }
 
 #[derive(Clone, Debug)]
@@ -339,7 +370,10 @@ fn target_fixed_return_origin(target: &CallableApplicationTarget) -> EvidenceOri
             CallableSemanticKind::Constructor => EvidenceOrigin::ConstructorSemantics,
             CallableSemanticKind::Native => EvidenceOrigin::NativeSignature,
         },
-        CallTargetAuthority::CallableValue(_) => EvidenceOrigin::CallableSignature,
+        // A structural callable value is executable flow, not a nominal
+        // declaration surface. Its result is therefore published as a flow
+        // fact while retaining the callable's authority cap.
+        CallTargetAuthority::CallableValue(_) => EvidenceOrigin::Flow,
         CallTargetAuthority::StructuralBuiltin => EvidenceOrigin::DeclarationSemantics,
     }
 }

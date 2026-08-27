@@ -5,18 +5,23 @@ use super::state::FlowState;
 use crate::identity::{BindingId, ExplanationId};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use crate::types::id::TypeId;
+use crate::types::relation::{self, TypeHierarchy};
 use crate::types::store::TypeStore;
 
 /// Applies a predicate to refine a flow state along a branch.
-pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: &mut TypeStore) {
+pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) {
     match predicate {
         FlowPredicate::IsInstance { binding, target } => {
-            refine_binding_type(state, *binding, *target, store);
+            refine_binding_type(state, *binding, *target, store, hierarchy);
         }
         FlowPredicate::IsNotInstance { binding, target } => {
             if let Some(current_ty) = state.get_current_type(*binding).and_then(|k| k.ty()) {
                 if let crate::types::store::TypeData::Union(members) = store.get(current_ty).clone() {
-                    let remaining: Vec<TypeId> = members.iter().copied().filter(|&m| m != *target).collect();
+                    let remaining: Vec<TypeId> = members
+                        .iter()
+                        .copied()
+                        .filter(|&member| !relation::is_subtype(store, hierarchy, member, *target))
+                        .collect();
                     if !remaining.is_empty() && remaining.len() < members.len() {
                         let refined = store.union(&remaining);
                         state.assign(*binding, TypeKnowledge::established(refined, EvidenceOrigin::Flow));
@@ -63,17 +68,24 @@ pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: 
     state.facts.insert(predicate.clone(), ExplanationId(0));
 }
 
-fn refine_binding_type(state: &mut FlowState, binding: BindingId, target: TypeId, store: &mut TypeStore) {
+fn refine_binding_type(state: &mut FlowState, binding: BindingId, target: TypeId, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) {
     if let Some(current_ty) = state.get_current_type(binding).and_then(|k| k.ty()) {
-        // If current is a union, filter members compatible with target
         if let crate::types::store::TypeData::Union(members) = store.get(current_ty).clone() {
-            let matched: Vec<TypeId> = members.iter().copied().filter(|&m| m == target).collect();
+            let matched: Vec<TypeId> = members
+                .iter()
+                .copied()
+                .filter(|&member| relation::is_subtype(store, hierarchy, member, target))
+                .collect();
             if !matched.is_empty() {
                 let refined = store.union(&matched);
                 state.assign(binding, TypeKnowledge::established(refined, EvidenceOrigin::Flow));
                 return;
             }
         }
+
+        if current_ty == target || relation::is_subtype(store, hierarchy, target, current_ty) {
+            state.assign(binding, TypeKnowledge::established(target, EvidenceOrigin::Flow));
+        }
+        return;
     }
-    state.assign(binding, TypeKnowledge::established(target, EvidenceOrigin::Flow));
 }

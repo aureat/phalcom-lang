@@ -173,7 +173,6 @@ class Probe {
 
 /// COMPOSED: narrowing plus an abrupt arm publishes only reachable normal values.
 #[test]
-#[ignore = "RED-CAPABILITY: `Object.is` refinement is not propagated into a returned branch value"]
 fn refined_branch_with_abrupt_else_publishes_only_normal_value() {
     let f = Fixture::new(
         r#"
