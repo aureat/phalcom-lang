@@ -634,8 +634,11 @@ impl Backend {
     /// equivalent yet (member kind and Phaldoc source ranges).
     fn compiler_callable_hover(&self, request: &RequestContext, callable: &phalcom_semantic::identity::CallableId) -> Option<CompilerCallableHover> {
         let compiler = request.compiler.as_deref()?;
-        let signature = compiler.callable_signatures.get(callable)?;
+        let signature = compiler.callable_signatures.get(callable);
         let source = compiler.source_index().callable_source(callable);
+        if signature.is_none() && source.is_none() {
+            return None;
+        }
         let kind = source.map_or(hover::MemberKind::Method, |source| match source.kind {
             phalcom_semantic::SourceCallableKind::Getter => hover::MemberKind::Getter,
             phalcom_semantic::SourceCallableKind::Setter => hover::MemberKind::Setter,
@@ -649,10 +652,10 @@ impl Backend {
         });
         let phaldoc = source.and_then(|source| self.member_phaldoc(compiler, source));
         let presenter = phalcom_semantic::TypePresenter::new(&compiler.store);
-        let formal = match &signature.return_type {
+        let formal = signature.map_or(FormalPresentation::Unknown, |signature| match &signature.return_type {
             phalcom_semantic::types::TypeTerm::Canonical(ty) => FormalPresentation::Known(presenter.present_type(*ty)),
             phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => FormalPresentation::Unknown,
-        };
+        });
         Some((
             callable.selector.encode(),
             SelectorSite {
