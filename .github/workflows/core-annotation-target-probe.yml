@@ -32,8 +32,8 @@ jobs:
       - name: Check semantic library
         run: cargo check -p phalcom-semantic --lib
 
-      - name: Core annotation target regression
-        run: cargo test -p phalcom-semantic --test semantic builtin_type_annotation_has_canonical_target_and_definition_site -- --nocapture
+      - name: Canonical annotation target regression
+        run: cargo test -p phalcom-semantic --test semantic builtin_type_annotation_has_canonical_target -- --nocapture
 
       - name: Commit validated annotation target repair
         run: |
