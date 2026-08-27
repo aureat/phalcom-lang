@@ -1,7 +1,8 @@
+use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::ModuleId;
 use phalcom_semantic::types::TypeTerm;
-use phalcom_semantic::{CallableId, DeclarationId, DispatchSide, SemanticTargetId, analyze_single_module};
+use phalcom_semantic::{CallableId, DeclarationId, DispatchSide, EditorMemberTarget, SemanticTargetId, analyze_single_module};
 use std::sync::Arc;
 
 #[test]
@@ -132,5 +133,23 @@ class Probe {
         constructor_call.knowledge.ty(),
         Some(person_ty),
         "Class.new Self result must specialize to the concrete class object receiver: {constructor_call:#?}"
+    );
+
+    let receiver_start = source.find("Person.new()").expect("Person.new call");
+    let receiver_range = SourceRange {
+        start: receiver_start,
+        end: receiver_start + "Person".len(),
+    };
+    let editor = snapshot.editor();
+    let receiver = editor
+        .resolve_receiver_at(&module, receiver_range)
+        .expect("Person class-object receiver");
+    let access = editor.access_context_at(&module, receiver_start);
+    assert!(
+        editor
+            .members_for_receiver(&receiver, &access)
+            .iter()
+            .any(|member| member.target == EditorMemberTarget::Callable(default_new.clone())),
+        "editor member enumeration must share formal class-object root dispatch"
     );
 }
