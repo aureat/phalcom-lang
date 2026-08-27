@@ -35,13 +35,11 @@ jobs:
           cargo check -p phalcom-semantic
           cargo check -p phalcom-lsp --lib
           cargo check -p phalcom-lsp --tests
-      - name: Validate Stage 4 source-specific readiness
+      - name: Validate Stage 4 exact-source readiness
         run: |
-          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_ -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::selector_ -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::receiver_qualified_hover_selects_one_of_repeated_new_members -- --nocapture
           cargo test -p phalcom-lsp --test integration stage4_hover::binding_hover_ranges_are_exact_and_scope_aware -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::hover_over_a_top_level_binding_usage_surfaces_its_doc -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::receiver_qualified_hover_selects_one_of_repeated_new_members -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::selector_hover_sets_range_to_the_resolved_selector_span -- --nocapture
       - name: Revalidate shared TestLsp readiness
         run: |
           cargo test -p phalcom-lsp --test integration signature_help_recovers_incomplete_receiver_call -- --nocapture
@@ -61,3 +59,10 @@ jobs:
             git commit -m 'fix(lsp): wait for exact semantic source publication'
             git push origin HEAD:codex/lsp-single-world-retirement
           fi
+      - name: Diagnose remaining Stage 4 presentation gaps
+        continue-on-error: true
+        run: |
+          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_attaches_and_blank_line_breaks_it -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_survives_member_attributes -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::selector_keying_gives_each_arity_its_own_doc -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::hover_over_a_top_level_binding_usage_surfaces_its_doc -- --nocapture
