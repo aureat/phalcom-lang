@@ -24,8 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply source-identity callable hover repair
-        run: python .github/scripts/apply-optional-callable-hover-signature.py
+      - name: Apply compiler-owned callable attachment ranges
+        run: python .github/scripts/apply-callable-declaration-attribute-range.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
@@ -34,22 +34,21 @@ jobs:
         run: |
           cargo check -p phalcom-semantic
           cargo check -p phalcom-lsp --lib
-      - name: Validate untyped source callable hover
+      - name: Validate Phaldoc through attached attributes
         run: |
-          cargo test -p phalcom-lsp --test integration stage4_hover::selector_hover_sets_range_to_the_resolved_selector_span -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_survives_member_attributes -- --nocapture
           cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_attaches_and_blank_line_breaks_it -- --nocapture
           cargo test -p phalcom-lsp --test integration stage4_hover::selector_keying_gives_each_arity_its_own_doc -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::cross_file_hover_resolves_the_doc_from_the_declaring_file -- --nocapture
-      - name: Revalidate authoritative hover targets
+      - name: Revalidate source-index navigation
         run: |
-          cargo test -p phalcom-lsp --test integration inherited_hover_reports_the_defining_owner_not_the_receiver_class -- --nocapture
+          cargo test -p phalcom-semantic --test semantic source_index -- --nocapture
           cargo test -p phalcom-lsp --test integration receiver_qualified_hover_selects_one_of_repeated_new_members -- --nocapture
-      - name: Commit validated source-identity hover
+      - name: Commit validated callable attachment ranges
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-lsp/src/backend.rs
+          git add phalcom-semantic/src/source_index/scope.rs phalcom-semantic/src/source_index/builder.rs
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(lsp): render source callables without proven signatures'
+            git commit -m 'fix(semantic): include member attributes in declaration ranges'
             git push origin HEAD:codex/lsp-single-world-retirement
           fi
