@@ -288,4 +288,30 @@ mod tests {
         assert_eq!(decompose_list_element(&store, &dynamic, TypeId::DUMMY), dynamic);
         assert_eq!(decompose_list_rest(&store, &dynamic, TypeId::DUMMY), dynamic);
     }
+
+    #[test]
+    fn list_decomposition_preserves_known_parent_authority() {
+        let mut store = TypeStore::new();
+        let declarations = crate::declarations::bootstrap_universe_declarations(&mut store, &|key| {
+            crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), key.name().into())
+        });
+        let list_origin = declarations
+            .form(&crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "List".into()))
+            .expect("List form");
+        let int_ty = declarations
+            .form(&crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Int".into()))
+            .expect("Int form");
+        let list_ty = store.apply_type_form(list_origin, &[int_ty]).expect("List<Int>");
+        let parent = TypeKnowledge::established(list_ty, EvidenceOrigin::Syntax);
+
+        let element = decompose_list_element(&store, &parent, list_origin);
+        assert_eq!(element.ty(), Some(int_ty));
+        assert_eq!(element.status(), parent.status());
+        assert_eq!(element.origin(), Some(EvidenceOrigin::PatternDecomposition));
+
+        let rest = decompose_list_rest(&store, &parent, list_origin);
+        assert_eq!(rest.ty(), Some(list_ty));
+        assert_eq!(rest.status(), parent.status());
+        assert_eq!(rest.origin(), Some(EvidenceOrigin::PatternDecomposition));
+    }
 }

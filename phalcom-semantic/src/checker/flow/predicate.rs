@@ -334,13 +334,7 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
 /// canonical `Object#is`/`Object#is!` callable. Syntax that merely resembles
 /// those names cannot authorize formal refinement. Non-type-test predicates
 /// remain available to the ordinary syntax extractor.
-pub fn extract_trusted_predicate(
-    ctx: &mut CheckingContext<'_>,
-    condition: &Expr,
-    condition_typed: &TypedExpression,
-    truth: bool,
-) -> Option<FlowPredicate> {
-    eprintln!("trusted condition typed callable={:?} knowledge={:?}", condition_typed.callable, condition_typed.knowledge);
+pub fn extract_trusted_predicate(ctx: &mut CheckingContext<'_>, condition: &Expr, condition_typed: &TypedExpression, truth: bool) -> Option<FlowPredicate> {
     let predicate = extract_predicate(ctx, condition, truth)?;
     if !matches!(predicate, FlowPredicate::IsInstance { .. } | FlowPredicate::IsNotInstance { .. }) {
         return Some(predicate);
@@ -348,11 +342,7 @@ pub fn extract_trusted_predicate(
 
     let method = type_test_method(condition)?;
     let selector = Selector::method(method, [SelectorSlot::Positional]).ok()?;
-    let canonical = CallableId::new(
-        DeclarationId::new(ModuleId::core(), "Object".into()),
-        selector,
-        DispatchSide::Instance,
-    );
+    let canonical = CallableId::new(DeclarationId::new(ModuleId::core(), "Object".into()), selector, DispatchSide::Instance);
     (condition_typed.callable.as_ref() == Some(&canonical)).then_some(predicate)
 }
 

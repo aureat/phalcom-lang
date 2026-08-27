@@ -188,6 +188,7 @@ class Probe {
 }
 "#,
     );
+
     let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
 
@@ -195,6 +196,32 @@ class Probe {
     f.assert_normal_return(run, known(int_ty).established().origin(phalcom_semantic::EvidenceOrigin::Flow));
     assert_eq!(run.exits.throws.len(), 1, "throwing arm must remain recorded as abrupt");
     f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn overridden_is_method_does_not_gain_builtin_refinement_authority() {
+    let f = Fixture::new(
+        r#"
+class Liar {
+  is(_ cls) -> Bool { true }
+}
+
+class Probe {
+  @class
+  run(_ value: Liar) {
+    if (value.is(Int)) {
+      return value
+    }
+    0
+  }
+}
+"#,
+    );
+
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let liar = f.ty("Liar");
+    let branch_value = f.expression_n(run, "value", 1);
+    assert_eq!(branch_value.knowledge.ty(), Some(liar));
 }
 
 #[test]

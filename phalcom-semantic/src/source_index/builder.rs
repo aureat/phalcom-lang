@@ -310,6 +310,7 @@ impl SourceScopeBuilder<'_> {
             SourceSiteKind::Callable(callable.clone()),
         );
         self.index.register_target(declaration_site, SemanticTargetId::Callable(callable.clone()));
+        self.index.callable_body_ranges.insert(callable.clone(), body_range);
         let previous_owner = std::mem::replace(&mut self.current_owner, SourceOwner::Callable(callable));
         let scope = self.new_scope(parent, body_range);
         for parameter in parameters {
@@ -385,8 +386,13 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_expr(&mut self, scope: SourceScopeId, expr: &Expr) {
-        if matches!(&self.current_owner, SourceOwner::Module(_)) {
-            self.allocate_site(self.current_owner.clone(), expr.range(), SourceSiteKind::Expression);
+        match &self.current_owner {
+            SourceOwner::Module(_) => {
+                self.allocate_site(self.current_owner.clone(), expr.range(), SourceSiteKind::Expression);
+            }
+            SourceOwner::Callable(callable) => {
+                self.index.callable_expression_ranges.entry(callable.clone()).or_default().push(expr.range());
+            }
         }
         match expr {
             Expr::Assignment(assignment) => {

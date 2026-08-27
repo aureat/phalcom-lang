@@ -11,6 +11,7 @@ use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult, Reso
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
+use crate::surface::DeclarationSurface;
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, TypeKnowledge, UnknownReason};
@@ -284,6 +285,7 @@ pub struct CheckingContext<'a> {
     pub expected_return: Option<CallableReturnContract>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
+    throw_exit_flows: Vec<crate::checker::analysis::FlowStateSummary>,
     /// Binding products remain queryable after a branch-local scope closes.
     pub binding_history: BTreeMap<BindingId, crate::checker::analysis::BindingState>,
     pub(crate) loop_frames: Vec<LoopFlowFrame>,
@@ -356,6 +358,7 @@ impl<'a> CheckingContext<'a> {
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
+            throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
             loop_frames: Vec::new(),
             body_id: BodyId(0),
@@ -414,6 +417,7 @@ impl<'a> CheckingContext<'a> {
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
+            throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
             loop_frames: Vec::new(),
             body_id: BodyId(0),
@@ -452,6 +456,7 @@ impl<'a> CheckingContext<'a> {
             expected_return: self.expected_return.clone(),
             scopes: self.scopes.clone(),
             flow: self.flow.clone(),
+            throw_exit_flows: self.throw_exit_flows.clone(),
             binding_history: self.binding_history.clone(),
             loop_frames: self.loop_frames.clone(),
             body_id: self.body_id,
@@ -487,6 +492,48 @@ impl<'a> CheckingContext<'a> {
 
     pub fn is_cancelled(&self) -> bool {
         self.control.is_cancelled()
+    }
+
+    fn current_flow_summary(&self) -> crate::checker::analysis::FlowStateSummary {
+        let bindings = self
+            .flow
+            .bindings
+            .iter()
+            .map(|(binding, state)| {
+                (
+                    *binding,
+                    crate::checker::analysis::FlowBindingSummary {
+                        knowledge: state.current.clone(),
+                        contract: state.contract.clone(),
+                        consistency: state.consistency.clone(),
+                        mutable: state.mutable,
+                    },
+                )
+            })
+            .collect();
+        crate::checker::analysis::FlowStateSummary {
+            bindings,
+            fields: self
+                .flow
+                .fields
+                .iter()
+                .map(|(field, state)| {
+                    (
+                        field.clone(),
+                        crate::checker::analysis::FlowFieldSummary {
+                            contract: state.contract.clone(),
+                            current: state.current.clone(),
+                            initialization: state.initialization,
+                        },
+                    )
+                })
+                .collect(),
+            fact_count: self.flow.facts.len(),
+        }
+    }
+
+    pub(crate) fn record_throw_exit(&mut self) {
+        self.throw_exit_flows.push(self.current_flow_summary());
     }
 
     pub(crate) fn solve_inference(&mut self, session: &mut crate::checker::inference::InferenceSession) -> crate::checker::inference::InferenceOutcome {
@@ -580,6 +627,9 @@ impl<'a> CheckingContext<'a> {
             }
             crate::checker::flow::state::FlowInvariantFailure::DivergentMutability { binding, left, right } => {
                 InternalSemanticIncidentDetails::DivergentMutability { binding, left, right }
+            }
+            crate::checker::flow::state::FlowInvariantFailure::DivergentFieldContract { field, left, right } => {
+                InternalSemanticIncidentDetails::DivergentFieldContract { field, left, right }
             }
         };
         let incident = self.record_internal_incident(InternalSemanticIncidentKind::FlowInvariantViolation, details, Some(range));
@@ -1248,6 +1298,34 @@ impl<'a> CheckingContext<'a> {
         self.dispatch.get().get_surface(decl).and_then(|s| s.get_field(side, name)).cloned()
     }
 
+    pub(crate) fn resolve_field_contract(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
+        let surface = self.dispatch.get().get_surface(owner)?;
+        let field = surface.get_field_id(side, name)?.clone();
+        let contract = surface.get_field(side, name)?.clone();
+        Some((field, contract))
+    }
+
+    pub(crate) fn resolve_current_field(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
+        let (field, contract) = self.resolve_field_contract(owner, side, name)?;
+        let current = self.flow.get_field_current(&field).cloned().unwrap_or(contract);
+        Some((field, current))
+    }
+
+    pub(crate) fn write_current_field(&mut self, field: crate::identity::FieldId, contract: TypeKnowledge, current: TypeKnowledge) {
+        if self.flow.get_field(&field).is_none() {
+            self.flow.seed_field(crate::checker::flow::FieldState {
+                field: field.clone(),
+                contract,
+                current: TypeKnowledge::Unknown(UnknownReason::MissingInitializer),
+                initialization: crate::checker::flow::FieldInitialization::Uninitialized,
+                version: 0,
+            });
+        }
+        self.flow
+            .write_field(&field, current, crate::checker::flow::FieldInitialization::DefinitelyInitialized);
+    }
+
     pub fn resolve_type_name(&self, name: &str) -> Option<DeclarationId> {
         self.resolver.resolve_type_name(&self.current_module, name, &[])
     }
@@ -1296,30 +1374,10 @@ impl<'a> CheckingContext<'a> {
         status: crate::checker::analysis::CallableAnalysisStatus,
         normal_return_values: Vec<crate::types::evidence::TypeKnowledge>,
     ) -> crate::checker::analysis::CallableAnalysis {
+        let entry_flow = self.current_flow_summary();
         let flow_graph = self
             .flow_graph
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
-
-        let bindings = self
-            .flow
-            .bindings
-            .iter()
-            .map(|(binding, state)| {
-                (
-                    *binding,
-                    crate::checker::analysis::FlowBindingSummary {
-                        knowledge: state.current.clone(),
-                        contract: state.contract.clone(),
-                        consistency: state.consistency.clone(),
-                        mutable: state.mutable,
-                    },
-                )
-            })
-            .collect();
-        let entry_flow = crate::checker::analysis::FlowStateSummary {
-            bindings,
-            fact_count: self.flow.facts.len(),
-        };
 
         let exits = crate::checker::analysis::BodyExitFacts {
             returns: if normal_return_values.is_empty() {
@@ -1328,7 +1386,7 @@ impl<'a> CheckingContext<'a> {
                 vec![entry_flow.clone()]
             },
             normal_return_values,
-            throws: Vec::new(),
+            throws: self.throw_exit_flows,
             unreachable: false,
         };
 
@@ -1358,13 +1416,15 @@ impl<'a> CheckingContext<'a> {
 /// Keeps core type-test calls available to standalone semantic checking.
 /// Workspace sessions normally publish these declarations from the embedded
 /// core source; direct checker fixtures intentionally do not load that module.
-fn ensure_core_object_type_tests(store: &mut TypeStore, declarations: &DeclarationTypeTable, dispatch: &mut SurfaceDispatchResolver) {
+pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations: &DeclarationTypeTable, dispatch: &mut SurfaceDispatchResolver) {
     let object = DeclarationId::new(ModuleId::core(), "Object".into());
     let Some(bool_ty) = declarations.form(&DeclarationId::new(ModuleId::core(), "Bool".into())) else {
         return;
     };
-    eprintln!("core object fallback object={object:?} bool={bool_ty:?}");
-    let mut surface = dispatch.get_surface(&object).cloned().unwrap_or_else(|| DeclarationSurface::new(Some(object.clone())));
+    let mut surface = dispatch
+        .get_surface(&object)
+        .cloned()
+        .unwrap_or_else(|| DeclarationSurface::new(Some(object.clone())));
     for method in ["is", "is!"] {
         let Ok(selector) = Selector::method(method, [phalcom_common::selector::SelectorSlot::Positional]) else {
             continue;

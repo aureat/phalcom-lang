@@ -341,6 +341,7 @@ pub enum EvidenceOrigin {
     DeveloperAnnotation,
     GenericInference,
     Flow,
+    FieldLifecycle,
     ContextualDerivation,
     PatternDecomposition,
 }

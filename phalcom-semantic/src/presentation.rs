@@ -4,6 +4,7 @@ use crate::advisory::{AdvisoryFact, AdvisoryTargetResolution};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::{AnalysisStatus, BindingConsistency, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
 use crate::identity::{CallableId, ExpressionId, ModuleId, SourceSiteId};
+use crate::source_index::SourceSemanticIndex;
 use crate::source_index::interval::{RangeEntry, RangeIndex};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
@@ -223,15 +224,26 @@ pub struct FormalSemanticProjection {
 impl FormalSemanticProjection {
     /// Builds projection from immutable callable products without re-analysis.
     pub fn from_callable_analyses(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>) -> Self {
+        Self::from_callable_analyses_with_source_index(analyses, None)
+    }
+
+    /// Builds projection from immutable callable products while taking source
+    /// ranges from the current source index. Reused semantic products may
+    /// retain historical ranges; presentation must not publish those stale
+    /// positions.
+    pub fn from_callable_analyses_with_source_index(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>, source_index: Option<&SourceSemanticIndex>) -> Self {
         let mut sites = Vec::new();
         let mut ordered = analyses.values().cloned().collect::<Vec<_>>();
         ordered.sort_by(|left, right| left.callable.cmp(&right.callable));
         for analysis in ordered {
             let module = analysis.callable.owner.module.clone();
+            let module_index = source_index.and_then(|index| index.module(&module));
             let callable_fact = FormalFactRef::Callable(analysis.callable.clone());
             sites.push(FormalFactSite {
                 module: module.clone(),
-                range: analysis.body_range,
+                range: module_index
+                    .and_then(|index| index.structure.callable_body_ranges.get(&analysis.callable).copied())
+                    .unwrap_or(analysis.body_range),
                 fact: callable_fact,
                 status: callable_status(analysis.status),
                 causal_invalidity: callable_causal_invalidity(&analysis),
@@ -240,7 +252,9 @@ impl FormalSemanticProjection {
             for expression in analysis.expressions.values() {
                 sites.push(FormalFactSite {
                     module: module.clone(),
-                    range: expression.range,
+                    range: source_index
+                        .and_then(|index| index.source_site_for_expression(&analysis.callable, expression.id).map(|site| site.range))
+                        .unwrap_or(expression.range),
                     fact: FormalFactRef::Expression {
                         callable: analysis.callable.clone(),
                         expression: expression.id,
@@ -253,7 +267,9 @@ impl FormalSemanticProjection {
             for binding in analysis.bindings.values() {
                 sites.push(FormalFactSite {
                     module: module.clone(),
-                    range: binding.range,
+                    range: source_index
+                        .and_then(|index| index.source_site_for_binding(&analysis.callable, binding.binding).map(|site| site.range))
+                        .unwrap_or(binding.range),
                     fact: FormalFactRef::Binding {
                         callable: analysis.callable.clone(),
                         binding: binding.binding,

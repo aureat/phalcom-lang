@@ -8,6 +8,7 @@ pub mod context;
 pub mod declaration;
 pub mod expected;
 pub mod expression;
+pub mod field_lifecycle;
 pub mod flow;
 pub mod incident;
 pub mod inference;

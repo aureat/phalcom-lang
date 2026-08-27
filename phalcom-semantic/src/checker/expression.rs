@@ -205,7 +205,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         }
         Expr::Field { value, range, .. } => {
             if let Some(class_decl) = ctx.current_class.clone() {
-                if let Some(field_k) = ctx.get_field(&class_decl, ctx.current_side, value) {
+                if let Some((_, field_k)) = ctx.resolve_current_field(&class_decl, ctx.current_side, value) {
                     return TypedExpression::new(field_k.with_range(*range));
                 }
             }
@@ -293,7 +293,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
             if let Expr::Field { value: field_name, .. } = &*assign.name {
                 if let Some(class_decl) = ctx.current_class.clone() {
-                    if let Some(field_k) = ctx.get_field(&class_decl, ctx.current_side, field_name) {
+                    if let Some((field_id, field_k)) = ctx.resolve_field_contract(&class_decl, ctx.current_side, field_name) {
                         let application = ctx.apply_assignability(
                             &val_typed.knowledge,
                             &field_k,
@@ -304,6 +304,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
                         result.causal_invalidity = val_typed.causal_invalidity;
                         apply_relation_application_to_typed(&mut result, &application);
+                        ctx.write_current_field(field_id, field_k, val_typed.knowledge);
                         return result;
                     }
                 }
@@ -939,7 +940,6 @@ fn synthesize_control_method_call(
     expected: &ExpectedType,
     receiver_typed: &TypedExpression,
 ) -> Option<TypedExpression> {
-    eprintln!("control={} recv={:?}", call.method, receiver_typed.knowledge);
     let positional_block = |index: usize| -> Option<&phalcom_ast::ast::BlockExpr> {
         call.args
             .iter()
@@ -977,7 +977,6 @@ fn synthesize_control_method_call(
             if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(ctx, &call.object, receiver_typed, true) {
                 let hierarchy = &ctx.hierarchy;
                 crate::checker::flow::apply_predicate(&mut ctx.flow, &predicate, ctx.store, hierarchy);
-                eprintln!("then predicate={predicate:?} flow={:?}", ctx.flow);
             }
             let then_typed = analyze_control_block(ctx, then_block, expected);
             let then_flow = ctx.flow.clone();

@@ -1,7 +1,7 @@
 //! Structured analyzer invariant incidents.
 
 use crate::checker::binding::{BindingContract, BindingContractOrigin};
-use crate::identity::{AnalysisIncidentId, BindingId, CallableId, ExpressionId, ModuleId};
+use crate::identity::{AnalysisIncidentId, BindingId, CallableId, ExpressionId, FieldId, ModuleId};
 use crate::types::id::TypeId;
 use phalcom_common::range::SourceRange;
 
@@ -62,6 +62,11 @@ pub enum InternalSemanticIncidentDetails {
         binding: BindingId,
         left: bool,
         right: bool,
+    },
+    DivergentFieldContract {
+        field: FieldId,
+        left: crate::types::evidence::TypeKnowledge,
+        right: crate::types::evidence::TypeKnowledge,
     },
     Message {
         message: Box<str>,

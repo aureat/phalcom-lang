@@ -149,7 +149,7 @@ class Consumer {
     let api_callable = CallableId::new(api, Selector::method("value", []).unwrap(), DispatchSide::Class);
     let consumer_callable = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
     let api_body_key = QueryKey::CallableBody(api_callable);
-    let consumer_body_key = QueryKey::CallableBody(consumer_callable);
+    let consumer_body_key = QueryKey::CallableBody(consumer_callable.clone());
     let rev1 = update1.snapshot.id.revision();
     assert_eq!(session.db().query_state(&consumer_body_key).unwrap().revision(), Some(rev1));
 
@@ -172,6 +172,18 @@ class Consumer {
     assert_eq!(consumer_state.validated_revision(), Some(rev2));
     assert_eq!(update2.stats.callables_recomputed, 1);
     assert_eq!(update2.stats.callables_reused, 1);
+    let attachment = update2
+        .snapshot
+        .source_index()
+        .formal_attachment(&consumer_callable)
+        .expect("reused caller source attachment");
+    assert!(
+        attachment
+            .expression_sites
+            .iter()
+            .any(|site| source2.get(site.range.start..site.range.end) == Some("Api.value()")),
+        "reused semantic product must project current expression ranges"
+    );
 }
 
 #[test]

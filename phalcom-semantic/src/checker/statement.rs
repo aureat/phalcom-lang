@@ -158,6 +158,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
         }
         Statement::Throw { expr, .. } => {
             analyze_expression(ctx, expr, &ExpectedType::None);
+            ctx.record_throw_exit();
             None
         }
         Statement::Break { .. } => {

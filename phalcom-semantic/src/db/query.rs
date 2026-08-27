@@ -2,7 +2,7 @@
 
 use crate::advisory::{AdvisoryCallableSummary, AdvisoryModuleProduct};
 use crate::checker::analysis::{CallableAnalysis, CallableAnalysisStatus};
-use crate::checker::body::{analyze_callable_body, signature_consumed_by_body};
+use crate::checker::body::signature_consumed_by_body;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::{InputFingerprint, ProductFingerprint, QueryKey};
 use crate::db::product::DeclarationSurfaceProduct;
@@ -41,6 +41,7 @@ pub struct FormalQueryInputs<'a> {
     pub hierarchy: &'a dyn TypeHierarchy,
     pub base_resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
+    pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
 }
 
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
@@ -990,7 +991,18 @@ pub fn query_callable_body_with_formal_inputs(
 ) -> QueryOutcome<Arc<CallableAnalysis>> {
     let key = QueryKey::CallableBody(callable.clone());
 
-    let input_fingerprint = crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store);
+    let input_fingerprint = match formal_inputs {
+        Some(inputs) => crate::db::fingerprint::callable_body_input_fingerprint_with_formal_inputs(
+            &callable,
+            body,
+            body_range,
+            store,
+            inputs.sources,
+            inputs.linked,
+            inputs.field_lifecycle,
+        ),
+        None => crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store),
+    };
 
     // Complete source signatures must be requested from their canonical query
     // product before body analysis can publish a result. Incomplete source
@@ -1029,7 +1041,7 @@ pub fn query_callable_body_with_formal_inputs(
     db.metrics().record_miss();
 
     // 2. Perform analysis
-    let analysis = analyze_callable_body(
+    let analysis = crate::checker::body::analyze_callable_body_with_fields(
         callable,
         body,
         body_range,
@@ -1041,6 +1053,7 @@ pub fn query_callable_body_with_formal_inputs(
         module,
         budget,
         cancel,
+        formal_inputs.and_then(|inputs| inputs.field_lifecycle),
     );
 
     let mut analysis = analysis;

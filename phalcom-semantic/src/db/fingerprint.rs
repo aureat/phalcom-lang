@@ -14,6 +14,7 @@ use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, DeclarationId, ModuleId};
 use crate::signature::CallableSemanticSignature;
+use crate::source::ParsedModuleUnit;
 use crate::surface::DeclarationSurface;
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::TypeKnowledge;
@@ -23,14 +24,15 @@ use crate::types::store::TypeStore;
 use phalcom_ast::ast::{ClassMember, ImportPath, ImportRoot, IndexAccessor, MetadataLiteral, ParameterDef, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::graph::{ReferenceKind, RuntimeDependencyReason, SemanticEdgeKind};
-use phalcom_modules::interface::{ImportSurface, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
+use phalcom_modules::interface::{ImportSurface, InterfaceBuilder, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
 use phalcom_modules::metadata::{MetadataTarget, ModuleMetadata};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 fn finish_input(hasher: DefaultHasher) -> InputFingerprint {
     InputFingerprint::new(hasher.finish())
@@ -43,6 +45,31 @@ fn finish_product(hasher: DefaultHasher) -> ProductFingerprint {
 fn hash_range(range: SourceRange, hasher: &mut impl Hasher) {
     range.start.hash(hasher);
     range.end.hash(hasher);
+}
+
+/// Hashes parser output while excluding source-location metadata.
+///
+/// Callable semantic input is stable across trivia edits that move a body in
+/// the file. The AST's derived debug form is otherwise a compact structural
+/// representation of the parsed body, and its only source-position values are
+/// `CopyRange` records. Literal values, selectors, bindings, and all other
+/// semantic syntax remain part of the hash.
+fn hash_debug_without_source_ranges<T: std::fmt::Debug>(value: &T, hasher: &mut impl Hasher) {
+    let rendered = format!("{value:?}");
+    let mut normalized = String::with_capacity(rendered.len());
+    let mut remaining = rendered.as_str();
+    while let Some(start) = remaining.find("CopyRange {") {
+        normalized.push_str(&remaining[..start]);
+        let Some(close) = remaining[start..].find('}') else {
+            normalized.push_str(&remaining[start..]);
+            remaining = "";
+            break;
+        };
+        normalized.push_str("CopyRange");
+        remaining = &remaining[start + close + 1..];
+    }
+    normalized.push_str(remaining);
+    normalized.hash(hasher);
 }
 
 fn hash_module_kind(kind: ModuleKind, hasher: &mut impl Hasher) {
@@ -639,8 +666,14 @@ fn hash_internal_incident_shape(incident: &InternalSemanticIncident, hasher: &mu
             left.hash(hasher);
             right.hash(hasher);
         }
-        InternalSemanticIncidentDetails::Message { message } => {
+        InternalSemanticIncidentDetails::DivergentFieldContract { field, left, right } => {
             2u8.hash(hasher);
+            field.hash(hasher);
+            hash_type_knowledge(left, false, hasher);
+            hash_type_knowledge(right, false, hasher);
+        }
+        InternalSemanticIncidentDetails::Message { message } => {
+            3u8.hash(hasher);
             message.hash(hasher);
         }
     }
@@ -829,6 +862,13 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
         hash_binding_contract(&state.contract, hasher);
         hash_binding_consistency(&state.consistency, hasher);
         state.mutable.hash(hasher);
+    }
+    summary.fields.len().hash(hasher);
+    for (field, state) in &summary.fields {
+        field.hash(hasher);
+        hash_type_knowledge(&state.contract, false, hasher);
+        hash_type_knowledge(&state.current, false, hasher);
+        state.initialization.hash(hasher);
     }
     summary.fact_count.hash(hasher);
 }
@@ -1205,16 +1245,87 @@ pub fn hierarchy_edge_product_fingerprint(class_decl: &DeclarationId, super_decl
 }
 
 /// Computes input fingerprint for a callable body query.
-pub fn callable_body_input_fingerprint(callable: &CallableId, body: &[Statement], body_range: SourceRange, store: &TypeStore) -> InputFingerprint {
+pub fn callable_body_input_fingerprint(callable: &CallableId, body: &[Statement], _body_range: SourceRange, store: &TypeStore) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable.hash(&mut hasher);
-    hash_range(body_range, &mut hasher);
     store.id().hash(&mut hasher);
-    // Body input identity is intentionally syntax-sensitive. Product hashing
-    // below never relies on Debug representation; a future parser-owned syntax
-    // fingerprint can replace this without affecting dependency semantics.
-    for statement in body {
-        format!("{statement:?}").hash(&mut hasher);
+    // Body input identity is syntax-sensitive but source-location agnostic.
+    // Product hashing below never relies on Debug representation; a future
+    // parser-owned syntax fingerprint can replace this without affecting
+    // dependency semantics.
+    hash_debug_without_source_ranges(&body, &mut hasher);
+    finish_input(hasher)
+}
+
+pub fn callable_body_input_fingerprint_with_fields(
+    callable: &CallableId,
+    body: &[Statement],
+    body_range: SourceRange,
+    store: &TypeStore,
+    lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
+    for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| field.owner == callable.owner) {
+        field.hash(&mut hasher);
+        hash_type_knowledge(&fact.contract, true, &mut hasher);
+        hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
+        fact.initialization.hash(&mut hasher);
+    }
+    finish_input(hasher)
+}
+
+/// Computes callable-body input identity from the formal workspace inputs.
+///
+/// Linked semantic availability is a direct input even when the callable body
+/// did not record a dependency on a declaration that was absent in an earlier
+/// link. The linked-program product is semantic and therefore does not make
+/// source-position movement invalidate the body query.
+pub fn callable_body_input_fingerprint_with_formal_inputs(
+    callable: &CallableId,
+    body: &[Statement],
+    body_range: SourceRange,
+    store: &TypeStore,
+    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    linked: &LinkedProgram,
+    lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
+    if let Some(unit) = sources.get(&callable.owner.module) {
+        unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
+    }
+    source_resolution_input_fingerprint(sources).raw().hash(&mut hasher);
+    semantic_component_product_fingerprint(linked).raw().hash(&mut hasher);
+    if let Some(lifecycle) = lifecycle {
+        for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| field.owner == callable.owner) {
+            field.hash(&mut hasher);
+            hash_type_knowledge(&fact.contract, true, &mut hasher);
+            hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
+            fact.initialization.hash(&mut hasher);
+        }
+    }
+    finish_input(hasher)
+}
+
+/// Computes the source-local declaration namespace identity consumed by body
+/// resolution. Declaration bodies are intentionally absent; adding/removing a
+/// declaration still changes this identity so a previously unresolved caller
+/// cannot survive a later re-addition without recomputation.
+pub fn source_resolution_input_fingerprint(sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    sources.len().hash(&mut hasher);
+    for (module, unit) in sources {
+        module.hash(&mut hasher);
+        match InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
+            Ok(interface) => unlinked_interface_product_fingerprint(&interface).raw().hash(&mut hasher),
+            Err(_) => {
+                // Invalid interfaces must not reuse a product across a
+                // namespace change. Keep this fallback location agnostic.
+                1u8.hash(&mut hasher);
+                hash_debug_without_source_ranges(&unit.program.statements, &mut hasher);
+            }
+        }
     }
     finish_input(hasher)
 }

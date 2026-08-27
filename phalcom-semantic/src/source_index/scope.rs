@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::identity::{DeclarationId, ModuleId, SemanticTargetId, SourceSiteId};
+use crate::identity::{CallableId, DeclarationId, ModuleId, SemanticTargetId, SourceSiteId};
 use crate::source_index::site::SourceSite;
 use phalcom_common::range::SourceRange;
 
@@ -65,6 +65,11 @@ pub struct SourceScopeIndex {
     pub bindings: BTreeMap<SourceSiteId, SourceBindingInfo>,
     pub sites: BTreeMap<SourceSiteId, SourceSite>,
     pub targets: BTreeMap<SourceSiteId, SemanticTargetId>,
+    /// Current source ranges for callable bodies and their expression order.
+    /// These presentation facts remain current when a semantic callable
+    /// product is reused across source-position movement.
+    pub callable_body_ranges: BTreeMap<CallableId, SourceRange>,
+    pub callable_expression_ranges: BTreeMap<CallableId, Vec<SourceRange>>,
     scope_order: Vec<SourceScopeId>,
     scope_max_end_prefix: Vec<usize>,
     declarations: BTreeMap<(usize, usize), SourceSiteId>,
@@ -92,6 +97,8 @@ impl SourceScopeIndex {
             bindings: BTreeMap::new(),
             sites: BTreeMap::new(),
             targets: BTreeMap::new(),
+            callable_body_ranges: BTreeMap::new(),
+            callable_expression_ranges: BTreeMap::new(),
             scope_order: vec![root],
             scope_max_end_prefix: vec![root_range.end],
             declarations: BTreeMap::new(),
@@ -185,6 +192,11 @@ impl SourceScopeIndex {
                 && let Some(binding) = self.bindings.get(site)
                 && binding.declaration_range.start <= offset
             {
+                if binding.kind == SourceBindingKind::Import
+                    && let Some(target) = self.targets.get(site)
+                {
+                    return SourceNameResolution::Target(target.clone());
+                }
                 return SourceNameResolution::Binding(site.clone());
             }
             current = scope_info.parent;

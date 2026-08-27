@@ -208,6 +208,10 @@ impl SemanticSnapshot {
 
     /// Attaches one immutable compiler-owned source semantic index.
     pub fn with_source_index(mut self, source_index: Arc<SourceSemanticIndex>) -> Self {
+        self.formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses_with_source_index(
+            &self.callable_analyses,
+            Some(&source_index),
+        ));
         self.source_index = source_index;
         self
     }

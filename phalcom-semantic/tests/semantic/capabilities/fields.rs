@@ -5,7 +5,6 @@ use phalcom_semantic::identity::DispatchSide;
 
 /// COMPOSED: field initializer, constructor write, mutation, and read should share one formal field fact.
 #[test]
-#[ignore = "GATED: formal field read/write publication is staged in the capability ledger"]
 fn field_facts_survive_constructor_and_general_writes() {
     let f = Fixture::new(
         r#"
@@ -42,4 +41,68 @@ class Probe {
     f.assert_binding_established(run, "counter", f.ty("Counter"));
     f.assert_binding_established(run, "after", int_ty);
     f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn default_initializer_establishes_instance_field_lifecycle_read() {
+    let f = Fixture::new(
+        r#"
+class Counter {
+  _value: Int = 0
+  read() -> Int { _value }
+}
+"#,
+    );
+    let read = f.callable("Counter", "read", DispatchSide::Instance);
+    f.assert_expression_established(f.expression(read, "_value"), f.ty("Int"));
+}
+
+#[test]
+fn constructor_only_field_requires_all_normal_paths_to_initialize() {
+    let positive = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+  @constructor new(_ value: Int) { _value = value }
+  read() -> Int { _value }
+}
+"#,
+    );
+    let read = positive.callable("Cell", "read", DispatchSide::Instance);
+    positive.assert_expression_established(positive.expression(read, "_value"), positive.ty("Int"));
+
+    let negative = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+  @constructor new(_ flag: Bool, _ value: Int) {
+    if flag { _value = value }
+  }
+  read() { _value }
+}
+"#,
+    );
+    let read = negative.callable("Cell", "read", DispatchSide::Instance);
+    assert!(negative.expression(read, "_value").knowledge.is_unknown());
+}
+
+#[test]
+fn branch_field_writes_join_current_fact_without_rewriting_contract() {
+    let f = Fixture::new(
+        r#"
+class Counter {
+  _value: Number = 0
+
+  choose(_ flag: Bool) {
+    if flag { _value = 1 } else { _value = 2.5 }
+    _value
+  }
+}
+"#,
+    );
+    let choose = f.callable("Counter", "choose", DispatchSide::Instance);
+    let read = f.expression(choose, "_value");
+    f.assert_union_members(read.knowledge.ty().expect("joined field type"), &[f.ty("Int"), f.ty("Float")]);
+    let field = choose.entry_flow.fields.values().next().expect("field flow summary");
+    assert_eq!(field.contract.ty(), Some(f.ty("Number")));
 }

@@ -57,7 +57,24 @@ impl CallableSourceAttachment {
     pub fn from_analysis_with_incidents(callable: CallableId, scopes: &SourceScopeIndex, analysis: &CallableAnalysis) -> (Self, Vec<SourceAttachmentError>) {
         let mut formal_bindings = BTreeMap::new();
         let mut incidents = Vec::new();
-        for state in analysis.bindings.values() {
+        let mut current_bindings = scopes
+            .bindings
+            .values()
+            .filter(|binding| binding.declaration_site.owner == crate::identity::SourceOwner::Callable(callable.clone()))
+            .collect::<Vec<_>>();
+        current_bindings.sort_by_key(|binding| binding.declaration_site.local);
+        let mut states = analysis.bindings.values().collect::<Vec<_>>();
+        states.sort_by_key(|state| state.binding);
+        let rebase_ranges = scopes
+            .callable_body_ranges
+            .get(&callable)
+            .is_some_and(|current| *current != analysis.body_range);
+        let current_bindings = (rebase_ranges && current_bindings.len() == states.len()).then_some(current_bindings);
+        for (offset, state) in states.into_iter().enumerate() {
+            if let Some(binding) = current_bindings.as_ref().and_then(|bindings| bindings.get(offset)) {
+                formal_bindings.insert(state.binding, binding.declaration_site.clone());
+                continue;
+            }
             let candidates = scopes
                 .bindings
                 .values()
@@ -89,7 +106,15 @@ impl CallableSourceAttachment {
         }
 
         let mut expressions = analysis.expressions.values().collect::<Vec<_>>();
-        expressions.sort_by_key(|expression| (expression.range.start, expression.range.end, expression.id));
+        expressions.sort_by_key(|expression| expression.id);
+        let current_expression_ranges = rebase_ranges
+            .then(|| {
+                scopes
+                    .callable_expression_ranges
+                    .get(&callable)
+                    .filter(|ranges| ranges.len() == expressions.len())
+            })
+            .flatten();
         let next_local = scopes
             .sites
             .keys()
@@ -107,7 +132,9 @@ impl CallableSourceAttachment {
             let site = SourceSite::new(
                 crate::identity::SourceOwner::Callable(callable.clone()),
                 crate::identity::SourceSiteLocalId(next_local.saturating_add(offset as u32)),
-                expression.range,
+                current_expression_ranges
+                    .and_then(|ranges| ranges.get(offset).copied())
+                    .unwrap_or(expression.range),
                 SourceSiteKind::Expression,
             );
             if let Some(target) = &expression.callable {

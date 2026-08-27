@@ -583,7 +583,6 @@ class Untyped {
 
 /// COMPOSED: body edits reuse callers, signature edits invalidate callers, and removal/re-addition clears stale products.
 #[test]
-#[ignore = "RED-CAPABILITY: multi-revision publication over-invalidates stable products and loses reused Arc identity"]
 fn dependency_edit_remove_readd_recomputes_affected_summary_deterministically() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(1),
@@ -601,6 +600,7 @@ fn dependency_edit_remove_readd_recomputes_affected_summary_deterministically() 
 class Api {
   @class value() -> Int { 1 }
 }
+
 class Stable {
   @class keep() -> Bool { true }
 }
@@ -702,4 +702,45 @@ class Client {
     assert_eq!(call_v5.knowledge.ty(), Some(string_ty));
     assert!(update_v5.snapshot.callable_analyses.contains_key(&api_value));
     assert!(update_v5.snapshot.internal_incidents.is_empty());
+}
+
+#[test]
+fn inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+    );
+    let callable = |owner: &str| {
+        CallableId::new(
+            DeclarationId::new(module.clone(), owner.into()),
+            Selector::method("value", []).unwrap(),
+            DispatchSide::Class,
+        )
+    };
+    let leaf = callable("Leaf");
+    let middle = callable("Middle");
+    let top = callable("Top");
+    let mut session = SemanticWorkspaceSession::new();
+    let source_v1 = r#"
+class Leaf { @class value() { 1 } }
+class Middle { @class value() { Leaf.value() } }
+class Top { @class value() { Middle.value() } }
+"#;
+    let first = session.update(single_module_input(module.clone(), source_v1, 1));
+    let middle_v1 = first.snapshot.callable_analyses.get(&middle).cloned().expect("Middle v1");
+    let top_v1 = first.snapshot.callable_analyses.get(&top).cloned().expect("Top v1");
+
+    let source_v2 = r#"
+class Leaf { @class value() { 2 } }
+class Middle { @class value() { Leaf.value() } }
+class Top { @class value() { Middle.value() } }
+"#;
+    let second = session.update(single_module_input(module, source_v2, 2));
+    let middle_v2 = second.snapshot.callable_analyses.get(&middle).expect("Middle v2");
+    let top_v2 = second.snapshot.callable_analyses.get(&top).expect("Top v2");
+    assert!(second.snapshot.callable_analyses.contains_key(&leaf));
+    assert!(Arc::ptr_eq(&middle_v1, middle_v2), "stable refreshed Middle product must retain Arc identity");
+    assert!(Arc::ptr_eq(&top_v1, top_v2), "stable refreshed Top product must retain Arc identity");
+    assert_eq!(second.stats.callables_recomputed, 3, "Leaf, Middle, and Top are each finally recomputed once");
+    assert_eq!(second.stats.callables_reused, 0, "a refreshed callable must not also be counted reused");
 }

@@ -4,6 +4,7 @@ use crate::checker::analysis::BindingState;
 use crate::checker::binding::{BindingConsistency, BindingContract, BindingContractOrigin, BindingSeed, BindingWriteResult};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::predicate::FlowPredicate;
+use crate::identity::FieldId;
 use crate::identity::{AnalysisIncidentId, BindingId, ExplanationId};
 use crate::types::evidence::{TypeKnowledge, join_type_knowledge};
 use crate::types::id::TypeId;
@@ -24,6 +25,112 @@ pub enum FlowInvariantFailure {
         left: bool,
         right: bool,
     },
+    DivergentFieldContract {
+        field: FieldId,
+        left: TypeKnowledge,
+        right: TypeKnowledge,
+    },
+}
+
+#[cfg(test)]
+mod field_tests {
+    use super::*;
+    use crate::identity::{DeclarationId, DispatchSide, ModuleId};
+    use crate::types::evidence::EvidenceOrigin;
+
+    fn field() -> FieldId {
+        FieldId::new(DeclarationId::new(ModuleId::core(), "Counter".into()), "_value", DispatchSide::Instance)
+    }
+
+    #[test]
+    fn field_state_keeps_contract_current_and_initialization_separate() {
+        let mut store = TypeStore::new();
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+        let id = field();
+        let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
+        let mut flow = FlowState::new();
+        flow.seed_field(FieldState {
+            field: id.clone(),
+            contract: contract.clone(),
+            current: TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::MissingInitializer),
+            initialization: FieldInitialization::Uninitialized,
+            version: 0,
+        });
+        flow.write_field(
+            &id,
+            TypeKnowledge::established(string_ty, EvidenceOrigin::Flow),
+            FieldInitialization::DefinitelyInitialized,
+        );
+        let state = flow.get_field(&id).expect("field state");
+        assert_eq!(state.contract, contract);
+        assert_eq!(state.current.ty(), Some(string_ty));
+        assert_eq!(state.version, 1);
+    }
+
+    #[test]
+    fn field_join_tracks_current_and_definite_initialization_over_reachable_paths() {
+        let mut store = TypeStore::new();
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+        let float_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Float".into()));
+        let id = field();
+        let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
+        let seed = |current, initialization| FieldState {
+            field: id.clone(),
+            contract: contract.clone(),
+            current,
+            initialization,
+            version: 0,
+        };
+        let mut left = FlowState::new();
+        left.seed_field(seed(
+            TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            FieldInitialization::DefinitelyInitialized,
+        ));
+        let mut right = FlowState::new();
+        right.seed_field(seed(
+            TypeKnowledge::established(float_ty, EvidenceOrigin::Flow),
+            FieldInitialization::DefinitelyInitialized,
+        ));
+        let joined = FlowState::join(&[left.clone(), right], &mut store);
+        let joined_field = joined.get_field(&id).expect("joined field");
+        assert_eq!(joined_field.initialization, FieldInitialization::DefinitelyInitialized);
+        assert_ne!(joined_field.current.ty(), Some(int_ty));
+
+        let mut uninitialized = FlowState::new();
+        uninitialized.seed_field(seed(
+            TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::MissingInitializer),
+            FieldInitialization::Uninitialized,
+        ));
+        let joined = FlowState::join(&[left.clone(), uninitialized], &mut store);
+        assert_eq!(
+            joined.get_field(&id).expect("joined field").initialization,
+            FieldInitialization::MaybeInitialized
+        );
+
+        let unreachable = FlowState::unreachable();
+        let joined = FlowState::join(&[left, unreachable], &mut store);
+        assert_eq!(
+            joined.get_field(&id).expect("reachable field").initialization,
+            FieldInitialization::DefinitelyInitialized
+        );
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum FieldInitialization {
+    Uninitialized,
+    MaybeInitialized,
+    DefinitelyInitialized,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FieldState {
+    pub field: FieldId,
+    pub contract: TypeKnowledge,
+    pub current: TypeKnowledge,
+    pub initialization: FieldInitialization,
+    pub version: u32,
 }
 
 /// Compatibility alias retained for callers compiled against the parent plan.
@@ -85,6 +192,7 @@ impl FactSet {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlowState {
     pub bindings: BTreeMap<BindingId, BindingState>,
+    pub fields: BTreeMap<FieldId, FieldState>,
     pub facts: FactSet,
     pub reachable: bool,
     poisoned: Option<AnalysisIncidentId>,
@@ -100,6 +208,7 @@ impl FlowState {
     pub fn new() -> Self {
         Self {
             bindings: BTreeMap::new(),
+            fields: BTreeMap::new(),
             facts: FactSet::new(),
             reachable: true,
             poisoned: None,
@@ -109,6 +218,7 @@ impl FlowState {
     pub fn unreachable() -> Self {
         Self {
             bindings: BTreeMap::new(),
+            fields: BTreeMap::new(),
             facts: FactSet::new(),
             reachable: false,
             poisoned: None,
@@ -118,6 +228,7 @@ impl FlowState {
     pub fn poisoned(incident: AnalysisIncidentId) -> Self {
         Self {
             bindings: BTreeMap::new(),
+            fields: BTreeMap::new(),
             facts: FactSet::new(),
             reachable: false,
             poisoned: Some(incident),
@@ -198,6 +309,26 @@ impl FlowState {
         self.bindings.get(&binding).and_then(|b| b.contract.as_ref().map(|contract| contract.ty))
     }
 
+    pub fn seed_field(&mut self, state: FieldState) {
+        self.fields.insert(state.field.clone(), state);
+    }
+
+    pub fn get_field(&self, field: &FieldId) -> Option<&FieldState> {
+        self.fields.get(field)
+    }
+
+    pub fn get_field_current(&self, field: &FieldId) -> Option<&TypeKnowledge> {
+        self.fields.get(field).map(|state| &state.current)
+    }
+
+    pub fn write_field(&mut self, field: &FieldId, current: TypeKnowledge, initialization: FieldInitialization) {
+        if let Some(state) = self.fields.get_mut(field) {
+            state.current = current;
+            state.initialization = initialization;
+            state.version += 1;
+        }
+    }
+
     /// Sequential assignment: replaces `current` fact, increments version,
     /// and invalidates dependent path facts (F4).
     pub fn assign(&mut self, binding: BindingId, new_knowledge: TypeKnowledge) {
@@ -269,6 +400,23 @@ impl FlowState {
                             binding,
                             left: mutable,
                             right: right.mutable,
+                        });
+                    }
+                }
+            }
+            let mut all_field_ids = std::collections::BTreeSet::new();
+            for state in &reachable_states {
+                all_field_ids.extend(state.fields.keys().cloned());
+            }
+            for field in all_field_ids {
+                let fields = reachable_states.iter().filter_map(|state| state.fields.get(&field)).collect::<Vec<_>>();
+                if fields.len() == reachable_states.len() {
+                    let contract = &fields[0].contract;
+                    if let Some(right) = fields.iter().find(|state| &state.contract != contract) {
+                        return Err(FlowInvariantFailure::DivergentFieldContract {
+                            field,
+                            left: contract.clone(),
+                            right: right.contract.clone(),
                         });
                     }
                 }
@@ -364,6 +512,37 @@ impl FlowState {
             }
         }
 
+        let mut joined_fields = BTreeMap::new();
+        let mut all_field_ids = std::collections::BTreeSet::new();
+        for state in &reachable_states {
+            all_field_ids.extend(state.fields.keys().cloned());
+        }
+        for field in all_field_ids {
+            let incoming = reachable_states.iter().filter_map(|state| state.fields.get(&field)).collect::<Vec<_>>();
+            if incoming.len() != reachable_states.len() {
+                continue;
+            }
+            let sample = incoming[0];
+            let current = join_type_knowledge(store, incoming.iter().map(|state| state.current.clone()));
+            let initialization = if incoming.iter().all(|state| state.initialization == FieldInitialization::DefinitelyInitialized) {
+                FieldInitialization::DefinitelyInitialized
+            } else if incoming.iter().all(|state| state.initialization == FieldInitialization::Uninitialized) {
+                FieldInitialization::Uninitialized
+            } else {
+                FieldInitialization::MaybeInitialized
+            };
+            joined_fields.insert(
+                field.clone(),
+                FieldState {
+                    field,
+                    contract: sample.contract.clone(),
+                    current,
+                    initialization,
+                    version: incoming.iter().map(|state| state.version).max().unwrap_or(0) + 1,
+                },
+            );
+        }
+
         // Facts: intersection across reachable states
         let mut joined_facts = reachable_states[0].facts.clone();
         for s in &reachable_states[1..] {
@@ -372,6 +551,7 @@ impl FlowState {
 
         FlowState {
             bindings: joined_bindings,
+            fields: joined_fields,
             facts: joined_facts,
             reachable: true,
             poisoned: None,
@@ -411,6 +591,18 @@ impl FlowState {
                 });
             }
         }
+        for (field, header_field) in &header.fields {
+            let Some(next_field) = next_header.fields.get(field) else {
+                continue;
+            };
+            if header_field.contract != next_field.contract {
+                return Err(FlowInvariantFailure::DivergentFieldContract {
+                    field: field.clone(),
+                    left: header_field.contract.clone(),
+                    right: next_field.contract.clone(),
+                });
+            }
+        }
         let mut widened_bindings = header.bindings.clone();
         for (id, next_b) in &next_header.bindings {
             if let Some(h_b) = header.bindings.get(id) {
@@ -433,8 +625,10 @@ impl FlowState {
             }
         }
         let invariant_facts = header.facts.intersect(&next_header.facts);
+        let widened_fields = Self::join_impl(&[header.clone(), next_header.clone()], store, Some(hierarchy)).fields;
         Ok(FlowState {
             bindings: widened_bindings,
+            fields: widened_fields,
             facts: invariant_facts,
             reachable: true,
             poisoned: None,

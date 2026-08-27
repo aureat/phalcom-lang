@@ -88,7 +88,6 @@ class Probe {
 
 /// COMPOSED: collection rest capture must preserve head precision and product structure.
 #[test]
-#[ignore = "GATED: list/rest pattern lowering is not formal yet"]
 fn collection_and_destructure_facts_preserve_element_shapes() {
     let f = Fixture::new(
         r#"

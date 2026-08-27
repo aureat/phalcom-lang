@@ -3,7 +3,7 @@
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::InternalSemanticIncident;
 use crate::diagnostic::SemanticDiagnostic;
-use crate::identity::{AnalysisIncidentId, BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
+use crate::identity::{AnalysisIncidentId, BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId};
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{DynamicReason, TypeKnowledge};
 use crate::types::outcome::{BlockReason, BudgetReport};
@@ -186,9 +186,17 @@ pub struct FlowBindingSummary {
     pub mutable: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FlowFieldSummary {
+    pub contract: TypeKnowledge,
+    pub current: TypeKnowledge,
+    pub initialization: crate::checker::flow::FieldInitialization,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FlowStateSummary {
     pub bindings: BTreeMap<BindingId, FlowBindingSummary>,
+    pub fields: BTreeMap<FieldId, FlowFieldSummary>,
     pub fact_count: usize,
 }
 

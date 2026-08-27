@@ -6,7 +6,6 @@ use crate::advisory::{
     advisory_fact_from_formal, analyze_expr, analyze_statements,
 };
 use crate::checker::analysis::normal_return_summary;
-use crate::checker::body::analyze_callable_body;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
@@ -60,6 +59,12 @@ pub struct SemanticUpdateStats {
     pub source_indexes_recomputed: usize,
     pub advisory_sources_recomputed: usize,
     pub advisory_callables_recomputed: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CallableRevisionDisposition {
+    Reused,
+    Recomputed,
 }
 
 /// Product-level effects of one immutable semantic publication.
@@ -153,6 +158,7 @@ impl SemanticWorkspaceSession {
         let resolver = LinkedTypeResolver::new(dummy_linked, known_declarations, ModuleId::core());
         let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::core(), &mut base_dispatch)
             .expect("canonical native surface must import during semantic bootstrap");
+        crate::checker::context::ensure_core_object_type_tests(&mut store, &base_declarations, &mut base_dispatch);
 
         let mut base_callable_signatures = CallableSignatureTable::new();
         for (_, signature) in native_report.callable_signatures {
@@ -281,7 +287,7 @@ impl SemanticWorkspaceSession {
         self.db.begin_revision();
         let mut stats = SemanticUpdateStats::default();
         let mut invalidated_keys = BTreeSet::new();
-        let mut recomputed_keys = Vec::new();
+        let mut callable_dispositions = BTreeMap::new();
         let previous_sources = self.sources.clone();
         let previous_snapshot = self.last_snapshot.clone();
 
@@ -663,108 +669,149 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        // 7. Check Callable Bodies with DB caching and reuse
-        let mut callable_analyses = HashMap::new();
-        let formal_inputs = FormalQueryInputs {
-            sources: &input.sources,
-            linked: &input.linked,
-            hierarchy: &hierarchy,
-            base_resolver: &resolver,
-            declarations: &declarations,
-        };
+        // 7. Check field defaults, constructors, then ordinary callable bodies.
+        // Constructor-first ordering makes lifecycle publication independent of
+        // source member order.
+        let mut default_field_lifecycle = crate::checker::field_lifecycle::FieldLifecycleTable::default();
         for (module_id, parsed_unit) in &input.sources {
+            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
-                    let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                    let type_params_map = if let Some(sig) = declarations.generic_signature(&decl_id) {
-                        let mut map = std::collections::HashMap::new();
-                        for &param_id in sig.parameters.iter() {
-                            let name = self.store.type_parameter(param_id).name.to_string();
-                            let param_form = self.store.parameter_form(param_id);
-                            map.insert(name, param_form);
-                        }
-                        map
-                    } else {
-                        std::collections::HashMap::new()
-                    };
-                    let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
-                        parent: &resolver,
-                        type_parameters: type_params_map,
-                    };
-
-                    for member in &class_def.members {
-                        let side = match member {
-                            ClassMember::Method(m) if m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor") => {
-                                crate::identity::DispatchSide::Instance
+                    default_field_lifecycle.extend(crate::checker::field_lifecycle::default_field_seeds(&mut ctx, class_def));
+                }
+            }
+        }
+        let mut field_lifecycle = default_field_lifecycle.clone();
+        let mut callable_analyses = HashMap::new();
+        for constructors_only in [true, false] {
+            for (module_id, parsed_unit) in &input.sources {
+                for stmt in &parsed_unit.program.statements {
+                    if let Statement::Class(class_def) = stmt {
+                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        let type_params_map = if let Some(sig) = declarations.generic_signature(&decl_id) {
+                            let mut map = std::collections::HashMap::new();
+                            for &param_id in sig.parameters.iter() {
+                                let name = self.store.type_parameter(param_id).name.to_string();
+                                let param_form = self.store.parameter_form(param_id);
+                                map.insert(name, param_form);
                             }
-                            _ => crate::checker::declaration::member_side(member),
+                            map
+                        } else {
+                            std::collections::HashMap::new()
                         };
-                        let (selector_opt, body_opt, range_opt) = match member {
-                            ClassMember::Method(m) => {
-                                let slots = m
-                                    .params
-                                    .iter()
-                                    .map(|p| {
-                                        if let Some(ref l) = p.label {
-                                            phalcom_common::selector::SelectorSlot::Label(l.clone())
-                                        } else {
-                                            phalcom_common::selector::SelectorSlot::Positional
-                                        }
-                                    })
-                                    .collect::<Vec<_>>();
-                                (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
-                            }
-                            ClassMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
-                            ClassMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
-                            _ => (None, None, None),
+                        let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+                            parent: &resolver,
+                            type_parameters: type_params_map,
                         };
 
-                        if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
-                            let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector, side);
-                            let query_key = QueryKey::CallableBody(callable_id.clone());
-
-                            let outcome = query_callable_body_with_formal_inputs(
-                                &mut self.db,
-                                callable_id.clone(),
-                                body,
-                                range,
-                                &mut self.store,
-                                &hierarchy,
-                                &scoped_resolver,
-                                &declarations,
-                                &dispatch,
-                                module_id.clone(),
-                                budget,
-                                cancel,
-                                Some(&formal_inputs),
-                            );
-
-                            match outcome {
-                                QueryOutcome::Ready(analysis) => {
-                                    if self.db.query_state(&query_key).is_some_and(|s| s.revision() == Some(self.db.revision())) {
-                                        recomputed_keys.push(query_key);
-                                        stats.callables_recomputed += 1;
-                                    } else {
-                                        stats.callables_reused += 1;
-                                    }
-                                    if !analysis.diagnostics.is_empty() {
-                                        diags_by_module
-                                            .entry(module_id.clone())
-                                            .or_default()
-                                            .extend(analysis.diagnostics.iter().cloned());
-                                    }
-                                    callable_analyses.insert(callable_id, analysis);
+                        for member in &class_def.members {
+                            let is_constructor =
+                                matches!(member, ClassMember::Method(m) if m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor"));
+                            if is_constructor != constructors_only {
+                                continue;
+                            }
+                            let side = match member {
+                                ClassMember::Method(m) if m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor") => {
+                                    crate::identity::DispatchSide::Instance
                                 }
-                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                                QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                _ => crate::checker::declaration::member_side(member),
+                            };
+                            let (selector_opt, body_opt, range_opt) = match member {
+                                ClassMember::Method(m) => {
+                                    let slots = m
+                                        .params
+                                        .iter()
+                                        .map(|p| {
+                                            if let Some(ref l) = p.label {
+                                                phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                            } else {
+                                                phalcom_common::selector::SelectorSlot::Positional
+                                            }
+                                        })
+                                        .collect::<Vec<_>>();
+                                    (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
+                                }
+                                ClassMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
+                                ClassMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
+                                _ => (None, None, None),
+                            };
+
+                            if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
+                                let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector, side);
+                                let query_key = QueryKey::CallableBody(callable_id.clone());
+
+                                let formal_inputs = FormalQueryInputs {
+                                    sources: &input.sources,
+                                    linked: &input.linked,
+                                    hierarchy: &hierarchy,
+                                    base_resolver: &resolver,
+                                    declarations: &declarations,
+                                    field_lifecycle: Some(&field_lifecycle),
+                                };
+                                let outcome = query_callable_body_with_formal_inputs(
+                                    &mut self.db,
+                                    callable_id.clone(),
+                                    body,
+                                    range,
+                                    &mut self.store,
+                                    &hierarchy,
+                                    &scoped_resolver,
+                                    &declarations,
+                                    &dispatch,
+                                    module_id.clone(),
+                                    budget,
+                                    cancel,
+                                    Some(&formal_inputs),
+                                );
+
+                                match outcome {
+                                    QueryOutcome::Ready(analysis) => {
+                                        if self.db.query_state(&query_key).is_some_and(|s| s.revision() == Some(self.db.revision())) {
+                                            callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
+                                        } else {
+                                            callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                        }
+                                        if !analysis.diagnostics.is_empty() {
+                                            diags_by_module
+                                                .entry(module_id.clone())
+                                                .or_default()
+                                                .extend(analysis.diagnostics.iter().cloned());
+                                        }
+                                        callable_analyses.insert(callable_id.clone(), analysis);
+                                        if is_constructor {
+                                            let finalized = crate::checker::field_lifecycle::finalize_instance_field_lifecycle(
+                                                &default_field_lifecycle,
+                                                callable_analyses
+                                                    .values()
+                                                    .filter(|analysis| analysis.callable.owner == decl_id && analysis.callable.side == DispatchSide::Instance)
+                                                    .filter(|analysis| {
+                                                        dispatch
+                                                            .get_surface(&decl_id)
+                                                            .and_then(|surface| surface.get_callable(DispatchSide::Class, &analysis.callable.selector))
+                                                            .is_some_and(|signature| signature.kind == crate::dispatch::CallableSemanticKind::Constructor)
+                                                    })
+                                                    .map(AsRef::as_ref),
+                                            );
+                                            for (field, fact) in finalized.fields {
+                                                if field.owner == decl_id {
+                                                    field_lifecycle.fields.insert(field, fact);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                }
                             }
                         }
                     }
                 }
             }
+        }
 
+        for (module_id, parsed_unit) in &input.sources {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
 
             for stmt in &parsed_unit.program.statements {
@@ -796,6 +843,9 @@ impl SemanticWorkspaceSession {
             &mut dispatch,
             &mut callable_signatures,
             &mut callable_analyses,
+            previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),
+            &field_lifecycle,
+            &mut callable_dispositions,
             &mut diags_by_module,
             budget,
             cancel,
@@ -937,7 +987,7 @@ impl SemanticWorkspaceSession {
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
         );
-        snapshot_obj.source_index = Arc::new(source_index);
+        snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
         let snapshot = Arc::new(snapshot_obj);
@@ -985,6 +1035,18 @@ impl SemanticWorkspaceSession {
             .count();
         stats.modules_relinked = module_graph_changed.then_some(changed_modules.len()).unwrap_or_default();
         stats.project_graph_rebuilt = effects.module_graph_changed;
+        stats.callables_recomputed = callable_dispositions
+            .values()
+            .filter(|disposition| **disposition == CallableRevisionDisposition::Recomputed)
+            .count();
+        stats.callables_reused = callable_dispositions
+            .values()
+            .filter(|disposition| **disposition == CallableRevisionDisposition::Reused)
+            .count();
+        let recomputed_keys = callable_dispositions
+            .iter()
+            .filter_map(|(callable, disposition)| (*disposition == CallableRevisionDisposition::Recomputed).then(|| QueryKey::CallableBody(callable.clone())))
+            .collect::<Vec<_>>();
 
         self.last_snapshot = Some(snapshot.clone());
         self.last_known_good = Some(snapshot.clone());
@@ -1691,6 +1753,9 @@ fn refresh_inferred_callable_results(
     dispatch: &mut SurfaceDispatchResolver,
     callable_signatures: &mut CallableSignatureTable,
     callable_analyses: &mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    previous_callable_analyses: Option<&HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    field_lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,
+    callable_dispositions: &mut BTreeMap<CallableId, CallableRevisionDisposition>,
     diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     budget: QueryBudget,
     cancel: &CancellationToken,
@@ -1799,13 +1864,13 @@ fn refresh_inferred_callable_results(
                         continue;
                     };
                     let callable = crate::identity::CallableId::new(decl_id.clone(), selector, side);
-                    let affected = callable_analyses.get(&callable).is_some_and(|analysis| {
-                        changed_callables.contains(&callable) || analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency))
-                    });
+                    let affected = callable_analyses
+                        .get(&callable)
+                        .is_some_and(|analysis| analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency)));
                     if !affected {
                         continue;
                     }
-                    let mut analysis = analyze_callable_body(
+                    let mut analysis = crate::checker::body::analyze_callable_body_with_fields(
                         callable.clone(),
                         body,
                         range,
@@ -1817,6 +1882,7 @@ fn refresh_inferred_callable_results(
                         module_id.clone(),
                         budget,
                         cancel,
+                        Some(field_lifecycle),
                     );
                     analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
                     if !analysis.diagnostics.is_empty() {
@@ -1827,7 +1893,15 @@ fn refresh_inferred_callable_results(
                             }
                         }
                     }
-                    callable_analyses.insert(callable, Arc::new(analysis));
+                    let stable_previous = previous_callable_analyses
+                        .and_then(|analyses| analyses.get(&callable))
+                        .or_else(|| callable_analyses.get(&callable));
+                    let replacement = match stable_previous {
+                        Some(previous) if previous.dependency_fingerprint == analysis.dependency_fingerprint => previous.clone(),
+                        _ => Arc::new(analysis),
+                    };
+                    callable_analyses.insert(callable.clone(), replacement);
+                    callable_dispositions.insert(callable, CallableRevisionDisposition::Recomputed);
                 }
             }
         }

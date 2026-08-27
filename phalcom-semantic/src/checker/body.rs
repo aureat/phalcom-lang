@@ -80,6 +80,36 @@ pub fn analyze_callable_body(
     budget: QueryBudget,
     cancel: &CancellationToken,
 ) -> CallableAnalysis {
+    analyze_callable_body_with_fields(
+        callable,
+        body,
+        body_range,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        dispatch,
+        module,
+        budget,
+        cancel,
+        None,
+    )
+}
+
+pub fn analyze_callable_body_with_fields(
+    callable: CallableId,
+    body: &[Statement],
+    body_range: SourceRange,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+    dispatch: &SurfaceDispatchResolver,
+    module: ModuleId,
+    budget: QueryBudget,
+    cancel: &CancellationToken,
+    field_lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
+) -> CallableAnalysis {
     let control = CheckerControl::new(budget, cancel);
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
     ctx.current_callable = Some(callable.clone());
@@ -101,6 +131,9 @@ pub fn analyze_callable_body(
         callable.selector.kind,
         phalcom_common::selector::SelectorKind::Setter | phalcom_common::selector::SelectorKind::SubscriptSet
     );
+    if let Some(field_lifecycle) = field_lifecycle {
+        field_lifecycle.seed_flow_for_owner(&mut ctx.flow, &callable.owner, constructor_body);
+    }
 
     if let Some((signature_id, sig)) = sig_opt {
         ctx.record_consumed_callable_signature(&signature_id, &sig);

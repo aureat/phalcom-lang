@@ -48,6 +48,49 @@ fn imported_binding_use_resolves_to_exported_declaration_not_local_import_site()
 }
 
 #[test]
+fn imported_alias_keeps_local_declaration_metadata_and_external_read_identity() {
+    let source = "from .shapes import Circle as C\nC\n";
+    let parsed = phalcom_ast::parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let project = ResolvedProjectId::from_raw(1);
+    let importer = module(project, &["main"]);
+    let shapes = module(project, &["shapes"]);
+    let circle = DeclarationId::new(shapes.clone(), "Circle".into());
+    let context = SourceIndexContext::default()
+        .with_resolved_import(importer.clone(), ".shapes", shapes.clone())
+        .with_target(shapes, "Circle", SemanticTargetId::Declaration(circle.clone()));
+    let mut scopes = build_source_scope_index(importer, &parsed.program, &context);
+    let alias = scopes.bindings.values().find(|binding| binding.name.as_ref() == "C").expect("alias binding");
+    assert_eq!(alias.kind, phalcom_semantic::source_index::SourceBindingKind::Import);
+    let alias_site = alias.declaration_site.clone();
+    assert_eq!(scopes.target_for(&alias_site), Some(&SemanticTargetId::Declaration(circle.clone())));
+    let occurrences = OccurrenceIndex::from_program(&mut scopes, &parsed.program);
+    let use_offset = source.rfind('C').expect("alias use");
+    assert_eq!(
+        occurrences.occurrence_at(use_offset).and_then(|occurrence| occurrence.target),
+        Some(&SemanticTargetId::Declaration(circle))
+    );
+}
+
+#[test]
+fn module_import_read_resolves_to_canonical_module_target() {
+    let source = "import .shapes as S\nS\n";
+    let parsed = phalcom_ast::parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let project = ResolvedProjectId::from_raw(1);
+    let importer = module(project, &["main"]);
+    let shapes = module(project, &["shapes"]);
+    let context = SourceIndexContext::default().with_resolved_import(importer.clone(), ".shapes", shapes.clone());
+    let mut scopes = build_source_scope_index(importer, &parsed.program, &context);
+    let occurrences = OccurrenceIndex::from_program(&mut scopes, &parsed.program);
+    let use_offset = source.rfind('S').expect("module alias use");
+    assert_eq!(
+        occurrences.occurrence_at(use_offset).and_then(|occurrence| occurrence.target),
+        Some(&SemanticTargetId::Module(shapes))
+    );
+}
+
+#[test]
 fn imported_class_participates_in_expression_type_inference_with_declaring_module_identity() {
     let project = ResolvedProjectId::from_raw(1);
     let point_module = module(project, &["shapes", "point"]);
