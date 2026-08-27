@@ -170,6 +170,68 @@ class Probe {
 }
 
 #[test]
+fn constructorless_class_inherits_core_class_new_from_resolved_module() {
+    let module = ModuleId::resolved(ResolvedProjectId::from_raw(88), ModulePath::root());
+    let source: Arc<str> = Arc::from(
+        r#"
+class Person {}
+
+const person = Person.new()
+
+class Probe {
+  make() {
+    Person.new()
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let snapshot = analysis.snapshot;
+
+    let person = DeclarationId::new(module.clone(), "Person".into());
+    let person_ty = snapshot.declarations.form(&person).expect("Person type");
+    let probe = DeclarationId::new(module.clone(), "Probe".into());
+    let make = CallableId::new(probe, Selector::method("make", Vec::new()).unwrap(), DispatchSide::Instance);
+    let default_new = CallableId::new(
+        DeclarationId::new(ModuleId::core(), "Class".into()),
+        Selector::method("new", Vec::new()).unwrap(),
+        DispatchSide::Instance,
+    );
+
+    let make_analysis = snapshot.callable_analyses.get(&make).expect("Probe.make body analysis");
+    let constructor_call = make_analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Person.new()"))
+        .expect("Person.new expression");
+    assert_eq!(
+        constructor_call.callable.as_ref(),
+        Some(&default_new),
+        "resolved user modules must dispatch constructor-less new() to canonical core Class.new: {constructor_call:#?}"
+    );
+    assert_eq!(
+        constructor_call.knowledge.ty(),
+        Some(person_ty),
+        "core Class.new Self return must specialize to a class object declared in another module: {constructor_call:#?}"
+    );
+
+    let module_index = snapshot.source_index.module(&module).expect("source index");
+    let person_binding = module_index
+        .structure
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "person")
+        .expect("top-level person binding");
+    assert_eq!(
+        snapshot.advisory_fact(&person_binding.declaration_site).map(|fact| &fact.shape),
+        Some(&ValueShape::Instance(person)),
+        "advisory top-level binding must preserve the concrete receiver of inherited Class.new across module boundaries"
+    );
+}
+
+#[test]
 fn receiver_query_falls_back_to_authoritative_binding_fact() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
