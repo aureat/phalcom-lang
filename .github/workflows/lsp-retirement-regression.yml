@@ -23,7 +23,15 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Apply semantic unification candidate
-        run: python .github/scripts/apply-lsp-retirement-semantic-unification.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/apply-lsp-retirement-semantic-unification.py')
+          text = path.read_text()
+          text = text.replace('"                let members = surface.surface(side);",\n    "                let members = surface.surface(lookup_side);",', '"surface.surface(side)",\n    "surface.surface(lookup_side)",')
+          path.write_text(text)
+          PY
+          python .github/scripts/apply-lsp-retirement-semantic-unification.py
       - name: Format and diff check
         run: |
           cargo fmt --all
