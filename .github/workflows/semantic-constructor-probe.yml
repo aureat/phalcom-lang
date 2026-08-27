@@ -20,7 +20,7 @@ jobs:
           ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Semantic factory identity
-        run: cargo test -p phalcom-semantic --test semantic constructor_factory_publishes_target_and_inferred_signature -- --nocapture
+      - name: Semantic constructor models
+        run: cargo test -p phalcom-semantic --test semantic constructor_factory_probe -- --nocapture
       - name: LSP factory composition
         run: cargo test -p phalcom-lsp --test integration composition1::constructor_factory_inference_is_authoritative_across_lsp_features -- --nocapture
