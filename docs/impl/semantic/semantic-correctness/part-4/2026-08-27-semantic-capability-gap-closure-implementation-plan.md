@@ -1,6 +1,6 @@
 # Semantic Capability Gap Closure Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Close the five remaining semantic capability gaps—trusted branch refinement, higher-order closure invocation, formal field lifecycle facts, list/rest destructuring, and incremental callable reuse—and then remove the separate imported-binding identity failure without weakening Phalcom's formal evidence rules.
 
@@ -136,7 +136,7 @@ Tasks 1, 3, and 9 are logically independent after Task 0. Task 2 must use the me
 - Consumes: the final Technical-03 versions of `CallableApplicationTarget`, `apply_resolved_callable`, generic argument binding, `TypeKnowledge`, inference proof-state publication, and call-result authority capping.
 - Produces: a written baseline in the work log naming the exact post-Spec-03 commit and the observed RED/GATED state of each gap.
 
-- [ ] **Step 1: Start from a clean post-Spec-03 revision.**
+- [x] **Step 1: Start from a clean post-Spec-03 revision.**
 
 Run:
 
@@ -148,7 +148,7 @@ git log -1 --oneline
 
 Expected: no unrelated source edits are mixed into the gap-closure branch.
 
-- [ ] **Step 2: Verify Technical 03 before touching gap code.**
+- [x] **Step 2: Verify Technical 03 before touching gap code.**
 
 Run the Technical-03 focused tests from its implementation plan, followed by:
 
@@ -158,7 +158,7 @@ cargo test -p phalcom-semantic --test semantic generics -- --nocapture
 
 Expected: Technical-03 generic proof-integrity coverage is GREEN. If it is not, this plan does not begin; fix Technical 03 on its own branch.
 
-- [ ] **Step 3: Probe the five gaps without changing assertions.**
+- [x] **Step 3: Probe the five gaps without changing assertions.**
 
 Run:
 
@@ -173,7 +173,7 @@ cargo test -p phalcom-semantic --test semantic imported_binding_use_resolves_to_
 
 Expected: capture the exact failure shapes. Do not update expected values to match current behavior.
 
-- [ ] **Step 4: Record post-Spec-03 overlap.**
+- [x] **Step 4: Record post-Spec-03 overlap.**
 
 In the implementation work log, explicitly record whether Technical 03 changed any of these anchors:
 
@@ -199,7 +199,7 @@ db/fingerprint.rs:
 
 Expected: subsequent tasks use the merged APIs, not this document's pre-merge assumptions.
 
-- [ ] **Step 5: Commit only the baseline log if one is maintained.**
+- [x] **Step 5: Commit only the baseline log if one is maintained.**
 
 Suggested message:
 
@@ -233,7 +233,7 @@ A second correctness issue must be fixed at the same time: the current positive 
   - relation-aware `apply_predicate(..., hierarchy)`
   - branch-local refined `FlowState` before `analyze_control_block`.
 
-- [ ] **Step 1: Add a RED safety test proving method spelling alone cannot refine.**
+- [x] **Step 1: Add a RED safety test proving method spelling alone cannot refine.**
 
 Add beside the composed branch test:
 
@@ -273,7 +273,7 @@ cargo test -p phalcom-semantic --test semantic overridden_is_method_does_not_gai
 
 Expected: RED if syntactic extraction is wired without semantic trust; GREEN before wiring is also acceptable because no refinement is currently applied. Keep it as the future soundness guard.
 
-- [ ] **Step 2: Add a trusted-predicate wrapper.**
+- [x] **Step 2: Add a trusted-predicate wrapper.**
 
 Keep `extract_predicate` as syntax extraction. Add a wrapper in `flow/predicate.rs` or `expression.rs` with this contract:
 
@@ -299,7 +299,7 @@ If the condition resolved to an override or has no exact callable identity, retu
 
 Other already-modeled compiler predicates such as direct binary/nil comparisons may pass through unchanged because their semantics come from compiler-recognized operators, not an overridable user method.
 
-- [ ] **Step 3: Make positive type refinement relation-aware.**
+- [x] **Step 3: Make positive type refinement relation-aware.**
 
 Change the transfer entry point to accept hierarchy:
 
@@ -344,7 +344,7 @@ A broad `Object` negative branch therefore remains `Object`; do not invent `Obje
 
 Use `EvidenceOrigin::Flow` for the new branch fact. Do not alter `BindingState.contract`.
 
-- [ ] **Step 4: Apply true/false predicates before branch bodies.**
+- [x] **Step 4: Apply true/false predicates before branch bodies.**
 
 In the structured `ifTrue(... ifFalse: ...)` path inside `synthesize_control_method_call`:
 
@@ -372,7 +372,7 @@ let else_flow = ctx.flow.clone();
 
 Resolve borrow details according to the post-Spec-03 `CheckingContext` shape; do not clone or construct a second hierarchy.
 
-- [ ] **Step 5: Restore the strong assertion in the committed composed test.**
+- [x] **Step 5: Restore the strong assertion in the committed composed test.**
 
 The current main removed the direct branch-expression assertion while retaining the `Int` normal-return expectation. Reinstate:
 
@@ -382,7 +382,7 @@ f.assert_expression_established(f.expression_n(run, "value", 1), int_ty);
 
 This proves the fact is refined at the use site, not only accidentally narrowed by return summarization.
 
-- [ ] **Step 6: Run focused branch suites.**
+- [x] **Step 6: Run focused branch suites.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic refined_branch_with_abrupt_else_publishes_only_normal_value -- --nocapture
@@ -393,7 +393,7 @@ cargo test -p phalcom-semantic --test semantic flow_graph -- --nocapture
 
 Expected: trusted `Object.is(Int)` narrows the positive branch to established `Int`; abrupt false path contributes no normal return; user overrides do not receive refinement authority.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```sh
 git add phalcom-semantic/src/checker/flow/predicate.rs \
@@ -434,7 +434,7 @@ pub(crate) fn callable_value_target(
 
 Name may be adjusted to match Technical 03, but there must be exactly one implementation shared by direct and `.call()` syntax.
 
-- [ ] **Step 1: Add an equivalence RED test.**
+- [x] **Step 1: Add an equivalence RED test.**
 
 Extend `higher_order.rs`:
 
@@ -463,7 +463,7 @@ class Probe {
 
 Expected before implementation: `a` succeeds while `b` is `Unknown(DynamicMessageSend)` or otherwise unresolved.
 
-- [ ] **Step 2: Extract callable-type target construction from `synthesize_unqualified_call`.**
+- [x] **Step 2: Extract callable-type target construction from `synthesize_unqualified_call`.**
 
 Move the existing structural signature construction into one helper. It must copy from `CallableType`:
 
@@ -489,13 +489,13 @@ CallableApplicationTarget::callable_value(signature, authority)
 
 Do not perform argument matching in this helper. Technical 03 owns binding and proof participation.
 
-- [ ] **Step 3: Use the helper from direct lexical invocation.**
+- [x] **Step 3: Use the helper from direct lexical invocation.**
 
 Replace the hand-built `TypeData::Callable` block in `synthesize_unqualified_call` with the shared helper and `apply_resolved_callable`.
 
 The direct `f(...)` behavior must remain unchanged.
 
-- [ ] **Step 4: Intercept `.call()` on a structural callable before nominal dispatch.**
+- [x] **Step 4: Intercept `.call()` on a structural callable before nominal dispatch.**
 
 In `synthesize_method_call`, after receiver analysis and before `resolve_dispatch_target`:
 
@@ -523,7 +523,7 @@ if call.method == "call" {
 
 Only structural `TypeData::Callable` values take this path. A nominal object with a user-defined method named `call` must continue through ordinary dispatch.
 
-- [ ] **Step 5: Remove the ignore marker from the committed higher-order probe.**
+- [x] **Step 5: Remove the ignore marker from the committed higher-order probe.**
 
 Change:
 
@@ -535,7 +535,7 @@ to an ordinary `#[test]`.
 
 Do not weaken its expected `Int` normal return.
 
-- [ ] **Step 6: Add a non-callable/nominal guard.**
+- [x] **Step 6: Add a non-callable/nominal guard.**
 
 Add a test proving a nominal class's `call()` method still resolves nominally:
 
@@ -547,7 +547,7 @@ class Fun {
 
 The structural shortcut must not capture `Fun.call()`.
 
-- [ ] **Step 7: Run focused tests.**
+- [x] **Step 7: Run focused tests.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic higher_order -- --nocapture
@@ -556,7 +556,7 @@ cargo test -p phalcom-semantic --test semantic call -- --nocapture
 
 Expected: direct invocation and `.call()` share return knowledge, status, argument diagnostics, and post-Spec-03 proof authority.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```sh
 git add phalcom-semantic/src/checker/call.rs \
@@ -598,7 +598,7 @@ pub(crate) fn decompose_list_rest(
 ) -> TypeKnowledge;
 ```
 
-- [ ] **Step 1: Add unit tests for epistemic preservation.**
+- [x] **Step 1: Add unit tests for epistemic preservation.**
 
 For a known `List<Int>`:
 
@@ -611,7 +611,7 @@ For `Unknown(UnresolvedName("x"))`, both projections retain that exact unknown r
 
 For `Dynamic(ExplicitEscape)`, both remain that exact dynamic reason.
 
-- [ ] **Step 2: Implement the two List decomposition helpers.**
+- [x] **Step 2: Implement the two List decomposition helpers.**
 
 `decompose_list_element` may delegate to:
 
@@ -627,7 +627,7 @@ parent.derive_known_type(parent_ty, EvidenceOrigin::PatternDecomposition)
 
 Do not manufacture a list type from an Unknown/Dynamic parent.
 
-- [ ] **Step 3: Add `Pattern::List` to declaration-pattern binding.**
+- [x] **Step 3: Add `Pattern::List` to declaration-pattern binding.**
 
 In `bind_declaration_pattern`:
 
@@ -673,13 +673,13 @@ Pattern::List { elements, rest, .. } => {
 
 Use the post-Spec-03/current `ValueSemanticFact` API exactly; preserve causal invalidity.
 
-- [ ] **Step 4: Add the same List case to runtime-pattern binding.**
+- [x] **Step 4: Add the same List case to runtime-pattern binding.**
 
 `bind_pattern` is used by `if let`, `while let`, and `for`. It must project the same List facts instead of silently dropping rest bindings.
 
 Do not add Record/Map/Variant implementation in this task.
 
-- [ ] **Step 5: Remove the ignore marker from the committed composed pattern test.**
+- [x] **Step 5: Remove the ignore marker from the committed composed pattern test.**
 
 Keep these requirements:
 
@@ -690,11 +690,11 @@ pair preserves [Int, tail_type]
 record remains structural
 ```
 
-- [ ] **Step 6: Add an Unknown propagation regression.**
+- [x] **Step 6: Add an Unknown propagation regression.**
 
 Use an unavailable list source and prove both `head` and `tail` preserve the same Unknown reason instead of disappearing or becoming Dynamic.
 
-- [ ] **Step 7: Run focused tests.**
+- [x] **Step 7: Run focused tests.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic collection_and_destructure_facts_preserve_element_shapes -- --nocapture
@@ -702,7 +702,7 @@ cargo test -p phalcom-semantic --test semantic patterns -- --nocapture
 cargo test -p phalcom-semantic checker::composition --lib -- --nocapture
 ```
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```sh
 git add phalcom-semantic/src/checker/composition.rs \
@@ -773,7 +773,7 @@ Add a formal origin:
 EvidenceOrigin::FieldLifecycle
 ```
 
-- [ ] **Step 1: Write state tests before changing production code.**
+- [x] **Step 1: Write state tests before changing production code.**
 
 Tests must prove:
 
@@ -784,11 +784,11 @@ Tests must prove:
 5. `DefinitelyInitialized + Uninitialized -> MaybeInitialized`;
 6. unreachable incoming paths do not weaken initialization.
 
-- [ ] **Step 2: Implement field state types.**
+- [x] **Step 2: Implement field state types.**
 
 Keep field contract as `TypeKnowledge`, not only `TypeId`, because an unannotated/unknown field contract is epistemically meaningful.
 
-- [ ] **Step 3: Extend `FlowState` APIs.**
+- [x] **Step 3: Extend `FlowState` APIs.**
 
 Add:
 
@@ -806,7 +806,7 @@ pub fn write_field(
 
 A write increments `version`.
 
-- [ ] **Step 4: Extend flow join.**
+- [x] **Step 4: Extend flow join.**
 
 For every field present in all reachable states:
 
@@ -832,20 +832,20 @@ FlowInvariantFailure::DivergentFieldContract { ... }
 
 and route it through the existing internal flow-invariant incident path.
 
-- [ ] **Step 5: Extend flow summaries/fingerprints.**
+- [x] **Step 5: Extend flow summaries/fingerprints.**
 
 Any callable product fingerprint that includes entry/exit flow summaries must include field state deterministically. Sort by `FieldId` through the existing `BTreeMap`.
 
 This is required so field-semantic changes invalidate dependents correctly.
 
-- [ ] **Step 6: Run unit/foundation tests.**
+- [x] **Step 6: Run unit/foundation tests.**
 
 ```sh
 cargo test -p phalcom-semantic checker::flow --lib -- --nocapture
 cargo test -p phalcom-semantic --test semantic flow -- --nocapture
 ```
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```sh
 git add phalcom-semantic/src/checker/analysis.rs \
@@ -912,7 +912,7 @@ pub(crate) fn finalize_instance_field_lifecycle(
 ) -> FieldLifecycleTable;
 ```
 
-- [ ] **Step 1: Add default-initializer lifecycle tests.**
+- [x] **Step 1: Add default-initializer lifecycle tests.**
 
 Use:
 
@@ -933,7 +933,7 @@ read_knowledge  = Established(Int, FieldLifecycle)
 
 The proof comes from the checked initializer plus the field contract; do not mutate the declaration surface's epistemic origin.
 
-- [ ] **Step 2: Add constructor-only definite-initialization tests.**
+- [x] **Step 2: Add constructor-only definite-initialization tests.**
 
 Positive:
 
@@ -961,7 +961,7 @@ class Cell {
 
 The first is `DefinitelyInitialized`; the second is `MaybeInitialized` and must not publish established lifecycle read knowledge.
 
-- [ ] **Step 3: Produce default field seeds without executing methods.**
+- [x] **Step 3: Produce default field seeds without executing methods.**
 
 Refactor field initializer checking so it can return formal seed facts while continuing to own initializer diagnostics.
 
@@ -988,13 +988,13 @@ initialization = Uninitialized
 
 Do not use the annotation itself as the current fact.
 
-- [ ] **Step 4: Seed constructor body flow with defaults.**
+- [x] **Step 4: Seed constructor body flow with defaults.**
 
 When analyzing an instance constructor, populate `ctx.flow.fields` before statements execute.
 
 Field assignment within a constructor must therefore update the canonical `FieldId` state and appear in normal exit summaries.
 
-- [ ] **Step 5: Finalize lifecycle across constructor normal exits.**
+- [x] **Step 5: Finalize lifecycle across constructor normal exits.**
 
 Rules:
 
@@ -1019,17 +1019,17 @@ Unknown contract:
     lifecycle cannot invent a type; preserve Unknown.
 ```
 
-- [ ] **Step 6: Keep the lifecycle table compiler-owned and immutable for ordinary method entry.**
+- [x] **Step 6: Keep the lifecycle table compiler-owned and immutable for ordinary method entry.**
 
 Do not write the established read fact back into `DeclarationSurface.fields`.
 
 Pass the table into ordinary instance body analysis as a seed product. The persistent declaration surface continues to answer "what contract was declared"; the lifecycle table answers "what field fact has the analyzer proved at method entry."
 
-- [ ] **Step 7: Add diagnostics only where semantics already require them.**
+- [x] **Step 7: Add diagnostics only where semantics already require them.**
 
 This task is not a new "uninitialized field" diagnostic project. For `MaybeInitialized`, fail closed epistemically and preserve existing diagnostics. Do not invent a user-facing error code solely to make the test pass.
 
-- [ ] **Step 8: Run focused lifecycle tests.**
+- [x] **Step 8: Run focused lifecycle tests.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic fields -- --nocapture
@@ -1038,7 +1038,7 @@ cargo test -p phalcom-semantic field_lifecycle --lib -- --nocapture
 
 The existing composed field test may still be ignored until Task 6 routes all reads/writes through the new state.
 
-- [ ] **Step 9: Commit.**
+- [x] **Step 9: Commit.**
 
 ```sh
 git add phalcom-semantic/src/checker/field_lifecycle.rs \
@@ -1078,7 +1078,7 @@ pub(crate) fn resolve_current_field(
 
 and a field-write helper that owns contract reconciliation.
 
-- [ ] **Step 1: Change `Expr::Field` read synthesis.**
+- [x] **Step 1: Change `Expr::Field` read synthesis.**
 
 Current behavior reads the surface contract directly. New behavior:
 
@@ -1094,7 +1094,7 @@ resolve canonical FieldId
 
 The fallback is necessary for unsupported static-field/lifecycle cases.
 
-- [ ] **Step 2: Change field assignment transfer.**
+- [x] **Step 2: Change field assignment transfer.**
 
 Current assignment validates the RHS and returns `Unit` without updating field flow. New behavior:
 
@@ -1108,7 +1108,7 @@ Current assignment validates the RHS and returns `Unit` without updating field f
 
 Do not write the contract itself as current knowledge.
 
-- [ ] **Step 3: Preserve authority after general writes.**
+- [x] **Step 3: Preserve authority after general writes.**
 
 Examples:
 
@@ -1123,7 +1123,7 @@ A later read in the same method must observe that current fact.
 
 At ordinary method entry, the lifecycle seed may establish the field contract as an invariant. That is a distinct proof from any later local write.
 
-- [ ] **Step 4: Add branch field-write regression.**
+- [x] **Step 4: Add branch field-write regression.**
 
 Use:
 
@@ -1142,11 +1142,11 @@ Expected current read after join: established `Int | Float` (or canonical joined
 
 This proves contract/current separation for fields mirrors bindings.
 
-- [ ] **Step 5: Remove the ignore marker from `field_facts_survive_constructor_and_general_writes`.**
+- [x] **Step 5: Remove the ignore marker from `field_facts_survive_constructor_and_general_writes`.**
 
 Keep all existing established-read assertions.
 
-- [ ] **Step 6: Run field plus branch regression suites.**
+- [x] **Step 6: Run field plus branch regression suites.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic field_facts_survive_constructor_and_general_writes -- --nocapture
@@ -1154,7 +1154,7 @@ cargo test -p phalcom-semantic --test semantic fields -- --nocapture
 cargo test -p phalcom-semantic --test semantic flow_branches -- --nocapture
 ```
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ```sh
 git add phalcom-semantic/src/checker/context.rs \
@@ -1189,7 +1189,7 @@ Only consumers of a changed inferred return need reanalysis.
 - Consumes: `CallableAnalysis.dependencies`, `dependency_fingerprint`, `Arc<CallableAnalysis>`.
 - Produces: refresh logic that rechecks dependency consumers only and preserves prior `Arc` when the semantic product is unchanged.
 
-- [ ] **Step 1: Keep the committed incremental scenario RED.**
+- [x] **Step 1: Keep the committed incremental scenario RED.**
 
 Do not remove:
 
@@ -1205,7 +1205,7 @@ cargo test -p phalcom-semantic --test semantic dependency_edit_remove_readd_reco
 
 Record the exact failing revision.
 
-- [ ] **Step 2: Remove unconditional self-affecting refresh.**
+- [x] **Step 2: Remove unconditional self-affecting refresh.**
 
 Current conceptual predicate:
 
@@ -1225,7 +1225,7 @@ analysis
 
 If recursion explicitly records self as a dependency, recursive callables still re-enter the fixed point. Do not special-case the callable's own ID.
 
-- [ ] **Step 3: Preserve prior `Arc` on semantically stable refresh.**
+- [x] **Step 3: Preserve prior `Arc` on semantically stable refresh.**
 
 When a dependent must be reanalyzed outside the ordinary body query:
 
@@ -1245,7 +1245,7 @@ Before comparing, set the refreshed analysis's `dependency_fingerprint` exactly 
 
 This makes the cache-bypassing refresh honor the same semantic-stability law as `SemanticDb`.
 
-- [ ] **Step 4: Add a call-chain regression.**
+- [x] **Step 4: Add a call-chain regression.**
 
 Use unannotated:
 
@@ -1264,14 +1264,14 @@ Middle/Top final semantic products pointer-stable when their products are unchan
 
 If the actual body expression fact contains literal value identity and therefore changes the product fingerprint, assert the exact intended product boundary rather than forcing pointer equality. The callable return type alone is not sufficient reason for reuse; the semantic product fingerprint is authoritative.
 
-- [ ] **Step 5: Run publication and incremental suites.**
+- [x] **Step 5: Run publication and incremental suites.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic callable_publication -- --nocapture
 cargo test -p phalcom-semantic --test semantic callable_dependencies -- --nocapture
 ```
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```sh
 git add phalcom-semantic/src/session.rs \
@@ -1302,7 +1302,7 @@ enum CallableRevisionDisposition {
 
 Use a map/set internally; the public stats may remain numeric.
 
-- [ ] **Step 1: Add explicit stats assertions around refresh-sensitive chains.**
+- [x] **Step 1: Add explicit stats assertions around refresh-sensitive chains.**
 
 The committed scenario already requires:
 
@@ -1317,7 +1317,7 @@ v3 signature edit:
 
 Add one inferred-return chain where the first query pass reuses a consumer but refresh later genuinely reanalyzes it. The final stats must classify that consumer as recomputed, not both reused and recomputed.
 
-- [ ] **Step 2: Stop incrementing counters eagerly as the source of truth.**
+- [x] **Step 2: Stop incrementing counters eagerly as the source of truth.**
 
 Track:
 
@@ -1340,7 +1340,7 @@ actual reanalysis -> Recomputed
 
 `Recomputed` is monotone and overrides `Reused`.
 
-- [ ] **Step 3: Derive public counters after refresh convergence.**
+- [x] **Step 3: Derive public counters after refresh convergence.**
 
 At the end of the update:
 
@@ -1354,11 +1354,11 @@ stats.callables_reused =
 
 Build `recomputed_keys` from the same final set. Do not count repeated fixed-point passes twice.
 
-- [ ] **Step 4: Verify removal/re-addition does not retain stale dispositions.**
+- [x] **Step 4: Verify removal/re-addition does not retain stale dispositions.**
 
 Each workspace revision starts a fresh disposition map. Removed callables must not appear in current counters or current snapshot products.
 
-- [ ] **Step 5: Run the full incremental category.**
+- [x] **Step 5: Run the full incremental category.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic incremental -- --nocapture
@@ -1372,7 +1372,7 @@ cargo test -p phalcom-semantic --test semantic dependency_edit_remove_readd_reco
 
 Expected: deterministic counters and pointer identity.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```sh
 git add phalcom-semantic/src/session.rs \
@@ -1398,7 +1398,7 @@ The source builder already attaches a canonical linked target to an import decla
 - Consumes: `SourceBindingKind::Import`, `SourceScopeIndex.targets`.
 - Produces: imported use-site name resolution to the external canonical `SemanticTargetId`.
 
-- [ ] **Step 1: Keep the existing failure unchanged.**
+- [x] **Step 1: Keep the existing failure unchanged.**
 
 Run:
 
@@ -1413,7 +1413,7 @@ actual:   SemanticTargetId::Binding(local_import_site)
 expected: SemanticTargetId::Declaration(external_export)
 ```
 
-- [ ] **Step 2: Dereference import bindings during name resolution.**
+- [x] **Step 2: Dereference import bindings during name resolution.**
 
 In `SourceScopeIndex::resolve_name`, after finding a visible lexical binding:
 
@@ -1428,7 +1428,7 @@ return SourceNameResolution::Binding(site.clone());
 
 This preserves ordinary local binding identity while treating an imported alias as a lexical name that denotes an external canonical semantic target.
 
-- [ ] **Step 3: Add an alias regression.**
+- [x] **Step 3: Add an alias regression.**
 
 Test:
 
@@ -1439,18 +1439,18 @@ C
 
 The declaration spelling `C` remains the local import declaration site for source navigation metadata, while the read occurrence resolves to the external canonical declaration target.
 
-- [ ] **Step 4: Verify module imports remain modules.**
+- [x] **Step 4: Verify module imports remain modules.**
 
 A module import that already has `SemanticTargetId::Module` must continue resolving to that canonical module target.
 
-- [ ] **Step 5: Run source-index/integration tests.**
+- [x] **Step 5: Run source-index/integration tests.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic imported_resolution -- --nocapture
 cargo test -p phalcom-semantic --test semantic source_index -- --nocapture
 ```
 
-- [ ] **Step 6: Commit separately.**
+- [x] **Step 6: Commit separately.**
 
 ```sh
 git add phalcom-semantic/src/source_index/scope.rs \
@@ -1470,7 +1470,7 @@ git commit -m "fix(semantic): preserve canonical imported target identity"
 **Interfaces:**
 - Produces: no ignored markers for the three GATED tests in this plan; both RED scenarios GREEN; separate imported identity failure GREEN; no new internal incidents.
 
-- [ ] **Step 1: Confirm the three gap ignores are gone.**
+- [x] **Step 1: Confirm the three gap ignores are gone.**
 
 Search:
 
@@ -1483,7 +1483,7 @@ Inspect each definition and confirm there is no `#[ignore]`.
 
 Do not remove unrelated intentional ignores such as reflection simply to improve counts.
 
-- [ ] **Step 2: Run the six exact closure scenarios.**
+- [x] **Step 2: Run the six exact closure scenarios.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic refined_branch_with_abrupt_else_publishes_only_normal_value -- --nocapture
@@ -1496,7 +1496,7 @@ cargo test -p phalcom-semantic --test semantic imported_binding_use_resolves_to_
 
 Expected: six PASS.
 
-- [ ] **Step 3: Re-run Technical 03.**
+- [x] **Step 3: Re-run Technical 03.**
 
 Run the Technical-03 focused command matrix from its implementation plan.
 
@@ -1512,7 +1512,7 @@ directed variable subtype/order stability
 
 The higher-order callable task must not have reintroduced a pre-Spec-03 application shortcut.
 
-- [ ] **Step 4: Run capability category.**
+- [x] **Step 4: Run capability category.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic capabilities -- --nocapture
@@ -1520,7 +1520,7 @@ cargo test -p phalcom-semantic --test semantic capabilities -- --nocapture
 
 Expected: the three formerly gated gap tests now execute normally. Any remaining ignored test must be documented as outside this plan.
 
-- [ ] **Step 5: Run incremental category.**
+- [x] **Step 5: Run incremental category.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic incremental -- --nocapture
@@ -1528,7 +1528,7 @@ cargo test -p phalcom-semantic --test semantic incremental -- --nocapture
 
 Expected: pointer-stability and final recompute/reuse counts are deterministic.
 
-- [ ] **Step 6: Run the full semantic target.**
+- [x] **Step 6: Run the full semantic target.**
 
 ```sh
 cargo test -p phalcom-semantic --test semantic -- --nocapture
@@ -1536,7 +1536,7 @@ cargo test -p phalcom-semantic --test semantic -- --nocapture
 
 Expected: zero failures. Do not describe the plan as complete while the imported-resolution test or any newly introduced failure remains.
 
-- [ ] **Step 7: Run formatting and compiler checks used by the repository.**
+- [x] **Step 7: Run formatting and compiler checks used by the repository.**
 
 At minimum:
 
@@ -1547,13 +1547,13 @@ cargo check -p phalcom-semantic
 
 Run the repository's established clippy/workspace commands only on a toolchain where the pinned components are actually available; do not misclassify hosted-runner/toolchain infrastructure failures as semantic regressions.
 
-- [ ] **Step 8: Check for internal incidents.**
+- [x] **Step 8: Check for internal incidents.**
 
 Capability, field, branch, and incremental fixtures should report no unexpected `InternalSemanticIncidentKind` values.
 
 No invariant failure may be converted into a user diagnostic to make the suite green.
 
-- [ ] **Step 9: Update the semantic work log.**
+- [x] **Step 9: Update the semantic work log.**
 
 Record:
 
@@ -1568,7 +1568,7 @@ remaining ignored tests and why each is outside this plan
 
 Do not copy stale historical counts.
 
-- [ ] **Step 10: Commit closure documentation.**
+- [x] **Step 10: Commit closure documentation.**
 
 ```sh
 git add docs

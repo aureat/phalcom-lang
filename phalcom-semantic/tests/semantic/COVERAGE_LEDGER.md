@@ -6,7 +6,7 @@ and database tests remain valuable, but do not satisfy source slots by themselve
 
 Status vocabulary: `READY`, `RED-CAPABILITY`, `STAGED`, `GATED`.
 
-Current ledger count after the corrective pass: **54 READY, 17 STAGED, 35 GATED**.
+Current ledger count after semantic capability gap closure: **56 READY, 16 STAGED, 34 GATED**.
 A green test run never promotes a staged/gated law implicitly; promotion requires
 a named source test and a concrete semantic oracle.
 
@@ -80,7 +80,7 @@ a named source test and a concrete semantic oracle.
 | S03 | READY | `structural::record_literal_preserves_structural_field_types` asserts exact closed fields |
 | S04 | READY | `structural::heterogeneous_collection...` |
 | S05 | READY | `patterns::nested_tuple_pattern_recursively_establishes_each_leaf` |
-| S06 | GATED | List/rest pattern semantic leaves |
+| S06 | READY | `patterns::collection_and_destructure_facts_preserve_element_shapes` |
 | S07 | GATED | Pattern mismatch ownership and recovery |
 | S08 | READY | `patterns::generic_pair_result_can_be_destructured_without_losing_components` |
 | L01 | READY | `flow_branches::same_type_branch_results...`; `deep_regressions::same_type_branch_writes_publish_flow_provenance` |
@@ -103,7 +103,7 @@ a named source test and a concrete semantic oracle.
 | P05 | READY | `callable_publication_capabilities::branch_derived_tail...` |
 | P06 | STAGED | Multi-hop callable publication invalidation |
 | P07 | READY | `callable_publication_capabilities::recursive_inference...` |
-| A01 | STAGED | Source field declaration/read authority |
+| A01 | READY | `fields::field_facts_survive_constructor_and_general_writes`; default and constructor lifecycle tests |
 | A02 | STAGED | Generic receiver field specialization |
 | A03 | GATED | Inherited Self-typed field source API |
 | A04 | GATED | Source alias declaration and provenance |
