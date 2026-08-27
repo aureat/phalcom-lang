@@ -24,8 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply compiler-owned callable attachment ranges
-        run: python .github/scripts/apply-callable-declaration-attribute-range.py
+      - name: Apply compiler-owned native hover metadata
+        run: python .github/scripts/apply-native-hover-presentation.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
@@ -34,21 +34,26 @@ jobs:
         run: |
           cargo check -p phalcom-semantic
           cargo check -p phalcom-lsp --lib
-      - name: Validate Phaldoc through attached attributes
+      - name: Validate semantic native presentation query
+        run: cargo test -p phalcom-semantic --test semantic native_callable_presentation_is_compiler_owned -- --nocapture
+      - name: Validate native and binding hover presentation
         run: |
-          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_survives_member_attributes -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_attaches_and_blank_line_breaks_it -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::selector_keying_gives_each_arity_its_own_doc -- --nocapture
-      - name: Revalidate source-index navigation
+          cargo test -p phalcom-lsp --test integration stage4_hover::builtin_hover_has_kind_selector_and_native_documentation -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::hover_over_a_top_level_binding_usage_surfaces_its_doc -- --nocapture
+      - name: Revalidate semantic authority boundary
         run: |
-          cargo test -p phalcom-semantic --test semantic source_index -- --nocapture
-          cargo test -p phalcom-lsp --test integration receiver_qualified_hover_selects_one_of_repeated_new_members -- --nocapture
-      - name: Commit validated callable attachment ranges
+          cargo test -p phalcom-lsp --test semantic_boundary -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::cross_file_hover_resolves_the_doc_from_the_declaring_file -- --nocapture
+      - name: Commit validated native hover metadata
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-semantic/src/source_index/scope.rs phalcom-semantic/src/source_index/builder.rs
+          git add phalcom-semantic/src/editor.rs \
+                  phalcom-semantic/src/lib.rs \
+                  phalcom-semantic/tests/constructor_factory_probe.rs \
+                  phalcom-lsp/src/backend.rs \
+                  phalcom-lsp/src/hover.rs
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(semantic): include member attributes in declaration ranges'
+            git commit -m 'feat(semantic): publish native callable presentation metadata'
             git push origin HEAD:codex/lsp-single-world-retirement
           fi
