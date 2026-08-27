@@ -454,6 +454,16 @@ impl Backend {
         }
 
         if params.uri.as_str() == crate::core_documents::CORE_MODULE_URI {
+            if let Some(snapshot) = self.analysis.snapshot()
+                && let Some(text) = snapshot.presentation_source(&phalcom_modules::ModuleId::core())
+            {
+                return Ok(Some(text.to_string()));
+            }
+
+            // Before the first semantic publication, retain the transport-only
+            // fallback so an editor can still open the configured/bundled core
+            // document. Once a snapshot exists, its presentation text is the
+            // source of truth for every semantic range into `phalcom://core`.
             let config = self.config.read().expect("server config lock poisoned").clone();
             let roots = self
                 .workspace_roots
