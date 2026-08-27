@@ -24,8 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Add untyped callable hover probe
-        run: python .github/scripts/add-untyped-callable-hover-probe.py
+      - name: Apply source-identity callable hover repair
+        run: python .github/scripts/apply-optional-callable-hover-signature.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
@@ -34,8 +34,22 @@ jobs:
         run: |
           cargo check -p phalcom-semantic
           cargo check -p phalcom-lsp --lib
-      - name: Diagnose untyped callable publication layers
-        run: cargo test -p phalcom-semantic --test semantic untyped_parameterized_callable_publishes_source_identity_even_without_complete_signature -- --nocapture
-      - name: Confirm Stage 4 selector remains red
-        continue-on-error: true
-        run: cargo test -p phalcom-lsp --test integration stage4_hover::selector_hover_sets_range_to_the_resolved_selector_span -- --nocapture
+      - name: Validate untyped source callable hover
+        run: |
+          cargo test -p phalcom-lsp --test integration stage4_hover::selector_hover_sets_range_to_the_resolved_selector_span -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_attaches_and_blank_line_breaks_it -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::selector_keying_gives_each_arity_its_own_doc -- --nocapture
+          cargo test -p phalcom-lsp --test integration stage4_hover::cross_file_hover_resolves_the_doc_from_the_declaring_file -- --nocapture
+      - name: Revalidate authoritative hover targets
+        run: |
+          cargo test -p phalcom-lsp --test integration inherited_hover_reports_the_defining_owner_not_the_receiver_class -- --nocapture
+          cargo test -p phalcom-lsp --test integration receiver_qualified_hover_selects_one_of_repeated_new_members -- --nocapture
+      - name: Commit validated source-identity hover
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add phalcom-lsp/src/backend.rs
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(lsp): render source callables without proven signatures'
+            git push origin HEAD:codex/lsp-single-world-retirement
+          fi
