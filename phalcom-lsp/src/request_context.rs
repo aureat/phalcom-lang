@@ -66,10 +66,15 @@ fn classify_source(document: &DocumentSnapshot, snapshot: Option<&SemanticSnapsh
     let Some(module) = module else {
         return SourceMatch::Unmapped;
     };
-    let Some(source) = snapshot.sources.get(module) else {
+    let source_text = snapshot
+        .sources
+        .get(module)
+        .map(|source| source.text.as_ref())
+        .or_else(|| snapshot.presentation_source(module));
+    let Some(source_text) = source_text else {
         return SourceMatch::Unmapped;
     };
-    if source.text.as_ref() == document.text.as_ref() {
+    if source_text == document.text.as_ref() {
         SourceMatch::Exact
     } else {
         SourceMatch::Stale
