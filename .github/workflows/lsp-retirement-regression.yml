@@ -35,7 +35,7 @@ jobs:
           python .github/scripts/apply-lsp-retirement-semantic-unification.py
       - name: Format and diff check
         run: |
-          cargo fmt --all
+          cargo +stable fmt --all
           git diff --check
       - name: Compile semantic and LSP
         run: |
