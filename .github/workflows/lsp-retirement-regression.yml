@@ -28,8 +28,9 @@ jobs:
           from pathlib import Path
           path = Path('.github/scripts/apply-lsp-retirement-semantic-unification.py')
           text = path.read_text()
-          text = text.replace('"                let members = surface.surface(side);",\n    "                let members = surface.surface(lookup_side);",', '"surface.surface(side)",\n    "surface.surface(lookup_side)",')
-          path.write_text(text)
+          start = text.index('# Method-family lookup uses the same owner traversal.')
+          end = text.index('# Pass new callbacks to field analysis and flow contexts.')
+          path.write_text(text[:start] + text[end:])
           PY
           python .github/scripts/apply-lsp-retirement-semantic-unification.py
       - name: Format and diff check
