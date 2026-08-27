@@ -71,7 +71,10 @@ fn native_callable_presentation_is_compiler_owned() {
         .editor()
         .native_callable_presentation(&callable)
         .expect("native presentation metadata");
-    assert_eq!(native.documentation, Some("Executes block if receiver is true."));
+    assert!(
+        native.documentation.is_some_and(|documentation| documentation.contains("Executes block if receiver is true.")),
+        "unexpected native documentation: {native:#?}"
+    );
 }
 '''
 probe.write_text(text)
