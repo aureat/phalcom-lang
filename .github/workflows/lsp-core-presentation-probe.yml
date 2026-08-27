@@ -5,7 +5,7 @@ on:
     branches: [codex/lsp-single-world-retirement]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: lsp-core-presentation-probe-${{ github.ref }}
@@ -19,15 +19,7 @@ jobs:
         with:
           ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
       - uses: Swatinem/rust-cache@v2
-
-      - name: Apply core definition coordinate repair
-        run: |
-          python3 .github/scripts/apply-lsp-core-definition-coordinate.py
-          cargo +stable fmt --all
-          git diff --check
 
       - name: Check LSP library
         run: cargo check -p phalcom-lsp --lib
@@ -41,13 +33,5 @@ jobs:
       - name: Core presentation definition coordinates
         run: cargo test -p phalcom-lsp --test integration builtin_definition_range_indexes_the_compiler_core_presentation -- --nocapture
 
-      - name: Commit validated core definition coordinate repair
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add phalcom-lsp/src/backend.rs
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "fix(lsp): map semantic sites in compiler source coordinates"
-          git push origin HEAD:codex/lsp-single-world-retirement
+      - name: Constructor factory composition
+        run: cargo test -p phalcom-lsp --test integration constructor_factory_inference_is_authoritative_across_lsp_features -- --nocapture
