@@ -239,24 +239,30 @@ class Probe {
     );
 }
 
-#[test]
-fn builtin_type_annotation_has_canonical_target_and_definition_site() {
+fn builtin_annotation_snapshot() -> (ModuleId, Arc<str>, Arc<phalcom_semantic::SemanticSnapshot>, SemanticTargetId) {
     let module = ModuleId::resolved(ResolvedProjectId::from_raw(77), ModulePath::root());
     let source: Arc<str> = Arc::from("const x: Int = 42\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
-    let snapshot = analysis.snapshot;
+    let target = SemanticTargetId::Declaration(DeclarationId::new(ModuleId::core(), "Int".into()));
+    (module, source, analysis.snapshot, target)
+}
 
-    let int = DeclarationId::new(ModuleId::core(), "Int".into());
+#[test]
+fn builtin_type_annotation_has_canonical_target() {
+    let (module, source, snapshot, target) = builtin_annotation_snapshot();
     let annotation_offset = source.find("Int").expect("Int annotation") + 1;
-    let target = SemanticTargetId::Declaration(int.clone());
     assert_eq!(
         snapshot.editor().target_at(&module, annotation_offset),
-        Some(target.clone()),
+        Some(target),
         "type annotation token must retain the exact canonical declaration target"
     );
+}
 
+#[test]
+fn builtin_declaration_has_canonical_definition_site() {
+    let (_, _, snapshot, target) = builtin_annotation_snapshot();
     let sites = snapshot.editor().definition_sites(&target);
     assert_eq!(sites.len(), 1, "builtin declaration must publish exactly one canonical definition site: {sites:#?}");
     let site = snapshot.source_site(&sites[0]).expect("builtin declaration source site");
