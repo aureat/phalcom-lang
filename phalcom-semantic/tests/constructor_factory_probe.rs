@@ -83,3 +83,54 @@ const x: Int = CellNum.of(42)
         "top-level factory call must retain its exact canonical callable target"
     );
 }
+
+#[test]
+fn constructorless_class_inherits_canonical_class_new() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Person {}
+
+class Probe {
+  make() {
+    Person.new()
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let snapshot = analysis.snapshot;
+
+    let person = DeclarationId::new(module.clone(), "Person".into());
+    let person_ty = snapshot.declarations.form(&person).expect("Person type");
+    let probe = DeclarationId::new(module.clone(), "Probe".into());
+    let make = CallableId::new(
+        probe,
+        Selector::method("make", Vec::new()).unwrap(),
+        DispatchSide::Instance,
+    );
+    let default_new = CallableId::new(
+        DeclarationId::new(ModuleId::core(), "Class".into()),
+        Selector::method("new", Vec::new()).unwrap(),
+        DispatchSide::Instance,
+    );
+
+    let make_analysis = snapshot.callable_analyses.get(&make).expect("Probe.make body analysis");
+    let constructor_call = make_analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Person.new()"))
+        .expect("Person.new expression");
+    assert_eq!(
+        constructor_call.callable.as_ref(),
+        Some(&default_new),
+        "constructor-less classes must resolve new() through canonical Class behavior: {constructor_call:#?}"
+    );
+    assert_eq!(
+        constructor_call.knowledge.ty(),
+        Some(person_ty),
+        "Class.new Self result must specialize to the concrete class object receiver: {constructor_call:#?}"
+    );
+}
