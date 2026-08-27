@@ -444,3 +444,25 @@ fn builtin_declaration_has_canonical_definition_site() {
         "builtin definition site must belong to the compiler-owned core presentation shard: {site:#?}"
     );
 }
+
+#[test]
+fn native_callable_presentation_is_compiler_owned() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from("let x = true.ifTrue || { 1 };\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let snapshot = analysis.snapshot;
+    let offset = source.find("ifTrue").expect("ifTrue call");
+    let target = snapshot.editor().target_at(&module, offset).expect("native callable target");
+    let SemanticTargetId::Callable(callable) = target else {
+        panic!("expected callable target, got {target:#?}");
+    };
+    let native = snapshot.editor().native_callable_presentation(&callable).expect("native presentation metadata");
+    assert!(
+        native
+            .documentation
+            .is_some_and(|documentation| documentation.contains("Executes block if receiver is true.")),
+        "unexpected native documentation: {native:#?}"
+    );
+}

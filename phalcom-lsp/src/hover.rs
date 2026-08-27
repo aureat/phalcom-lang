@@ -681,6 +681,17 @@ pub fn render_class_hover(class: &DeclarationId, superclass: Option<&Declaration
     sections.join("\n\n---\n\n")
 }
 
+/// Renders implementation/documentation details supplied by the compiler for
+/// one native callable. The semantic layer chooses the metadata; the LSP owns
+/// the Markdown presentation.
+pub fn render_native_callable_details(documentation: Option<&str>) -> String {
+    let mut sections = vec!["native primitive".to_string()];
+    if let Some(documentation) = documentation.filter(|text| !text.trim().is_empty()) {
+        sections.push(documentation.to_string());
+    }
+    sections.join("\n\n---\n\n")
+}
+
 /// Renders one lexical binding or parameter with formal type knowledge or advisory value.
 /// One place a selector is declared/known, as [`render_selector_hover`]
 /// needs it: the class it is declared on and its dispatch kind.

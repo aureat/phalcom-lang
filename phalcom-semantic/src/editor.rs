@@ -84,6 +84,16 @@ pub struct VisibleSymbol {
     pub target: SemanticTargetId,
 }
 
+/// Compiler-owned presentation metadata for a canonical native callable.
+///
+/// This deliberately projects only protocol-neutral documentation metadata;
+/// clients do not need direct access to the native surface catalog.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeCallablePresentation {
+    pub documentation: Option<&'static str>,
+    pub conceptual: Option<&'static str>,
+}
+
 /// Read-only editor query facade over one immutable semantic snapshot.
 #[derive(Clone, Copy, Debug)]
 pub struct EditorSemanticQuery<'a> {
@@ -93,6 +103,17 @@ pub struct EditorSemanticQuery<'a> {
 impl<'a> EditorSemanticQuery<'a> {
     pub(crate) fn new(snapshot: &'a SemanticSnapshot) -> Self {
         Self { snapshot }
+    }
+
+    /// Returns compiler-owned native presentation metadata for one callable.
+    pub fn native_callable_presentation(&self, callable: &CallableId) -> Option<NativeCallablePresentation> {
+        let signature = self.snapshot.callable_signatures.get(callable)?;
+        let native_id = signature.native_id?;
+        let record = phalcom_native_surface::NATIVE_SURFACE_CATALOG.find(native_id.0)?;
+        Some(NativeCallablePresentation {
+            documentation: record.docs(),
+            conceptual: record.conceptual(),
+        })
     }
 
     /// Returns exact canonical target at a source position.

@@ -64,6 +64,7 @@ type CompilerCallableHover = (
     Option<hover::PhaldocDoc>,
     FormalPresentation,
     Option<phalcom_semantic::advisory::AdvisoryFact>,
+    Option<phalcom_semantic::NativeCallablePresentation>,
 );
 
 fn import_path_range_at_offset(program: &phalcom_ast::ast::Program, offset: usize) -> Option<phalcom_common::range::SourceRange> {
@@ -666,6 +667,7 @@ impl Backend {
             phaldoc,
             formal,
             compiler.advisory_callable(callable).map(|summary| summary.return_fact.clone()),
+            compiler.editor().native_callable_presentation(callable),
         ))
     }
 
@@ -998,10 +1000,14 @@ impl Backend {
         {
             match target {
                 phalcom_semantic::SemanticTargetId::Callable(callable)
-                    if let Some((selector, site, phaldoc, formal, advisory)) = self.compiler_callable_hover(request, &callable)
-                        && let Some(contents) =
+                    if let Some((selector, site, phaldoc, formal, advisory, native)) = self.compiler_callable_hover(request, &callable)
+                        && let Some(mut contents) =
                             hover::render_selector_hover_with_formal_value(&selector, &[site], phaldoc.as_ref(), Some(&formal), advisory.as_ref()) =>
                 {
+                    if let Some(native) = native {
+                        contents.push_str("\n\n---\n\n");
+                        contents.push_str(&hover::render_native_callable_details(native.documentation));
+                    }
                     return Some(Hover {
                         contents: markdown_contents(contents),
                         range: Some(span),

@@ -51,8 +51,8 @@ pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSuperty
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
 pub use editor::{
-    AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, PartialCallPattern, ReceiverAlternative, ReceiverMode, ResolvedReceiver,
-    VisibleSymbol,
+    AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, NativeCallablePresentation, PartialCallPattern, ReceiverAlternative, ReceiverMode,
+    ResolvedReceiver, VisibleSymbol,
 };
 pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
