@@ -26,7 +26,7 @@ use crate::resolver::LinkedTypeResolver;
 use crate::signature::CallableSignatureTable;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index};
+use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
 use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::KindId;
@@ -902,7 +902,7 @@ impl SemanticWorkspaceSession {
             Arc::new(sources_loc_map),
         ));
 
-        let mut source_index = build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref());
+        let mut source_index = build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref(), &resolver);
         if let Some(previous) = self.last_snapshot.as_deref() {
             for (module, current) in source_index.modules.clone() {
                 let Some(previous_module) = previous.source_index.module_arc(&module) else {
@@ -1079,11 +1079,17 @@ fn build_source_semantic_index(
     callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     resolved_imports: &BTreeMap<(ModuleId, String), ModuleId>,
     linked: &LinkedProgram,
+    type_resolver: &dyn TypeResolver,
 ) -> SourceSemanticIndex {
     let mut context = SourceIndexContext {
         resolved_imports: resolved_imports.clone(),
         ..SourceIndexContext::default()
     };
+    for (module, source) in sources {
+        for (range, declaration) in resolve_type_reference_targets(module, &source.program, type_resolver) {
+            context.type_reference_targets.insert((module.clone(), range), declaration);
+        }
+    }
     for (module, linked_module) in &linked.modules {
         if !sources.contains_key(module) {
             continue;

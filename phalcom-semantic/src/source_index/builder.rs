@@ -1,6 +1,6 @@
 //! AST-to-source-scope construction under compiler ownership.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId};
@@ -8,7 +8,11 @@ use crate::source_index::scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceScopeId, SourceScopeIndex,
 };
 use crate::source_index::site::{SourceSite, SourceSiteKind};
-use phalcom_ast::ast::{BindingKind, BlockExpr, ClassDef, ClassMember, Expr, ForStatement, LetBinding, MemberBody, Pattern, Program, Statement};
+use crate::types::annotation::TypeResolver;
+use phalcom_ast::ast::{
+    BindingKind, BlockExpr, ClassDef, ClassMember, Expr, ForStatement, GenericConstraintSyntax, LetBinding, MemberBody, Pattern, Program, Statement,
+    TypeAnnotation, TypeAnnotationExpr, WhereClauseSyntax,
+};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
@@ -25,6 +29,10 @@ pub struct SourceIndexContext {
     pub resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
     /// Canonical callable targets keyed by declaration and exact selector.
     pub callable_targets: BTreeMap<(DeclarationId, Selector), CallableId>,
+    /// Canonical nominal type references keyed by source module and exact token range.
+    /// Resolution is performed by the compiler type resolver before occurrence
+    /// construction; the source index only publishes the resulting identity.
+    pub type_reference_targets: BTreeMap<(ModuleId, SourceRange), DeclarationId>,
 }
 
 impl SourceIndexContext {
@@ -43,6 +51,181 @@ impl SourceIndexContext {
     pub fn with_resolved_import(mut self, importer: ModuleId, path: impl Into<String>, module: ModuleId) -> Self {
         self.resolved_imports.insert((importer, path.into()), module);
         self
+    }
+}
+
+/// Resolves nominal type-reference tokens using the compiler's linked type
+/// resolver. The result is source identity data only: no type checking or
+/// inference is performed here.
+pub fn resolve_type_reference_targets(module: &ModuleId, program: &Program, resolver: &dyn TypeResolver) -> BTreeMap<SourceRange, DeclarationId> {
+    let mut collector = TypeReferenceTargetCollector {
+        module,
+        resolver,
+        targets: BTreeMap::new(),
+    };
+    let bound = BTreeSet::new();
+    for statement in &program.statements {
+        collector.statement(statement, &bound);
+    }
+    collector.targets
+}
+
+struct TypeReferenceTargetCollector<'a> {
+    module: &'a ModuleId,
+    resolver: &'a dyn TypeResolver,
+    targets: BTreeMap<SourceRange, DeclarationId>,
+}
+
+impl TypeReferenceTargetCollector<'_> {
+    fn statement(&mut self, statement: &Statement, bound: &BTreeSet<String>) {
+        match statement {
+            Statement::Class(class) => {
+                let mut class_bound = bound.clone();
+                class_bound.extend(class.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                if let Some(superclass) = &class.superclass {
+                    self.annotation(superclass, &class_bound);
+                }
+                self.where_clause(class.where_clause.as_ref(), &class_bound);
+                for member in &class.members {
+                    match member {
+                        ClassMember::Method(method) => {
+                            let mut method_bound = class_bound.clone();
+                            method_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            for parameter in &method.params {
+                                if let Some(annotation) = &parameter.annotation {
+                                    self.annotation(annotation, &method_bound);
+                                }
+                            }
+                            if let Some(annotation) = &method.return_annotation {
+                                self.annotation(annotation, &method_bound);
+                            }
+                            self.where_clause(method.where_clause.as_ref(), &method_bound);
+                        }
+                        ClassMember::Getter(getter) => {
+                            if let Some(annotation) = &getter.return_annotation {
+                                self.annotation(annotation, &class_bound);
+                            }
+                        }
+                        ClassMember::Setter(setter) => {
+                            if let Some(annotation) = &setter.param.annotation {
+                                self.annotation(annotation, &class_bound);
+                            }
+                            if let Some(annotation) = &setter.return_annotation {
+                                self.annotation(annotation, &class_bound);
+                            }
+                        }
+                        ClassMember::Field(field) => {
+                            if let Some(annotation) = &field.annotation {
+                                self.annotation(annotation, &class_bound);
+                            }
+                        }
+                        ClassMember::Index(index) => {
+                            for parameter in &index.params {
+                                if let Some(annotation) = &parameter.annotation {
+                                    self.annotation(annotation, &class_bound);
+                                }
+                            }
+                            if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor
+                                && let Some(annotation) = &put.annotation
+                            {
+                                self.annotation(annotation, &class_bound);
+                            }
+                            if let Some(annotation) = &index.return_annotation {
+                                self.annotation(annotation, &class_bound);
+                            }
+                        }
+                        ClassMember::Variant(_) => {}
+                    }
+                }
+            }
+            Statement::TypeAlias(alias) => {
+                let mut alias_bound = bound.clone();
+                alias_bound.extend(alias.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                self.where_clause(alias.where_clause.as_ref(), &alias_bound);
+                self.annotation(&alias.body, &alias_bound);
+            }
+            Statement::Let(binding) => {
+                if let Some(annotation) = &binding.annotation {
+                    self.annotation(annotation, bound);
+                }
+            }
+            Statement::Return(_)
+            | Statement::Expr { .. }
+            | Statement::For(_)
+            | Statement::Break { .. }
+            | Statement::Continue { .. }
+            | Statement::Throw { .. }
+            | Statement::Export(_) => {}
+        }
+    }
+
+    fn where_clause(&mut self, clause: Option<&WhereClauseSyntax>, bound: &BTreeSet<String>) {
+        let Some(clause) = clause else { return };
+        for constraint in &clause.constraints {
+            match constraint {
+                GenericConstraintSyntax::Subtype { lower, upper, .. } => {
+                    self.annotation(lower, bound);
+                    self.annotation(upper, bound);
+                }
+                GenericConstraintSyntax::Equivalent { left, right, .. } => {
+                    self.annotation(left, bound);
+                    self.annotation(right, bound);
+                }
+                GenericConstraintSyntax::Invalid { .. } => {}
+            }
+        }
+    }
+
+    fn annotation(&mut self, annotation: &TypeAnnotation, bound: &BTreeSet<String>) {
+        match &annotation.expr {
+            TypeAnnotationExpr::Reference(symbol) => {
+                if symbol.members.is_empty() && bound.contains(&symbol.root) {
+                    return;
+                }
+                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                if let Some(declaration) = self.resolver.resolve_type_name(self.module, &symbol.root, &members) {
+                    let range = symbol.members.last().map_or(symbol.root_range, |member| member.range);
+                    self.targets.insert(range, declaration);
+                }
+            }
+            TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                self.annotation(origin, bound);
+                for argument in arguments {
+                    self.annotation(argument, bound);
+                }
+            }
+            TypeAnnotationExpr::Union { members, .. } => {
+                for member in members {
+                    self.annotation(member, bound);
+                }
+            }
+            TypeAnnotationExpr::Tuple { elements, .. } => {
+                for element in elements {
+                    self.annotation(&element.ty, bound);
+                }
+            }
+            TypeAnnotationExpr::Callable { parameters, result, .. } => {
+                for parameter in parameters {
+                    self.annotation(&parameter.ty, bound);
+                }
+                self.annotation(result, bound);
+            }
+            TypeAnnotationExpr::Record { fields, .. } => {
+                for field in fields {
+                    self.annotation(&field.ty, bound);
+                }
+            }
+            TypeAnnotationExpr::TypeLambda { parameters, body, .. } => {
+                let mut lambda_bound = bound.clone();
+                lambda_bound.extend(parameters.iter().map(|parameter| parameter.name.clone()));
+                self.annotation(body, &lambda_bound);
+            }
+            TypeAnnotationExpr::Unit { .. }
+            | TypeAnnotationExpr::Dynamic { .. }
+            | TypeAnnotationExpr::Never { .. }
+            | TypeAnnotationExpr::SelfType { .. }
+            | TypeAnnotationExpr::Invalid { .. } => {}
+        }
     }
 }
 

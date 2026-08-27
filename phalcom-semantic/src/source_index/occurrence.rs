@@ -175,6 +175,24 @@ impl OccurrenceIndex {
         for statement in &program.statements {
             visitor.statement(statement);
         }
+        if let Some(context) = context {
+            let module = visitor.scopes.module.clone();
+            let references = context
+                .type_reference_targets
+                .iter()
+                .filter(|((owner, _), _)| owner == &module)
+                .map(|((_, range), declaration)| (*range, declaration.clone()))
+                .collect::<Vec<_>>();
+            for (range, declaration) in references {
+                visitor.record_targeted(
+                    range,
+                    OccurrenceKind::Declaration,
+                    OccurrenceRole::Reference,
+                    None,
+                    Some(SemanticTargetId::Declaration(declaration)),
+                );
+            }
+        }
         result = Self::new(visitor.occurrences, visitor.targets);
         result
     }
