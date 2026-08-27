@@ -7,7 +7,7 @@ use crate::checker::incident::{
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
+use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
@@ -18,6 +18,7 @@ use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, Type
 use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
+use crate::types::parameter::{SelfRole, SelfTypeTerm};
 use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded};
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
@@ -1416,31 +1417,54 @@ impl<'a> CheckingContext<'a> {
 /// Workspace sessions normally publish these declarations from the embedded
 /// core source; direct checker fixtures intentionally do not load that module.
 pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations: &DeclarationTypeTable, dispatch: &mut SurfaceDispatchResolver) {
-    let object = DeclarationId::new(ModuleId::core(), "Object".into());
-    let Some(bool_ty) = declarations.form(&DeclarationId::new(ModuleId::core(), "Bool".into())) else {
-        return;
-    };
-    let mut surface = dispatch
-        .get_surface(&object)
+    let class = DeclarationId::new(ModuleId::core(), "Class".into());
+    let mut class_surface = dispatch
+        .get_surface(&class)
         .cloned()
-        .unwrap_or_else(|| DeclarationSurface::new(Some(object.clone())));
-    for method in ["is", "is!"] {
-        let Ok(selector) = Selector::method(method, [phalcom_common::selector::SelectorSlot::Positional]) else {
-            continue;
-        };
-        if surface.instance.get_callable(&selector).is_some() {
-            continue;
-        }
-        let parameter = CallableParameter::new("class", TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+        .unwrap_or_else(|| DeclarationSurface::new(Some(class.clone())));
+    if let Ok(selector) = Selector::method("new", Vec::new())
+        && class_surface.instance.get_callable(&selector).is_none()
+    {
+        let self_type = store.self_type(SelfTypeTerm {
+            owner: class.clone(),
+            side: DispatchSide::Instance,
+            role: SelfRole::InstanceType,
+        });
         let signature = CallableSignature::new(
             selector,
-            vec![parameter],
-            TypeKnowledge::established(bool_ty, EvidenceOrigin::DeclarationSemantics),
-        );
-        surface.add_callable(DispatchSide::Instance, signature);
+            Vec::new(),
+            TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics),
+        )
+        .with_kind(CallableSemanticKind::Constructor);
+        class_surface.add_callable(DispatchSide::Instance, signature);
     }
-    dispatch.register_type(declarations.form(&object).unwrap_or_else(|| store.nominal_type(object.clone())), object.clone());
-    dispatch.register_surface(object, surface);
+    dispatch.register_type(declarations.form(&class).unwrap_or_else(|| store.nominal_type(class.clone())), class.clone());
+    dispatch.register_surface(class, class_surface);
+
+    let object = DeclarationId::new(ModuleId::core(), "Object".into());
+    if let Some(bool_ty) = declarations.form(&DeclarationId::new(ModuleId::core(), "Bool".into())) {
+        let mut surface = dispatch
+            .get_surface(&object)
+            .cloned()
+            .unwrap_or_else(|| DeclarationSurface::new(Some(object.clone())));
+        for method in ["is", "is!"] {
+            let Ok(selector) = Selector::method(method, [phalcom_common::selector::SelectorSlot::Positional]) else {
+                continue;
+            };
+            if surface.instance.get_callable(&selector).is_some() {
+                continue;
+            }
+            let parameter = CallableParameter::new("class", TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+            let signature = CallableSignature::new(
+                selector,
+                vec![parameter],
+                TypeKnowledge::established(bool_ty, EvidenceOrigin::DeclarationSemantics),
+            );
+            surface.add_callable(DispatchSide::Instance, signature);
+        }
+        dispatch.register_type(declarations.form(&object).unwrap_or_else(|| store.nominal_type(object.clone())), object.clone());
+        dispatch.register_surface(object, surface);
+    }
 }
 
 #[cfg(test)]

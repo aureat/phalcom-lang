@@ -21,7 +21,7 @@ pub use agreement::{AdvisoryAgreement, compare_expression, compare_known};
 pub use analyzer::{AdvisoryBuiltins, AdvisoryCallArgument, AdvisoryCallObservation, AdvisoryExpressionContext, analyze_expr};
 pub use fact::{AdvisoryConfidence, AdvisoryFact, AdvisoryLiteral};
 pub use flow::{AdvisoryFlowContext, AdvisoryFlowProduct, analyze_statements};
-pub use formal::{advisory_fact_from_formal, advisory_shape_from_formal};
+pub use formal::{advisory_fact_from_formal, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver};
 pub use parameters::{AdvisoryContributionSource, AdvisoryParameterContributions, AdvisoryParameterFactDelta, AdvisoryParameterSlot};
 pub use provenance::AdvisoryOrigin;
 pub use query::AdvisoryQuery;

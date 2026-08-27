@@ -1,6 +1,6 @@
 //! Dispatch models, callable signatures, and selector resolution.
 
-use crate::identity::{CallableId, DeclarationId};
+use crate::identity::{CallableId, DeclarationId, ModuleId};
 
 pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
@@ -8,7 +8,7 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::relation::TypeHierarchy;
 use phalcom_common::selector::Selector;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DispatchTarget {
@@ -203,6 +203,45 @@ impl SurfaceDispatchResolver {
         &self.surfaces
     }
 
+    /// Returns the canonical owner/side traversal for one dispatch receiver.
+    ///
+    /// Class-object dispatch first walks the parallel class-side hierarchy.
+    /// When that hierarchy is exhausted it enters the canonical `Class`
+    /// instance behavior root, mirroring the runtime metaclass tower without
+    /// materializing semantic metaclass objects.
+    pub fn dispatch_owners(&self, hierarchy: &dyn TypeHierarchy, start_decl: &DeclarationId, side: DispatchSide) -> Vec<DispatchOwner> {
+        let mut owners = Vec::new();
+        let mut visited = HashSet::new();
+        let mut current = Some(DispatchOwner {
+            declaration: start_decl.clone(),
+            side,
+        });
+        let mut entered_class_object_root = false;
+
+        while let Some(owner) = current {
+            if !visited.insert((owner.declaration.clone(), owner.side)) {
+                break;
+            }
+            owners.push(owner.clone());
+            current = if let Some(superclass) = hierarchy.superclass(&owner.declaration) {
+                Some(DispatchOwner {
+                    declaration: superclass.clone(),
+                    side: owner.side,
+                })
+            } else if owner.side == DispatchSide::Class && !entered_class_object_root {
+                entered_class_object_root = true;
+                Some(DispatchOwner {
+                    declaration: DeclarationId::new(ModuleId::core(), "Class".into()),
+                    side: DispatchSide::Instance,
+                })
+            } else {
+                None
+            };
+        }
+
+        owners
+    }
+
     pub fn resolve_dispatch_with_trace(
         &self,
         hierarchy: &dyn TypeHierarchy,
@@ -211,15 +250,14 @@ impl SurfaceDispatchResolver {
         selector: &Selector,
     ) -> ResolvedDispatchResult {
         let mut visited = Vec::new();
-        let mut curr = Some(start_decl);
-        while let Some(decl) = curr {
-            visited.push(decl.clone());
-            if let Some(surface) = self.surfaces.get(decl) {
-                if let Some(sig) = surface.get_callable(side, selector) {
+        for owner in self.dispatch_owners(hierarchy, start_decl, side) {
+            visited.push(owner.declaration.clone());
+            if let Some(surface) = self.surfaces.get(&owner.declaration) {
+                if let Some(sig) = surface.get_callable(owner.side, selector) {
                     let callable_id = surface
-                        .get_callable_id(side, selector)
+                        .get_callable_id(owner.side, selector)
                         .cloned()
-                        .unwrap_or_else(|| CallableId::new(decl.clone(), selector.clone(), side));
+                        .unwrap_or_else(|| CallableId::new(owner.declaration.clone(), selector.clone(), owner.side));
                     return ResolvedDispatchResult::Found(ResolvedDispatch {
                         callable: callable_id,
                         signature: sig.clone(),
@@ -227,7 +265,6 @@ impl SurfaceDispatchResolver {
                     });
                 }
             }
-            curr = hierarchy.superclass(decl);
         }
         ResolvedDispatchResult::Missing {
             visited_owners: visited.into_boxed_slice(),
@@ -256,14 +293,12 @@ impl SurfaceDispatchResolver {
         side: DispatchSide,
         selector: &Selector,
     ) -> Option<CallableId> {
-        let mut curr = Some(start_decl);
-        while let Some(decl) = curr {
-            if let Some(surface) = self.surfaces.get(decl) {
-                if let Some(id) = surface.get_callable_id(side, selector) {
+        for owner in self.dispatch_owners(hierarchy, start_decl, side) {
+            if let Some(surface) = self.surfaces.get(&owner.declaration) {
+                if let Some(id) = surface.get_callable_id(owner.side, selector) {
                     return Some(id.clone());
                 }
             }
-            curr = hierarchy.superclass(decl);
         }
         None
     }

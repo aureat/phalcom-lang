@@ -302,17 +302,18 @@ impl<'a> EditorSemanticQuery<'a> {
     pub fn members_for_receiver(&self, receiver: &ResolvedReceiver, access: &AccessContext) -> Vec<EditorMember> {
         let mut members = Vec::new();
         for alternative in receiver.alternatives.iter() {
-            let mut declaration = Some(alternative.declaration.clone());
-            let mut visited = BTreeSet::new();
-            while let Some(current) = declaration {
-                if !visited.insert(current.clone()) {
-                    break;
-                }
+            let side = match alternative.mode {
+                ReceiverMode::Instance => crate::identity::DispatchSide::Instance,
+                ReceiverMode::Class => crate::identity::DispatchSide::Class,
+            };
+            for dispatch_owner in self
+                .snapshot
+                .dispatch
+                .dispatch_owners(self.snapshot.hierarchy.as_ref(), &alternative.declaration, side)
+            {
+                let current = dispatch_owner.declaration;
                 if let Some(surface) = self.snapshot.surfaces.get(&current) {
-                    let member_surface = surface.surface(match alternative.mode {
-                        ReceiverMode::Instance => crate::identity::DispatchSide::Instance,
-                        ReceiverMode::Class => crate::identity::DispatchSide::Class,
-                    });
+                    let member_surface = surface.surface(dispatch_owner.side);
                     for (selector, callable) in &member_surface.callables_by_selector {
                         let visibility = member_surface.callable_visibility.get(selector).copied().unwrap_or_default();
                         if is_visible(self.snapshot.hierarchy.as_ref(), &current, visibility, access) {
@@ -334,7 +335,6 @@ impl<'a> EditorSemanticQuery<'a> {
                         }
                     }
                 }
-                declaration = self.snapshot.hierarchy.superclass(&current).cloned();
             }
         }
         members.sort_by(|left, right| member_sort_key(left).cmp(&member_sort_key(right)));

@@ -3,7 +3,7 @@
 use crate::advisory::{
     AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
     AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace,
-    advisory_fact_from_formal, analyze_expr, analyze_statements,
+    advisory_fact_from_formal, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements,
 };
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
@@ -1252,21 +1252,29 @@ fn build_advisory_workspace(
             crate::advisory::ValueShape::Instance(owner) => (owner, DispatchSide::Instance),
             _ => return None,
         };
-        let resolved = dispatch.resolve_callable_id(hierarchy, owner, side, &selector).or_else(|| {
-            (side == DispatchSide::Class)
-                .then(|| dispatch.resolve_callable_id(hierarchy, owner, DispatchSide::Instance, &selector))
-                .flatten()
-        });
-        resolved.map(|callable| {
-            if callable.side == DispatchSide::Class
-                && callable.selector.kind == phalcom_common::selector::SelectorKind::Method
-                && matches!(&callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
-            {
-                CallableId::new(callable.owner, callable.selector, DispatchSide::Instance)
-            } else {
-                callable
-            }
+        dispatch.resolve_callable_id(hierarchy, owner, side, &selector)
+    };
+    let resolve_formal_call_result = |callable: &CallableId, receiver: Option<&crate::advisory::ValueShape>| {
+        let signature = dispatch.get_surface(&callable.owner)?.get_callable(callable.side, &callable.selector)?;
+        let shape = receiver.map_or_else(
+            || advisory_shape_from_formal(store, &signature.return_type),
+            |receiver| advisory_shape_from_formal_for_receiver(store, &signature.return_type, receiver),
+        );
+        (!matches!(shape, crate::advisory::ValueShape::Unknown)).then(|| {
+            AdvisoryFact::new(shape, AdvisoryConfidence::Interprocedural)
+                .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable.clone()))
         })
+    };
+    let advisory_transfer_target = |callable: &CallableId| {
+        let is_constructor = dispatch
+            .get_surface(&callable.owner)
+            .and_then(|surface| surface.get_callable(callable.side, &callable.selector))
+            .is_some_and(|signature| signature.kind == crate::dispatch::CallableSemanticKind::Constructor);
+        if is_constructor && callable.side == DispatchSide::Class {
+            CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Instance)
+        } else {
+            callable.clone()
+        }
     };
     let resolve_method_family = |receiver: &crate::advisory::ValueShape, spec: &phalcom_ast::ast::NormalizedSelectorSpec| {
         let pattern = match spec {
@@ -1351,6 +1359,8 @@ fn build_advisory_workspace(
                 &builtins,
                 &advisory_returns,
                 Some(&resolve_callable_for_shape),
+                Some(&resolve_formal_call_result),
+                Some(&advisory_transfer_target),
                 Some(&resolve_module_member),
                 Some(&resolve_method_family),
             );
@@ -1430,6 +1440,8 @@ fn build_advisory_workspace(
                     source_site_for_range: &site_for_range,
                     resolved_callable_for_range: &resolved_callable_for_range,
                     resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                    resolve_formal_call_result: Some(&resolve_formal_call_result),
+                    advisory_transfer_target: Some(&advisory_transfer_target),
                     resolve_module_member: Some(&resolve_module_member),
                     resolve_method_family: Some(&resolve_method_family),
                 };
@@ -1514,6 +1526,8 @@ fn build_advisory_workspace(
                 source_site_for_range: &source_site_for_range,
                 resolved_callable_for_range: &resolved_callable_for_range,
                 resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                resolve_formal_call_result: Some(&resolve_formal_call_result),
+                advisory_transfer_target: Some(&advisory_transfer_target),
                 resolve_module_member: Some(&resolve_module_member),
                 resolve_method_family: Some(&resolve_method_family),
             };
@@ -1607,6 +1621,8 @@ fn advisory_field_facts(
     builtins: &AdvisoryBuiltins,
     callable_returns: &BTreeMap<CallableId, AdvisoryFact>,
     resolve_callable_for_shape: Option<&dyn Fn(&crate::advisory::ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    resolve_formal_call_result: Option<&dyn Fn(&CallableId, Option<&crate::advisory::ValueShape>) -> Option<AdvisoryFact>>,
+    advisory_transfer_target: Option<&dyn Fn(&CallableId) -> CallableId>,
     resolve_module_member: Option<&dyn Fn(&crate::advisory::ValueShape, &str) -> Option<crate::advisory::ValueShape>>,
     resolve_method_family: Option<
         &dyn Fn(&crate::advisory::ValueShape, &phalcom_ast::ast::NormalizedSelectorSpec) -> Option<crate::advisory::CapturedMethodFamilyShape>,
@@ -1638,6 +1654,8 @@ fn advisory_field_facts(
                     source_site_for_range: &no_site,
                     resolved_callable_for_range: &no_callable,
                     resolve_callable_for_shape,
+                    resolve_formal_call_result,
+                    advisory_transfer_target,
                     resolve_module_member,
                     resolve_method_family,
                     call_observer: None,
@@ -1740,15 +1758,6 @@ fn callable_parameter_bindings<'a>(
 }
 
 fn advisory_return_fact(store: &TypeStore, analysis: &crate::checker::CallableAnalysis) -> AdvisoryFact {
-    if analysis.callable.selector.kind == phalcom_common::selector::SelectorKind::Method
-        && matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
-    {
-        return AdvisoryFact::new(
-            crate::advisory::ValueShape::Instance(analysis.callable.owner.clone()),
-            AdvisoryConfidence::Interprocedural,
-        )
-        .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(analysis.callable.clone()));
-    }
     if analysis.exits.normal_return_values.is_empty() {
         return AdvisoryFact::unknown();
     }
