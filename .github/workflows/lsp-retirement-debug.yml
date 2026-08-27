@@ -16,15 +16,19 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  apply-semantic-target-patch:
-    if: github.event.head_commit.message == 'ci: apply semantic target patch'
+  lsp-integration:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/lsp-single-world-retirement
-      - name: Retain compiler-resolved advisory call targets
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply advisory target retention patch
         run: |
+          if grep -q 'pub target_range: Option<SourceRange>' phalcom-semantic/src/advisory/analyzer.rs; then
+            exit 0
+          fi
           python3 - <<'PY'
           from pathlib import Path
 
@@ -70,31 +74,28 @@ jobs:
               '''fn record_call_contributions(product: &mut AdvisoryFlowProduct, context: &AdvisoryFlowContext<'_>, call: AdvisoryCallObservation) {\n    if let Some(range) = call.target_range {\n        product.call_targets.push((range, call.target.clone()));\n    }\n    let mut positional = 0;\n''')
 
           session = 'phalcom-semantic/src/session.rs'
-          merge = '''                for (range, callable) in &flow.call_targets {\n                    let mut candidates = module_index\n                        .occurrences\n                        .all()\n                        .iter()\n                        .filter(|occurrence| occurrence.range == *range)\n                        .map(|occurrence| occurrence.site.clone());\n                    let Some(site) = candidates.next() else { continue };\n                    if candidates.next().is_some() {\n                        continue;\n                    }\n                    targets.entry(site.clone()).or_insert_with(|| AdvisoryTargetResolution {\n                        target: SemanticTargetId::Callable(callable.clone()),\n                        confidence: AdvisoryConfidence::Interprocedural,\n                        provenance: vec![AdvisoryOrigin::CallSite(site)],\n                    });\n                }\n'''
+          callable_merge = '''                for (range, callable) in &flow.call_targets {\n                    let mut candidates = module_index\n                        .occurrences\n                        .all()\n                        .iter()\n                        .filter(|occurrence| occurrence.range == *range)\n                        .map(|occurrence| occurrence.site.clone());\n                    let Some(site) = candidates.next() else { continue };\n                    if candidates.next().is_some() {\n                        continue;\n                    }\n                    targets.entry(site.clone()).or_insert_with(|| AdvisoryTargetResolution {\n                        target: SemanticTargetId::Callable(callable.clone()),\n                        confidence: AdvisoryConfidence::Interprocedural,\n                        provenance: vec![AdvisoryOrigin::CallSite(site)],\n                    });\n                }\n'''
           replace(session,
               '''                let flow = analyze_statements(body, &context, seed_bindings);\n                for (field, fact) in &flow.field_writes {\n''',
-              '''                let flow = analyze_statements(body, &context, seed_bindings);\n''' + merge + '''                for (field, fact) in &flow.field_writes {\n''')
-          top_merge = merge.replace('                ', '            ', 1)
+              '''                let flow = analyze_statements(body, &context, seed_bindings);\n''' + callable_merge + '''                for (field, fact) in &flow.field_writes {\n''')
+          top_merge = '''            for (range, callable) in &top_level.call_targets {\n                let mut candidates = module_index\n                    .occurrences\n                    .all()\n                    .iter()\n                    .filter(|occurrence| occurrence.range == *range)\n                    .map(|occurrence| occurrence.site.clone());\n                let Some(site) = candidates.next() else { continue };\n                if candidates.next().is_some() {\n                    continue;\n                }\n                targets.entry(site.clone()).or_insert_with(|| AdvisoryTargetResolution {\n                    target: SemanticTargetId::Callable(callable.clone()),\n                    confidence: AdvisoryConfidence::Interprocedural,\n                    provenance: vec![AdvisoryOrigin::CallSite(site)],\n                });\n            }\n'''
           replace(session,
               '''            let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());\n            parameter_contributions.replace_source(\n''',
-              '''            let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());\n''' + top_merge.replace('&flow.call_targets', '&top_level.call_targets') + '''            parameter_contributions.replace_source(\n''')
+              '''            let top_level = analyze_statements(&source.program.statements, &top_level_context, BTreeMap::new());\n''' + top_merge + '''            parameter_contributions.replace_source(\n''')
           PY
-          cargo fmt --all -- --check || cargo fmt --all
+          cargo fmt --all
           git diff --check
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add phalcom-semantic/src/advisory/analyzer.rs phalcom-semantic/src/advisory/flow.rs phalcom-semantic/src/session.rs
-          git commit -m 'fix(semantic): publish advisory call targets [auto-patch]'
-          git push origin HEAD:codex/lsp-single-world-retirement
-
-  lsp-integration:
-    if: github.event.head_commit.message != 'ci: apply semantic target patch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - name: Check LSP library
         run: cargo check -p phalcom-lsp --lib
       - name: Run LSP integration suite
         run: cargo test -p phalcom-lsp --test integration -- --nocapture
+      - name: Commit validated patch
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add phalcom-semantic/src/advisory/analyzer.rs phalcom-semantic/src/advisory/flow.rs phalcom-semantic/src/session.rs
+          git commit -m 'fix(semantic): publish advisory call targets'
+          git push origin HEAD:codex/lsp-single-world-retirement
