@@ -33,6 +33,16 @@ jobs:
           path.write_text(text[:start] + text[end:])
           PY
           python .github/scripts/apply-lsp-retirement-semantic-unification.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('phalcom-semantic/tests/semantic/integration/advisory_analyzer.rs')
+          text = path.read_text()
+          text = text.replace(
+              '        resolve_callable_for_shape: None,\n        resolve_module_member: None,',
+              '        resolve_callable_for_shape: None,\n        resolve_formal_call_result: None,\n        advisory_transfer_target: None,\n        resolve_module_member: None,',
+          )
+          path.write_text(text)
+          PY
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
@@ -64,7 +74,8 @@ jobs:
                   phalcom-semantic/src/advisory/analyzer.rs \
                   phalcom-semantic/src/advisory/flow.rs \
                   phalcom-semantic/src/session.rs \
-                  phalcom-semantic/src/editor.rs
+                  phalcom-semantic/src/editor.rs \
+                  phalcom-semantic/tests/semantic/integration/advisory_analyzer.rs
           if ! git diff --cached --quiet; then
             git commit -m 'refactor(semantic): unify class-object dispatch and advisory Self'
             git push origin HEAD:codex/lsp-single-world-retirement
