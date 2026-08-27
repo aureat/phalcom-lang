@@ -1,6 +1,6 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
-use phalcom_modules::ModuleId;
+use phalcom_modules::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::types::TypeTerm;
 use phalcom_semantic::{CallableId, DeclarationId, DispatchSide, EditorMemberTarget, SemanticTargetId, ValueShape, analyze_single_module};
 use std::sync::Arc;
@@ -236,5 +236,32 @@ class Probe {
             alternative.declaration == cell && matches!(alternative.mode, phalcom_semantic::ReceiverMode::Instance)
         }),
         "receiver query must consult the binding declaration fact when the use-site expression has no usable fact: {receiver:#?}"
+    );
+}
+
+#[test]
+fn builtin_type_annotation_has_canonical_target_and_definition_site() {
+    let module = ModuleId::resolved(ResolvedProjectId::from_raw(77), ModulePath::root());
+    let source: Arc<str> = Arc::from("const x: Int = 42\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let snapshot = analysis.snapshot;
+
+    let int = DeclarationId::new(ModuleId::core(), "Int".into());
+    let annotation_offset = source.find("Int").expect("Int annotation") + 1;
+    let target = SemanticTargetId::Declaration(int.clone());
+    assert_eq!(
+        snapshot.editor().target_at(&module, annotation_offset),
+        Some(target.clone()),
+        "type annotation token must retain the exact canonical declaration target"
+    );
+
+    let sites = snapshot.editor().definition_sites(&target);
+    assert_eq!(sites.len(), 1, "builtin declaration must publish exactly one canonical definition site: {sites:#?}");
+    let site = snapshot.source_site(&sites[0]).expect("builtin declaration source site");
+    assert!(
+        matches!(&site.id.owner, phalcom_semantic::SourceOwner::Module(owner) if owner == &ModuleId::core()),
+        "builtin definition site must belong to the compiler-owned core presentation shard: {site:#?}"
     );
 }
