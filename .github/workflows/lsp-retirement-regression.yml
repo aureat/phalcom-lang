@@ -26,11 +26,32 @@ jobs:
           components: rustfmt
       - name: Add method-family root regression
         run: python .github/scripts/add-method-family-root-regression.py
+      - name: Apply canonical method-family traversal
+        run: python .github/scripts/apply-method-family-dispatch-owner.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
           git diff --check
-      - name: Compile semantic
-        run: cargo check -p phalcom-semantic
-      - name: Prove current family traversal misses class-object behavior root
+      - name: Compile semantic and LSP
+        run: |
+          cargo check -p phalcom-semantic
+          cargo check -p phalcom-lsp --lib
+      - name: Validate method-family root traversal
         run: cargo test -p phalcom-semantic --test semantic class_object_method_family_uses_canonical_dispatch_owner_chain -- --nocapture
+      - name: Revalidate constructor semantics
+        run: |
+          cargo test -p phalcom-semantic --test semantic constructorless_class_inherits_canonical_class_new -- --nocapture
+          cargo test -p phalcom-semantic --test semantic constructor_factory_publishes_target_and_inferred_signature -- --nocapture
+      - name: Revalidate signature help and inherited hover
+        run: |
+          cargo test -p phalcom-lsp --test integration signature_help_recovers_incomplete_receiver_call -- --nocapture
+          cargo test -p phalcom-lsp --test integration inherited_hover_reports_the_defining_owner_not_the_receiver_class -- --nocapture
+      - name: Commit validated method-family traversal
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add phalcom-semantic/src/session.rs phalcom-semantic/tests/constructor_factory_probe.rs
+          if ! git diff --cached --quiet; then
+            git commit -m 'refactor(semantic): unify method-family dispatch traversal'
+            git push origin HEAD:codex/lsp-single-world-retirement
+          fi
