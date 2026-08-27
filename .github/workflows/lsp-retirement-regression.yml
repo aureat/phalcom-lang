@@ -25,6 +25,6 @@ jobs:
       - name: Check LSP library
         run: cargo check -p phalcom-lsp --lib
       - name: Inherited allocator semantic regression
-        run: cargo test -p phalcom-semantic --test constructor_factory_probe constructorless_class_inherits_core_class_new_from_resolved_module -- --nocapture
+        run: cargo test -p phalcom-semantic --test semantic constructorless_class_inherits_core_class_new_from_resolved_module -- --nocapture
       - name: Inherited allocator inlay regression
         run: cargo test -p phalcom-lsp --test integration stable_runtime_shapes_are_exposed_as_inlay_hints -- --nocapture
