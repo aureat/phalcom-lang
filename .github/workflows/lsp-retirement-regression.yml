@@ -11,6 +11,9 @@ concurrency:
   group: lsp-retirement-regression-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TARGET_DIR: /tmp/phalcom-lsp-retirement-target
+
 jobs:
   integration:
     runs-on: ubuntu-latest
@@ -21,7 +24,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - uses: Swatinem/rust-cache@v2
       - name: Apply advisory target publication candidate
         run: python .github/scripts/apply-advisory-target-publication.py
       - name: Format and diff check
