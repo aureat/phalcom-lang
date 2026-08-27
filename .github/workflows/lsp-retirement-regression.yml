@@ -24,8 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply exact publication readiness
-        run: python .github/scripts/apply-exact-publication-readiness.py
+      - name: Add untyped callable hover probe
+        run: python .github/scripts/add-untyped-callable-hover-probe.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
@@ -34,33 +34,8 @@ jobs:
         run: |
           cargo check -p phalcom-semantic
           cargo check -p phalcom-lsp --lib
-          cargo check -p phalcom-lsp --tests
-      - name: Validate exact-source publication readiness
-        run: |
-          cargo test -p phalcom-lsp --test integration stage4_hover::binding_hover_ranges_are_exact_and_scope_aware -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::receiver_qualified_hover_selects_one_of_repeated_new_members -- --nocapture
-          cargo test -p phalcom-lsp --test integration signature_help_recovers_incomplete_receiver_call -- --nocapture
-          cargo test -p phalcom-lsp --test integration stable_runtime_shapes_are_exposed_as_inlay_hints -- --nocapture
-      - name: Commit validated publication readiness
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-lsp/src/publication.rs \
-                  phalcom-lsp/src/analysis_service.rs \
-                  phalcom-lsp/src/backend.rs \
-                  phalcom-lsp/src/lib.rs \
-                  phalcom-lsp/tests/support/lsp_client.rs \
-                  phalcom-lsp/tests/stage4_hover.rs \
-                  phalcom-semantic/src/session.rs
-          if ! git diff --cached --quiet; then
-            git commit -m 'fix(lsp): wait for exact semantic source publication'
-            git push origin HEAD:codex/lsp-single-world-retirement
-          fi
-      - name: Diagnose remaining Stage 4 semantic and presentation gaps
+      - name: Diagnose untyped callable publication layers
+        run: cargo test -p phalcom-semantic --test semantic untyped_parameterized_callable_publishes_source_identity_even_without_complete_signature -- --nocapture
+      - name: Confirm Stage 4 selector remains red
         continue-on-error: true
-        run: |
-          cargo test -p phalcom-lsp --test integration stage4_hover::selector_hover_sets_range_to_the_resolved_selector_span -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_attaches_and_blank_line_breaks_it -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::phaldoc_adjacency_survives_member_attributes -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::selector_keying_gives_each_arity_its_own_doc -- --nocapture
-          cargo test -p phalcom-lsp --test integration stage4_hover::hover_over_a_top_level_binding_usage_surfaces_its_doc -- --nocapture
+        run: cargo test -p phalcom-lsp --test integration stage4_hover::selector_hover_sets_range_to_the_resolved_selector_span -- --nocapture
