@@ -180,19 +180,21 @@ impl<'a> EditorSemanticQuery<'a> {
             SemanticTargetId::Binding(binding) => Some(binding),
             _ => None,
         });
-        let fact_site = expression_site.as_ref().or(target_site).or(occurrence_site.as_ref());
+        let advisory_shape_for_site = |site: &SourceSiteId| {
+            self.snapshot
+                .advisory_fact(site)
+                .filter(|fact| !matches!(fact.shape, ValueShape::Unknown))
+                .map(|fact| fact.shape.clone())
+        };
         let shape = constructor_receiver.or_else(|| {
             expression_site
                 .as_ref()
                 .and_then(|site| self.formal_shape_for_site(site))
-                .or_else(|| {
-                    fact_site
-                        .and_then(|site| self.snapshot.advisory_fact(site))
-                        .filter(|fact| !matches!(fact.shape, ValueShape::Unknown))
-                        .map(|fact| fact.shape.clone())
-                })
                 .or_else(|| target_site.and_then(|site| self.formal_shape_for_site(site)))
                 .or_else(|| self.formal_shape_at(module, range.start))
+                .or_else(|| expression_site.as_ref().and_then(advisory_shape_for_site))
+                .or_else(|| target_site.and_then(advisory_shape_for_site))
+                .or_else(|| occurrence_site.as_ref().and_then(advisory_shape_for_site))
                 .or_else(|| match target.as_ref() {
                     Some(SemanticTargetId::Module(module)) => Some(ValueShape::Module(module.clone())),
                     Some(SemanticTargetId::Declaration(declaration)) => Some(ValueShape::ClassObject(declaration.clone())),
