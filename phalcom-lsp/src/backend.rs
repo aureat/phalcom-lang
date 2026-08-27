@@ -769,7 +769,13 @@ impl Backend {
             phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
         };
         let uri = self.compiler_uri_for_module(compiler, module)?;
-        let range = self.with_source_snapshot(&uri, |_, _, line_index| line_index.range(source.range.start..source.range.end))?;
+        let text = compiler
+            .sources
+            .get(module)
+            .map(|published| published.text.as_ref())
+            .or_else(|| compiler.presentation_source(module))?;
+        let line_index = LineIndex::new(text);
+        let range = line_index.range(source.range.start..source.range.end);
         Some(Location { uri, range })
     }
 
