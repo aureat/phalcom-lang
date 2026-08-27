@@ -2,7 +2,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::ModuleId;
 use phalcom_semantic::types::TypeTerm;
-use phalcom_semantic::{CallableId, DeclarationId, DispatchSide, EditorMemberTarget, SemanticTargetId, analyze_single_module};
+use phalcom_semantic::{CallableId, DeclarationId, DispatchSide, EditorMemberTarget, SemanticTargetId, ValueShape, analyze_single_module};
 use std::sync::Arc;
 
 #[test]
@@ -92,6 +92,8 @@ fn constructorless_class_inherits_canonical_class_new() {
         r#"
 class Person {}
 
+const person = Person.new()
+
 class Probe {
   make() {
     Person.new()
@@ -135,7 +137,7 @@ class Probe {
         "Class.new Self result must specialize to the concrete class object receiver: {constructor_call:#?}"
     );
 
-    let receiver_start = source.find("Person.new()").expect("Person.new call");
+    let receiver_start = source.rfind("Person.new()").expect("Person.new call");
     let receiver_range = SourceRange {
         start: receiver_start,
         end: receiver_start + "Person".len(),
@@ -151,5 +153,18 @@ class Probe {
             .iter()
             .any(|member| member.target == EditorMemberTarget::Callable(default_new.clone())),
         "editor member enumeration must share formal class-object root dispatch"
+    );
+
+    let module_index = snapshot.source_index.module(&module).expect("source index");
+    let person_binding = module_index
+        .structure
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "person")
+        .expect("top-level person binding");
+    assert_eq!(
+        snapshot.advisory_fact(&person_binding.declaration_site).map(|fact| &fact.shape),
+        Some(&ValueShape::Instance(person)),
+        "known Self-returning Class.new must project the concrete receiver into advisory binding shape"
     );
 }
