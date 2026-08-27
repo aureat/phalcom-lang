@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "spec/typing/01-core-type-lattice-and-unit.md",
+                "file": "spec/type system foundations.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "01-core-type-lattice-and-unit"
+              "title": "type system foundations"
             }
           }
         ]
@@ -185,8 +185,13 @@
       "bases:Create new base": false
     }
   },
-  "active": "63938eaeb8fda3e1",
+  "active": "e351412831514433",
   "lastOpenFiles": [
+    "spec/symbols.md",
+    "spec/type system foundations.md",
+    "spec/selectors.md",
+    "spec/README.md",
+    "spec/typing/01-core-type-lattice-and-unit.md",
     "spec/primitives/Untitled 1.md",
     "spec/primitives/Untitled 2.md",
     "spec/primitives/Untitled 3.md",
@@ -200,9 +205,7 @@
     "work/pending/phalcom-updated-language-semantics-handoff.md",
     "work/pending/phalcom-updated-language-semantics-implementation-spec.md",
     "spec/primitives/newer syntax.md",
-    "spec/selectors.md",
     "spec/phalcom-selectors.md",
-    "spec/symbols.md",
     "spec/phalcom-symbols.md",
     "superpowers/specs/2026-08-20-variant-global-recognition-design.md",
     "spec/next/semantics/in-membership-operators-implementation-spec.md",
@@ -219,8 +222,6 @@
     "work/pending/fsco/fs-v2-implementation-spec.md",
     "work/pending/fsco/streams-v2-implementation-spec.md",
     "work/pending/fsco/path-patch-spec.md",
-    "work/pending/fsco/bytes-v2-implementation-spec.md",
-    "work/pending/fsco/resource-v2-test-spec.md",
     "work/pending/fsco"
   ]
 }
