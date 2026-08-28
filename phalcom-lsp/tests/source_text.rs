@@ -53,9 +53,7 @@ async fn builtin_definition_range_indexes_the_compiler_core_presentation() {
             }),
         )
         .await;
-    let locations = definition["result"]
-        .as_array()
-        .expect("builtin annotation definition returns a location array");
+    let locations = definition["result"].as_array().expect("builtin annotation definition returns a location array");
     let location = locations.first().expect("Int annotation has a canonical definition location");
     assert_eq!(location["uri"].as_str(), Some("phalcom://core"));
 
