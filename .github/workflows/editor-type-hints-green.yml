@@ -46,7 +46,8 @@ jobs:
       - name: Focused LSP inlay tests
         env:
           RUSTFLAGS: ""
-        run: cargo +stable test -p phalcom-lsp --test integration inlay_hints:: -- --nocapture
+        run: |
+          cargo +stable test -p phalcom-lsp --test integration 'inlay_hints::' -- --nocapture
       - name: Full semantic suite
         env:
           RUSTFLAGS: ""
