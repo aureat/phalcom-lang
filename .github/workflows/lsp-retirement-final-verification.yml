@@ -5,7 +5,11 @@ on:
     branches: [codex/lsp-single-world-retirement]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: lsp-retirement-final-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,30 +26,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply structural nominal call repair
-        run: python .github/scripts/apply-structural-nominal-call-repair.py
-      - name: Format and diff check
+      - name: Formatting and diff integrity
         run: |
-          cargo +stable fmt --all
+          cargo +stable fmt --all -- --check
           git diff --check
-      - name: Compile semantic and LSP
+      - name: Compile retirement layers
         run: |
           cargo check -p phalcom-semantic
+          cargo check -p phalcom-modules
           cargo check -p phalcom-lsp --lib
-      - name: Validate structural callable language surface
-        run: cargo test -p phalcom-core --test lang functions -- --exact
-      - name: Validate semantic retirement regressions
-        run: cargo test -p phalcom-semantic --test semantic constructor_factory_probe -- --nocapture
-      - name: Validate complete LSP integration suite
-        run: cargo test -p phalcom-lsp --test integration -- --nocapture
-      - name: Validate semantic authority boundary
-        run: cargo test -p phalcom-lsp --test semantic_boundary -- --nocapture
-      - name: Commit validated structural callable repair
+      - name: Validate affected core callable language surfaces
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-semantic/src/checker/expression.rs
-          if ! git diff --cached --quiet; then
-            git commit -m 'fix(semantic): dispatch direct nominal callable values'
-            git push origin HEAD:codex/lsp-single-world-retirement
-          fi
+          cargo test -p phalcom-core --test lang functions -- --exact
+          cargo test -p phalcom-core --test lang functions_negative -- --exact
+      - name: Validate complete semantic suite
+        run: cargo test -p phalcom-semantic
+      - name: Validate complete modules suite
+        run: cargo test -p phalcom-modules
+      - name: Validate complete LSP suite
+        run: cargo test -p phalcom-lsp
+      - name: Validate semantic authority boundary explicitly
+        run: cargo test -p phalcom-lsp --test semantic_boundary -- --nocapture
