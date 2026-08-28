@@ -16,7 +16,7 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  language-control:
+  language-concurrency-control:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,17 +24,17 @@ jobs:
           fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Branch functions control
+      - name: Branch full language suite parallel
         continue-on-error: true
-        run: cargo test -p phalcom-core --test lang functions -- --exact --nocapture
-      - name: Branch collection negative control
+        run: cargo test -p phalcom-core --test lang -- --nocapture
+      - name: Branch full language suite serial
         continue-on-error: true
-        run: cargo test -p phalcom-core --test lang collections_literals_negative -- --exact --nocapture
+        run: cargo test -p phalcom-core --test lang -- --test-threads=1 --nocapture
       - name: Checkout main
         run: git fetch origin main --depth=1 && git checkout --detach origin/main
-      - name: Main functions control
+      - name: Main full language suite parallel
         continue-on-error: true
-        run: cargo test -p phalcom-core --test lang functions -- --exact --nocapture
-      - name: Main collection negative control
+        run: cargo test -p phalcom-core --test lang -- --nocapture
+      - name: Main full language suite serial
         continue-on-error: true
-        run: cargo test -p phalcom-core --test lang collections_literals_negative -- --exact --nocapture
+        run: cargo test -p phalcom-core --test lang -- --test-threads=1 --nocapture
