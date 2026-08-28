@@ -82,7 +82,7 @@ replacement = '''pub fn render_signature_help(
             .as_deref()
             .map(|label| format!("{label}: {}{rest}: {type_text}", parameter.name))
             .unwrap_or_else(|| format!("{}{rest}: {type_text}", parameter.name));
-        let documentation = matches!(parameter.type_, phalcom_semantic::FormalPresentation::Unknown)
+        let documentation = matches!(&parameter.type_, phalcom_semantic::FormalPresentation::Unknown)
             .then(|| {
                 advisory.and_then(|summary| {
                     summary
