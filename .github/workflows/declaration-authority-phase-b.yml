@@ -21,6 +21,7 @@ jobs:
         run: |
           python .github/apply-declaration-authority-phase-b.py
           python .github/apply-declaration-authority-phase-b-fixes.py
+          python .github/apply-declaration-authority-phase-b-session-fix.py
       - name: Format
         run: cargo +stable fmt --all
       - name: Diff check
