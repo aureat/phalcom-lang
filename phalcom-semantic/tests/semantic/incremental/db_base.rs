@@ -324,8 +324,8 @@ fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()
     match outcome {
         QueryOutcome::Failed(message) => {
             assert!(
-                message.contains("DeclarationSurface") && !message.contains("requires ready"),
-                "failure identifies missing formal surface dependency without prewarm-order wording: {message}"
+                message.contains("CallableSignature") && !message.contains("DeclarationSurface"),
+                "failure identifies the missing canonical callable-signature prerequisite: {message}"
             );
         }
         other => panic!("missing required signature product must fail closed, got {other:?}"),
