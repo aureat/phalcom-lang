@@ -247,7 +247,10 @@ async fn unresolved_selective_import_does_not_fabricate_local_reference_identity
     .await;
 
     let response = read_response(&mut client_end, 2).await;
-    assert!(response["error"].is_null(), "unresolved import references must fail closed without protocol error");
+    assert!(
+        response["error"].is_null(),
+        "unresolved import references must fail closed without protocol error"
+    );
     assert!(
         response["result"].is_null() || response["result"].as_array().is_some_and(Vec::is_empty),
         "unresolved imported names must not be given an LSP-local semantic identity: {response:#?}"
