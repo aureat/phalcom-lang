@@ -122,6 +122,8 @@ jobs:
               class_surface.add_callable(DispatchSide::Instance, signature);
           }
           '''
+          # The source is rustfmt-formatted; preserve its continuation indentation exactly.
+          old = old.replace('              &&', '        &&').replace('          {', '    {').replace('              let', '        let').replace('                  owner', '            owner').replace('                  side', '            side').replace('                  role', '            role').replace('              });', '        });').replace('                  selector', '            selector').replace('                  Vec::new()', '            Vec::new()').replace('                  TypeKnowledge', '            TypeKnowledge').replace('              )', '        )').replace('              .with_kind', '        .with_kind').replace('              class_surface', '        class_surface').replace('          }', '    }')
           new = '''    let canonical_new = crate::checker::declaration_signature::canonical_core_class_new_signature(store);
           if class_surface.instance.get_callable(&canonical_new.selector).is_none() {
               class_surface.add_callable(
@@ -130,25 +132,28 @@ jobs:
               );
           }
           '''
+          new = new.replace('          if', '    if').replace('              class_surface', '        class_surface').replace('                  DispatchSide', '            DispatchSide').replace('                  crate::checker', '            crate::checker').replace('              );', '        );').replace('          }', '    }')
           ctx = replace_once(ctx, old, new, 'core Class.new dispatch projection')
           ctx_path.write_text(ctx)
 
           session_path = Path('phalcom-semantic/src/session.rs')
           session = session_path.read_text()
           old = '''        let mut base_callable_signatures = CallableSignatureTable::new();
-                  for (_, signature) in native_report.callable_signatures {
-                      base_callable_signatures.insert(signature);
-                  }
+          for (_, signature) in native_report.callable_signatures {
+              base_callable_signatures.insert(signature);
+          }
           '''
+          old = old.replace('          for', '        for').replace('              base', '            base').replace('          }', '        }')
           new = '''        let mut base_callable_signatures = CallableSignatureTable::new();
-                  for (_, signature) in native_report.callable_signatures {
-                      base_callable_signatures.insert(signature);
-                  }
-                  let core_class_new = crate::checker::declaration_signature::canonical_core_class_new_signature(&mut store);
-                  if base_callable_signatures.get(&core_class_new.callable).is_none() {
-                      base_callable_signatures.insert(core_class_new);
-                  }
+          for (_, signature) in native_report.callable_signatures {
+              base_callable_signatures.insert(signature);
+          }
+          let core_class_new = crate::checker::declaration_signature::canonical_core_class_new_signature(&mut store);
+          if base_callable_signatures.get(&core_class_new.callable).is_none() {
+              base_callable_signatures.insert(core_class_new);
+          }
           '''
+          new = new.replace('          for', '        for').replace('              base_callable_signatures.insert(signature)', '            base_callable_signatures.insert(signature)').replace('          }', '        }').replace('          let core', '        let core').replace('          if base', '        if base').replace('              base_callable_signatures.insert(core', '            base_callable_signatures.insert(core')
           session = replace_once(session, old, new, 'workspace core Class.new canonical seed')
           session = session.replace(', advisory_fact_from_formal,', ',')
           session = session.replace('use crate::types::evidence::TypeKnowledge;\n', '')
