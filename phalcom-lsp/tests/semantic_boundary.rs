@@ -146,3 +146,29 @@ fn inlay_hints_do_not_reimplement_annotation_semantics() {
         "the LSP inlay handler must consume EditorSemanticQuery::type_hints rather than reconstructing hint eligibility"
     );
 }
+
+#[test]
+fn callable_surfaces_use_shared_canonical_presentation() {
+    let lsp = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let backend = fs::read_to_string(lsp.join("src/backend.rs")).expect("backend source must be readable");
+    let signature_help = fs::read_to_string(lsp.join("src/signature_help.rs")).expect("signature-help source must be readable");
+
+    for (name, source) in [("backend", backend.as_str()), ("signature_help", signature_help.as_str())] {
+        assert!(
+            !source.contains(".return_type"),
+            "{name} must not read the removed dispatch-era return_type field from CallableSemanticSignature"
+        );
+        assert!(
+            !source.contains("parameter.ty"),
+            "{name} must not read the removed dispatch-era parameter.ty field from CallableParameterSemantic"
+        );
+    }
+    assert!(
+        backend.contains("CallablePresentation::from_signature"),
+        "hover return presentation must come from the shared compiler-owned callable projection"
+    );
+    assert!(
+        signature_help.contains("CallablePresentation::from_signature"),
+        "signature help must render parameters and return types from the shared compiler-owned callable projection"
+    );
+}
