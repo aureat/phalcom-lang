@@ -1,5 +1,6 @@
 mod advisory;
 mod compiler_capabilities;
+mod declaration_knowledge;
 mod denotation;
 mod editor;
 mod imported_resolution;
