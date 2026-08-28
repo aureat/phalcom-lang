@@ -24,7 +24,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::resolver::LinkedTypeResolver;
-use crate::signature::CallableSignatureTable;
+use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
@@ -617,6 +617,7 @@ impl SemanticWorkspaceSession {
         // 6. Materialize compatibility dispatch/signature tables from DB-owned formal products.
         let mut dispatch = self.base_dispatch.clone();
         let mut callable_signatures = self.base_callable_signatures.clone();
+        let mut field_signatures = FieldSignatureTable::new();
 
         for (module_id, parsed_unit) in &input.sources {
             let Some(linked_module) = input.linked.modules.get(module_id) else {
@@ -631,6 +632,17 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                {
+                    let mut context = CheckingContext::new(&mut self.store, &hierarchy, &resolver, &declarations, module_id.clone());
+                    for member in &class_def.members {
+                        if let Some(signature) = crate::checker::declaration_signature::semantic_field_signature_for_member(&mut context, &decl_id, member) {
+                            field_signatures.insert(signature);
+                        }
+                    }
+                    if !context.diagnostics.is_empty() {
+                        diags_by_module.entry(module_id.clone()).or_default().extend(context.diagnostics);
+                    }
+                }
                 // Publish declaration-owned callable signatures first. Dispatch
                 // surfaces are compatibility projections of these facts.
                 for member in &class_def.members {
@@ -1004,6 +1016,7 @@ impl SemanticWorkspaceSession {
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
         );
+        snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj.advisory = Arc::new(advisory);
@@ -1028,7 +1041,9 @@ impl SemanticWorkspaceSession {
         let declaration_index_changed = previous_snapshot.as_deref().is_none_or(|previous| {
             let previous_callables = previous.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
             let current_callables = snapshot.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
-            !previous.surfaces.keys().eq(snapshot.surfaces.keys()) || previous_callables != current_callables
+            let previous_fields = previous.field_signatures.iter().map(|(field, _)| field).collect::<BTreeSet<_>>();
+            let current_fields = snapshot.field_signatures.iter().map(|(field, _)| field).collect::<BTreeSet<_>>();
+            !previous.surfaces.keys().eq(snapshot.surfaces.keys()) || previous_callables != current_callables || previous_fields != current_fields
         });
         let effects = SemanticPublicationEffects {
             diagnostics_changed,

@@ -25,37 +25,19 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     let class_ty = ctx.nominal_type_of(&decl_id);
     ctx.dispatch.make_mut().register_type(class_ty, decl_id.clone());
 
-    // Fields are still projected directly in this phase. Callable members go
-    // through the declaration-owned semantic signature builder first.
-    let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
-        sig.parameters
-            .iter()
-            .map(|&param_id| {
-                let name = ctx.store.type_parameter(param_id).name.to_string();
-                let param_form = ctx.store.parameter_form(param_id);
-                (name, param_form)
-            })
-            .collect()
-    } else {
-        std::collections::HashMap::new()
-    };
-    let parent_resolver = ctx.resolver.clone();
-    let field_resolver = crate::types::annotation::ScopedTypeResolver {
-        parent: &parent_resolver,
-        type_parameters: type_params_map,
-    };
-
     for member in &class_def.members {
         let visibility = member_visibility(member);
         match member {
-            ClassMember::Field(field) => {
-                let side = member_side(member);
-                let declared = field
-                    .annotation
-                    .as_ref()
-                    .map(|annotation| ctx.resolve_type_annotation(&field_resolver, annotation).0)
-                    .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-                surface.add_field_with_visibility(side, &field.name, declared, visibility);
+            ClassMember::Field(_) => {
+                let Some(signature) = super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member) else {
+                    continue;
+                };
+                surface.add_field_with_visibility(
+                    signature.side,
+                    signature.name.as_ref(),
+                    super::declaration_signature::project_field_signature(&signature),
+                    visibility,
+                );
             }
             ClassMember::Method(_) | ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Index(_) => {
                 let Some(signature) = super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member) else {

@@ -7,8 +7,8 @@
 use super::context::CheckingContext;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
-use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide};
-use crate::signature::{CallableParameterSemantic, CallableSemanticSignature};
+use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
+use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeParameterOwner;
 use phalcom_ast::ast::{ClassMember, ParameterDef, RestMode};
@@ -126,6 +126,51 @@ pub(crate) fn canonical_core_class_new_signature(store: &mut crate::types::store
         flow: phalcom_native_meta::ReturnFlowSpec::Value,
         lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
     }
+}
+
+pub(crate) fn semantic_field_signature_for_member(
+    ctx: &mut CheckingContext<'_>,
+    owner: &DeclarationId,
+    member: &ClassMember,
+) -> Option<FieldSemanticSignature> {
+    let ClassMember::Field(field) = member else {
+        return None;
+    };
+    let side = super::declaration::member_side(member);
+    let declaration_type_parameters = ctx
+        .declaration_generic_signature(owner)
+        .map(|signature| {
+            signature
+                .parameters
+                .iter()
+                .map(|&parameter_id| {
+                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
+                    let form = ctx.store.parameter_form(parameter_id);
+                    (name, form)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let parent_resolver = ctx.resolver.clone();
+    let declaration_resolver = crate::types::annotation::ScopedTypeResolver {
+        parent: &parent_resolver,
+        type_parameters: declaration_type_parameters,
+    };
+    let declared_type = annotation_fact(ctx, &declaration_resolver, field.annotation.as_ref(), UnknownReason::UnannotatedDeclaration);
+    let field_id = FieldId::new(owner.clone(), field.name.clone(), side);
+    Some(FieldSemanticSignature {
+        field: field_id,
+        owner: owner.clone(),
+        side,
+        name: field.name.clone().into(),
+        mutable: field.mutable,
+        declared_type,
+        source: None,
+    })
+}
+
+pub(crate) fn project_field_signature(signature: &FieldSemanticSignature) -> TypeKnowledge {
+    signature.declared_type.to_knowledge()
 }
 
 pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {
