@@ -2,6 +2,7 @@ mod advisory;
 mod callable_dependencies;
 mod checker_dependencies;
 mod db;
+mod declaration_authority;
 mod fingerprints;
 mod product_stability;
 mod query_ownership;
