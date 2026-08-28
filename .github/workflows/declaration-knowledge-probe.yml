@@ -17,7 +17,9 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Apply declaration authority patch
-        run: python .github/apply-declaration-knowledge-phase-a.py
+        run: |
+          python .github/apply-declaration-knowledge-phase-a.py
+          python .github/apply-declaration-knowledge-phase-a-fixes.py
       - name: Format
         run: cargo +stable fmt --all
       - name: Check semantic crate
