@@ -12,7 +12,7 @@ fn partial_callable_signature_survives_unknown_return() {
         r#"
 class Probe {
     run(value: String) {
-        unknownThing()
+        ...
     }
 }
 "#,
