@@ -46,10 +46,10 @@ fn source_fields_publish_canonical_field_signatures() {
     let source: Arc<str> = Arc::from(
         r#"
 class Probe {
-    value: String
+    _value: String
 
     @class
-    const shared
+    const _shared
 }
 "#,
     );
@@ -58,8 +58,8 @@ class Probe {
 
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let owner = DeclarationId::new(module, "Probe".into());
-    let value_id = FieldId::new(owner.clone(), "value", DispatchSide::Instance);
-    let shared_id = FieldId::new(owner, "shared", DispatchSide::Class);
+    let value_id = FieldId::new(owner.clone(), "_value", DispatchSide::Instance);
+    let shared_id = FieldId::new(owner, "_shared", DispatchSide::Class);
 
     let value = analysis
         .snapshot
