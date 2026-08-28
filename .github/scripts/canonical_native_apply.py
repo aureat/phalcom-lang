@@ -93,7 +93,7 @@ replacement = r'''pub fn register_native_surfaces(
                         crate::declaration_type::DeclaredTypeBasis::NativeSignature,
                     ),
                 )
-                .with_external_label(Some(labeled.label.into())),
+                .with_label(labeled.label),
             );
         }
 
