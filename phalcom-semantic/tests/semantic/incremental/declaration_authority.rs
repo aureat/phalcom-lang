@@ -51,3 +51,28 @@ fn formal_field_lookup_never_reads_type_from_dispatch_surface() {
         "checker context must receive canonical field declaration knowledge rather than reconstructing it from dispatch"
     );
 }
+
+#[test]
+fn field_signature_is_a_first_class_incremental_product() {
+    let key = include_str!("../../../src/db/key.rs");
+    let product = include_str!("../../../src/db/product.rs");
+    let query = include_str!("../../../src/db/query.rs");
+    let analysis = include_str!("../../../src/checker/analysis.rs");
+
+    assert!(
+        key.contains("FieldSignature(FieldId)"),
+        "canonical field declaration knowledge needs its own QueryKey rather than borrowing DeclarationSurface invalidation"
+    );
+    assert!(
+        product.contains("FieldSignature(Arc<FieldSemanticSignature>)"),
+        "the semantic DB must publish the same canonical FieldSemanticSignature consumed by formal analysis"
+    );
+    assert!(
+        query.contains("query_field_signature"),
+        "field signatures must be computed as declaration-owned query products"
+    );
+    assert!(
+        analysis.contains("FieldSignature(FieldId)"),
+        "body analyses must be able to record exact canonical field dependencies"
+    );
+}
