@@ -17,3 +17,5 @@ jobs:
         env:
           RUSTFLAGS: ""
         run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::callable_signature_query_never_reconstructs_semantics_from_dispatch_surface -- --exact --nocapture
+
+# This branch-only probe is deleted after the authority cutover is validated.
