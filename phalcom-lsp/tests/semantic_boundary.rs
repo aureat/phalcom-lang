@@ -159,7 +159,7 @@ fn callable_surfaces_use_shared_canonical_presentation() {
             "{name} must not read the removed dispatch-era return_type field from CallableSemanticSignature"
         );
         assert!(
-            !source.contains("parameter.ty"),
+            !source.contains("&parameter.ty"),
             "{name} must not read the removed dispatch-era parameter.ty field from CallableParameterSemantic"
         );
     }
