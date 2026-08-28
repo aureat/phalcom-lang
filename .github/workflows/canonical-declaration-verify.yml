@@ -25,3 +25,5 @@ jobs:
         env:
           RUSTFLAGS: ""
         run: cargo +stable test -p phalcom-semantic
+
+# Temporary branch verification; remove after a clean full-suite run.
