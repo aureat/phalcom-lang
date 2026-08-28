@@ -1,6 +1,6 @@
 //! Canonical callable and field semantic signatures and identity-indexed tables.
 
-use super::declaration_type::DeclaredTypeFact;
+use super::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use super::diagnostic::SemanticSourceSpan;
 use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
 use super::types::evidence::TypeKnowledge;
@@ -103,6 +103,12 @@ impl CallableSemanticSignature {
             .or_else(|| self.declared_return.known_term().cloned())
     }
 
+    /// Whether this declaration is a constructor according to declaration-owned
+    /// semantic facts. Dispatch kind is a projection of this fact, never its source.
+    pub fn is_constructor(&self) -> bool {
+        self.declared_return.basis == DeclaredTypeBasis::ConstructorSemantics
+    }
+
     pub fn is_complete(&self) -> bool {
         self.parameters.iter().all(|parameter| parameter.declared_type.is_known())
             && (self.declared_return.is_known() || self.inferred_return.as_ref().is_some_and(TypeKnowledge::is_known))
@@ -140,8 +146,28 @@ impl CallableSignatureTable {
         self.by_id.get(callable)
     }
 
+    /// Resolves the declaration-owned signature consumed by one analyzed body.
+    ///
+    /// Constructor bodies execute instance-side while their public declaration
+    /// and parameter identities are class-side. Ordinary bodies retain exact
+    /// callable identity and never fall through to an unrelated class method.
+    pub fn get_for_body(&self, callable: &CallableId) -> Option<&CallableSemanticSignature> {
+        self.get(callable).or_else(|| {
+            if callable.side != DispatchSide::Instance {
+                return None;
+            }
+            let declared = CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Class);
+            self.get(&declared).filter(|signature| signature.is_constructor())
+        })
+    }
+
     pub fn get_mut(&mut self, callable: &CallableId) -> Option<&mut CallableSemanticSignature> {
         self.by_id.get_mut(callable)
+    }
+
+    /// Returns the canonical declaration identity corresponding to one body.
+    pub fn id_for_body(&self, callable: &CallableId) -> Option<CallableId> {
+        self.get_for_body(callable).map(|signature| signature.callable.clone())
     }
 
     pub fn len(&self) -> usize {
