@@ -35,10 +35,14 @@ jobs:
         env:
           RUSTFLAGS: ""
         run: cargo +stable check -p phalcom-semantic
-      - name: LSP architecture boundary
+      - name: LSP inlay architecture boundary
         env:
           RUSTFLAGS: ""
         run: cargo +stable test -p phalcom-lsp --test semantic_boundary inlay_hints_do_not_reimplement_annotation_semantics -- --exact
+      - name: LSP callable presentation boundary
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test semantic_boundary callable_surfaces_use_shared_canonical_presentation -- --exact
       - name: Check LSP crate
         env:
           RUSTFLAGS: ""
