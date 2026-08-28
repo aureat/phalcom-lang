@@ -98,8 +98,5 @@ fn constructor_argument_transfer_uses_public_canonical_parameter_identity() {
         .parameter(&parameter)
         .expect("constructor argument fact must use the declaration-owned parameter identity");
 
-    assert_eq!(
-        fact.shape,
-        ValueShape::Instance(DeclarationId::new(module, "Product".into()))
-    );
+    assert_eq!(fact.shape, ValueShape::Instance(DeclarationId::new(module, "Product".into())));
 }
