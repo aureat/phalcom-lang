@@ -1,0 +1,83 @@
+name: LSP retirement reference cleanup
+
+on:
+  push:
+    branches:
+      - codex/lsp-single-world-retirement
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: "${{ github.event.head_commit.message == 'chore(docs): apply final semantic retirement reference cleanup' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/lsp-single-world-retirement
+          fetch-depth: 0
+      - name: Replace retired architecture references
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.agents/skills/phalcom-semantic-model/references/modules-and-incrementality.md')
+          source = path.read_text()
+
+          def replace_section(text, start_heading, next_heading, replacement):
+              start = text.index(start_heading)
+              end = text.index(next_heading, start)
+              return text[:start] + replacement.rstrip() + '\n\n' + text[end:]
+
+          source = replace_section(
+              source,
+              '## 3. CURRENT Phalcom publication architecture',
+              '## 4. File revision versus semantic generation',
+              '''## 3. CURRENT Phalcom publication architecture
+
+**CURRENT:** `phalcom-semantic::SemanticWorkspaceSession` owns the mutable compiler semantic workspace, including `SemanticDb`, `TypeStore`, persistent module lifecycle, dependency/query products, and retained immutable snapshots.
+
+A successful source/module mutation produces one `Arc<phalcom_semantic::SemanticSnapshot>`. `phalcom-lsp/src/analysis_service.rs` owns one persistent semantic session on its worker thread and forwards accepted compiler publications into `phalcom-lsp/src/publication.rs`. That publication cell contains only the latest immutable snapshot; it does not own semantic queries, identity translation, invalidation, or mutation.
+
+Each LSP `RequestContext` pins one live document snapshot and one compiler snapshot and classifies source coherence as `Exact`, `Stale`, or `Unmapped`. Semantic feature requests therefore observe one coherent compiler generation. Stale or absent compiler products do not authorize request-time reconstruction of semantics in the LSP.
+
+This architecture establishes the invariant:
+
+> A query observes one coherent compiler semantic generation, not a mixture of generations and not an LSP-local reconstruction.
+
+Preserve that invariant even if future semantic storage or scheduling changes.'''
+          )
+
+          source = replace_section(
+              source,
+              '## 6. CURRENT module graph',
+              '## 7. Unresolved dependencies are still dependencies',
+              '''## 6. CURRENT module and semantic dependency graphs
+
+**CURRENT:** `phalcom-modules::WorkspaceModuleSession` owns persistent project/source/module identity, linking, canonical resolved imports, and module generation. `phalcom-semantic::SemanticWorkspaceSession` consumes those compiler module products and publishes the canonical `SemanticGraph` together with query dependency/reuse state.
+
+The LSP owns neither an import graph nor a semantic dependency graph. Workspace discovery and file watching submit source mutations; `phalcom-modules` and `phalcom-semantic` decide module identity, import targets, invalidation, and semantic dependencies.
+
+Current regression tests require that unresolved relative imports can survive until a provider appears, provider/source changes update canonical linked products, removed sources retract their semantic contributions, and imported declarations retain module-qualified identity.
+
+Do not introduce an LSP-owned module graph to accelerate editor requests. Add the needed immutable compiler/module query product instead.'''
+          )
+
+          if 'phalcom-lsp/src/semantic/snapshot.rs' in source:
+              raise SystemExit('retired LSP semantic snapshot reference remains')
+
+          path.write_text(source)
+          PY
+      - name: Verify documentation boundary
+        run: |
+          ! grep -R "phalcom-lsp/src/semantic/snapshot.rs" .agents/skills/phalcom-semantic-model/references
+          ! grep -R "phalcom-lsp/.*current semantic engine" .agents/skills/phalcom-semantic-model/references
+      - name: Commit cleanup and remove driver
+        run: |
+          rm .github/workflows/lsp-doc-retirement-cleanup.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .agents/skills/phalcom-semantic-model/references/modules-and-incrementality.md .github/workflows/lsp-doc-retirement-cleanup.yml
+          git commit -m 'docs(semantic): remove final retired LSP architecture references'
+          git push origin HEAD:codex/lsp-single-world-retirement
