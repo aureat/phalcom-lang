@@ -16,7 +16,7 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  language-concurrency-control:
+  determinism-control:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,17 +24,21 @@ jobs:
           fetch-depth: 1
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Branch full language suite parallel
-        continue-on-error: true
-        run: cargo test -p phalcom-core --test lang -- --nocapture
-      - name: Branch full language suite serial
-        continue-on-error: true
-        run: cargo test -p phalcom-core --test lang -- --test-threads=1 --nocapture
+      - name: Branch functions stress
+        run: |
+          for i in $(seq 1 10); do
+            echo "branch functions run $i"
+            cargo test -p phalcom-core --test lang functions -- --exact
+            cargo test -p phalcom-core --test lang functions_negative -- --exact
+          done
+      - name: Branch serialized workspace
+        run: cargo test --workspace --all-targets -j 1
       - name: Checkout main
         run: git fetch origin main --depth=1 && git checkout --detach origin/main
-      - name: Main full language suite parallel
-        continue-on-error: true
-        run: cargo test -p phalcom-core --test lang -- --nocapture
-      - name: Main full language suite serial
-        continue-on-error: true
-        run: cargo test -p phalcom-core --test lang -- --test-threads=1 --nocapture
+      - name: Main functions stress
+        run: |
+          for i in $(seq 1 10); do
+            echo "main functions run $i"
+            cargo test -p phalcom-core --test lang functions -- --exact
+            cargo test -p phalcom-core --test lang functions_negative -- --exact
+          done
