@@ -929,7 +929,17 @@ pub fn query_module_diagnostics(db: &mut SemanticDb, module: ModuleId, diagnosti
     QueryOutcome::Ready(diagnostics)
 }
 
-/// Evaluates or retrieves the cached `CallableAnalysis` for a given callable body.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CallableBodySignatureRequirement {
+    Required,
+    SignaturelessSynthetic,
+}
+
+/// Evaluates or retrieves the cached `CallableAnalysis` for a declared callable body.
+///
+/// Declared bodies fail closed unless their canonical `CallableSignature` product is
+/// current. Tests that intentionally exercise a body without a declaration must use
+/// [`query_signatureless_callable_body`] explicitly.
 pub fn query_callable_body(
     db: &mut SemanticDb,
     callable: CallableId,
@@ -944,7 +954,7 @@ pub fn query_callable_body(
     budget: QueryBudget,
     cancel: &CancellationToken,
 ) -> QueryOutcome<Arc<CallableAnalysis>> {
-    query_callable_body_with_formal_inputs(
+    query_callable_body_with_requirement(
         db,
         callable,
         body,
@@ -958,11 +968,46 @@ pub fn query_callable_body(
         budget,
         cancel,
         None,
+        CallableBodySignatureRequirement::Required,
     )
 }
 
-/// Evaluates a callable body while allowing missing formal prerequisites to be
-/// evaluated from borrowed current workspace inputs.
+/// Low-level query entry for synthetic DB fixtures that deliberately have no
+/// source declaration and therefore no canonical callable-signature product.
+pub fn query_signatureless_callable_body(
+    db: &mut SemanticDb,
+    callable: CallableId,
+    body: &[Statement],
+    body_range: SourceRange,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+    dispatch: &SurfaceDispatchResolver,
+    module: ModuleId,
+    budget: QueryBudget,
+    cancel: &CancellationToken,
+) -> QueryOutcome<Arc<CallableAnalysis>> {
+    query_callable_body_with_requirement(
+        db,
+        callable,
+        body,
+        body_range,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        dispatch,
+        module,
+        budget,
+        cancel,
+        None,
+        CallableBodySignatureRequirement::SignaturelessSynthetic,
+    )
+}
+
+/// Evaluates a declared callable body while allowing missing formal prerequisites
+/// to be evaluated from borrowed current workspace inputs.
 pub fn query_callable_body_with_formal_inputs(
     db: &mut SemanticDb,
     callable: CallableId,
@@ -977,6 +1022,40 @@ pub fn query_callable_body_with_formal_inputs(
     budget: QueryBudget,
     cancel: &CancellationToken,
     formal_inputs: Option<&FormalQueryInputs<'_>>,
+) -> QueryOutcome<Arc<CallableAnalysis>> {
+    query_callable_body_with_requirement(
+        db,
+        callable,
+        body,
+        body_range,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        dispatch,
+        module,
+        budget,
+        cancel,
+        formal_inputs,
+        CallableBodySignatureRequirement::Required,
+    )
+}
+
+fn query_callable_body_with_requirement(
+    db: &mut SemanticDb,
+    callable: CallableId,
+    body: &[Statement],
+    body_range: SourceRange,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+    dispatch: &SurfaceDispatchResolver,
+    module: ModuleId,
+    budget: QueryBudget,
+    cancel: &CancellationToken,
+    formal_inputs: Option<&FormalQueryInputs<'_>>,
+    signature_requirement: CallableBodySignatureRequirement,
 ) -> QueryOutcome<Arc<CallableAnalysis>> {
     let key = QueryKey::CallableBody(callable.clone());
 
@@ -1013,22 +1092,32 @@ pub fn query_callable_body_with_formal_inputs(
             }
         }
         None => {
-            let direct = db
-                .product(&QueryKey::CallableSignature(callable.clone()))
-                .and_then(|product| product.as_callable_signature())
-                .cloned()
-                .map(|signature| (callable.clone(), signature));
-            direct.or_else(|| {
+            let current_signature = |db: &SemanticDb, signature_id: &CallableId| {
+                let signature_key = QueryKey::CallableSignature(signature_id.clone());
+                (db.query_state(&signature_key).and_then(QueryState::validated_revision) == Some(db.revision()))
+                    .then(|| db.product(&signature_key).and_then(|product| product.as_callable_signature()).cloned())
+                    .flatten()
+            };
+            let direct = current_signature(db, &callable).map(|signature| (callable.clone(), signature));
+            let found = direct.or_else(|| {
                 (callable.side == crate::identity::DispatchSide::Instance)
                     .then(|| {
                         let signature_id = CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class);
-                        db.product(&QueryKey::CallableSignature(signature_id.clone()))
-                            .and_then(|product| product.as_callable_signature())
-                            .cloned()
-                            .map(|signature| (signature_id, signature))
+                        current_signature(db, &signature_id).map(|signature| (signature_id, signature))
                     })
                     .flatten()
-            })
+            });
+            match (found, signature_requirement) {
+                (Some(signature), _) => Some(signature),
+                (None, CallableBodySignatureRequirement::SignaturelessSynthetic) => None,
+                (None, CallableBodySignatureRequirement::Required) => {
+                    return query_failure(
+                        db,
+                        key.clone(),
+                        format!("missing current canonical CallableSignature prerequisite for body {callable:?}"),
+                    );
+                }
+            }
         }
     };
 
