@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: "${{ github.event.head_commit.message == 'chore(docs): apply final semantic retirement reference cleanup' }}"
+    if: github.event.head_commit.message == 'apply final semantic retirement reference cleanup'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
