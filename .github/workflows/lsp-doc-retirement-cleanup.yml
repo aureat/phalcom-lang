@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: github.event.head_commit.message == 'apply final semantic retirement reference cleanup'
+    if: github.event.head_commit.message == 'run final semantic retirement reference cleanup'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,49 +20,25 @@ jobs:
       - name: Replace retired architecture references
         run: |
           python3 - <<'PY'
+          import base64
           from pathlib import Path
 
           path = Path('.agents/skills/phalcom-semantic-model/references/modules-and-incrementality.md')
           source = path.read_text()
+
+          def decoded(value):
+              return base64.b64decode(value).decode()
 
           def replace_section(text, start_heading, next_heading, replacement):
               start = text.index(start_heading)
               end = text.index(next_heading, start)
               return text[:start] + replacement.rstrip() + '\n\n' + text[end:]
 
-          source = replace_section(
-              source,
-              '## 3. CURRENT Phalcom publication architecture',
-              '## 4. File revision versus semantic generation',
-              '''## 3. CURRENT Phalcom publication architecture
+          section3 = decoded('IyMgMy4gQ1VSUkVOVCBQaGFsY29tIHB1YmxpY2F0aW9uIGFyY2hpdGVjdHVyZQoKKipDVVJSRU5UOioqIGBwaGFsY29tLXNlbWFudGljOjpTZW1hbnRpY1dvcmtzcGFjZVNlc3Npb25gIG93bnMgdGhlIG11dGFibGUgY29tcGlsZXIgc2VtYW50aWMgd29ya3NwYWNlLCBpbmNsdWRpbmcgYFNlbWFudGljRGJgLCBgVHlwZVN0b3JlYCwgcGVyc2lzdGVudCBtb2R1bGUgbGlmZWN5Y2xlLCBkZXBlbmRlbmN5L3F1ZXJ5IHByb2R1Y3RzLCBhbmQgcmV0YWluZWQgaW1tdXRhYmxlIHNuYXBzaG90cy4KCkEgc3VjY2Vzc2Z1bCBzb3VyY2UvbW9kdWxlIG11dGF0aW9uIHByb2R1Y2VzIG9uZSBgQXJjPHBoYWxjb21fc2VtYW50aWM6OlNlbWFudGljU25hcHNob3Q+YC4gYHBoYWxjb20tbHNwL3NyYy9hbmFseXNpc19zZXJ2aWNlLnJzYCBvd25zIG9uZSBwZXJzaXN0ZW50IHNlbWFudGljIHNlc3Npb24gb24gaXRzIHdvcmtlciB0aHJlYWQgYW5kIGZvcndhcmRzIGFjY2VwdGVkIGNvbXBpbGVyIHB1YmxpY2F0aW9ucyBpbnRvIGBwaGFsY29tLWxzcC9zcmMvcHVibGljYXRpb24ucnNgLiBUaGF0IHB1YmxpY2F0aW9uIGNlbGwgY29udGFpbnMgb25seSB0aGUgbGF0ZXN0IGltbXV0YWJsZSBzbmFwc2hvdDsgaXQgZG9lcyBub3Qgb3duIHNlbWFudGljIHF1ZXJpZXMsIGlkZW50aXR5IHRyYW5zbGF0aW9uLCBpbnZhbGlkYXRpb24sIG9yIG11dGF0aW9uLgoKRWFjaCBMU1AgYFJlcXVlc3RDb250ZXh0YCBwaW5zIG9uZSBsaXZlIGRvY3VtZW50IHNuYXBzaG90IGFuZCBvbmUgY29tcGlsZXIgc25hcHNob3QgYW5kIGNsYXNzaWZpZXMgc291cmNlIGNvaGVyZW5jZSBhcyBgRXhhY3RgLCBgU3RhbGVgLCBvciBgVW5tYXBwZWRgLiBTZW1hbnRpYyBmZWF0dXJlIHJlcXVlc3RzIHRoZXJlZm9yZSBvYnNlcnZlIG9uZSBjb2hlcmVudCBjb21waWxlciBnZW5lcmF0aW9uLiBTdGFsZSBvciBhYnNlbnQgY29tcGlsZXIgcHJvZHVjdHMgZG8gbm90IGF1dGhvcml6ZSByZXF1ZXN0LXRpbWUgcmVjb25zdHJ1Y3Rpb24gb2Ygc2VtYW50aWNzIGluIHRoZSBMU1AuCgpUaGlzIGFyY2hpdGVjdHVyZSBlc3RhYmxpc2hlcyB0aGUgaW52YXJpYW50OgoKPiBBIHF1ZXJ5IG9ic2VydmVzIG9uZSBjb2hlcmVudCBjb21waWxlciBzZW1hbnRpYyBnZW5lcmF0aW9uLCBub3QgYSBtaXh0dXJlIG9mIGdlbmVyYXRpb25zIGFuZCBub3QgYW4gTFNQLWxvY2FsIHJlY29uc3RydWN0aW9uLgoKUHJlc2VydmUgdGhhdCBpbnZhcmlhbnQgZXZlbiBpZiBmdXR1cmUgc2VtYW50aWMgc3RvcmFnZSBvciBzY2hlZHVsaW5nIGNoYW5nZXMu')
+          section6 = decoded('IyMgNi4gQ1VSUkVOVCBtb2R1bGUgYW5kIHNlbWFudGljIGRlcGVuZGVuY3kgZ3JhcGhzCgoqKkNVUlJFTlQ6KiogYHBoYWxjb20tbW9kdWxlczo6V29ya3NwYWNlTW9kdWxlU2Vzc2lvbmAgb3ducyBwZXJzaXN0ZW50IHByb2plY3Qvc291cmNlL21vZHVsZSBpZGVudGl0eSwgbGlua2luZywgY2Fub25pY2FsIHJlc29sdmVkIGltcG9ydHMsIGFuZCBtb2R1bGUgZ2VuZXJhdGlvbi4gYHBoYWxjb20tc2VtYW50aWM6OlNlbWFudGljV29ya3NwYWNlU2Vzc2lvbmAgY29uc3VtZXMgdGhvc2UgY29tcGlsZXIgbW9kdWxlIHByb2R1Y3RzIGFuZCBwdWJsaXNoZXMgdGhlIGNhbm9uaWNhbCBgU2VtYW50aWNHcmFwaGAgdG9nZXRoZXIgd2l0aCBxdWVyeSBkZXBlbmRlbmN5L3JldXNlIHN0YXRlLgoKVGhlIExTUCBvd25zIG5laXRoZXIgYW4gaW1wb3J0IGdyYXBoIG5vciBhIHNlbWFudGljIGRlcGVuZGVuY3kgZ3JhcGguIFdvcmtzcGFjZSBkaXNjb3ZlcnkgYW5kIGZpbGUgd2F0Y2hpbmcgc3VibWl0IHNvdXJjZSBtdXRhdGlvbnM7IGBwaGFsY29tLW1vZHVsZXNgIGFuZCBgcGhhbGNvbS1zZW1hbnRpY2AgZGVjaWRlIG1vZHVsZSBpZGVudGl0eSwgaW1wb3J0IHRhcmdldHMsIGludmFsaWRhdGlvbiwgYW5kIHNlbWFudGljIGRlcGVuZGVuY2llcy4KCkN1cnJlbnQgcmVncmVzc2lvbiB0ZXN0cyByZXF1aXJlIHRoYXQgdW5yZXNvbHZlZCByZWxhdGl2ZSBpbXBvcnRzIGNhbiBzdXJ2aXZlIHVudGlsIGEgcHJvdmlkZXIgYXBwZWFycywgcHJvdmlkZXIvc291cmNlIGNoYW5nZXMgdXBkYXRlIGNhbm9uaWNhbCBsaW5rZWQgcHJvZHVjdHMsIHJlbW92ZWQgc291cmNlcyByZXRyYWN0IHRoZWlyIHNlbWFudGljIGNvbnRyaWJ1dGlvbnMsIGFuZCBpbXBvcnRlZCBkZWNsYXJhdGlvbnMgcmV0YWluIG1vZHVsZS1xdWFsaWZpZWQgaWRlbnRpdHkuCgpEbyBub3QgaW50cm9kdWNlIGFuIExTUC1vd25lZCBtb2R1bGUgZ3JhcGggdG8gYWNjZWxlcmF0ZSBlZGl0b3IgcmVxdWVzdHMuIEFkZCB0aGUgbmVlZGVkIGltbXV0YWJsZSBjb21waWxlci9tb2R1bGUgcXVlcnkgcHJvZHVjdCBpbnN0ZWFkLg==')
 
-**CURRENT:** `phalcom-semantic::SemanticWorkspaceSession` owns the mutable compiler semantic workspace, including `SemanticDb`, `TypeStore`, persistent module lifecycle, dependency/query products, and retained immutable snapshots.
-
-A successful source/module mutation produces one `Arc<phalcom_semantic::SemanticSnapshot>`. `phalcom-lsp/src/analysis_service.rs` owns one persistent semantic session on its worker thread and forwards accepted compiler publications into `phalcom-lsp/src/publication.rs`. That publication cell contains only the latest immutable snapshot; it does not own semantic queries, identity translation, invalidation, or mutation.
-
-Each LSP `RequestContext` pins one live document snapshot and one compiler snapshot and classifies source coherence as `Exact`, `Stale`, or `Unmapped`. Semantic feature requests therefore observe one coherent compiler generation. Stale or absent compiler products do not authorize request-time reconstruction of semantics in the LSP.
-
-This architecture establishes the invariant:
-
-> A query observes one coherent compiler semantic generation, not a mixture of generations and not an LSP-local reconstruction.
-
-Preserve that invariant even if future semantic storage or scheduling changes.'''
-          )
-
-          source = replace_section(
-              source,
-              '## 6. CURRENT module graph',
-              '## 7. Unresolved dependencies are still dependencies',
-              '''## 6. CURRENT module and semantic dependency graphs
-
-**CURRENT:** `phalcom-modules::WorkspaceModuleSession` owns persistent project/source/module identity, linking, canonical resolved imports, and module generation. `phalcom-semantic::SemanticWorkspaceSession` consumes those compiler module products and publishes the canonical `SemanticGraph` together with query dependency/reuse state.
-
-The LSP owns neither an import graph nor a semantic dependency graph. Workspace discovery and file watching submit source mutations; `phalcom-modules` and `phalcom-semantic` decide module identity, import targets, invalidation, and semantic dependencies.
-
-Current regression tests require that unresolved relative imports can survive until a provider appears, provider/source changes update canonical linked products, removed sources retract their semantic contributions, and imported declarations retain module-qualified identity.
-
-Do not introduce an LSP-owned module graph to accelerate editor requests. Add the needed immutable compiler/module query product instead.'''
-          )
+          source = replace_section(source, '## 3. CURRENT Phalcom publication architecture', '## 4. File revision versus semantic generation', section3)
+          source = replace_section(source, '## 6. CURRENT module graph', '## 7. Unresolved dependencies are still dependencies', section6)
 
           if 'phalcom-lsp/src/semantic/snapshot.rs' in source:
               raise SystemExit('retired LSP semantic snapshot reference remains')
