@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::analyze_single_module;
+use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 
 #[test]
 fn partial_callable_signature_survives_unknown_return() {
