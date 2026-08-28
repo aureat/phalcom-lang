@@ -1,6 +1,6 @@
 # Current Phalcom Semantic Implementation Map
 
-This file is an orientation map to the repository state inspected while deepening this skill on **2026-08-15**. It is not a normative language specification and must be rechecked before repository work. Paths, names and representations can change.
+This file is a repository orientation map inspected on **2026-08-28** after the `phalcom-lsp` single-world retirement. It is not a normative language specification. Re-check current source/tests before repository work.
 
 Use status labels rigorously:
 
@@ -10,317 +10,441 @@ NORMATIVE    established by current spec/ratified decision
 PROPOSED     documented design not yet current behavior
 EXPERIMENTAL repository experiment without normative guarantee
 FUTURE       expected direction without ratified semantics
-RECOMMENDATION guidance from this skill, not existing behavior
 ```
 
-A repository implementation can itself be wrong relative to a normative spec. When they disagree, investigate rather than silently declaring either one authoritative for all purposes.
+## 1. Ownership at a glance
 
-## 1. Repository guidance and specification roots
-
-**CURRENT repository structure:**
-
-- `AGENTS.md` and `CLAUDE.md` provide repository/agent guidance.
-- `docs/spec/current/` contains current specification material.
-- `docs/spec/next/` and other design-oriented spec areas contain forward-looking work whose status must be read, not assumed.
-- `docs/spec/typing/` contains typing work; do not treat typing proposals as current runtime semantics merely because they are detailed.
-- `docs/adr/` and `docs/pdr/` contain architecture/product decisions.
-- `docs/implementation/` contains implementation-oriented documentation.
-- `phalcom-ast/` owns lexer/parser/AST/source structures.
-- `phalcom-core/` owns compiler/bytecode/VM/object-runtime behavior and core/bootstrap implementation.
-- `phalcom-lsp/` contains the current semantic engine and LSP adapter.
-
-Before a repository-specific claim, inspect the relevant current file and tests. This skill intentionally does not freeze line numbers.
-
-## 2. Front end boundary
-
-`phalcom-ast` is the source representation producer. Semantic analysis should consume recovered AST/source ranges rather than lexing or reparsing independently in each feature.
-
-The semantic layer needs to preserve:
+**CURRENT:** semantic ownership is split by responsibility, not duplicated by consumer.
 
 ```text
-source revision
-exact source ranges
-recovered structure
-syntax errors/recovery state where relevant
+phalcom-ast
+  syntax / recovered Program / source ranges
+
+phalcom-modules
+  projects / packages / source identity / module identity
+  source overlays / workspace lifecycle
+  interfaces / import resolution / linking / module graph products
+
+phalcom-semantic
+  sole static semantic implementation
+  canonical identities / TypeStore / SemanticDb
+  checker / inference / dispatch / hierarchy
+  source index / occurrences / editor queries
+  formal + advisory products
+  incremental SemanticWorkspaceSession
+  immutable SemanticSnapshot
+
+phalcom-lsp
+  protocol adapter only
+  live document store / workspace discovery / worker scheduling
+  immutable snapshot publication / source-coherence checks
+  protocol rendering and syntax-only cursor recovery
 ```
 
-without treating recovery artifacts as dynamic language semantics.
+`phalcom-lsp` no longer contains `src/semantic/` or `src/index.rs` as an alternative semantic world.
 
-## 3. Compiler/runtime boundary
+## 2. Front end: `phalcom-ast`
 
-`phalcom-core` is essential whenever semantic analysis models:
+**CURRENT:** `phalcom-ast` owns parsing/recovery and AST/source structures. Semantic layers consume `Program` plus source ranges; LSP does not maintain a second parser for semantics.
 
-- canonical selector construction;
-- instance/class-side behavior;
-- inheritance and `super`;
-- constructors;
-- control flow/non-local behavior;
-- reflective objects/methods;
-- core/native primitives;
-- module/runtime behavior.
+For syntax changes that introduce bindings, declarations, type forms, imports, call shapes, or control-flow constructs, inspect parser/AST changes together with the relevant semantic source-index/checker owners.
 
-The semantic engine describes those dynamic semantics approximately for tooling. It must not create a more convenient but different object model.
+## 3. Module lifecycle: `phalcom-modules/src/session.rs`
 
-## 4. `phalcom-lsp/src/semantic/mod.rs`
+**CURRENT:** `WorkspaceModuleSession` is the persistent compiler owner of:
 
-**CURRENT:** module-level documentation explicitly frames this subsystem as the semantic source of truth for editor intelligence and emphasizes that advisory value inference is not language typing. The module wires the semantic database and query-facing behavior.
+- `ProjectUniverse`;
+- project roots and synthetic standalone project identities;
+- source overlays/disk snapshots;
+- `SourceId` / `SourceLocation`;
+- source-to-`ModuleId` mapping;
+- linked workspace product;
+- canonical resolved imports;
+- module generation.
 
-The file also contains substantial semantic tests. Current observed tests cover, among other behavior:
-
-- return propagation across call chains;
-- recursive callables with concrete evidence converging;
-- oversized incompatible return-shape unions widening to `Unknown`;
-- same selector under different classes maintaining independent summaries;
-- cross-module return/parameter propagation;
-- independent leaf edits avoiding unrelated module recomputation;
-- provider edits recomputing consumers;
-- creation/removal of imported providers repairing/invalidating import resolution;
-- caller edits removing stale parameter contributions;
-- multiple consumers joining parameter evidence;
-- unimported workspace classes not becoming magically visible;
-- same-named imported classes retaining module qualification.
-
-Treat these as strong regression anchors for the semantic doctrine.
-
-## 5. `ids.rs`
-
-**CURRENT:** stable/module-qualified identity structures include:
+Primary mutation boundary:
 
 ```text
-ModuleId(String canonical URI)
-ClassId { module, name }
-CallableId { owner, selector, side }
-FieldId { owner, name, side }
-DispatchSide::{Instance, Class}
-CORE_MODULE_URI = phalcom://core
+WorkspaceSourceMutation
+WorkspaceSourceBatchMutation
+        -> WorkspaceModuleSession
+        -> WorkspaceModuleUpdate
 ```
 
-Important consequences:
+`WorkspaceModuleUpdate` carries the linked program, parsed source map, changed modules, removed modules, and identity changes into `phalcom-semantic`.
 
-- class identity is module-qualified;
-- callable identity includes complete canonical selector and side;
-- field identity includes owner and side;
-- the current module identity policy is URI-based/file-oriented.
+## 4. Interfaces and linking: `phalcom-modules`
 
-Future package/module identity can evolve behind these conceptual boundaries; do not spread URI assumptions into unrelated semantic logic.
-
-## 6. `scope.rs`
-
-**CURRENT:** owns lexical scope/binding structure and source-order-aware name resolution. `ScopeId` and `BindingId` are file-snapshot-local compact IDs.
-
-Semantic clients should resolve spelling to a binding once and carry the ID. They should not keep global `String -> inferred value` maps or assume binding IDs survive reparses.
-
-When adding declaration-bearing syntax, inspect scope construction and visible-binding tests before changing completion or hover directly.
-
-## 7. `surface.rs`
-
-**CURRENT:** owns source declaration surfaces: modules/classes/members/fields/parameters and source-backed metadata used by dispatch and queries.
-
-A surface is declaration knowledge, not an execution trace. Flow-derived field values or call-site parameter observations belong to fact/analysis layers, not the declaration surface itself.
-
-## 8. `occurrence.rs`
-
-**CURRENT:** owns semantic source occurrences/targets used for identity-based navigation/refactoring. This is the preferred substrate for definition/reference/rename semantics rather than global text matching.
-
-Occurrence identity is source-revision-sensitive; the semantic target can be stable at a broader lifetime.
-
-## 9. `facts.rs`
-
-This is one of the most important current files.
-
-### `ValueShape`
-
-**CURRENT:** `ValueShape` is documented as advisory runtime value knowledge and explicitly not a language type. Current variants include:
+Inspect these owners for module/import semantics:
 
 ```text
-Unknown
-Instance(ClassId)
-ClassObject(ClassId)
-Module(ModuleId)
-Tuple
-Record
-List
-Set
-Map
-Range
-Callable(CallableId)
-Family { receiver, base }
-Union
+src/interface.rs   declaration/import/export interface extraction
+src/linker.rs      linked bindings and re-export resolution
+src/resolver.rs    module path/source resolution
+src/project.rs     project universe and project identity
+src/graph.rs       canonical semantic/runtime module graph products
+src/query.rs       immutable module query facade
 ```
 
-### Join and widening
+Do not implement import semantics in `phalcom-lsp` request handlers.
 
-**CURRENT:** structured shapes join recursively where compatible; otherwise a bounded union is built. `MAX_SHAPE_UNION` is `8`. `Unknown` is contagious under ordinary shape join.
+A selective import must resolve through linked export identity. An unresolved import may retain a compiler-owned local binding identity until linking can establish the external target.
 
-This is a deliberately finite/controlled editor approximation. Future type unions must not inherit this cap by accident.
+## 5. Semantic session: `phalcom-semantic/src/session.rs`
 
-### Confidence and provenance
+**CURRENT:** `SemanticWorkspaceSession` is the long-lived compiler semantic owner.
 
-**CURRENT:** `Confidence` includes:
+It owns:
+
+```text
+WorkspaceId
+WorkspaceModuleSession
+SemanticDb
+TypeStore
+base declaration table
+base hierarchy
+base dispatch resolver
+base callable signatures
+parsed sources + fingerprints
+last snapshot
+last-known-good snapshot
+```
+
+`apply_module_mutations` is the canonical workspace mutation path used by the LSP worker and compiler tests.
+
+A successful update produces `SemanticWorkspacePublication`:
+
+```text
+Arc<SemanticSnapshot>
+invalidated query keys
+recomputed query keys
+SemanticUpdateStats
+SemanticPublicationEffects
+```
+
+## 6. Incremental query engine: `phalcom-semantic/src/db/`
+
+**CURRENT:** `SemanticDb` is compiler-owned and lives in `phalcom-semantic`, not LSP.
+
+The DB/query layer owns semantic query keys, dependencies, reuse validity, budgets/cancellation, cached products, and reverse invalidation.
+
+Important rule: LSP scheduling/debounce is not semantic invalidation. Compiler query/product dependencies determine semantic reuse.
+
+Before adding a new incremental cache, identify its key, product, dependencies, validity condition, retraction behavior, and publication semantics.
+
+## 7. Type system and evidence
+
+Inspect:
+
+```text
+src/types/
+src/declarations.rs
+src/signature.rs
+src/hierarchy_product.rs
+src/resolver.rs
+src/export.rs
+```
+
+**CURRENT:** `TypeStore` is retained by `SemanticWorkspaceSession` across revisions and is part of `SnapshotId` identity through its store domain.
+
+Formal type knowledge carries epistemic status/provenance. A developer annotation can supply evidence when the compiler cannot establish a fact, but cannot override a contradictory established compiler proof.
+
+Do not replace unknown/unavailable proof states with convenient nominal guesses.
+
+## 8. Checker and formal analysis
+
+Primary implementation lives under:
+
+```text
+src/checker/
+```
+
+This includes declaration checking, expression synthesis, call application, generic inference, flow state, causal diagnostics, callable publication, and formal checker products.
+
+For correctness work, inspect the checker path that owns the proof rather than patching a downstream presentation projection.
+
+Formal products are authoritative when established.
+
+## 9. Canonical dispatch and hierarchy
+
+Inspect:
+
+```text
+src/dispatch.rs
+src/surface.rs
+src/hierarchy_product.rs
+```
+
+Canonical callable identity includes owner, selector and dispatch side. Inherited dispatch preserves the defining callable identity while receiver-specific semantics such as constructor `Self` specialization are handled by the checker/type model.
+
+Keep selector construction and instance/class-side semantics aligned with runtime/compiler behavior.
+
+## 10. Source semantic index: `phalcom-semantic/src/source_index/`
+
+**CURRENT:** this package owns compiler source structure for editor/refactoring semantics:
+
+```text
+SourceScopeIndex
+SourceScope / SourceBindingInfo
+SourceSite / SourceSiteId
+OccurrenceIndex / SemanticOccurrence
+canonical site -> SemanticTargetId mapping
+callable/declaration/field source metadata
+expression/source attachments
+```
+
+Bindings and occurrences are built centrally from parsed source plus linked semantic context.
+
+This is where lexical source identity belongs. LSP should not rediscover semantic definitions/references by matching text.
+
+## 11. Canonical target identity
+
+Inspect `phalcom-semantic/src/identity.rs` and source-index registration.
+
+Important semantic identities include:
+
+```text
+BindingId / SourceSiteId
+DeclarationId
+CallableId
+FieldId
+ModuleId
+SemanticTargetId
+```
+
+Definition/reference semantics are target-based, not spelling-based.
+
+A resolved import token may occur in the importing file while denoting a declaration owned by another module. The import occurrence is therefore a reference site, not the declaration's canonical definition site.
+
+## 12. Editor facade: `phalcom-semantic/src/editor.rs`
+
+**CURRENT:** `EditorSemanticQuery` is the compiler-owned, protocol-neutral editor query API.
+
+Current responsibilities include:
+
+- target lookup at a position;
+- definition/reference site classification;
+- lexical access context;
+- receiver resolution from formal/advisory products;
+- canonical member selection/visibility;
+- visible lexical symbols;
+- native callable presentation metadata.
+
+This facade is the preferred place to add semantic editor capabilities that multiple protocol features need.
+
+It intentionally fails closed for unsupported/unknown semantic states instead of guessing.
+
+## 13. Semantic snapshot: `phalcom-semantic/src/snapshot.rs`
+
+**CURRENT:** `SemanticSnapshot` is the immutable coherent semantic publication.
+
+Major retained products include:
+
+```text
+SnapshotId + generation
+Arc<TypeStore>
+parsed source map
+compiler-generated presentation sources
+declaration surfaces
+dispatch resolver
+callable signatures
+declaration type table
+hierarchy
+diagnostics
+semantic graph
+callable analyses + internal incidents
+formal projection
+source semantic index
+advisory workspace
+module query products
+snapshot completeness status
+```
+
+Old snapshots remain valid immutable values when held by existing readers.
+
+## 14. Module query products: `phalcom-semantic/src/snapshot.rs` + `phalcom-modules/src/query.rs`
+
+`ModuleQueryProducts` retains immutable module information needed by editor/compiler queries:
+
+```text
+ProjectUniverse
+unlinked interfaces
+linked interfaces
+resolved import targets
+module -> SourceLocation
+SourceId -> ModuleId
+PathBuf -> ModuleId
+```
+
+`SemanticSnapshot::module_queries()` exposes a pure compiler/module facade over these retained products.
+
+Module path navigation should consume these products rather than re-run filesystem/import resolution.
+
+## 15. Formal presentation: `phalcom-semantic/src/presentation.rs`
+
+**CURRENT:** compiler-owned presentation projections combine semantic facts with source-site identity without depending on LSP protocol types.
+
+Use this layer for reusable semantic presentation facts. Markdown, LSP labels, protocol ranges and client capability handling remain in `phalcom-lsp`.
+
+## 16. Advisory analysis: `phalcom-semantic/src/advisory/`
+
+**CURRENT:** advisory runtime-shape analysis remains a compiler semantic product, not an LSP inference engine.
+
+`ValueShape` and related advisory facts are explicitly not the language type representation. Advisory facts carry confidence/status/provenance and are attached to the same canonical source/target identities as formal products.
+
+Formal evidence wins when it is established. Advisory products are useful where formal knowledge is unavailable, but they cannot overwrite formal proof.
+
+## 17. Diagnostics and explanations
+
+Inspect:
+
+```text
+src/diagnostic.rs
+src/explain.rs
+src/checker/causal.rs
+src/checker/context.rs
+```
+
+Semantic diagnostics are compiler products with module/source provenance. LSP converts them to protocol diagnostics; it should not independently decide type correctness.
+
+Internal semantic incidents are retained separately from user-facing source diagnostics.
+
+## 18. Invalidation and product stability
+
+Inspect:
+
+```text
+src/invalidation.rs
+src/db/
+src/session.rs
+```
+
+Current tests cover body-only reuse, signature propagation, field/superclass/import dependencies, contribution retraction, range-only edits, type-store revisions, and clean/incremental stability.
+
+Source movement is provenance change, not automatically semantic identity change.
+
+## 19. LSP analysis worker: `phalcom-lsp/src/analysis_service.rs`
+
+**CURRENT:** the LSP worker is a scheduler around one compiler session.
+
+`CompilerWorkspaceState` contains exactly:
+
+```text
+phalcom_semantic::SemanticWorkspaceSession
+```
+
+The worker may:
+
+- coalesce live edits;
+- track open/closed source epochs;
+- perform bounded filesystem discovery/refresh;
+- construct source mutations;
+- call the semantic session;
+- publish returned snapshots;
+- emit status/log/refresh notifications.
+
+It may not implement semantic resolution, typing, dispatch, or a parallel generation model.
+
+## 20. LSP publication: `phalcom-lsp/src/publication.rs`
+
+`SemanticPublication` is a small `RwLock<Option<Arc<SemanticSnapshot>>>` publication cell.
+
+It deliberately exposes no semantic mutation or lookup engine. Its public read-only handle is only for source-coherence scheduling/tests.
+
+Do not evolve this cell into a second semantic database.
+
+## 21. Request coherence: `phalcom-lsp/src/request_context.rs`
+
+Each request pins the live `DocumentSnapshot` and one compiler `SemanticSnapshot`.
+
+`SourceMatch` is:
 
 ```text
 Exact
-Flow
-Interprocedural
-Heuristic
+Stale
+Unmapped
 ```
 
-`FactOrigin` includes source/call-related origins, and `InferredValue` stores `shape`, optional known-boolean information, confidence and bounded provenance. Joins keep a bounded evidence sample.
+Semantic queries requiring source identity/ranges should run only against exact canonical source. Stale/unmapped states fail closed rather than triggering request-time semantic reconstruction.
 
-### Revisions and fact families
+## 22. LSP protocol consumers
 
-**CURRENT:** `FileRevision`, local binding facts, field facts/evidence and parameter facts are represented here.
-
-### Contribution-indexed parameter facts
-
-**CURRENT:** `ParameterContributions` indexes facts by stable parameter slot and `ContributionSource` (`Callable` or top-level module contribution). Replacing one source removes old contributions, inserts new ones, recomputes only touched slots and returns deltas.
-
-This is a major architectural pattern: incremental edits need retraction, not append-only monotone joins.
-
-## 10. `analyzer.rs`
-
-**CURRENT:** owns expression-level semantic analysis against an explicit semantic context. It is the place to inspect before implementing feature-local literal/member/send/value inference.
-
-Expression inference must agree with binding resolution, dispatch, class surfaces and current callable/field facts. Do not create a second expression interpreter inside completion or checker adapters.
-
-## 11. `dispatch.rs`
-
-**CURRENT:** centralizes semantic member/dispatch resolution over receiver knowledge and class surfaces. It is the correct place to inspect when changing inheritance/selector/instance-vs-class-side resolution.
-
-Always compare any change here with compiler/VM selector and lookup behavior.
-
-## 12. `flow.rs`
-
-**CURRENT:** contains shared structured flow machinery used for semantic facts and summaries. It models reachability/flow state rather than representing unreachable code as `ValueShape::Unknown`.
-
-The current architecture uses structured traversal rather than requiring every analysis to own a separate CFG. A future explicit CFG becomes justified when several analyses need reusable program points/edges/dominance/loop solving. Do not introduce separate checker/lint/prover CFGs independently.
-
-## 13. `callable.rs`
-
-**CURRENT:** owns callable-summary representation. Summaries are the boundary for interprocedural knowledge rather than requiring callers to traverse callee ASTs.
-
-Inspect this file before adding cross-call facts such as new effects, mutation summaries, declared/inferred types or closure behavior.
-
-## 14. `infer.rs`
-
-**CURRENT:** orchestrates interprocedural semantic inference and dependency propagation. Observed behavior includes:
-
-- analysis units/callable bodies are reprocessed through a worklist;
-- caller/callee dependencies drive re-enqueueing;
-- parameter contributions are replaced per source rather than only appended;
-- changed summaries propagate to dependent callers;
-- analysis is bounded operationally to protect editor latency;
-- partial/incomplete source should not abort all semantic analysis.
-
-Do not add another fixed-point loop in a feature module before establishing why this owner cannot express the new fact.
-
-## 15. `module_graph.rs`
-
-**CURRENT:** owns module imports, resolved targets and reverse dependents, with deterministic graph structures. A changed provider's affected frontier includes transitive dependents.
-
-This is currently module-granularity dependency infrastructure. Future package/project/module specifications may require richer edge kinds and identities rather than bypassing this layer.
-
-## 16. `invalidation.rs`
-
-**CURRENT:** owns bounded source-change classification. `SourceChangeKind` distinguishes `BodyOnly`, `ImportSurface`, `DeclarationSurface`, `FileAddedRemoved`, and `CoreSurface`; `SourceDelta` additionally identifies body-local `changed_callables` and whether top-level executable source changed. Declaration fingerprints intentionally exclude source ranges and debug formatting, so a declaration moving in the file does not become a different semantic declaration merely because its offsets changed. Current tests verify that range shifts do not spuriously classify an untouched callable body as changed.
-
-This classifier seeds the narrowest recomputation frontier that the current engine can justify. Do not generalize its categories into universal semantic neutrality: documentation comments, literal contents, source maps, parser layout/newline sensitivity, or future consumers can create dependencies not represented by today's core semantic classifier.
-
-## 17. `snapshot.rs`
-
-**CURRENT:** `SemanticSnapshot` is immutable published semantic state. It stores `Arc`-shared maps of:
+High-level protocol routing lives primarily in `phalcom-lsp/src/backend.rs`; focused presentation/context helpers live in files such as:
 
 ```text
-files/source products
-class surfaces
-callable summaries
-field facts
-parameter facts
-module graph
+completion.rs
+hover.rs
+inlay_hints.rs
+semantic_tokens.rs
+signature_help.rs
+import_completion.rs
 ```
 
-Query methods resolve classes/members, occurrences, visible bindings, callable returns, parameter facts, field facts, expression inference and completion surfaces from that coherent snapshot.
+Allowed consumer work includes:
 
-This is the current concurrency/consistency boundary: mutable analysis occurs before publication; requests read an immutable generation.
+- protocol object construction;
+- cursor/syntax context recovery;
+- snippets/ranking/markdown;
+- line/range conversion;
+- syntax-only fallback where it does not claim semantic identity.
 
-## 18. `query.rs`
+Forbidden consumer work includes:
 
-**CURRENT:** contains semantic generation/snapshot stamp query concepts. Keep file revisions, semantic publication generations and identity lifetimes conceptually distinct.
+- name-resolution engines;
+- semantic definition/reference fabrication;
+- type/value inference;
+- dispatch resolution;
+- import resolution from filesystem/URI spelling.
 
-## 19. `core_source.rs`
+## 23. Architectural regression gate: `phalcom-lsp/tests/semantic_boundary.rs`
 
-**CURRENT:** semantic analysis integrates bundled/core source so tooling can consume language-visible core declarations rather than hard-coding every core member independently.
+This test is not merely stylistic. It makes single-world ownership executable.
 
-This is an important direction for future primitive metadata: generated/trusted native semantic metadata should feed the same semantic truth used by compiler bootstrap, docs and checker rather than growing editor-only knowledge.
+It currently checks, among other things:
 
-## 20. LSP consumer boundary
+- no `phalcom-lsp/src/semantic` package;
+- no old `src/index.rs` semantic bridge;
+- forbidden legacy semantic types/helpers are absent from LSP production source;
+- request features do not read/canonicalize filesystem paths;
+- worker code does not reimplement import resolution/generation publication;
+- `phalcom-semantic` does not depend on LSP;
+- every top-level LSP test is actually registered despite `autotests = false`.
 
-The semantic subsystem already exposes queryable data structures. LSP handlers should adapt these answers into protocol objects. Before adding inference to an LSP handler, search for an existing semantic query or extend the semantic owner.
+When retiring another compatibility bridge, add its forbidden symbol/pattern here when a mechanical boundary can prevent regression.
 
-Consumer-specific concerns still belong in LSP code:
+## 24. Import/navigation regression anchors
+
+Use these tests for cross-module editor semantics:
 
 ```text
-completion ranking
-markdown rendering
-protocol ranges/capabilities
-request cancellation
-UI fallback policy
+phalcom-semantic/tests/semantic.rs
+  imported_resolution::*
+  module_query_provenance::*
+
+phalcom-modules/tests/standalone_incremental_imports.rs
+
+phalcom-lsp/tests/module_navigation.rs
+phalcom-lsp/tests/imported_binding_resolution.rs
 ```
 
-but not a duplicate name resolver or type/shape inference engine.
+They collectively prove module lifecycle, import provenance, imported type participation, canonical definition identity, and LSP projection.
 
-## 21. Legacy/parallel indexes
+## 25. Typing status discipline
 
-The repository contains older/parallel indexing code outside the semantic subsystem. Before extending such an index, determine whether it is still authoritative for the requested behavior or whether the semantic database now owns the identity/fact.
+Detailed typing documents can be normative, proposed, partially implemented, or stale. For each claim, distinguish specification status from repository implementation status.
 
-If two indexes are temporarily necessary, document synchronization and migration ownership. Silent duplicate truth is technical debt with semantic consequences.
+Never infer that a feature is current merely because a detailed typing spec exists. Conversely, do not preserve obsolete implementation architecture merely because an older implementation map describes it.
 
-## 22. Typing status discipline
+## 26. Repository-review questions
 
-`docs/spec/typing/` exists and is substantial. Its presence does not mean all described typing semantics are implemented in runtime/checker/LSP.
+Before a semantic change, answer:
 
-For every typing claim, label it:
-
-```text
-CURRENT implementation?
-RATIFIED/NORMATIVE specification?
-PROPOSED design?
-FUTURE direction?
-```
-
-This skill's non-negotiable boundary remains: current `ValueShape` is advisory runtime-shape analysis, not the future canonical language type representation.
-
-## 23. Neighboring skill boundary
-
-The repository contains `patchwork/phalcom-semantic-skills/semantic-analysis-development/`. That skill is the implementation companion to this one. Its ownership includes concrete Rust development workflow, source walkers, CFG introduction, interprocedural coding recipes, semantic-query implementation, repository gates and performance instrumentation.
-
-This `phalcom-semantic-model` skill owns the semantic doctrine those implementations must preserve: identity meaning, fact-domain contracts, bridges, uncertainty/provenance, dependency ownership and cross-consumer coherence.
-
-Do not duplicate the implementation companion into this reference.
-
-## 24. Verification anchors
-
-Before a semantic repository change, use current repository guidance to choose focused and full gates. Typical current anchors include:
-
-```sh
-cargo fmt --check
-cargo test -p phalcom-lsp
-scripts/test.sh lsp
-cargo clippy --workspace
-scripts/test.sh workspace
-```
-
-Use narrower tests during iteration and broader gates when change scope requires them. Commands can evolve; re-read repository guidance rather than treating this list as permanent.
-
-## 25. Repository-review questions
-
-Before making a CURRENT claim, answer:
-
-- Which current source file implements it?
-- Which test asserts it?
-- Does a current normative spec agree?
-- Is a similarly named typing/design document only proposed?
-- Is the behavior semantic truth or merely one LSP rendering policy?
-- Does `phalcom-core` execute the same selector/control/object semantics?
-- Does the current identity/fact lifetime match the cache being proposed?
-- Does a neighboring implementation skill already own the coding pattern?
+- Which crate owns this concept now?
+- Which stable/canonical identity represents it?
+- Which query/product proves the fact?
+- What evidence/status/provenance is retained?
+- What invalidates the product?
+- Which snapshot/revision owns it?
+- Which regression proves the compiler behavior?
+- Which LSP test proves protocol projection, if relevant?
+- Can an architecture boundary test prevent a parallel semantic implementation from returning?
