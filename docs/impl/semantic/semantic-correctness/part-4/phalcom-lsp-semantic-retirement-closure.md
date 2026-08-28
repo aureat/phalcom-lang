@@ -131,7 +131,7 @@ full phalcom-lsp suite
 explicit semantic-authority boundary suite
 ```
 
-A green build alone is not sufficient closure. The semantic, module, LSP, and architecture-boundary tests must all pass on the same final revision.
+A green build alone is not sufficient closure. The semantic, module, LSP, and architecture-boundary tests must all pass on the same final revision. The accepted workflow run must report the exact merge-candidate SHA as its `head_sha`; a run against an earlier branch revision does not satisfy this gate.
 
 ## Post-retirement rule
 
