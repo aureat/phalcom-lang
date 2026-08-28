@@ -1,0 +1,334 @@
+name: Canonical Declaration Phase 2 V2
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+permissions:
+  contents: write
+
+jobs:
+  parameter-identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/canonical-declaration-knowledge
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Add canonical parameter regression
+        run: |
+          cat > phalcom-semantic/tests/semantic/integration/parameter_identity.rs <<'EOF'
+          use std::sync::Arc;
+
+          use phalcom_common::selector::{Selector, SelectorSlot};
+          use phalcom_modules::identity::ModuleId;
+          use phalcom_semantic::{CallableId, CallableParameterId, DeclarationId, DispatchSide, analyze_single_module};
+
+          #[test]
+          fn callable_parameter_identity_connects_signature_binding_and_source_site() {
+              let module = ModuleId::core();
+              let source: Arc<str> = Arc::from(
+                  r#"
+          class ParameterProbe {
+              run(value: Int) -> Int {
+                  value
+              }
+          }
+          "#,
+              );
+              let parsed = phalcom_ast::parse(&source, 0);
+              assert!(parsed.errors.is_empty(), "fixture must parse: {:#?}", parsed.errors);
+
+              let result = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+              let owner = DeclarationId::new(module.clone(), "ParameterProbe".into());
+              let callable = CallableId::new(
+                  owner,
+                  Selector::method("run", [SelectorSlot::Label("value".into())]).expect("selector"),
+                  DispatchSide::Instance,
+              );
+              let signature = result.snapshot.callable_signatures.get(&callable).expect("canonical callable signature");
+              let parameter = signature.parameters.first().expect("parameter");
+              assert_eq!(parameter.id, CallableParameterId::new(callable.clone(), 0));
+
+              let analysis = result.snapshot.callable_analyses.get(&callable).expect("callable analysis");
+              let binding = analysis
+                  .bindings
+                  .values()
+                  .find(|binding| binding.parameter.as_ref() == Some(&parameter.id))
+                  .expect("checker binding keeps canonical parameter identity");
+
+              let module_index = result.snapshot.source_index.modules.get(&module).expect("module source index");
+              let source_info = module_index.structure.callable_sources.get(&callable).expect("callable source info");
+              let parameter_site = source_info.parameter_sites.get(&parameter.id).expect("canonical parameter source site");
+              assert_eq!(binding.range, module_index.structure.site(parameter_site).expect("parameter site").range);
+
+              let attachment = module_index.attachments.get(&callable).expect("formal source attachment");
+              assert_eq!(attachment.source_site_for_binding(binding.binding), Some(parameter_site));
+          }
+          EOF
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('phalcom-semantic/tests/semantic/integration/mod.rs')
+          text = path.read_text()
+          if 'mod parameter_identity;' not in text:
+              text = text.replace('mod imported_resolution;\n', 'mod imported_resolution;\nmod parameter_identity;\n', 1)
+          path.write_text(text)
+          PY
+      - name: Verify RED
+        env:
+          RUSTFLAGS: ""
+        run: |
+          set +e
+          cargo +stable test -p phalcom-semantic --test semantic semantic::integration::parameter_identity::callable_parameter_identity_connects_signature_binding_and_source_site -- --exact > /tmp/red.log 2>&1
+          status=$?
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -Eq 'no field `parameter`|no field `parameter_sites`|unknown field' /tmp/red.log
+      - name: Implement parameter identity bridge
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'{label} anchor missing')
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'phalcom-semantic/src/checker/declaration_signature.rs',
+              '    let mut semantic = CallableParameterSemantic::new(CallableParameterId::new(callable.clone(), index as u32), parameter.name.clone(), declared_type)\n        .with_rest(parameter.rest_mode);',
+              '    let mut semantic = CallableParameterSemantic::new(CallableParameterId::new(callable.clone(), index as u32), parameter.name.clone(), declared_type)\n        .with_rest(parameter.rest_mode)\n        .with_source(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), parameter.name_range));',
+              'parameter source',
+          )
+
+          replace_once(
+              'phalcom-semantic/src/checker/binding.rs',
+              'use crate::identity::BindingId;',
+              'use crate::identity::{BindingId, CallableParameterId};',
+              'binding import',
+          )
+          replace_once(
+              'phalcom-semantic/src/checker/binding.rs',
+              'pub struct BindingSeed {\n    pub name: String,',
+              'pub struct BindingSeed {\n    pub name: String,\n    pub parameter: Option<CallableParameterId>,',
+              'binding seed field',
+          )
+
+          replace_once(
+              'phalcom-semantic/src/checker/analysis.rs',
+              'use crate::identity::{AnalysisIncidentId, BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId};',
+              'use crate::identity::{AnalysisIncidentId, BindingId, CallResolutionId, CallableId, CallableParameterId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId};',
+              'analysis import',
+          )
+          replace_once(
+              'phalcom-semantic/src/checker/analysis.rs',
+              'pub struct BindingState {\n    pub binding: BindingId,\n    pub name: String,',
+              'pub struct BindingState {\n    pub binding: BindingId,\n    pub name: String,\n    pub parameter: Option<CallableParameterId>,',
+              'binding state field',
+          )
+          replace_once(
+              'phalcom-semantic/src/checker/analysis.rs',
+              '            name: seed.name,\n            range: seed.range,',
+              '            name: seed.name,\n            parameter: seed.parameter,\n            range: seed.range,',
+              'binding state seed copy',
+          )
+          replace_once(
+              'phalcom-semantic/src/checker/analysis.rs',
+              '            binding,\n            name: name.into(),\n            range,',
+              '            binding,\n            name: name.into(),\n            parameter: None,\n            range,',
+              'binding state ordinary constructor',
+          )
+
+          context_path = Path('phalcom-semantic/src/checker/context.rs')
+          context = context_path.read_text()
+          start = context.index('    pub fn bind_callable_parameter(')
+          end = context.index('    pub fn bind_contextual_block_parameter(', start)
+          replacement = '''    pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
+              self.bind_callable_parameter_with_identity(name, current, range, crate::checker::causal::CausalInvalidity::Clean, None)
+          }
+
+          pub fn bind_canonical_callable_parameter(
+              &mut self,
+              parameter: &crate::signature::CallableParameterSemantic,
+              fallback_range: SourceRange,
+          ) -> BindingDeclarationResult {
+              let range = parameter.source.as_ref().map_or(fallback_range, |source| source.range);
+              self.bind_callable_parameter_with_identity(
+                  parameter.local_name.to_string(),
+                  parameter.declared_type.to_knowledge(),
+                  range,
+                  crate::checker::causal::CausalInvalidity::Clean,
+                  Some(parameter.id.clone()),
+              )
+          }
+
+          pub fn bind_callable_parameter_with_causal(
+              &mut self,
+              name: impl Into<String>,
+              current: TypeKnowledge,
+              range: SourceRange,
+              causal_invalidity: crate::checker::causal::CausalInvalidity,
+          ) -> BindingDeclarationResult {
+              self.bind_callable_parameter_with_identity(name, current, range, causal_invalidity, None)
+          }
+
+          fn bind_callable_parameter_with_identity(
+              &mut self,
+              name: impl Into<String>,
+              current: TypeKnowledge,
+              range: SourceRange,
+              causal_invalidity: crate::checker::causal::CausalInvalidity,
+              parameter: Option<crate::identity::CallableParameterId>,
+          ) -> BindingDeclarationResult {
+              let current = current
+                  .ty()
+                  .map(|ty| TypeKnowledge::assumed(ty, crate::types::evidence::EvidenceOrigin::CallableSignature))
+                  .unwrap_or(current);
+              let contract = current.ty().map(|ty| BindingContract {
+                  ty,
+                  origin: BindingContractOrigin::CallableParameter,
+                  source: Some(range),
+              });
+              self.declare_binding(BindingSeed {
+                  name: name.into(),
+                  parameter,
+                  range,
+                  contract,
+                  current,
+                  denotation: None,
+                  causal_invalidity,
+                  mutable: false,
+              })
+          }
+
+          '''
+          context = context[:start] + replacement + context[end:]
+
+          def add_none_to_seed_literals(text):
+              token = 'BindingSeed {'
+              cursor = 0
+              out = []
+              while True:
+                  start = text.find(token, cursor)
+                  if start < 0:
+                      out.append(text[cursor:])
+                      break
+                  out.append(text[cursor:start])
+                  brace = text.find('{', start)
+                  depth = 0
+                  end = brace
+                  while end < len(text):
+                      if text[end] == '{':
+                          depth += 1
+                      elif text[end] == '}':
+                          depth -= 1
+                          if depth == 0:
+                              end += 1
+                              break
+                      end += 1
+                  block = text[start:end]
+                  if 'parameter:' not in block:
+                      block = block.replace(token, token + '\n            parameter: None,', 1)
+                  out.append(block)
+                  cursor = end
+              return ''.join(out)
+
+          context_path.write_text(add_none_to_seed_literals(context))
+          statement_path = Path('phalcom-semantic/src/checker/statement.rs')
+          statement_path.write_text(add_none_to_seed_literals(statement_path.read_text()))
+
+          replace_once(
+              'phalcom-semantic/src/checker/body.rs',
+              '            ctx.bind_callable_parameter(parameter.local_name.to_string(), parameter.declared_type.to_knowledge(), body_range);',
+              '            ctx.bind_canonical_callable_parameter(parameter, body_range);',
+              'body parameter binding',
+          )
+
+          replace_once(
+              'phalcom-semantic/src/source_index/scope.rs',
+              'use crate::identity::{CallableId, DeclarationId, ModuleId, SemanticTargetId, SourceSiteId};',
+              'use crate::identity::{CallableId, CallableParameterId, DeclarationId, ModuleId, SemanticTargetId, SourceSiteId};',
+              'source scope import',
+          )
+          replace_once(
+              'phalcom-semantic/src/source_index/scope.rs',
+              '    pub parameter_name_ranges: std::sync::Arc<[SourceRange]>,',
+              '    pub parameter_name_ranges: std::sync::Arc<[SourceRange]>,\n    pub parameter_sites: BTreeMap<CallableParameterId, SourceSiteId>,',
+              'source parameter sites',
+          )
+
+          replace_once(
+              'phalcom-semantic/src/source_index/builder.rs',
+              'use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId};',
+              'use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId};',
+              'builder import',
+          )
+          replace_once(
+              'phalcom-semantic/src/source_index/builder.rs',
+              '                parameter_name_ranges: Arc::from(parameters.iter().map(|parameter| parameter.name_range).collect::<Vec<_>>().into_boxed_slice()),\n                has_explicit_return_annotation,',
+              '                parameter_name_ranges: Arc::from(parameters.iter().map(|parameter| parameter.name_range).collect::<Vec<_>>().into_boxed_slice()),\n                parameter_sites: BTreeMap::new(),\n                has_explicit_return_annotation,',
+              'builder callable source info',
+          )
+          replace_once(
+              'phalcom-semantic/src/source_index/builder.rs',
+              '        let previous_owner = std::mem::replace(&mut self.current_owner, SourceOwner::Callable(callable));\n        let scope = self.new_scope(parent, body_range);\n        for parameter in parameters {\n            self.declare(scope, parameter.name.clone(), parameter_kind, parameter.name_range, true);\n        }',
+              '        let previous_owner = std::mem::replace(&mut self.current_owner, SourceOwner::Callable(callable.clone()));\n        let scope = self.new_scope(parent, body_range);\n        let mut parameter_sites = BTreeMap::new();\n        for (index, parameter) in parameters.iter().enumerate() {\n            let site = self.declare(scope, parameter.name.clone(), parameter_kind, parameter.name_range, true);\n            parameter_sites.insert(CallableParameterId::new(callable.clone(), index as u32), site);\n        }\n        if let Some(source) = self.index.callable_sources.get_mut(&callable) {\n            source.parameter_sites = parameter_sites;\n        }',
+              'builder parameter declaration',
+          )
+
+          source_index_path = Path('phalcom-semantic/src/source_index/mod.rs')
+          source_index = source_index_path.read_text()
+          anchor = '        for (offset, state) in states.into_iter().enumerate() {\n'
+          if anchor not in source_index:
+              raise SystemExit('source attachment loop anchor missing')
+          source_index = source_index.replace(
+              anchor,
+              '''        for (offset, state) in states.into_iter().enumerate() {
+              if let Some(parameter) = &state.parameter {
+                  if let Some(site) = scopes
+                      .callable_sources
+                      .get(&parameter.callable)
+                      .and_then(|source| source.parameter_sites.get(parameter))
+                      .cloned()
+                  {
+                      formal_bindings.insert(state.binding, site);
+                      continue;
+                  }
+                  incidents.push(SourceAttachmentError::MissingBinding {
+                      callable: callable.clone(),
+                      binding: state.binding,
+                  });
+                  continue;
+              }
+          ''',
+              1,
+          )
+          source_index_path.write_text(source_index)
+      - name: Format
+        run: cargo +stable fmt --all
+      - name: Focused green
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::integration::parameter_identity::callable_parameter_identity_connects_signature_binding_and_source_site -- --exact
+      - name: Full semantic gate
+        env:
+          RUSTFLAGS: ""
+        run: |
+          cargo +stable fmt --all -- --check
+          git diff --check
+          cargo +stable check -p phalcom-semantic
+          cargo +stable test -p phalcom-semantic
+      - name: Commit
+        run: |
+          rm -f .github/workflows/canonical-declaration-phase2.yml .github/workflows/canonical-declaration-phase2-runner.yml .github/workflows/canonical-declaration-phase2-v2.yml
+          git config user.name "phalcom-refactor-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor(semantic): connect parameter declaration and source identity"
+          git push origin HEAD:codex/canonical-declaration-knowledge
