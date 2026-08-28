@@ -56,6 +56,10 @@ name = "module_navigation"
 path = "tests/module_navigation.rs"
 
 [[test]]
+name = "imported_binding_resolution"
+path = "tests/imported_binding_resolution.rs"
+
+[[test]]
 name = "professional_semantic_presentation"
 path = "tests/professional_semantic_presentation.rs"
 
