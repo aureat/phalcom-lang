@@ -1,0 +1,17 @@
+name: Canonical Parameter Phase 3 Constructor RED
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge-phase3-constructor-red
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Format
+        run: cargo +stable fmt --all -- --check
+      - name: Run constructor canonical parameter regression
+        run: cargo test -p phalcom-semantic --test semantic canonical_parameter_advisory::constructor_argument_transfer_uses_public_canonical_parameter_identity -- --exact
