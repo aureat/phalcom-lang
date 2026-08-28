@@ -20,13 +20,39 @@ jobs:
         with:
           toolchain: nightly-2026-07-10
           components: rustfmt
+      - name: Repair Phase 4 transformation guard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/scripts/canonical_callable_phase4.py')
+          text = path.read_text()
+          old = '''if text.count("callable_signatures.get_for_body") < 4:
+              raise SystemExit("canonical body-signature lookup not installed at all intended authority sites")
+          '''
+          new = '''required_after = {
+              "field lifecycle constructor authority": "callable_signatures\\n                                                            .get_for_body(&analysis.callable)",
+              "advisory formal return authority": "let fact = callable_signatures\\n            .get_for_body(&analysis.callable)",
+              "inferred return authority": "let signature = callable_signatures.get_for_body(callable)?;",
+              "body recheck authority": "let declared_signature = callable_signatures\\n                        .get_for_body(&callable)",
+          }
+          for label, snippet in required_after.items():
+              if snippet not in text:
+                  raise SystemExit(f"missing canonical authority site: {label}")
+          '''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('Phase 4 transformation guard shape changed')
+          path.write_text(text)
+          PY
       - name: Apply canonical callable authority cut
         run: python3 .github/scripts/canonical_callable_phase4.py
       - name: Format
         run: cargo +nightly-2026-07-10 fmt --all
       - name: Guard changed production surface
         run: |
-          unexpected="$(git diff --name-only | grep -v '^phalcom-semantic/src/session.rs$' || true)"
+          unexpected="$(git diff --name-only | grep -Ev '^(phalcom-semantic/src/session.rs|\.github/scripts/canonical_callable_phase4.py)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "unexpected changed files:"
             echo "$unexpected"
@@ -42,12 +68,12 @@ jobs:
         run: git diff --check
       - name: Commit Phase 4 authority cut
         run: |
-          if git diff --quiet -- phalcom-semantic/src/session.rs; then
+          if git diff --quiet -- phalcom-semantic/src/session.rs .github/scripts/canonical_callable_phase4.py; then
             echo 'Phase 4 authority cut already applied'
             exit 0
           fi
           git config user.name phalcom-refactor-bot
           git config user.email actions@users.noreply.github.com
-          git add phalcom-semantic/src/session.rs
+          git add phalcom-semantic/src/session.rs .github/scripts/canonical_callable_phase4.py
           git commit -m 'refactor(semantic): make callable signatures authoritative'
           git push origin HEAD:codex/canonical-declaration-knowledge
