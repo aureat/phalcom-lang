@@ -14,6 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
       - name: Run declaration authority regression
-        run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::advisory_and_return_refresh_read_canonical_signatures_not_dispatch_surfaces -- --exact
+        run: cargo +nightly test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::advisory_and_return_refresh_read_canonical_signatures_not_dispatch_surfaces -- --exact
