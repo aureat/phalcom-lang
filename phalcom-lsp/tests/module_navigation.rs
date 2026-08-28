@@ -117,7 +117,7 @@ async fn wait_for_definition(client: &mut tokio::io::DuplexStream, id: &mut u64,
 #[tokio::test]
 async fn goto_definition_on_relative_import_path_and_selective_export() {
     let workspace = ScratchWorkspace::new("rel_import");
-    let shapes_path = workspace.write("shapes.ph", "class Circle {\n  area() { 3.14 }\n}\n");
+    let shapes_path = workspace.write("shapes.ph", "class Circle {\n  area() { 3.14 }\n}\nexport Circle\n");
     let main_path = workspace.write("main.ph", "import .shapes as shapes\nfrom .shapes import Circle\n\nlet c = Circle.new();\n");
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
