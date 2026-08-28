@@ -23,9 +23,9 @@ jobs:
         run: python3 .github/scripts/canonical_fields_apply.py
       - name: Format
         run: RUSTFLAGS="" cargo +stable fmt --all
-      - name: Guard changed production surface
+      - name: Guard changed surface
         run: |
-          unexpected="$(git diff --name-only | grep -Ev '^phalcom-semantic/src/(checker/(context.rs|body.rs)|db/query.rs|session.rs)$' || true)"
+          unexpected="$(git diff --name-only | grep -Ev '^(phalcom-semantic/src/(checker/(context.rs|body.rs)|db/query.rs|session.rs)|phalcom-semantic/tests/semantic/incremental/query_ownership.rs)$' || true)"
           if [ -n "$unexpected" ]; then
             echo "unexpected changed files:"
             echo "$unexpected"
@@ -46,6 +46,7 @@ jobs:
             phalcom-semantic/src/checker/body.rs
             phalcom-semantic/src/db/query.rs
             phalcom-semantic/src/session.rs
+            phalcom-semantic/tests/semantic/incremental/query_ownership.rs
           )
           if git diff --quiet -- "${paths[@]}"; then
             echo 'canonical field authority already applied'
