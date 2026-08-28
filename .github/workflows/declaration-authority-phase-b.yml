@@ -1,0 +1,57 @@
+name: Declaration Authority Phase B
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+permissions:
+  contents: write
+
+jobs:
+  cutover:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply authority cutover
+        run: python .github/apply-declaration-authority-phase-b.py
+      - name: Format
+        run: cargo +stable fmt --all
+      - name: Diff check
+        run: git diff --check
+      - name: Check semantic crate
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable check -p phalcom-semantic
+      - name: Structural authority regression
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::callable_signature_query_never_reconstructs_semantics_from_dispatch_surface -- --exact --nocapture
+      - name: Partial signature ownership regression
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::query_ownership::partial_source_signature_is_canonical_and_body_depends_on_it -- --exact --nocapture
+      - name: Query prerequisite ownership regression
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::query_ownership::formal_products_are_query_owned_and_record_prerequisites -- --exact --nocapture
+      - name: Commit validated cutover
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            phalcom-semantic/src/checker/declaration.rs \
+            phalcom-semantic/src/checker/declaration_signature.rs \
+            phalcom-semantic/src/checker/body.rs \
+            phalcom-semantic/src/checker/context.rs \
+            phalcom-semantic/src/db/query.rs \
+            phalcom-semantic/src/session.rs \
+            phalcom-semantic/src/dispatch.rs \
+            phalcom-semantic/tests/semantic/incremental/query_ownership.rs
+          git diff --cached --quiet && exit 0
+          git commit -m "refactor(semantic): make callable declarations authoritative"
+          git push
