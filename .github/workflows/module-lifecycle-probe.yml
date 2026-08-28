@@ -21,26 +21,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply canonical import path provenance repair
-        run: python .github/apply-module-query-path-provenance.py
+      - name: Apply valid module navigation fixture
+        run: python .github/fix-module-navigation-fixture.py
       - name: Format and diff check
         run: |
           cargo +stable fmt --all
           git diff --check
-      - name: Compile modules and semantic
-        run: |
-          cargo check -p phalcom-modules
-          cargo check -p phalcom-semantic
-      - name: Validate module lifecycle and query provenance
-        run: |
-          cargo test -p phalcom-modules --test standalone_incremental_imports -- --nocapture
-          cargo test -p phalcom-semantic --test semantic module_query_probe -- --nocapture
-      - name: Commit validated provenance repair
+      - name: Validate semantic import provenance
+        run: cargo test -p phalcom-semantic --test semantic module_query_probe -- --nocapture
+      - name: Validate module navigation
+        run: cargo test -p phalcom-lsp --test module_navigation goto_definition_on_relative_import_path_and_selective_export -- --nocapture
+      - name: Commit valid navigation fixture
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-modules/src/session.rs phalcom-semantic/src/session.rs
+          git add phalcom-lsp/tests/module_navigation.rs
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(semantic): publish canonical import path provenance'
+            git commit -m 'test(lsp): align module navigation fixture with explicit exports'
             git push origin HEAD:codex/lsp-single-world-retirement
           fi
