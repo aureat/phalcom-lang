@@ -24,29 +24,17 @@ class Probe {
     let declaration = DeclarationId::new(module.clone(), "Probe".into());
     let callable = CallableId::new(
         declaration.clone(),
-        Selector::method("run", vec![SelectorSlot::Positional]).expect("selector"),
+        Selector::method("run", vec![SelectorSlot::Label("value".into())]).expect("selector"),
         DispatchSide::Instance,
     );
 
-    assert!(
-        analysis.snapshot.sources.contains_key(&module),
-        "partial callable analysis must publish the source snapshot instead of falling back to the bootstrap snapshot; sources={:?}",
-        analysis.snapshot.sources.keys().collect::<Vec<_>>()
-    );
-    assert!(
-        analysis.snapshot.surfaces.contains_key(&declaration),
-        "partial callable analysis must retain its declaration surface"
-    );
+    assert!(analysis.snapshot.sources.contains_key(&module));
+    assert!(analysis.snapshot.surfaces.contains_key(&declaration));
 
     let signature = analysis
         .snapshot
         .callable_signatures
         .get(&callable)
-        .unwrap_or_else(|| {
-            panic!(
-                "a valid callable declaration must publish a canonical signature even when its return type is unknown; published={:?}",
-                analysis.snapshot.callable_signatures.iter().map(|(id, _)| id).collect::<Vec<_>>()
-            )
-        });
+        .expect("a valid callable declaration must publish a canonical signature even when its return type is unknown");
     assert_eq!(signature.parameter_count(), 1);
 }
