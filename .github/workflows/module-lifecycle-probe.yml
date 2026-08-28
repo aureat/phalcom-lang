@@ -21,5 +21,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Run standalone lifecycle regression
+      - name: Confirm standalone lifecycle
         run: cargo test -p phalcom-modules --test standalone_incremental_imports -- --nocapture
+      - name: Probe semantic import query provenance
+        run: cargo test -p phalcom-semantic --test semantic module_query_probe -- --nocapture
