@@ -78,35 +78,6 @@ fn import_path_range_at_offset(program: &phalcom_ast::ast::Program, offset: usiz
     })
 }
 
-fn import_binding_declaration_at_offset(request: &RequestContext, offset: usize) -> Option<phalcom_common::range::SourceRange> {
-    let identifier = crate::hover::qualified_identifier_at_offset(&request.document.text, offset).map(|(name, _)| name);
-    for dependency in &request.document.parse.program.preamble.dependencies {
-        let phalcom_ast::ast::DependencyDecl::Import(import) = dependency else {
-            continue;
-        };
-        match import {
-            phalcom_ast::ast::ImportDecl::Module(import) => {
-                let Some(alias) = &import.alias else { continue };
-                if identifier.as_deref() == Some(alias.name.as_str()) {
-                    return Some(alias.range);
-                }
-            }
-            phalcom_ast::ast::ImportDecl::Selective(import) => {
-                for item in &import.items {
-                    let (name, range) = item
-                        .alias
-                        .as_ref()
-                        .map_or_else(|| (item.name.as_str(), item.name_range), |alias| (alias.name.as_str(), alias.range));
-                    if identifier.as_deref() == Some(name) {
-                        return Some(range);
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
 fn compiler_import_definition_location(request: &RequestContext, position: Position) -> Option<Location> {
     let compiler = request.compiler.as_deref()?;
     let importer = request.compiler_module()?;
@@ -1489,13 +1460,6 @@ impl LanguageServer for Backend {
             if !locations.is_empty() {
                 return Ok(Some(locations));
             }
-        }
-
-        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
-            return Ok(Some(vec![Location {
-                uri: uri.clone(),
-                range: request.document.line_index.range(range.start..range.end),
-            }]));
         }
 
         Ok(None)
