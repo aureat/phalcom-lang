@@ -76,3 +76,18 @@ fn field_signature_is_a_first_class_incremental_product() {
         "body analyses must be able to record exact canonical field dependencies"
     );
 }
+
+#[test]
+fn editor_type_hint_eligibility_is_compiler_owned() {
+    let editor = include_str!("../../../src/editor.rs");
+    let scope = include_str!("../../../src/source_index/scope.rs");
+
+    assert!(
+        scope.contains("has_explicit_annotation"),
+        "explicit annotation truth for lexical bindings must be retained by the compiler-owned source index"
+    );
+    assert!(
+        editor.contains("pub fn type_hints("),
+        "EditorSemanticQuery must decide which canonical type hints exist before the LSP presentation layer runs"
+    );
+}
