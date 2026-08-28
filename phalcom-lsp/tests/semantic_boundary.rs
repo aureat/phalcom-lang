@@ -141,8 +141,9 @@ fn inlay_hints_do_not_reimplement_annotation_semantics() {
             "{symbol} must live in compiler-owned source/semantic products, not the LSP adapter"
         );
     }
+    let compact = source.split_whitespace().collect::<String>();
     assert!(
-        source.contains(".editor().type_hints("),
+        compact.contains(".editor().type_hints("),
         "the LSP inlay handler must consume EditorSemanticQuery::type_hints rather than reconstructing hint eligibility"
     );
 }
