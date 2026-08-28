@@ -9,212 +9,168 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     raise SystemExit(f"{label} shape changed")
 
 
-# 1. Source fields are lowered into canonical FieldSemanticSignature first.
-path = Path("phalcom-semantic/src/checker/declaration_signature.rs")
+def replace_exact_count(text: str, old: str, new: str, count: int, label: str) -> str:
+    old_count = text.count(old)
+    new_count = text.count(new)
+    if old_count == count:
+        return text.replace(old, new)
+    if old_count == 0 and new_count >= count:
+        return text
+    raise SystemExit(f"{label} shape changed: {old_count=}, {new_count=}")
+
+
+# 1. Formal field lookup consumes canonical FieldSignatureTable. Structural
+# DeclarationSurface dependency remains temporarily for invalidation until the
+# next slice gives FieldSignature its own DB query key.
+path = Path("phalcom-semantic/src/checker/context.rs")
 text = path.read_text()
 text = replace_once(
     text,
-    "use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide};\nuse crate::signature::{CallableParameterSemantic, CallableSemanticSignature};\n",
-    "use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId};\nuse crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};\n",
-    "field signature imports",
-)
-anchor = "pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {\n"
-helper = '''pub(crate) fn semantic_field_signature_for_member(
-    ctx: &mut CheckingContext<'_>,
-    owner: &DeclarationId,
-    member: &ClassMember,
-) -> Option<FieldSemanticSignature> {
-    let ClassMember::Field(field) = member else {
-        return None;
-    };
-    let side = super::declaration::member_side(member);
-    let declaration_type_parameters = ctx
-        .declaration_generic_signature(owner)
-        .map(|signature| {
-            signature
-                .parameters
-                .iter()
-                .map(|&parameter_id| {
-                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
-                    let form = ctx.store.parameter_form(parameter_id);
-                    (name, form)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let parent_resolver = ctx.resolver.clone();
-    let declaration_resolver = crate::types::annotation::ScopedTypeResolver {
-        parent: &parent_resolver,
-        type_parameters: declaration_type_parameters,
-    };
-    let declared_type = annotation_fact(
-        ctx,
-        &declaration_resolver,
-        field.annotation.as_ref(),
-        UnknownReason::UnannotatedDeclaration,
-    );
-    let field_id = FieldId::new(owner.clone(), field.name.clone(), side);
-    Some(FieldSemanticSignature {
-        field: field_id,
-        owner: owner.clone(),
-        side,
-        name: field.name.clone().into(),
-        mutable: field.mutable,
-        declared_type,
-        source: None,
-    })
-}
-
-pub(crate) fn project_field_signature(signature: &FieldSemanticSignature) -> TypeKnowledge {
-    signature.declared_type.to_knowledge()
-}
-
-''' + anchor
-text = replace_once(text, anchor, helper, "canonical field helper")
-path.write_text(text)
-
-# 2. DeclarationSurface becomes a projection for fields just as for callables.
-path = Path("phalcom-semantic/src/checker/declaration.rs")
-text = path.read_text()
-old = '''    // Fields are still projected directly in this phase. Callable members go
-    // through the declaration-owned semantic signature builder first.
-    let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
-        sig.parameters
-            .iter()
-            .map(|&param_id| {
-                let name = ctx.store.type_parameter(param_id).name.to_string();
-                let param_form = ctx.store.parameter_form(param_id);
-                (name, param_form)
-            })
-            .collect()
-    } else {
-        std::collections::HashMap::new()
-    };
-    let parent_resolver = ctx.resolver.clone();
-    let field_resolver = crate::types::annotation::ScopedTypeResolver {
-        parent: &parent_resolver,
-        type_parameters: type_params_map,
-    };
-
-'''
-text = replace_once(text, old, "", "direct field resolver")
-old = '''            ClassMember::Field(field) => {
-                let side = member_side(member);
-                let declared = field
-                    .annotation
-                    .as_ref()
-                    .map(|annotation| ctx.resolve_type_annotation(&field_resolver, annotation).0)
-                    .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-                surface.add_field_with_visibility(side, &field.name, declared, visibility);
-            }
-'''
-new = '''            ClassMember::Field(_) => {
-                let Some(signature) = super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member) else {
-                    continue;
-                };
-                surface.add_field_with_visibility(
-                    signature.side,
-                    signature.name.as_ref(),
-                    super::declaration_signature::project_field_signature(&signature),
-                    visibility,
-                );
-            }
-'''
-text = replace_once(text, old, new, "field surface projection")
-path.write_text(text)
-
-# 3. Snapshot owns canonical field signatures, with backwards-compatible
-# constructors defaulting to an empty table for lower-level callers.
-path = Path("phalcom-semantic/src/snapshot.rs")
-text = path.read_text()
-text = replace_once(
-    text,
-    "use crate::signature::CallableSignatureTable;\n",
-    "use crate::signature::{CallableSignatureTable, FieldSignatureTable};\n",
-    "snapshot field signature import",
+    "use crate::surface::DeclarationSurface;\n",
+    "use crate::signature::FieldSignatureTable;\nuse crate::surface::DeclarationSurface;\n",
+    "field signature table import",
 )
 text = replace_once(
     text,
-    "    pub callable_signatures: Arc<CallableSignatureTable>,\n    pub declarations: Arc<DeclarationTypeTable>,\n",
-    "    pub callable_signatures: Arc<CallableSignatureTable>,\n    pub field_signatures: Arc<FieldSignatureTable>,\n    pub declarations: Arc<DeclarationTypeTable>,\n",
-    "snapshot field signature storage",
+    "    semantic_dependencies: SharedSemanticDependencies,\n    pub dispatch: DispatchAccess<'a>,\n",
+    "    semantic_dependencies: SharedSemanticDependencies,\n    field_signatures: Option<&'a FieldSignatureTable>,\n    pub dispatch: DispatchAccess<'a>,\n",
+    "checking context field signatures",
 )
-needle = "            callable_signatures,\n            declarations,\n"
-replacement = "            callable_signatures,\n            field_signatures: Arc::new(FieldSignatureTable::new()),\n            declarations,\n"
-if text.count(needle) != 2 and text.count(replacement) != 2:
-    raise SystemExit(f"snapshot constructor shape changed: {text.count(needle)=}, {text.count(replacement)=}")
-text = text.replace(needle, replacement)
-anchor = '''    pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
+text = replace_exact_count(
+    text,
+    "            semantic_dependencies,\n            dispatch:",
+    "            semantic_dependencies,\n            field_signatures: None,\n            dispatch:",
+    2,
+    "checking context constructors",
+)
+text = replace_once(
+    text,
+    "            semantic_dependencies: self.semantic_dependencies.clone(),\n            dispatch: DispatchAccess::Borrowed(self.dispatch.get()),\n",
+    "            semantic_dependencies: self.semantic_dependencies.clone(),\n            field_signatures: self.field_signatures,\n            dispatch: DispatchAccess::Borrowed(self.dispatch.get()),\n",
+    "resolver subcontext field signatures",
+)
+anchor = '''    /// Returns the dispatch resolver currently visible to this context.
+    pub fn dispatch_ref(&self) -> &SurfaceDispatchResolver {
 '''
-builder = '''    pub fn with_field_signatures(mut self, field_signatures: Arc<FieldSignatureTable>) -> Self {
-        self.field_signatures = field_signatures;
-        self
+insert = '''    /// Attaches compiler-owned canonical field declaration knowledge.
+    pub fn attach_field_signatures(&mut self, field_signatures: &'a FieldSignatureTable) {
+        self.field_signatures = Some(field_signatures);
     }
 
 ''' + anchor
-text = replace_once(text, anchor, builder, "snapshot field signature builder")
+text = replace_once(text, anchor, insert, "field signature attachment")
+old = '''    pub fn get_field(&self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
+        self.dispatch.get().get_surface(decl).and_then(|s| s.get_field(side, name)).cloned()
+    }
+
+    pub(crate) fn resolve_field_contract(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
+        let surface = self.dispatch.get().get_surface(owner)?;
+        let field = surface.get_field_id(side, name)?.clone();
+        let contract = surface.get_field(side, name)?.clone();
+        Some((field, contract))
+    }
+'''
+new = '''    pub fn get_field(&self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
+        // Structural invalidation is intentionally retained until FieldSignature
+        // becomes its own query product. Type authority already belongs solely
+        // to canonical declaration knowledge.
+        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
+        let field = crate::identity::FieldId::new(decl.clone(), name, side);
+        let signature = self.field_signatures?.get(&field)?;
+        Some(signature.declared_type.to_knowledge())
+    }
+
+    pub(crate) fn resolve_field_contract(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
+        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
+        let field = crate::identity::FieldId::new(owner.clone(), name, side);
+        let signature = self.field_signatures?.get(&field)?;
+        Some((field, signature.declared_type.to_knowledge()))
+    }
+'''
+text = replace_once(text, old, new, "formal field authority")
 path.write_text(text)
 
-# 4. Workspace session materializes source field signatures from the same
-# canonical lowering helper before dispatch surfaces are consumed.
+# 2. Callable body checking receives the canonical field table explicitly.
+path = Path("phalcom-semantic/src/checker/body.rs")
+text = path.read_text()
+text = replace_once(
+    text,
+    "        cancel,\n        None,\n    )\n}\n\npub fn analyze_callable_body_with_fields(",
+    "        cancel,\n        None,\n        None,\n    )\n}\n\npub fn analyze_callable_body_with_fields(",
+    "compat body field signature argument",
+)
+text = replace_once(
+    text,
+    "    cancel: &CancellationToken,\n    field_lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,\n) -> CallableAnalysis {\n    let control = CheckerControl::new(budget, cancel);\n    let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);\n",
+    "    cancel: &CancellationToken,\n    field_signatures: Option<&crate::signature::FieldSignatureTable>,\n    field_lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,\n) -> CallableAnalysis {\n    let control = CheckerControl::new(budget, cancel);\n    let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);\n    if let Some(field_signatures) = field_signatures {\n        ctx.attach_field_signatures(field_signatures);\n    }\n",
+    "body field signature input",
+)
+path.write_text(text)
+
+# 3. Formal DB body queries pass the current canonical table without making it
+# part of the coarse body input fingerprint. Fine-grained field query ownership
+# lands in the following slice.
+path = Path("phalcom-semantic/src/db/query.rs")
+text = path.read_text()
+text = replace_once(
+    text,
+    "    pub declarations: &'a DeclarationTypeTable,\n    pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,\n",
+    "    pub declarations: &'a DeclarationTypeTable,\n    pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,\n    pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,\n",
+    "formal query field signatures",
+)
+text = replace_once(
+    text,
+    "        cancel,\n        formal_inputs.and_then(|inputs| inputs.field_lifecycle),\n    );\n",
+    "        cancel,\n        formal_inputs.and_then(|inputs| inputs.field_signatures),\n        formal_inputs.and_then(|inputs| inputs.field_lifecycle),\n    );\n",
+    "body query field signatures",
+)
+path.write_text(text)
+
+# 4. Workspace formal analysis attaches the single canonical field table to all
+# consumers, including default initializers and fixed-point body rechecks.
 path = Path("phalcom-semantic/src/session.rs")
 text = path.read_text()
 text = replace_once(
     text,
-    "use crate::signature::CallableSignatureTable;\n",
-    "use crate::signature::{CallableSignatureTable, FieldSignatureTable};\n",
-    "session field signature import",
+    "            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());\n            for stmt in &parsed_unit.program.statements {\n",
+    "            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());\n            ctx.attach_field_signatures(&field_signatures);\n            for stmt in &parsed_unit.program.statements {\n",
+    "default field context attachment",
 )
 text = replace_once(
     text,
-    "        let mut dispatch = self.base_dispatch.clone();\n        let mut callable_signatures = self.base_callable_signatures.clone();\n",
-    "        let mut dispatch = self.base_dispatch.clone();\n        let mut callable_signatures = self.base_callable_signatures.clone();\n        let mut field_signatures = FieldSignatureTable::new();\n",
-    "field signature table creation",
+    "                                    declarations: &declarations,\n                                    field_lifecycle: Some(&field_lifecycle),\n",
+    "                                    declarations: &declarations,\n                                    field_signatures: Some(&field_signatures),\n                                    field_lifecycle: Some(&field_lifecycle),\n",
+    "formal body input field signatures",
 )
-anchor = '''                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                // Publish declaration-owned callable signatures first. Dispatch
-'''
-insert = '''                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                {
-                    let mut context = CheckingContext::new(
-                        &mut self.store,
-                        &hierarchy,
-                        &resolver,
-                        &declarations,
-                        module_id.clone(),
-                    );
-                    for member in &class_def.members {
-                        if let Some(signature) = crate::checker::declaration_signature::semantic_field_signature_for_member(&mut context, &decl_id, member) {
-                            field_signatures.insert(signature);
-                        }
-                    }
-                    if !context.diagnostics.is_empty() {
-                        diags_by_module.entry(module_id.clone()).or_default().extend(context.diagnostics);
-                    }
-                }
-                // Publish declaration-owned callable signatures first. Dispatch
-'''
-text = replace_once(text, anchor, insert, "session field signature lowering")
+# The second direct context is the top-level/field-initializer checker.
+needle = "            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());\n\n            for stmt in &parsed_unit.program.statements {\n"
+replacement = "            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());\n            ctx.attach_field_signatures(&field_signatures);\n\n            for stmt in &parsed_unit.program.statements {\n"
+text = replace_once(text, needle, replacement, "top-level field context attachment")
 text = replace_once(
     text,
-    "        snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));\n",
-    "        snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));\n        snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));\n",
-    "snapshot field signature publication",
+    "            previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),\n            &field_lifecycle,\n",
+    "            previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),\n            &field_signatures,\n            &field_lifecycle,\n",
+    "refresh field signature call",
 )
-old = '''            let previous_callables = previous.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
-            let current_callables = snapshot.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
-            !previous.surfaces.keys().eq(snapshot.surfaces.keys()) || previous_callables != current_callables
-'''
-new = '''            let previous_callables = previous.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
-            let current_callables = snapshot.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
-            let previous_fields = previous.field_signatures.iter().map(|(field, _)| field).collect::<BTreeSet<_>>();
-            let current_fields = snapshot.field_signatures.iter().map(|(field, _)| field).collect::<BTreeSet<_>>();
-            !previous.surfaces.keys().eq(snapshot.surfaces.keys()) || previous_callables != current_callables || previous_fields != current_fields
-'''
-text = replace_once(text, old, new, "declaration index field identity")
+text = replace_once(
+    text,
+    "    previous_callable_analyses: Option<&HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,\n    field_lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,\n",
+    "    previous_callable_analyses: Option<&HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,\n    field_signatures: &FieldSignatureTable,\n    field_lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,\n",
+    "refresh field signature parameter",
+)
+text = replace_once(
+    text,
+    "                        cancel,\n                        Some(field_lifecycle),\n                    );\n",
+    "                        cancel,\n                        Some(field_signatures),\n                        Some(field_lifecycle),\n                    );\n",
+    "refresh body field signatures",
+)
 path.write_text(text)
 
-if "field_resolver" in Path("phalcom-semantic/src/checker/declaration.rs").read_text():
-    raise SystemExit("field declaration still owns a parallel source->dispatch resolver")
-if "field_signatures: Arc<FieldSignatureTable>" not in Path("phalcom-semantic/src/snapshot.rs").read_text():
-    raise SystemExit("snapshot does not own canonical field signatures")
+# Architecture guard: canonical field type retrieval must not read dispatch.
+context = Path("phalcom-semantic/src/checker/context.rs").read_text()
+if "surface.get_field(side, name)" in context:
+    raise SystemExit("formal field typing still reads DeclarationSurface")
+if "field_signatures" not in context:
+    raise SystemExit("checker context does not consume canonical field signatures")
