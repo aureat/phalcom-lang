@@ -1,0 +1,25 @@
+name: Module lifecycle probe
+
+on:
+  push:
+    branches: [codex/lsp-single-world-retirement]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: module-lifecycle-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/lsp-single-world-retirement
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Run standalone lifecycle regression
+        run: cargo test -p phalcom-modules --test standalone_incremental_imports -- --nocapture
