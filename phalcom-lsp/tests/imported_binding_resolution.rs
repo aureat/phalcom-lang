@@ -249,7 +249,11 @@ async fn unresolved_selective_import_uses_compiler_owned_local_binding_identity(
     let response = read_response(&mut client_end, 2).await;
     assert!(response["error"].is_null(), "unresolved import references must not produce a protocol error");
     let locations = response["result"].as_array().expect("compiler-owned unresolved binding references");
-    assert_eq!(locations.len(), 2, "the compiler-owned local import binding must connect its declaration and use");
+    assert_eq!(
+        locations.len(),
+        2,
+        "the compiler-owned local import binding must connect its declaration and use"
+    );
     assert!(
         locations.iter().all(|location| location["uri"].as_str() == Some(main_uri.as_str())),
         "unresolved import binding references must remain local until linking establishes an external target: {response:#?}"
