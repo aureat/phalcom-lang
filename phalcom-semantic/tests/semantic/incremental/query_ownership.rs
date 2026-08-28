@@ -203,6 +203,7 @@ class Owner {
         hierarchy: &hierarchy,
         base_resolver: &resolver,
         declarations: &declarations,
+        field_signatures: None,
         field_lifecycle: None,
     };
     let class_def = unit

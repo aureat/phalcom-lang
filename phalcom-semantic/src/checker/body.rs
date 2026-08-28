@@ -69,6 +69,7 @@ pub fn analyze_callable_body(
         budget,
         cancel,
         None,
+        None,
     )
 }
 
@@ -85,10 +86,14 @@ pub fn analyze_callable_body_with_fields(
     module: ModuleId,
     budget: QueryBudget,
     cancel: &CancellationToken,
+    field_signatures: Option<&crate::signature::FieldSignatureTable>,
     field_lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
 ) -> CallableAnalysis {
     let control = CheckerControl::new(budget, cancel);
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
+    if let Some(field_signatures) = field_signatures {
+        ctx.attach_field_signatures(field_signatures);
+    }
     ctx.current_callable = Some(callable.clone());
     ctx.current_class = Some(callable.owner.clone());
     ctx.current_side = callable.side;

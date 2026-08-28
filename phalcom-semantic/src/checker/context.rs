@@ -11,6 +11,7 @@ use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
+use crate::signature::FieldSignatureTable;
 use crate::surface::DeclarationSurface;
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
@@ -303,6 +304,7 @@ pub struct CheckingContext<'a> {
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
     semantic_dependencies: SharedSemanticDependencies,
+    field_signatures: Option<&'a FieldSignatureTable>,
     pub dispatch: DispatchAccess<'a>,
     pub diagnostics: Vec<SemanticDiagnostic>,
     pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
@@ -375,6 +377,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph: None,
             dependencies: BTreeSet::new(),
             semantic_dependencies,
+            field_signatures: None,
             dispatch: DispatchAccess::Owned(dispatch),
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
@@ -434,6 +437,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph: None,
             dependencies: BTreeSet::new(),
             semantic_dependencies,
+            field_signatures: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
@@ -473,6 +477,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph: self.flow_graph.clone(),
             dependencies: self.dependencies.clone(),
             semantic_dependencies: self.semantic_dependencies.clone(),
+            field_signatures: self.field_signatures,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             diagnostics: Vec::new(),
             analysis_incidents: self.analysis_incidents.clone(),
@@ -1179,6 +1184,11 @@ impl<'a> CheckingContext<'a> {
         self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
     }
 
+    /// Attaches compiler-owned canonical field declaration knowledge.
+    pub fn attach_field_signatures(&mut self, field_signatures: &'a FieldSignatureTable) {
+        self.field_signatures = Some(field_signatures);
+    }
+
     /// Returns the dispatch resolver currently visible to this context.
     pub fn dispatch_ref(&self) -> &SurfaceDispatchResolver {
         self.dispatch.get()
@@ -1321,16 +1331,20 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn get_field(&self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
+        // Structural invalidation is intentionally retained until FieldSignature
+        // becomes its own query product. Type authority already belongs solely
+        // to canonical declaration knowledge.
         record_declaration_surface_dependency(&self.semantic_dependencies, decl);
-        self.dispatch.get().get_surface(decl).and_then(|s| s.get_field(side, name)).cloned()
+        let field = crate::identity::FieldId::new(decl.clone(), name, side);
+        let signature = self.field_signatures?.get(&field)?;
+        Some(signature.declared_type.to_knowledge())
     }
 
     pub(crate) fn resolve_field_contract(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
         record_declaration_surface_dependency(&self.semantic_dependencies, owner);
-        let surface = self.dispatch.get().get_surface(owner)?;
-        let field = surface.get_field_id(side, name)?.clone();
-        let contract = surface.get_field(side, name)?.clone();
-        Some((field, contract))
+        let field = crate::identity::FieldId::new(owner.clone(), name, side);
+        let signature = self.field_signatures?.get(&field)?;
+        Some((field, signature.declared_type.to_knowledge()))
     }
 
     pub(crate) fn resolve_current_field(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {

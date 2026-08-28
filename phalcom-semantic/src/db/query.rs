@@ -39,6 +39,7 @@ pub struct FormalQueryInputs<'a> {
     pub hierarchy: &'a dyn TypeHierarchy,
     pub base_resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
+    pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
 }
 
@@ -1152,6 +1153,7 @@ fn query_callable_body_with_requirement(
         module,
         budget,
         cancel,
+        formal_inputs.and_then(|inputs| inputs.field_signatures),
         formal_inputs.and_then(|inputs| inputs.field_lifecycle),
     );
 

@@ -703,6 +703,7 @@ impl SemanticWorkspaceSession {
         let mut default_field_lifecycle = crate::checker::field_lifecycle::FieldLifecycleTable::default();
         for (module_id, parsed_unit) in &input.sources {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+            ctx.attach_field_signatures(&field_signatures);
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     default_field_lifecycle.extend(crate::checker::field_lifecycle::default_field_seeds(&mut ctx, class_def));
@@ -774,6 +775,7 @@ impl SemanticWorkspaceSession {
                                     hierarchy: &hierarchy,
                                     base_resolver: &resolver,
                                     declarations: &declarations,
+                                    field_signatures: Some(&field_signatures),
                                     field_lifecycle: Some(&field_lifecycle),
                                 };
                                 let outcome = query_callable_body_with_formal_inputs(
@@ -840,6 +842,7 @@ impl SemanticWorkspaceSession {
 
         for (module_id, parsed_unit) in &input.sources {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+            ctx.attach_field_signatures(&field_signatures);
 
             for stmt in &parsed_unit.program.statements {
                 match stmt {
@@ -871,6 +874,7 @@ impl SemanticWorkspaceSession {
             &mut callable_signatures,
             &mut callable_analyses,
             previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),
+            &field_signatures,
             &field_lifecycle,
             &mut callable_dispositions,
             &mut diags_by_module,
@@ -1851,6 +1855,7 @@ fn refresh_inferred_callable_results(
     callable_signatures: &mut CallableSignatureTable,
     callable_analyses: &mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     previous_callable_analyses: Option<&HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    field_signatures: &FieldSignatureTable,
     field_lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,
     callable_dispositions: &mut BTreeMap<CallableId, CallableRevisionDisposition>,
     diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
@@ -1977,6 +1982,7 @@ fn refresh_inferred_callable_results(
                         module_id.clone(),
                         budget,
                         cancel,
+                        Some(field_signatures),
                         Some(field_lifecycle),
                     );
                     analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
