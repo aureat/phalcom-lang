@@ -6,6 +6,7 @@ pub mod causal;
 pub(crate) mod composition;
 pub mod context;
 pub mod declaration;
+pub(crate) mod declaration_signature;
 pub mod expected;
 pub mod expression;
 pub mod field_lifecycle;

@@ -124,3 +124,52 @@ fn semantic_crate_has_no_lsp_dependency() {
     assert!(!text.contains("tower-lsp"));
     assert!(!text.contains("phalcom-lsp"));
 }
+
+#[test]
+fn inlay_hints_do_not_reimplement_annotation_semantics() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/inlay_hints.rs");
+    let source = fs::read_to_string(&path).expect("inlay hint source must be readable");
+
+    for symbol in [
+        "ExplicitAnnotationIndex",
+        "collect_statement_annotations",
+        "collect_expr_annotations",
+        "collect_pattern_names",
+    ] {
+        assert!(
+            !source.contains(symbol),
+            "{symbol} must live in compiler-owned source/semantic products, not the LSP adapter"
+        );
+    }
+    let compact = source.split_whitespace().collect::<String>();
+    assert!(
+        compact.contains(".editor().type_hints("),
+        "the LSP inlay handler must consume EditorSemanticQuery::type_hints rather than reconstructing hint eligibility"
+    );
+}
+
+#[test]
+fn callable_surfaces_use_shared_canonical_presentation() {
+    let lsp = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let backend = fs::read_to_string(lsp.join("src/backend.rs")).expect("backend source must be readable");
+    let signature_help = fs::read_to_string(lsp.join("src/signature_help.rs")).expect("signature-help source must be readable");
+
+    for (name, source) in [("backend", backend.as_str()), ("signature_help", signature_help.as_str())] {
+        assert!(
+            !source.contains("signature.return_type"),
+            "{name} must not read the removed dispatch-era return_type field from CallableSemanticSignature"
+        );
+    }
+    assert!(
+        !signature_help.contains("compiler_term_text(&parameter.ty"),
+        "signature help must not decode the removed CallableParameterSemantic.ty field"
+    );
+    assert!(
+        backend.contains("CallablePresentation::from_signature"),
+        "hover return presentation must come from the shared compiler-owned callable projection"
+    );
+    assert!(
+        signature_help.contains("CallablePresentation::from_signature"),
+        "signature help must render parameters and return types from the shared compiler-owned callable projection"
+    );
+}

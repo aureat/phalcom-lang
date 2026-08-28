@@ -2,8 +2,8 @@
 
 use crate::advisory::{
     AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
-    AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace,
-    advisory_fact_from_formal, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements,
+    AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, advisory_fact_from_formal,
+    advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements,
 };
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
@@ -15,8 +15,8 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
     FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_callable_body_with_formal_inputs,
-    query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment,
-    query_source_structure, query_unlinked_interface, semantic_signature_from_surface,
+    query_callable_signature, query_declaration_shell, query_declaration_surface, query_field_signature, query_hierarchy_edge, query_linked_interface,
+    query_source_formal_attachment, query_source_structure, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
@@ -24,12 +24,11 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::resolver::LinkedTypeResolver;
-use crate::signature::CallableSignatureTable;
+use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
 use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
-use crate::types::evidence::TypeKnowledge;
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::TypeParameterOwner;
@@ -164,6 +163,10 @@ impl SemanticWorkspaceSession {
         let mut base_callable_signatures = CallableSignatureTable::new();
         for (_, signature) in native_report.callable_signatures {
             base_callable_signatures.insert(signature);
+        }
+        let core_class_new = crate::checker::declaration_signature::canonical_core_class_new_signature(&mut store);
+        if base_callable_signatures.get(&core_class_new.callable).is_none() {
+            base_callable_signatures.insert(core_class_new);
         }
 
         Self {
@@ -614,6 +617,7 @@ impl SemanticWorkspaceSession {
         // 6. Materialize compatibility dispatch/signature tables from DB-owned formal products.
         let mut dispatch = self.base_dispatch.clone();
         let mut callable_signatures = self.base_callable_signatures.clone();
+        let mut field_signatures = FieldSignatureTable::new();
 
         for (module_id, parsed_unit) in &input.sources {
             let Some(linked_module) = input.linked.modules.get(module_id) else {
@@ -628,6 +632,49 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                for member in &class_def.members {
+                    let Some(field_id) = crate::checker::declaration_signature::field_id_for_member(&decl_id, member) else {
+                        continue;
+                    };
+                    match query_field_signature(
+                        &mut self.db,
+                        field_id,
+                        parsed_unit.clone(),
+                        &mut self.store,
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                    ) {
+                        QueryOutcome::Ready(signature) => field_signatures.insert((*signature).clone()),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    }
+                }
+                // Publish declaration-owned callable signatures first. Dispatch
+                // surfaces are compatibility projections of these facts.
+                for member in &class_def.members {
+                    let Some(callable_id) = crate::checker::declaration_signature::callable_id_for_member(&decl_id, member) else {
+                        continue;
+                    };
+                    match query_callable_signature(
+                        &mut self.db,
+                        callable_id,
+                        parsed_unit.clone(),
+                        &mut self.store,
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                    ) {
+                        QueryOutcome::Ready(signature) => callable_signatures.insert((*signature).clone()),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    }
+                }
+
                 let surface = match query_declaration_surface(
                     &mut self.db,
                     decl_id.clone(),
@@ -656,23 +703,6 @@ impl SemanticWorkspaceSession {
                 if let Some(ty) = declarations.form(&decl_id) {
                     dispatch.register_type(ty, decl_id.clone());
                 }
-
-                for (side, member_surface) in [
-                    (crate::identity::DispatchSide::Instance, &surface.instance),
-                    (crate::identity::DispatchSide::Class, &surface.class),
-                ] {
-                    for selector in member_surface.callable_signatures.keys() {
-                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector.clone(), side);
-                        match query_callable_signature(&mut self.db, callable_id) {
-                            QueryOutcome::Ready(signature) => callable_signatures.insert((*signature).clone()),
-                            QueryOutcome::Blocked(crate::types::BlockReason::UnknownType(_)) => {}
-                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
-                        }
-                    }
-                }
             }
         }
 
@@ -682,6 +712,7 @@ impl SemanticWorkspaceSession {
         let mut default_field_lifecycle = crate::checker::field_lifecycle::FieldLifecycleTable::default();
         for (module_id, parsed_unit) in &input.sources {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+            ctx.attach_field_signatures(&field_signatures);
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     default_field_lifecycle.extend(crate::checker::field_lifecycle::default_field_seeds(&mut ctx, class_def));
@@ -753,6 +784,7 @@ impl SemanticWorkspaceSession {
                                     hierarchy: &hierarchy,
                                     base_resolver: &resolver,
                                     declarations: &declarations,
+                                    field_signatures: Some(&field_signatures),
                                     field_lifecycle: Some(&field_lifecycle),
                                 };
                                 let outcome = query_callable_body_with_formal_inputs(
@@ -792,10 +824,9 @@ impl SemanticWorkspaceSession {
                                                     .values()
                                                     .filter(|analysis| analysis.callable.owner == decl_id && analysis.callable.side == DispatchSide::Instance)
                                                     .filter(|analysis| {
-                                                        dispatch
-                                                            .get_surface(&decl_id)
-                                                            .and_then(|surface| surface.get_callable(DispatchSide::Class, &analysis.callable.selector))
-                                                            .is_some_and(|signature| signature.kind == crate::dispatch::CallableSemanticKind::Constructor)
+                                                        callable_signatures
+                                                            .get_for_body(&analysis.callable)
+                                                            .is_some_and(|signature| signature.is_constructor())
                                                     })
                                                     .map(AsRef::as_ref),
                                             );
@@ -820,6 +851,7 @@ impl SemanticWorkspaceSession {
 
         for (module_id, parsed_unit) in &input.sources {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+            ctx.attach_field_signatures(&field_signatures);
 
             for stmt in &parsed_unit.program.statements {
                 match stmt {
@@ -851,6 +883,7 @@ impl SemanticWorkspaceSession {
             &mut callable_signatures,
             &mut callable_analyses,
             previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),
+            &field_signatures,
             &field_lifecycle,
             &mut callable_dispositions,
             &mut diags_by_module,
@@ -940,6 +973,7 @@ impl SemanticWorkspaceSession {
             &callable_analyses,
             &self.store,
             &declarations,
+            &callable_signatures,
             &dispatch,
             &hierarchy,
             input.linked.as_ref(),
@@ -995,6 +1029,7 @@ impl SemanticWorkspaceSession {
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
         );
+        snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj.advisory = Arc::new(advisory);
@@ -1019,7 +1054,9 @@ impl SemanticWorkspaceSession {
         let declaration_index_changed = previous_snapshot.as_deref().is_none_or(|previous| {
             let previous_callables = previous.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
             let current_callables = snapshot.callable_signatures.iter().map(|(callable, _)| callable).collect::<BTreeSet<_>>();
-            !previous.surfaces.keys().eq(snapshot.surfaces.keys()) || previous_callables != current_callables
+            let previous_fields = previous.field_signatures.iter().map(|(field, _)| field).collect::<BTreeSet<_>>();
+            let current_fields = snapshot.field_signatures.iter().map(|(field, _)| field).collect::<BTreeSet<_>>();
+            !previous.surfaces.keys().eq(snapshot.surfaces.keys()) || previous_callables != current_callables || previous_fields != current_fields
         });
         let effects = SemanticPublicationEffects {
             diagnostics_changed,
@@ -1201,6 +1238,7 @@ fn build_advisory_workspace(
     callable_analyses: &HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
     store: &TypeStore,
     declarations: &DeclarationTypeTable,
+    callable_signatures: &CallableSignatureTable,
     dispatch: &SurfaceDispatchResolver,
     hierarchy: &MapTypeHierarchy,
     linked: &LinkedProgram,
@@ -1255,21 +1293,19 @@ fn build_advisory_workspace(
         dispatch.resolve_callable_id(hierarchy, owner, side, &selector)
     };
     let resolve_formal_call_result = |callable: &CallableId, receiver: Option<&crate::advisory::ValueShape>| {
-        let signature = dispatch.get_surface(&callable.owner)?.get_callable(callable.side, &callable.selector)?;
+        let signature = callable_signatures.get(callable)?;
+        let return_knowledge = signature.published_return_knowledge();
         let shape = receiver.map_or_else(
-            || advisory_shape_from_formal(store, &signature.return_type),
-            |receiver| advisory_shape_from_formal_for_receiver(store, &signature.return_type, receiver),
+            || advisory_shape_from_formal(store, &return_knowledge),
+            |receiver| advisory_shape_from_formal_for_receiver(store, &return_knowledge, receiver),
         );
         (!matches!(shape, crate::advisory::ValueShape::Unknown)).then(|| {
             AdvisoryFact::new(shape, AdvisoryConfidence::Interprocedural)
-                .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable.clone()))
+                .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(signature.callable.clone()))
         })
     };
     let advisory_transfer_target = |callable: &CallableId| {
-        let is_constructor = dispatch
-            .get_surface(&callable.owner)
-            .and_then(|surface| surface.get_callable(callable.side, &callable.selector))
-            .is_some_and(|signature| signature.kind == crate::dispatch::CallableSemanticKind::Constructor);
+        let is_constructor = callable_signatures.get(callable).is_some_and(|signature| signature.is_constructor());
         if is_constructor && callable.side == DispatchSide::Class {
             CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Instance)
         } else {
@@ -1324,7 +1360,21 @@ fn build_advisory_workspace(
     let mut ordered_analyses = callable_analyses.values().cloned().collect::<Vec<_>>();
     ordered_analyses.sort_by(|left, right| left.callable.cmp(&right.callable));
     for analysis in &ordered_analyses {
-        formal_returns.insert(analysis.callable.clone(), advisory_return_fact(store, analysis));
+        let fact = callable_signatures
+            .get_for_body(&analysis.callable)
+            .map(|signature| {
+                let return_knowledge = signature.published_return_knowledge();
+                let shape = if signature.is_constructor() {
+                    let receiver = crate::advisory::ValueShape::ClassObject(signature.owner.clone());
+                    advisory_shape_from_formal_for_receiver(store, &return_knowledge, &receiver)
+                } else {
+                    advisory_shape_from_formal(store, &return_knowledge)
+                };
+                AdvisoryFact::new(shape, AdvisoryConfidence::Interprocedural)
+                    .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(signature.callable.clone()))
+            })
+            .unwrap_or_else(AdvisoryFact::unknown);
+        formal_returns.insert(analysis.callable.clone(), fact);
     }
 
     let mut parameter_facts = BTreeMap::new();
@@ -1430,11 +1480,9 @@ fn build_advisory_workspace(
                 };
 
                 let mut seed_bindings = BTreeMap::new();
-                for binding in callable_parameter_bindings(scope_index, &analysis.callable) {
-                    let index = seed_bindings.len() as u32;
-                    let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index);
+                for (parameter, binding) in callable_parameter_bindings(scope_index, analysis) {
                     let fact = parameter_facts
-                        .get(&slot)
+                        .get(parameter)
                         .cloned()
                         .unwrap_or_else(|| AdvisoryFact::unknown().derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(binding.declaration_site.clone())));
                     seed_bindings.insert(binding.declaration_site.clone(), fact);
@@ -1481,15 +1529,14 @@ fn build_advisory_workspace(
                 bindings.extend(flow.bindings);
 
                 let mut summary_parameters = Vec::new();
-                for (index, binding) in callable_parameter_bindings(scope_index, &analysis.callable).into_iter().enumerate() {
-                    let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index as u32);
+                for (parameter, binding) in callable_parameter_bindings(scope_index, analysis) {
                     let fact = parameter_facts
-                        .get(&slot)
+                        .get(parameter)
                         .cloned()
                         .or_else(|| bindings.get(&binding.declaration_site).cloned())
                         .unwrap_or_else(AdvisoryFact::unknown);
-                    parameters.insert(slot.clone(), fact.clone());
-                    summary_parameters.push((slot, fact));
+                    parameters.insert(parameter.clone(), fact.clone());
+                    summary_parameters.push((parameter.clone(), fact));
                 }
                 let summary = AdvisoryCallableSummary::new(
                     analysis.callable.clone(),
@@ -1582,10 +1629,11 @@ fn build_advisory_workspace(
         let mut solver_nodes = BTreeMap::new();
         for (callable, summary) in &next_callables {
             let mut contributions = crate::advisory::AdvisoryParameterContributions::default();
+            let own_parameter_ids = summary.parameters.iter().map(|(parameter, _)| parameter.clone()).collect::<BTreeSet<_>>();
             let own_parameters = next_parameter_facts
                 .iter()
-                .filter(|(slot, _)| slot.callable == *callable)
-                .map(|(slot, fact)| (slot.clone(), fact.clone()))
+                .filter(|(parameter, _)| own_parameter_ids.contains(*parameter))
+                .map(|(parameter, fact)| (parameter.clone(), fact.clone()))
                 .collect::<BTreeMap<_, _>>();
             contributions.replace_source(
                 crate::advisory::AdvisoryContributionSource::Callable(callable.clone()),
@@ -1759,38 +1807,21 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
 
 fn callable_parameter_bindings<'a>(
     scope_index: &'a crate::source_index::SourceScopeIndex,
-    callable: &CallableId,
-) -> Vec<&'a crate::source_index::SourceBindingInfo> {
-    let mut bindings = scope_index
+    analysis: &'a crate::checker::CallableAnalysis,
+) -> Vec<(&'a crate::identity::CallableParameterId, &'a crate::source_index::SourceBindingInfo)> {
+    let mut bindings = analysis
         .bindings
         .values()
-        .filter(|binding| {
-            binding.declaration_site.owner == SourceOwner::Callable(callable.clone())
-                && matches!(
-                    binding.kind,
-                    crate::source_index::SourceBindingKind::MethodParameter
-                        | crate::source_index::SourceBindingKind::SetterParameter
-                        | crate::source_index::SourceBindingKind::IndexParameter
-                )
+        .filter_map(|binding| {
+            let parameter = binding.parameter.as_ref()?;
+            let callable_source = scope_index.callable_sources.get(&parameter.callable)?;
+            let site = callable_source.parameter_sites.get(parameter)?;
+            let source_binding = scope_index.bindings.get(site)?;
+            Some((parameter, source_binding))
         })
         .collect::<Vec<_>>();
-    bindings.sort_by_key(|binding| (binding.declaration_range.start, binding.declaration_range.end));
+    bindings.sort_by_key(|(parameter, _)| parameter.index);
     bindings
-}
-
-fn advisory_return_fact(store: &TypeStore, analysis: &crate::checker::CallableAnalysis) -> AdvisoryFact {
-    if analysis.exits.normal_return_values.is_empty() {
-        return AdvisoryFact::unknown();
-    }
-    let mut result = None;
-    for knowledge in &analysis.exits.normal_return_values {
-        let fact = match knowledge {
-            TypeKnowledge::Known(_) => advisory_fact_from_formal(store, knowledge, AdvisoryOrigin::Callable(analysis.callable.clone())),
-            TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => AdvisoryFact::unknown(),
-        };
-        result = Some(result.map_or(fact.clone(), |current: AdvisoryFact| current.join(&fact)));
-    }
-    result.unwrap_or_else(AdvisoryFact::unknown)
 }
 
 fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) -> AdvisoryTargetResolution {
@@ -1820,10 +1851,9 @@ fn advisory_status(status: crate::checker::CallableAnalysisStatus) -> AdvisoryPr
     }
 }
 
-/// Propagates body-derived return summaries through source dispatch. Source
-/// declaration surfaces are intentionally built before body checking, so this
-/// small fixed-point pass is required for calls such as `Probe.run ->
-/// Factory.of -> CellNum.new`.
+/// Publishes body-derived return summaries into canonical callable signatures,
+/// then refreshes dispatch as a derived lookup projection. The fixed-point pass
+/// is required for calls such as `Probe.run -> Factory.of -> CellNum.new`.
 fn refresh_inferred_callable_results(
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     store: &mut TypeStore,
@@ -1834,6 +1864,7 @@ fn refresh_inferred_callable_results(
     callable_signatures: &mut CallableSignatureTable,
     callable_analyses: &mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     previous_callable_analyses: Option<&HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    field_signatures: &FieldSignatureTable,
     field_lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,
     callable_dispositions: &mut BTreeMap<CallableId, CallableRevisionDisposition>,
     diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
@@ -1850,36 +1881,32 @@ fn refresh_inferred_callable_results(
         let candidates = callable_analyses
             .iter()
             .filter_map(|(callable, analysis)| {
-                let surface = dispatch.surfaces().get(&callable.owner)?;
-                let signature = surface.get_callable(callable.side, &callable.selector).or_else(|| {
-                    (callable.side == crate::identity::DispatchSide::Instance)
-                        .then(|| surface.get_callable(crate::identity::DispatchSide::Class, &callable.selector))
-                        .flatten()
-                })?;
-                if !signature.return_type.is_unknown() {
+                let signature = callable_signatures.get_for_body(callable)?;
+                if !signature.published_return_knowledge().is_unknown() {
                     return None;
                 }
-                Some((callable.clone(), analysis.exits.normal_return_values.clone()))
+                Some((callable.clone(), signature.callable.clone(), analysis.exits.normal_return_values.clone()))
             })
             .collect::<Vec<_>>();
 
         let mut changed_callables = HashSet::new();
-        for (callable, values) in candidates {
+        for (callable, signature_id, values) in candidates {
             let summary = normal_return_summary(store, &values);
             if !summary.is_known() {
                 continue;
             }
-            if !dispatch.update_callable_return_type(&callable, summary) {
+            let Some(signature) = callable_signatures.get_mut(&signature_id) else {
+                continue;
+            };
+            if signature.inferred_return.as_ref() == Some(&summary) {
                 continue;
             }
+            signature.inferred_return = Some(summary.clone());
             changed_callables.insert(callable.clone());
 
-            if let Some(surface) = dispatch.surfaces().get(&callable.owner)
-                && let Some(signature) = surface.get_callable(callable.side, &callable.selector)
-                && let Some(semantic_signature) = semantic_signature_from_surface(&callable, signature)
-            {
-                callable_signatures.insert(semantic_signature);
-            }
+            // Dispatch is a derived lookup projection. Failure to update that
+            // projection must never suppress canonical semantic publication.
+            let _ = dispatch.update_callable_return_type(&signature_id, summary);
         }
 
         if changed_callables.is_empty() {
@@ -1950,6 +1977,7 @@ fn refresh_inferred_callable_results(
                     if !affected {
                         continue;
                     }
+                    let declared_signature = callable_signatures.get_for_body(&callable).map(|signature| (&signature.callable, signature));
                     let mut analysis = crate::checker::body::analyze_callable_body_with_fields(
                         callable.clone(),
                         body,
@@ -1959,9 +1987,11 @@ fn refresh_inferred_callable_results(
                         &scoped_resolver,
                         declarations,
                         dispatch,
+                        declared_signature,
                         module_id.clone(),
                         budget,
                         cancel,
+                        Some(field_signatures),
                         Some(field_lifecycle),
                     );
                     analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);

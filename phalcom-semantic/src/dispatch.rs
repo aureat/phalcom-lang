@@ -96,12 +96,9 @@ impl CallableSignature {
         self
     }
 
-    /// Returns whether every parameter and the return value have canonical known types.
-    ///
-    /// Only complete source contracts can be projected into a
-    /// [`CallableSemanticSignature`](crate::signature::CallableSemanticSignature).
-    /// Partial source signatures stay represented by their declaration surface until
-    /// inference publishes a richer canonical signature product.
+    /// Returns whether every slot in this compatibility dispatch projection
+    /// currently has a known type. Canonical signature publication does not
+    /// depend on this predicate; partial declarations are first-class products.
     pub fn has_complete_types(&self) -> bool {
         self.return_type.ty().is_some() && self.parameters.iter().all(|parameter| parameter.ty.ty().is_some())
     }

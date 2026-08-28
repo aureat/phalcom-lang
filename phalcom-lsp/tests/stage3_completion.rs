@@ -214,40 +214,14 @@ async fn completion_follows_constructor_assigned_field() {
 
 #[tokio::test]
 async fn completion_marks_partial_union_coverage() {
-    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
-    let (server_read, server_write) = tokio::io::split(server_end);
-    let (service, socket) = LspService::new(Backend::new);
-    let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket).serve(service).await;
-    });
-
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": { "processId": null, "capabilities": {} }
-        }),
-    )
-    .await;
-    let _ = read_response(&mut client_end, 1).await;
-    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
-
     let uri = "file:///workspace/union.ph";
     let text = "class Circle {\n  @constructor new() {}\n  stroke() { }\n}\nclass Rectangle {\n  @constructor new() {}\n  fill() { }\n}\nclass Canvas {\n  @constructor new() {}\n  draw(_ shape) {\n    shape.\n  }\n}\nCanvas.new().draw(Circle.new())\nCanvas.new().draw(Rectangle.new())\n";
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "method": "textDocument/didOpen",
-            "params": { "textDocument": { "uri": uri, "languageId": "phalcom", "version": 1, "text": text } }
-        }),
-    )
-    .await;
-    let _ = read_message(&mut client_end).await;
 
-    let response = completion_items(&mut client_end, uri, 11, 10).await;
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(None).await;
+    lsp.open_and_wait(uri, text).await;
+
+    let response = lsp.completion(uri, Position::new(11, 10)).await;
     let items = response["result"].as_array().expect("completion items array");
     let stroke = items.iter().find(|item| item["label"] == "stroke()").expect("Circle member present");
     let fill = items.iter().find(|item| item["label"] == "fill()").expect("Rectangle member present");
@@ -256,8 +230,7 @@ async fn completion_marks_partial_union_coverage() {
     let shared = items.iter().find(|item| item["label"] == "==(_)").expect("shared Object member present");
     assert!(shared["detail"].as_str().unwrap_or_default().contains("2/2"));
 
-    drop(client_end);
-    let _ = server_task.await;
+    lsp.finish().await;
 }
 
 #[tokio::test]

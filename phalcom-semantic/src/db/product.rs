@@ -7,7 +7,7 @@ use crate::declarations::DeclarationTypeInfo;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::hierarchy_product::HierarchyEdgeProduct;
 use crate::module_product::ResolvedImportsProduct;
-use crate::signature::CallableSemanticSignature;
+use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
@@ -46,6 +46,7 @@ pub enum SemanticProduct {
     DeclarationSurface(Arc<DeclarationSurfaceProduct>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
+    FieldSignature(Arc<FieldSemanticSignature>),
     CallableBody(Arc<CallableAnalysis>),
     SourceStructure(Arc<ModuleSourceIndex>),
     SourceFormalAttachment(Arc<CallableSourceAttachment>),
@@ -121,6 +122,13 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_field_signature(&self) -> Option<&Arc<FieldSemanticSignature>> {
+        match self {
+            Self::FieldSignature(sig) => Some(sig),
+            _ => None,
+        }
+    }
+
     pub fn as_callable_body(&self) -> Option<&Arc<CallableAnalysis>> {
         match self {
             Self::CallableBody(body) => Some(body),
@@ -181,6 +189,7 @@ impl SemanticProduct {
             Self::DeclarationSurface(_) => b"declaration-surface".as_slice(),
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),
+            Self::FieldSignature(_) => b"field-signature".as_slice(),
             Self::CallableBody(_) => b"callable-body".as_slice(),
             Self::SourceStructure(_) => b"source-structure".as_slice(),
             Self::SourceFormalAttachment(_) => b"source-formal-attachment".as_slice(),

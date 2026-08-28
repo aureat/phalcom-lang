@@ -1,0 +1,70 @@
+name: Editor Type Hints GREEN
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply candidate
+        run: |
+          python3 .github/scripts/editor_type_hints_apply.py
+          python3 .github/scripts/editor_type_hints_fix.py
+      - name: Format candidate
+        run: cargo +stable fmt --all
+      - name: Semantic ownership regression
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::editor_type_hint_eligibility_is_compiler_owned -- --exact
+      - name: Source annotation metadata
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::integration::editor_type_hints::source_index_retains_explicit_annotation_truth -- --exact
+      - name: Compiler editor hint behavior
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::integration::editor_type_hints::editor_type_hints_suppress_explicit_local_annotations -- --exact
+      - name: Check semantic crate
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable check -p phalcom-semantic
+      - name: LSP inlay architecture boundary
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test semantic_boundary inlay_hints_do_not_reimplement_annotation_semantics -- --exact
+      - name: LSP callable presentation boundary
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test semantic_boundary callable_surfaces_use_shared_canonical_presentation -- --exact
+      - name: Check LSP crate
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable check -p phalcom-lsp
+      - name: Focused LSP inlay tests
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test integration 'inlay_hints::' -- --nocapture
+      - name: Isolated Stage 3 completion regressions
+        env:
+          RUSTFLAGS: ""
+        run: |
+          cargo +stable test -p phalcom-lsp --test integration stage3_completion::completion_is_receiver_aware_for_a_constructed_user_class -- --exact --nocapture
+          cargo +stable test -p phalcom-lsp --test integration stage3_completion::completion_follows_constructor_assigned_field -- --exact --nocapture
+          cargo +stable test -p phalcom-lsp --test integration stage3_completion::completion_marks_partial_union_coverage -- --exact --nocapture
+      - name: Full semantic suite
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic
+      - name: Full LSP integration suite
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test integration
+      - name: Diff check
+        run: git diff --check

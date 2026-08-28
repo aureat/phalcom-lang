@@ -19,7 +19,7 @@ pub use product::SemanticProduct;
 pub use query::{
     FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_callable_body,
     query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge,
-    query_source_formal_attachment, query_source_structure,
+    query_signatureless_callable_body, query_source_formal_attachment, query_source_structure,
 };
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};

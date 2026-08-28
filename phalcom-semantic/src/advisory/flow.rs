@@ -7,7 +7,7 @@ use phalcom_ast::ast::{Pattern, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorSlot;
 
-use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceSiteId};
+use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, SourceSiteId};
 use crate::source_index::SourceScopeIndex;
 
 use super::analyzer::{AdvisoryBuiltins, AdvisoryCallObservation, AdvisoryExpressionContext, analyze_expr};
@@ -180,14 +180,14 @@ fn record_call_contributions(product: &mut AdvisoryFlowProduct, context: &Adviso
     let mut positional = 0;
     for argument in call.arguments {
         let index = if let Some(label) = argument.label.as_deref() {
-            call.transfer_target
+            call.target
                 .selector
                 .slots
                 .iter()
                 .position(|slot| matches!(slot, SelectorSlot::Label(candidate) if candidate == label))
         } else {
             let index = call
-                .transfer_target
+                .target
                 .selector
                 .slots
                 .iter()
@@ -209,7 +209,7 @@ fn record_call_contributions(product: &mut AdvisoryFlowProduct, context: &Adviso
                 .fact
                 .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(call.target.clone()))
         };
-        let slot = AdvisoryParameterSlot::new(call.transfer_target.clone(), index as u32);
+        let slot = CallableParameterId::new(call.target.clone(), index as u32);
         product
             .parameter_contributions
             .entry(slot)

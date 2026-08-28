@@ -2,23 +2,15 @@
 
 use std::collections::BTreeMap;
 
-use crate::identity::{CallableId, ModuleId};
+use crate::identity::{CallableId, CallableParameterId, ModuleId};
 
 use super::AdvisoryFact;
 
-/// Canonical callable parameter slot. Names are presentation metadata, not
-/// contribution identity.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct AdvisoryParameterSlot {
-    pub callable: CallableId,
-    pub index: u32,
-}
-
-impl AdvisoryParameterSlot {
-    pub fn new(callable: CallableId, index: u32) -> Self {
-        Self { callable, index }
-    }
-}
+/// Compatibility name for the canonical callable parameter identity.
+///
+/// Advisory analysis does not own a parallel parameter namespace: parameter
+/// contributions are keyed by the declaration-owned [`CallableParameterId`].
+pub type AdvisoryParameterSlot = CallableParameterId;
 
 /// Canonical source of one parameter contribution.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -30,24 +22,24 @@ pub enum AdvisoryContributionSource {
 /// One changed joined parameter fact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdvisoryParameterFactDelta {
-    pub slot: AdvisoryParameterSlot,
+    pub slot: CallableParameterId,
     pub before: Option<AdvisoryFact>,
     pub after: Option<AdvisoryFact>,
 }
 
-/// Source-indexed contributions plus cached joined slots.
+/// Source-indexed contributions plus cached joined canonical parameters.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AdvisoryParameterContributions {
-    by_source: BTreeMap<AdvisoryContributionSource, BTreeMap<AdvisoryParameterSlot, AdvisoryFact>>,
-    joined: BTreeMap<AdvisoryParameterSlot, AdvisoryFact>,
+    by_source: BTreeMap<AdvisoryContributionSource, BTreeMap<CallableParameterId, AdvisoryFact>>,
+    joined: BTreeMap<CallableParameterId, AdvisoryFact>,
 }
 
 impl AdvisoryParameterContributions {
-    /// Replaces one caller/module source and recomputes only touched slots.
+    /// Replaces one caller/module source and recomputes only touched parameters.
     pub fn replace_source(
         &mut self,
         source: AdvisoryContributionSource,
-        contributions: BTreeMap<AdvisoryParameterSlot, AdvisoryFact>,
+        contributions: BTreeMap<CallableParameterId, AdvisoryFact>,
     ) -> Vec<AdvisoryParameterFactDelta> {
         let previous = self.by_source.insert(source.clone(), contributions.clone()).unwrap_or_default();
         let mut touched = previous.keys().cloned().collect::<Vec<_>>();
@@ -57,23 +49,23 @@ impl AdvisoryParameterContributions {
         self.recompute_touched(touched)
     }
 
-    /// Removes one source and recomputes only slots it contributed.
+    /// Removes one source and recomputes only parameters it contributed.
     pub fn remove_source(&mut self, source: &AdvisoryContributionSource) -> Vec<AdvisoryParameterFactDelta> {
         let Some(previous) = self.by_source.remove(source) else { return Vec::new() };
         self.recompute_touched(previous.into_keys().collect())
     }
 
-    /// Returns the current joined fact for one slot.
-    pub fn get(&self, slot: &AdvisoryParameterSlot) -> Option<&AdvisoryFact> {
-        self.joined.get(slot)
+    /// Returns the current joined fact for one canonical parameter.
+    pub fn get(&self, parameter: &CallableParameterId) -> Option<&AdvisoryFact> {
+        self.joined.get(parameter)
     }
 
-    /// Iterates joined facts in canonical slot order.
-    pub fn joined_iter(&self) -> impl Iterator<Item = (&AdvisoryParameterSlot, &AdvisoryFact)> {
+    /// Iterates joined facts in canonical parameter order.
+    pub fn joined_iter(&self) -> impl Iterator<Item = (&CallableParameterId, &AdvisoryFact)> {
         self.joined.iter()
     }
 
-    fn recompute_touched(&mut self, touched: Vec<AdvisoryParameterSlot>) -> Vec<AdvisoryParameterFactDelta> {
+    fn recompute_touched(&mut self, touched: Vec<CallableParameterId>) -> Vec<AdvisoryParameterFactDelta> {
         let mut deltas = Vec::new();
         for slot in touched {
             let before = self.joined.get(&slot).cloned();

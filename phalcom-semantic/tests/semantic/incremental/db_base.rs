@@ -147,7 +147,7 @@ fn test_body_query_execution_and_invalidation() {
         DispatchSide::Instance,
     );
 
-    let outcome1 = phalcom_semantic::db::query_callable_body(
+    let outcome1 = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
         cid1.clone(),
         &[],
@@ -163,7 +163,7 @@ fn test_body_query_execution_and_invalidation() {
     );
     assert!(outcome1.is_ready());
 
-    let outcome1_cached = phalcom_semantic::db::query_callable_body(
+    let outcome1_cached = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
         cid1.clone(),
         &[],
@@ -194,7 +194,7 @@ fn test_body_query_execution_and_invalidation() {
     assert!(db.product(&key1).and_then(|product| product.as_callable_body()).is_some());
 
     let changed_body = phalcom_ast::parse_source("1", 0).expect("changed callable body parses");
-    let changed = phalcom_semantic::db::query_callable_body(
+    let changed = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
         cid1.clone(),
         &changed_body.statements,
@@ -220,7 +220,7 @@ fn test_body_query_execution_and_invalidation() {
     let failed_body = phalcom_ast::parse_source("2", 0).expect("failed callable body parses");
     let failed_cancel = CancellationToken::new();
     failed_cancel.cancel();
-    let failed = phalcom_semantic::db::query_callable_body(
+    let failed = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
         cid1.clone(),
         &failed_body.statements,
@@ -246,7 +246,7 @@ fn test_body_query_execution_and_invalidation() {
     };
     assert!(Arc::ptr_eq(last_good, changed_arc), "last-known-good product must be prior ready result");
 
-    let outcome2 = phalcom_semantic::db::query_callable_body(
+    let outcome2 = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
         cid2.clone(),
         &[],
@@ -324,8 +324,8 @@ fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()
     match outcome {
         QueryOutcome::Failed(message) => {
             assert!(
-                message.contains("DeclarationSurface") && !message.contains("requires ready"),
-                "failure identifies missing formal surface dependency without prewarm-order wording: {message}"
+                message.contains("CallableSignature") && !message.contains("DeclarationSurface"),
+                "failure identifies the missing canonical callable-signature prerequisite: {message}"
             );
         }
         other => panic!("missing required signature product must fail closed, got {other:?}"),

@@ -211,7 +211,6 @@ pub fn register_native_surfaces(
     current_module: &crate::identity::ModuleId,
     dispatch: &mut crate::dispatch::SurfaceDispatchResolver,
 ) -> Result<NativeSurfaceImportReport, NativeSurfaceImportError> {
-    use crate::dispatch::{CallableParameter, CallableSignature};
     use crate::surface::DeclarationSurface;
 
     let universe_resolver = |key: UniverseKey| -> DeclarationId { DeclarationId::new(crate::identity::ModuleId::core(), key.name().into()) };
@@ -261,102 +260,105 @@ pub fn register_native_surfaces(
                 key: record.surface.key,
                 details: format!("selector has {selector_arity} slots but metadata has {declared_arity} parameters"),
             });
-        };
+        }
 
-        // Lower parameters
-        let mut params = Vec::new();
-        for (i, p_spec) in record.params().positional.iter().enumerate() {
-            let p_knowledge = import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, p_spec)?;
-            let name = if i == 0 { "other" } else { "arg" };
-            params.push(CallableParameter::new(name, p_knowledge));
+        let callable_id = crate::identity::CallableId::new(decl.clone(), selector.clone(), side);
+        let mut parameters = Vec::new();
+
+        for (index, p_spec) in record.params().positional.iter().enumerate() {
+            let knowledge = import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, p_spec)?;
+            let name = if index == 0 { "other" } else { "arg" };
+            parameters.push(crate::signature::CallableParameterSemantic::new(
+                crate::identity::CallableParameterId::new(callable_id.clone(), index as u32),
+                name,
+                crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(&knowledge, crate::declaration_type::DeclaredTypeBasis::NativeSignature),
+            ));
         }
+
         for labeled in record.params().labeled {
-            let p_knowledge = import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, labeled.ty)?;
-            params.push(CallableParameter::new(labeled.label, p_knowledge).with_label(labeled.label));
+            let knowledge = import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, labeled.ty)?;
+            let index = parameters.len() as u32;
+            parameters.push(
+                crate::signature::CallableParameterSemantic::new(
+                    crate::identity::CallableParameterId::new(callable_id.clone(), index),
+                    labeled.label,
+                    crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(
+                        &knowledge,
+                        crate::declaration_type::DeclaredTypeBasis::NativeSignature,
+                    ),
+                )
+                .with_label(labeled.label),
+            );
         }
+
         if let Some(rest) = record.params().rest {
-            let rest_knowledge = rest
+            let knowledge = rest
                 .ty
                 .map(|ty| import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, ty))
                 .transpose()?
                 .unwrap_or(TypeKnowledge::Unknown(UnknownReason::OpaqueNative));
-            params.push(CallableParameter::new("rest", rest_knowledge).with_rest(true));
+            let index = parameters.len() as u32;
+            parameters.push(
+                crate::signature::CallableParameterSemantic::new(
+                    crate::identity::CallableParameterId::new(callable_id.clone(), index),
+                    "rest",
+                    crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(
+                        &knowledge,
+                        crate::declaration_type::DeclaredTypeBasis::NativeSignature,
+                    ),
+                )
+                .with_rest(phalcom_ast::ast::RestMode::Complete),
+            );
         }
 
-        // Lower return type
-        let ret_knowledge = match record.flow() {
-            ReturnFlowSpec::Receiver => {
-                let self_ty = store.self_type(crate::types::parameter::SelfTypeTerm {
-                    owner: decl.clone(),
-                    side,
-                    role: crate::types::parameter::SelfRole::InstanceType,
-                });
-                TypeKnowledge::established(self_ty, EvidenceOrigin::NativeSignature)
-            }
-            ReturnFlowSpec::Never => TypeKnowledge::established(store.never(), EvidenceOrigin::NativeSignature),
-            ReturnFlowSpec::Argument(index) => {
-                params
-                    .get(index)
-                    .map(|param| param.ty.clone())
-                    .ok_or_else(|| NativeSurfaceImportError::UnsupportedMetadata {
+        let return_knowledge =
+            match record.flow() {
+                ReturnFlowSpec::Receiver => {
+                    let self_ty = store.self_type(crate::types::parameter::SelfTypeTerm {
+                        owner: decl.clone(),
+                        side,
+                        role: crate::types::parameter::SelfRole::InstanceType,
+                    });
+                    TypeKnowledge::established(self_ty, EvidenceOrigin::NativeSignature)
+                }
+                ReturnFlowSpec::Never => TypeKnowledge::established(store.never(), EvidenceOrigin::NativeSignature),
+                ReturnFlowSpec::Argument(index) => parameters.get(index).map(|parameter| parameter.declared_type.to_knowledge()).ok_or_else(|| {
+                    NativeSurfaceImportError::UnsupportedMetadata {
                         key: record.surface.key,
                         reason: format!("return flow references missing parameter {index}"),
-                    })?
-            }
-            _ => import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, record.returns())?,
+                    }
+                })?,
+                _ => import_native_type(store, declarations, &empty_params, &universe_resolver, record.surface.key, record.returns())?,
+            };
+
+        let canonical_signature = crate::signature::CallableSemanticSignature {
+            callable: callable_id.clone(),
+            owner: decl.clone(),
+            side,
+            selector: selector.clone(),
+            generics: None,
+            parameters: parameters.into_boxed_slice(),
+            declared_return: crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(
+                &return_knowledge,
+                crate::declaration_type::DeclaredTypeBasis::NativeSignature,
+            ),
+            inferred_return: None,
+            source: None,
+            implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
+            native_id: Some(record.id()),
+            effects: record.effects(),
+            raises: record.raises(),
+            flow: record.flow(),
+            lifecycle: record.lifecycle(),
         };
 
-        let sig = CallableSignature::new(selector, params, ret_knowledge).with_kind(crate::dispatch::CallableSemanticKind::Native);
-        let callable_id = crate::identity::CallableId::new(decl.clone(), sig.selector.clone(), side);
-        report.imported_keys.push(record.id());
+        let projection = crate::checker::declaration_signature::project_semantic_signature(&canonical_signature);
         surfaces_by_decl
             .entry(decl.clone())
             .or_insert_with(|| DeclarationSurface::new(Some(decl.clone())))
-            .add_callable(side, sig);
-
-        // The legacy dispatch surface remains the live query adapter. The
-        // canonical identity is retained in the import report for clients
-        // that publish the richer signature table.
-        if let Some(surface) = surfaces_by_decl.get(&callable_id.owner) {
-            if let Some(signature) = surface.get_callable(side, &callable_id.selector) {
-                let parameters = signature
-                    .parameters
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, parameter)| {
-                        let ty = parameter.ty.ty()?;
-                        Some(crate::signature::CallableParameterSemantic::new(
-                            index as u32,
-                            parameter.local_name.clone(),
-                            ty.into(),
-                        ))
-                    })
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice();
-                if let Some(return_type) = signature.return_type.ty() {
-                    let callable_owner = callable_id.owner.clone();
-                    report.callable_signatures.push((
-                        callable_id.clone(),
-                        crate::signature::CallableSemanticSignature {
-                            callable: callable_id.clone(),
-                            owner: callable_owner,
-                            side,
-                            selector: signature.selector.clone(),
-                            generics: None,
-                            parameters,
-                            return_type: return_type.into(),
-                            source: None,
-                            implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
-                            native_id: Some(record.id()),
-                            effects: record.effects(),
-                            raises: record.raises(),
-                            flow: record.flow(),
-                            lifecycle: record.lifecycle(),
-                        },
-                    ));
-                }
-            }
-        }
+            .add_callable(side, projection);
+        report.imported_keys.push(record.id());
+        report.callable_signatures.push((callable_id, canonical_signature));
     }
 
     for (decl, surface) in surfaces_by_decl {

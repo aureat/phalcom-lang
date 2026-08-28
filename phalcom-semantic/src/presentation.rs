@@ -183,11 +183,11 @@ impl CallablePresentation {
             .parameters
             .iter()
             .map(|parameter| ParameterPresentation {
-                index: parameter.index,
+                index: parameter.index(),
                 name: parameter.local_name.clone(),
                 external_label: parameter.external_label.clone(),
                 rest: parameter.rest,
-                type_: present_type_term(&parameter.ty, presenter),
+                type_: present_declared_type(&parameter.declared_type, presenter),
             })
             .collect::<Vec<_>>();
         Self {
@@ -196,9 +196,22 @@ impl CallablePresentation {
             kind: source.map_or(SourceCallableKind::Method, |source| source.kind),
             owner_name: signature.owner.name.clone(),
             parameters: Arc::from(parameters.into_boxed_slice()),
-            return_type: present_type_term(&signature.return_type, presenter),
+            return_type: signature
+                .inferred_return
+                .as_ref()
+                .filter(|knowledge| knowledge.is_known() || knowledge.is_dynamic())
+                .map(|knowledge| presenter.present_knowledge(knowledge))
+                .unwrap_or_else(|| present_declared_type(&signature.declared_return, presenter)),
             documentation: None,
         }
+    }
+}
+
+fn present_declared_type(fact: &crate::declaration_type::DeclaredTypeFact, presenter: &TypePresenter<'_>) -> FormalPresentation {
+    match &fact.state {
+        crate::declaration_type::DeclaredTypeState::Known(term) => present_type_term(term, presenter),
+        crate::declaration_type::DeclaredTypeState::Dynamic(_) => FormalPresentation::Dynamic,
+        crate::declaration_type::DeclaredTypeState::Unknown(_) => FormalPresentation::Unknown,
     }
 }
 

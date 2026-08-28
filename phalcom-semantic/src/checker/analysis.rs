@@ -3,7 +3,9 @@
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::InternalSemanticIncident;
 use crate::diagnostic::SemanticDiagnostic;
-use crate::identity::{AnalysisIncidentId, BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId};
+use crate::identity::{
+    AnalysisIncidentId, BindingId, CallResolutionId, CallableId, CallableParameterId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId,
+};
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{DynamicReason, TypeKnowledge};
 use crate::types::outcome::{BlockReason, BudgetReport};
@@ -103,6 +105,7 @@ impl ExpressionAnalysis {
 pub struct BindingState {
     pub binding: BindingId,
     pub name: String,
+    pub parameter: Option<CallableParameterId>,
     pub range: SourceRange,
     pub contract: Option<super::binding::BindingContract>,
     pub current: TypeKnowledge,
@@ -123,6 +126,7 @@ impl BindingState {
         Self {
             binding,
             name: seed.name,
+            parameter: seed.parameter,
             range: seed.range,
             contract: seed.contract,
             current,
@@ -164,6 +168,7 @@ impl BindingState {
         Self {
             binding,
             name: name.into(),
+            parameter: None,
             range,
             contract,
             current,
@@ -238,6 +243,7 @@ use crate::identity::{DeclarationId, ModuleId};
 pub enum SemanticDependency {
     DeclarationShell(DeclarationId),
     CallableSignature(CallableId),
+    FieldSignature(FieldId),
     DeclarationSurface(DeclarationId),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),

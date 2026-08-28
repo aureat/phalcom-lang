@@ -235,6 +235,7 @@ fn bind_declaration_pattern(
     match pattern {
         Pattern::Name { name, .. } => {
             ctx.declare_binding(BindingSeed {
+                parameter: None,
                 name: name.clone(),
                 range,
                 contract,

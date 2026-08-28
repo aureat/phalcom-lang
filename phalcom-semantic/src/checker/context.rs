@@ -11,6 +11,7 @@ use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
+use crate::signature::FieldSignatureTable;
 use crate::surface::DeclarationSurface;
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
@@ -303,6 +304,7 @@ pub struct CheckingContext<'a> {
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
     semantic_dependencies: SharedSemanticDependencies,
+    field_signatures: Option<&'a FieldSignatureTable>,
     pub dispatch: DispatchAccess<'a>,
     pub diagnostics: Vec<SemanticDiagnostic>,
     pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
@@ -375,6 +377,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph: None,
             dependencies: BTreeSet::new(),
             semantic_dependencies,
+            field_signatures: None,
             dispatch: DispatchAccess::Owned(dispatch),
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
@@ -434,6 +437,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph: None,
             dependencies: BTreeSet::new(),
             semantic_dependencies,
+            field_signatures: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
@@ -473,6 +477,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph: self.flow_graph.clone(),
             dependencies: self.dependencies.clone(),
             semantic_dependencies: self.semantic_dependencies.clone(),
+            field_signatures: self.field_signatures,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             diagnostics: Vec::new(),
             analysis_incidents: self.analysis_incidents.clone(),
@@ -976,7 +981,22 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
-        self.bind_callable_parameter_with_causal(name, current, range, crate::checker::causal::CausalInvalidity::Clean)
+        self.bind_callable_parameter_with_identity(name, current, range, crate::checker::causal::CausalInvalidity::Clean, None)
+    }
+
+    pub fn bind_canonical_callable_parameter(
+        &mut self,
+        parameter: &crate::signature::CallableParameterSemantic,
+        fallback_range: SourceRange,
+    ) -> BindingDeclarationResult {
+        let range = parameter.source.as_ref().map_or(fallback_range, |source| source.range);
+        self.bind_callable_parameter_with_identity(
+            parameter.local_name.to_string(),
+            parameter.declared_type.to_knowledge(),
+            range,
+            crate::checker::causal::CausalInvalidity::Clean,
+            Some(parameter.id.clone()),
+        )
     }
 
     pub fn bind_callable_parameter_with_causal(
@@ -985,6 +1005,17 @@ impl<'a> CheckingContext<'a> {
         current: TypeKnowledge,
         range: SourceRange,
         causal_invalidity: crate::checker::causal::CausalInvalidity,
+    ) -> BindingDeclarationResult {
+        self.bind_callable_parameter_with_identity(name, current, range, causal_invalidity, None)
+    }
+
+    fn bind_callable_parameter_with_identity(
+        &mut self,
+        name: impl Into<String>,
+        current: TypeKnowledge,
+        range: SourceRange,
+        causal_invalidity: crate::checker::causal::CausalInvalidity,
+        parameter: Option<crate::identity::CallableParameterId>,
     ) -> BindingDeclarationResult {
         let current = current
             .ty()
@@ -997,6 +1028,7 @@ impl<'a> CheckingContext<'a> {
         });
         self.declare_binding(BindingSeed {
             name: name.into(),
+            parameter,
             range,
             contract,
             current,
@@ -1008,6 +1040,7 @@ impl<'a> CheckingContext<'a> {
 
     pub fn bind_contextual_block_parameter(&mut self, name: impl Into<String>, ty: TypeId, range: SourceRange) -> BindingDeclarationResult {
         self.declare_binding(BindingSeed {
+            parameter: None,
             name: name.into(),
             range,
             contract: Some(BindingContract {
@@ -1024,6 +1057,7 @@ impl<'a> CheckingContext<'a> {
 
     pub fn bind_untyped_block_parameter(&mut self, name: impl Into<String>, range: SourceRange) -> BindingDeclarationResult {
         self.declare_binding(BindingSeed {
+            parameter: None,
             name: name.into(),
             range,
             contract: None,
@@ -1047,6 +1081,7 @@ impl<'a> CheckingContext<'a> {
             source: Some(range),
         });
         self.declare_binding(BindingSeed {
+            parameter: None,
             name: name.into(),
             range,
             contract,
@@ -1136,20 +1171,22 @@ impl<'a> CheckingContext<'a> {
         self.semantic_dependencies.borrow().clone()
     }
 
-    /// Records the canonical dependency for a callable signature consumed from a declaration surface.
+    /// Records a dispatch lookup's structural and callable-type dependencies.
     ///
-    /// Source callables with any unknown parameter or return type cannot yet be
-    /// represented by the canonical `CallableSemanticSignature` product. Their
-    /// declaration surface therefore remains the fail-closed dependency until
-    /// inference establishes a complete canonical contract.
-    pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, signature: &crate::dispatch::CallableSignature) {
+    /// `DeclarationSurface` owns selector/visibility/hierarchy projection only;
+    /// every query-owned callable's type contract is represented by its
+    /// canonical `CallableSignature` product, including partial declarations.
+    pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, _signature: &crate::dispatch::CallableSignature) {
         if !is_query_owned_module(&callable.owner.module) {
             return;
         }
         record_declaration_surface_dependency(&self.semantic_dependencies, &callable.owner);
-        if signature.has_complete_types() {
-            self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
-        }
+        self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
+    }
+
+    /// Attaches compiler-owned canonical field declaration knowledge.
+    pub fn attach_field_signatures(&mut self, field_signatures: &'a FieldSignatureTable) {
+        self.field_signatures = Some(field_signatures);
     }
 
     /// Returns the dispatch resolver currently visible to this context.
@@ -1294,16 +1331,21 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn get_field(&self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
-        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
-        self.dispatch.get().get_surface(decl).and_then(|s| s.get_field(side, name)).cloned()
+        let field = crate::identity::FieldId::new(decl.clone(), name, side);
+        let signature = self.field_signatures?.get(&field)?;
+        if is_query_owned_module(&field.owner.module) {
+            self.record_semantic_dependency(SemanticDependency::FieldSignature(field));
+        }
+        Some(signature.declared_type.to_knowledge())
     }
 
     pub(crate) fn resolve_field_contract(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
-        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
-        let surface = self.dispatch.get().get_surface(owner)?;
-        let field = surface.get_field_id(side, name)?.clone();
-        let contract = surface.get_field(side, name)?.clone();
-        Some((field, contract))
+        let field = crate::identity::FieldId::new(owner.clone(), name, side);
+        let signature = self.field_signatures?.get(&field)?;
+        if is_query_owned_module(&field.owner.module) {
+            self.record_semantic_dependency(SemanticDependency::FieldSignature(field.clone()));
+        }
+        Some((field, signature.declared_type.to_knowledge()))
     }
 
     pub(crate) fn resolve_current_field(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
@@ -1422,21 +1464,12 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
         .get_surface(&class)
         .cloned()
         .unwrap_or_else(|| DeclarationSurface::new(Some(class.clone())));
-    if let Ok(selector) = Selector::method("new", Vec::new())
-        && class_surface.instance.get_callable(&selector).is_none()
-    {
-        let self_type = store.self_type(SelfTypeTerm {
-            owner: class.clone(),
-            side: DispatchSide::Instance,
-            role: SelfRole::InstanceType,
-        });
-        let signature = CallableSignature::new(
-            selector,
-            Vec::new(),
-            TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics),
-        )
-        .with_kind(CallableSemanticKind::Constructor);
-        class_surface.add_callable(DispatchSide::Instance, signature);
+    let canonical_new = crate::checker::declaration_signature::canonical_core_class_new_signature(store);
+    if class_surface.instance.get_callable(&canonical_new.selector).is_none() {
+        class_surface.add_callable(
+            DispatchSide::Instance,
+            crate::checker::declaration_signature::project_semantic_signature(&canonical_new),
+        );
     }
     dispatch.register_type(declarations.form(&class).unwrap_or_else(|| store.nominal_type(class.clone())), class.clone());
     dispatch.register_surface(class, class_surface);

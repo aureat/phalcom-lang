@@ -29,32 +29,7 @@ fn stmt_range(stmt: &Statement) -> SourceRange {
     }
 }
 
-use crate::dispatch::{CallableSignature, SurfaceDispatchResolver};
-
-/// Returns the declaration signature consumed by a body, including the class-side
-/// fallback used for constructor bodies represented on the instance side.
-pub(crate) fn signature_consumed_by_body(dispatch: &SurfaceDispatchResolver, callable: &CallableId) -> Option<(CallableId, CallableSignature)> {
-    let surface = dispatch.surfaces().get(&callable.owner)?;
-
-    if let Some(signature) = surface.get_callable(callable.side, &callable.selector) {
-        let signature_id = surface
-            .get_callable_id(callable.side, &callable.selector)
-            .cloned()
-            .unwrap_or_else(|| callable.clone());
-        return Some((signature_id, signature.clone()));
-    }
-
-    if callable.side == crate::identity::DispatchSide::Instance {
-        let signature = surface.get_callable(crate::identity::DispatchSide::Class, &callable.selector)?;
-        let signature_id = surface
-            .get_callable_id(crate::identity::DispatchSide::Class, &callable.selector)
-            .cloned()
-            .unwrap_or_else(|| CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class));
-        return Some((signature_id, signature.clone()));
-    }
-
-    None
-}
+use crate::dispatch::SurfaceDispatchResolver;
 
 /// Context holding canonical published semantic inputs for callable body checking.
 pub struct BodyAnalysisContext<'a> {
@@ -89,9 +64,11 @@ pub fn analyze_callable_body(
         resolver,
         declarations,
         dispatch,
+        None,
         module,
         budget,
         cancel,
+        None,
         None,
     )
 }
@@ -105,13 +82,18 @@ pub fn analyze_callable_body_with_fields(
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
     dispatch: &SurfaceDispatchResolver,
+    declared_signature: Option<(&CallableId, &crate::signature::CallableSemanticSignature)>,
     module: ModuleId,
     budget: QueryBudget,
     cancel: &CancellationToken,
+    field_signatures: Option<&crate::signature::FieldSignatureTable>,
     field_lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
 ) -> CallableAnalysis {
     let control = CheckerControl::new(budget, cancel);
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
+    if let Some(field_signatures) = field_signatures {
+        ctx.attach_field_signatures(field_signatures);
+    }
     ctx.current_callable = Some(callable.clone());
     ctx.current_class = Some(callable.owner.clone());
     ctx.current_side = callable.side;
@@ -120,12 +102,10 @@ pub fn analyze_callable_body_with_fields(
     let flow_graph = Arc::new(FlowGraph::from_statements(body));
     ctx.flow_graph = Some(flow_graph);
 
-    // Bind parameters and expected return from the exact published signature consumed by this body.
-    // Constructor bodies are represented as instance-side bodies, while their public constructor
-    // signatures live on the class side; record the class-side identity in that fallback case.
-    let sig_opt = signature_consumed_by_body(ctx.dispatch_ref(), &callable);
-    let constructor_body = sig_opt
-        .as_ref()
+    // Bind parameters and the constraining return requirement from the exact
+    // canonical declaration signature. `inferred_return` is deliberately not
+    // consulted here; a body-derived result can never become its own premise.
+    let constructor_body = declared_signature
         .is_some_and(|(signature_id, _)| callable.side == crate::identity::DispatchSide::Instance && signature_id.side == crate::identity::DispatchSide::Class);
     let setter_body = matches!(
         callable.selector.kind,
@@ -135,13 +115,14 @@ pub fn analyze_callable_body_with_fields(
         field_lifecycle.seed_flow_for_owner(&mut ctx.flow, &callable.owner, constructor_body);
     }
 
-    if let Some((signature_id, sig)) = sig_opt {
-        ctx.record_consumed_callable_signature(&signature_id, &sig);
+    if let Some((signature_id, signature)) = declared_signature {
+        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));
         ctx.push_scope();
-        for param in &sig.parameters {
-            ctx.bind_callable_parameter(param.local_name.clone(), param.ty.clone(), body_range);
+        for parameter in &signature.parameters {
+            ctx.bind_canonical_callable_parameter(parameter, body_range);
         }
-        if let Some(ret_ty) = sig.return_type.ty() {
+        let declared_return = signature.declared_return.to_knowledge();
+        if let Some(ret_ty) = declared_return.ty() {
             ctx.expected_return = Some(CallableReturnContract {
                 ty: ret_ty,
                 origin: crate::types::evidence::EvidenceOrigin::CallableSignature,

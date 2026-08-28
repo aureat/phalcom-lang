@@ -554,7 +554,7 @@ class Main {
 }
 
 #[test]
-fn case_i_unannotated_callable_uses_surface_dependency_without_missing_signature_product() {
+fn case_i_unannotated_callable_uses_canonical_signature_dependency() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(1),
         ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
@@ -569,16 +569,23 @@ class Untyped {
     let update = session.update(single_module_input(module.clone(), source, 1));
     let owner = DeclarationId::new(module, "Untyped".into());
     let callable = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
+    let signature_key = QueryKey::CallableSignature(callable.clone());
     let body_key = QueryKey::CallableBody(callable.clone());
 
     assert!(update.snapshot.callable_analyses.contains_key(&callable));
+    let signature = update
+        .snapshot
+        .callable_signatures
+        .get(&callable)
+        .expect("unannotated callable declaration must still publish a canonical signature");
+    assert!(signature.declared_return.is_unknown());
     let dependencies = session
         .db()
         .index()
         .dependencies_of(&body_key)
-        .expect("unannotated callable body must retain its declaration-surface dependency");
-    assert!(dependencies.iter().any(|edge| edge.dependency == QueryKey::DeclarationSurface(owner.clone())));
-    assert!(dependencies.iter().all(|edge| edge.dependency != QueryKey::CallableSignature(callable.clone())));
+        .expect("unannotated callable body must retain its canonical signature dependency");
+    assert!(dependencies.iter().any(|edge| edge.dependency == signature_key));
+    assert!(dependencies.iter().all(|edge| edge.dependency != QueryKey::DeclarationSurface(owner.clone())));
 }
 
 /// COMPOSED: body edits reuse callers, signature edits invalidate callers, and removal/re-addition clears stale products.

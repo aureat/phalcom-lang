@@ -5,7 +5,7 @@ use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
-use crate::signature::CallableSignatureTable;
+use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
 use crate::surface::DeclarationSurface;
@@ -118,6 +118,7 @@ pub struct SemanticSnapshot {
     pub surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
     pub dispatch: Arc<SurfaceDispatchResolver>,
     pub callable_signatures: Arc<CallableSignatureTable>,
+    pub field_signatures: Arc<FieldSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
     pub hierarchy: Arc<MapTypeHierarchy>,
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
@@ -161,6 +162,7 @@ impl SemanticSnapshot {
             surfaces,
             dispatch,
             callable_signatures,
+            field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             hierarchy,
             diagnostics,
@@ -204,6 +206,7 @@ impl SemanticSnapshot {
             surfaces,
             dispatch,
             callable_signatures,
+            field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             hierarchy,
             diagnostics,
@@ -216,6 +219,11 @@ impl SemanticSnapshot {
             module_products: Arc::new(ModuleQueryProducts::empty()),
             status: SnapshotStatus::Complete,
         }
+    }
+
+    pub fn with_field_signatures(mut self, field_signatures: Arc<FieldSignatureTable>) -> Self {
+        self.field_signatures = field_signatures;
+        self
     }
 
     pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {

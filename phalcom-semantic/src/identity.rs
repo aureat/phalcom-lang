@@ -115,6 +115,22 @@ impl CallableId {
     }
 }
 
+/// Canonical identity of a declared callable parameter.
+///
+/// Names and source ranges are presentation metadata; declaration-order index
+/// within a canonical callable is the stable semantic identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CallableParameterId {
+    pub callable: CallableId,
+    pub index: u32,
+}
+
+impl CallableParameterId {
+    pub fn new(callable: CallableId, index: u32) -> Self {
+        Self { callable, index }
+    }
+}
+
 /// Canonical field identity.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct FieldId {
