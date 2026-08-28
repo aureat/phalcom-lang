@@ -1,0 +1,30 @@
+name: LSP retirement final verification
+
+on:
+  push:
+    branches: [codex/lsp-single-world-retirement]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lsp-retirement-final-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/lsp-single-world-retirement
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build workspace all targets
+        run: cargo build --workspace --all-targets
+      - name: Test workspace all targets
+        run: cargo test --workspace --all-targets
