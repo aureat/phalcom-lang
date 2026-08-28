@@ -140,11 +140,15 @@ class Child is Base {
     assert_eq!(signature.parameter_count(), 1);
     assert!(signature.generics.is_none());
 
-    assert_eq!(dependency_keys(&session, &signature_key), vec![surface_key]);
+    let signature_dependencies = dependency_keys(&session, &signature_key);
+    assert!(
+        !signature_dependencies.contains(&surface_key),
+        "callable signature is declaration-owned and must not depend on its dispatch projection"
+    );
 }
 
 #[test]
-fn body_query_ensures_complete_signature_without_signature_prewarm() {
+fn body_query_ensures_canonical_signature_without_signature_prewarm() {
     let module = module_id();
     let source = r#"
 class Owner {
@@ -239,7 +243,7 @@ class Owner {
 }
 
 #[test]
-fn partial_source_signature_stays_surface_backed_without_truncated_callable_product() {
+fn partial_source_signature_is_canonical_and_body_depends_on_it() {
     let module = module_id();
     let source = r#"
 class Api {
@@ -253,16 +257,22 @@ class Api {
 
     let owner = DeclarationId::new(module.clone(), "Api".into());
     let selector = Selector::method("value", [SelectorSlot::Positional]).unwrap();
-    let body_callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Class);
+    let body_callable = CallableId::new(owner.clone(), selector, DispatchSide::Class);
     let signature_key = QueryKey::CallableSignature(body_callable.clone());
     let body_key = QueryKey::CallableBody(body_callable);
 
-    assert!(
-        session.db().product(&signature_key).is_none(),
-        "unknown parameter type must not be dropped to fabricate a shorter canonical signature"
-    );
+    let signature = session
+        .db()
+        .product(&signature_key)
+        .and_then(|product| product.as_callable_signature())
+        .expect("partial declaration must publish a canonical callable signature");
+    assert_eq!(signature.parameter_count(), 1);
+    assert!(signature.parameters[0].declared_type.is_unknown());
 
     let body_dependencies = dependency_keys(&session, &body_key);
-    assert!(body_dependencies.contains(&QueryKey::DeclarationSurface(owner)));
-    assert!(!body_dependencies.contains(&signature_key));
+    assert!(body_dependencies.contains(&signature_key));
+    assert!(
+        !body_dependencies.contains(&QueryKey::DeclarationSurface(owner)),
+        "body declaration constraints come from CallableSignature, not dispatch surface"
+    );
 }

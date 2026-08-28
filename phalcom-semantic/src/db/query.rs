@@ -2,7 +2,6 @@
 
 use crate::advisory::{AdvisoryCallableSummary, AdvisoryModuleProduct};
 use crate::checker::analysis::{CallableAnalysis, CallableAnalysisStatus};
-use crate::checker::body::signature_consumed_by_body;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::{InputFingerprint, ProductFingerprint, QueryKey};
 use crate::db::product::DeclarationSurfaceProduct;
@@ -10,7 +9,7 @@ use crate::db::state::{QueryOutcome, QueryState};
 use crate::db::{DependencyEdge, SemanticDb, SemanticProduct};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{CallableSignature as SurfaceCallableSignature, SurfaceDispatchResolver};
+use crate::dispatch::SurfaceDispatchResolver;
 use crate::hierarchy_product::HierarchyEdgeProduct;
 use crate::identity::{CallableId, DeclarationId, ModuleId};
 use crate::module_product::ResolvedImportsProduct;
@@ -22,11 +21,11 @@ use crate::types::annotation::TypeResolver;
 use crate::types::outcome::BlockReason;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{ClassDef, RestMode, Statement};
+use phalcom_ast::ast::{ClassDef, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Borrowed formal inputs used when a query must evaluate a missing prerequisite.
@@ -91,47 +90,6 @@ fn class_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &Declaratio
 fn superclass_source<'a>(unit: &'a ParsedModuleUnit, class_def: &ClassDef) -> Option<&'a str> {
     let range = class_def.superclass.as_ref()?.range;
     unit.text.get(range.start..range.end)
-}
-
-pub(crate) fn semantic_signature_from_surface(callable: &CallableId, signature: &SurfaceCallableSignature) -> CallableSemanticSignature {
-    let parameters = signature
-        .parameters
-        .iter()
-        .enumerate()
-        .map(|(index, parameter)| {
-            let mut semantic = crate::signature::CallableParameterSemantic::new(
-                crate::identity::CallableParameterId::new(callable.clone(), index as u32),
-                parameter.local_name.clone(),
-                crate::declaration_type::DeclaredTypeFact::from_knowledge(&parameter.ty),
-            );
-            if let Some(label) = &parameter.external_label {
-                semantic = semantic.with_label(label.clone());
-            }
-            if parameter.rest {
-                semantic = semantic.with_rest(RestMode::Positional);
-            }
-            semantic
-        })
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    CallableSemanticSignature {
-        callable: callable.clone(),
-        owner: callable.owner.clone(),
-        side: callable.side,
-        selector: callable.selector.clone(),
-        generics: signature.generics.clone(),
-        parameters,
-        declared_return: crate::declaration_type::DeclaredTypeFact::from_knowledge(&signature.return_type),
-        inferred_return: None,
-        source: None,
-        implementation: phalcom_native_meta::ImplementationKind::Source,
-        native_id: None,
-        effects: phalcom_native_meta::EffectSpec::Unknown,
-        raises: phalcom_native_meta::RaisesSpec::Unknown,
-        flow: phalcom_native_meta::ReturnFlowSpec::Value,
-        lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
-    }
 }
 
 fn publish_current_product(
@@ -751,30 +709,61 @@ pub fn query_declaration_surface(
     QueryOutcome::Ready(surface)
 }
 
-/// Evaluates or projects the canonical semantic signature for one callable.
-pub fn query_callable_signature(db: &mut SemanticDb, callable: CallableId) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+/// Evaluates or retrieves the canonical semantic signature for one source callable.
+///
+/// Declaration syntax and declaration/type-resolution prerequisites are the
+/// authority. `DeclarationSurface` is intentionally absent from this query's
+/// dependency set because dispatch is a projection of this product.
+pub fn query_callable_signature(
+    db: &mut SemanticDb,
+    callable: CallableId,
+    unit: Arc<ParsedModuleUnit>,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+) -> QueryOutcome<Arc<CallableSemanticSignature>> {
     let key = QueryKey::CallableSignature(callable.clone());
-    let surface_key = QueryKey::DeclarationSurface(callable.owner.clone());
-
-    if db.query_state(&surface_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
-        return query_failure(
-            db,
-            key,
-            format!("callable-signature prerequisite {surface_key:?} is not validated for the current revision"),
-        );
+    if unit.id != callable.owner.module {
+        return query_failure(db, key, format!("source unit does not own callable {callable:?}"));
     }
-    let Some(surface) = db.product(&surface_key).and_then(|product| product.as_declaration_surface()).cloned() else {
-        return query_failure(db, key, format!("callable-signature prerequisite {surface_key:?} has no typed product"));
-    };
-    let Some(source_signature) = surface.get_callable(callable.side, &callable.selector) else {
-        if db.query_state(&key).is_some() {
-            db.discard_for_recompute(&key);
-        }
-        return query_failure(db, key, format!("callable {:?} is absent from its declaration surface", callable));
-    };
-    let signature = Arc::new(semantic_signature_from_surface(&callable, source_signature));
-    let input_fingerprint = crate::db::fingerprint::callable_signature_input_fingerprint(&signature);
 
+    let Some(declaration_info) = declarations.get(&callable.owner).cloned() else {
+        return query_failure(db, key, format!("missing declaration metadata for {:?}", callable.owner));
+    };
+    match query_declaration_shell(db, Arc::new(declaration_info)) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+
+    let linked_key = QueryKey::LinkedInterface(callable.owner.module.clone());
+    if db.query_state(&linked_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+        return query_failure(db, key, format!("CallableSignature prerequisite {linked_key:?} is not current"));
+    }
+
+    let Some(class_def) = class_definition_for(&unit, &callable.owner) else {
+        return query_failure(db, key, format!("missing class declaration for {:?}", callable.owner));
+    };
+    let Some(member) = class_def
+        .members
+        .iter()
+        .find(|member| crate::checker::declaration_signature::callable_id_for_member(&callable.owner, member).is_some_and(|candidate| candidate == callable))
+    else {
+        return query_failure(db, key, format!("missing source declaration for callable {callable:?}"));
+    };
+
+    let (signature, captured_dependencies) = {
+        let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, callable.owner.module.clone());
+        let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_member(&mut context, &callable.owner, member) else {
+            return query_failure(db, key, format!("source member cannot publish callable signature {callable:?}"));
+        };
+        (Arc::new(signature), context.semantic_dependencies_snapshot())
+    };
+
+    let input_fingerprint = crate::db::fingerprint::callable_signature_input_fingerprint(&signature);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_signature()) {
             db.metrics().record_hit();
@@ -786,24 +775,52 @@ pub fn query_callable_signature(db: &mut SemanticDb, callable: CallableId) -> Qu
     }
     db.metrics().record_miss();
 
+    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(callable.owner.clone()), linked_key]);
+    dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
+    dependency_keys.remove(&key);
+
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-    if let Err(error) = db.record_dependency(&mut recorder, surface_key) {
-        return query_failure(db, key, error);
+    for dependency in dependency_keys {
+        if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+            return query_failure(db, key, error);
+        }
     }
 
     let product_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(&signature);
-    let dependencies = recorder.finish();
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
         input_fingerprint,
         product_fingerprint,
         SemanticProduct::CallableSignature(signature.clone()),
-        dependencies,
+        recorder.finish(),
     ) {
         return query_failure(db, key, error);
     }
     QueryOutcome::Ready(signature)
+}
+
+fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleUnit) -> Option<CallableId> {
+    let class_def = class_definition_for(unit, &callable.owner)?;
+    if class_def
+        .members
+        .iter()
+        .any(|member| crate::checker::declaration_signature::callable_id_for_member(&callable.owner, member).as_ref() == Some(callable))
+    {
+        return Some(callable.clone());
+    }
+
+    if callable.side == crate::identity::DispatchSide::Instance {
+        let class_side = CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class);
+        if class_def
+            .members
+            .iter()
+            .any(|member| crate::checker::declaration_signature::callable_id_for_member(&callable.owner, member).as_ref() == Some(&class_side))
+        {
+            return Some(class_side);
+        }
+    }
+    None
 }
 
 fn ensure_declaration_shell(db: &mut SemanticDb, declaration: &DeclarationId, declarations: &DeclarationTypeTable) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
@@ -818,30 +835,6 @@ fn ensure_linked_interface(db: &mut SemanticDb, module: &ModuleId, linked: &Link
         return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
     };
     query_linked_interface(db, module.clone(), Arc::new(linked_module.interface.clone()))
-}
-
-fn ensure_declaration_surface(
-    db: &mut SemanticDb,
-    declaration: &DeclarationId,
-    formal_inputs: &FormalQueryInputs<'_>,
-    store: &mut TypeStore,
-) -> QueryOutcome<Arc<DeclarationSurface>> {
-    let Some(unit) = formal_inputs.sources.get(&declaration.module).cloned() else {
-        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
-    };
-    let Some(linked_module) = formal_inputs.linked.modules.get(&declaration.module) else {
-        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
-    };
-    query_declaration_surface(
-        db,
-        declaration.clone(),
-        unit,
-        Arc::new(linked_module.interface.clone()),
-        store,
-        formal_inputs.hierarchy,
-        formal_inputs.base_resolver,
-        formal_inputs.declarations,
-    )
 }
 
 fn ensure_callable_signature(
@@ -864,14 +857,18 @@ fn ensure_callable_signature(
         QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
-    match ensure_declaration_surface(db, &callable.owner, formal_inputs, store) {
-        QueryOutcome::Ready(_) => {}
-        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
-        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
-        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
-    }
-    query_callable_signature(db, callable.clone())
+    let Some(unit) = formal_inputs.sources.get(&callable.owner.module).cloned() else {
+        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+    };
+    query_callable_signature(
+        db,
+        callable.clone(),
+        unit,
+        store,
+        formal_inputs.hierarchy,
+        formal_inputs.base_resolver,
+        formal_inputs.declarations,
+    )
 }
 
 /// Evaluates or retrieves the cached `LinkedModuleInterface` for a module.
@@ -996,24 +993,44 @@ pub fn query_callable_body_with_formal_inputs(
         None => crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store),
     };
 
-    // Complete source signatures must be requested from their canonical query
-    // product before body analysis can publish a result. Incomplete source
-    // signatures intentionally remain surface-only until inference completes.
-    if let Some((signature_id, signature)) = signature_consumed_by_body(dispatch, &callable) {
-        if signature.has_complete_types() {
-            let signature_outcome = match formal_inputs {
-                Some(formal_inputs) => ensure_callable_signature(db, &signature_id, formal_inputs, store),
-                None => query_callable_signature(db, signature_id),
+    // Every source callable declaration has a canonical signature product,
+    // including partially-known signatures. Constructor body identities remain
+    // instance-side while consuming their class-side constructor declaration.
+    let declared_signature = match formal_inputs {
+        Some(inputs) => {
+            let Some(unit) = inputs.sources.get(&callable.owner.module).cloned() else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
-            match signature_outcome {
-                QueryOutcome::Ready(_) => {}
+            let Some(signature_id) = declaration_signature_id_for_body(&callable, &unit) else {
+                return query_failure(db, key.clone(), format!("missing declaration signature identity for body {callable:?}"));
+            };
+            match ensure_callable_signature(db, &signature_id, inputs, store) {
+                QueryOutcome::Ready(signature) => Some((signature_id, signature)),
                 QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
                 QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
                 QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
                 QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
             }
         }
-    }
+        None => {
+            let direct = db
+                .product(&QueryKey::CallableSignature(callable.clone()))
+                .and_then(|product| product.as_callable_signature())
+                .cloned()
+                .map(|signature| (callable.clone(), signature));
+            direct.or_else(|| {
+                (callable.side == crate::identity::DispatchSide::Instance)
+                    .then(|| {
+                        let signature_id = CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class);
+                        db.product(&QueryKey::CallableSignature(signature_id.clone()))
+                            .and_then(|product| product.as_callable_signature())
+                            .cloned()
+                            .map(|signature| (signature_id, signature))
+                    })
+                    .flatten()
+            })
+        }
+    };
 
     // 1. Check if already computed and ready for the same callable input and dependency products.
     if db.validate_reuse(&key, input_fingerprint) {
@@ -1042,6 +1059,7 @@ pub fn query_callable_body_with_formal_inputs(
         resolver,
         declarations,
         dispatch,
+        declared_signature.as_ref().map(|(signature_id, signature)| (signature_id, signature.as_ref())),
         module,
         budget,
         cancel,

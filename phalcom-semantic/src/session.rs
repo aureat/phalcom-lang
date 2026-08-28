@@ -16,7 +16,7 @@ use crate::db::key::QueryKey;
 use crate::db::query::{
     FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_callable_body_with_formal_inputs,
     query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment,
-    query_source_structure, query_unlinked_interface, semantic_signature_from_surface,
+    query_source_structure, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
@@ -628,6 +628,29 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                // Publish declaration-owned callable signatures first. Dispatch
+                // surfaces are compatibility projections of these facts.
+                for member in &class_def.members {
+                    let Some(callable_id) = crate::checker::declaration_signature::callable_id_for_member(&decl_id, member) else {
+                        continue;
+                    };
+                    match query_callable_signature(
+                        &mut self.db,
+                        callable_id,
+                        parsed_unit.clone(),
+                        &mut self.store,
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                    ) {
+                        QueryOutcome::Ready(signature) => callable_signatures.insert((*signature).clone()),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    }
+                }
+
                 let surface = match query_declaration_surface(
                     &mut self.db,
                     decl_id.clone(),
@@ -655,23 +678,6 @@ impl SemanticWorkspaceSession {
                 dispatch.register_surface(decl_id.clone(), (*surface).clone());
                 if let Some(ty) = declarations.form(&decl_id) {
                     dispatch.register_type(ty, decl_id.clone());
-                }
-
-                for (side, member_surface) in [
-                    (crate::identity::DispatchSide::Instance, &surface.instance),
-                    (crate::identity::DispatchSide::Class, &surface.class),
-                ] {
-                    for selector in member_surface.callable_signatures.keys() {
-                        let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector.clone(), side);
-                        match query_callable_signature(&mut self.db, callable_id) {
-                            QueryOutcome::Ready(signature) => callable_signatures.insert((*signature).clone()),
-                            QueryOutcome::Blocked(crate::types::BlockReason::UnknownType(_)) => {}
-                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
-                        }
-                    }
                 }
             }
         }
@@ -1874,12 +1880,18 @@ fn refresh_inferred_callable_results(
             }
             changed_callables.insert(callable.clone());
 
-            if let Some(surface) = dispatch.surfaces().get(&callable.owner)
-                && let Some(signature) = surface.get_callable(callable.side, &callable.selector)
+            let signature_id = if callable_signatures.get(&callable).is_some() {
+                Some(callable.clone())
+            } else if callable.side == DispatchSide::Instance {
+                let class_side = CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Class);
+                callable_signatures.get(&class_side).is_some().then_some(class_side)
+            } else {
+                None
+            };
+            if let Some(signature_id) = signature_id
+                && let Some(signature) = callable_signatures.get_mut(&signature_id)
             {
-                let mut semantic_signature = semantic_signature_from_surface(&callable, signature);
-                semantic_signature.inferred_return = Some(summary.clone());
-                callable_signatures.insert(semantic_signature);
+                signature.inferred_return = Some(summary.clone());
             }
         }
 
@@ -1951,6 +1963,17 @@ fn refresh_inferred_callable_results(
                     if !affected {
                         continue;
                     }
+                    let signature_id = if callable_signatures.get(&callable).is_some() {
+                        Some(callable.clone())
+                    } else if callable.side == DispatchSide::Instance {
+                        let class_side = CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Class);
+                        callable_signatures.get(&class_side).is_some().then_some(class_side)
+                    } else {
+                        None
+                    };
+                    let declared_signature = signature_id
+                        .as_ref()
+                        .and_then(|signature_id| callable_signatures.get(signature_id).map(|signature| (signature_id, signature)));
                     let mut analysis = crate::checker::body::analyze_callable_body_with_fields(
                         callable.clone(),
                         body,
@@ -1960,6 +1983,7 @@ fn refresh_inferred_callable_results(
                         &scoped_resolver,
                         declarations,
                         dispatch,
+                        declared_signature,
                         module_id.clone(),
                         budget,
                         cancel,

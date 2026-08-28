@@ -5,12 +5,10 @@ use super::expression::synthesize_expr;
 use super::statement::check_statement;
 use crate::TypeResolver;
 use crate::diagnostic::DiagnosticCode;
-use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
 use crate::identity::DeclarationId;
 use crate::surface::{DeclarationSurface, MemberVisibility};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
-use phalcom_common::selector::{Selector, SelectorSlot};
 
 pub(crate) fn member_side(member: &ClassMember) -> crate::identity::DispatchSide {
     if member.is_static() || member.attributes().iter().any(|attribute| attribute.name == "class") {
@@ -27,199 +25,47 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
     let class_ty = ctx.nominal_type_of(&decl_id);
     ctx.dispatch.make_mut().register_type(class_ty, decl_id.clone());
 
+    // Fields are still projected directly in this phase. Callable members go
+    // through the declaration-owned semantic signature builder first.
     let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
-        let mut map = std::collections::HashMap::new();
-        for &param_id in sig.parameters.iter() {
-            let name = ctx.store.type_parameter(param_id).name.to_string();
-            let param_form = ctx.store.parameter_form(param_id);
-            map.insert(name, param_form);
-        }
-        map
+        sig.parameters
+            .iter()
+            .map(|&param_id| {
+                let name = ctx.store.type_parameter(param_id).name.to_string();
+                let param_form = ctx.store.parameter_form(param_id);
+                (name, param_form)
+            })
+            .collect()
     } else {
         std::collections::HashMap::new()
     };
     let parent_resolver = ctx.resolver.clone();
-    let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+    let field_resolver = crate::types::annotation::ScopedTypeResolver {
         parent: &parent_resolver,
         type_parameters: type_params_map,
     };
-    let resolver = &scoped_resolver;
 
     for member in &class_def.members {
-        let side = member_side(member);
         let visibility = member_visibility(member);
         match member {
-            ClassMember::Field(f) => {
-                let declared_k = f
+            ClassMember::Field(field) => {
+                let side = member_side(member);
+                let declared = field
                     .annotation
                     .as_ref()
-                    .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
+                    .map(|annotation| ctx.resolve_type_annotation(&field_resolver, annotation).0)
                     .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-                surface.add_field_with_visibility(side, &f.name, declared_k, visibility);
+                surface.add_field_with_visibility(side, &field.name, declared, visibility);
             }
-            ClassMember::Method(m) => {
-                let is_constructor = m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor");
-                let mut slots = Vec::new();
-                for p in &m.params {
-                    if let Some(ref l) = p.label {
-                        slots.push(SelectorSlot::Label(l.clone()));
-                    } else {
-                        slots.push(SelectorSlot::Positional);
-                    }
-                }
-
-                let effective_side = if is_constructor { crate::identity::DispatchSide::Class } else { side };
-
-                let Ok(sel) = Selector::method(&m.name, slots) else {
+            ClassMember::Method(_) | ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Index(_) => {
+                let Some(signature) = super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member) else {
                     continue;
                 };
-                let generic_sig = if !m.generic_parameters.is_empty() {
-                    let mut diags = Vec::new();
-                    let callable_id = crate::identity::CallableId::new(decl_id.clone(), sel.clone(), effective_side);
-                    let sig = crate::types::annotation::resolve_generic_signature(
-                        ctx.store,
-                        ctx.declarations,
-                        resolver,
-                        &ctx.current_module,
-                        crate::types::parameter::TypeParameterOwner::Callable(callable_id),
-                        &m.generic_parameters,
-                        m.where_clause.as_ref(),
-                        &mut diags,
-                    );
-                    ctx.publish_diagnostics(diags);
-                    Some(sig)
-                } else {
-                    None
-                };
-                let method_type_parameters = generic_sig
-                    .as_ref()
-                    .map(|sig| {
-                        sig.parameters
-                            .iter()
-                            .map(|&param_id| {
-                                let name = ctx.store.type_parameter(param_id).name.to_string();
-                                let param_form = ctx.store.parameter_form(param_id);
-                                (name, param_form)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let method_resolver = crate::types::annotation::ScopedTypeResolver {
-                    parent: resolver,
-                    type_parameters: method_type_parameters,
-                };
-                let method_resolver: &dyn crate::types::annotation::TypeResolver = &method_resolver;
-
-                let mut params = Vec::new();
-                for p in &m.params {
-                    let p_k = p
-                        .annotation
-                        .as_ref()
-                        .map(|ann| ctx.resolve_type_annotation(method_resolver, ann).0)
-                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
-
-                    let mut param = CallableParameter::new(p.name.clone(), p_k).with_rest(p.is_rest());
-                    if let Some(ref l) = p.label {
-                        param = param.with_label(l.clone());
-                    }
-                    params.push(param);
-                }
-
-                let ret_k = if is_constructor {
-                    let self_type = ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
-                        owner: decl_id.clone(),
-                        side: crate::identity::DispatchSide::Class,
-                        role: crate::types::parameter::SelfRole::InstanceType,
-                    });
-                    TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics)
-                } else {
-                    m.return_annotation
-                        .as_ref()
-                        .map(|ann| ctx.resolve_type_annotation(method_resolver, ann).0)
-                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration))
-                };
-
-                let mut callable_sig = CallableSignature::new(sel, params, ret_k);
-                if is_constructor {
-                    callable_sig = callable_sig.with_kind(CallableSemanticKind::Constructor);
-                }
-                if let Some(sig) = generic_sig {
-                    callable_sig = callable_sig.with_generics(sig);
-                }
-                surface.add_callable_with_visibility(effective_side, callable_sig, visibility);
+                let side = signature.side;
+                let projection = super::declaration_signature::project_semantic_signature(&signature);
+                surface.add_callable_with_visibility(side, projection, visibility);
             }
-            ClassMember::Getter(g) => {
-                let ret_k = g
-                    .return_annotation
-                    .as_ref()
-                    .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
-                    .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-
-                if let Ok(sel) = Selector::getter(&g.name) {
-                    surface.add_callable_with_visibility(side, CallableSignature::new(sel, Vec::new(), ret_k), visibility);
-                }
-            }
-            ClassMember::Setter(s) => {
-                let param_k = s
-                    .param
-                    .annotation
-                    .as_ref()
-                    .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
-                    .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
-
-                if let Ok(sel) = Selector::setter(&s.name) {
-                    let param = CallableParameter::new(s.param.name.clone(), param_k);
-                    let ret_k = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
-                    surface.add_callable_with_visibility(side, CallableSignature::new(sel, vec![param], ret_k), visibility);
-                }
-            }
-            ClassMember::Index(i) => {
-                let mut slots = Vec::new();
-                let mut params = Vec::new();
-                for p in &i.params {
-                    let p_k = p
-                        .annotation
-                        .as_ref()
-                        .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
-                        .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
-
-                    let mut param = CallableParameter::new(p.name.clone(), p_k).with_rest(p.is_rest());
-                    if let Some(ref l) = p.label {
-                        slots.push(SelectorSlot::Label(l.clone()));
-                        param = param.with_label(l.clone());
-                    } else {
-                        slots.push(SelectorSlot::Positional);
-                    }
-                    params.push(param);
-                }
-
-                match &i.accessor {
-                    phalcom_ast::ast::IndexAccessor::Get => {
-                        let ret_k = i
-                            .return_annotation
-                            .as_ref()
-                            .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
-                            .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
-
-                        if let Ok(sel) = Selector::subscript_get(slots) {
-                            surface.add_callable_with_visibility(side, CallableSignature::new(sel, params, ret_k), visibility);
-                        }
-                    }
-                    phalcom_ast::ast::IndexAccessor::Set { put } => {
-                        let put_k = put
-                            .annotation
-                            .as_ref()
-                            .map(|ann| ctx.resolve_type_annotation(resolver, ann).0)
-                            .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
-
-                        params.push(CallableParameter::new(put.name.clone(), put_k.clone()));
-                        if let Ok(sel) = Selector::subscript_set(slots) {
-                            surface.add_callable_with_visibility(side, CallableSignature::new(sel, params, put_k), visibility);
-                        }
-                    }
-                }
-            }
-            _ => {}
+            ClassMember::Variant(_) => {}
         }
     }
 

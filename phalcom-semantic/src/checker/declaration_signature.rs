@@ -52,7 +52,7 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
                         .unwrap_or(SelectorSlot::Positional)
                 })
                 .collect::<Vec<_>>();
-            let selector = match index.accessor {
+            let selector = match &index.accessor {
                 phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok()?,
                 phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok()?,
             };
@@ -84,23 +84,15 @@ fn parameter_fact(
     missing: UnknownReason,
 ) -> CallableParameterSemantic {
     let declared_type = annotation_fact(ctx, resolver, parameter.annotation.as_ref(), missing);
-    let mut semantic = CallableParameterSemantic::new(
-        CallableParameterId::new(callable.clone(), index as u32),
-        parameter.name.clone(),
-        declared_type,
-    )
-    .with_rest(parameter.rest_mode);
+    let mut semantic = CallableParameterSemantic::new(CallableParameterId::new(callable.clone(), index as u32), parameter.name.clone(), declared_type)
+        .with_rest(parameter.rest_mode);
     if let Some(label) = &parameter.label {
         semantic = semantic.with_label(label.clone());
     }
     semantic
 }
 
-pub(crate) fn semantic_signature_for_member(
-    ctx: &mut CheckingContext<'_>,
-    owner: &DeclarationId,
-    member: &ClassMember,
-) -> Option<CallableSemanticSignature> {
+pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {
     let callable = callable_id_for_member(owner, member)?;
 
     let declaration_type_parameters = ctx
@@ -164,16 +156,7 @@ pub(crate) fn semantic_signature_for_member(
                 .params
                 .iter()
                 .enumerate()
-                .map(|(index, parameter)| {
-                    parameter_fact(
-                        ctx,
-                        &callable,
-                        index,
-                        parameter,
-                        &method_resolver,
-                        UnknownReason::NoTypeEvidence,
-                    )
-                })
+                .map(|(index, parameter)| parameter_fact(ctx, &callable, index, parameter, &method_resolver, UnknownReason::NoTypeEvidence))
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
             let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
@@ -186,18 +169,13 @@ pub(crate) fn semantic_signature_for_member(
                 let knowledge = TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics);
                 DeclaredTypeFact::from_knowledge_with_basis(&knowledge, DeclaredTypeBasis::ConstructorSemantics)
             } else {
-                annotation_fact(
-                    ctx,
-                    &method_resolver,
-                    method.return_annotation.as_ref(),
-                    UnknownReason::UnannotatedDeclaration,
-                )
+                annotation_fact(ctx, &method_resolver, method.return_annotation.as_ref(), UnknownReason::UnannotatedDeclaration)
             };
             (generic_signature, parameters, declared_return)
         }
         ClassMember::Getter(getter) => (
             None,
-            Box::new([]),
+            Vec::<CallableParameterSemantic>::new().into_boxed_slice(),
             annotation_fact(
                 ctx,
                 &declaration_resolver,
@@ -206,14 +184,7 @@ pub(crate) fn semantic_signature_for_member(
             ),
         ),
         ClassMember::Setter(setter) => {
-            let parameter = parameter_fact(
-                ctx,
-                &callable,
-                0,
-                &setter.param,
-                &declaration_resolver,
-                UnknownReason::UnannotatedDeclaration,
-            );
+            let parameter = parameter_fact(ctx, &callable, 0, &setter.param, &declaration_resolver, UnknownReason::UnannotatedDeclaration);
             let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
             (
                 None,
@@ -227,32 +198,15 @@ pub(crate) fn semantic_signature_for_member(
                 .iter()
                 .enumerate()
                 .map(|(parameter_index, parameter)| {
-                    parameter_fact(
-                        ctx,
-                        &callable,
-                        parameter_index,
-                        parameter,
-                        &declaration_resolver,
-                        UnknownReason::NoTypeEvidence,
-                    )
+                    parameter_fact(ctx, &callable, parameter_index, parameter, &declaration_resolver, UnknownReason::NoTypeEvidence)
                 })
                 .collect::<Vec<_>>();
             let declared_return = match &index.accessor {
-                phalcom_ast::ast::IndexAccessor::Get => annotation_fact(
-                    ctx,
-                    &declaration_resolver,
-                    index.return_annotation.as_ref(),
-                    UnknownReason::NoTypeEvidence,
-                ),
+                phalcom_ast::ast::IndexAccessor::Get => {
+                    annotation_fact(ctx, &declaration_resolver, index.return_annotation.as_ref(), UnknownReason::NoTypeEvidence)
+                }
                 phalcom_ast::ast::IndexAccessor::Set { put } => {
-                    let put_semantic = parameter_fact(
-                        ctx,
-                        &callable,
-                        parameters.len(),
-                        put,
-                        &declaration_resolver,
-                        UnknownReason::NoTypeEvidence,
-                    );
+                    let put_semantic = parameter_fact(ctx, &callable, parameters.len(), put, &declaration_resolver, UnknownReason::NoTypeEvidence);
                     let result = put_semantic.declared_type.clone();
                     parameters.push(put_semantic);
                     result
@@ -287,8 +241,8 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
         .parameters
         .iter()
         .map(|parameter| {
-            let mut projected = CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge())
-                .with_rest(parameter.rest != RestMode::None);
+            let mut projected =
+                CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge()).with_rest(parameter.rest != RestMode::None);
             if let Some(label) = &parameter.external_label {
                 projected = projected.with_label(label.to_string());
             }
@@ -304,12 +258,7 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
         CallableSemanticKind::Ordinary
     };
 
-    let mut projected = CallableSignature::new(
-        signature.selector.clone(),
-        parameters,
-        signature.declared_return.to_knowledge(),
-    )
-    .with_kind(kind);
+    let mut projected = CallableSignature::new(signature.selector.clone(), parameters, signature.declared_return.to_knowledge()).with_kind(kind);
     if let Some(generics) = &signature.generics {
         projected = projected.with_generics(generics.clone());
     }

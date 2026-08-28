@@ -1136,20 +1136,17 @@ impl<'a> CheckingContext<'a> {
         self.semantic_dependencies.borrow().clone()
     }
 
-    /// Records the canonical dependency for a callable signature consumed from a declaration surface.
+    /// Records a dispatch lookup's structural and callable-type dependencies.
     ///
-    /// Source callables with any unknown parameter or return type cannot yet be
-    /// represented by the canonical `CallableSemanticSignature` product. Their
-    /// declaration surface therefore remains the fail-closed dependency until
-    /// inference establishes a complete canonical contract.
-    pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, signature: &crate::dispatch::CallableSignature) {
+    /// `DeclarationSurface` owns selector/visibility/hierarchy projection only;
+    /// every query-owned callable's type contract is represented by its
+    /// canonical `CallableSignature` product, including partial declarations.
+    pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, _signature: &crate::dispatch::CallableSignature) {
         if !is_query_owned_module(&callable.owner.module) {
             return;
         }
         record_declaration_surface_dependency(&self.semantic_dependencies, &callable.owner);
-        if signature.has_complete_types() {
-            self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
-        }
+        self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
     }
 
     /// Returns the dispatch resolver currently visible to this context.
