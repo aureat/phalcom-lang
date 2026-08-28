@@ -19,11 +19,7 @@ fn standalone_importer_survives_until_relative_sibling_is_discovered() {
     let mut session = WorkspaceModuleSession::new();
 
     let first = session
-        .set_overlay(
-            main.clone(),
-            Arc::from("import .shapes as shapes\nlet value = 1\n"),
-            SourceRevision(1),
-        )
+        .set_overlay(main.clone(), Arc::from("import .shapes as shapes\nlet value = 1\n"), SourceRevision(1))
         .expect("temporarily unresolved standalone imports must not roll back the importer");
 
     let main_module = session
@@ -33,22 +29,14 @@ fn standalone_importer_survives_until_relative_sibling_is_discovered() {
     assert!(first.linked.modules.contains_key(&main_module));
 
     let second = session
-        .set_overlay(
-            shapes.clone(),
-            Arc::from("class Circle {}\n"),
-            SourceRevision(1),
-        )
+        .set_overlay(shapes.clone(), Arc::from("class Circle {}\n"), SourceRevision(1))
         .expect("discovering the sibling should relink the retained importer");
 
     let shapes_module = session
         .module_for_source(&shapes.source_id)
         .cloned()
         .expect("the discovered sibling must be registered");
-    let linked_main = second
-        .linked
-        .modules
-        .get(&main_module)
-        .expect("the importer must remain in the linked program");
+    let linked_main = second.linked.modules.get(&main_module).expect("the importer must remain in the linked program");
     let import_id = linked_main
         .bindings
         .imports
