@@ -1,0 +1,51 @@
+name: Canonical Fields GREEN
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/canonical-declaration-knowledge
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustfmt
+      - name: Apply canonical field publication
+        run: python3 .github/scripts/canonical_fields_apply.py
+      - name: Format
+        run: cargo +nightly-2026-07-10 fmt --all
+      - name: Guard changed production surface
+        run: |
+          unexpected="$(git diff --name-only | grep -Ev '^phalcom-semantic/src/(checker/(declaration.rs|declaration_signature.rs)|session.rs|snapshot.rs)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "unexpected changed files:"
+            echo "$unexpected"
+            exit 1
+          fi
+      - name: Canonical field publication regression
+        run: cargo +nightly-2026-07-10 test -p phalcom-semantic --test semantic semantic::integration::declaration_knowledge::source_fields_publish_canonical_field_signatures -- --exact
+      - name: Full semantic gate
+        run: cargo +nightly-2026-07-10 test -p phalcom-semantic --test semantic
+      - name: Diff integrity
+        run: git diff --check
+      - name: Commit canonical fields
+        run: |
+          if git diff --quiet -- phalcom-semantic/src/checker/declaration.rs phalcom-semantic/src/checker/declaration_signature.rs phalcom-semantic/src/session.rs phalcom-semantic/src/snapshot.rs; then
+            echo 'canonical field publication already applied'
+            exit 0
+          fi
+          git config user.name phalcom-refactor-bot
+          git config user.email actions@users.noreply.github.com
+          git add phalcom-semantic/src/checker/declaration.rs phalcom-semantic/src/checker/declaration_signature.rs phalcom-semantic/src/session.rs phalcom-semantic/src/snapshot.rs
+          git commit -m 'refactor(semantic): publish canonical field signatures'
+          git push origin HEAD:codex/canonical-declaration-knowledge
