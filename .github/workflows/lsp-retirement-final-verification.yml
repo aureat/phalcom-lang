@@ -5,42 +5,48 @@ on:
     branches: [codex/lsp-single-world-retirement]
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CARGO_TARGET_DIR: /tmp/phalcom-lsp-retirement-final
 
 jobs:
-  structural-call-bisect:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: pre-retirement
-            ref: 9b30ec324d4361128f285154fe236e25746df750
-          - label: initial-retirement
-            ref: ec6b90ecd97347becba6c67043d80268a3b8c311
-          - label: pre-dispatch-unification
-            ref: 36bd12ebb0dc0a1e1fcf777d3583dde2b2e90c39
-          - label: dispatch-unification
-            ref: c22c9e8d36c579e383d728705a6120f9a2d36430
-          - label: lsp-green-milestone
-            ref: 5b7d3c7633fac9c09dd48056f06367a9f4902748
-          - label: current
-            ref: aa57aaf6f37de616384fd28e43b25cc596e8b9db
+  verification:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ matrix.ref }}
+          ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
-      - name: Test structural callable surface
-        shell: bash
+        with:
+          components: rustfmt
+      - name: Apply structural nominal call repair
+        run: python .github/scripts/apply-structural-nominal-call-repair.py
+      - name: Format and diff check
         run: |
-          set +e
-          cargo test -p phalcom-core --test lang functions -- --exact >/tmp/functions.log 2>&1
-          status=$?
-          cat /tmp/functions.log
-          echo "BISECT_RESULT label=${{ matrix.label }} ref=${{ matrix.ref }} status=$status"
-          exit 0
+          cargo +stable fmt --all
+          git diff --check
+      - name: Compile semantic and LSP
+        run: |
+          cargo check -p phalcom-semantic
+          cargo check -p phalcom-lsp --lib
+      - name: Validate structural callable language surface
+        run: cargo test -p phalcom-core --test lang functions -- --exact
+      - name: Validate semantic retirement regressions
+        run: cargo test -p phalcom-semantic --test semantic constructor_factory_probe -- --nocapture
+      - name: Validate complete LSP integration suite
+        run: cargo test -p phalcom-lsp --test integration -- --nocapture
+      - name: Validate semantic authority boundary
+        run: cargo test -p phalcom-lsp --test semantic_boundary -- --nocapture
+      - name: Commit validated structural callable repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add phalcom-semantic/src/checker/expression.rs
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(semantic): dispatch direct nominal callable values'
+            git pull --rebase origin codex/lsp-single-world-retirement
+            git push origin HEAD:codex/lsp-single-world-retirement
+          fi
