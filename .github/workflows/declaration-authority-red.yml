@@ -1,0 +1,19 @@
+name: Declaration Authority Red
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+jobs:
+  semantic-authority-red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Structural declaration authority regression
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::callable_signature_query_never_reconstructs_semantics_from_dispatch_surface -- --exact --nocapture
