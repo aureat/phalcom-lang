@@ -30,7 +30,7 @@ fn semantic_snapshot_publishes_relative_import_alias_path_and_provenance() {
             },
             WorkspaceSourceBatchMutation::SetOverlay {
                 source: shapes,
-                text: Arc::from("class Circle {}\n"),
+                text: Arc::from("class Circle {}\nexport Circle\n"),
                 revision: SourceRevision(1),
                 recovered_program: None,
             },
