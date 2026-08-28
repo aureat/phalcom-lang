@@ -1449,21 +1449,12 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
         .get_surface(&class)
         .cloned()
         .unwrap_or_else(|| DeclarationSurface::new(Some(class.clone())));
-    if let Ok(selector) = Selector::method("new", Vec::new())
-        && class_surface.instance.get_callable(&selector).is_none()
-    {
-        let self_type = store.self_type(SelfTypeTerm {
-            owner: class.clone(),
-            side: DispatchSide::Instance,
-            role: SelfRole::InstanceType,
-        });
-        let signature = CallableSignature::new(
-            selector,
-            Vec::new(),
-            TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics),
-        )
-        .with_kind(CallableSemanticKind::Constructor);
-        class_surface.add_callable(DispatchSide::Instance, signature);
+    let canonical_new = crate::checker::declaration_signature::canonical_core_class_new_signature(store);
+    if class_surface.instance.get_callable(&canonical_new.selector).is_none() {
+        class_surface.add_callable(
+            DispatchSide::Instance,
+            crate::checker::declaration_signature::project_semantic_signature(&canonical_new),
+        );
     }
     dispatch.register_type(declarations.form(&class).unwrap_or_else(|| store.nominal_type(class.clone())), class.clone());
     dispatch.register_surface(class, class_surface);

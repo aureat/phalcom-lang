@@ -93,6 +93,41 @@ fn parameter_fact(
     semantic
 }
 
+/// Canonical declaration for the root `Class.new()` allocator behavior.
+///
+/// The member is inherited by class objects through ordinary instance-side
+/// dispatch on `Class`; its constructor result is receiver-specialized `Self`.
+/// Standalone checker contexts project this declaration into dispatch, while
+/// workspace sessions also retain it in `CallableSignatureTable`.
+pub(crate) fn canonical_core_class_new_signature(store: &mut crate::types::store::TypeStore) -> CallableSemanticSignature {
+    let owner = DeclarationId::new(crate::identity::ModuleId::core(), "Class".into());
+    let selector = Selector::method("new", Vec::new()).expect("root Class.new selector must be valid");
+    let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+    let self_type = store.self_type(crate::types::parameter::SelfTypeTerm {
+        owner: owner.clone(),
+        side: DispatchSide::Instance,
+        role: crate::types::parameter::SelfRole::InstanceType,
+    });
+    let knowledge = TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics);
+    CallableSemanticSignature {
+        callable,
+        owner,
+        side: DispatchSide::Instance,
+        selector,
+        generics: None,
+        parameters: Vec::<CallableParameterSemantic>::new().into_boxed_slice(),
+        declared_return: DeclaredTypeFact::from_knowledge_with_basis(&knowledge, DeclaredTypeBasis::ConstructorSemantics),
+        inferred_return: None,
+        source: None,
+        implementation: phalcom_native_meta::ImplementationKind::Generated,
+        native_id: None,
+        effects: phalcom_native_meta::EffectSpec::Unknown,
+        raises: phalcom_native_meta::RaisesSpec::Unknown,
+        flow: phalcom_native_meta::ReturnFlowSpec::Value,
+        lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+    }
+}
+
 pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {
     let callable = callable_id_for_member(owner, member)?;
 

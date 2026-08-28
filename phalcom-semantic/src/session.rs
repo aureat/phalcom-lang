@@ -2,8 +2,8 @@
 
 use crate::advisory::{
     AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
-    AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace,
-    advisory_fact_from_formal, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements,
+    AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, advisory_fact_from_formal,
+    advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements,
 };
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
@@ -29,7 +29,6 @@ use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
 use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
-use crate::types::evidence::TypeKnowledge;
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::TypeParameterOwner;
@@ -164,6 +163,10 @@ impl SemanticWorkspaceSession {
         let mut base_callable_signatures = CallableSignatureTable::new();
         for (_, signature) in native_report.callable_signatures {
             base_callable_signatures.insert(signature);
+        }
+        let core_class_new = crate::checker::declaration_signature::canonical_core_class_new_signature(&mut store);
+        if base_callable_signatures.get(&core_class_new.callable).is_none() {
+            base_callable_signatures.insert(core_class_new);
         }
 
         Self {
@@ -798,10 +801,9 @@ impl SemanticWorkspaceSession {
                                                     .values()
                                                     .filter(|analysis| analysis.callable.owner == decl_id && analysis.callable.side == DispatchSide::Instance)
                                                     .filter(|analysis| {
-                                                        dispatch
-                                                            .get_surface(&decl_id)
-                                                            .and_then(|surface| surface.get_callable(DispatchSide::Class, &analysis.callable.selector))
-                                                            .is_some_and(|signature| signature.kind == crate::dispatch::CallableSemanticKind::Constructor)
+                                                        callable_signatures
+                                                            .get_for_body(&analysis.callable)
+                                                            .is_some_and(|signature| signature.is_constructor())
                                                     })
                                                     .map(AsRef::as_ref),
                                             );
@@ -946,6 +948,7 @@ impl SemanticWorkspaceSession {
             &callable_analyses,
             &self.store,
             &declarations,
+            &callable_signatures,
             &dispatch,
             &hierarchy,
             input.linked.as_ref(),
@@ -1207,6 +1210,7 @@ fn build_advisory_workspace(
     callable_analyses: &HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
     store: &TypeStore,
     declarations: &DeclarationTypeTable,
+    callable_signatures: &CallableSignatureTable,
     dispatch: &SurfaceDispatchResolver,
     hierarchy: &MapTypeHierarchy,
     linked: &LinkedProgram,
@@ -1261,21 +1265,19 @@ fn build_advisory_workspace(
         dispatch.resolve_callable_id(hierarchy, owner, side, &selector)
     };
     let resolve_formal_call_result = |callable: &CallableId, receiver: Option<&crate::advisory::ValueShape>| {
-        let signature = dispatch.get_surface(&callable.owner)?.get_callable(callable.side, &callable.selector)?;
+        let signature = callable_signatures.get(callable)?;
+        let return_knowledge = signature.published_return_knowledge();
         let shape = receiver.map_or_else(
-            || advisory_shape_from_formal(store, &signature.return_type),
-            |receiver| advisory_shape_from_formal_for_receiver(store, &signature.return_type, receiver),
+            || advisory_shape_from_formal(store, &return_knowledge),
+            |receiver| advisory_shape_from_formal_for_receiver(store, &return_knowledge, receiver),
         );
         (!matches!(shape, crate::advisory::ValueShape::Unknown)).then(|| {
             AdvisoryFact::new(shape, AdvisoryConfidence::Interprocedural)
-                .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable.clone()))
+                .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(signature.callable.clone()))
         })
     };
     let advisory_transfer_target = |callable: &CallableId| {
-        let is_constructor = dispatch
-            .get_surface(&callable.owner)
-            .and_then(|surface| surface.get_callable(callable.side, &callable.selector))
-            .is_some_and(|signature| signature.kind == crate::dispatch::CallableSemanticKind::Constructor);
+        let is_constructor = callable_signatures.get(callable).is_some_and(|signature| signature.is_constructor());
         if is_constructor && callable.side == DispatchSide::Class {
             CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Instance)
         } else {
@@ -1330,7 +1332,21 @@ fn build_advisory_workspace(
     let mut ordered_analyses = callable_analyses.values().cloned().collect::<Vec<_>>();
     ordered_analyses.sort_by(|left, right| left.callable.cmp(&right.callable));
     for analysis in &ordered_analyses {
-        formal_returns.insert(analysis.callable.clone(), advisory_return_fact(store, analysis));
+        let fact = callable_signatures
+            .get_for_body(&analysis.callable)
+            .map(|signature| {
+                let return_knowledge = signature.published_return_knowledge();
+                let shape = if signature.is_constructor() {
+                    let receiver = crate::advisory::ValueShape::ClassObject(signature.owner.clone());
+                    advisory_shape_from_formal_for_receiver(store, &return_knowledge, &receiver)
+                } else {
+                    advisory_shape_from_formal(store, &return_knowledge)
+                };
+                AdvisoryFact::new(shape, AdvisoryConfidence::Interprocedural)
+                    .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(signature.callable.clone()))
+            })
+            .unwrap_or_else(AdvisoryFact::unknown);
+        formal_returns.insert(analysis.callable.clone(), fact);
     }
 
     let mut parameter_facts = BTreeMap::new();
@@ -1780,21 +1796,6 @@ fn callable_parameter_bindings<'a>(
     bindings
 }
 
-fn advisory_return_fact(store: &TypeStore, analysis: &crate::checker::CallableAnalysis) -> AdvisoryFact {
-    if analysis.exits.normal_return_values.is_empty() {
-        return AdvisoryFact::unknown();
-    }
-    let mut result = None;
-    for knowledge in &analysis.exits.normal_return_values {
-        let fact = match knowledge {
-            TypeKnowledge::Known(_) => advisory_fact_from_formal(store, knowledge, AdvisoryOrigin::Callable(analysis.callable.clone())),
-            TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_) => AdvisoryFact::unknown(),
-        };
-        result = Some(result.map_or(fact.clone(), |current: AdvisoryFact| current.join(&fact)));
-    }
-    result.unwrap_or_else(AdvisoryFact::unknown)
-}
-
 fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) -> AdvisoryTargetResolution {
     let origin = match target {
         SemanticTargetId::Binding(_) => AdvisoryOrigin::Binding(site.clone()),
@@ -1822,10 +1823,9 @@ fn advisory_status(status: crate::checker::CallableAnalysisStatus) -> AdvisoryPr
     }
 }
 
-/// Propagates body-derived return summaries through source dispatch. Source
-/// declaration surfaces are intentionally built before body checking, so this
-/// small fixed-point pass is required for calls such as `Probe.run ->
-/// Factory.of -> CellNum.new`.
+/// Publishes body-derived return summaries into canonical callable signatures,
+/// then refreshes dispatch as a derived lookup projection. The fixed-point pass
+/// is required for calls such as `Probe.run -> Factory.of -> CellNum.new`.
 fn refresh_inferred_callable_results(
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     store: &mut TypeStore,
@@ -1852,43 +1852,32 @@ fn refresh_inferred_callable_results(
         let candidates = callable_analyses
             .iter()
             .filter_map(|(callable, analysis)| {
-                let surface = dispatch.surfaces().get(&callable.owner)?;
-                let signature = surface.get_callable(callable.side, &callable.selector).or_else(|| {
-                    (callable.side == crate::identity::DispatchSide::Instance)
-                        .then(|| surface.get_callable(crate::identity::DispatchSide::Class, &callable.selector))
-                        .flatten()
-                })?;
-                if !signature.return_type.is_unknown() {
+                let signature = callable_signatures.get_for_body(callable)?;
+                if !signature.published_return_knowledge().is_unknown() {
                     return None;
                 }
-                Some((callable.clone(), analysis.exits.normal_return_values.clone()))
+                Some((callable.clone(), signature.callable.clone(), analysis.exits.normal_return_values.clone()))
             })
             .collect::<Vec<_>>();
 
         let mut changed_callables = HashSet::new();
-        for (callable, values) in candidates {
+        for (callable, signature_id, values) in candidates {
             let summary = normal_return_summary(store, &values);
             if !summary.is_known() {
                 continue;
             }
-            if !dispatch.update_callable_return_type(&callable, summary.clone()) {
+            let Some(signature) = callable_signatures.get_mut(&signature_id) else {
+                continue;
+            };
+            if signature.inferred_return.as_ref() == Some(&summary) {
                 continue;
             }
+            signature.inferred_return = Some(summary.clone());
             changed_callables.insert(callable.clone());
 
-            let signature_id = if callable_signatures.get(&callable).is_some() {
-                Some(callable.clone())
-            } else if callable.side == DispatchSide::Instance {
-                let class_side = CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Class);
-                callable_signatures.get(&class_side).is_some().then_some(class_side)
-            } else {
-                None
-            };
-            if let Some(signature_id) = signature_id
-                && let Some(signature) = callable_signatures.get_mut(&signature_id)
-            {
-                signature.inferred_return = Some(summary.clone());
-            }
+            // Dispatch is a derived lookup projection. Failure to update that
+            // projection must never suppress canonical semantic publication.
+            let _ = dispatch.update_callable_return_type(&signature_id, summary);
         }
 
         if changed_callables.is_empty() {
@@ -1959,17 +1948,7 @@ fn refresh_inferred_callable_results(
                     if !affected {
                         continue;
                     }
-                    let signature_id = if callable_signatures.get(&callable).is_some() {
-                        Some(callable.clone())
-                    } else if callable.side == DispatchSide::Instance {
-                        let class_side = CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Class);
-                        callable_signatures.get(&class_side).is_some().then_some(class_side)
-                    } else {
-                        None
-                    };
-                    let declared_signature = signature_id
-                        .as_ref()
-                        .and_then(|signature_id| callable_signatures.get(signature_id).map(|signature| (signature_id, signature)));
+                    let declared_signature = callable_signatures.get_for_body(&callable).map(|signature| (&signature.callable, signature));
                     let mut analysis = crate::checker::body::analyze_callable_body_with_fields(
                         callable.clone(),
                         body,

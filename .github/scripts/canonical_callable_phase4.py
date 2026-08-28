@@ -288,7 +288,14 @@ for forbidden in (
     if forbidden in text:
         raise SystemExit(f"reverse callable authority remains: {forbidden}")
 
-if text.count("callable_signatures.get_for_body") < 4:
-    raise SystemExit("canonical body-signature lookup not installed at all intended authority sites")
+required_after = {
+    "field lifecycle constructor authority": "callable_signatures\n                                                            .get_for_body(&analysis.callable)",
+    "advisory formal return authority": "let fact = callable_signatures\n            .get_for_body(&analysis.callable)",
+    "inferred return authority": "let signature = callable_signatures.get_for_body(callable)?;",
+    "body recheck authority": "let declared_signature = callable_signatures\n                        .get_for_body(&callable)",
+}
+for label, snippet in required_after.items():
+    if snippet not in text:
+        raise SystemExit(f"missing canonical authority site: {label}")
 
 path.write_text(text)
