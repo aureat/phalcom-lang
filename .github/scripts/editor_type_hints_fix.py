@@ -170,6 +170,6 @@ assert "CallablePresentation::from_signature" in backend
 assert "signature.return_type" not in backend
 assert "CallablePresentation::from_signature" in signature_help
 assert "signature.return_type" not in signature_help
-assert "&parameter.ty" not in signature_help
+assert "compiler_term_text(&parameter.ty" not in signature_help
 assert ".editor().type_hints(" in text
 assert "matches!(hint.formal," not in text
