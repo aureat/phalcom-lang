@@ -158,11 +158,11 @@ fn callable_surfaces_use_shared_canonical_presentation() {
             !source.contains("signature.return_type"),
             "{name} must not read the removed dispatch-era return_type field from CallableSemanticSignature"
         );
-        assert!(
-            !source.contains("&parameter.ty"),
-            "{name} must not read the removed dispatch-era parameter.ty field from CallableParameterSemantic"
-        );
     }
+    assert!(
+        !signature_help.contains("compiler_term_text(&parameter.ty"),
+        "signature help must not decode the removed CallableParameterSemantic.ty field"
+    );
     assert!(
         backend.contains("CallablePresentation::from_signature"),
         "hover return presentation must come from the shared compiler-owned callable projection"
