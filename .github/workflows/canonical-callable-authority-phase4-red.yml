@@ -1,0 +1,19 @@
+name: Canonical Callable Authority Phase 4 RED
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge-phase4-red
+  pull_request:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+jobs:
+  red:
+    if: github.head_ref == 'codex/canonical-declaration-knowledge-phase4-red' || github.ref_name == 'codex/canonical-declaration-knowledge-phase4-red'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Run declaration authority regression
+        run: cargo +nightly test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::advisory_and_return_refresh_read_canonical_signatures_not_dispatch_surfaces -- --exact
