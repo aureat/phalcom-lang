@@ -114,14 +114,13 @@ new = '''            ClassMember::Field(_) => {
                 };
                 surface.add_field_with_visibility(
                     signature.side,
-                    &signature.name,
+                    signature.name.as_ref(),
                     super::declaration_signature::project_field_signature(&signature),
                     visibility,
                 );
             }
 '''
 text = replace_once(text, old, new, "field surface projection")
-text = text.replace("use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};", "use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};")
 path.write_text(text)
 
 # 3. Snapshot owns canonical field signatures, with backwards-compatible
@@ -140,7 +139,6 @@ text = replace_once(
     "    pub callable_signatures: Arc<CallableSignatureTable>,\n    pub field_signatures: Arc<FieldSignatureTable>,\n    pub declarations: Arc<DeclarationTypeTable>,\n",
     "snapshot field signature storage",
 )
-# Both snapshot constructors initialize the new table.
 needle = "            callable_signatures,\n            declarations,\n"
 replacement = "            callable_signatures,\n            field_signatures: Arc::new(FieldSignatureTable::new()),\n            declarations,\n"
 if text.count(needle) != 2 and text.count(replacement) != 2:
@@ -216,7 +214,6 @@ new = '''            let previous_callables = previous.callable_signatures.iter(
 text = replace_once(text, old, new, "declaration index field identity")
 path.write_text(text)
 
-# Architectural postconditions.
 if "field_resolver" in Path("phalcom-semantic/src/checker/declaration.rs").read_text():
     raise SystemExit("field declaration still owns a parallel source->dispatch resolver")
 if "field_signatures: Arc<FieldSignatureTable>" not in Path("phalcom-semantic/src/snapshot.rs").read_text():
