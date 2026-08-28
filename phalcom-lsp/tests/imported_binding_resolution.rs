@@ -181,3 +181,75 @@ async fn imported_binding_definition_crosses_module_boundary_at_declaration_and_
         "the imported binding use must preserve the same canonical declaration target"
     );
 }
+
+#[tokio::test]
+async fn unresolved_selective_import_does_not_fabricate_local_reference_identity() {
+    let workspace = ScratchWorkspace::new();
+    let main_path = workspace.write("main.ph", "from .missing import Circle\n\nlet circle = Circle\n");
+
+    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
+    let (server_read, server_write) = tokio::io::split(server_end);
+    let (service, socket) = LspService::new(Backend::new);
+    tokio::spawn(async move {
+        Server::new(server_read, server_write, socket).serve(service).await;
+    });
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "processId": null,
+                "rootUri": workspace.uri(),
+                "capabilities": {}
+            }
+        }),
+    )
+    .await;
+    let _ = read_response(&mut client_end, 1).await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
+
+    let main_text = std::fs::read_to_string(&main_path).unwrap();
+    let main_uri = Url::from_file_path(&main_path).unwrap().to_string();
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": main_uri,
+                    "languageId": "phalcom",
+                    "version": 1,
+                    "text": main_text
+                }
+            }
+        }),
+    )
+    .await;
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": main_uri },
+                "position": { "line": 0, "character": 22 },
+                "context": { "includeDeclaration": true }
+            }
+        }),
+    )
+    .await;
+
+    let response = read_response(&mut client_end, 2).await;
+    assert!(response["error"].is_null(), "unresolved import references must fail closed without protocol error");
+    assert!(
+        response["result"].is_null() || response["result"].as_array().is_some_and(Vec::is_empty),
+        "unresolved imported names must not be given an LSP-local semantic identity: {response:#?}"
+    );
+}
