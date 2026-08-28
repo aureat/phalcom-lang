@@ -12,66 +12,35 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  branch-stress:
+  structural-call-bisect:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: pre-retirement
+            ref: 9b30ec324d4361128f285154fe236e25746df750
+          - label: initial-retirement
+            ref: ec6b90ecd97347becba6c67043d80268a3b8c311
+          - label: pre-dispatch-unification
+            ref: 36bd12ebb0dc0a1e1fcf777d3583dde2b2e90c39
+          - label: dispatch-unification
+            ref: c22c9e8d36c579e383d728705a6120f9a2d36430
+          - label: lsp-green-milestone
+            ref: 5b7d3c7633fac9c09dd48056f06367a9f4902748
+          - label: current
+            ref: aa57aaf6f37de616384fd28e43b25cc596e8b9db
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: codex/lsp-single-world-retirement
+          ref: ${{ matrix.ref }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Stress branch functions groups
+      - name: Test structural callable surface
+        shell: bash
         run: |
           set +e
-          function_failures=0
-          negative_failures=0
-          for i in $(seq 1 20); do
-            cargo test -p phalcom-core --test lang functions -- --exact >/tmp/functions.log 2>&1
-            status=$?
-            if [ $status -ne 0 ]; then
-              function_failures=$((function_failures + 1))
-              echo "BRANCH functions failure iteration=$i"
-              tail -n 80 /tmp/functions.log
-            fi
-            cargo test -p phalcom-core --test lang functions_negative -- --exact >/tmp/functions-negative.log 2>&1
-            status=$?
-            if [ $status -ne 0 ]; then
-              negative_failures=$((negative_failures + 1))
-              echo "BRANCH functions_negative failure iteration=$i"
-              tail -n 80 /tmp/functions-negative.log
-            fi
-          done
-          echo "BRANCH_RESULT functions=$function_failures/20 functions_negative=$negative_failures/20"
-          exit 0
-
-  main-stress:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Stress main functions groups
-        run: |
-          set +e
-          function_failures=0
-          negative_failures=0
-          for i in $(seq 1 20); do
-            cargo test -p phalcom-core --test lang functions -- --exact >/tmp/functions.log 2>&1
-            status=$?
-            if [ $status -ne 0 ]; then
-              function_failures=$((function_failures + 1))
-              echo "MAIN functions failure iteration=$i"
-              tail -n 80 /tmp/functions.log
-            fi
-            cargo test -p phalcom-core --test lang functions_negative -- --exact >/tmp/functions-negative.log 2>&1
-            status=$?
-            if [ $status -ne 0 ]; then
-              negative_failures=$((negative_failures + 1))
-              echo "MAIN functions_negative failure iteration=$i"
-              tail -n 80 /tmp/functions-negative.log
-            fi
-          done
-          echo "MAIN_RESULT functions=$function_failures/20 functions_negative=$negative_failures/20"
+          cargo test -p phalcom-core --test lang functions -- --exact >/tmp/functions.log 2>&1
+          status=$?
+          cat /tmp/functions.log
+          echo "BISECT_RESULT label=${{ matrix.label }} ref=${{ matrix.ref }} status=$status"
           exit 0
