@@ -43,6 +43,8 @@ jobs:
         run: cargo test -p phalcom-semantic
       - name: Validate complete modules suite
         run: cargo test -p phalcom-modules
+      - name: Validate canonical module navigation regression
+        run: cargo test -p phalcom-lsp --test module_navigation goto_definition_on_relative_import_path_and_selective_export -- --nocapture
       - name: Validate complete LSP suite
         run: cargo test -p phalcom-lsp
       - name: Validate semantic authority boundary explicitly
