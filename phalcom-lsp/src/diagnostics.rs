@@ -72,9 +72,7 @@ pub fn semantic_diagnostic_to_lsp_diagnostic_with_sources(
             sources.get(&label.span.module)
         };
         let (label_uri, label_index) = source.map(|source| (&source.uri, &source.line_index)).unwrap_or((primary_uri, primary_index));
-        let message = if source.is_some() {
-            label.message.clone()
-        } else if label.span.module == diag.primary.module {
+        let message = if source.is_some() || label.span.module == diag.primary.module {
             label.message.clone()
         } else {
             format!("{} (source module {})", label.message, label.span.module)

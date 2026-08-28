@@ -32,9 +32,7 @@ impl FieldLifecycleTable {
             flow.seed_field(FieldState {
                 field: fact.field.clone(),
                 contract: fact.contract.clone(),
-                current: if constructor {
-                    fact.read_knowledge.clone()
-                } else if fact.initialization == FieldInitialization::DefinitelyInitialized {
+                current: if constructor || fact.initialization == FieldInitialization::DefinitelyInitialized {
                     fact.read_knowledge.clone()
                 } else {
                     TypeKnowledge::Unknown(UnknownReason::MissingInitializer)

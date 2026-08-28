@@ -1,10 +1,10 @@
 //! Compiler-owned, protocol-neutral semantic queries for editor features.
 
-use crate::advisory::ValueShape;
-use crate::advisory::advisory_shape_from_formal;
+use crate::advisory::{AdvisoryFact, ValueShape, advisory_shape_from_formal};
 use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
+use crate::presentation::{CallablePresentation, FieldPresentation, FormalFactStatus, FormalPresentation, TypePresenter, present_declared_type};
 use crate::snapshot::SemanticSnapshot;
-use crate::source_index::{OccurrenceHint, OccurrenceRole, SourceBindingInfo};
+use crate::source_index::{OccurrenceHint, OccurrenceRole, SourceBindingInfo, SourceBindingKind};
 use crate::surface::MemberVisibility;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::relation::TypeHierarchy;
@@ -94,6 +94,29 @@ pub struct NativeCallablePresentation {
     pub conceptual: Option<&'static str>,
 }
 
+/// Compiler-owned category for a source type hint.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum EditorTypeHintKind {
+    Binding,
+    Parameter,
+    Field,
+    Return,
+}
+
+/// Protocol-neutral type hint projection.
+///
+/// Formal and advisory channels remain separate. An advisory shape may explain
+/// an otherwise unknown formal position, but it never replaces formal truth.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EditorTypeHint {
+    pub kind: EditorTypeHintKind,
+    pub source_range: SourceRange,
+    pub insertion_offset: usize,
+    pub target: Option<SemanticTargetId>,
+    pub formal: Option<FormalPresentation>,
+    pub advisory: Option<AdvisoryFact>,
+}
+
 /// Read-only editor query facade over one immutable semantic snapshot.
 #[derive(Clone, Copy, Debug)]
 pub struct EditorSemanticQuery<'a> {
@@ -103,6 +126,164 @@ pub struct EditorSemanticQuery<'a> {
 impl<'a> EditorSemanticQuery<'a> {
     pub(crate) fn new(snapshot: &'a SemanticSnapshot) -> Self {
         Self { snapshot }
+    }
+
+    /// Returns compiler-owned protocol-neutral presentation for one callable.
+    pub fn callable_presentation(&self, callable: &CallableId) -> Option<CallablePresentation> {
+        let signature = self.snapshot.callable_signatures.get(callable)?;
+        let source = self.snapshot.source_index.callable_source(callable);
+        let presenter = TypePresenter::new(&self.snapshot.store);
+        Some(CallablePresentation::from_signature(signature, source, &presenter))
+    }
+
+    /// Returns compiler-owned protocol-neutral presentation for one field.
+    pub fn field_presentation(&self, field: &FieldId) -> Option<FieldPresentation> {
+        let signature = self.snapshot.field_signatures.get(field)?;
+        let presenter = TypePresenter::new(&self.snapshot.store);
+        Some(FieldPresentation::from_signature(signature, &presenter))
+    }
+
+    /// Returns compiler-owned type hints within one source range.
+    ///
+    /// Annotation truth, canonical declaration/binding identity, and the formal
+    /// versus advisory distinction are decided here. Protocol adapters may
+    /// suppress hints for presentation preferences but must not reconstruct
+    /// semantic eligibility from the AST.
+    pub fn type_hints(&self, module: &ModuleId, visible: SourceRange) -> Vec<EditorTypeHint> {
+        let Some(source) = self.snapshot.source_index.module(module) else {
+            return Vec::new();
+        };
+        let presenter = TypePresenter::new(&self.snapshot.store);
+        let mut hints = Vec::new();
+
+        for binding in source.structure.bindings.values() {
+            if matches!(
+                binding.kind,
+                SourceBindingKind::Import | SourceBindingKind::MethodParameter | SourceBindingKind::SetterParameter | SourceBindingKind::IndexParameter
+            ) || binding.has_explicit_annotation
+                || !ranges_overlap(binding.declaration_range, visible)
+            {
+                continue;
+            }
+            let formal = self.formal_binding_presentation(&binding.declaration_site, &presenter);
+            let advisory = self.snapshot.advisory_fact(&binding.declaration_site).cloned();
+            if !type_hint_has_usable_evidence(formal.as_ref(), advisory.as_ref()) {
+                continue;
+            }
+            hints.push(EditorTypeHint {
+                kind: EditorTypeHintKind::Binding,
+                source_range: binding.declaration_range,
+                insertion_offset: binding.declaration_range.end,
+                target: source.structure.target_for(&binding.declaration_site).cloned(),
+                formal,
+                advisory,
+            });
+        }
+
+        for field in source.structure.field_sources.values() {
+            if field.has_explicit_annotation || !ranges_overlap(field.name_range, visible) {
+                continue;
+            }
+            let formal = self
+                .snapshot
+                .field_signatures
+                .get(&field.id)
+                .map(|signature| present_declared_type(&signature.declared_type, &presenter));
+            let advisory = self.snapshot.advisory.field(&field.id).cloned();
+            if !type_hint_has_usable_evidence(formal.as_ref(), advisory.as_ref()) {
+                continue;
+            }
+            hints.push(EditorTypeHint {
+                kind: EditorTypeHintKind::Field,
+                source_range: field.name_range,
+                insertion_offset: field.name_range.end,
+                target: Some(SemanticTargetId::Field(field.id.clone())),
+                formal,
+                advisory,
+            });
+        }
+
+        for callable in source.structure.callable_sources.values() {
+            let Some(signature) = self.snapshot.callable_signatures.get(&callable.id) else {
+                continue;
+            };
+            let advisory = self.snapshot.advisory_callable(&callable.id);
+
+            for parameter in signature.parameters.iter() {
+                let Some(site) = callable.parameter_sites.get(&parameter.id) else {
+                    continue;
+                };
+                let Some(binding) = source.structure.bindings.get(site) else {
+                    continue;
+                };
+                if binding.has_explicit_annotation || !ranges_overlap(binding.declaration_range, visible) {
+                    continue;
+                }
+                let formal = Some(present_declared_type(&parameter.declared_type, &presenter));
+                let advisory = advisory
+                    .and_then(|summary| summary.parameters.iter().find(|(slot, _)| slot == &parameter.id).map(|(_, fact)| fact))
+                    .cloned();
+                if !type_hint_has_usable_evidence(formal.as_ref(), advisory.as_ref()) {
+                    continue;
+                }
+                hints.push(EditorTypeHint {
+                    kind: EditorTypeHintKind::Parameter,
+                    source_range: binding.declaration_range,
+                    insertion_offset: binding.declaration_range.end,
+                    target: source.structure.target_for(site).cloned(),
+                    formal,
+                    advisory,
+                });
+            }
+
+            if callable.has_explicit_return_annotation {
+                continue;
+            }
+            let insertion_offset = source
+                .structure
+                .callable_body_ranges
+                .get(&callable.id)
+                .map_or(callable.declaration_range.end, |range| range.end);
+            if insertion_offset < visible.start || insertion_offset > visible.end {
+                continue;
+            }
+            let formal = Some(presenter.present_knowledge(&signature.published_return_knowledge()));
+            let advisory = advisory.map(|summary| summary.return_fact.clone());
+            if !type_hint_has_usable_evidence(formal.as_ref(), advisory.as_ref()) {
+                continue;
+            }
+            hints.push(EditorTypeHint {
+                kind: EditorTypeHintKind::Return,
+                source_range: callable.declaration_range,
+                insertion_offset,
+                target: Some(SemanticTargetId::Callable(callable.id.clone())),
+                formal,
+                advisory,
+            });
+        }
+
+        hints.sort_by_key(|hint| (hint.insertion_offset, hint.kind));
+        hints
+    }
+
+    fn formal_binding_presentation(&self, site: &SourceSiteId, presenter: &TypePresenter<'_>) -> Option<FormalPresentation> {
+        let fact_ref = self.snapshot.formal_fact_for_site(site)?;
+        let fact_site = self.snapshot.formal_fact(&fact_ref)?;
+        let knowledge = match &fact_ref {
+            crate::presentation::FormalFactRef::Binding { callable, binding } => self.snapshot.formal_binding(callable, *binding)?.current.clone(),
+            _ => return None,
+        };
+        Some(match fact_site.status {
+            FormalFactStatus::Ready => presenter.present_knowledge(&knowledge),
+            FormalFactStatus::Unknown => FormalPresentation::Unknown,
+            FormalFactStatus::Dynamic => FormalPresentation::Dynamic,
+            FormalFactStatus::Invalid | FormalFactStatus::InvalidMultiple => FormalPresentation::Invalid,
+            FormalFactStatus::Blocked => FormalPresentation::Blocked,
+            FormalFactStatus::Cancelled => FormalPresentation::Cancelled,
+            FormalFactStatus::BudgetExceeded => FormalPresentation::BudgetExceeded,
+            FormalFactStatus::InternalFailure => FormalPresentation::InternalFailure,
+            FormalFactStatus::Partial => FormalPresentation::Partial,
+        })
     }
 
     /// Returns compiler-owned native presentation metadata for one callable.
@@ -257,7 +438,7 @@ impl<'a> EditorSemanticQuery<'a> {
         });
         let mut alternatives = Vec::new();
         if let Some(ref shape) = shape {
-            collect_receiver_alternatives(&shape, &mut alternatives);
+            collect_receiver_alternatives(shape, &mut alternatives);
         }
         if alternatives.is_empty()
             && let Some(SemanticTargetId::Declaration(declaration)) = target.as_ref()
@@ -391,7 +572,7 @@ impl<'a> EditorSemanticQuery<'a> {
                 }
             }
         }
-        members.sort_by(|left, right| member_sort_key(left).cmp(&member_sort_key(right)));
+        members.sort_by_key(member_sort_key);
         members.dedup_by(|left, right| left.target == right.target);
         members
     }
@@ -477,6 +658,20 @@ impl<'a> EditorSemanticQuery<'a> {
         symbols.sort_by(|left, right| left.name.cmp(&right.name));
         symbols
     }
+}
+
+fn ranges_overlap(left: SourceRange, right: SourceRange) -> bool {
+    left.start <= right.end && right.start <= left.end
+}
+
+fn type_hint_has_usable_evidence(formal: Option<&FormalPresentation>, advisory: Option<&AdvisoryFact>) -> bool {
+    if matches!(formal, Some(FormalPresentation::Known(_) | FormalPresentation::Dynamic)) {
+        return true;
+    }
+    if formal.is_some() && !matches!(formal, Some(FormalPresentation::Unknown)) {
+        return false;
+    }
+    advisory.is_some_and(|fact| !matches!(fact.shape, ValueShape::Unknown))
 }
 
 fn collect_receiver_alternatives(shape: &ValueShape, alternatives: &mut Vec<ReceiverAlternative>) {

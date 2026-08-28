@@ -433,24 +433,21 @@ impl CfgBuilder {
 
 fn positional_block(args: &[PackItem], index: usize) -> Option<&BlockExpr> {
     match args.get(index)? {
-        PackItem::Positional { expr, .. } => match expr {
-            Expr::Block(block) => Some(block),
-            _ => None,
-        },
+        PackItem::Positional { expr: Expr::Block(block), .. } => Some(block),
         _ => None,
     }
 }
 
 fn labeled_block<'a>(args: &'a [PackItem], label_name: &str) -> Option<&'a BlockExpr> {
     for arg in args {
-        if let PackItem::Labeled { label, value, .. } = arg {
-            if let phalcom_ast::ast::PackLabel::Static { text, .. } = label {
-                if text == label_name {
-                    if let Expr::Block(block) = value {
-                        return Some(block);
-                    }
-                }
-            }
+        if let PackItem::Labeled {
+            label: phalcom_ast::ast::PackLabel::Static { text, .. },
+            value: Expr::Block(block),
+            ..
+        } = arg
+            && text == label_name
+        {
+            return Some(block);
         }
     }
     None
@@ -458,10 +455,12 @@ fn labeled_block<'a>(args: &'a [PackItem], label_name: &str) -> Option<&'a Block
 
 fn has_labeled_arg(args: &[PackItem], label_name: &str) -> bool {
     args.iter().any(|arg| {
-        if let PackItem::Labeled { label, .. } = arg {
-            if let phalcom_ast::ast::PackLabel::Static { text, .. } = label {
-                return text == label_name;
-            }
+        if let PackItem::Labeled {
+            label: phalcom_ast::ast::PackLabel::Static { text, .. },
+            ..
+        } = arg
+        {
+            return text == label_name;
         }
         false
     })

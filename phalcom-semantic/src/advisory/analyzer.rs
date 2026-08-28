@@ -19,6 +19,11 @@ use crate::source_index::{SourceNameResolution, SourceScopeId, SourceScopeIndex}
 use super::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, CapturedMethodFamilyShape, ValueShape};
 use phalcom_ast::ast::NormalizedSelectorSpec;
 
+pub(crate) type CallableForShapeResolver<'a> = &'a dyn Fn(&ValueShape, &str, &[PackItem]) -> Option<CallableId>;
+pub(crate) type FormalCallResultResolver<'a> = &'a dyn Fn(&CallableId, Option<&ValueShape>) -> Option<AdvisoryFact>;
+pub(crate) type ModuleMemberResolver<'a> = &'a dyn Fn(&ValueShape, &str) -> Option<ValueShape>;
+pub(crate) type MethodFamilyResolver<'a> = &'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>;
+
 /// Canonical builtin declarations used for literal facts.
 ///
 /// Missing entries remain unknown. Advisory code never fabricates a class
@@ -70,17 +75,17 @@ pub struct AdvisoryExpressionContext<'a> {
     pub resolved_callable_for_range: &'a dyn Fn(SourceRange) -> Option<CallableId>,
     /// Resolves a method call from an advisory receiver shape through the
     /// compiler dispatch adapter when no formal call attachment is available.
-    pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    pub resolve_callable_for_shape: Option<CallableForShapeResolver<'a>>,
     /// Projects a canonical callable's formal result against the concrete receiver.
-    pub resolve_formal_call_result: Option<&'a dyn Fn(&CallableId, Option<&ValueShape>) -> Option<AdvisoryFact>>,
+    pub resolve_formal_call_result: Option<FormalCallResultResolver<'a>>,
     /// Maps a public callable identity to the compiler-owned advisory transfer/summary identity.
     pub advisory_transfer_target: Option<&'a dyn Fn(&CallableId) -> CallableId>,
     /// Resolves a member of a compiler-linked module shape. This is kept
     /// separate from method dispatch because top-level module exports have no
     /// callable formal attachment of their own.
-    pub resolve_module_member: Option<&'a dyn Fn(&ValueShape, &str) -> Option<ValueShape>>,
+    pub resolve_module_member: Option<ModuleMemberResolver<'a>>,
     /// Canonical dispatch adapter for method-family references.
-    pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
+    pub resolve_method_family: Option<MethodFamilyResolver<'a>>,
     /// Observes resolved call arguments for compiler-owned parameter transfer.
     pub call_observer: Option<&'a dyn Fn(AdvisoryCallObservation)>,
     /// Observes every nested expression fact for source-site publication.
@@ -298,8 +303,8 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
         Expr::Unary(unary) => {
             let operand = analyze_expr(&unary.expr, context);
             if matches!(unary.op, phalcom_ast::ast::UnaryOp::Not) {
-                if let Some(value) = operand.literal.and_then(|literal| match literal {
-                    super::AdvisoryLiteral::Bool(value) => Some(value),
+                if let Some(value) = operand.literal.map(|literal| match literal {
+                    super::AdvisoryLiteral::Bool(value) => value,
                 }) {
                     let mut fact = literal(context, context.builtins.boolean.clone(), range);
                     fact.literal = Some(super::AdvisoryLiteral::Bool(!value));

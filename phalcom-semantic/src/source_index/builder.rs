@@ -1,7 +1,6 @@
 //! AST-to-source-scope construction under compiler ownership.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 use crate::identity::{
     CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId,
@@ -35,6 +34,19 @@ pub struct SourceIndexContext {
     /// Resolution is performed by the compiler type resolver before occurrence
     /// construction; the source index only publishes the resulting identity.
     pub type_reference_targets: BTreeMap<(ModuleId, SourceRange), DeclarationId>,
+}
+
+struct CallableVisit<'a> {
+    parent: SourceScopeId,
+    callable: CallableId,
+    name_range: SourceRange,
+    declaration_range: SourceRange,
+    body_range: SourceRange,
+    parameters: &'a [phalcom_ast::ast::ParameterDef],
+    body: &'a MemberBody,
+    parameter_kind: SourceBindingKind,
+    kind: SourceCallableKind,
+    has_explicit_return_annotation: bool,
 }
 
 impl SourceIndexContext {
@@ -283,6 +295,18 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn declare(&mut self, scope: SourceScopeId, name: impl Into<Box<str>>, kind: SourceBindingKind, range: SourceRange, mutable: bool) -> SourceSiteId {
+        self.declare_with_annotation(scope, name, kind, range, mutable, false)
+    }
+
+    fn declare_with_annotation(
+        &mut self,
+        scope: SourceScopeId,
+        name: impl Into<Box<str>>,
+        kind: SourceBindingKind,
+        range: SourceRange,
+        mutable: bool,
+        has_explicit_annotation: bool,
+    ) -> SourceSiteId {
         let name = name.into();
         let first = self.index.scopes.get(&scope).and_then(|scope| scope.bindings.get(&name)).cloned();
         let site = self.allocate_site(self.current_owner.clone(), range, SourceSiteKind::BindingDeclaration);
@@ -294,6 +318,7 @@ impl SourceScopeBuilder<'_> {
             name: name.clone(),
             kind,
             declaration_range: range,
+            has_explicit_annotation,
             mutable,
             redeclaration_of: first,
         });
@@ -410,22 +435,22 @@ impl SourceScopeBuilder<'_> {
                 let Some(callable) = self.method_callable(declaration, method, is_constructor, member_side) else {
                     return;
                 };
-                self.visit_callable(
+                self.visit_callable(CallableVisit {
                     parent,
                     callable,
-                    method.name_range,
+                    name_range: method.name_range,
                     declaration_range,
-                    method.range,
-                    &method.params,
-                    &method.body,
-                    SourceBindingKind::MethodParameter,
-                    if is_constructor {
+                    body_range: method.range,
+                    parameters: &method.params,
+                    body: &method.body,
+                    parameter_kind: SourceBindingKind::MethodParameter,
+                    kind: if is_constructor {
                         SourceCallableKind::Constructor
                     } else {
                         SourceCallableKind::Method
                     },
-                    method.return_annotation.is_some(),
-                );
+                    has_explicit_return_annotation: method.return_annotation.is_some(),
+                });
             }
             ClassMember::Getter(getter) => {
                 let Some(callable) = Selector::getter(&getter.name)
@@ -434,18 +459,18 @@ impl SourceScopeBuilder<'_> {
                 else {
                     return;
                 };
-                self.visit_callable(
+                self.visit_callable(CallableVisit {
                     parent,
                     callable,
-                    getter.name_range,
+                    name_range: getter.name_range,
                     declaration_range,
-                    getter.range,
-                    &[],
-                    &getter.body,
-                    SourceBindingKind::MethodParameter,
-                    SourceCallableKind::Getter,
-                    getter.return_annotation.is_some(),
-                );
+                    body_range: getter.range,
+                    parameters: &[],
+                    body: &getter.body,
+                    parameter_kind: SourceBindingKind::MethodParameter,
+                    kind: SourceCallableKind::Getter,
+                    has_explicit_return_annotation: getter.return_annotation.is_some(),
+                });
             }
             ClassMember::Setter(setter) => {
                 let Some(callable) = Selector::setter(&setter.name)
@@ -454,18 +479,18 @@ impl SourceScopeBuilder<'_> {
                 else {
                     return;
                 };
-                self.visit_callable(
+                self.visit_callable(CallableVisit {
                     parent,
                     callable,
-                    setter.name_range,
+                    name_range: setter.name_range,
                     declaration_range,
-                    setter.range,
-                    std::slice::from_ref(&setter.param),
-                    &setter.body,
-                    SourceBindingKind::SetterParameter,
-                    SourceCallableKind::Setter,
-                    setter.return_annotation.is_some(),
-                );
+                    body_range: setter.range,
+                    parameters: std::slice::from_ref(&setter.param),
+                    body: &setter.body,
+                    parameter_kind: SourceBindingKind::SetterParameter,
+                    kind: SourceCallableKind::Setter,
+                    has_explicit_return_annotation: setter.return_annotation.is_some(),
+                });
             }
             ClassMember::Index(index) => {
                 let slots = index.params.iter().map(parameter_slot).collect::<Vec<_>>();
@@ -479,21 +504,21 @@ impl SourceScopeBuilder<'_> {
                 if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
                     parameters.push((**put).clone());
                 }
-                self.visit_callable(
+                self.visit_callable(CallableVisit {
                     parent,
                     callable,
-                    index.name_range,
+                    name_range: index.name_range,
                     declaration_range,
-                    index.range,
-                    &parameters,
-                    &MemberBody::Block(index.body.clone()),
-                    SourceBindingKind::IndexParameter,
-                    match &index.accessor {
+                    body_range: index.range,
+                    parameters: &parameters,
+                    body: &MemberBody::Block(index.body.clone()),
+                    parameter_kind: SourceBindingKind::IndexParameter,
+                    kind: match &index.accessor {
                         phalcom_ast::ast::IndexAccessor::Get => SourceCallableKind::IndexGet,
                         phalcom_ast::ast::IndexAccessor::Set { .. } => SourceCallableKind::IndexSet,
                     },
-                    index.return_annotation.is_some(),
-                );
+                    has_explicit_return_annotation: index.return_annotation.is_some(),
+                });
             }
             ClassMember::Field(field) => {
                 let field_id = FieldId::new(declaration.clone(), field.name.clone(), member_side);
@@ -534,19 +559,19 @@ impl SourceScopeBuilder<'_> {
             .map(|selector| CallableId::new(declaration.clone(), selector, if is_constructor { DispatchSide::Class } else { member_side }))
     }
 
-    fn visit_callable(
-        &mut self,
-        parent: SourceScopeId,
-        callable: CallableId,
-        name_range: SourceRange,
-        declaration_range: SourceRange,
-        body_range: SourceRange,
-        parameters: &[phalcom_ast::ast::ParameterDef],
-        body: &MemberBody,
-        parameter_kind: SourceBindingKind,
-        kind: SourceCallableKind,
-        has_explicit_return_annotation: bool,
-    ) {
+    fn visit_callable(&mut self, visit: CallableVisit<'_>) {
+        let CallableVisit {
+            parent,
+            callable,
+            name_range,
+            declaration_range,
+            body_range,
+            parameters,
+            body,
+            parameter_kind,
+            kind,
+            has_explicit_return_annotation,
+        } = visit;
         let declaration_site = self.allocate_site(
             SourceOwner::Module(self.index.module.clone()),
             name_range,
@@ -562,7 +587,6 @@ impl SourceScopeBuilder<'_> {
                 declaration_site,
                 name_range,
                 declaration_range,
-                parameter_name_ranges: Arc::from(parameters.iter().map(|parameter| parameter.name_range).collect::<Vec<_>>().into_boxed_slice()),
                 parameter_sites: BTreeMap::new(),
                 has_explicit_return_annotation,
             },
@@ -572,7 +596,14 @@ impl SourceScopeBuilder<'_> {
         let scope = self.new_scope(parent, body_range);
         let mut parameter_sites = BTreeMap::new();
         for (index, parameter) in parameters.iter().enumerate() {
-            let site = self.declare(scope, parameter.name.clone(), parameter_kind, parameter.name_range, true);
+            let site = self.declare_with_annotation(
+                scope,
+                parameter.name.clone(),
+                parameter_kind,
+                parameter.name_range,
+                true,
+                parameter.annotation.is_some(),
+            );
             parameter_sites.insert(CallableParameterId::new(callable.clone(), index as u32), site);
         }
         if let Some(source) = self.index.callable_sources.get_mut(&callable) {
@@ -594,40 +625,51 @@ impl SourceScopeBuilder<'_> {
             (false, BindingKind::Let) => SourceBindingKind::LocalLet,
             (false, BindingKind::Const) => SourceBindingKind::LocalConst,
         };
-        self.declare_pattern(scope, &binding.pattern, kind, binding.kind == BindingKind::Let);
+        self.declare_pattern_with_annotation(scope, &binding.pattern, kind, binding.kind == BindingKind::Let, binding.annotation.is_some());
     }
 
     fn declare_pattern(&mut self, scope: SourceScopeId, pattern: &Pattern, kind: SourceBindingKind, mutable: bool) {
+        self.declare_pattern_with_annotation(scope, pattern, kind, mutable, false);
+    }
+
+    fn declare_pattern_with_annotation(
+        &mut self,
+        scope: SourceScopeId,
+        pattern: &Pattern,
+        kind: SourceBindingKind,
+        mutable: bool,
+        has_explicit_annotation: bool,
+    ) {
         match pattern {
             Pattern::Name { name, range } => {
-                self.declare(scope, name.clone(), kind, *range, mutable);
+                self.declare_with_annotation(scope, name.clone(), kind, *range, mutable, has_explicit_annotation);
             }
             Pattern::Tuple { elements, .. } => {
                 for element in elements {
-                    self.declare_pattern(scope, element, SourceBindingKind::Destructure, mutable);
+                    self.declare_pattern_with_annotation(scope, element, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
             Pattern::List { elements, rest, .. } => {
                 for element in elements {
-                    self.declare_pattern(scope, element, SourceBindingKind::Destructure, mutable);
+                    self.declare_pattern_with_annotation(scope, element, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
                 if let Some(rest) = rest {
-                    self.declare_pattern(scope, rest, SourceBindingKind::Destructure, mutable);
+                    self.declare_pattern_with_annotation(scope, rest, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
             Pattern::Variant { arguments, .. } => {
                 for argument in arguments {
-                    self.declare_pattern(scope, argument, SourceBindingKind::Destructure, mutable);
+                    self.declare_pattern_with_annotation(scope, argument, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
             Pattern::Record { entries, .. } => {
                 for entry in entries {
-                    self.declare_pattern(scope, &entry.pattern, SourceBindingKind::Destructure, mutable);
+                    self.declare_pattern_with_annotation(scope, &entry.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
             Pattern::Map { entries, .. } => {
                 for entry in entries {
-                    self.declare_pattern(scope, &entry.pattern, SourceBindingKind::Destructure, mutable);
+                    self.declare_pattern_with_annotation(scope, &entry.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
         }

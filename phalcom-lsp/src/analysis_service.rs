@@ -25,7 +25,6 @@ use phalcom_modules::SourceRevision;
 /// asynchronous event notification task.
 #[derive(Clone, Debug)]
 pub(crate) struct CachedSource {
-    pub(crate) revision: SourceRevision,
     pub(crate) text: Arc<str>,
     pub(crate) program: Arc<Program>,
     pub(crate) line_index: Arc<LineIndex>,
@@ -56,19 +55,19 @@ pub struct WorkspaceScanRequest {
 
 /// Pending work batch coalesced by the worker loop before execution.
 #[derive(Default)]
-pub struct PendingWork {
+pub(crate) struct PendingWork {
     /// File update batch indexed by URL (latest revision wins).
-    pub file_updates: BTreeMap<Url, PendingSourceUpdate>,
+    pub(crate) file_updates: BTreeMap<Url, PendingSourceUpdate>,
     /// Enqueued file removals.
-    pub removals: BTreeSet<Url>,
+    pub(crate) removals: BTreeSet<Url>,
     /// Closed-file disk refreshes waiting for worker-owned I/O and parsing.
-    pub disk_refreshes: BTreeSet<Url>,
+    pub(crate) disk_refreshes: BTreeSet<Url>,
     /// Full workspace re-analysis flag.
-    pub full_workspace_rebuild_requested: bool,
+    pub(crate) full_workspace_rebuild_requested: bool,
     /// Active execution in progress flag.
-    pub is_processing: bool,
+    pub(crate) is_processing: bool,
     /// Latest workspace scan request. New roots/config replace older requests.
-    pub workspace_scan: Option<WorkspaceScanRequest>,
+    pub(crate) workspace_scan: Option<WorkspaceScanRequest>,
 }
 
 impl PendingWork {
@@ -100,23 +99,23 @@ pub(crate) struct DiskRefresh {
 }
 
 /// Shared synchronization primitive for the analysis service worker.
-pub struct WorkerShared {
+pub(crate) struct WorkerShared {
     /// Monotonic epoch counter incremented on every enqueued update batch.
-    pub epoch: AtomicU64,
+    pub(crate) epoch: AtomicU64,
     /// Coalesced pending work state.
-    pub pending: Mutex<PendingWork>,
+    pub(crate) pending: Mutex<PendingWork>,
     /// Condvar used to signal worker thread when new work arrives or shutdown is requested.
-    pub condvar: Condvar,
+    pub(crate) condvar: Condvar,
     /// Nonblocking shutdown signal.
-    pub shutdown: AtomicBool,
+    pub(crate) shutdown: AtomicBool,
     /// Open documents whose live buffers have priority over disk discovery.
-    pub open_documents: Mutex<BTreeSet<Url>>,
+    pub(crate) open_documents: Mutex<BTreeSet<Url>>,
     /// Per-URI source epochs used to reject stale scan and refresh results.
-    pub source_epochs: Mutex<BTreeMap<Url, u64>>,
+    pub(crate) source_epochs: Mutex<BTreeMap<Url, u64>>,
     /// True while a configured workspace scan still has undiscovered work.
-    pub scan_in_progress: AtomicBool,
+    pub(crate) scan_in_progress: AtomicBool,
     /// Counter set owned by the semantic database served by this worker.
-    pub counters: PerfCountersHandle,
+    pub(crate) counters: PerfCountersHandle,
     #[cfg(test)]
     test_batch_gate: Mutex<Option<Arc<TestBatchGate>>>,
     #[cfg(test)]
@@ -135,23 +134,10 @@ pub(crate) struct TestBatchGate {
 struct TestBatchGateState {
     before_entered: bool,
     before_released: bool,
-    after_enabled: bool,
-    after_entered: bool,
-    after_released: bool,
 }
 
 #[cfg(test)]
 impl TestBatchGate {
-    fn with_after() -> Self {
-        Self {
-            state: Mutex::new(TestBatchGateState {
-                after_enabled: true,
-                ..TestBatchGateState::default()
-            }),
-            condvar: Condvar::new(),
-        }
-    }
-
     pub(crate) fn wait_until_before_entered(&self) {
         let mut state = self.state.lock().expect("test gate lock poisoned");
         while !state.before_entered {
@@ -164,18 +150,6 @@ impl TestBatchGate {
         self.condvar.notify_all();
     }
 
-    fn wait_until_after_entered(&self) {
-        let mut state = self.state.lock().expect("test gate lock poisoned");
-        while !state.after_entered {
-            state = self.condvar.wait(state).expect("test gate condvar poisoned");
-        }
-    }
-
-    fn release_after(&self) {
-        self.state.lock().expect("test gate lock poisoned").after_released = true;
-        self.condvar.notify_all();
-    }
-
     fn wait_before(&self) {
         let mut state = self.state.lock().expect("test gate lock poisoned");
         state.before_entered = true;
@@ -185,17 +159,6 @@ impl TestBatchGate {
         }
     }
 
-    fn wait_after(&self) {
-        let mut state = self.state.lock().expect("test gate lock poisoned");
-        if !state.after_enabled {
-            return;
-        }
-        state.after_entered = true;
-        self.condvar.notify_all();
-        while !state.after_released {
-            state = self.condvar.wait(state).expect("test gate condvar poisoned");
-        }
-    }
 }
 
 #[cfg(test)]
@@ -254,7 +217,7 @@ pub enum AnalysisEvent {
     /// Progress or phase status update.
     Status(AnalysisStatus),
     /// Structured log event emitted during analysis.
-    Log(crate::analysis_log::AnalysisLogEvent),
+    Log(Box<crate::analysis_log::AnalysisLogEvent>),
     /// Intermediate batch result was discarded due to a higher epoch.
     StaleBatchDiscarded {
         /// Epoch counter at time of discard.
@@ -396,7 +359,7 @@ impl AnalysisService {
     }
 
     fn accepts_revision(&self, pending: &PendingWork, uri: &Url, revision: SourceRevision) -> bool {
-        !pending.file_updates.get(uri).is_some_and(|queued| queued.revision >= revision)
+        pending.file_updates.get(uri).is_none_or(|queued| queued.revision < revision)
     }
 
     /// Enqueues file removal.
@@ -502,19 +465,6 @@ impl AnalysisService {
         *self.shared.test_scan_gate.lock().expect("test scan gate lock poisoned") = Some(gate);
     }
 
-    #[cfg(test)]
-    fn wait_for_idle(&self) {
-        self.flush();
-    }
-
-    #[cfg(test)]
-    fn join_worker(&mut self) {
-        self.shutdown();
-        if let Some(thread) = self.worker_thread.take() {
-            let _ = thread.join();
-        }
-    }
-
     /// Clones the immutable canonical publication handle for event consumers.
     pub(crate) fn publication_handle(&self) -> Arc<SemanticPublication> {
         self.publication.clone()
@@ -589,7 +539,7 @@ fn worker_loop(
             }
             let status = status_tracker.increment_session(request.mode);
             let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
-            let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+            let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
                 session: status.session,
                 sequence: status.sequence,
                 level: AnalysisLogLevel::Info,
@@ -603,7 +553,7 @@ fn worker_loop(
                 duration_ms: None,
                 message: Some(format!("workspace session {} started in {:?} mode", status.session, request.mode)),
                 counters: Some(shared.counters.snapshot()),
-            }));
+            })));
         }
 
         // Interactive semantic work always wins over one background scan chunk.
@@ -629,7 +579,7 @@ fn worker_loop(
                 // `SemanticWorkspaceSession`; selected source remains an LSP
                 // virtual-document concern and is not a second semantic input.
                 core_initialized = true;
-                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
                     session: status_tracker.snapshot().session,
                     sequence: status_tracker.snapshot().sequence,
                     level: AnalysisLogLevel::Info,
@@ -643,7 +593,7 @@ fn worker_loop(
                     duration_ms: None,
                     message: Some("core surface loaded".to_string()),
                     counters: Some(shared.counters.snapshot()),
-                }));
+                })));
                 continue;
             }
             if let Some(scan) = scanner.as_mut() {
@@ -663,7 +613,6 @@ fn worker_loop(
                     batch,
                     &mut discovered_files,
                     selected_core_uri.as_ref(),
-                    StaticScanContext { refresh: scan_complete },
                 );
                 let snap = shared.counters.snapshot();
                 let status = status_tracker.update_counts(
@@ -672,7 +621,7 @@ fn worker_loop(
                     compiler_workspace_state.session.module_session().sources().len() as u64,
                 );
                 let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
-                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
                     session: status.session,
                     sequence: status.sequence,
                     level: AnalysisLogLevel::Verbose,
@@ -686,7 +635,7 @@ fn worker_loop(
                     duration_ms: None,
                     message: Some(format!("indexed files total: {}", discovered_files.len())),
                     counters: Some(snap),
-                }));
+                })));
                 if scan_complete {
                     scanner = None;
                     shared.scan_in_progress.store(false, Ordering::SeqCst);
@@ -721,7 +670,6 @@ fn worker_loop(
                     batch,
                     &mut discovered_files,
                     selected_core_uri.as_ref(),
-                    StaticScanContext { refresh: scan_complete },
                 );
                 let snap = shared.counters.snapshot();
                 let status = status_tracker.update_counts(
@@ -767,7 +715,7 @@ fn worker_loop(
             }
             let status = status_tracker.transition(AnalysisPhase::Analyzing, Some(AnalysisStep::FlowAnalysis));
             let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
-            let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+            let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
                 session: status.session,
                 sequence: status.sequence,
                 level: AnalysisLogLevel::Info,
@@ -781,7 +729,7 @@ fn worker_loop(
                 duration_ms: None,
                 message: Some("semantic batch started".to_string()),
                 counters: Some(shared.counters.snapshot()),
-            }));
+            })));
 
             // Release lock during heavy semantic execution
             drop(pending);
@@ -851,17 +799,12 @@ fn worker_loop(
                 }
             }
 
-            #[cfg(test)]
-            if let Some(gate) = shared.test_batch_gate.lock().expect("test gate lock poisoned").clone() {
-                gate.wait_after();
-            }
-
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale
             let current_epoch = shared.epoch.load(Ordering::SeqCst);
             if solve_cancelled || current_epoch > batch_epoch {
                 shared.counters.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::StaleBatchDiscarded { epoch: batch_epoch });
-                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
                     session: status_tracker.snapshot().session,
                     sequence: status_tracker.snapshot().sequence,
                     level: AnalysisLogLevel::Info,
@@ -875,7 +818,7 @@ fn worker_loop(
                     duration_ms: None,
                     message: Some(format!("batch for epoch {} cancelled or superseded by {}", batch_epoch, current_epoch)),
                     counters: Some(shared.counters.snapshot()),
-                }));
+                })));
             } else {
                 shared.counters.semantic_batches_published.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::Published {
@@ -888,7 +831,7 @@ fn worker_loop(
                     discovered_files.len() as u64,
                     compiler_workspace_state.session.module_session().sources().len() as u64,
                 );
-                let _ = event_tx.send(AnalysisEvent::Log(AnalysisLogEvent {
+                let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
                     session: status_tracker.snapshot().session,
                     sequence: status_tracker.snapshot().sequence,
                     level: AnalysisLogLevel::Info,
@@ -902,7 +845,7 @@ fn worker_loop(
                     duration_ms: None,
                     message: Some(format!("published snapshot generation {latest_generation}")),
                     counters: Some(snap),
-                }));
+                })));
             }
 
             // Re-acquire lock and notify any flush callers
@@ -984,10 +927,6 @@ struct ScanEnv<'a> {
     event_tx: &'a mpsc::UnboundedSender<AnalysisEvent>,
 }
 
-struct StaticScanContext {
-    refresh: bool,
-}
-
 struct DiskRefreshDelta<'a> {
     file_updates: &'a mut BTreeMap<Url, PendingSourceUpdate>,
     removals: &'a mut BTreeSet<Url>,
@@ -1026,7 +965,6 @@ fn refresh_disk_sources(env: &ScanEnv<'_>, refreshes: BTreeSet<Url>, delta: &mut
             cache.write().expect("closed source cache lock poisoned").insert(
                 canonical_uri(&uri),
                 CachedSource {
-                    revision,
                     line_index: Arc::new(LineIndex::new(&text)),
                     text: Arc::from(text.clone()),
                     program: program.clone(),
@@ -1056,7 +994,6 @@ fn process_scan_batch(
     files: Vec<crate::workspace_scan::DiscoveredFile>,
     discovered_files: &mut BTreeSet<Url>,
     selected_core_uri: Option<&Url>,
-    _static_context: StaticScanContext,
 ) {
     #[cfg(test)]
     if let Some(gate) = env.shared.test_scan_gate.lock().expect("test scan gate lock poisoned").clone() {
@@ -1104,7 +1041,6 @@ fn process_scan_batch(
             cache.write().expect("closed source cache lock poisoned").insert(
                 canonical_uri(&discovered.uri),
                 CachedSource {
-                    revision,
                     line_index: Arc::new(LineIndex::new(&text)),
                     text: source_text.clone(),
                     program: program.clone(),

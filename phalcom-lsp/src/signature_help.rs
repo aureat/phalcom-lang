@@ -2,7 +2,7 @@
 
 use phalcom_ast::ast::RestMode;
 use phalcom_common::range::SourceRange;
-use tower_lsp::lsp_types::{ParameterInformation, ParameterLabel, SignatureHelp, SignatureInformation};
+use tower_lsp::lsp_types::{Documentation, ParameterInformation, ParameterLabel, SignatureHelp, SignatureInformation};
 
 /// Syntax-only call context recovered from the pinned editor text.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,19 +69,10 @@ pub fn render_signature_help(
     active_parameter: usize,
 ) -> SignatureHelp {
     let presenter = phalcom_semantic::TypePresenter::new(store);
-    let mut parameters = Vec::with_capacity(signature.parameters.len());
-    for (index, parameter) in signature.parameters.iter().enumerate() {
-        let type_text = compiler_term_text(&parameter.ty, &presenter)
-            .or_else(|| {
-                advisory.and_then(|summary| {
-                    summary
-                        .parameters
-                        .iter()
-                        .find(|(slot, _)| slot.index as usize == index)
-                        .map(|(_, fact)| phalcom_semantic::AdvisoryPresenter::present_shape(&fact.shape))
-                })
-            })
-            .unwrap_or_else(|| "Unknown".to_string());
+    let presentation = phalcom_semantic::CallablePresentation::from_signature(signature, None, &presenter);
+    let mut parameters = Vec::with_capacity(presentation.parameters.len());
+    for parameter in presentation.parameters.iter() {
+        let type_text = parameter.type_.text();
         let rest = match parameter.rest {
             RestMode::None => "",
             RestMode::Positional => "*",
@@ -91,34 +82,45 @@ pub fn render_signature_help(
         let label = parameter
             .external_label
             .as_deref()
-            .map(|label| format!("{label}: {}{rest}: {type_text}", parameter.local_name))
-            .unwrap_or_else(|| format!("{}{rest}: {type_text}", parameter.local_name));
+            .map(|label| format!("{label}: {}{rest}: {type_text}", parameter.name))
+            .unwrap_or_else(|| format!("{}{rest}: {type_text}", parameter.name));
+        let documentation = matches!(&parameter.type_, phalcom_semantic::FormalPresentation::Unknown)
+            .then(|| {
+                advisory.and_then(|summary| {
+                    summary
+                        .parameters
+                        .iter()
+                        .find(|(slot, _)| slot.index == parameter.index)
+                        .filter(|(_, fact)| !matches!(fact.shape, phalcom_semantic::ValueShape::Unknown))
+                        .map(|(_, fact)| Documentation::String(format!("Observed: {}", phalcom_semantic::AdvisoryPresenter::present_shape(&fact.shape))))
+                })
+            })
+            .flatten();
         parameters.push(ParameterInformation {
             label: ParameterLabel::Simple(label),
-            documentation: None,
+            documentation,
         });
     }
 
-    let return_text = compiler_term_text(&signature.return_type, &presenter)
-        .or_else(|| advisory.map(|summary| phalcom_semantic::AdvisoryPresenter::present_shape(&summary.return_fact.shape)))
-        .unwrap_or_else(|| "Unknown".to_string());
+    let return_text = presentation.return_type.text();
+    let documentation = matches!(presentation.return_type, phalcom_semantic::FormalPresentation::Unknown)
+        .then(|| {
+            advisory
+                .map(|summary| &summary.return_fact)
+                .filter(|fact| !matches!(fact.shape, phalcom_semantic::ValueShape::Unknown))
+                .map(|fact| Documentation::String(format!("Observed return: {}", phalcom_semantic::AdvisoryPresenter::present_shape(&fact.shape))))
+        })
+        .flatten();
     let active_parameter = (active_parameter < parameters.len()).then_some(active_parameter as u32);
     SignatureHelp {
         signatures: vec![SignatureInformation {
             label: format!("{} -> {return_text}", signature.selector.encode()),
-            documentation: None,
+            documentation,
             parameters: Some(parameters),
             active_parameter,
         }],
         active_signature: Some(0),
         active_parameter,
-    }
-}
-
-fn compiler_term_text(term: &phalcom_semantic::types::TypeTerm, presenter: &phalcom_semantic::TypePresenter<'_>) -> Option<String> {
-    match term {
-        phalcom_semantic::types::TypeTerm::Canonical(ty) => Some(presenter.present_type(*ty)),
-        phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => None,
     }
 }
 

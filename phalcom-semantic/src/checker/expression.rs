@@ -298,7 +298,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                             &val_typed.knowledge,
                             &field_k,
                             DiagnosticCode::FieldMismatch,
-                            format!("assigned value does not match field type"),
+                            "assigned value does not match field type".to_string(),
                             assign.range,
                         );
                         let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);

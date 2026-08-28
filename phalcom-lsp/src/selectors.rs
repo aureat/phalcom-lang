@@ -5,9 +5,7 @@
 //! [`Selector`] values. This module provides AST-to-Selector conversion
 //! powered by `phalcom_common::selector`.
 
-use phalcom_ast::ast::{
-    BinaryOp, ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, NormalizedSelectorSpec, PackItem, PackLabel, SelectorSpecSyntax, SetterDef, UnaryOp,
-};
+use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, NormalizedSelectorSpec, PackItem, PackLabel, SelectorSpecSyntax, SetterDef};
 pub use phalcom_common::selector::{
     Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
 };
@@ -48,63 +46,6 @@ pub fn selector_from_call(name: &str, args: &[PackItem]) -> Option<Selector> {
 /// Normalizes an AST selector spec into common structural selector forms.
 pub fn selector_spec_from_ast(spec: &SelectorSpecSyntax) -> Result<NormalizedSelectorSpec, SelectorError> {
     spec.normalize()
-}
-
-/// Builds a call-site selector string from argument packs.
-pub(crate) fn call_selector(name: &str, args: &[PackItem]) -> String {
-    if let Some(sel) = selector_from_call(name, args) {
-        sel.encode()
-    } else {
-        let labels = args
-            .iter()
-            .map(|arg| match arg {
-                PackItem::Positional { .. } | PackItem::Expand { .. } => None,
-                PackItem::Labeled {
-                    label: PackLabel::Static { text, .. },
-                    ..
-                } => Some(text.clone()),
-                PackItem::Labeled { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        comma_form_from_labels(name, &labels)
-    }
-}
-
-/// Maps a binary operator to the selector emitted by the compiler.
-pub(crate) fn binary_selector_name(op: &BinaryOp) -> Option<&'static str> {
-    Some(match op {
-        BinaryOp::Add => "+",
-        BinaryOp::Subtract => "-",
-        BinaryOp::Multiply => "*",
-        BinaryOp::Divide => "/",
-        BinaryOp::IntegerDivide => "~/",
-        BinaryOp::Power => "**",
-        BinaryOp::Modulo => "%",
-        BinaryOp::ShiftLeft => "<<",
-        BinaryOp::ShiftRight => ">>",
-        BinaryOp::BitAnd => "&",
-        BinaryOp::BitXor => "^",
-        BinaryOp::BitOr => "|",
-        BinaryOp::Equal => "==",
-        BinaryOp::Same => "===",
-        BinaryOp::NotEqual => "!=",
-        BinaryOp::LessThan => "<",
-        BinaryOp::LessThanOrEqual => "<=",
-        BinaryOp::GreaterThan => ">",
-        BinaryOp::GreaterThanOrEqual => ">=",
-        BinaryOp::Compare => "<=>",
-        BinaryOp::And | BinaryOp::Or => return None,
-    })
-}
-
-/// Maps a unary operator to the bare getter selector emitted by the compiler.
-pub(crate) fn unary_selector_name(op: &UnaryOp) -> &'static str {
-    match op {
-        UnaryOp::Plus => "+",
-        UnaryOp::Minus => "-",
-        UnaryOp::Not => "not",
-        UnaryOp::BitNot => "~",
-    }
 }
 
 /// The comma-form selector a getter's bare-name access resolves to.

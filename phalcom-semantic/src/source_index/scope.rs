@@ -35,7 +35,6 @@ pub struct CallableSourceInfo {
     pub declaration_site: SourceSiteId,
     pub name_range: SourceRange,
     pub declaration_range: SourceRange,
-    pub parameter_name_ranges: std::sync::Arc<[SourceRange]>,
     pub parameter_sites: BTreeMap<CallableParameterId, SourceSiteId>,
     pub has_explicit_return_annotation: bool,
 }
@@ -86,6 +85,7 @@ pub struct SourceBindingInfo {
     pub name: Box<str>,
     pub kind: SourceBindingKind,
     pub declaration_range: SourceRange,
+    pub has_explicit_annotation: bool,
     pub mutable: bool,
     pub redeclaration_of: Option<SourceSiteId>,
 }

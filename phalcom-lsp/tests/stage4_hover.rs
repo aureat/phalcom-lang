@@ -122,7 +122,9 @@ struct ScratchWorkspace {
 
 impl ScratchWorkspace {
     fn new(name: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
+        let base = std::env::temp_dir();
+        let base = base.canonicalize().unwrap_or(base);
+        let root = base.join(format!(
             "phalcom-lsp-stage4-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()

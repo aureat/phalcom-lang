@@ -16,7 +16,7 @@ fn module_id() -> ModuleId {
     )
 }
 
-fn demo_run<'a>(analyses: &'a std::collections::HashMap<phalcom_semantic::CallableId, Arc<CallableAnalysis>>) -> &'a CallableAnalysis {
+fn demo_run(analyses: &std::collections::HashMap<phalcom_semantic::CallableId, Arc<CallableAnalysis>>) -> &CallableAnalysis {
     let selector = Selector::method("run", []).expect("run selector");
     analyses
         .iter()

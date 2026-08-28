@@ -461,7 +461,7 @@ impl SemanticSnapshot {
         }
     }
 
-    fn formal_fact_for_site(&self, site: &SourceSiteId) -> Option<FormalFactRef> {
+    pub(crate) fn formal_fact_for_site(&self, site: &SourceSiteId) -> Option<FormalFactRef> {
         for attachment in self.source_index.modules.values().flat_map(|module| module.attachments.values()) {
             if attachment.formal_expressions.values().any(|candidate| candidate == site) {
                 let expression = attachment

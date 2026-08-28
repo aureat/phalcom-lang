@@ -11,3 +11,6 @@ mod module_query_provenance;
 
 #[path = "canonical_parameter_advisory.rs"]
 mod canonical_parameter_advisory;
+
+#[path = "explanation_derivation.rs"]
+mod explanation_derivation;

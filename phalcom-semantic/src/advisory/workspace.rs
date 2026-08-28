@@ -119,7 +119,22 @@ impl AdvisoryWorkspace {
             parameters.extend(shard.parameters.iter().map(|(slot, fact)| (slot.clone(), fact.clone())));
             targets.extend(shard.targets.iter().map(|(site, target)| (site.clone(), target.clone())));
         }
-        let fingerprint = fingerprint_workspace(&modules, &expressions, &bindings, &fields, &parameters, &callables, &targets, &status);
+        let mut hasher = DefaultHasher::new();
+        for (module, shard) in &modules {
+            module.hash(&mut hasher);
+            shard.fingerprint.hash(&mut hasher);
+        }
+        hash_facts(&mut hasher, &expressions);
+        hash_facts(&mut hasher, &bindings);
+        hash_facts(&mut hasher, &fields);
+        hash_facts(&mut hasher, &parameters);
+        for (callable, summary) in &callables {
+            callable.hash(&mut hasher);
+            summary.fingerprint.hash(&mut hasher);
+        }
+        targets.hash(&mut hasher);
+        status.hash(&mut hasher);
+        let fingerprint = ProductFingerprint::new(hasher.finish());
         Self {
             modules: Arc::new(modules),
             expressions: Arc::new(expressions),
@@ -202,34 +217,6 @@ fn fingerprint_module(
     hash_facts(&mut hasher, bindings);
     hash_facts(&mut hasher, fields);
     hash_facts(&mut hasher, parameters);
-    targets.hash(&mut hasher);
-    status.hash(&mut hasher);
-    ProductFingerprint::new(hasher.finish())
-}
-
-fn fingerprint_workspace(
-    modules: &BTreeMap<ModuleId, Arc<AdvisoryModuleProduct>>,
-    expressions: &BTreeMap<SourceSiteId, AdvisoryFact>,
-    bindings: &BTreeMap<SourceSiteId, AdvisoryFact>,
-    fields: &BTreeMap<FieldId, AdvisoryFact>,
-    parameters: &BTreeMap<AdvisoryParameterSlot, AdvisoryFact>,
-    callables: &BTreeMap<CallableId, Arc<AdvisoryCallableSummary>>,
-    targets: &BTreeMap<SourceSiteId, AdvisoryTargetResolution>,
-    status: &AdvisoryProductStatus,
-) -> ProductFingerprint {
-    let mut hasher = DefaultHasher::new();
-    for (module, shard) in modules {
-        module.hash(&mut hasher);
-        shard.fingerprint.hash(&mut hasher);
-    }
-    hash_facts(&mut hasher, expressions);
-    hash_facts(&mut hasher, bindings);
-    hash_facts(&mut hasher, fields);
-    hash_facts(&mut hasher, parameters);
-    for (callable, summary) in callables {
-        callable.hash(&mut hasher);
-        summary.fingerprint.hash(&mut hasher);
-    }
     targets.hash(&mut hasher);
     status.hash(&mut hasher);
     ProductFingerprint::new(hasher.finish())

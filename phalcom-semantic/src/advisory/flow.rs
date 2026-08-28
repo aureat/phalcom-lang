@@ -10,9 +10,11 @@ use phalcom_common::selector::SelectorSlot;
 use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, SourceSiteId};
 use crate::source_index::SourceScopeIndex;
 
-use super::analyzer::{AdvisoryBuiltins, AdvisoryCallObservation, AdvisoryExpressionContext, analyze_expr};
-use super::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, AdvisoryParameterSlot, CapturedMethodFamilyShape, ValueShape};
-use phalcom_ast::ast::NormalizedSelectorSpec;
+use super::analyzer::{
+    AdvisoryBuiltins, AdvisoryCallObservation, AdvisoryExpressionContext, CallableForShapeResolver, FormalCallResultResolver, MethodFamilyResolver,
+    ModuleMemberResolver, analyze_expr,
+};
+use super::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, AdvisoryParameterSlot, ValueShape};
 
 /// Static inputs shared by one advisory callable traversal.
 pub struct AdvisoryFlowContext<'a> {
@@ -24,11 +26,11 @@ pub struct AdvisoryFlowContext<'a> {
     pub dispatch_side: DispatchSide,
     pub source_site_for_range: &'a dyn Fn(SourceRange) -> Option<SourceSiteId>,
     pub resolved_callable_for_range: &'a dyn Fn(SourceRange) -> Option<CallableId>,
-    pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[phalcom_ast::ast::PackItem]) -> Option<CallableId>>,
-    pub resolve_formal_call_result: Option<&'a dyn Fn(&CallableId, Option<&ValueShape>) -> Option<AdvisoryFact>>,
+    pub resolve_callable_for_shape: Option<CallableForShapeResolver<'a>>,
+    pub resolve_formal_call_result: Option<FormalCallResultResolver<'a>>,
     pub advisory_transfer_target: Option<&'a dyn Fn(&CallableId) -> CallableId>,
-    pub resolve_module_member: Option<&'a dyn Fn(&ValueShape, &str) -> Option<ValueShape>>,
-    pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
+    pub resolve_module_member: Option<ModuleMemberResolver<'a>>,
+    pub resolve_method_family: Option<MethodFamilyResolver<'a>>,
 }
 
 /// Published advisory facts collected by one callable traversal.

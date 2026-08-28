@@ -41,54 +41,38 @@ pub struct BodyAnalysisContext<'a> {
     pub module: ModuleId,
 }
 
+/// Inputs specific to one callable-body analysis.
+pub struct CallableBodyRequest<'a> {
+    pub callable: CallableId,
+    pub body: &'a [Statement],
+    pub body_range: SourceRange,
+    pub declared_signature: Option<(&'a CallableId, &'a crate::signature::CallableSemanticSignature)>,
+    pub budget: QueryBudget,
+    pub cancel: &'a CancellationToken,
+    pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
+    pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+}
+
 /// Analyzes a single callable body and returns a complete [`CallableAnalysis`].
-pub fn analyze_callable_body(
-    callable: CallableId,
-    body: &[Statement],
-    body_range: SourceRange,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    dispatch: &SurfaceDispatchResolver,
-    module: ModuleId,
-    budget: QueryBudget,
-    cancel: &CancellationToken,
-) -> CallableAnalysis {
-    analyze_callable_body_with_fields(
-        callable,
-        body,
-        body_range,
+pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: CallableBodyRequest<'_>) -> CallableAnalysis {
+    let BodyAnalysisContext {
         store,
         hierarchy,
         resolver,
         declarations,
         dispatch,
-        None,
         module,
+    } = context;
+    let CallableBodyRequest {
+        callable,
+        body,
+        body_range,
+        declared_signature,
         budget,
         cancel,
-        None,
-        None,
-    )
-}
-
-pub fn analyze_callable_body_with_fields(
-    callable: CallableId,
-    body: &[Statement],
-    body_range: SourceRange,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    dispatch: &SurfaceDispatchResolver,
-    declared_signature: Option<(&CallableId, &crate::signature::CallableSemanticSignature)>,
-    module: ModuleId,
-    budget: QueryBudget,
-    cancel: &CancellationToken,
-    field_signatures: Option<&crate::signature::FieldSignatureTable>,
-    field_lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
-) -> CallableAnalysis {
+        field_signatures,
+        field_lifecycle,
+    } = request;
     let control = CheckerControl::new(budget, cancel);
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
     if let Some(field_signatures) = field_signatures {
@@ -121,13 +105,15 @@ pub fn analyze_callable_body_with_fields(
         for parameter in &signature.parameters {
             ctx.bind_canonical_callable_parameter(parameter, body_range);
         }
-        let declared_return = signature.declared_return.to_knowledge();
-        if let Some(ret_ty) = declared_return.ty() {
-            ctx.expected_return = Some(CallableReturnContract {
-                ty: ret_ty,
-                origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
-                source: None,
-            });
+        if !signature.is_constructor() || constructor_body {
+            let declared_return = signature.declared_return.to_knowledge();
+            if let Some(ret_ty) = declared_return.ty() {
+                ctx.expected_return = Some(CallableReturnContract {
+                    ty: ret_ty,
+                    origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
+                    source: None,
+                });
+            }
         }
     }
 
@@ -179,10 +165,8 @@ pub fn analyze_callable_body_with_fields(
                     status = CallableAnalysisStatus::InternalFailure(incident);
                     break;
                 }
-                if can_fall_through {
-                    if typed.knowledge.ty() != Some(ctx.store.never()) {
-                        normal_return_values.push(typed.knowledge);
-                    }
+                if can_fall_through && typed.knowledge.ty() != Some(ctx.store.never()) {
+                    normal_return_values.push(typed.knowledge);
                 }
                 can_fall_through = false;
                 continue;

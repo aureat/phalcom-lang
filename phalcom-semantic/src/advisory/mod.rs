@@ -19,6 +19,7 @@ mod workspace;
 
 pub use agreement::{AdvisoryAgreement, compare_expression, compare_known};
 pub use analyzer::{AdvisoryBuiltins, AdvisoryCallArgument, AdvisoryCallObservation, AdvisoryExpressionContext, analyze_expr};
+pub(crate) use analyzer::{CallableForShapeResolver, FormalCallResultResolver, MethodFamilyResolver, ModuleMemberResolver};
 pub use fact::{AdvisoryConfidence, AdvisoryFact, AdvisoryLiteral};
 pub use flow::{AdvisoryFlowContext, AdvisoryFlowProduct, analyze_statements};
 pub use formal::{advisory_fact_from_formal, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver};

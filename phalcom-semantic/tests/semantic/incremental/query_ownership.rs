@@ -6,7 +6,10 @@ use phalcom_modules::interface::LinkedModuleInterface;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
-use phalcom_semantic::db::{CancellationToken, FormalQueryInputs, QueryBudget, QueryKey, query_callable_body_with_formal_inputs, query_declaration_surface};
+use phalcom_semantic::db::{
+    CallableBodyQuery, CancellationToken, DeclarationSurfaceQuery, FormalQueryInputs, QueryBudget, QueryKey, query_callable_body_with_formal_inputs,
+    query_declaration_surface,
+};
 use phalcom_semantic::declarations::{DeclarationTypeInfo, bootstrap_universe_declarations};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
@@ -181,13 +184,15 @@ class Owner {
 
     let surface = match query_declaration_surface(
         &mut db,
-        owner.clone(),
-        unit.clone(),
-        linked_interface,
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &declarations,
+        DeclarationSurfaceQuery {
+            decl_id: owner.clone(),
+            unit: unit.clone(),
+            linked_interface,
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &declarations,
+        },
     ) {
         phalcom_semantic::db::QueryOutcome::Ready(surface) => surface,
         outcome => panic!("surface prerequisite must be ready, got {outcome:?}"),
@@ -220,20 +225,23 @@ class Owner {
         member => panic!("expected method, got {member:?}"),
     };
     let body = method.body.statements().expect("method body");
+    let cancel = CancellationToken::new();
     let outcome = query_callable_body_with_formal_inputs(
         &mut db,
-        callable.clone(),
-        body,
-        method.range,
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &declarations,
-        &dispatch,
-        module.clone(),
-        QueryBudget::default(),
-        &CancellationToken::new(),
-        Some(&formal_inputs),
+        CallableBodyQuery {
+            callable: callable.clone(),
+            body,
+            body_range: method.range,
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &declarations,
+            dispatch: &dispatch,
+            module: module.clone(),
+            budget: QueryBudget::default(),
+            cancel: &cancel,
+            formal_inputs: Some(&formal_inputs),
+        },
     );
     assert!(matches!(outcome, phalcom_semantic::db::QueryOutcome::Ready(_)), "body outcome: {outcome:?}");
     assert!(db.product(&QueryKey::DeclarationShell(owner.clone())).is_some());

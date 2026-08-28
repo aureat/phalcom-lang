@@ -43,7 +43,7 @@ impl CallableApplicationTarget {
         }
     }
 
-    pub(crate) fn from_dispatch(resolved: crate::dispatch::ResolvedDispatch) -> Self {
+    pub(crate) fn from_dispatch(resolved: Box<crate::dispatch::ResolvedDispatch>) -> Self {
         Self::exact(resolved.callable, resolved.signature)
     }
 

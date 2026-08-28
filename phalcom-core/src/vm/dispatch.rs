@@ -630,11 +630,6 @@ impl VM {
     }
 
     #[inline]
-    pub(crate) fn simple_some_value(&self, value: Value) -> Value {
-        Value::with_some_depth(value, 0)
-    }
-
-    #[inline]
     pub(crate) fn unit_value(&self) -> Value {
         Value::unit()
     }

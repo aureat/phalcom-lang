@@ -27,7 +27,7 @@ pub(crate) fn normalize_element_index(heap: &Heap, value: &Value, len: usize) ->
             }
             .into());
         }
-        if n < -9007199254740992.0 || n > 9007199254740992.0 {
+        if !(-9007199254740992.0..=9007199254740992.0).contains(&n) {
             return Ok(NormalizedIndex::OutOfRange);
         }
         n as i64

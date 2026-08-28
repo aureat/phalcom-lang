@@ -7,7 +7,7 @@ use crate::checker::incident::{
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
+use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
@@ -19,7 +19,6 @@ use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, Type
 use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
-use crate::types::parameter::{SelfRole, SelfTypeTerm};
 use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded};
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
@@ -634,7 +633,11 @@ impl<'a> CheckingContext<'a> {
                 InternalSemanticIncidentDetails::DivergentMutability { binding, left, right }
             }
             crate::checker::flow::state::FlowInvariantFailure::DivergentFieldContract { field, left, right } => {
-                InternalSemanticIncidentDetails::DivergentFieldContract { field, left, right }
+                InternalSemanticIncidentDetails::DivergentFieldContract {
+                    field,
+                    left: *left,
+                    right: *right,
+                }
             }
         };
         let incident = self.record_internal_incident(InternalSemanticIncidentKind::FlowInvariantViolation, details, Some(range));
@@ -1314,7 +1317,7 @@ impl<'a> CheckingContext<'a> {
 
     pub fn resolve_dispatch(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> DispatchResult {
         match self.resolve_dispatch_target(receiver, selector, lookup) {
-            ResolvedDispatchResult::Found(resolved) => DispatchResult::Found(resolved.signature),
+            ResolvedDispatchResult::Found(resolved) => DispatchResult::Found(Box::new(resolved.signature)),
             ResolvedDispatchResult::Ambiguous(ambiguous) => DispatchResult::Ambiguous(ambiguous.into_iter().map(|resolved| resolved.signature).collect()),
             ResolvedDispatchResult::Missing { .. } => DispatchResult::Missing,
             ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,

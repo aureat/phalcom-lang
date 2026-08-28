@@ -16,7 +16,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -24,7 +24,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -62,7 +62,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -70,7 +70,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -108,7 +108,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -116,7 +116,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -154,7 +154,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -162,7 +162,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -206,7 +206,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             },
             returns: &::phalcom_native_meta::TypeExprSpec::Applied {
                 origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
-                arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Attribute)],
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Attribute)],
             },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
@@ -217,7 +217,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 },
                 return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
                     origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::List),
-                    arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Attribute)],
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Attribute)],
                 },
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -436,7 +436,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -444,7 +444,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -482,7 +482,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Message)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Message)],
                 labeled: &[],
                 rest: None,
             },
@@ -490,13 +490,13 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Message)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Message)],
                     labeled: &[],
                     rest: None,
                 },
                 return_type: &::phalcom_native_meta::TypeExprSpec::Never,
             },
-            raises: ::phalcom_native_meta::RaisesSpec::Known(&[*&::phalcom_native_meta::TypeExprSpec::Universe(
+            raises: ::phalcom_native_meta::RaisesSpec::Known(&[::phalcom_native_meta::TypeExprSpec::Universe(
                 ::phalcom_native_meta::UniverseKey::MessageNotUnderstood,
             )]),
             effects: ::phalcom_native_meta::EffectSpec::Unknown,
@@ -576,7 +576,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -584,7 +584,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -622,24 +622,24 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                 labeled: &[],
                 rest: None,
             },
             returns: &::phalcom_native_meta::TypeExprSpec::Applied {
                 origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Method)],
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Method)],
             },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                     labeled: &[],
                     rest: None,
                 },
                 return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
                     origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                    arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Method)],
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Method)],
                 },
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -720,7 +720,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: Some(::phalcom_native_meta::RestParameterSpec { ty: None }),
             },
@@ -728,7 +728,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: Some(::phalcom_native_meta::RestParameterSpec { ty: None }),
                 },
@@ -768,7 +768,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                 labeled: &[],
                 rest: None,
             },
@@ -776,7 +776,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                     labeled: &[],
                     rest: None,
                 },
@@ -862,7 +862,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                 labeled: &[],
                 rest: None,
             },
@@ -870,7 +870,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                     labeled: &[],
                     rest: None,
                 },
@@ -910,7 +910,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -918,7 +918,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -1056,7 +1056,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             },
             returns: &::phalcom_native_meta::TypeExprSpec::Applied {
                 origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Class)],
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Class)],
             },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
@@ -1067,7 +1067,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 },
                 return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
                     origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                    arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Class)],
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Class)],
                 },
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -1102,7 +1102,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -1110,7 +1110,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1148,7 +1148,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -1156,7 +1156,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1240,7 +1240,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1248,7 +1248,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1286,7 +1286,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1294,7 +1294,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1332,7 +1332,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1340,7 +1340,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1426,7 +1426,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1434,7 +1434,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1520,7 +1520,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1528,7 +1528,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1566,7 +1566,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1574,7 +1574,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1612,7 +1612,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1620,7 +1620,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1658,7 +1658,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1666,7 +1666,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1704,7 +1704,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1712,7 +1712,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1750,7 +1750,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1758,7 +1758,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1796,7 +1796,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1804,7 +1804,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -1934,7 +1934,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
                 rest: None,
             },
@@ -1942,7 +1942,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2026,7 +2026,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -2034,7 +2034,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2072,7 +2072,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
                 rest: None,
             },
@@ -2080,7 +2080,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2118,7 +2118,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
                 rest: None,
             },
@@ -2126,7 +2126,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2164,7 +2164,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
                 rest: None,
             },
@@ -2172,7 +2172,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2210,7 +2210,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
                 rest: None,
             },
@@ -2218,7 +2218,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2256,7 +2256,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
                 rest: None,
             },
@@ -2264,7 +2264,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2440,7 +2440,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
                 rest: None,
             },
@@ -2448,7 +2448,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                     labeled: &[],
                     rest: None,
                 },
@@ -2578,7 +2578,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -2586,7 +2586,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3176,7 +3176,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -3184,7 +3184,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3222,7 +3222,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
                 labeled: &[],
                 rest: None,
             },
@@ -3230,7 +3230,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3268,24 +3268,24 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
                 rest: None,
             },
             returns: &::phalcom_native_meta::TypeExprSpec::Applied {
                 origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
             },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                     labeled: &[],
                     rest: None,
                 },
                 return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
                     origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                    arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 },
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -3367,8 +3367,8 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
-                    *&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
-                    *&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                    ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                    ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
                 ],
                 labeled: &[],
                 rest: None,
@@ -3378,8 +3378,8 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
                     positional: &[
-                        *&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
-                        *&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                        ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                        ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
                     ],
                     labeled: &[],
                     rest: None,
@@ -3510,7 +3510,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -3518,7 +3518,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3556,7 +3556,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -3564,7 +3564,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3648,7 +3648,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -3656,7 +3656,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3694,7 +3694,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -3702,7 +3702,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3740,7 +3740,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[::phalcom_native_meta::LabeledParameterSpec {
                     label: "ifFalse",
                     ty: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object),
@@ -3751,7 +3751,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[::phalcom_native_meta::LabeledParameterSpec {
                         label: "ifFalse",
                         ty: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object),
@@ -3838,7 +3838,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -3846,7 +3846,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -3930,7 +3930,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -3938,7 +3938,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4160,7 +4160,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4168,7 +4168,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4206,7 +4206,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4214,7 +4214,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4482,7 +4482,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4490,7 +4490,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4528,7 +4528,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4536,7 +4536,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4574,7 +4574,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4582,7 +4582,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4620,7 +4620,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4628,7 +4628,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4758,7 +4758,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4766,7 +4766,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4850,7 +4850,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4858,7 +4858,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4896,7 +4896,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4904,7 +4904,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -4942,7 +4942,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -4950,7 +4950,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -5084,7 +5084,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5092,7 +5092,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -5226,7 +5226,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5234,7 +5234,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -5320,7 +5320,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5328,7 +5328,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -5368,7 +5368,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5376,7 +5376,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -5508,7 +5508,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5516,7 +5516,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -5650,7 +5650,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: Some(::phalcom_native_meta::RestParameterSpec { ty: None }),
             },
@@ -5658,7 +5658,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: Some(::phalcom_native_meta::RestParameterSpec { ty: None }),
                 },
@@ -5884,7 +5884,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5892,7 +5892,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -5930,7 +5930,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5938,7 +5938,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -5978,7 +5978,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -5986,7 +5986,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -6352,7 +6352,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -6360,7 +6360,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -6464,7 +6464,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -6472,7 +6472,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -6512,7 +6512,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -6520,7 +6520,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -6558,7 +6558,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -6566,7 +6566,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -6654,7 +6654,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -6662,7 +6662,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -6703,9 +6703,9 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
-                    *&::phalcom_native_meta::TypeExprSpec::Unknown,
-                    *&::phalcom_native_meta::TypeExprSpec::Unknown,
-                    *&::phalcom_native_meta::TypeExprSpec::Unknown,
+                    ::phalcom_native_meta::TypeExprSpec::Unknown,
+                    ::phalcom_native_meta::TypeExprSpec::Unknown,
+                    ::phalcom_native_meta::TypeExprSpec::Unknown,
                 ],
                 labeled: &[],
                 rest: None,
@@ -6715,9 +6715,9 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
                     positional: &[
-                        *&::phalcom_native_meta::TypeExprSpec::Unknown,
-                        *&::phalcom_native_meta::TypeExprSpec::Unknown,
-                        *&::phalcom_native_meta::TypeExprSpec::Unknown,
+                        ::phalcom_native_meta::TypeExprSpec::Unknown,
+                        ::phalcom_native_meta::TypeExprSpec::Unknown,
+                        ::phalcom_native_meta::TypeExprSpec::Unknown,
                     ],
                     labeled: &[],
                     rest: None,
@@ -6758,7 +6758,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -6766,7 +6766,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -6900,7 +6900,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -6908,7 +6908,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -6948,7 +6948,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -6956,7 +6956,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -6996,7 +6996,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7004,7 +7004,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7044,7 +7044,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7052,7 +7052,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7092,7 +7092,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7100,7 +7100,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7188,7 +7188,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7196,7 +7196,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7282,7 +7282,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7290,7 +7290,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7330,7 +7330,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7338,7 +7338,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7378,7 +7378,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7386,7 +7386,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7426,7 +7426,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7434,7 +7434,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7568,7 +7568,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7576,7 +7576,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7614,7 +7614,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7622,7 +7622,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7846,7 +7846,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7854,7 +7854,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7894,7 +7894,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7902,7 +7902,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -7942,7 +7942,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -7950,7 +7950,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8034,7 +8034,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8042,7 +8042,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8218,7 +8218,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8226,7 +8226,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8266,7 +8266,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8274,7 +8274,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8314,7 +8314,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8322,7 +8322,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8362,7 +8362,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8370,7 +8370,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8410,7 +8410,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8418,7 +8418,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8506,7 +8506,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8514,7 +8514,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown, *&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8650,7 +8650,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8658,7 +8658,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8698,7 +8698,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8706,7 +8706,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -8792,7 +8792,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -8800,7 +8800,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -9068,7 +9068,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -9076,7 +9076,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -9206,7 +9206,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -9214,7 +9214,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -10682,7 +10682,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool)],
                 labeled: &[],
                 rest: None,
             },
@@ -10690,7 +10690,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool)],
                     labeled: &[],
                     rest: None,
                 },
@@ -10728,7 +10728,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
                 labeled: &[],
                 rest: None,
             },
@@ -10736,7 +10736,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
                     labeled: &[],
                     rest: None,
                 },
@@ -10872,7 +10872,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             },
             returns: &::phalcom_native_meta::TypeExprSpec::Applied {
                 origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Fiber)],
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Fiber)],
             },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
@@ -10883,7 +10883,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 },
                 return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
                     origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
-                    arguments: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Fiber)],
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Fiber)],
                 },
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -10918,7 +10918,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -10926,7 +10926,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -10964,7 +10964,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
                 rest: None,
             },
@@ -10972,7 +10972,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                     labeled: &[],
                     rest: None,
                 },
@@ -11338,7 +11338,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -11346,7 +11346,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -11576,7 +11576,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -11584,7 +11584,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -11622,7 +11622,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -11630,7 +11630,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -11716,7 +11716,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -11724,7 +11724,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -11812,7 +11812,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -11820,7 +11820,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -11950,7 +11950,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -11958,7 +11958,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -13882,7 +13882,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -13890,7 +13890,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -13928,7 +13928,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -13936,7 +13936,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -13974,7 +13974,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -13982,7 +13982,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -14434,7 +14434,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -14442,7 +14442,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -14480,7 +14480,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -14488,7 +14488,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },
@@ -14802,7 +14802,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
             params: &::phalcom_native_meta::ParameterTupleSpec {
-                positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
                 rest: None,
             },
@@ -14810,7 +14810,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
-                    positional: &[*&::phalcom_native_meta::TypeExprSpec::Unknown],
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                     labeled: &[],
                     rest: None,
                 },

@@ -27,8 +27,8 @@ pub enum FlowInvariantFailure {
     },
     DivergentFieldContract {
         field: FieldId,
-        left: TypeKnowledge,
-        right: TypeKnowledge,
+        left: Box<TypeKnowledge>,
+        right: Box<TypeKnowledge>,
     },
 }
 
@@ -269,7 +269,7 @@ impl FlowState {
             origin: BindingContractOrigin::SourceAnnotation,
             source: Some(range),
         });
-        self.declare_with_contract(binding, name, range, declared, contract, initial, mutable);
+        self.declare_with_contract(binding, name, range, contract, initial, mutable);
     }
 
     pub fn declare_with_contract(
@@ -277,12 +277,11 @@ impl FlowState {
         binding: BindingId,
         name: impl Into<String>,
         range: SourceRange,
-        declared: Option<TypeId>,
         contract: Option<BindingContract>,
         initial: TypeKnowledge,
         mutable: bool,
     ) {
-        let state = BindingState::new_with_contract(binding, name, range, declared, contract, initial, None, mutable);
+        let state = BindingState::new_with_contract(binding, name, range, contract, initial, None, mutable);
         self.bindings.insert(binding, state);
     }
 
@@ -415,8 +414,8 @@ impl FlowState {
                     if let Some(right) = fields.iter().find(|state| &state.contract != contract) {
                         return Err(FlowInvariantFailure::DivergentFieldContract {
                             field,
-                            left: contract.clone(),
-                            right: right.contract.clone(),
+                            left: Box::new(contract.clone()),
+                            right: Box::new(right.contract.clone()),
                         });
                     }
                 }
@@ -598,8 +597,8 @@ impl FlowState {
             if header_field.contract != next_field.contract {
                 return Err(FlowInvariantFailure::DivergentFieldContract {
                     field: field.clone(),
-                    left: header_field.contract.clone(),
-                    right: next_field.contract.clone(),
+                    left: Box::new(header_field.contract.clone()),
+                    right: Box::new(next_field.contract.clone()),
                 });
             }
         }

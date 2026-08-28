@@ -152,14 +152,13 @@ impl BindingState {
             origin: super::binding::BindingContractOrigin::SourceAnnotation,
             source: Some(range),
         });
-        Self::new_with_contract(binding, name, range, declared, contract, current, None, mutable)
+        Self::new_with_contract(binding, name, range, contract, current, None, mutable)
     }
 
     pub fn new_with_contract(
         binding: BindingId,
         name: impl Into<String>,
         range: SourceRange,
-        _declared: Option<crate::types::id::TypeId>,
         contract: Option<super::binding::BindingContract>,
         current: TypeKnowledge,
         denotation: Option<SemanticDenotation>,

@@ -86,6 +86,5 @@ fn refine_binding_type(state: &mut FlowState, binding: BindingId, target: TypeId
         if current_ty == target || relation::is_subtype(store, hierarchy, target, current_ty) {
             state.assign(binding, TypeKnowledge::established(target, EvidenceOrigin::Flow));
         }
-        return;
     }
 }

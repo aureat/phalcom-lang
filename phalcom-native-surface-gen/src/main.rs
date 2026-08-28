@@ -249,7 +249,7 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
                 }
                 let ty = parse_type_expr(trimmed).map_err(|e| format!("invalid raise type `{trimmed}`: {e}"))?;
                 let elem = emit_type_expr_spec(&ty, &[])?;
-                ty_tokens.push(quote!(*#elem));
+                ty_tokens.push(elem);
             }
             quote!(::phalcom_native_meta::RaisesSpec::Known(&[#(#ty_tokens),*]))
         }
@@ -346,7 +346,7 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
                 stability: NativeStability::#stability_ident,
                 anchor: NativeAnchorPolicy::#anchor_ident,
                 params: #params_tokens,
-                returns: #returns_tokens,
+                returns: &#returns_tokens,
                 callable: #callable_tokens,
                 raises: #raises_tokens,
                 effects: #effects_tokens,
@@ -417,54 +417,54 @@ fn compute_return_shape(flow: &str, return_type: &TypeExpr) -> TokenStream2 {
     }
 }
 
+/// Emits a `TypeExprSpec` value. Callers add a reference only where the
+/// metadata contract stores one; arrays store values directly.
 fn emit_type_expr_spec(ty: &TypeExpr, binders: &[String]) -> Result<TokenStream2, String> {
     match ty {
-        TypeExpr::Unknown => Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Unknown)),
-        TypeExpr::Never => Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Never)),
-        TypeExpr::SelfType => Ok(quote!(&::phalcom_native_meta::TypeExprSpec::SelfType)),
+        TypeExpr::Unknown => Ok(quote!(::phalcom_native_meta::TypeExprSpec::Unknown)),
+        TypeExpr::Never => Ok(quote!(::phalcom_native_meta::TypeExprSpec::Never)),
+        TypeExpr::SelfType => Ok(quote!(::phalcom_native_meta::TypeExprSpec::SelfType)),
         TypeExpr::Universe(name) => {
             let key = UniverseKey::from_name(name).ok_or_else(|| format!("unknown universe type `universe.{name}`"))?;
             let key_ident = format_ident!("{}", key.name());
-            Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::#key_ident)))
+            Ok(quote!(::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::#key_ident)))
         }
         TypeExpr::Named(name) => {
             if binders.contains(name) {
                 let name_str = name.as_str();
-                Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Parameter(#name_str)))
+                Ok(quote!(::phalcom_native_meta::TypeExprSpec::Parameter(#name_str)))
             } else if let Some(key) = UniverseKey::from_name(name) {
                 let key_ident = format_ident!("{}", key.name());
-                Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::#key_ident)))
+                Ok(quote!(::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::#key_ident)))
             } else {
                 Err(format!("unknown type name `{name}`"))
             }
         }
         TypeExpr::Parameter(name) => {
             let name_str = name.as_str();
-            Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Parameter(#name_str)))
+            Ok(quote!(::phalcom_native_meta::TypeExprSpec::Parameter(#name_str)))
         }
         TypeExpr::Applied { origin, arguments } => {
             let origin_tokens = emit_type_expr_spec(origin, binders)?;
             let mut arg_tokens = Vec::new();
             for arg in arguments {
-                let elem = emit_type_expr_spec(arg, binders)?;
-                arg_tokens.push(quote!(*#elem));
+                arg_tokens.push(emit_type_expr_spec(arg, binders)?);
             }
-            Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Applied {
-                origin: #origin_tokens,
+            Ok(quote!(::phalcom_native_meta::TypeExprSpec::Applied {
+                origin: &#origin_tokens,
                 arguments: &[#(#arg_tokens),*],
             }))
         }
         TypeExpr::Union(alts) => {
             let mut alt_tokens = Vec::new();
             for alt in alts {
-                let elem = emit_type_expr_spec(alt, binders)?;
-                alt_tokens.push(quote!(*#elem));
+                alt_tokens.push(emit_type_expr_spec(alt, binders)?);
             }
-            Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Union(&[#(#alt_tokens),*])))
+            Ok(quote!(::phalcom_native_meta::TypeExprSpec::Union(&[#(#alt_tokens),*])))
         }
         TypeExpr::Tuple(tuple) => {
             let tuple_spec = emit_params_spec(tuple, binders)?;
-            Ok(quote!(&::phalcom_native_meta::TypeExprSpec::Tuple(#tuple_spec)))
+            Ok(quote!(::phalcom_native_meta::TypeExprSpec::Tuple(#tuple_spec)))
         }
     }
 }
@@ -472,8 +472,7 @@ fn emit_type_expr_spec(ty: &TypeExpr, binders: &[String]) -> Result<TokenStream2
 fn emit_params_spec(params: &ParameterTuple, binders: &[String]) -> Result<TokenStream2, String> {
     let mut pos_tokens = Vec::new();
     for pos in &params.positional {
-        let elem = emit_type_expr_spec(pos, binders)?;
-        pos_tokens.push(quote!(*#elem));
+        pos_tokens.push(emit_type_expr_spec(pos, binders)?);
     }
 
     let mut labeled_tokens = Vec::new();
@@ -482,7 +481,7 @@ fn emit_params_spec(params: &ParameterTuple, binders: &[String]) -> Result<Token
         let elem = emit_type_expr_spec(&labeled.ty, binders)?;
         labeled_tokens.push(quote!(::phalcom_native_meta::LabeledParameterSpec {
             label: #label_str,
-            ty: #elem,
+            ty: &#elem,
         }));
     }
 
@@ -491,7 +490,7 @@ fn emit_params_spec(params: &ParameterTuple, binders: &[String]) -> Result<Token
             let ty_tokens = match &rest.ty {
                 Some(ty) => {
                     let elem = emit_type_expr_spec(ty, binders)?;
-                    quote!(Some(#elem))
+                    quote!(Some(&#elem))
                 }
                 None => quote!(None),
             };
@@ -524,7 +523,7 @@ fn emit_callable_spec(callable: &CallableType) -> Result<TokenStream2, String> {
     Ok(quote!(&::phalcom_native_meta::CallableTypeSpec {
         type_params: &[#(#type_param_tokens),*],
         params: #params_spec,
-        return_type: #returns_spec,
+        return_type: &#returns_spec,
     }))
 }
 
@@ -549,4 +548,24 @@ fn format_source(source: &str) -> Result<String, String> {
     }
 
     String::from_utf8(output.stdout).map_err(|e| format!("rustfmt output not utf-8: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn type_expression_arrays_contain_values_not_dereferenced_references() {
+        let ty = TypeExpr::Applied {
+            origin: Box::new(TypeExpr::Universe("List".to_string())),
+            arguments: vec![TypeExpr::Universe("Object".to_string())],
+        };
+
+        let tokens = emit_type_expr_spec(&ty, &[]).expect("known universe types must emit").to_string();
+
+        assert!(
+            !tokens.contains("* &"),
+            "generator must not emit a dereferenced reference inside a TypeExprSpec value array: {tokens}"
+        );
+    }
 }

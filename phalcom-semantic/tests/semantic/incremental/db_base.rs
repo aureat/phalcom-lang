@@ -149,40 +149,46 @@ fn test_body_query_execution_and_invalidation() {
 
     let outcome1 = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
-        cid1.clone(),
-        &[],
-        SourceRange { start: 0, end: 10 },
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &decls,
-        &dispatch,
-        module.clone(),
-        budget,
-        &cancel,
+        phalcom_semantic::db::CallableBodyQuery {
+            callable: cid1.clone(),
+            body: &[],
+            body_range: SourceRange { start: 0, end: 10 },
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &decls,
+            dispatch: &dispatch,
+            module: module.clone(),
+            budget,
+            cancel: &cancel,
+            formal_inputs: None,
+        },
     );
     assert!(outcome1.is_ready());
 
     let outcome1_cached = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
-        cid1.clone(),
-        &[],
-        SourceRange { start: 0, end: 10 },
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &decls,
-        &dispatch,
-        module.clone(),
-        budget,
-        &cancel,
+        phalcom_semantic::db::CallableBodyQuery {
+            callable: cid1.clone(),
+            body: &[],
+            body_range: SourceRange { start: 0, end: 10 },
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &decls,
+            dispatch: &dispatch,
+            module: module.clone(),
+            budget,
+            cancel: &cancel,
+            formal_inputs: None,
+        },
     );
     match (&outcome1, &outcome1_cached) {
         (QueryOutcome::Ready(first), QueryOutcome::Ready(second)) => assert!(Arc::ptr_eq(first, second), "cache hit must return typed product"),
         _ => panic!("expected two ready callable products"),
     }
     let key1 = QueryKey::CallableBody(cid1.clone());
-    assert_eq!(db.query_state(&key1).unwrap().is_ready(), true);
+    assert!(db.query_state(&key1).unwrap().is_ready());
     assert_eq!(db.query_state(&key1).unwrap().revision(), Some(db.revision()));
     assert_eq!(db.query_state(&key1).unwrap().as_ready_value().unwrap().as_bytes(), b"callable-body");
     let first_input_fingerprint = db
@@ -196,17 +202,20 @@ fn test_body_query_execution_and_invalidation() {
     let changed_body = phalcom_ast::parse_source("1", 0).expect("changed callable body parses");
     let changed = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
-        cid1.clone(),
-        &changed_body.statements,
-        SourceRange { start: 0, end: 10 },
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &decls,
-        &dispatch,
-        module.clone(),
-        budget,
-        &cancel,
+        phalcom_semantic::db::CallableBodyQuery {
+            callable: cid1.clone(),
+            body: &changed_body.statements,
+            body_range: SourceRange { start: 0, end: 10 },
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &decls,
+            dispatch: &dispatch,
+            module: module.clone(),
+            budget,
+            cancel: &cancel,
+            formal_inputs: None,
+        },
     );
     match (&outcome1, &changed) {
         (QueryOutcome::Ready(first), QueryOutcome::Ready(second)) => {
@@ -222,17 +231,20 @@ fn test_body_query_execution_and_invalidation() {
     failed_cancel.cancel();
     let failed = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
-        cid1.clone(),
-        &failed_body.statements,
-        SourceRange { start: 0, end: 10 },
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &decls,
-        &dispatch,
-        module.clone(),
-        budget,
-        &failed_cancel,
+        phalcom_semantic::db::CallableBodyQuery {
+            callable: cid1.clone(),
+            body: &failed_body.statements,
+            body_range: SourceRange { start: 0, end: 10 },
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &decls,
+            dispatch: &dispatch,
+            module: module.clone(),
+            budget,
+            cancel: &failed_cancel,
+            formal_inputs: None,
+        },
     );
     assert!(matches!(failed, QueryOutcome::Cancelled));
     assert!(db.product(&key1).is_none(), "cancelled generation must not appear current-ready");
@@ -248,17 +260,20 @@ fn test_body_query_execution_and_invalidation() {
 
     let outcome2 = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
-        cid2.clone(),
-        &[],
-        SourceRange { start: 0, end: 10 },
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &decls,
-        &dispatch,
-        module,
-        budget,
-        &cancel,
+        phalcom_semantic::db::CallableBodyQuery {
+            callable: cid2.clone(),
+            body: &[],
+            body_range: SourceRange { start: 0, end: 10 },
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &decls,
+            dispatch: &dispatch,
+            module,
+            budget,
+            cancel: &cancel,
+            formal_inputs: None,
+        },
     );
     assert!(outcome2.is_ready());
 
@@ -308,17 +323,20 @@ fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()
 
     let outcome = phalcom_semantic::db::query_callable_body(
         &mut db,
-        callable.clone(),
-        &[],
-        SourceRange { start: 0, end: 10 },
-        &mut store,
-        &hierarchy,
-        &resolver,
-        &declarations,
-        &dispatch,
-        module,
-        budget,
-        &cancel,
+        phalcom_semantic::db::CallableBodyQuery {
+            callable: callable.clone(),
+            body: &[],
+            body_range: SourceRange { start: 0, end: 10 },
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &declarations,
+            dispatch: &dispatch,
+            module,
+            budget,
+            cancel: &cancel,
+            formal_inputs: None,
+        },
     );
 
     match outcome {

@@ -36,7 +36,7 @@ impl CapturedMethodFamilyShape {
 
     fn canonicalize(&self) -> Self {
         let mut exact = self.exact.to_vec();
-        exact.sort_by(|left, right| left.cmp(right));
+        exact.sort();
         exact.dedup();
         let mut rest_candidates = self.rest_candidates.to_vec();
         rest_candidates.sort();

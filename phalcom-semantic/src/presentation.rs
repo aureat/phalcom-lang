@@ -4,7 +4,7 @@ use crate::advisory::ValueShape;
 use crate::advisory::{AdvisoryFact, AdvisoryTargetResolution};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::{AnalysisStatus, BindingConsistency, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex};
-use crate::identity::{CallableId, ExpressionId, ModuleId, SourceSiteId};
+use crate::identity::{CallableId, ExpressionId, FieldId, ModuleId, SourceSiteId};
 use crate::signature::CallableSemanticSignature;
 use crate::source_index::SourceSemanticIndex;
 use crate::source_index::interval::{RangeEntry, RangeIndex};
@@ -196,18 +196,38 @@ impl CallablePresentation {
             kind: source.map_or(SourceCallableKind::Method, |source| source.kind),
             owner_name: signature.owner.name.clone(),
             parameters: Arc::from(parameters.into_boxed_slice()),
-            return_type: signature
-                .inferred_return
-                .as_ref()
-                .filter(|knowledge| knowledge.is_known() || knowledge.is_dynamic())
-                .map(|knowledge| presenter.present_knowledge(knowledge))
-                .unwrap_or_else(|| present_declared_type(&signature.declared_return, presenter)),
+            return_type: presenter.present_knowledge(&signature.published_return_knowledge()),
             documentation: None,
         }
     }
 }
 
-fn present_declared_type(fact: &crate::declaration_type::DeclaredTypeFact, presenter: &TypePresenter<'_>) -> FormalPresentation {
+/// Protocol-neutral presentation of one canonical field.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FieldPresentation {
+    pub field: FieldId,
+    pub owner_name: Box<str>,
+    pub name: Box<str>,
+    pub type_: FormalPresentation,
+    pub mutable: bool,
+    pub documentation: Option<Arc<str>>,
+}
+
+impl FieldPresentation {
+    /// Projects canonical field signature into editor-neutral text.
+    pub fn from_signature(signature: &crate::signature::FieldSemanticSignature, presenter: &TypePresenter<'_>) -> Self {
+        Self {
+            field: signature.field.clone(),
+            owner_name: signature.owner.name.clone(),
+            name: signature.name.clone(),
+            type_: present_declared_type(&signature.declared_type, presenter),
+            mutable: signature.mutable,
+            documentation: None,
+        }
+    }
+}
+
+pub(crate) fn present_declared_type(fact: &crate::declaration_type::DeclaredTypeFact, presenter: &TypePresenter<'_>) -> FormalPresentation {
     match &fact.state {
         crate::declaration_type::DeclaredTypeState::Known(term) => present_type_term(term, presenter),
         crate::declaration_type::DeclaredTypeState::Dynamic(_) => FormalPresentation::Dynamic,

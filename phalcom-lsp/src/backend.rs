@@ -495,7 +495,6 @@ impl Backend {
         let text = text.into();
         let program = program.into();
         let source = CachedSource {
-            revision,
             line_index: Arc::new(LineIndex::new(&text)),
             text,
             program,
@@ -624,9 +623,8 @@ impl Backend {
         });
         let phaldoc = source.and_then(|source| self.member_phaldoc(compiler, source));
         let presenter = phalcom_semantic::TypePresenter::new(&compiler.store);
-        let formal = signature.map_or(FormalPresentation::Unknown, |signature| match &signature.return_type {
-            phalcom_semantic::types::TypeTerm::Canonical(ty) => FormalPresentation::Known(presenter.present_type(*ty)),
-            phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => FormalPresentation::Unknown,
+        let formal = signature.map_or(FormalPresentation::Unknown, |signature| {
+            phalcom_semantic::CallablePresentation::from_signature(signature, source, &presenter).return_type
         });
         Some((
             callable.selector.encode(),
@@ -970,36 +968,38 @@ impl Backend {
             && let Some(target) = self.compiler_target_at_request(request, offset)
         {
             match target {
-                phalcom_semantic::SemanticTargetId::Callable(callable)
+                phalcom_semantic::SemanticTargetId::Callable(callable) => {
                     if let Some((selector, site, phaldoc, formal, advisory, native)) = self.compiler_callable_hover(request, &callable)
                         && let Some(mut contents) =
-                            hover::render_selector_hover_with_formal_value(&selector, &[site], phaldoc.as_ref(), Some(&formal), advisory.as_ref()) =>
-                {
-                    if let Some(native) = native {
-                        contents.push_str("\n\n---\n\n");
-                        contents.push_str(&hover::render_native_callable_details(native.documentation));
+                            hover::render_selector_hover_with_formal_value(&selector, &[site], phaldoc.as_ref(), Some(&formal), advisory.as_ref())
+                    {
+                        if let Some(native) = native {
+                            contents.push_str("\n\n---\n\n");
+                            contents.push_str(&hover::render_native_callable_details(native.documentation));
+                        }
+                        return Some(Hover {
+                            contents: markdown_contents(contents),
+                            range: Some(span),
+                        });
                     }
-                    return Some(Hover {
-                        contents: markdown_contents(contents),
-                        range: Some(span),
-                    });
                 }
-                phalcom_semantic::SemanticTargetId::Declaration(declaration)
-                    if let Some((class, superclass, phaldoc)) = self.compiler_class_hover(request, &declaration) =>
-                {
-                    return Some(Hover {
-                        contents: markdown_contents(hover::render_class_hover(&class, superclass.as_ref(), phaldoc.as_ref())),
-                        range: Some(span),
-                    });
+                phalcom_semantic::SemanticTargetId::Declaration(declaration) => {
+                    if let Some((class, superclass, phaldoc)) = self.compiler_class_hover(request, &declaration) {
+                        return Some(Hover {
+                            contents: markdown_contents(hover::render_class_hover(&class, superclass.as_ref(), phaldoc.as_ref())),
+                            range: Some(span),
+                        });
+                    }
                 }
-                phalcom_semantic::SemanticTargetId::Field(field)
+                phalcom_semantic::SemanticTargetId::Field(field) => {
                     if let Some((name, site, advisory)) = self.compiler_field_hover(request, &field)
-                        && let Some(contents) = hover::render_selector_hover_with_value(&name, &[site], None, advisory.as_ref()) =>
-                {
-                    return Some(Hover {
-                        contents: markdown_contents(contents),
-                        range: Some(span),
-                    });
+                        && let Some(contents) = hover::render_selector_hover_with_value(&name, &[site], None, advisory.as_ref())
+                    {
+                        return Some(Hover {
+                            contents: markdown_contents(contents),
+                            range: Some(span),
+                        });
+                    }
                 }
                 phalcom_semantic::SemanticTargetId::Binding(binding) => {
                     if let Some(contents) = self.compiler_binding_hover(request, &binding) {
@@ -1217,11 +1217,11 @@ impl LanguageServer for Backend {
                 while let Some(event) = events.recv().await {
                     match event {
                         AnalysisEvent::CoreSourceSelected { uri: _ } => {}
-                        AnalysisEvent::WorkspaceFileIndexed { uri, text: _, revision } => {
+                        AnalysisEvent::WorkspaceFileIndexed { uri, text: _, revision: _ } => {
                             let source = closed_sources.read().expect("closed source cache lock poisoned").get(&uri).cloned();
                             let Some(source) = source else { continue };
                             let mut cache = closed_sources.write().expect("closed source cache lock poisoned");
-                            cache.insert(uri, CachedSource { revision, ..source });
+                            cache.insert(uri, source);
                         }
                         AnalysisEvent::WorkspaceFileRemoved { uri } => {
                             let mut cache = closed_sources.write().expect("closed source cache lock poisoned");

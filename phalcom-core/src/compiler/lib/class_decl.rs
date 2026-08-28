@@ -389,7 +389,9 @@ impl<'vm> Compiler<'vm> {
                 let (key, display, member_name_range) = match member {
                     ClassMember::Field(f) => (MemberKey::Field(f.name.clone()), f.name.clone(), f.range),
                     ClassMember::Method(m) => {
-                        let subject = if m.is_constructor { "constructor declaration" } else { "method declaration" };
+                        let is_constructor = m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor");
+                        let is_class_side = m.is_static || is_constructor;
+                        let subject = if is_constructor { "constructor declaration" } else { "method declaration" };
                         let kind = SignatureKind::Method(checked_send_arity(subject, m.params.len(), m.range)?);
                         let sel = if m.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest) {
                             rest_selector(&m.name, &m.params)
@@ -397,7 +399,7 @@ impl<'vm> Compiler<'vm> {
                             let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
                             encode_selector(&m.name, &labels, kind)
                         };
-                        (MemberKey::Selector(m.is_static, sel.clone()), sel, m.name_range)
+                        (MemberKey::Selector(is_class_side, sel.clone()), sel, m.name_range)
                     }
                     ClassMember::Getter(g) => {
                         let sel = encode_selector(&g.name, &[], SignatureKind::Getter);

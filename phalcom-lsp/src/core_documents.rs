@@ -3,7 +3,6 @@
 //! Core semantic products are built by `phalcom-semantic`; this module only
 //! selects and parses source text needed by the worker and virtual documents.
 
-use phalcom_ast::parser::Parse;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
@@ -61,14 +60,6 @@ impl CoreSource {
         }
     }
 
-    /// Parses selected source, preserving separate bundled-module preambles.
-    pub fn parse(&self) -> Parse {
-        match self {
-            Self::Bundled { .. } => bundled_parse(),
-            Self::Configured { .. } | Self::Workspace { .. } => phalcom_ast::parser::parse(self.text(), 0),
-        }
-    }
-
     /// Returns physical URI when selected source came from disk.
     pub fn physical_uri(&self) -> Option<&Url> {
         match self {
@@ -76,28 +67,6 @@ impl CoreSource {
             Self::Bundled { .. } => None,
         }
     }
-}
-
-/// Parses all bundled universe modules into one transport program.
-pub fn bundled_parse() -> Parse {
-    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
-    let mut combined = phalcom_ast::parser::parse("", 0);
-    for node in provider.nodes() {
-        let path = phalcom_modules::identity::ModulePath::from_components(
-            node.path
-                .iter()
-                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
-                .collect::<Vec<_>>(),
-        );
-        let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
-        let source = provider
-            .source_text(&module)
-            .unwrap_or_else(|error| panic!("failed to load canonical universe source {module}: {error}"));
-        let parsed = phalcom_ast::parser::parse(&source, 0);
-        combined.program.statements.extend(parsed.program.statements);
-        combined.errors.extend(parsed.errors);
-    }
-    combined
 }
 
 fn canonical_universe_source() -> String {

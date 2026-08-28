@@ -67,6 +67,7 @@ fn query_failure<T>(db: &mut SemanticDb, key: QueryKey, failure: impl Into<Strin
     QueryOutcome::Failed(failure)
 }
 
+#[allow(dead_code)]
 fn query_blocked<T>(db: &mut SemanticDb, key: QueryKey, reason: BlockReason) -> QueryOutcome<T> {
     let revision = db.revision();
     db.set_state(
@@ -614,17 +615,28 @@ pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInf
     QueryOutcome::Ready(info)
 }
 
+/// Inputs for one declaration-surface query.
+pub struct DeclarationSurfaceQuery<'a> {
+    pub decl_id: DeclarationId,
+    pub unit: Arc<ParsedModuleUnit>,
+    pub linked_interface: Arc<LinkedModuleInterface>,
+    pub store: &'a mut TypeStore,
+    pub hierarchy: &'a dyn TypeHierarchy,
+    pub resolver: &'a dyn TypeResolver,
+    pub declarations: &'a DeclarationTypeTable,
+}
+
 /// Evaluates or computes the source member surface for one declaration.
-pub fn query_declaration_surface(
-    db: &mut SemanticDb,
-    decl_id: DeclarationId,
-    unit: Arc<ParsedModuleUnit>,
-    linked_interface: Arc<LinkedModuleInterface>,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-) -> QueryOutcome<Arc<DeclarationSurface>> {
+pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQuery<'_>) -> QueryOutcome<Arc<DeclarationSurface>> {
+    let DeclarationSurfaceQuery {
+        decl_id,
+        unit,
+        linked_interface,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+    } = query;
     let key = QueryKey::DeclarationSurface(decl_id.clone());
     if unit.id != decl_id.module || linked_interface.module != decl_id.module {
         return query_failure(db, key, format!("declaration-surface query inputs do not belong to declaration {decl_id:?}"));
@@ -1062,96 +1074,49 @@ enum CallableBodySignatureRequirement {
     SignaturelessSynthetic,
 }
 
+/// Inputs for one callable-body query.
+pub struct CallableBodyQuery<'a> {
+    pub callable: CallableId,
+    pub body: &'a [Statement],
+    pub body_range: SourceRange,
+    pub store: &'a mut TypeStore,
+    pub hierarchy: &'a dyn TypeHierarchy,
+    pub resolver: &'a dyn TypeResolver,
+    pub declarations: &'a DeclarationTypeTable,
+    pub dispatch: &'a SurfaceDispatchResolver,
+    pub module: ModuleId,
+    pub budget: QueryBudget,
+    pub cancel: &'a CancellationToken,
+    pub formal_inputs: Option<&'a FormalQueryInputs<'a>>,
+}
+
 /// Evaluates or retrieves the cached `CallableAnalysis` for a declared callable body.
 ///
 /// Declared bodies fail closed unless their canonical `CallableSignature` product is
 /// current. Tests that intentionally exercise a body without a declaration must use
 /// [`query_signatureless_callable_body`] explicitly.
-pub fn query_callable_body(
-    db: &mut SemanticDb,
-    callable: CallableId,
-    body: &[Statement],
-    body_range: SourceRange,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    dispatch: &SurfaceDispatchResolver,
-    module: ModuleId,
-    budget: QueryBudget,
-    cancel: &CancellationToken,
-) -> QueryOutcome<Arc<CallableAnalysis>> {
-    query_callable_body_with_requirement(
-        db,
-        callable,
-        body,
-        body_range,
-        store,
-        hierarchy,
-        resolver,
-        declarations,
-        dispatch,
-        module,
-        budget,
-        cancel,
-        None,
-        CallableBodySignatureRequirement::Required,
-    )
+pub fn query_callable_body(db: &mut SemanticDb, query: CallableBodyQuery<'_>) -> QueryOutcome<Arc<CallableAnalysis>> {
+    query_callable_body_with_requirement(db, query, CallableBodySignatureRequirement::Required)
 }
 
 /// Low-level query entry for synthetic DB fixtures that deliberately have no
 /// source declaration and therefore no canonical callable-signature product.
-pub fn query_signatureless_callable_body(
-    db: &mut SemanticDb,
-    callable: CallableId,
-    body: &[Statement],
-    body_range: SourceRange,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    dispatch: &SurfaceDispatchResolver,
-    module: ModuleId,
-    budget: QueryBudget,
-    cancel: &CancellationToken,
-) -> QueryOutcome<Arc<CallableAnalysis>> {
-    query_callable_body_with_requirement(
-        db,
-        callable,
-        body,
-        body_range,
-        store,
-        hierarchy,
-        resolver,
-        declarations,
-        dispatch,
-        module,
-        budget,
-        cancel,
-        None,
-        CallableBodySignatureRequirement::SignaturelessSynthetic,
-    )
+pub fn query_signatureless_callable_body(db: &mut SemanticDb, query: CallableBodyQuery<'_>) -> QueryOutcome<Arc<CallableAnalysis>> {
+    query_callable_body_with_requirement(db, query, CallableBodySignatureRequirement::SignaturelessSynthetic)
 }
 
 /// Evaluates a declared callable body while allowing missing formal prerequisites
 /// to be evaluated from borrowed current workspace inputs.
-pub fn query_callable_body_with_formal_inputs(
+pub fn query_callable_body_with_formal_inputs(db: &mut SemanticDb, query: CallableBodyQuery<'_>) -> QueryOutcome<Arc<CallableAnalysis>> {
+    query_callable_body_with_requirement(db, query, CallableBodySignatureRequirement::Required)
+}
+
+fn query_callable_body_with_requirement(
     db: &mut SemanticDb,
-    callable: CallableId,
-    body: &[Statement],
-    body_range: SourceRange,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    dispatch: &SurfaceDispatchResolver,
-    module: ModuleId,
-    budget: QueryBudget,
-    cancel: &CancellationToken,
-    formal_inputs: Option<&FormalQueryInputs<'_>>,
+    query: CallableBodyQuery<'_>,
+    signature_requirement: CallableBodySignatureRequirement,
 ) -> QueryOutcome<Arc<CallableAnalysis>> {
-    query_callable_body_with_requirement(
-        db,
+    let CallableBodyQuery {
         callable,
         body,
         body_range,
@@ -1164,26 +1129,7 @@ pub fn query_callable_body_with_formal_inputs(
         budget,
         cancel,
         formal_inputs,
-        CallableBodySignatureRequirement::Required,
-    )
-}
-
-fn query_callable_body_with_requirement(
-    db: &mut SemanticDb,
-    callable: CallableId,
-    body: &[Statement],
-    body_range: SourceRange,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    dispatch: &SurfaceDispatchResolver,
-    module: ModuleId,
-    budget: QueryBudget,
-    cancel: &CancellationToken,
-    formal_inputs: Option<&FormalQueryInputs<'_>>,
-    signature_requirement: CallableBodySignatureRequirement,
-) -> QueryOutcome<Arc<CallableAnalysis>> {
+    } = query;
     let key = QueryKey::CallableBody(callable.clone());
 
     let input_fingerprint = match formal_inputs {
@@ -1266,21 +1212,25 @@ fn query_callable_body_with_requirement(
     db.metrics().record_miss();
 
     // 2. Perform analysis
-    let analysis = crate::checker::body::analyze_callable_body_with_fields(
-        callable,
-        body,
-        body_range,
-        store,
-        hierarchy,
-        resolver,
-        declarations,
-        dispatch,
-        declared_signature.as_ref().map(|(signature_id, signature)| (signature_id, signature.as_ref())),
-        module,
-        budget,
-        cancel,
-        formal_inputs.and_then(|inputs| inputs.field_signatures),
-        formal_inputs.and_then(|inputs| inputs.field_lifecycle),
+    let analysis = crate::checker::body::analyze_callable_body(
+        crate::checker::body::BodyAnalysisContext {
+            store,
+            hierarchy,
+            resolver,
+            declarations,
+            dispatch,
+            module,
+        },
+        crate::checker::body::CallableBodyRequest {
+            callable,
+            body,
+            body_range,
+            declared_signature: declared_signature.as_ref().map(|(signature_id, signature)| (signature_id, signature.as_ref())),
+            budget,
+            cancel,
+            field_signatures: formal_inputs.and_then(|inputs| inputs.field_signatures),
+            field_lifecycle: formal_inputs.and_then(|inputs| inputs.field_lifecycle),
+        },
     );
 
     let mut analysis = analysis;

@@ -54,7 +54,10 @@ fn inferred_local_formal_binding_attaches_to_exact_name_site() {
     let attachment = module_index.attachments.get(&callable_analysis.callable).expect("formal source attachment");
 
     assert_eq!(formal_binding.range, source_binding.declaration_range);
-    assert_eq!(attachment.source_site_for_binding(formal_binding.binding), Some(&source_binding.declaration_site));
+    assert_eq!(
+        attachment.source_site_for_binding(formal_binding.binding),
+        Some(&source_binding.declaration_site)
+    );
 }
 
 #[test]

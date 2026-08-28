@@ -92,7 +92,11 @@ impl CallableSemanticSignature {
     }
 
     pub fn published_return_knowledge(&self) -> TypeKnowledge {
-        self.inferred_return.clone().unwrap_or_else(|| self.declared_return.to_knowledge())
+        self.inferred_return
+            .as_ref()
+            .filter(|knowledge| knowledge.is_known() || knowledge.is_dynamic())
+            .cloned()
+            .unwrap_or_else(|| self.declared_return.to_knowledge())
     }
 
     pub fn published_return_term(&self) -> Option<TypeTerm> {

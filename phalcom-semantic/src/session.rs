@@ -2,8 +2,9 @@
 
 use crate::advisory::{
     AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
-    AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, advisory_fact_from_formal,
-    advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements,
+    AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, CallableForShapeResolver,
+    FormalCallResultResolver, MethodFamilyResolver, ModuleMemberResolver, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr,
+    analyze_statements,
 };
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
@@ -14,9 +15,9 @@ use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
-    FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_callable_body_with_formal_inputs,
-    query_callable_signature, query_declaration_shell, query_declaration_surface, query_field_signature, query_hierarchy_edge, query_linked_interface,
-    query_source_formal_attachment, query_source_structure, query_unlinked_interface,
+    CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
+    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, query_field_signature,
+    query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
@@ -677,13 +678,15 @@ impl SemanticWorkspaceSession {
 
                 let surface = match query_declaration_surface(
                     &mut self.db,
-                    decl_id.clone(),
-                    parsed_unit.clone(),
-                    linked_interface.clone(),
-                    &mut self.store,
-                    &hierarchy,
-                    &resolver,
-                    &declarations,
+                    DeclarationSurfaceQuery {
+                        decl_id: decl_id.clone(),
+                        unit: parsed_unit.clone(),
+                        linked_interface: linked_interface.clone(),
+                        store: &mut self.store,
+                        hierarchy: &hierarchy,
+                        resolver: &resolver,
+                        declarations: &declarations,
+                    },
                 ) {
                     QueryOutcome::Ready(surface) => surface,
                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -789,18 +792,20 @@ impl SemanticWorkspaceSession {
                                 };
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
-                                    callable_id.clone(),
-                                    body,
-                                    range,
-                                    &mut self.store,
-                                    &hierarchy,
-                                    &scoped_resolver,
-                                    &declarations,
-                                    &dispatch,
-                                    module_id.clone(),
-                                    budget,
-                                    cancel,
-                                    Some(&formal_inputs),
+                                    CallableBodyQuery {
+                                        callable: callable_id.clone(),
+                                        body,
+                                        body_range: range,
+                                        store: &mut self.store,
+                                        hierarchy: &hierarchy,
+                                        resolver: &scoped_resolver,
+                                        declarations: &declarations,
+                                        dispatch: &dispatch,
+                                        module: module_id.clone(),
+                                        budget,
+                                        cancel,
+                                        formal_inputs: Some(&formal_inputs),
+                                    },
                                 );
 
                                 match outcome {
@@ -873,23 +878,23 @@ impl SemanticWorkspaceSession {
         // so an unannotated callable initially has an unknown return surface.
         // Publish body-derived normal-return summaries into the local dispatch
         // view, then recheck callers until that view reaches a fixed point.
-        refresh_inferred_callable_results(
-            &input.sources,
-            &mut self.store,
-            &hierarchy,
-            &resolver,
-            &declarations,
-            &mut dispatch,
-            &mut callable_signatures,
-            &mut callable_analyses,
-            previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),
-            &field_signatures,
-            &field_lifecycle,
-            &mut callable_dispositions,
-            &mut diags_by_module,
+        refresh_inferred_callable_results(InferredCallableRefreshInputs {
+            sources: &input.sources,
+            store: &mut self.store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &declarations,
+            dispatch: &mut dispatch,
+            callable_signatures: &mut callable_signatures,
+            callable_analyses: &mut callable_analyses,
+            previous_callable_analyses: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),
+            field_signatures: &field_signatures,
+            field_lifecycle: &field_lifecycle,
+            callable_dispositions: &mut callable_dispositions,
+            diagnostics: &mut diags_by_module,
             budget,
             cancel,
-        )?;
+        })?;
 
         // 8. Freeze and Publish Immutable Snapshot
         let mut diagnostics_map = BTreeMap::new();
@@ -967,20 +972,20 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let mut advisory = build_advisory_workspace(
-            &input.sources,
-            &source_index,
-            &callable_analyses,
-            &self.store,
-            &declarations,
-            &callable_signatures,
-            &dispatch,
-            &hierarchy,
-            input.linked.as_ref(),
-            self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
+        let mut advisory = build_advisory_workspace(AdvisoryWorkspaceInputs {
+            sources: &input.sources,
+            source_index: &source_index,
+            callable_analyses: &callable_analyses,
+            store: &self.store,
+            declarations: &declarations,
+            callable_signatures: &callable_signatures,
+            dispatch: &dispatch,
+            hierarchy: &hierarchy,
+            linked: input.linked.as_ref(),
+            previous: self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
             budget,
             cancel,
-        );
+        });
         let mut advisory_query_failed = None;
         for summary in advisory.callables.values() {
             if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
@@ -1079,7 +1084,7 @@ impl SemanticWorkspaceSession {
             .values()
             .filter(|analysis| changed_modules.contains(&analysis.callable.owner.module))
             .count();
-        stats.modules_relinked = module_graph_changed.then_some(changed_modules.len()).unwrap_or_default();
+        stats.modules_relinked = if module_graph_changed { changed_modules.len() } else { 0 };
         stats.project_graph_rebuilt = effects.module_graph_changed;
         stats.callables_recomputed = callable_dispositions
             .values()
@@ -1091,7 +1096,8 @@ impl SemanticWorkspaceSession {
             .count();
         let recomputed_keys = callable_dispositions
             .iter()
-            .filter_map(|(callable, disposition)| (*disposition == CallableRevisionDisposition::Recomputed).then(|| QueryKey::CallableBody(callable.clone())))
+            .filter(|(_, disposition)| **disposition == CallableRevisionDisposition::Recomputed)
+            .map(|(callable, _)| QueryKey::CallableBody(callable.clone()))
             .collect::<Vec<_>>();
 
         self.last_snapshot = Some(snapshot.clone());
@@ -1146,7 +1152,7 @@ fn build_source_semantic_index(
                     .as_ref()
                     .map(|alias| alias.name.as_str())
                     .or_else(|| module_import.path.segments.last().map(|segment| segment.name.as_str()))
-                    .or_else(|| match &module_import.path.root {
+                    .or(match &module_import.path.root {
                         phalcom_ast::ast::ImportRoot::Absolute(segment) => Some(segment.name.as_str()),
                         phalcom_ast::ast::ImportRoot::Relative { .. } => None,
                     });
@@ -1232,20 +1238,36 @@ fn build_source_semantic_index(
 /// Builds the advisory workspace from the same source/formal products that
 /// will be published in the immutable snapshot. Missing source attachments
 /// reduce advisory coverage only; they never prevent formal publication.
-fn build_advisory_workspace(
-    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    source_index: &SourceSemanticIndex,
-    callable_analyses: &HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
-    store: &TypeStore,
-    declarations: &DeclarationTypeTable,
-    callable_signatures: &CallableSignatureTable,
-    dispatch: &SurfaceDispatchResolver,
-    hierarchy: &MapTypeHierarchy,
-    linked: &LinkedProgram,
-    previous: Option<&AdvisoryWorkspace>,
+struct AdvisoryWorkspaceInputs<'a> {
+    sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    source_index: &'a SourceSemanticIndex,
+    callable_analyses: &'a HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
+    store: &'a TypeStore,
+    declarations: &'a DeclarationTypeTable,
+    callable_signatures: &'a CallableSignatureTable,
+    dispatch: &'a SurfaceDispatchResolver,
+    hierarchy: &'a MapTypeHierarchy,
+    linked: &'a LinkedProgram,
+    previous: Option<&'a AdvisoryWorkspace>,
     budget: QueryBudget,
-    cancel: &CancellationToken,
-) -> AdvisoryWorkspace {
+    cancel: &'a CancellationToken,
+}
+
+fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWorkspace {
+    let AdvisoryWorkspaceInputs {
+        sources,
+        source_index,
+        callable_analyses,
+        store,
+        declarations,
+        callable_signatures,
+        dispatch,
+        hierarchy,
+        linked,
+        previous,
+        budget,
+        cancel,
+    } = inputs;
     let builtins = AdvisoryBuiltins::from_declarations(declarations);
     let resolve_module_member = |receiver: &crate::advisory::ValueShape, name: &str| {
         let crate::advisory::ValueShape::Module(module) = receiver else {
@@ -1401,17 +1423,17 @@ fn build_advisory_workspace(
                 continue;
             };
             let scope_index = module_index.structure.as_ref();
-            let mut fields = advisory_field_facts(
+            let mut fields = advisory_field_facts(AdvisoryFieldFactsInputs {
                 source,
                 scope_index,
-                &builtins,
-                &advisory_returns,
-                Some(&resolve_callable_for_shape),
-                Some(&resolve_formal_call_result),
-                Some(&advisory_transfer_target),
-                Some(&resolve_module_member),
-                Some(&resolve_method_family),
-            );
+                builtins: &builtins,
+                callable_returns: &advisory_returns,
+                resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                resolve_formal_call_result: Some(&resolve_formal_call_result),
+                advisory_transfer_target: Some(&advisory_transfer_target),
+                resolve_module_member: Some(&resolve_module_member),
+                resolve_method_family: Some(&resolve_method_family),
+            });
             let mut expressions = BTreeMap::new();
             let mut bindings = BTreeMap::new();
             let mut parameters = BTreeMap::new();
@@ -1684,19 +1706,30 @@ fn build_advisory_workspace(
     )
 }
 
-fn advisory_field_facts(
-    source: &ParsedModuleUnit,
-    scope_index: &crate::source_index::SourceScopeIndex,
-    builtins: &AdvisoryBuiltins,
-    callable_returns: &BTreeMap<CallableId, AdvisoryFact>,
-    resolve_callable_for_shape: Option<&dyn Fn(&crate::advisory::ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
-    resolve_formal_call_result: Option<&dyn Fn(&CallableId, Option<&crate::advisory::ValueShape>) -> Option<AdvisoryFact>>,
-    advisory_transfer_target: Option<&dyn Fn(&CallableId) -> CallableId>,
-    resolve_module_member: Option<&dyn Fn(&crate::advisory::ValueShape, &str) -> Option<crate::advisory::ValueShape>>,
-    resolve_method_family: Option<
-        &dyn Fn(&crate::advisory::ValueShape, &phalcom_ast::ast::NormalizedSelectorSpec) -> Option<crate::advisory::CapturedMethodFamilyShape>,
-    >,
-) -> BTreeMap<FieldId, AdvisoryFact> {
+struct AdvisoryFieldFactsInputs<'a> {
+    source: &'a ParsedModuleUnit,
+    scope_index: &'a crate::source_index::SourceScopeIndex,
+    builtins: &'a AdvisoryBuiltins,
+    callable_returns: &'a BTreeMap<CallableId, AdvisoryFact>,
+    resolve_callable_for_shape: Option<CallableForShapeResolver<'a>>,
+    resolve_formal_call_result: Option<FormalCallResultResolver<'a>>,
+    advisory_transfer_target: Option<&'a dyn Fn(&CallableId) -> CallableId>,
+    resolve_module_member: Option<ModuleMemberResolver<'a>>,
+    resolve_method_family: Option<MethodFamilyResolver<'a>>,
+}
+
+fn advisory_field_facts(inputs: AdvisoryFieldFactsInputs<'_>) -> BTreeMap<FieldId, AdvisoryFact> {
+    let AdvisoryFieldFactsInputs {
+        source,
+        scope_index,
+        builtins,
+        callable_returns,
+        resolve_callable_for_shape,
+        resolve_formal_call_result,
+        advisory_transfer_target,
+        resolve_module_member,
+        resolve_method_family,
+    } = inputs;
     let mut fields = BTreeMap::new();
     for statement in &source.program.statements {
         let Statement::Class(class) = statement else { continue };
@@ -1854,23 +1887,42 @@ fn advisory_status(status: crate::checker::CallableAnalysisStatus) -> AdvisoryPr
 /// Publishes body-derived return summaries into canonical callable signatures,
 /// then refreshes dispatch as a derived lookup projection. The fixed-point pass
 /// is required for calls such as `Probe.run -> Factory.of -> CellNum.new`.
-fn refresh_inferred_callable_results(
-    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    store: &mut TypeStore,
-    hierarchy: &MapTypeHierarchy,
-    resolver: &LinkedTypeResolver,
-    declarations: &DeclarationTypeTable,
-    dispatch: &mut SurfaceDispatchResolver,
-    callable_signatures: &mut CallableSignatureTable,
-    callable_analyses: &mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
-    previous_callable_analyses: Option<&HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
-    field_signatures: &FieldSignatureTable,
-    field_lifecycle: &crate::checker::field_lifecycle::FieldLifecycleTable,
-    callable_dispositions: &mut BTreeMap<CallableId, CallableRevisionDisposition>,
-    diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+struct InferredCallableRefreshInputs<'a> {
+    sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    store: &'a mut TypeStore,
+    hierarchy: &'a MapTypeHierarchy,
+    resolver: &'a LinkedTypeResolver,
+    declarations: &'a DeclarationTypeTable,
+    dispatch: &'a mut SurfaceDispatchResolver,
+    callable_signatures: &'a mut CallableSignatureTable,
+    callable_analyses: &'a mut HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    previous_callable_analyses: Option<&'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+    field_signatures: &'a FieldSignatureTable,
+    field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable,
+    callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
+    diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     budget: QueryBudget,
-    cancel: &CancellationToken,
-) -> Result<(), QueryOutcome<()>> {
+    cancel: &'a CancellationToken,
+}
+
+fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) -> Result<(), QueryOutcome<()>> {
+    let InferredCallableRefreshInputs {
+        sources,
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        dispatch,
+        callable_signatures,
+        callable_analyses,
+        previous_callable_analyses,
+        field_signatures,
+        field_lifecycle,
+        callable_dispositions,
+        diagnostics,
+        budget,
+        cancel,
+    } = inputs;
     let max_iterations = callable_analyses.len().saturating_add(1).max(1);
 
     for _ in 0..max_iterations {
@@ -1978,21 +2030,25 @@ fn refresh_inferred_callable_results(
                         continue;
                     }
                     let declared_signature = callable_signatures.get_for_body(&callable).map(|signature| (&signature.callable, signature));
-                    let mut analysis = crate::checker::body::analyze_callable_body_with_fields(
-                        callable.clone(),
-                        body,
-                        range,
-                        store,
-                        hierarchy,
-                        &scoped_resolver,
-                        declarations,
-                        dispatch,
-                        declared_signature,
-                        module_id.clone(),
-                        budget,
-                        cancel,
-                        Some(field_signatures),
-                        Some(field_lifecycle),
+                    let mut analysis = crate::checker::body::analyze_callable_body(
+                        crate::checker::body::BodyAnalysisContext {
+                            store,
+                            hierarchy,
+                            resolver: &scoped_resolver,
+                            declarations,
+                            dispatch,
+                            module: module_id.clone(),
+                        },
+                        crate::checker::body::CallableBodyRequest {
+                            callable: callable.clone(),
+                            body,
+                            body_range: range,
+                            declared_signature,
+                            budget,
+                            cancel,
+                            field_signatures: Some(field_signatures),
+                            field_lifecycle: Some(field_lifecycle),
+                        },
                     );
                     analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
                     if !analysis.diagnostics.is_empty() {

@@ -122,9 +122,11 @@ fn source_index_publishes_canonical_member_source_metadata() {
     let callable_source = index.callable_sources.get(&callable).expect("method metadata");
     assert_eq!(callable_source.kind, SourceCallableKind::Method);
     let parameter_start = source.find("value").unwrap();
+    let parameter_id = phalcom_semantic::CallableParameterId::new(callable.clone(), 0);
+    let parameter_site = callable_source.parameter_sites.get(&parameter_id).expect("parameter site");
     assert_eq!(
-        callable_source.parameter_name_ranges.as_ref(),
-        &[(parameter_start..parameter_start + "value".len()).into()]
+        index.site(parameter_site).expect("site").range,
+        (parameter_start..parameter_start + "value".len()).into()
     );
     assert!(callable_source.has_explicit_return_annotation);
 

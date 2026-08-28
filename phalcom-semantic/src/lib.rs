@@ -53,8 +53,8 @@ pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSuperty
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
 pub use editor::{
-    AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, NativeCallablePresentation, PartialCallPattern, ReceiverAlternative, ReceiverMode,
-    ResolvedReceiver, VisibleSymbol,
+    AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, EditorTypeHint, EditorTypeHintKind, NativeCallablePresentation, PartialCallPattern,
+    ReceiverAlternative, ReceiverMode, ResolvedReceiver, VisibleSymbol,
 };
 pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
@@ -72,7 +72,7 @@ pub use identity::{
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use presentation::{
-    AdvisoryPresenter, CallablePresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
+    AdvisoryPresenter, CallablePresentation, FieldPresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
     FormalSemanticProjection, FormalSiteId, FormalTypeSite, ParameterPresentation, SemanticPresentationIndex, SemanticSiteView, TypePresenter,
 };
 pub use prover::{

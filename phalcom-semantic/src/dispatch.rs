@@ -115,7 +115,7 @@ pub struct ResolvedDispatch {
 /// Trace-aware result of resolving a message send selector against a receiver.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolvedDispatchResult {
-    Found(ResolvedDispatch),
+    Found(Box<ResolvedDispatch>),
     Ambiguous(Vec<ResolvedDispatch>),
     Missing { visited_owners: Box<[DeclarationId]> },
     Dynamic,
@@ -124,7 +124,7 @@ pub enum ResolvedDispatchResult {
 /// The result of resolving a message send selector against a receiver.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DispatchResult {
-    Found(CallableSignature),
+    Found(Box<CallableSignature>),
     Ambiguous(Vec<CallableSignature>),
     Missing,
     Dynamic,
@@ -255,11 +255,11 @@ impl SurfaceDispatchResolver {
                         .get_callable_id(owner.side, selector)
                         .cloned()
                         .unwrap_or_else(|| CallableId::new(owner.declaration.clone(), selector.clone(), owner.side));
-                    return ResolvedDispatchResult::Found(ResolvedDispatch {
+                    return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
                         callable: callable_id,
                         signature: sig.clone(),
                         visited_owners: visited.into_boxed_slice(),
-                    });
+                    }));
                 }
             }
         }
@@ -276,7 +276,7 @@ impl SurfaceDispatchResolver {
         selector: &Selector,
     ) -> DispatchResult {
         match self.resolve_dispatch_with_trace(hierarchy, start_decl, side, selector) {
-            ResolvedDispatchResult::Found(rd) => DispatchResult::Found(rd.signature),
+            ResolvedDispatchResult::Found(rd) => DispatchResult::Found(Box::new(rd.signature)),
             ResolvedDispatchResult::Ambiguous(amb) => DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect()),
             ResolvedDispatchResult::Missing { .. } => DispatchResult::Missing,
             ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,

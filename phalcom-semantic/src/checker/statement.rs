@@ -125,7 +125,6 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 contract,
                 causal_invalidity,
                 binding.kind == BindingKind::Let,
-                binding.range,
             );
             None
         }
@@ -230,14 +229,13 @@ fn bind_declaration_pattern(
     contract: Option<BindingContract>,
     causal_invalidity: crate::checker::causal::CausalInvalidity,
     mutable: bool,
-    range: phalcom_common::range::SourceRange,
 ) {
     match pattern {
-        Pattern::Name { name, .. } => {
+        Pattern::Name { name, range: name_range } => {
             ctx.declare_binding(BindingSeed {
                 parameter: None,
                 name: name.clone(),
-                range,
+                range: *name_range,
                 contract,
                 current: fact.knowledge,
                 denotation: fact.denotation,
@@ -253,7 +251,7 @@ fn bind_declaration_pattern(
                     index,
                     elements.len(),
                 ));
-                bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable, range);
+                bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable);
             }
         }
         Pattern::List { elements, rest, .. } => {
@@ -269,14 +267,13 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
-                    range,
                 );
             }
             if let Some(rest) = rest {
                 let rest_knowledge = list_origin
                     .map(|origin| crate::checker::composition::decompose_list_rest(ctx.store, &fact.knowledge, origin))
                     .unwrap_or_else(|| fact.knowledge.clone());
-                bind_declaration_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), None, causal_invalidity, mutable, range);
+                bind_declaration_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), None, causal_invalidity, mutable);
             }
         }
         _ => {}

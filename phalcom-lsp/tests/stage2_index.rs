@@ -132,7 +132,9 @@ struct ScratchWorkspace {
 
 impl ScratchWorkspace {
     fn new(name: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
+        let base = std::env::temp_dir();
+        let base = base.canonicalize().unwrap_or(base);
+        let root = base.join(format!(
             "phalcom-lsp-stage2-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -248,7 +250,7 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     let def_response = wait_for_definition(&mut client_end, &mut next_request_id, &main_uri, call_site_line, call_site_col).await;
     let locations = def_response["result"].as_array().expect("locations array");
     assert_eq!(locations.len(), 1, "{def_response:#?}");
-    let expected_def_uri = url::Url::from_file_path(def_path.canonicalize().unwrap()).unwrap().to_string();
+    let expected_def_uri = url::Url::from_file_path(&def_path).unwrap().to_string();
     assert_eq!(locations[0]["uri"], json!(expected_def_uri));
 
     // workspace/symbol for "move" must find the declaration.
