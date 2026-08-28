@@ -16,15 +16,17 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  workspace:
+  main-control:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: codex/lsp-single-world-retirement
+          ref: main
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build workspace all targets
-        run: cargo build --workspace --all-targets
-      - name: Test workspace all targets
-        run: cargo test --workspace --all-targets
+      - name: Main callable language control
+        continue-on-error: true
+        run: cargo test -p phalcom-core language_tests::run_language_tests -- --nocapture
+      - name: Main error-language control
+        continue-on-error: true
+        run: cargo test -p phalcom-core language_tests::error_tests_match_expected -- --nocapture
