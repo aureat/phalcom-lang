@@ -8,3 +8,6 @@ mod constructor_factory_probe;
 
 #[path = "module_query_provenance.rs"]
 mod module_query_provenance;
+
+#[path = "canonical_parameter_advisory.rs"]
+mod canonical_parameter_advisory;
