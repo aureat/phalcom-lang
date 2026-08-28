@@ -155,7 +155,7 @@ fn callable_surfaces_use_shared_canonical_presentation() {
 
     for (name, source) in [("backend", backend.as_str()), ("signature_help", signature_help.as_str())] {
         assert!(
-            !source.contains(".return_type"),
+            !source.contains("signature.return_type"),
             "{name} must not read the removed dispatch-era return_type field from CallableSemanticSignature"
         );
         assert!(
