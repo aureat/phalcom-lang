@@ -1,6 +1,6 @@
 //! Query keys, input fingerprints, and product fingerprints.
 
-use crate::identity::{CallableId, DeclarationId, ModuleId};
+use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId};
 
 /// Fingerprint representing the input parameters to a query evaluation.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -41,6 +41,7 @@ pub enum QueryKey {
     SemanticComponent(ModuleId),
     DeclarationSurface(DeclarationId),
     HierarchyEdge(DeclarationId),
+    FieldSignature(FieldId),
     CallableSignature(CallableId),
     CallableBody(CallableId),
     CallableEffects(CallableId),

@@ -15,8 +15,8 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
     FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_callable_body_with_formal_inputs,
-    query_callable_signature, query_declaration_shell, query_declaration_surface, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment,
-    query_source_structure, query_unlinked_interface,
+    query_callable_signature, query_declaration_shell, query_declaration_surface, query_field_signature, query_hierarchy_edge, query_linked_interface,
+    query_source_formal_attachment, query_source_structure, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
@@ -632,15 +632,24 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                {
-                    let mut context = CheckingContext::new(&mut self.store, &hierarchy, &resolver, &declarations, module_id.clone());
-                    for member in &class_def.members {
-                        if let Some(signature) = crate::checker::declaration_signature::semantic_field_signature_for_member(&mut context, &decl_id, member) {
-                            field_signatures.insert(signature);
-                        }
-                    }
-                    if !context.diagnostics.is_empty() {
-                        diags_by_module.entry(module_id.clone()).or_default().extend(context.diagnostics);
+                for member in &class_def.members {
+                    let Some(field_id) = crate::checker::declaration_signature::field_id_for_member(&decl_id, member) else {
+                        continue;
+                    };
+                    match query_field_signature(
+                        &mut self.db,
+                        field_id,
+                        parsed_unit.clone(),
+                        &mut self.store,
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                    ) {
+                        QueryOutcome::Ready(signature) => field_signatures.insert((*signature).clone()),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     }
                 }
                 // Publish declaration-owned callable signatures first. Dispatch

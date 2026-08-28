@@ -243,6 +243,7 @@ use crate::identity::{DeclarationId, ModuleId};
 pub enum SemanticDependency {
     DeclarationShell(DeclarationId),
     CallableSignature(CallableId),
+    FieldSignature(FieldId),
     DeclarationSurface(DeclarationId),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),

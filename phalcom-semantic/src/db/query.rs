@@ -11,9 +11,9 @@ use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::hierarchy_product::HierarchyEdgeProduct;
-use crate::identity::{CallableId, DeclarationId, ModuleId};
+use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId};
 use crate::module_product::ResolvedImportsProduct;
-use crate::signature::CallableSemanticSignature;
+use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
@@ -47,6 +47,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
     match dependency {
         crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => QueryKey::DeclarationShell(declaration.clone()),
         crate::checker::analysis::SemanticDependency::CallableSignature(callable) => QueryKey::CallableSignature(callable.clone()),
+        crate::checker::analysis::SemanticDependency::FieldSignature(field) => QueryKey::FieldSignature(field.clone()),
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
@@ -801,6 +802,97 @@ pub fn query_callable_signature(
     QueryOutcome::Ready(signature)
 }
 
+/// Evaluates or retrieves canonical declaration knowledge for one source field.
+///
+/// Source declaration syntax and type-resolution prerequisites are authoritative;
+/// `DeclarationSurface` is deliberately not an input because it is a projection
+/// of this product.
+pub fn query_field_signature(
+    db: &mut SemanticDb,
+    field: FieldId,
+    unit: Arc<ParsedModuleUnit>,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+) -> QueryOutcome<Arc<FieldSemanticSignature>> {
+    let key = QueryKey::FieldSignature(field.clone());
+    if unit.id != field.owner.module {
+        return query_failure(db, key, format!("source unit does not own field {field:?}"));
+    }
+
+    let Some(declaration_info) = declarations.get(&field.owner).cloned() else {
+        return query_failure(db, key, format!("missing declaration metadata for {:?}", field.owner));
+    };
+    match query_declaration_shell(db, Arc::new(declaration_info)) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+
+    let linked_key = QueryKey::LinkedInterface(field.owner.module.clone());
+    if db.query_state(&linked_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+        return query_failure(db, key, format!("FieldSignature prerequisite {linked_key:?} is not current"));
+    }
+
+    let Some(class_def) = class_definition_for(&unit, &field.owner) else {
+        return query_failure(db, key, format!("missing class declaration for {:?}", field.owner));
+    };
+    let Some(member) = class_def
+        .members
+        .iter()
+        .find(|member| crate::checker::declaration_signature::field_id_for_member(&field.owner, member).as_ref() == Some(&field))
+    else {
+        return query_failure(db, key, format!("missing source declaration for field {field:?}"));
+    };
+
+    let (signature, captured_dependencies) = {
+        let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, field.owner.module.clone());
+        let Some(signature) = crate::checker::declaration_signature::semantic_field_signature_for_member(&mut context, &field.owner, member) else {
+            return query_failure(db, key, format!("source member cannot publish field signature {field:?}"));
+        };
+        (Arc::new(signature), context.semantic_dependencies_snapshot())
+    };
+
+    let input_fingerprint = crate::db::fingerprint::field_signature_input_fingerprint(&signature);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(product) = db.product(&key).and_then(|product| product.as_field_signature()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(product.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(field.owner.clone()), linked_key]);
+    dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
+    dependency_keys.remove(&key);
+
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    for dependency in dependency_keys {
+        if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+            return query_failure(db, key, error);
+        }
+    }
+
+    let product_fingerprint = crate::db::fingerprint::field_signature_product_fingerprint(&signature);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::FieldSignature(signature.clone()),
+        recorder.finish(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(signature)
+}
+
 fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleUnit) -> Option<CallableId> {
     let class_def = class_definition_for(unit, &callable.owner)?;
     if class_def
@@ -864,6 +956,40 @@ fn ensure_callable_signature(
     query_callable_signature(
         db,
         callable.clone(),
+        unit,
+        store,
+        formal_inputs.hierarchy,
+        formal_inputs.base_resolver,
+        formal_inputs.declarations,
+    )
+}
+
+fn ensure_field_signature(
+    db: &mut SemanticDb,
+    field: &FieldId,
+    formal_inputs: &FormalQueryInputs<'_>,
+    store: &mut TypeStore,
+) -> QueryOutcome<Arc<FieldSemanticSignature>> {
+    match ensure_declaration_shell(db, &field.owner, formal_inputs.declarations) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+    match ensure_linked_interface(db, &field.owner.module, formal_inputs.linked) {
+        QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+    let Some(unit) = formal_inputs.sources.get(&field.owner.module).cloned() else {
+        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+    };
+    query_field_signature(
+        db,
+        field.clone(),
         unit,
         store,
         formal_inputs.hierarchy,
@@ -1198,6 +1324,15 @@ fn query_callable_body_with_requirement(
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
+                if let (crate::checker::analysis::SemanticDependency::FieldSignature(field), Some(inputs)) = (sem_dep, formal_inputs) {
+                    match ensure_field_signature(db, field, inputs, store) {
+                        QueryOutcome::Ready(_) => {}
+                        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+                    }
+                }
                 let dependency = semantic_dependency_query_key(sem_dep);
                 if let Err(error) = db.record_dependency(&mut recorder, dependency) {
                     return query_failure(db, key, error);

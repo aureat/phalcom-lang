@@ -1331,19 +1331,20 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn get_field(&self, decl: &DeclarationId, side: DispatchSide, name: &str) -> Option<TypeKnowledge> {
-        // Structural invalidation is intentionally retained until FieldSignature
-        // becomes its own query product. Type authority already belongs solely
-        // to canonical declaration knowledge.
-        record_declaration_surface_dependency(&self.semantic_dependencies, decl);
         let field = crate::identity::FieldId::new(decl.clone(), name, side);
         let signature = self.field_signatures?.get(&field)?;
+        if is_query_owned_module(&field.owner.module) {
+            self.record_semantic_dependency(SemanticDependency::FieldSignature(field));
+        }
         Some(signature.declared_type.to_knowledge())
     }
 
     pub(crate) fn resolve_field_contract(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
-        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
         let field = crate::identity::FieldId::new(owner.clone(), name, side);
         let signature = self.field_signatures?.get(&field)?;
+        if is_query_owned_module(&field.owner.module) {
+            self.record_semantic_dependency(SemanticDependency::FieldSignature(field.clone()));
+        }
         Some((field, signature.declared_type.to_knowledge()))
     }
 

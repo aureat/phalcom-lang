@@ -13,7 +13,7 @@ use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, DeclarationId, ModuleId};
-use crate::signature::CallableSemanticSignature;
+use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
 use crate::source::ParsedModuleUnit;
 use crate::surface::DeclarationSurface;
 use crate::types::denotation::SemanticDenotation;
@@ -604,6 +604,24 @@ fn hash_callable_semantic_signature(signature: &CallableSemanticSignature, inclu
     signature.raises.hash(hasher);
     signature.flow.hash(hasher);
     signature.lifecycle.hash(hasher);
+}
+
+fn hash_field_semantic_signature(signature: &FieldSemanticSignature, include_source: bool, hasher: &mut impl Hasher) {
+    signature.field.hash(hasher);
+    signature.owner.hash(hasher);
+    signature.side.hash(hasher);
+    signature.name.hash(hasher);
+    signature.mutable.hash(hasher);
+    signature.declared_type.hash(hasher);
+    if include_source {
+        match &signature.source {
+            Some(source) => {
+                1u8.hash(hasher);
+                hash_source_span(source, hasher);
+            }
+            None => 0u8.hash(hasher),
+        }
+    }
 }
 
 fn hash_budget_report(report: &BudgetReport, hasher: &mut impl Hasher) {
@@ -1225,6 +1243,20 @@ pub fn callable_signature_input_fingerprint(signature: &CallableSemanticSignatur
 pub fn callable_signature_product_fingerprint(signature: &CallableSemanticSignature) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     hash_callable_semantic_signature(signature, false, &mut hasher);
+    finish_product(hasher)
+}
+
+/// Computes the source-sensitive input identity of a canonical field signature.
+pub fn field_signature_input_fingerprint(signature: &FieldSemanticSignature) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_field_semantic_signature(signature, true, &mut hasher);
+    finish_input(hasher)
+}
+
+/// Computes the range-free semantic product identity of a canonical field signature.
+pub fn field_signature_product_fingerprint(signature: &FieldSemanticSignature) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_field_semantic_signature(signature, false, &mut hasher);
     finish_product(hasher)
 }
 

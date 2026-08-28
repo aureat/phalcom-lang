@@ -128,6 +128,13 @@ pub(crate) fn canonical_core_class_new_signature(store: &mut crate::types::store
     }
 }
 
+pub(crate) fn field_id_for_member(owner: &DeclarationId, member: &ClassMember) -> Option<FieldId> {
+    let ClassMember::Field(field) = member else {
+        return None;
+    };
+    Some(FieldId::new(owner.clone(), field.name.clone(), super::declaration::member_side(member)))
+}
+
 pub(crate) fn semantic_field_signature_for_member(
     ctx: &mut CheckingContext<'_>,
     owner: &DeclarationId,
@@ -136,7 +143,8 @@ pub(crate) fn semantic_field_signature_for_member(
     let ClassMember::Field(field) = member else {
         return None;
     };
-    let side = super::declaration::member_side(member);
+    let field_id = field_id_for_member(owner, member)?;
+    let side = field_id.side;
     let declaration_type_parameters = ctx
         .declaration_generic_signature(owner)
         .map(|signature| {
@@ -157,7 +165,6 @@ pub(crate) fn semantic_field_signature_for_member(
         type_parameters: declaration_type_parameters,
     };
     let declared_type = annotation_fact(ctx, &declaration_resolver, field.annotation.as_ref(), UnknownReason::UnannotatedDeclaration);
-    let field_id = FieldId::new(owner.clone(), field.name.clone(), side);
     Some(FieldSemanticSignature {
         field: field_id,
         owner: owner.clone(),
