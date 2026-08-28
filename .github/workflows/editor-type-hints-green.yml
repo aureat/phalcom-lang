@@ -5,71 +5,55 @@ on:
     branches:
       - codex/canonical-declaration-knowledge
 
-permissions:
-  contents: write
-
 jobs:
-  implement:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: codex/canonical-declaration-knowledge
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply editor type hint cutover
+      - name: Apply candidate
         run: |
           python3 .github/scripts/editor_type_hints_apply.py
           python3 .github/scripts/editor_type_hints_fix.py
-      - name: Format
-        run: RUSTFLAGS="" cargo +stable fmt --all
-      - name: Guard changed production surface
-        run: |
-          unexpected="$(git diff --name-only | grep -Ev '^(phalcom-semantic/src/(source_index/(scope.rs|builder.rs)|presentation.rs|snapshot.rs|editor.rs|lib.rs)|phalcom-lsp/src/inlay_hints.rs)$' || true)"
-          if [ -n "$unexpected" ]; then
-            echo "unexpected changed files:"
-            echo "$unexpected"
-            exit 1
-          fi
+      - name: Format candidate
+        run: cargo +stable fmt --all
       - name: Semantic ownership regression
-        run: RUSTFLAGS="" cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::editor_type_hint_eligibility_is_compiler_owned -- --exact
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::declaration_authority::editor_type_hint_eligibility_is_compiler_owned -- --exact
       - name: Source annotation metadata
-        run: RUSTFLAGS="" cargo +stable test -p phalcom-semantic --test semantic semantic::integration::editor_type_hints::source_index_retains_explicit_annotation_truth -- --exact
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::integration::editor_type_hints::source_index_retains_explicit_annotation_truth -- --exact
       - name: Compiler editor hint behavior
-        run: RUSTFLAGS="" cargo +stable test -p phalcom-semantic --test semantic semantic::integration::editor_type_hints::editor_type_hints_suppress_explicit_local_annotations -- --exact
-      - name: Semantic check
-        run: RUSTFLAGS="" cargo +stable check -p phalcom-semantic
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::integration::editor_type_hints::editor_type_hints_suppress_explicit_local_annotations -- --exact
+      - name: Check semantic crate
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable check -p phalcom-semantic
       - name: LSP architecture boundary
-        run: RUSTFLAGS="" cargo +stable test -p phalcom-lsp --test semantic_boundary inlay_hints_do_not_reimplement_annotation_semantics -- --exact
-      - name: LSP check
-        run: RUSTFLAGS="" cargo +stable check -p phalcom-lsp
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test semantic_boundary inlay_hints_do_not_reimplement_annotation_semantics -- --exact
+      - name: Check LSP crate
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable check -p phalcom-lsp
       - name: Focused LSP inlay tests
-        run: RUSTFLAGS="" cargo +stable test -p phalcom-lsp --test integration inlay_hints:: -- --nocapture
-      - name: Full semantic gate
-        run: RUSTFLAGS="" cargo +stable test -p phalcom-semantic
-      - name: Full LSP integration gate
-        run: RUSTFLAGS="" cargo +stable test -p phalcom-lsp --test integration
-      - name: Diff integrity
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test integration inlay_hints:: -- --nocapture
+      - name: Full semantic suite
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic
+      - name: Full LSP integration suite
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test integration
+      - name: Diff check
         run: git diff --check
-      - name: Commit editor type hint cutover
-        run: |
-          paths=(
-            phalcom-semantic/src/source_index/scope.rs
-            phalcom-semantic/src/source_index/builder.rs
-            phalcom-semantic/src/presentation.rs
-            phalcom-semantic/src/snapshot.rs
-            phalcom-semantic/src/editor.rs
-            phalcom-semantic/src/lib.rs
-            phalcom-lsp/src/inlay_hints.rs
-          )
-          if git diff --quiet -- "${paths[@]}"; then
-            echo 'editor type hint cutover already applied'
-            exit 0
-          fi
-          git config user.name phalcom-refactor-bot
-          git config user.email actions@users.noreply.github.com
-          git add "${paths[@]}"
-          git commit -m 'refactor(lsp): consume compiler-owned type hints'
-          git push origin HEAD:codex/canonical-declaration-knowledge
