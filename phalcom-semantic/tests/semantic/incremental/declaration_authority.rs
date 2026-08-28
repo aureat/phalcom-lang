@@ -38,3 +38,16 @@ fn native_import_builds_canonical_signature_before_dispatch_projection() {
         "native dispatch must be a projection of the canonical native callable signature"
     );
 }
+
+#[test]
+fn formal_field_lookup_never_reads_type_from_dispatch_surface() {
+    let context = include_str!("../../../src/checker/context.rs");
+    assert!(
+        !context.contains("surface.get_field(side, name)"),
+        "formal field lookup must consume FieldSignatureTable; DeclarationSurface may describe structural membership but must not be field type authority"
+    );
+    assert!(
+        context.contains("field_signatures"),
+        "checker context must receive canonical field declaration knowledge rather than reconstructing it from dispatch"
+    );
+}
