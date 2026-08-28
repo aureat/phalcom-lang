@@ -183,7 +183,7 @@ async fn imported_binding_definition_crosses_module_boundary_at_declaration_and_
 }
 
 #[tokio::test]
-async fn unresolved_selective_import_does_not_fabricate_local_reference_identity() {
+async fn unresolved_selective_import_uses_compiler_owned_local_binding_identity() {
     let workspace = ScratchWorkspace::new();
     let main_path = workspace.write("main.ph", "from .missing import Circle\n\nlet circle = Circle\n");
 
@@ -247,12 +247,19 @@ async fn unresolved_selective_import_does_not_fabricate_local_reference_identity
     .await;
 
     let response = read_response(&mut client_end, 2).await;
+    assert!(response["error"].is_null(), "unresolved import references must not produce a protocol error");
+    let locations = response["result"].as_array().expect("compiler-owned unresolved binding references");
+    assert_eq!(locations.len(), 2, "the compiler-owned local import binding must connect its declaration and use");
     assert!(
-        response["error"].is_null(),
-        "unresolved import references must fail closed without protocol error"
+        locations.iter().all(|location| location["uri"].as_str() == Some(main_uri.as_str())),
+        "unresolved import binding references must remain local until linking establishes an external target: {response:#?}"
     );
     assert!(
-        response["result"].is_null() || response["result"].as_array().is_some_and(Vec::is_empty),
-        "unresolved imported names must not be given an LSP-local semantic identity: {response:#?}"
+        locations.iter().any(|location| location["range"]["start"]["line"].as_u64() == Some(0)),
+        "the compiler-owned import declaration must be included"
+    );
+    assert!(
+        locations.iter().any(|location| location["range"]["start"]["line"].as_u64() == Some(2)),
+        "the compiler-owned use must be included"
     );
 }
