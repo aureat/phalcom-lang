@@ -20,6 +20,7 @@ jobs:
         run: |
           python .github/apply-declaration-knowledge-phase-a.py
           python .github/apply-declaration-knowledge-phase-a-fixes.py
+          python .github/apply-declaration-knowledge-phase-a-test-fixes.py
       - name: Format
         run: cargo +stable fmt --all
       - name: Check semantic crate
