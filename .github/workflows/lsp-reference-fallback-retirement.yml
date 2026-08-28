@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   retire:
-    if: github.event.head_commit.message == 'chore(lsp): apply reference fallback retirement'
+    if: "${{ github.event.head_commit.message == 'chore(lsp): repair reference fallback retirement driver' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
