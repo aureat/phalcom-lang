@@ -1436,11 +1436,9 @@ fn build_advisory_workspace(
                 };
 
                 let mut seed_bindings = BTreeMap::new();
-                for binding in callable_parameter_bindings(scope_index, &analysis.callable) {
-                    let index = seed_bindings.len() as u32;
-                    let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index);
+                for (parameter, binding) in callable_parameter_bindings(scope_index, analysis) {
                     let fact = parameter_facts
-                        .get(&slot)
+                        .get(parameter)
                         .cloned()
                         .unwrap_or_else(|| AdvisoryFact::unknown().derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(binding.declaration_site.clone())));
                     seed_bindings.insert(binding.declaration_site.clone(), fact);
@@ -1487,15 +1485,14 @@ fn build_advisory_workspace(
                 bindings.extend(flow.bindings);
 
                 let mut summary_parameters = Vec::new();
-                for (index, binding) in callable_parameter_bindings(scope_index, &analysis.callable).into_iter().enumerate() {
-                    let slot = AdvisoryParameterSlot::new(analysis.callable.clone(), index as u32);
+                for (parameter, binding) in callable_parameter_bindings(scope_index, analysis) {
                     let fact = parameter_facts
-                        .get(&slot)
+                        .get(parameter)
                         .cloned()
                         .or_else(|| bindings.get(&binding.declaration_site).cloned())
                         .unwrap_or_else(AdvisoryFact::unknown);
-                    parameters.insert(slot.clone(), fact.clone());
-                    summary_parameters.push((slot, fact));
+                    parameters.insert(parameter.clone(), fact.clone());
+                    summary_parameters.push((parameter.clone(), fact));
                 }
                 let summary = AdvisoryCallableSummary::new(
                     analysis.callable.clone(),
@@ -1588,10 +1585,11 @@ fn build_advisory_workspace(
         let mut solver_nodes = BTreeMap::new();
         for (callable, summary) in &next_callables {
             let mut contributions = crate::advisory::AdvisoryParameterContributions::default();
+            let own_parameter_ids = summary.parameters.iter().map(|(parameter, _)| parameter.clone()).collect::<BTreeSet<_>>();
             let own_parameters = next_parameter_facts
                 .iter()
-                .filter(|(slot, _)| slot.callable == *callable)
-                .map(|(slot, fact)| (slot.clone(), fact.clone()))
+                .filter(|(parameter, _)| own_parameter_ids.contains(*parameter))
+                .map(|(parameter, fact)| (parameter.clone(), fact.clone()))
                 .collect::<BTreeMap<_, _>>();
             contributions.replace_source(
                 crate::advisory::AdvisoryContributionSource::Callable(callable.clone()),
@@ -1765,22 +1763,20 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
 
 fn callable_parameter_bindings<'a>(
     scope_index: &'a crate::source_index::SourceScopeIndex,
-    callable: &CallableId,
-) -> Vec<&'a crate::source_index::SourceBindingInfo> {
-    let mut bindings = scope_index
+    analysis: &'a crate::checker::CallableAnalysis,
+) -> Vec<(&'a crate::identity::CallableParameterId, &'a crate::source_index::SourceBindingInfo)> {
+    let mut bindings = analysis
         .bindings
         .values()
-        .filter(|binding| {
-            binding.declaration_site.owner == SourceOwner::Callable(callable.clone())
-                && matches!(
-                    binding.kind,
-                    crate::source_index::SourceBindingKind::MethodParameter
-                        | crate::source_index::SourceBindingKind::SetterParameter
-                        | crate::source_index::SourceBindingKind::IndexParameter
-                )
+        .filter_map(|binding| {
+            let parameter = binding.parameter.as_ref()?;
+            let callable_source = scope_index.callable_sources.get(&parameter.callable)?;
+            let site = callable_source.parameter_sites.get(parameter)?;
+            let source_binding = scope_index.bindings.get(site)?;
+            Some((parameter, source_binding))
         })
         .collect::<Vec<_>>();
-    bindings.sort_by_key(|binding| (binding.declaration_range.start, binding.declaration_range.end));
+    bindings.sort_by_key(|(parameter, _)| parameter.index);
     bindings
 }
 
