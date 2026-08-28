@@ -65,8 +65,20 @@ fn callable_presentation_joins_canonical_signature_and_source_kind() {
         side: DispatchSide::Instance,
         selector,
         generics: None,
-        parameters: vec![CallableParameterSemantic::new(0, "value", int.into())].into_boxed_slice(),
-        return_type: int.into(),
+        parameters: vec![CallableParameterSemantic::new(
+            phalcom_semantic::CallableParameterId::new(callable.clone(), 0),
+            "value",
+            phalcom_semantic::DeclaredTypeFact::known(
+                phalcom_semantic::types::TypeTerm::Canonical(int),
+                phalcom_semantic::DeclaredTypeBasis::SourceAnnotation,
+            ),
+        )]
+        .into_boxed_slice(),
+        declared_return: phalcom_semantic::DeclaredTypeFact::known(
+            phalcom_semantic::types::TypeTerm::Canonical(int),
+            phalcom_semantic::DeclaredTypeBasis::SourceAnnotation,
+        ),
+        inferred_return: None,
         source: None,
         implementation: ImplementationKind::Source,
         native_id: None,

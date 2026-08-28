@@ -314,48 +314,48 @@ pub fn register_native_surfaces(
             .or_insert_with(|| DeclarationSurface::new(Some(decl.clone())))
             .add_callable(side, sig);
 
-        // The legacy dispatch surface remains the live query adapter. The
-        // canonical identity is retained in the import report for clients
-        // that publish the richer signature table.
-        if let Some(surface) = surfaces_by_decl.get(&callable_id.owner) {
-            if let Some(signature) = surface.get_callable(side, &callable_id.selector) {
-                let parameters = signature
-                    .parameters
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, parameter)| {
-                        let ty = parameter.ty.ty()?;
-                        Some(crate::signature::CallableParameterSemantic::new(
-                            index as u32,
-                            parameter.local_name.clone(),
-                            ty.into(),
-                        ))
-                    })
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice();
-                if let Some(return_type) = signature.return_type.ty() {
-                    let callable_owner = callable_id.owner.clone();
-                    report.callable_signatures.push((
-                        callable_id.clone(),
-                        crate::signature::CallableSemanticSignature {
-                            callable: callable_id.clone(),
-                            owner: callable_owner,
-                            side,
-                            selector: signature.selector.clone(),
-                            generics: None,
-                            parameters,
-                            return_type: return_type.into(),
-                            source: None,
-                            implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
-                            native_id: Some(record.id()),
-                            effects: record.effects(),
-                            raises: record.raises(),
-                            flow: record.flow(),
-                            lifecycle: record.lifecycle(),
-                        },
-                    ));
-                }
-            }
+        if let Some(surface) = surfaces_by_decl.get(&callable_id.owner)
+            && let Some(signature) = surface.get_callable(side, &callable_id.selector)
+        {
+            let parameters = signature
+                .parameters
+                .iter()
+                .enumerate()
+                .map(|(index, parameter)| {
+                    crate::signature::CallableParameterSemantic::new(
+                        crate::identity::CallableParameterId::new(callable_id.clone(), index as u32),
+                        parameter.local_name.clone(),
+                        crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(
+                            &parameter.ty,
+                            crate::declaration_type::DeclaredTypeBasis::NativeSignature,
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            report.callable_signatures.push((
+                callable_id.clone(),
+                crate::signature::CallableSemanticSignature {
+                    callable: callable_id.clone(),
+                    owner: callable_id.owner.clone(),
+                    side,
+                    selector: signature.selector.clone(),
+                    generics: None,
+                    parameters,
+                    declared_return: crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(
+                        &signature.return_type,
+                        crate::declaration_type::DeclaredTypeBasis::NativeSignature,
+                    ),
+                    inferred_return: None,
+                    source: None,
+                    implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
+                    native_id: Some(record.id()),
+                    effects: record.effects(),
+                    raises: record.raises(),
+                    flow: record.flow(),
+                    lifecycle: record.lifecycle(),
+                },
+            ));
         }
     }
 

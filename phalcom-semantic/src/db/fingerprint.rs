@@ -491,6 +491,16 @@ fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hash
     }
 }
 
+fn hash_type_knowledge_option(value: &Option<TypeKnowledge>, include_provenance: bool, hasher: &mut impl Hasher) {
+    match value {
+        Some(knowledge) => {
+            1u8.hash(hasher);
+            hash_type_knowledge(knowledge, include_provenance, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
+}
+
 fn hash_dispatch_callable_signature(signature: &crate::dispatch::CallableSignature, include_provenance: bool, hasher: &mut impl Hasher) {
     signature.selector.hash(hasher);
     match signature.kind {
@@ -562,11 +572,11 @@ fn hash_callable_semantic_signature(signature: &CallableSemanticSignature, inclu
     }
     signature.parameters.len().hash(hasher);
     for parameter in &signature.parameters {
-        parameter.index.hash(hasher);
+        parameter.id.hash(hasher);
         parameter.local_name.hash(hasher);
         parameter.external_label.hash(hasher);
         hash_rest_mode(parameter.rest, hasher);
-        parameter.ty.hash(hasher);
+        parameter.declared_type.hash(hasher);
         if include_source {
             match &parameter.source {
                 Some(source) => {
@@ -577,7 +587,8 @@ fn hash_callable_semantic_signature(signature: &CallableSemanticSignature, inclu
             }
         }
     }
-    signature.return_type.hash(hasher);
+    signature.declared_return.hash(hasher);
+    hash_type_knowledge_option(&signature.inferred_return, false, hasher);
     if include_source {
         match &signature.source {
             Some(source) => {

@@ -1,7 +1,9 @@
 //! Canonical callable and field semantic signatures and identity-indexed tables.
 
+use super::declaration_type::DeclaredTypeFact;
 use super::diagnostic::SemanticSourceSpan;
-use super::identity::{CallableId, DeclarationId, DispatchSide, FieldId};
+use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
+use super::types::evidence::TypeKnowledge;
 use super::types::parameter::{GenericSignature, TypeTerm};
 use phalcom_ast::ast::RestMode;
 use phalcom_common::selector::Selector;
@@ -12,24 +14,28 @@ use std::collections::HashMap;
 /// Canonical parameter specification for a callable signature.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableParameterSemantic {
-    pub index: u32,
+    pub id: CallableParameterId,
     pub local_name: Box<str>,
     pub external_label: Option<Box<str>>,
     pub rest: RestMode,
-    pub ty: TypeTerm,
+    pub declared_type: DeclaredTypeFact,
     pub source: Option<SemanticSourceSpan>,
 }
 
 impl CallableParameterSemantic {
-    pub fn new(index: u32, local_name: impl Into<Box<str>>, ty: TypeTerm) -> Self {
+    pub fn new(id: CallableParameterId, local_name: impl Into<Box<str>>, declared_type: DeclaredTypeFact) -> Self {
         Self {
-            index,
+            id,
             local_name: local_name.into(),
             external_label: None,
             rest: RestMode::None,
-            ty,
+            declared_type,
             source: None,
         }
+    }
+
+    pub fn index(&self) -> u32 {
+        self.id.index
     }
 
     pub fn with_label(mut self, label: impl Into<Box<str>>) -> Self {
@@ -48,7 +54,11 @@ impl CallableParameterSemantic {
     }
 }
 
-/// Canonical semantic contract for a callable (method, getter, setter, indexer).
+/// Canonical semantic type publication for a callable.
+///
+/// `declared_return` is the declaration-owned requirement (possibly unknown).
+/// `inferred_return` is a body-derived published result and must never be fed
+/// back as the callable body's declaration constraint.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableSemanticSignature {
     pub callable: CallableId,
@@ -57,7 +67,8 @@ pub struct CallableSemanticSignature {
     pub selector: Selector,
     pub generics: Option<GenericSignature>,
     pub parameters: Box<[CallableParameterSemantic]>,
-    pub return_type: TypeTerm,
+    pub declared_return: DeclaredTypeFact,
+    pub inferred_return: Option<TypeKnowledge>,
     pub source: Option<SemanticSourceSpan>,
     pub implementation: ImplementationKind,
     pub native_id: Option<NativeSurfaceId>,
@@ -76,8 +87,25 @@ impl CallableSemanticSignature {
         self.parameters.get(index)
     }
 
-    pub fn parameter_type_at(&self, index: usize) -> Option<&TypeTerm> {
-        self.parameters.get(index).map(|p| &p.ty)
+    pub fn parameter_declared_type_at(&self, index: usize) -> Option<&DeclaredTypeFact> {
+        self.parameters.get(index).map(|parameter| &parameter.declared_type)
+    }
+
+    pub fn published_return_knowledge(&self) -> TypeKnowledge {
+        self.inferred_return.clone().unwrap_or_else(|| self.declared_return.to_knowledge())
+    }
+
+    pub fn published_return_term(&self) -> Option<TypeTerm> {
+        self.inferred_return
+            .as_ref()
+            .and_then(TypeKnowledge::ty)
+            .map(TypeTerm::Canonical)
+            .or_else(|| self.declared_return.known_term().cloned())
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.parameters.iter().all(|parameter| parameter.declared_type.is_known())
+            && (self.declared_return.is_known() || self.inferred_return.as_ref().is_some_and(TypeKnowledge::is_known))
     }
 }
 
@@ -89,7 +117,7 @@ pub struct FieldSemanticSignature {
     pub side: DispatchSide,
     pub name: Box<str>,
     pub mutable: bool,
-    pub ty: TypeTerm,
+    pub declared_type: DeclaredTypeFact,
     pub source: Option<SemanticSourceSpan>,
 }
 
@@ -110,6 +138,10 @@ impl CallableSignatureTable {
 
     pub fn get(&self, callable: &CallableId) -> Option<&CallableSemanticSignature> {
         self.by_id.get(callable)
+    }
+
+    pub fn get_mut(&mut self, callable: &CallableId) -> Option<&mut CallableSemanticSignature> {
+        self.by_id.get_mut(callable)
     }
 
     pub fn len(&self) -> usize {

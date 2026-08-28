@@ -19,7 +19,6 @@ use crate::source::ParsedModuleUnit;
 use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
 use crate::types::annotation::TypeResolver;
-use crate::types::evidence::UnknownReason;
 use crate::types::outcome::BlockReason;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
@@ -94,18 +93,17 @@ fn superclass_source<'a>(unit: &'a ParsedModuleUnit, class_def: &ClassDef) -> Op
     unit.text.get(range.start..range.end)
 }
 
-pub(crate) fn semantic_signature_from_surface(callable: &CallableId, signature: &SurfaceCallableSignature) -> Option<CallableSemanticSignature> {
-    if !signature.has_complete_types() {
-        return None;
-    }
-
+pub(crate) fn semantic_signature_from_surface(callable: &CallableId, signature: &SurfaceCallableSignature) -> CallableSemanticSignature {
     let parameters = signature
         .parameters
         .iter()
         .enumerate()
         .map(|(index, parameter)| {
-            let ty = parameter.ty.ty().expect("complete signature parameter has canonical type");
-            let mut semantic = crate::signature::CallableParameterSemantic::new(index as u32, parameter.local_name.clone(), ty.into());
+            let mut semantic = crate::signature::CallableParameterSemantic::new(
+                crate::identity::CallableParameterId::new(callable.clone(), index as u32),
+                parameter.local_name.clone(),
+                crate::declaration_type::DeclaredTypeFact::from_knowledge(&parameter.ty),
+            );
             if let Some(label) = &parameter.external_label {
                 semantic = semantic.with_label(label.clone());
             }
@@ -116,16 +114,16 @@ pub(crate) fn semantic_signature_from_surface(callable: &CallableId, signature: 
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let return_type = signature.return_type.ty().expect("complete signature return has canonical type");
 
-    Some(CallableSemanticSignature {
+    CallableSemanticSignature {
         callable: callable.clone(),
         owner: callable.owner.clone(),
         side: callable.side,
         selector: callable.selector.clone(),
         generics: signature.generics.clone(),
         parameters,
-        return_type: return_type.into(),
+        declared_return: crate::declaration_type::DeclaredTypeFact::from_knowledge(&signature.return_type),
+        inferred_return: None,
         source: None,
         implementation: phalcom_native_meta::ImplementationKind::Source,
         native_id: None,
@@ -133,7 +131,7 @@ pub(crate) fn semantic_signature_from_surface(callable: &CallableId, signature: 
         raises: phalcom_native_meta::RaisesSpec::Unknown,
         flow: phalcom_native_meta::ReturnFlowSpec::Value,
         lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
-    })
+    }
 }
 
 fn publish_current_product(
@@ -774,13 +772,7 @@ pub fn query_callable_signature(db: &mut SemanticDb, callable: CallableId) -> Qu
         }
         return query_failure(db, key, format!("callable {:?} is absent from its declaration surface", callable));
     };
-    let Some(signature) = semantic_signature_from_surface(&callable, source_signature) else {
-        if db.query_state(&key).is_some() {
-            db.discard_for_recompute(&key);
-        }
-        return query_blocked(db, key, BlockReason::UnknownType(UnknownReason::UnannotatedDeclaration));
-    };
-    let signature = Arc::new(signature);
+    let signature = Arc::new(semantic_signature_from_surface(&callable, source_signature));
     let input_fingerprint = crate::db::fingerprint::callable_signature_input_fingerprint(&signature);
 
     if db.validate_reuse(&key, input_fingerprint) {

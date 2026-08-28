@@ -2,6 +2,7 @@
 //! into a stable, deduplicated, versioned `SemanticMetadataBundle`.
 
 use super::stable_identity::*;
+use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::types::id::{KindId, ScopedTypeId, TypeId, TypeParameterId};
@@ -12,8 +13,8 @@ use crate::types::type_lambda::ScopedTypeData;
 use crate::types::variance::Variance;
 use phalcom_type_meta::bundle::{RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
 use phalcom_type_meta::declaration::{
-    CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags, DeclarationTypeRecord, FieldMutabilityRef, FieldSemanticRecord,
-    MetadataUnavailableReason, PublishedTypeAuthority, PublishedTypeSlot, RestModeRef,
+    CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags, DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord,
+    MetadataUnavailableReason, PublishedTypeAuthority, PublishedTypeSlot, RestModeRef, UnknownReasonRef,
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{
@@ -593,6 +594,46 @@ impl<'a> MetadataExporter<'a> {
         Ok(id)
     }
 
+    fn export_declared_type_fact(&mut self, fact: &DeclaredTypeFact) -> PublishedTypeSlot {
+        match &fact.state {
+            DeclaredTypeState::Known(term) => match self.export_type_term(term) {
+                Ok(form) => {
+                    let authority = match fact.basis {
+                        DeclaredTypeBasis::SourceAnnotation => PublishedTypeAuthority::DeclaredAnnotation,
+                        DeclaredTypeBasis::NativeSignature => PublishedTypeAuthority::TrustedNative,
+                        DeclaredTypeBasis::DeclarationSemantics | DeclaredTypeBasis::ConstructorSemantics => PublishedTypeAuthority::GeneratedDeclaration,
+                        DeclaredTypeBasis::InitializerInference
+                        | DeclaredTypeBasis::BodyInference
+                        | DeclaredTypeBasis::ContextualTyping
+                        | DeclaredTypeBasis::PatternDecomposition
+                        | DeclaredTypeBasis::Unspecified => PublishedTypeAuthority::CompilerInferred,
+                    };
+                    PublishedTypeSlot::Known { form, authority }
+                }
+                Err(_) => PublishedTypeSlot::Unavailable {
+                    reason: MetadataUnavailableReason::IncompatibleModel,
+                },
+            },
+            DeclaredTypeState::Dynamic(reason) => PublishedTypeSlot::Dynamic {
+                reason: match reason {
+                    crate::types::evidence::DynamicReason::ExplicitEscape => DynamicReasonRef::ExplicitEscape,
+                    crate::types::evidence::DynamicReason::DynamicRestPack | crate::types::evidence::DynamicReason::RuntimeReflection => {
+                        DynamicReasonRef::UncheckedBoundary
+                    }
+                },
+            },
+            DeclaredTypeState::Unknown(reason) => PublishedTypeSlot::Unknown {
+                reason: match reason {
+                    crate::types::evidence::UnknownReason::UnannotatedDeclaration
+                    | crate::types::evidence::UnknownReason::NoTypeEvidence
+                    | crate::types::evidence::UnknownReason::MissingInitializer => UnknownReasonRef::UnannotatedDeclaration,
+                    crate::types::evidence::UnknownReason::OpaqueNative => UnknownReasonRef::OpaqueNative,
+                    _ => UnknownReasonRef::InferenceFailed,
+                },
+            },
+        }
+    }
+
     pub fn build_bundle(mut self, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
         let mut out_declarations = Vec::new();
         let mut out_callables = Vec::new();
@@ -639,17 +680,9 @@ impl<'a> MetadataExporter<'a> {
                 };
                 let mut params = Vec::new();
                 for p in sig.parameters.iter() {
-                    let ty_slot = match self.export_type_term(&p.ty) {
-                        Ok(t) => PublishedTypeSlot::Known {
-                            form: t,
-                            authority: PublishedTypeAuthority::DeclaredAnnotation,
-                        },
-                        Err(_) => PublishedTypeSlot::Unavailable {
-                            reason: MetadataUnavailableReason::IncompatibleModel,
-                        },
-                    };
+                    let ty_slot = self.export_declared_type_fact(&p.declared_type);
                     params.push(CallableParameterRecord {
-                        index: p.index,
+                        index: p.index(),
                         local_name: p.local_name.clone(),
                         external_label: p.external_label.clone(),
                         rest: match p.rest {
@@ -661,14 +694,16 @@ impl<'a> MetadataExporter<'a> {
                         source: None,
                     });
                 }
-                let return_slot = match self.export_type_term(&sig.return_type) {
-                    Ok(t) => PublishedTypeSlot::Known {
-                        form: t,
-                        authority: PublishedTypeAuthority::DeclaredAnnotation,
-                    },
-                    Err(_) => PublishedTypeSlot::Unavailable {
-                        reason: MetadataUnavailableReason::IncompatibleModel,
-                    },
+                let return_slot = if let Some(inferred) = sig.inferred_return.as_ref().filter(|knowledge| knowledge.is_known()) {
+                    match inferred.ty().and_then(|ty| self.export_type_term(&TypeTerm::Canonical(ty)).ok()) {
+                        Some(form) => PublishedTypeSlot::Known {
+                            form,
+                            authority: PublishedTypeAuthority::CompilerInferred,
+                        },
+                        None => self.export_declared_type_fact(&sig.declared_return),
+                    }
+                } else {
+                    self.export_declared_type_fact(&sig.declared_return)
                 };
                 out_callables.push(CallableSemanticRecord {
                     callable: to_stable_callable(call_id),
@@ -682,15 +717,7 @@ impl<'a> MetadataExporter<'a> {
 
         if let Some(field_table) = self.fields {
             for (field_id, sig) in field_table.iter() {
-                let ty_slot = match self.export_type_term(&sig.ty) {
-                    Ok(t) => PublishedTypeSlot::Known {
-                        form: t,
-                        authority: PublishedTypeAuthority::DeclaredAnnotation,
-                    },
-                    Err(_) => PublishedTypeSlot::Unavailable {
-                        reason: MetadataUnavailableReason::IncompatibleModel,
-                    },
-                };
+                let ty_slot = self.export_declared_type_fact(&sig.declared_type);
                 out_fields.push(FieldSemanticRecord {
                     field: to_stable_field(field_id),
                     mutability: match sig.mutable {

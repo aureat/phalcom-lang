@@ -1869,15 +1869,16 @@ fn refresh_inferred_callable_results(
             if !summary.is_known() {
                 continue;
             }
-            if !dispatch.update_callable_return_type(&callable, summary) {
+            if !dispatch.update_callable_return_type(&callable, summary.clone()) {
                 continue;
             }
             changed_callables.insert(callable.clone());
 
             if let Some(surface) = dispatch.surfaces().get(&callable.owner)
                 && let Some(signature) = surface.get_callable(callable.side, &callable.selector)
-                && let Some(semantic_signature) = semantic_signature_from_surface(&callable, signature)
             {
+                let mut semantic_signature = semantic_signature_from_surface(&callable, signature);
+                semantic_signature.inferred_return = Some(summary.clone());
                 callable_signatures.insert(semantic_signature);
             }
         }

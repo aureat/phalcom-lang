@@ -7,6 +7,7 @@ pub mod contracts;
 pub mod control_summary;
 pub mod core_surface;
 pub mod db;
+pub mod declaration_type;
 pub mod declarations;
 pub mod diagnostic;
 pub mod dispatch;
@@ -47,6 +48,7 @@ pub use checker::{
 pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};
 pub use core_surface::*;
+pub use declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
@@ -64,8 +66,8 @@ pub use export::{
     SemanticExportError, export_kind, export_type_form,
 };
 pub use identity::{
-    BindingId, CallableId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner,
-    SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId, WorkspaceId,
+    BindingId, CallableId, CallableParameterId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId,
+    SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;

@@ -76,8 +76,8 @@ const x: Int = CellNum.of(42)
 
     let signature = snapshot.callable_signatures.get(&factory).expect("inferred CellNum.of signature");
     assert_eq!(
-        signature.return_type,
-        TypeTerm::Canonical(cell_ty),
+        signature.published_return_term(),
+        Some(TypeTerm::Canonical(cell_ty)),
         "inferred factory signature must return CellNum"
     );
 
