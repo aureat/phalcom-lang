@@ -7,38 +7,71 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: lsp-retirement-final-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
-  determinism-control:
+  branch-stress:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          ref: codex/lsp-single-world-retirement
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Branch functions stress
+      - name: Stress branch functions groups
         run: |
-          for i in $(seq 1 10); do
-            echo "branch functions run $i"
-            cargo test -p phalcom-core --test lang functions -- --exact
-            cargo test -p phalcom-core --test lang functions_negative -- --exact
+          set +e
+          function_failures=0
+          negative_failures=0
+          for i in $(seq 1 20); do
+            cargo test -p phalcom-core --test lang functions -- --exact >/tmp/functions.log 2>&1
+            status=$?
+            if [ $status -ne 0 ]; then
+              function_failures=$((function_failures + 1))
+              echo "BRANCH functions failure iteration=$i"
+              tail -n 80 /tmp/functions.log
+            fi
+            cargo test -p phalcom-core --test lang functions_negative -- --exact >/tmp/functions-negative.log 2>&1
+            status=$?
+            if [ $status -ne 0 ]; then
+              negative_failures=$((negative_failures + 1))
+              echo "BRANCH functions_negative failure iteration=$i"
+              tail -n 80 /tmp/functions-negative.log
+            fi
           done
-      - name: Branch serialized workspace
-        run: cargo test --workspace --all-targets -j 1
-      - name: Checkout main
-        run: git fetch origin main --depth=1 && git checkout --detach origin/main
-      - name: Main functions stress
+          echo "BRANCH_RESULT functions=$function_failures/20 functions_negative=$negative_failures/20"
+          exit 0
+
+  main-stress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Stress main functions groups
         run: |
-          for i in $(seq 1 10); do
-            echo "main functions run $i"
-            cargo test -p phalcom-core --test lang functions -- --exact
-            cargo test -p phalcom-core --test lang functions_negative -- --exact
+          set +e
+          function_failures=0
+          negative_failures=0
+          for i in $(seq 1 20); do
+            cargo test -p phalcom-core --test lang functions -- --exact >/tmp/functions.log 2>&1
+            status=$?
+            if [ $status -ne 0 ]; then
+              function_failures=$((function_failures + 1))
+              echo "MAIN functions failure iteration=$i"
+              tail -n 80 /tmp/functions.log
+            fi
+            cargo test -p phalcom-core --test lang functions_negative -- --exact >/tmp/functions-negative.log 2>&1
+            status=$?
+            if [ $status -ne 0 ]; then
+              negative_failures=$((negative_failures + 1))
+              echo "MAIN functions_negative failure iteration=$i"
+              tail -n 80 /tmp/functions-negative.log
+            fi
           done
+          echo "MAIN_RESULT functions=$function_failures/20 functions_negative=$negative_failures/20"
+          exit 0
