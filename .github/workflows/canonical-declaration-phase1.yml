@@ -1,0 +1,352 @@
+name: Canonical Declaration Phase 1
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/canonical-declaration-knowledge
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply phase 1 authority repair
+        shell: python
+        run: |
+          from pathlib import Path
+
+          query_path = Path("phalcom-semantic/src/db/query.rs")
+          query = query_path.read_text()
+
+          old_wrapper = '''/// Evaluates or retrieves the cached `CallableAnalysis` for a given callable body.
+          pub fn query_callable_body(
+              db: &mut SemanticDb,
+              callable: CallableId,
+              body: &[Statement],
+              body_range: SourceRange,
+              store: &mut TypeStore,
+              hierarchy: &dyn TypeHierarchy,
+              resolver: &dyn TypeResolver,
+              declarations: &DeclarationTypeTable,
+              dispatch: &SurfaceDispatchResolver,
+              module: ModuleId,
+              budget: QueryBudget,
+              cancel: &CancellationToken,
+          ) -> QueryOutcome<Arc<CallableAnalysis>> {
+              query_callable_body_with_formal_inputs(
+                  db,
+                  callable,
+                  body,
+                  body_range,
+                  store,
+                  hierarchy,
+                  resolver,
+                  declarations,
+                  dispatch,
+                  module,
+                  budget,
+                  cancel,
+                  None,
+              )
+          }
+
+          /// Evaluates a callable body while allowing missing formal prerequisites to be
+          /// evaluated from borrowed current workspace inputs.
+          pub fn query_callable_body_with_formal_inputs(
+          '''
+          new_wrapper = '''#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+          enum CallableBodySignatureRequirement {
+              Required,
+              SignaturelessSynthetic,
+          }
+
+          /// Evaluates or retrieves the cached `CallableAnalysis` for a declared callable body.
+          ///
+          /// Declared bodies fail closed unless their canonical `CallableSignature` product is
+          /// current. Tests that intentionally exercise a body without a declaration must use
+          /// [`query_signatureless_callable_body`] explicitly.
+          pub fn query_callable_body(
+              db: &mut SemanticDb,
+              callable: CallableId,
+              body: &[Statement],
+              body_range: SourceRange,
+              store: &mut TypeStore,
+              hierarchy: &dyn TypeHierarchy,
+              resolver: &dyn TypeResolver,
+              declarations: &DeclarationTypeTable,
+              dispatch: &SurfaceDispatchResolver,
+              module: ModuleId,
+              budget: QueryBudget,
+              cancel: &CancellationToken,
+          ) -> QueryOutcome<Arc<CallableAnalysis>> {
+              query_callable_body_with_requirement(
+                  db,
+                  callable,
+                  body,
+                  body_range,
+                  store,
+                  hierarchy,
+                  resolver,
+                  declarations,
+                  dispatch,
+                  module,
+                  budget,
+                  cancel,
+                  None,
+                  CallableBodySignatureRequirement::Required,
+              )
+          }
+
+          /// Low-level query entry for synthetic DB fixtures that deliberately have no
+          /// source declaration and therefore no canonical callable-signature product.
+          pub fn query_signatureless_callable_body(
+              db: &mut SemanticDb,
+              callable: CallableId,
+              body: &[Statement],
+              body_range: SourceRange,
+              store: &mut TypeStore,
+              hierarchy: &dyn TypeHierarchy,
+              resolver: &dyn TypeResolver,
+              declarations: &DeclarationTypeTable,
+              dispatch: &SurfaceDispatchResolver,
+              module: ModuleId,
+              budget: QueryBudget,
+              cancel: &CancellationToken,
+          ) -> QueryOutcome<Arc<CallableAnalysis>> {
+              query_callable_body_with_requirement(
+                  db,
+                  callable,
+                  body,
+                  body_range,
+                  store,
+                  hierarchy,
+                  resolver,
+                  declarations,
+                  dispatch,
+                  module,
+                  budget,
+                  cancel,
+                  None,
+                  CallableBodySignatureRequirement::SignaturelessSynthetic,
+              )
+          }
+
+          /// Evaluates a declared callable body while allowing missing formal prerequisites
+          /// to be evaluated from borrowed current workspace inputs.
+          pub fn query_callable_body_with_formal_inputs(
+              db: &mut SemanticDb,
+              callable: CallableId,
+              body: &[Statement],
+              body_range: SourceRange,
+              store: &mut TypeStore,
+              hierarchy: &dyn TypeHierarchy,
+              resolver: &dyn TypeResolver,
+              declarations: &DeclarationTypeTable,
+              dispatch: &SurfaceDispatchResolver,
+              module: ModuleId,
+              budget: QueryBudget,
+              cancel: &CancellationToken,
+              formal_inputs: Option<&FormalQueryInputs<'_>>,
+          ) -> QueryOutcome<Arc<CallableAnalysis>> {
+              query_callable_body_with_requirement(
+                  db,
+                  callable,
+                  body,
+                  body_range,
+                  store,
+                  hierarchy,
+                  resolver,
+                  declarations,
+                  dispatch,
+                  module,
+                  budget,
+                  cancel,
+                  formal_inputs,
+                  CallableBodySignatureRequirement::Required,
+              )
+          }
+
+          fn query_callable_body_with_requirement(
+          '''
+          if old_wrapper not in query:
+              raise SystemExit("query wrapper anchor missing")
+          query = query.replace(old_wrapper, new_wrapper, 1)
+
+          old_formal_tail = '''    cancel: &CancellationToken,
+              formal_inputs: Option<&FormalQueryInputs<'_>>,
+          ) -> QueryOutcome<Arc<CallableAnalysis>> {
+              let key = QueryKey::CallableBody(callable.clone());
+          '''
+          new_formal_tail = '''    cancel: &CancellationToken,
+              formal_inputs: Option<&FormalQueryInputs<'_>>,
+              signature_requirement: CallableBodySignatureRequirement,
+          ) -> QueryOutcome<Arc<CallableAnalysis>> {
+              let key = QueryKey::CallableBody(callable.clone());
+          '''
+          if old_formal_tail not in query:
+              raise SystemExit("private body signature anchor missing")
+          query = query.replace(old_formal_tail, new_formal_tail, 1)
+
+          old_none = '''        None => {
+                      let direct = db
+                          .product(&QueryKey::CallableSignature(callable.clone()))
+                          .and_then(|product| product.as_callable_signature())
+                          .cloned()
+                          .map(|signature| (callable.clone(), signature));
+                      direct.or_else(|| {
+                          (callable.side == crate::identity::DispatchSide::Instance)
+                              .then(|| {
+                                  let signature_id = CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class);
+                                  db.product(&QueryKey::CallableSignature(signature_id.clone()))
+                                      .and_then(|product| product.as_callable_signature())
+                                      .cloned()
+                                      .map(|signature| (signature_id, signature))
+                              })
+                              .flatten()
+                      })
+                  }
+          '''
+          new_none = '''        None => {
+                      let current_signature = |db: &SemanticDb, signature_id: &CallableId| {
+                          let signature_key = QueryKey::CallableSignature(signature_id.clone());
+                          (db.query_state(&signature_key).and_then(QueryState::validated_revision) == Some(db.revision()))
+                              .then(|| db.product(&signature_key).and_then(|product| product.as_callable_signature()).cloned())
+                              .flatten()
+                      };
+                      let direct = current_signature(db, &callable).map(|signature| (callable.clone(), signature));
+                      let found = direct.or_else(|| {
+                          (callable.side == crate::identity::DispatchSide::Instance)
+                              .then(|| {
+                                  let signature_id = CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class);
+                                  current_signature(db, &signature_id).map(|signature| (signature_id, signature))
+                              })
+                              .flatten()
+                      });
+                      match (found, signature_requirement) {
+                          (Some(signature), _) => Some(signature),
+                          (None, CallableBodySignatureRequirement::SignaturelessSynthetic) => None,
+                          (None, CallableBodySignatureRequirement::Required) => {
+                              return query_failure(
+                                  db,
+                                  key.clone(),
+                                  format!("missing current canonical CallableSignature prerequisite for body {callable:?}"),
+                              );
+                          }
+                      }
+                  }
+          '''
+          if old_none not in query:
+              raise SystemExit("signature lookup anchor missing")
+          query = query.replace(old_none, new_none, 1)
+          query_path.write_text(query)
+
+          db_test_path = Path("phalcom-semantic/tests/semantic/incremental/db_base.rs")
+          db_test = db_test_path.read_text()
+          marker = '\n#[test]\nfn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()'
+          prefix, suffix = db_test.split(marker, 1)
+          prefix = prefix.replace('phalcom_semantic::db::query_callable_body(', 'phalcom_semantic::db::query_signatureless_callable_body(')
+          db_test_path.write_text(prefix + marker + suffix)
+
+          dep_path = Path("phalcom-semantic/tests/semantic/incremental/callable_dependencies.rs")
+          dep = dep_path.read_text()
+          old_case = '''#[test]
+          fn case_i_unannotated_callable_uses_surface_dependency_without_missing_signature_product() {
+              let module = ModuleId::resolved(
+                  ResolvedProjectId::from_raw(1),
+                  ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+              );
+              let mut session = SemanticWorkspaceSession::new();
+              let source = r#"
+          class Untyped {
+            value() { 1 }
+          }
+          "#;
+
+              let update = session.update(single_module_input(module.clone(), source, 1));
+              let owner = DeclarationId::new(module, "Untyped".into());
+              let callable = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
+              let body_key = QueryKey::CallableBody(callable.clone());
+
+              assert!(update.snapshot.callable_analyses.contains_key(&callable));
+              let dependencies = session
+                  .db()
+                  .index()
+                  .dependencies_of(&body_key)
+                  .expect("unannotated callable body must retain its declaration-surface dependency");
+              assert!(dependencies.iter().any(|edge| edge.dependency == QueryKey::DeclarationSurface(owner.clone())));
+              assert!(dependencies.iter().all(|edge| edge.dependency != QueryKey::CallableSignature(callable.clone())));
+          }
+          '''
+          new_case = '''#[test]
+          fn case_i_unannotated_callable_uses_canonical_signature_dependency() {
+              let module = ModuleId::resolved(
+                  ResolvedProjectId::from_raw(1),
+                  ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+              );
+              let mut session = SemanticWorkspaceSession::new();
+              let source = r#"
+          class Untyped {
+            value() { 1 }
+          }
+          "#;
+
+              let update = session.update(single_module_input(module.clone(), source, 1));
+              let owner = DeclarationId::new(module, "Untyped".into());
+              let callable = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
+              let signature_key = QueryKey::CallableSignature(callable.clone());
+              let body_key = QueryKey::CallableBody(callable.clone());
+
+              assert!(update.snapshot.callable_analyses.contains_key(&callable));
+              let signature = update
+                  .snapshot
+                  .callable_signatures
+                  .get(&callable)
+                  .expect("unannotated callable declaration must still publish a canonical signature");
+              assert!(signature.declared_return.is_unknown());
+              let dependencies = session
+                  .db()
+                  .index()
+                  .dependencies_of(&body_key)
+                  .expect("unannotated callable body must retain its canonical signature dependency");
+              assert!(dependencies.iter().any(|edge| edge.dependency == signature_key));
+              assert!(dependencies.iter().all(|edge| edge.dependency != QueryKey::DeclarationSurface(owner.clone())));
+          }
+          '''
+          if old_case not in dep:
+              raise SystemExit("case I anchor missing")
+          dep_path.write_text(dep.replace(old_case, new_case, 1))
+
+          Path(".github/workflows/canonical-declaration-phase1.yml").unlink()
+      - name: Format
+        run: cargo +stable fmt --all
+      - name: Focused authority tests
+        env:
+          RUSTFLAGS: ""
+        run: |
+          cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::db::base::callable_body_query_fails_closed_when_consumed_signature_product_is_missing --exact
+          cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::callable_dependencies::case_i_unannotated_callable_uses_canonical_signature_dependency --exact
+          cargo +stable test -p phalcom-semantic --test semantic semantic::incremental::db::base::test_body_query_execution_and_invalidation --exact
+      - name: Full semantic gate
+        env:
+          RUSTFLAGS: ""
+        run: |
+          cargo +stable fmt --all -- --check
+          git diff --check
+          cargo +stable check -p phalcom-semantic
+          cargo +stable test -p phalcom-semantic
+      - name: Commit repair
+        run: |
+          git config user.name "phalcom-refactor-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(semantic): close callable signature prerequisite authority"
+          git push origin HEAD:codex/canonical-declaration-knowledge
