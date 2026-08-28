@@ -1,0 +1,15 @@
+name: Canonical Parameter Phase 3 RED
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge-phase3-red
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run canonical parameter advisory regression
+        run: cargo test -p phalcom-semantic --test canonical_parameter_advisory
