@@ -144,7 +144,6 @@ text = replace_once(
     "                                    declarations: &declarations,\n                                    field_signatures: Some(&field_signatures),\n                                    field_lifecycle: Some(&field_lifecycle),\n",
     "formal body input field signatures",
 )
-# The second direct context is the top-level/field-initializer checker.
 needle = "            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());\n\n            for stmt in &parsed_unit.program.statements {\n"
 replacement = "            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());\n            ctx.attach_field_signatures(&field_signatures);\n\n            for stmt in &parsed_unit.program.statements {\n"
 text = replace_once(text, needle, replacement, "top-level field context attachment")
@@ -168,7 +167,18 @@ text = replace_once(
 )
 path.write_text(text)
 
-# Architecture guard: canonical field type retrieval must not read dispatch.
+# 5. Synthetic formal-input fixtures opt out explicitly when they exercise no
+# field declaration knowledge.
+path = Path("phalcom-semantic/tests/semantic/incremental/query_ownership.rs")
+text = path.read_text()
+text = replace_once(
+    text,
+    "        declarations: &declarations,\n        field_lifecycle: None,\n",
+    "        declarations: &declarations,\n        field_signatures: None,\n        field_lifecycle: None,\n",
+    "query ownership formal fixture",
+)
+path.write_text(text)
+
 context = Path("phalcom-semantic/src/checker/context.rs").read_text()
 if "surface.get_field(side, name)" in context:
     raise SystemExit("formal field typing still reads DeclarationSurface")
