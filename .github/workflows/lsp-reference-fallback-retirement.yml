@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   retire:
-    if: "${{ github.event.head_commit.message == 'chore(lsp): repair reference fallback retirement driver' }}"
+    if: "${{ github.event.head_commit.message == 'chore(lsp): fix structural reference fallback retirement' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,17 +32,9 @@ jobs:
           helper_end = source.index('fn compiler_import_definition_location(', helper_start)
           source = source[:helper_start] + source[helper_end:]
 
-          fallback = '''        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
-              return Ok(Some(vec![Location {
-                  uri: uri.clone(),
-                  range: request.document.line_index.range(range.start..range.end),
-              }]));
-          }
-
-          '''
-          if source.count(fallback) != 1:
-              raise SystemExit(f'expected exactly one references fallback, found {source.count(fallback)}')
-          source = source.replace(fallback, '', 1)
+          fallback_start = source.index('        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {')
+          fallback_end = source.index('        Ok(None)', fallback_start)
+          source = source[:fallback_start] + source[fallback_end:]
 
           if 'import_binding_declaration_at_offset' in source:
               raise SystemExit('fallback symbol still present after structural edit')
