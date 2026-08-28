@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_semantic::{
-    AdvisoryConfidence, AdvisoryContributionSource, AdvisoryFact, AdvisoryParameterContributions, CallableId,
-    CallableParameterId, DeclarationId, DispatchSide, ModuleId, ValueShape,
+    AdvisoryConfidence, AdvisoryContributionSource, AdvisoryFact, AdvisoryParameterContributions, CallableId, CallableParameterId, DeclarationId, DispatchSide,
+    ModuleId, ValueShape,
 };
 
 #[test]
