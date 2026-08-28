@@ -1,6 +1,6 @@
 //! Pure binding-contract reconciliation.
 
-use crate::identity::BindingId;
+use crate::identity::{BindingId, CallableParameterId};
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
@@ -14,6 +14,7 @@ use phalcom_common::range::SourceRange;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BindingSeed {
     pub name: String,
+    pub parameter: Option<CallableParameterId>,
     pub range: SourceRange,
     pub contract: Option<BindingContract>,
     pub current: TypeKnowledge,

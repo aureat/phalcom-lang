@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::identity::{CallableId, DeclarationId, ModuleId, SemanticTargetId, SourceSiteId};
+use crate::identity::{CallableId, CallableParameterId, DeclarationId, ModuleId, SemanticTargetId, SourceSiteId};
 use crate::source_index::site::SourceSite;
 use phalcom_common::range::SourceRange;
 
@@ -36,6 +36,7 @@ pub struct CallableSourceInfo {
     pub name_range: SourceRange,
     pub declaration_range: SourceRange,
     pub parameter_name_ranges: std::sync::Arc<[SourceRange]>,
+    pub parameter_sites: BTreeMap<CallableParameterId, SourceSiteId>,
     pub has_explicit_return_annotation: bool,
 }
 

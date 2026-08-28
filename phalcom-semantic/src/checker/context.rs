@@ -976,7 +976,22 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
-        self.bind_callable_parameter_with_causal(name, current, range, crate::checker::causal::CausalInvalidity::Clean)
+        self.bind_callable_parameter_with_identity(name, current, range, crate::checker::causal::CausalInvalidity::Clean, None)
+    }
+
+    pub fn bind_canonical_callable_parameter(
+        &mut self,
+        parameter: &crate::signature::CallableParameterSemantic,
+        fallback_range: SourceRange,
+    ) -> BindingDeclarationResult {
+        let range = parameter.source.as_ref().map_or(fallback_range, |source| source.range);
+        self.bind_callable_parameter_with_identity(
+            parameter.local_name.to_string(),
+            parameter.declared_type.to_knowledge(),
+            range,
+            crate::checker::causal::CausalInvalidity::Clean,
+            Some(parameter.id.clone()),
+        )
     }
 
     pub fn bind_callable_parameter_with_causal(
@@ -985,6 +1000,17 @@ impl<'a> CheckingContext<'a> {
         current: TypeKnowledge,
         range: SourceRange,
         causal_invalidity: crate::checker::causal::CausalInvalidity,
+    ) -> BindingDeclarationResult {
+        self.bind_callable_parameter_with_identity(name, current, range, causal_invalidity, None)
+    }
+
+    fn bind_callable_parameter_with_identity(
+        &mut self,
+        name: impl Into<String>,
+        current: TypeKnowledge,
+        range: SourceRange,
+        causal_invalidity: crate::checker::causal::CausalInvalidity,
+        parameter: Option<crate::identity::CallableParameterId>,
     ) -> BindingDeclarationResult {
         let current = current
             .ty()
@@ -997,6 +1023,7 @@ impl<'a> CheckingContext<'a> {
         });
         self.declare_binding(BindingSeed {
             name: name.into(),
+            parameter,
             range,
             contract,
             current,
@@ -1008,6 +1035,7 @@ impl<'a> CheckingContext<'a> {
 
     pub fn bind_contextual_block_parameter(&mut self, name: impl Into<String>, ty: TypeId, range: SourceRange) -> BindingDeclarationResult {
         self.declare_binding(BindingSeed {
+            parameter: None,
             name: name.into(),
             range,
             contract: Some(BindingContract {
@@ -1024,6 +1052,7 @@ impl<'a> CheckingContext<'a> {
 
     pub fn bind_untyped_block_parameter(&mut self, name: impl Into<String>, range: SourceRange) -> BindingDeclarationResult {
         self.declare_binding(BindingSeed {
+            parameter: None,
             name: name.into(),
             range,
             contract: None,
@@ -1047,6 +1076,7 @@ impl<'a> CheckingContext<'a> {
             source: Some(range),
         });
         self.declare_binding(BindingSeed {
+            parameter: None,
             name: name.into(),
             range,
             contract,

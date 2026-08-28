@@ -85,7 +85,8 @@ fn parameter_fact(
 ) -> CallableParameterSemantic {
     let declared_type = annotation_fact(ctx, resolver, parameter.annotation.as_ref(), missing);
     let mut semantic = CallableParameterSemantic::new(CallableParameterId::new(callable.clone(), index as u32), parameter.name.clone(), declared_type)
-        .with_rest(parameter.rest_mode);
+        .with_rest(parameter.rest_mode)
+        .with_source(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), parameter.name_range));
     if let Some(label) = &parameter.label {
         semantic = semantic.with_label(label.clone());
     }

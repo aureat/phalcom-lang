@@ -114,7 +114,7 @@ pub fn analyze_callable_body_with_fields(
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));
         ctx.push_scope();
         for parameter in &signature.parameters {
-            ctx.bind_callable_parameter(parameter.local_name.to_string(), parameter.declared_type.to_knowledge(), body_range);
+            ctx.bind_canonical_callable_parameter(parameter, body_range);
         }
         let declared_return = signature.declared_return.to_knowledge();
         if let Some(ret_ty) = declared_return.ty() {

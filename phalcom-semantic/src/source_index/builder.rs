@@ -3,7 +3,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId};
+use crate::identity::{
+    CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId,
+};
 use crate::source_index::scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceScopeId, SourceScopeIndex,
 };
@@ -561,14 +563,20 @@ impl SourceScopeBuilder<'_> {
                 name_range,
                 declaration_range,
                 parameter_name_ranges: Arc::from(parameters.iter().map(|parameter| parameter.name_range).collect::<Vec<_>>().into_boxed_slice()),
+                parameter_sites: BTreeMap::new(),
                 has_explicit_return_annotation,
             },
         );
         self.index.callable_body_ranges.insert(callable.clone(), body_range);
-        let previous_owner = std::mem::replace(&mut self.current_owner, SourceOwner::Callable(callable));
+        let previous_owner = std::mem::replace(&mut self.current_owner, SourceOwner::Callable(callable.clone()));
         let scope = self.new_scope(parent, body_range);
-        for parameter in parameters {
-            self.declare(scope, parameter.name.clone(), parameter_kind, parameter.name_range, true);
+        let mut parameter_sites = BTreeMap::new();
+        for (index, parameter) in parameters.iter().enumerate() {
+            let site = self.declare(scope, parameter.name.clone(), parameter_kind, parameter.name_range, true);
+            parameter_sites.insert(CallableParameterId::new(callable.clone(), index as u32), site);
+        }
+        if let Some(source) = self.index.callable_sources.get_mut(&callable) {
+            source.parameter_sites = parameter_sites;
         }
         if let Some(statements) = body.statements() {
             self.visit_statements(scope, statements, false);

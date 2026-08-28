@@ -180,7 +180,7 @@ fn formal_projection_preserves_causal_invalidity_and_binding_contracts() {
 #[test]
 fn binding_attachment_incident_does_not_hide_expression_attachment() {
     let module = module_id();
-    let source = "class CellNum { @constructor new(_ raw: Int) { raw } }\nlet value = CellNum.new(1)\n";
+    let source = "class CellNum { @constructor new(_ raw: Int) { let copy = raw\ncopy } }\nlet value = CellNum.new(1)\n";
     let mut session = SemanticWorkspaceSession::new();
     let update = session.update(input(module.clone(), source, 1));
 

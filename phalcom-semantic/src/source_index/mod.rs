@@ -74,6 +74,22 @@ impl CallableSourceAttachment {
             .is_some_and(|current| *current != analysis.body_range);
         let current_bindings = (rebase_ranges && current_bindings.len() == states.len()).then_some(current_bindings);
         for (offset, state) in states.into_iter().enumerate() {
+            if let Some(parameter) = &state.parameter {
+                if let Some(site) = scopes
+                    .callable_sources
+                    .get(&parameter.callable)
+                    .and_then(|source| source.parameter_sites.get(parameter))
+                    .cloned()
+                {
+                    formal_bindings.insert(state.binding, site);
+                    continue;
+                }
+                incidents.push(SourceAttachmentError::MissingBinding {
+                    callable: callable.clone(),
+                    binding: state.binding,
+                });
+                continue;
+            }
             if let Some(binding) = current_bindings.as_ref().and_then(|bindings| bindings.get(offset)) {
                 formal_bindings.insert(state.binding, binding.declaration_site.clone());
                 continue;

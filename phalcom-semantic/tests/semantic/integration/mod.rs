@@ -6,6 +6,7 @@ mod editor;
 mod imported_resolution;
 mod metadata;
 mod native_conformance;
+mod parameter_identity;
 mod presentation;
 mod source_index;
 mod workspace;
