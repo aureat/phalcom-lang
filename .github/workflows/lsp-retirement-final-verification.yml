@@ -47,6 +47,5 @@ jobs:
           git add phalcom-semantic/src/checker/expression.rs
           if ! git diff --cached --quiet; then
             git commit -m 'fix(semantic): dispatch direct nominal callable values'
-            git pull --rebase origin codex/lsp-single-world-retirement
             git push origin HEAD:codex/lsp-single-world-retirement
           fi
