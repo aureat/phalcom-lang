@@ -25,26 +25,22 @@ jobs:
 
           backend = Path("phalcom-lsp/src/backend.rs")
           text = backend.read_text()
-          old = '''        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
-              return Ok(Some(GotoDefinitionResponse::Array(vec![Location {
-                  uri: uri.clone(),
-                  range: request.document.line_index.range(range.start..range.end),
-              }])));
-          }
-
-          if let Some(location) = compiler_import_definition_location(&request, position) {
-          '''
-          new = '''        if let Some(location) = compiler_import_definition_location(&request, position) {
-          '''
-          if old not in text:
-              raise SystemExit("missing goto-definition import fallback anchor")
-          backend.write_text(text.replace(old, new, 1))
+          start_marker = "        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {\n"
+          next_marker = "        if let Some(location) = compiler_import_definition_location(&request, position) {\n"
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit("missing goto-definition local import fallback start")
+          end = text.find(next_marker, start)
+          if end < 0:
+              raise SystemExit("missing canonical import definition branch after local fallback")
+          backend.write_text(text[:start] + text[end:])
 
           navigation = Path("phalcom-lsp/tests/module_navigation.rs")
           text = navigation.read_text()
           old_assert = '    assert_eq!(locs[0]["uri"].as_str(), Some(main_uri.as_str()));\n'
-          if text.count(old_assert) != 2:
-              raise SystemExit(f"expected exactly two stale imported Circle assertions, found {text.count(old_assert)}")
+          count = text.count(old_assert)
+          if count != 2:
+              raise SystemExit(f"expected exactly two stale imported Circle assertions, found {count}")
           navigation.write_text(text.replace(old_assert, '    assert_eq!(locs[0]["uri"].as_str(), Some(shapes_uri.as_str()));\n'))
           PY
       - name: Format and run focused regressions
