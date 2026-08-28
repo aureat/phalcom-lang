@@ -16,10 +16,7 @@ impl ScratchWorkspace {
         let root = std::env::temp_dir().join(format!(
             "phalcom-lsp-imported-binding-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         Self {
@@ -87,13 +84,7 @@ async fn read_response<R: AsyncReadExt + Unpin>(reader: &mut R, id: u64) -> Valu
     }
 }
 
-async fn wait_for_definition(
-    client: &mut tokio::io::DuplexStream,
-    id: &mut u64,
-    uri: &str,
-    line: usize,
-    character: usize,
-) -> Value {
+async fn wait_for_definition(client: &mut tokio::io::DuplexStream, id: &mut u64, uri: &str, line: usize, character: usize) -> Value {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut last = Value::Null;
     while std::time::Instant::now() < deadline {
@@ -125,14 +116,8 @@ async fn wait_for_definition(
 #[tokio::test]
 async fn imported_binding_definition_crosses_module_boundary_at_declaration_and_use() {
     let workspace = ScratchWorkspace::new();
-    let shapes_path = workspace.write(
-        "shapes.ph",
-        "class Circle {\n  area() -> Float { 3.14 }\n}\nexport Circle\n",
-    );
-    let main_path = workspace.write(
-        "main.ph",
-        "from .shapes import Circle\n\nlet circle = Circle\n",
-    );
+    let shapes_path = workspace.write("shapes.ph", "class Circle {\n  area() -> Float { 3.14 }\n}\nexport Circle\n");
+    let main_path = workspace.write("main.ph", "from .shapes import Circle\n\nlet circle = Circle\n");
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
     let (server_read, server_write) = tokio::io::split(server_end);
@@ -156,11 +141,7 @@ async fn imported_binding_definition_crosses_module_boundary_at_declaration_and_
     )
     .await;
     let _ = read_response(&mut client_end, 1).await;
-    write_message(
-        &mut client_end,
-        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-    )
-    .await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 
     let main_text = std::fs::read_to_string(&main_path).unwrap();
     let main_uri = Url::from_file_path(&main_path).unwrap().to_string();
