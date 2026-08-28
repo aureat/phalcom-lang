@@ -21,16 +21,32 @@ class Probe {
     assert!(parsed.errors.is_empty(), "fixture must parse: {:#?}", parsed.errors);
 
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let declaration = DeclarationId::new(module.clone(), "Probe".into());
     let callable = CallableId::new(
-        DeclarationId::new(module, "Probe".into()),
+        declaration.clone(),
         Selector::method("run", vec![SelectorSlot::Positional]).expect("selector"),
         DispatchSide::Instance,
+    );
+
+    assert!(
+        analysis.snapshot.sources.contains_key(&module),
+        "partial callable analysis must publish the source snapshot instead of falling back to the bootstrap snapshot; sources={:?}",
+        analysis.snapshot.sources.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        analysis.snapshot.surfaces.contains_key(&declaration),
+        "partial callable analysis must retain its declaration surface"
     );
 
     let signature = analysis
         .snapshot
         .callable_signatures
         .get(&callable)
-        .expect("a valid callable declaration must publish a canonical signature even when its return type is unknown");
+        .unwrap_or_else(|| {
+            panic!(
+                "a valid callable declaration must publish a canonical signature even when its return type is unknown; published={:?}",
+                analysis.snapshot.callable_signatures.iter().map(|(id, _)| id).collect::<Vec<_>>()
+            )
+        });
     assert_eq!(signature.parameter_count(), 1);
 }
