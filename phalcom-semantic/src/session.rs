@@ -866,7 +866,7 @@ impl SemanticWorkspaceSession {
 
         let mut unlinked_map = BTreeMap::new();
         let mut linked_map = BTreeMap::new();
-        let mut resolved_imports_map = BTreeMap::new();
+        let mut resolved_imports_map = self.module_session.resolved_imports().clone();
         let mut sources_loc_map = BTreeMap::new();
 
         for (mod_id, unit) in &input.sources {

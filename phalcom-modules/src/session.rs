@@ -141,6 +141,7 @@ pub struct WorkspaceModuleSession {
     standalone_projects: BTreeMap<SourceId, SyntheticProjectId>,
     synthetic_ids: SyntheticProjectIdAllocator,
     linked: Option<Arc<LinkedProgram>>,
+    resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
     generation: u64,
 }
 
@@ -161,6 +162,7 @@ impl WorkspaceModuleSession {
             standalone_projects: BTreeMap::new(),
             synthetic_ids: SyntheticProjectIdAllocator,
             linked: None,
+            resolved_imports: BTreeMap::new(),
             generation: 0,
         }
     }
@@ -179,6 +181,11 @@ impl WorkspaceModuleSession {
 
     pub fn linked(&self) -> Option<&Arc<LinkedProgram>> {
         self.linked.as_ref()
+    }
+
+    /// Canonical resolver results keyed by importer and the written logical import path.
+    pub fn resolved_imports(&self) -> &BTreeMap<(ModuleId, String), ModuleId> {
+        &self.resolved_imports
     }
 
     pub fn source(&self, id: &ModuleId) -> Option<&WorkspaceSourceState> {
@@ -242,6 +249,7 @@ impl WorkspaceModuleSession {
             standalone_projects: self.standalone_projects.clone(),
             synthetic_ids: self.synthetic_ids.clone(),
             linked: self.linked.clone(),
+            resolved_imports: self.resolved_imports.clone(),
             generation: self.generation,
         };
         Self::seed_open_overlays(&staged.provider, &staged.sources_by_module);
@@ -363,6 +371,7 @@ impl WorkspaceModuleSession {
         self.standalone_projects = staged.standalone_projects;
         self.synthetic_ids = staged.synthetic_ids;
         self.linked = staged.linked;
+        self.resolved_imports = staged.resolved_imports;
         self.generation = staged.generation;
         self.provider.clear_overlays();
         if clear_base_cache {
@@ -616,6 +625,7 @@ impl WorkspaceModuleSession {
                 self.insert_state(module.clone(), parsed.kind, location, SourceRevision::default(), parsed.clone(), false);
             }
         }
+        self.resolved_imports = resolved;
         self.linked = Some(linked.clone());
         Ok(WorkspaceModuleUpdate {
             linked,
