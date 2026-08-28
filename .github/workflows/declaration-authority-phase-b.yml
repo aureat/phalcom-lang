@@ -18,7 +18,9 @@ jobs:
         with:
           components: rustfmt
       - name: Apply authority cutover
-        run: python .github/apply-declaration-authority-phase-b.py
+        run: |
+          python .github/apply-declaration-authority-phase-b.py
+          python .github/apply-declaration-authority-phase-b-fixes.py
       - name: Format
         run: cargo +stable fmt --all
       - name: Diff check
