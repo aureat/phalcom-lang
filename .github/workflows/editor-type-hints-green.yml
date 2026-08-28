@@ -50,8 +50,14 @@ jobs:
       - name: Focused LSP inlay tests
         env:
           RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-lsp --test integration 'inlay_hints::' -- --nocapture
+      - name: Isolated Stage 3 completion regressions
+        env:
+          RUSTFLAGS: ""
         run: |
-          cargo +stable test -p phalcom-lsp --test integration 'inlay_hints::' -- --nocapture
+          cargo +stable test -p phalcom-lsp --test integration stage3_completion::completion_is_receiver_aware_for_a_constructed_user_class -- --exact --nocapture
+          cargo +stable test -p phalcom-lsp --test integration stage3_completion::completion_follows_constructor_assigned_field -- --exact --nocapture
+          cargo +stable test -p phalcom-lsp --test integration stage3_completion::completion_marks_partial_union_coverage -- --exact --nocapture
       - name: Full semantic suite
         env:
           RUSTFLAGS: ""
