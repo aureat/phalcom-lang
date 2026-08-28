@@ -141,18 +141,31 @@ impl<'a> EditorSemanticQuery<'a> {
             .occurrences_for_target(target)
             .into_iter()
             .flatten()
-            .filter(|site| {
-                self.snapshot
-                    .source_index
-                    .module_for_site(site)
-                    .and_then(|module| module.occurrences.occurrence_for_site(site))
-                    .is_some_and(|occurrence| (occurrence.role == OccurrenceRole::Declaration) == definitions)
-            })
+            .filter(|site| self.is_definition_site(target, site) == definitions)
             .cloned()
             .collect::<Vec<_>>();
         sites.sort();
         sites.dedup();
         sites
+    }
+
+    fn is_definition_site(&self, target: &SemanticTargetId, site: &SourceSiteId) -> bool {
+        let Some(module) = self.snapshot.source_index.module_for_site(site) else {
+            return false;
+        };
+        let Some(source_site) = module.structure.sites.get(site) else {
+            return false;
+        };
+        match (target, &source_site.kind) {
+            (SemanticTargetId::Binding(expected), crate::source_index::SourceSiteKind::BindingDeclaration) => expected == site,
+            (SemanticTargetId::Declaration(expected), crate::source_index::SourceSiteKind::Declaration(actual)) => expected == actual,
+            (SemanticTargetId::Callable(expected), crate::source_index::SourceSiteKind::Callable(actual)) => expected == actual,
+            (SemanticTargetId::Field(expected), crate::source_index::SourceSiteKind::Field(actual)) => expected == actual,
+            (SemanticTargetId::Module(expected), crate::source_index::SourceSiteKind::Module) => {
+                matches!(&site.owner, SourceOwner::Module(actual) if actual == expected)
+            }
+            _ => false,
+        }
     }
 
     /// Returns lexical access context from the canonical source owner.

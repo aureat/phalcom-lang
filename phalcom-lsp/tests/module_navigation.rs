@@ -219,13 +219,13 @@ async fn goto_definition_on_relative_import_path_and_selective_export() {
     let def_resp = wait_for_definition(&mut client_end, &mut req_id, &main_uri, 1, 23).await;
     let locs = def_resp["result"].as_array().unwrap();
     assert!(!locs.is_empty(), "expected definition for imported Circle");
-    assert_eq!(locs[0]["uri"].as_str(), Some(main_uri.as_str()));
+    assert_eq!(locs[0]["uri"].as_str(), Some(shapes_uri.as_str()));
 
     // 5. Go to Definition on `Circle` at usage site (line 3, col 10)
     let def_resp = wait_for_definition(&mut client_end, &mut req_id, &main_uri, 3, 10).await;
     let locs = def_resp["result"].as_array().unwrap();
     assert!(!locs.is_empty(), "expected definition for Circle at usage site");
-    assert_eq!(locs[0]["uri"].as_str(), Some(main_uri.as_str()));
+    assert_eq!(locs[0]["uri"].as_str(), Some(shapes_uri.as_str()));
 }
 
 #[tokio::test]

@@ -1465,13 +1465,6 @@ impl LanguageServer for Backend {
             }
         }
 
-        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
-            return Ok(Some(GotoDefinitionResponse::Array(vec![Location {
-                uri: uri.clone(),
-                range: request.document.line_index.range(range.start..range.end),
-            }])));
-        }
-
         if let Some(location) = compiler_import_definition_location(&request, position) {
             return Ok(Some(GotoDefinitionResponse::Array(vec![location])));
         }

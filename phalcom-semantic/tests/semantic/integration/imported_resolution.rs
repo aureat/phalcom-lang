@@ -204,3 +204,63 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
         "imported class expression must infer the class object belonging to shapes.point.Point"
     );
 }
+
+#[test]
+fn editor_definition_sites_exclude_local_import_declaration_for_external_target() {
+    let root = tempfile::tempdir().unwrap();
+    let main_path = root.path().join("main.ph");
+    let shapes_path = root.path().join("shapes.ph");
+    let location = |path: &std::path::Path| phalcom_modules::SourceLocation {
+        source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
+        display_path: path.to_path_buf(),
+    };
+    let main_text = "from .shapes import Circle\nCircle\n";
+
+    let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
+    let publication = session
+        .apply_module_mutations([
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&main_path),
+                text: Arc::from(main_text),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+            phalcom_modules::WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&shapes_path),
+                text: Arc::from("class Circle {}\nexport Circle\n"),
+                revision: phalcom_modules::SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("workspace publication should succeed");
+
+    let queries = publication.snapshot.module_queries();
+    let main_module = queries
+        .module_for_display_path(&main_path)
+        .cloned()
+        .expect("main source must map to a canonical module");
+    let shapes_module = queries
+        .module_for_display_path(&shapes_path)
+        .cloned()
+        .expect("shapes source must map to a canonical module");
+    let circle = SemanticTargetId::Declaration(DeclarationId::new(shapes_module.clone(), "Circle".into()));
+    let editor = publication.snapshot.editor();
+    let import_offset = main_text.find("Circle").expect("imported Circle token") + 1;
+
+    assert_eq!(editor.target_at(&main_module, import_offset), Some(circle.clone()));
+
+    let definitions = editor.definition_sites(&circle);
+    assert_eq!(definitions.len(), 1, "only the exported class declaration is a canonical definition");
+    assert!(
+        matches!(&definitions[0].owner, phalcom_semantic::SourceOwner::Module(module) if module == &shapes_module),
+        "the local import declaration must not masquerade as the external class definition"
+    );
+
+    let references = editor.reference_sites(&circle);
+    assert!(
+        references
+            .iter()
+            .any(|site| matches!(&site.owner, phalcom_semantic::SourceOwner::Module(module) if module == &main_module)),
+        "the import declaration/use must remain references to the external target"
+    );
+}
