@@ -1,0 +1,27 @@
+name: Canonical Declaration Verification
+
+on:
+  push:
+    branches:
+      - codex/canonical-declaration-knowledge
+
+jobs:
+  semantic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo +stable fmt --all -- --check
+      - name: Diff check
+        run: git diff --check
+      - name: Check semantic crate
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable check -p phalcom-semantic
+      - name: Full semantic suite
+        env:
+          RUSTFLAGS: ""
+        run: cargo +stable test -p phalcom-semantic
