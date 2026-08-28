@@ -51,6 +51,7 @@ fn lsp_has_no_legacy_semantic_package_or_bridge() {
         "crate::semantic::",
         "apply_module_mutations_at_generation",
         "resolve_source_import",
+        "import_binding_declaration_at_offset",
     ];
     for (path, source) in production_sources() {
         for symbol in forbidden {
