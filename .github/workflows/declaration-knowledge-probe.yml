@@ -1,0 +1,19 @@
+name: Declaration Knowledge Probe
+
+on:
+  push:
+    branches: [codex/canonical-declaration-knowledge]
+
+jobs:
+  semantic-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo +stable fmt --all -- --check
+      - name: Focused declaration knowledge regression
+        run: cargo +stable test -p phalcom-semantic --test semantic semantic::integration::declaration_knowledge::partial_callable_signature_survives_unknown_return -- --exact --nocapture
