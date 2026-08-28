@@ -64,6 +64,27 @@ fn lsp_has_no_legacy_semantic_package_or_bridge() {
 }
 
 #[test]
+fn every_top_level_lsp_test_is_registered() {
+    let lsp = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest = fs::read_to_string(lsp.join("Cargo.toml")).expect("LSP manifest must be readable");
+    let integration = fs::read_to_string(lsp.join("tests/integration.rs")).expect("integration harness must be readable");
+
+    for entry in fs::read_dir(lsp.join("tests")).expect("LSP tests directory must be readable") {
+        let path = entry.expect("test entry must be readable").path();
+        if !path.is_file() || !path.extension().is_some_and(|extension| extension == "rs") {
+            continue;
+        }
+
+        let file = path.file_name().expect("top-level test must have a file name").to_string_lossy();
+        let stem = path.file_stem().expect("top-level test must have a stem").to_string_lossy();
+        let explicit_target = manifest.contains(&format!("path = \"tests/{file}\""));
+        let integration_module = integration.contains(&format!("mod {stem};"));
+
+        assert!(explicit_target || integration_module, "unregistered top-level LSP test: {file}");
+    }
+}
+
+#[test]
 fn request_features_do_not_read_or_canonicalize_filesystem_paths() {
     let lsp = Path::new(env!("CARGO_MANIFEST_DIR"));
     let request_features = [
