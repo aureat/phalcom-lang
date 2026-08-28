@@ -4,12 +4,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::identity::{SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId};
+use crate::source_index::builder::SourceIndexContext;
 use crate::source_index::interval::{RangeEntry, RangeIndex};
-use crate::source_index::scope::{SourceNameResolution, SourceScopeIndex};
+use crate::source_index::scope::{SourceNameResolution, SourceReceiverKind, SourceScopeIndex};
 use crate::source_index::site::{SourceSite, SourceSiteKind};
 use phalcom_ast::ast::{BlockExpr, Expr, PackItem, Program, Statement};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorSlot};
 
 /// Broad syntax category for one source occurrence.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -149,6 +150,13 @@ impl OccurrenceIndex {
     /// targets are attached only when compiler lexical resolution proves them;
     /// unresolved names remain hints and never become semantic identities.
     pub fn from_program(scopes: &mut SourceScopeIndex, program: &Program) -> Self {
+        Self::from_program_with_context(scopes, program, None)
+    }
+
+    /// Builds AST occurrences while attaching compiler-owned targets for
+    /// qualified module members. The context is optional for standalone source
+    /// index tests that only exercise lexical occurrences.
+    pub fn from_program_with_context(scopes: &mut SourceScopeIndex, program: &Program, context: Option<&SourceIndexContext>) -> Self {
         let mut result = Self::from_scope_index(scopes);
         let next_site = scopes.sites.values().fold(BTreeMap::<SourceOwner, u32>::new(), |mut next, site| {
             next.entry(site.id.owner.clone())
@@ -162,9 +170,28 @@ impl OccurrenceIndex {
             next_site,
             occurrences: result.all().to_vec(),
             targets,
+            context,
         };
         for statement in &program.statements {
             visitor.statement(statement);
+        }
+        if let Some(context) = context {
+            let module = visitor.scopes.module.clone();
+            let references = context
+                .type_reference_targets
+                .iter()
+                .filter(|((owner, _), _)| owner == &module)
+                .map(|((_, range), declaration)| (*range, declaration.clone()))
+                .collect::<Vec<_>>();
+            for (range, declaration) in references {
+                visitor.record_targeted(
+                    range,
+                    OccurrenceKind::Declaration,
+                    OccurrenceRole::Reference,
+                    None,
+                    Some(SemanticTargetId::Declaration(declaration)),
+                );
+            }
         }
         result = Self::new(visitor.occurrences, visitor.targets);
         result
@@ -201,6 +228,7 @@ struct OccurrenceBuilder<'a> {
     next_site: BTreeMap<SourceOwner, u32>,
     occurrences: Vec<SemanticOccurrence>,
     targets: BTreeMap<SourceSiteId, SemanticTargetId>,
+    context: Option<&'a SourceIndexContext>,
 }
 
 impl OccurrenceBuilder<'_> {
@@ -263,15 +291,26 @@ impl OccurrenceBuilder<'_> {
 
     fn expr(&mut self, expr: &Expr, role: OccurrenceRole) {
         match expr {
-            Expr::Var { value, range } => self.record(
-                *range,
-                OccurrenceKind::Binding,
-                role,
-                Some(OccurrenceHint::Name(value.clone().into())),
-                Some(value),
-            ),
-            Expr::Field { value, range, .. } => self.record(*range, OccurrenceKind::Field, role, Some(OccurrenceHint::Name(value.clone().into())), None),
-            Expr::SelfVar { range } | Expr::SuperVar { range } => self.record(*range, OccurrenceKind::Binding, role, None, None),
+            Expr::Var { value, range } => {
+                self.record(
+                    *range,
+                    OccurrenceKind::Binding,
+                    role,
+                    Some(OccurrenceHint::Name(value.clone().into())),
+                    Some(value),
+                );
+            }
+            Expr::Field { value, range, .. } => {
+                self.record(*range, OccurrenceKind::Field, role, Some(OccurrenceHint::Name(value.clone().into())), None);
+            }
+            Expr::SelfVar { range } => {
+                let site = self.record(*range, OccurrenceKind::Binding, role, None, None);
+                self.scopes.register_receiver_kind(site, SourceReceiverKind::SelfValue);
+            }
+            Expr::SuperVar { range } => {
+                let site = self.record(*range, OccurrenceKind::Binding, role, None, None);
+                self.scopes.register_receiver_kind(site, SourceReceiverKind::SuperValue);
+            }
             Expr::Assignment(assignment) => {
                 self.expr(&assignment.name, OccurrenceRole::Write);
                 self.expr(&assignment.value, OccurrenceRole::Read);
@@ -307,7 +346,7 @@ impl OccurrenceBuilder<'_> {
             }
             Expr::UnqualifiedCall(call) => {
                 if let Some(range) = call.name_range {
-                    self.record(
+                    self.record_targeted(
                         range,
                         OccurrenceKind::Member,
                         OccurrenceRole::Call,
@@ -319,12 +358,13 @@ impl OccurrenceBuilder<'_> {
             }
             Expr::MethodCall(call) => {
                 if let Some(range) = call.method_range {
-                    self.record(
+                    let target = self.member_target(&call.object, &call.method, &call.args);
+                    self.record_targeted(
                         range,
                         OccurrenceKind::Member,
                         OccurrenceRole::Call,
                         Some(OccurrenceHint::Name(call.method.clone().into())),
-                        None,
+                        target,
                     );
                 }
                 self.expr(&call.object, OccurrenceRole::Read);
@@ -332,12 +372,13 @@ impl OccurrenceBuilder<'_> {
             }
             Expr::GetProperty(property) => {
                 if let Some(range) = property.property_range {
-                    self.record(
+                    let target = self.member_target(&property.object, &property.property, &[]);
+                    self.record_targeted(
                         range,
                         OccurrenceKind::Field,
                         OccurrenceRole::Read,
                         Some(OccurrenceHint::Name(property.property.clone().into())),
-                        None,
+                        target,
                     );
                 }
                 self.expr(&property.object, OccurrenceRole::Read);
@@ -454,33 +495,95 @@ impl OccurrenceBuilder<'_> {
         role: OccurrenceRole,
         hint: Option<OccurrenceHint>,
         name: Option<&str>,
-    ) {
+    ) -> SourceSiteId {
         let scope = self.scopes.scope_at(range.start);
-        let owner = owner_for_scope(self.scopes, scope);
-        let next = self.next_site.entry(owner.clone()).or_default();
-        let site = SourceSite::new(owner.clone(), SourceSiteLocalId(*next), range, SourceSiteKind::Occurrence);
-        *next = next.saturating_add(1);
-        self.scopes.register_site(site.clone());
         let target = name.and_then(|name| match self.scopes.resolve_name(scope, name, range.start) {
             SourceNameResolution::Binding(binding) => Some(SemanticTargetId::Binding(binding)),
             SourceNameResolution::Target(target) => Some(target),
             SourceNameResolution::ImplicitSelf | SourceNameResolution::Unresolved => None,
         });
+        self.record_targeted(range, kind, role, hint, target)
+    }
+
+    fn record_targeted(
+        &mut self,
+        range: phalcom_common::range::SourceRange,
+        kind: OccurrenceKind,
+        role: OccurrenceRole,
+        hint: Option<OccurrenceHint>,
+        target: Option<SemanticTargetId>,
+    ) -> SourceSiteId {
+        let scope = self.scopes.scope_at(range.start);
+        let owner = owner_for_scope(self.scopes, scope, range.start);
+        let next = self.next_site.entry(owner.clone()).or_default();
+        let site = SourceSite::new(owner.clone(), SourceSiteLocalId(*next), range, SourceSiteKind::Occurrence);
+        *next = next.saturating_add(1);
+        self.scopes.register_site(site.clone());
         if let Some(target) = &target {
             self.targets.insert(site.id.clone(), target.clone());
         }
+        let site_id = site.id.clone();
         self.occurrences.push(SemanticOccurrence {
-            site: site.id,
+            site: site_id.clone(),
             range,
             kind,
             role,
             owner,
             hint,
         });
+        site_id
+    }
+
+    fn member_target(&self, object: &Expr, member: &str, args: &[PackItem]) -> Option<SemanticTargetId> {
+        let context = self.context?;
+        let receiver = self.expression_target(object)?;
+        match receiver {
+            SemanticTargetId::Module(module) => context.targets.get(&(module, member.to_owned())).cloned(),
+            SemanticTargetId::Declaration(declaration) => {
+                let slots = args
+                    .iter()
+                    .map(|arg| match arg {
+                        PackItem::Positional { .. } | PackItem::Expand { .. } => Some(SelectorSlot::Positional),
+                        PackItem::Labeled {
+                            label: phalcom_ast::ast::PackLabel::Static { text, .. },
+                            ..
+                        } => Some(SelectorSlot::Label(text.clone())),
+                        PackItem::Labeled {
+                            label: phalcom_ast::ast::PackLabel::Computed { .. },
+                            ..
+                        } => None,
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                let selector = Selector::method(member, slots).ok()?;
+                context.callable_targets.get(&(declaration, selector)).cloned().map(SemanticTargetId::Callable)
+            }
+            _ => None,
+        }
+    }
+
+    fn expression_target(&self, expr: &Expr) -> Option<SemanticTargetId> {
+        match expr {
+            Expr::Var { value, range } => match self.scopes.resolve_name(self.scopes.scope_at(range.start), value, range.start) {
+                SourceNameResolution::Binding(binding) => self.scopes.target_for(&binding).cloned().or(Some(SemanticTargetId::Binding(binding))),
+                SourceNameResolution::Target(target) => Some(target),
+                SourceNameResolution::ImplicitSelf | SourceNameResolution::Unresolved => None,
+            },
+            Expr::GetProperty(property) => self.member_target(&property.object, &property.property, &[]),
+            _ => None,
+        }
     }
 }
 
-fn owner_for_scope(scopes: &SourceScopeIndex, mut scope: crate::source_index::SourceScopeId) -> SourceOwner {
+fn owner_for_scope(scopes: &SourceScopeIndex, mut scope: crate::source_index::SourceScopeId, offset: usize) -> SourceOwner {
+    if let Some(owner) = scopes
+        .callable_body_ranges
+        .iter()
+        .filter(|(_, range)| range.contains(offset))
+        .min_by_key(|(_, range)| range.len())
+        .map(|(callable, _)| SourceOwner::Callable(callable.clone()))
+    {
+        return owner;
+    }
     loop {
         if let Some(owner) = scopes
             .bindings

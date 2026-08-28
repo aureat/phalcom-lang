@@ -61,6 +61,12 @@ pub enum WorkspaceSourceBatchMutation {
         revision: SourceRevision,
         recovered_program: Option<Arc<Program>>,
     },
+    SetDiskSnapshot {
+        source: SourceLocation,
+        text: Arc<str>,
+        revision: SourceRevision,
+        recovered_program: Option<Arc<Program>>,
+    },
     RemoveOverlay {
         source: SourceId,
     },
@@ -135,6 +141,7 @@ pub struct WorkspaceModuleSession {
     standalone_projects: BTreeMap<SourceId, SyntheticProjectId>,
     synthetic_ids: SyntheticProjectIdAllocator,
     linked: Option<Arc<LinkedProgram>>,
+    resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
     generation: u64,
 }
 
@@ -155,6 +162,7 @@ impl WorkspaceModuleSession {
             standalone_projects: BTreeMap::new(),
             synthetic_ids: SyntheticProjectIdAllocator,
             linked: None,
+            resolved_imports: BTreeMap::new(),
             generation: 0,
         }
     }
@@ -173,6 +181,11 @@ impl WorkspaceModuleSession {
 
     pub fn linked(&self) -> Option<&Arc<LinkedProgram>> {
         self.linked.as_ref()
+    }
+
+    /// Canonical resolver results keyed by importer and the written logical import path.
+    pub fn resolved_imports(&self) -> &BTreeMap<(ModuleId, String), ModuleId> {
+        &self.resolved_imports
     }
 
     pub fn source(&self, id: &ModuleId) -> Option<&WorkspaceSourceState> {
@@ -236,6 +249,7 @@ impl WorkspaceModuleSession {
             standalone_projects: self.standalone_projects.clone(),
             synthetic_ids: self.synthetic_ids.clone(),
             linked: self.linked.clone(),
+            resolved_imports: self.resolved_imports.clone(),
             generation: self.generation,
         };
         Self::seed_open_overlays(&staged.provider, &staged.sources_by_module);
@@ -272,6 +286,31 @@ impl WorkspaceModuleSession {
                         .provider
                         .set_overlay(SourceOverlay::new(module.clone(), kind, source.clone(), parsed.text.clone()));
                     staged.insert_state(module.clone(), kind, source, revision, parsed, true);
+                    changed.insert(module);
+                }
+                WorkspaceSourceBatchMutation::SetDiskSnapshot {
+                    source,
+                    text,
+                    revision,
+                    recovered_program,
+                } => {
+                    let module = staged.module_for_location(&source)?;
+                    let kind = staged.kind_for_source(&module, &source);
+                    let text_for_parse = text.clone();
+                    let parsed = recovered_program.map_or_else(
+                        || parse_source(module.clone(), kind, source.clone(), text_for_parse),
+                        |program| {
+                            Ok(Arc::new(ParsedModuleUnit::new(
+                                module.clone(),
+                                kind,
+                                Some(source.clone()),
+                                text.clone(),
+                                program,
+                            )))
+                        },
+                    )?;
+                    staged.provider.remove_overlay(&module);
+                    staged.insert_state(module.clone(), kind, source, revision, parsed, false);
                     changed.insert(module);
                 }
                 WorkspaceSourceBatchMutation::RemoveOverlay { source } => {
@@ -332,6 +371,7 @@ impl WorkspaceModuleSession {
         self.standalone_projects = staged.standalone_projects;
         self.synthetic_ids = staged.synthetic_ids;
         self.linked = staged.linked;
+        self.resolved_imports = staged.resolved_imports;
         self.generation = staged.generation;
         self.provider.clear_overlays();
         if clear_base_cache {
@@ -585,6 +625,7 @@ impl WorkspaceModuleSession {
                 self.insert_state(module.clone(), parsed.kind, location, SourceRevision::default(), parsed.clone(), false);
             }
         }
+        self.resolved_imports = resolved;
         self.linked = Some(linked.clone());
         Ok(WorkspaceModuleUpdate {
             linked,

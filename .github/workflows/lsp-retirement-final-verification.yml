@@ -1,0 +1,51 @@
+name: LSP retirement final verification
+
+on:
+  push:
+    branches: [codex/lsp-single-world-retirement]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lsp-retirement-final-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_TARGET_DIR: /tmp/phalcom-lsp-retirement-final
+
+jobs:
+  verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/lsp-single-world-retirement
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Formatting and diff integrity
+        run: |
+          cargo +stable fmt --all -- --check
+          git diff --check
+      - name: Compile retirement layers
+        run: |
+          cargo check -p phalcom-semantic
+          cargo check -p phalcom-modules
+          cargo check -p phalcom-lsp --lib
+      - name: Validate affected core callable language surfaces
+        run: |
+          cargo test -p phalcom-core --test lang functions -- --exact
+          cargo test -p phalcom-core --test lang functions_negative -- --exact
+      - name: Validate complete semantic suite
+        run: cargo test -p phalcom-semantic
+      - name: Validate complete modules suite
+        run: cargo test -p phalcom-modules
+      - name: Validate canonical module navigation regression
+        run: cargo test -p phalcom-lsp --test module_navigation goto_definition_on_relative_import_path_and_selective_export -- --nocapture
+      - name: Validate complete LSP suite
+        run: cargo test -p phalcom-lsp
+      - name: Validate semantic authority boundary explicitly
+        run: cargo test -p phalcom-lsp --test semantic_boundary -- --nocapture

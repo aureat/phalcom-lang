@@ -3,12 +3,13 @@
 use crate::advisory::{
     AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
     AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace,
-    advisory_fact_from_formal, analyze_expr, analyze_statements,
+    advisory_fact_from_formal, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements,
 };
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
+use crate::core_surface::render_canonical_core_source;
 use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
@@ -26,13 +27,13 @@ use crate::resolver::LinkedTypeResolver;
 use crate::signature::CallableSignatureTable;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index};
+use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
 use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::TypeParameterOwner;
-use crate::types::relation::{MapTypeHierarchy, TypeHierarchy};
+use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
 use phalcom_ast::ast::{ClassMember, DependencyDecl, ImportDecl, PackItem, PackLabel, Statement};
@@ -211,27 +212,9 @@ impl SemanticWorkspaceSession {
         Ok(self.update_module_workspace(update))
     }
 
-    /// Applies one heterogeneous module/source batch and publishes it at an
-    /// externally coordinated generation supplied by the workspace worker.
-    pub fn apply_module_mutations_at_generation<I>(
-        &mut self,
-        mutations: I,
-        generation: u64,
-    ) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError>
-    where
-        I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
-    {
-        let update = self.module_session.apply_batch(mutations)?;
-        Ok(self.update_module_workspace_at_generation(update, generation))
-    }
-
     /// Publishes semantic products for an already-linked module workspace update.
     pub fn update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> SemanticWorkspaceUpdate {
-        self.update_module_workspace_at_generation(update, self.module_session.generation())
-    }
-
-    /// Publishes a persistent module workspace at an externally coordinated generation.
-    pub fn update_module_workspace_at_generation(&mut self, update: WorkspaceModuleUpdate, generation: u64) -> SemanticWorkspaceUpdate {
+        let generation = self.module_session.generation();
         self.update(SemanticWorkspaceInput {
             linked: update.linked,
             sources: update.sources,
@@ -883,7 +866,7 @@ impl SemanticWorkspaceSession {
 
         let mut unlinked_map = BTreeMap::new();
         let mut linked_map = BTreeMap::new();
-        let mut resolved_imports_map = BTreeMap::new();
+        let mut resolved_imports_map = self.module_session.resolved_imports().clone();
         let mut sources_loc_map = BTreeMap::new();
 
         for (mod_id, unit) in &input.sources {
@@ -920,7 +903,8 @@ impl SemanticWorkspaceSession {
             Arc::new(sources_loc_map),
         ));
 
-        let mut source_index = build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref());
+        let (mut source_index, presentation_sources) =
+            build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref(), &resolver);
         if let Some(previous) = self.last_snapshot.as_deref() {
             for (module, current) in source_index.modules.clone() {
                 let Some(previous_module) = previous.source_index.module_arc(&module) else {
@@ -1011,6 +995,7 @@ impl SemanticWorkspaceSession {
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
         );
+        snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
@@ -1097,11 +1082,17 @@ fn build_source_semantic_index(
     callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     resolved_imports: &BTreeMap<(ModuleId, String), ModuleId>,
     linked: &LinkedProgram,
-) -> SourceSemanticIndex {
+    type_resolver: &dyn TypeResolver,
+) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
     let mut context = SourceIndexContext {
         resolved_imports: resolved_imports.clone(),
         ..SourceIndexContext::default()
     };
+    for (module, source) in sources {
+        for (range, declaration) in resolve_type_reference_targets(module, &source.program, type_resolver) {
+            context.type_reference_targets.insert((module.clone(), range), declaration);
+        }
+    }
     for (module, linked_module) in &linked.modules {
         if !sources.contains_key(module) {
             continue;
@@ -1152,18 +1143,53 @@ fn build_source_semantic_index(
             }
         }
     }
-    let scopes = sources
+    let scopes: BTreeMap<ModuleId, crate::source_index::SourceScopeIndex> = sources
         .iter()
         .map(|(module, source)| (module.clone(), build_source_scope_index(module.clone(), &source.program, &context)))
         .collect();
-    let mut index = SourceSemanticIndex::from_scope_indices_with_programs(scopes, sources);
+    for structure in scopes.values() {
+        for callable in structure.callable_sources.values() {
+            context
+                .callable_targets
+                .insert((callable.id.owner.clone(), callable.id.selector.clone()), callable.id.clone());
+        }
+    }
+    for (module, source) in sources {
+        for statement in &source.program.statements {
+            let phalcom_ast::ast::Statement::Class(class) = statement else { continue };
+            context
+                .targets
+                .entry((module.clone(), class.name.clone()))
+                .or_insert_with(|| SemanticTargetId::Declaration(DeclarationId::new(module.clone(), class.name.clone().into())));
+        }
+    }
+    let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(scopes, sources, Some(&context));
     for analysis in callable_analyses.values() {
         let module = &analysis.callable.owner.module;
         if index.module(module).is_some() {
             let _ = index.attach_formal_analysis(module, analysis);
         }
     }
-    index
+
+    let mut presentation_sources = BTreeMap::new();
+    let core = ModuleId::core();
+    if !sources.contains_key(&core) {
+        let text = render_canonical_core_source();
+        let parsed = phalcom_ast::parse(&text, 0);
+        assert!(
+            parsed.errors.is_empty(),
+            "compiler-owned canonical core presentation must parse: {:#?}",
+            parsed.errors
+        );
+        let structure = build_source_scope_index(core.clone(), &parsed.program, &SourceIndexContext::default());
+        let mut core_index = SourceSemanticIndex::from_scope_indices(BTreeMap::from([(core.clone(), structure)]));
+        let shard = core_index.modules.remove(&core).expect("canonical core presentation shard");
+        index.modules.insert(core.clone(), shard);
+        index.rebuild_target_occurrences();
+        presentation_sources.insert(core, text);
+    }
+
+    (index, presentation_sources)
 }
 
 /// Builds the advisory workspace from the same source/formal products that
@@ -1226,21 +1252,29 @@ fn build_advisory_workspace(
             crate::advisory::ValueShape::Instance(owner) => (owner, DispatchSide::Instance),
             _ => return None,
         };
-        let resolved = dispatch.resolve_callable_id(hierarchy, owner, side, &selector).or_else(|| {
-            (side == DispatchSide::Class)
-                .then(|| dispatch.resolve_callable_id(hierarchy, owner, DispatchSide::Instance, &selector))
-                .flatten()
-        });
-        resolved.map(|callable| {
-            if callable.side == DispatchSide::Class
-                && callable.selector.kind == phalcom_common::selector::SelectorKind::Method
-                && matches!(&callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
-            {
-                CallableId::new(callable.owner, callable.selector, DispatchSide::Instance)
-            } else {
-                callable
-            }
+        dispatch.resolve_callable_id(hierarchy, owner, side, &selector)
+    };
+    let resolve_formal_call_result = |callable: &CallableId, receiver: Option<&crate::advisory::ValueShape>| {
+        let signature = dispatch.get_surface(&callable.owner)?.get_callable(callable.side, &callable.selector)?;
+        let shape = receiver.map_or_else(
+            || advisory_shape_from_formal(store, &signature.return_type),
+            |receiver| advisory_shape_from_formal_for_receiver(store, &signature.return_type, receiver),
+        );
+        (!matches!(shape, crate::advisory::ValueShape::Unknown)).then(|| {
+            AdvisoryFact::new(shape, AdvisoryConfidence::Interprocedural)
+                .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable.clone()))
         })
+    };
+    let advisory_transfer_target = |callable: &CallableId| {
+        let is_constructor = dispatch
+            .get_surface(&callable.owner)
+            .and_then(|surface| surface.get_callable(callable.side, &callable.selector))
+            .is_some_and(|signature| signature.kind == crate::dispatch::CallableSemanticKind::Constructor);
+        if is_constructor && callable.side == DispatchSide::Class {
+            CallableId::new(callable.owner.clone(), callable.selector.clone(), DispatchSide::Instance)
+        } else {
+            callable.clone()
+        }
     };
     let resolve_method_family = |receiver: &crate::advisory::ValueShape, spec: &phalcom_ast::ast::NormalizedSelectorSpec| {
         let pattern = match spec {
@@ -1252,12 +1286,11 @@ fn build_advisory_workspace(
             crate::advisory::ValueShape::Instance(owner) => (owner, DispatchSide::Instance),
             _ => return None,
         };
-        let mut current = Some(owner.clone());
         let mut exact = Vec::new();
         let mut rest_candidates = Vec::new();
-        while let Some(declaration) = current {
-            if let Some(surface) = dispatch.get_surface(&declaration) {
-                let members = surface.surface(side);
+        for dispatch_owner in dispatch.dispatch_owners(hierarchy, owner, side) {
+            if let Some(surface) = dispatch.get_surface(&dispatch_owner.declaration) {
+                let members = surface.surface(dispatch_owner.side);
                 let mut selectors = members.callable_signatures.keys().collect::<Vec<_>>();
                 selectors.sort();
                 for selector in selectors {
@@ -1275,7 +1308,6 @@ fn build_advisory_workspace(
                     }
                 }
             }
-            current = hierarchy.superclass(&declaration).cloned();
         }
         exact.sort_by(|left, right| left.0.cmp(&right.0));
         exact.dedup();
@@ -1325,6 +1357,8 @@ fn build_advisory_workspace(
                 &builtins,
                 &advisory_returns,
                 Some(&resolve_callable_for_shape),
+                Some(&resolve_formal_call_result),
+                Some(&advisory_transfer_target),
                 Some(&resolve_module_member),
                 Some(&resolve_method_family),
             );
@@ -1342,6 +1376,17 @@ fn build_advisory_workspace(
                     targets.insert(site.clone(), advisory_target_resolution(site, target));
                 }
             }
+
+            let target_site_for_range = |range: SourceRange| {
+                let candidates = module_index
+                    .occurrences
+                    .all()
+                    .iter()
+                    .filter(|occurrence| occurrence.range == range)
+                    .map(|occurrence| occurrence.site.clone())
+                    .collect::<Vec<_>>();
+                (candidates.len() == 1).then(|| candidates[0].clone())
+            };
 
             let mut member_bodies = BTreeMap::new();
             for statement in &source.program.statements {
@@ -1404,6 +1449,8 @@ fn build_advisory_workspace(
                     source_site_for_range: &site_for_range,
                     resolved_callable_for_range: &resolved_callable_for_range,
                     resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                    resolve_formal_call_result: Some(&resolve_formal_call_result),
+                    advisory_transfer_target: Some(&advisory_transfer_target),
                     resolve_module_member: Some(&resolve_module_member),
                     resolve_method_family: Some(&resolve_method_family),
                 };
@@ -1424,6 +1471,12 @@ fn build_advisory_workspace(
                 } else {
                     return_fact
                 };
+                for (range, callable) in &flow.call_targets {
+                    if let Some(site) = target_site_for_range(*range) {
+                        let target = SemanticTargetId::Callable(callable.clone());
+                        targets.entry(site.clone()).or_insert_with(|| advisory_target_resolution(&site, &target));
+                    }
+                }
                 expressions.extend(flow.expressions);
                 bindings.extend(flow.bindings);
 
@@ -1488,6 +1541,8 @@ fn build_advisory_workspace(
                 source_site_for_range: &source_site_for_range,
                 resolved_callable_for_range: &resolved_callable_for_range,
                 resolve_callable_for_shape: Some(&resolve_callable_for_shape),
+                resolve_formal_call_result: Some(&resolve_formal_call_result),
+                advisory_transfer_target: Some(&advisory_transfer_target),
                 resolve_module_member: Some(&resolve_module_member),
                 resolve_method_family: Some(&resolve_method_family),
             };
@@ -1496,6 +1551,12 @@ fn build_advisory_workspace(
                 crate::advisory::AdvisoryContributionSource::Module(module.clone()),
                 top_level.parameter_contributions.clone(),
             );
+            for (range, callable) in &top_level.call_targets {
+                if let Some(site) = target_site_for_range(*range) {
+                    let target = SemanticTargetId::Callable(callable.clone());
+                    targets.entry(site.clone()).or_insert_with(|| advisory_target_resolution(&site, &target));
+                }
+            }
             expressions.extend(top_level.expressions);
             bindings.extend(top_level.bindings);
 
@@ -1581,6 +1642,8 @@ fn advisory_field_facts(
     builtins: &AdvisoryBuiltins,
     callable_returns: &BTreeMap<CallableId, AdvisoryFact>,
     resolve_callable_for_shape: Option<&dyn Fn(&crate::advisory::ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    resolve_formal_call_result: Option<&dyn Fn(&CallableId, Option<&crate::advisory::ValueShape>) -> Option<AdvisoryFact>>,
+    advisory_transfer_target: Option<&dyn Fn(&CallableId) -> CallableId>,
     resolve_module_member: Option<&dyn Fn(&crate::advisory::ValueShape, &str) -> Option<crate::advisory::ValueShape>>,
     resolve_method_family: Option<
         &dyn Fn(&crate::advisory::ValueShape, &phalcom_ast::ast::NormalizedSelectorSpec) -> Option<crate::advisory::CapturedMethodFamilyShape>,
@@ -1612,6 +1675,8 @@ fn advisory_field_facts(
                     source_site_for_range: &no_site,
                     resolved_callable_for_range: &no_callable,
                     resolve_callable_for_shape,
+                    resolve_formal_call_result,
+                    advisory_transfer_target,
                     resolve_module_member,
                     resolve_method_family,
                     call_observer: None,
@@ -1714,15 +1779,6 @@ fn callable_parameter_bindings<'a>(
 }
 
 fn advisory_return_fact(store: &TypeStore, analysis: &crate::checker::CallableAnalysis) -> AdvisoryFact {
-    if analysis.callable.selector.kind == phalcom_common::selector::SelectorKind::Method
-        && matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
-    {
-        return AdvisoryFact::new(
-            crate::advisory::ValueShape::Instance(analysis.callable.owner.clone()),
-            AdvisoryConfidence::Interprocedural,
-        )
-        .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(analysis.callable.clone()));
-    }
     if analysis.exits.normal_return_values.is_empty() {
         return AdvisoryFact::unknown();
     }

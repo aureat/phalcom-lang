@@ -47,15 +47,17 @@ Derived facts that depended on the removed contribution must either be recompute
 
 ## 3. CURRENT Phalcom publication architecture
 
-**CURRENT:** `phalcom-lsp/src/semantic/snapshot.rs` describes `SemanticSnapshot` as an immutable published generation for zero-blocking LSP queries. It contains `Arc`-shared maps for file snapshots, classes, callable summaries, field facts, parameter facts and the module graph.
+**CURRENT:** `phalcom-semantic::SemanticWorkspaceSession` owns the mutable compiler semantic workspace, including `SemanticDb`, `TypeStore`, persistent module lifecycle, dependency/query products, and retained immutable snapshots.
 
-**CURRENT:** the worker builds file source products once and publishes coherent snapshots after analysis. Query methods resolve through the snapshot rather than reading partially-mutated worker state.
+A successful source/module mutation produces one `Arc<phalcom_semantic::SemanticSnapshot>`. `phalcom-lsp/src/analysis_service.rs` owns one persistent semantic session on its worker thread and forwards accepted compiler publications into `phalcom-lsp/src/publication.rs`. That publication cell contains only the latest immutable snapshot; it does not own semantic queries, identity translation, invalidation, or mutation.
 
-This architecture establishes a strong invariant:
+Each LSP `RequestContext` pins one live document snapshot and one compiler snapshot and classifies source coherence as `Exact`, `Stale`, or `Unmapped`. Semantic feature requests therefore observe one coherent compiler generation. Stale or absent compiler products do not authorize request-time reconstruction of semantics in the LSP.
 
-> A query observes one coherent semantic generation, not a mixture of old class surfaces and new summaries.
+This architecture establishes the invariant:
 
-Preserve that invariant even if future storage moves to a query database or finer-grained incremental engine.
+> A query observes one coherent compiler semantic generation, not a mixture of generations and not an LSP-local reconstruction.
+
+Preserve that invariant even if future semantic storage or scheduling changes.
 
 ## 4. File revision versus semantic generation
 
@@ -97,24 +99,15 @@ package/build/native dependency
 
 Do not make every relation one untyped `depends_on` set if invalidation semantics differ. A typed edge kind can permit narrower recomputation and better debug traces.
 
-## 6. CURRENT module graph
+## 6. CURRENT module and semantic dependency graphs
 
-**CURRENT:** `module_graph.rs` stores modules, resolved imports and reverse dependents. Its affected-frontier logic starts from a changed module and follows dependents transitively. This is conservative at module granularity and deterministic.
+**CURRENT:** `phalcom-modules::WorkspaceModuleSession` owns persistent project/source/module identity, linking, canonical resolved imports, and module generation. `phalcom-semantic::SemanticWorkspaceSession` consumes those compiler module products and publishes the canonical `SemanticGraph` together with query dependency/reuse state.
 
-Conceptually:
+The LSP owns neither an import graph nor a semantic dependency graph. Workspace discovery and file watching submit source mutations; `phalcom-modules` and `phalcom-semantic` decide module identity, import targets, invalidation, and semantic dependencies.
 
-```text
-AffectedModules(changed) = reverse_reachable(module_graph, changed)
-```
+Current regression tests require that unresolved relative imports can survive until a provider appears, provider/source changes update canonical linked products, removed sources retract their semantic contributions, and imported declarations retain module-qualified identity.
 
-Current semantic tests require:
-
-- editing an unrelated leaf module does not recompute another independent module;
-- editing a provider recomputes transitive consumers;
-- creating a missing provider repairs an unresolved importer;
-- removing a provider invalidates the importer.
-
-These tests encode semantic dependency behavior, not merely performance expectations.
+Do not introduce an LSP-owned module graph to accelerate editor requests. Add the needed immutable compiler/module query product instead.
 
 ## 7. Unresolved dependencies are still dependencies
 

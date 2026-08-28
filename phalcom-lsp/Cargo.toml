@@ -22,7 +22,6 @@ phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
 phalcom-modules = { path = "../phalcom-modules" }
 phalcom-semantic = { path = "../phalcom-semantic" }
-phalcom-native-surface = { path = "../phalcom-native-surface" }
 # `tower-lsp` over the raw `lsp-server`+`lsp-types` stack: ADR-0056 §1
 # (DEC-LSP-A), decided. Pinned to 0.20, the current stable release; the
 # `tower-lsp` vs `tower-lsp-server` (community fork) choice is a maintenance
@@ -55,6 +54,10 @@ path = "tests/core_startup.rs"
 [[test]]
 name = "module_navigation"
 path = "tests/module_navigation.rs"
+
+[[test]]
+name = "imported_binding_resolution"
+path = "tests/imported_binding_resolution.rs"
 
 [[test]]
 name = "professional_semantic_presentation"

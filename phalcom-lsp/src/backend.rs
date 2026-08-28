@@ -5,11 +5,8 @@
 //! [`DocumentStore`] and publish live, multi-error diagnostics.
 //!
 //! Stage 2 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 2"): a
-//! text-only [`WorkspaceIndex`] scanned from every `.ph` file under the
-//! workspace root(s) at `initialize`, kept current per-file on
-//! `did_open`/`did_change`, and retained only for stale/unmapped compatibility
-//! fallback. Exact compiler-covered definition, reference, and workspace
-//! symbol requests use compiler source indexes.
+//! compiler-owned source indexes for exact definition, reference, and symbol
+//! requests, with syntax-only behavior for stale or unmapped buffers.
 //!
 //! Stage 3 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 3"):
 //! receiver-aware `textDocument/completion`, resolving the receiver through
@@ -25,13 +22,11 @@
 //! `textDocument/semanticTokens/full`, a flat lexer-driven token-coloring
 //! pass ([`crate::semantic_tokens`]).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::analysis_service::{
-    AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri, resolve_source_import,
-};
+use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri};
 use crate::analysis_status::AnalysisStatusNotification;
 
 use serde::Deserialize;
@@ -50,14 +45,12 @@ use tower_lsp::{Client, LanguageServer};
 
 use crate::completion;
 use crate::diagnostics::{SemanticDiagnosticSource, semantic_diagnostics_to_lsp_diagnostics_with_sources, syntax_errors_to_diagnostics};
-use crate::documents::{DocumentSnapshot, DocumentStore};
+use crate::documents::DocumentStore;
 use crate::hover::{self, SelectorSite};
-use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
 use crate::perf::{PerfCountersHandle, PerfSpan};
 use crate::request_context::{RequestContext, SourceMatch};
-use crate::semantic::{FileRevision, InferredValue, SemanticDb, SemanticSnapshot, ValueShape};
 use crate::semantic_tokens;
 use crate::signature_help;
 use phalcom_semantic::FormalPresentation;
@@ -65,7 +58,14 @@ use phalcom_semantic::types::relation::TypeHierarchy;
 
 use crate::workspace_scan::AnalysisMode;
 
-type CompilerCallableHover = (String, SelectorSite, Option<hover::PhaldocDoc>, FormalPresentation, Option<InferredValue>);
+type CompilerCallableHover = (
+    String,
+    SelectorSite,
+    Option<hover::PhaldocDoc>,
+    FormalPresentation,
+    Option<phalcom_semantic::advisory::AdvisoryFact>,
+    Option<phalcom_semantic::NativeCallablePresentation>,
+);
 
 fn import_path_range_at_offset(program: &phalcom_ast::ast::Program, offset: usize) -> Option<phalcom_common::range::SourceRange> {
     program.preamble.dependencies.iter().find_map(|dependency| {
@@ -76,35 +76,6 @@ fn import_path_range_at_offset(program: &phalcom_ast::ast::Program, offset: usiz
         };
         path.range.contains(offset).then_some(path.range)
     })
-}
-
-fn import_binding_declaration_at_offset(request: &RequestContext, offset: usize) -> Option<phalcom_common::range::SourceRange> {
-    let identifier = crate::hover::qualified_identifier_at_offset(&request.document.text, offset).map(|(name, _)| name);
-    for dependency in &request.document.parse.program.preamble.dependencies {
-        let phalcom_ast::ast::DependencyDecl::Import(import) = dependency else {
-            continue;
-        };
-        match import {
-            phalcom_ast::ast::ImportDecl::Module(import) => {
-                let Some(alias) = &import.alias else { continue };
-                if identifier.as_deref() == Some(alias.name.as_str()) {
-                    return Some(alias.range);
-                }
-            }
-            phalcom_ast::ast::ImportDecl::Selective(import) => {
-                for item in &import.items {
-                    let (name, range) = item
-                        .alias
-                        .as_ref()
-                        .map_or_else(|| (item.name.as_str(), item.name_range), |alias| (alias.name.as_str(), alias.range));
-                    if identifier.as_deref() == Some(name) {
-                        return Some(range);
-                    }
-                }
-            }
-        }
-    }
-    None
 }
 
 fn compiler_import_definition_location(request: &RequestContext, position: Position) -> Option<Location> {
@@ -167,7 +138,7 @@ struct DiagnosticPublication {
 
 fn combined_diagnostics_for(
     documents: &DocumentStore,
-    compiler_snapshot: Option<&crate::semantic::CompilerSemanticSnapshot>,
+    compiler_snapshot: Option<&phalcom_semantic::SemanticSnapshot>,
     uri: &Url,
 ) -> Option<DiagnosticPublication> {
     let document = documents.snapshot(uri)?;
@@ -221,7 +192,7 @@ fn combined_diagnostics_for(
     })
 }
 
-fn compiler_module_for_uri<'a>(compiler: &'a crate::semantic::CompilerSemanticSnapshot, uri: &Url) -> Option<&'a phalcom_modules::ModuleId> {
+fn compiler_module_for_uri<'a>(compiler: &'a phalcom_semantic::SemanticSnapshot, uri: &Url) -> Option<&'a phalcom_modules::ModuleId> {
     if uri.as_str() == crate::core_documents::CORE_MODULE_URI {
         return compiler.sources.keys().find(|module| **module == phalcom_modules::ModuleId::core());
     }
@@ -232,7 +203,7 @@ fn compiler_module_for_uri<'a>(compiler: &'a crate::semantic::CompilerSemanticSn
     compiler.sources.keys().find(|candidate| **candidate == module)
 }
 
-fn compiler_uri_for_module(compiler: &crate::semantic::CompilerSemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
+fn compiler_uri_for_module(compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
     if *module == phalcom_modules::ModuleId::core() {
         return Url::parse(crate::core_documents::CORE_MODULE_URI).ok();
     }
@@ -359,10 +330,8 @@ impl ServerConfig {
 
 /// The Phalcom language server.
 ///
-/// Holds the `tower-lsp` [`Client`] handle (for notifications like
-/// `publish_diagnostics` and `show_message`), the [`DocumentStore`] of
-/// currently open `.ph` files, and the [`WorkspaceIndex`] of every `.ph`
-/// file under the workspace root(s) (Stage 2).
+/// Holds the `tower-lsp` [`Client`] handle, open documents, and the
+/// compiler-owned analysis service.
 pub struct Backend {
     /// Handle back to the LSP client, used to send notifications
     /// (`textDocument/publishDiagnostics`, `window/logMessage`, …).
@@ -370,30 +339,16 @@ pub struct Backend {
     /// The open-document store: text + cached parse + cached [`LineIndex`]
     /// per open file.
     documents: DocumentStore,
-    /// Text-only workspace compatibility index. Exact compiler-covered
-    /// semantic requests bypass it; stale/unmapped requests may use it while
-    /// the duplicate LSP semantic layer is being removed.
-    index: Arc<WorkspaceIndex>,
-    /// Immutable semantic publication reader; compiler snapshots are pinned
-    /// from this handle at request entry.
-    semantic: Arc<SemanticDb>,
     /// Background semantic analysis service.
     analysis: AnalysisService,
     /// Receiver for worker analysis events (taken in `initialized`).
     analysis_events: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<AnalysisEvent>>>,
     /// Current workspace roots advertised by the client.
     workspace_roots: RwLock<Vec<Url>>,
-    /// Files currently represented in the workspace index.
-    indexed_files: Arc<RwLock<BTreeSet<Url>>>,
     /// Closed-file text, parse, and line metadata populated by worker/index events.
     closed_sources: SourceCache,
     /// Mutable server configuration.
     config: RwLock<ServerConfig>,
-    /// URI for the active on-disk core source, if one replaced bundled core.
-    ///
-    /// This must be explicit: configured sysroots need the same open-buffer
-    /// precedence as repository's conventional canonical universe package source.
-    core_source_uris: Arc<RwLock<BTreeSet<Url>>>,
     /// Whether client requested dynamic watched-file registration.
     watch_registration: RwLock<bool>,
     inlay_refresh: Arc<PublicationRefresh>,
@@ -436,36 +391,21 @@ impl PublicationRefresh {
     }
 }
 
-#[derive(Clone, Debug)]
-struct ResolvedMemberTarget {
-    /// Runtime receiver candidate used for dispatch.
-    receiver: crate::semantic::ClassId,
-    /// Actual declaration selected after inheritance lookup.
-    member: crate::semantic::MemberSurface,
-}
-
 impl Backend {
     /// Creates a new [`Backend`] bound to `client`, with an empty document
     /// store and an empty workspace index.
     pub fn new(client: Client) -> Self {
-        let counters = Arc::new(crate::perf::PerfCounters::new());
-        let _span = PerfSpan::start_with_counters("backend_construction", counters.clone());
-        let db = Arc::new(SemanticDb::with_counters(counters));
-        let index = Arc::new(WorkspaceIndex::new());
+        let _span = PerfSpan::start_with_counters("backend_construction", Arc::new(crate::perf::PerfCounters::new()));
         let closed_sources = Arc::new(RwLock::new(BTreeMap::new()));
-        let (analysis, event_rx) = AnalysisService::new_with_index_and_cache(db.clone(), Some(index.clone()), Some(closed_sources.clone()));
+        let (analysis, event_rx) = AnalysisService::new_with_source_cache(Some(closed_sources.clone()));
         Self {
             client,
             documents: DocumentStore::new(),
-            index,
-            semantic: db,
             analysis,
             analysis_events: Mutex::new(Some(event_rx)),
             workspace_roots: RwLock::new(Vec::new()),
-            indexed_files: Arc::new(RwLock::new(BTreeSet::new())),
             closed_sources,
             config: RwLock::new(ServerConfig::default()),
-            core_source_uris: Arc::new(RwLock::new(BTreeSet::new())),
             watch_registration: RwLock::new(false),
             inlay_refresh: Arc::new(PublicationRefresh::default()),
             semantic_token_refresh: Arc::new(PublicationRefresh::default()),
@@ -475,7 +415,13 @@ impl Backend {
     /// Returns this backend's compact performance counters for diagnostics and
     /// benchmark harnesses. The counters are owned by this backend's worker.
     pub fn perf_counters(&self) -> PerfCountersHandle {
-        self.semantic.perf_counters()
+        self.analysis.perf_counters()
+    }
+
+    /// Returns a read-only publication-coherence handle for integration
+    /// scheduling. It cannot perform semantic queries or mutate compiler state.
+    pub fn semantic_publication_handle(&self) -> crate::publication::SemanticPublicationHandle {
+        self.analysis.semantic_publication_handle()
     }
 
     /// Serves canonical builtin/core source text to an editor content
@@ -486,6 +432,16 @@ impl Backend {
         }
 
         if params.uri.as_str() == crate::core_documents::CORE_MODULE_URI {
+            if let Some(snapshot) = self.analysis.snapshot()
+                && let Some(text) = snapshot.presentation_source(&phalcom_modules::ModuleId::core())
+            {
+                return Ok(Some(text.to_string()));
+            }
+
+            // Before the first semantic publication, retain the transport-only
+            // fallback so an editor can still open the configured/bundled core
+            // document. Once a snapshot exists, its presentation text is the
+            // source of truth for every semantic range into `phalcom://core`.
             let config = self.config.read().expect("server config lock poisoned").clone();
             let roots = self
                 .workspace_roots
@@ -509,34 +465,11 @@ impl Backend {
     /// `DocumentStore::snapshot` before this returns.
     fn request_context(&self, uri: &Url) -> Option<RequestContext> {
         let document = self.documents.snapshot(uri)?;
-        let semantic = self.semantic.snapshot();
-        Some(RequestContext::new_with_compiler(document, semantic, self.semantic.compiler_snapshot(), uri))
-    }
-
-    fn cached_import_definition_location(&self, request: &RequestContext, position: Position) -> Option<Location> {
-        let offset = request.document.line_index.offset(position);
-        for dependency in &request.document.parse.program.preamble.dependencies {
-            let path = match dependency {
-                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(import)) => &import.path,
-                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(import)) => &import.path,
-                _ => continue,
-            };
-            if !path.range.contains(offset) {
-                continue;
-            }
-            let uri = resolve_source_import(&request.uri, &path.to_string())?;
-            if self.documents.snapshot(&uri).is_some() || self.closed_sources.read().expect("closed source cache lock poisoned").contains_key(&uri) {
-                return Some(Location {
-                    uri,
-                    range: tower_lsp::lsp_types::Range::default(),
-                });
-            }
-        }
-        None
+        Some(RequestContext::new(document, self.analysis.snapshot(), uri))
     }
 
     /// Reparses the document at `uri` (already updated in the store by the
-    /// caller), refreshes its slice of the [`WorkspaceIndex`], and publishes
+    /// caller), refreshes its compiler-owned source slice, and publishes
     /// its current [`SyntaxError`](phalcom_ast::error::SyntaxError)s as LSP
     /// diagnostics.
     ///
@@ -544,33 +477,21 @@ impl Backend {
     /// previously-errored document that becomes clean has its squiggles
     /// cleared.
     async fn publish_diagnostics_for(&self, uri: Url, version: Option<i32>) {
-        self.documents.with_document(&uri, |doc| {
-            self.index.update_file(uri.clone(), &doc.parse.program);
-        });
-        let compiler = self.semantic.compiler_snapshot();
+        let compiler = self.analysis.snapshot();
         let diagnostics = combined_diagnostics_for(&self.documents, compiler.as_deref(), &uri)
             .map(|publication| publication.diagnostics)
             .unwrap_or_default();
         self.client.publish_diagnostics(uri, diagnostics, version).await;
     }
 
-    fn update_semantic_for_source(&self, uri: &Url, revision: crate::semantic::FileRevision, text: Arc<str>, program: &phalcom_ast::ast::Program) {
-        if self.is_core_source_uri(uri) {
-            self.analysis.enqueue_core_update_with_source(revision, text, program.clone());
-        } else {
-            self.analysis.enqueue_file_update_with_source(uri.clone(), revision, text, program.clone());
+    fn update_semantic_for_source(&self, uri: &Url, revision: phalcom_modules::SourceRevision, text: Arc<str>, program: &phalcom_ast::ast::Program) {
+        if crate::source_transport::source_location_for_uri(uri).is_none() {
+            return;
         }
+        self.analysis.enqueue_file_update(uri.clone(), revision, text, Arc::new(program.clone()));
     }
 
-    fn is_core_source_uri(&self, uri: &Url) -> bool {
-        self.core_source_uris.read().expect("core source URI lock poisoned").contains(uri)
-    }
-
-    fn clear_core_source_uris(&self) {
-        self.core_source_uris.write().expect("core source URI lock poisoned").clear();
-    }
-
-    fn cache_source(&self, uri: Url, revision: FileRevision, text: impl Into<Arc<str>>, program: impl Into<Arc<phalcom_ast::ast::Program>>) {
+    fn cache_source(&self, uri: Url, revision: phalcom_modules::SourceRevision, text: impl Into<Arc<str>>, program: impl Into<Arc<phalcom_ast::ast::Program>>) {
         let text = text.into();
         let program = program.into();
         let source = CachedSource {
@@ -579,28 +500,17 @@ impl Backend {
             text,
             program,
         };
-        let canonical = uri
-            .to_file_path()
-            .ok()
-            .and_then(|path| path.canonicalize().ok())
-            .and_then(|path| Url::from_file_path(path).ok());
         let mut cache = self.closed_sources.write().expect("closed source cache lock poisoned");
-        cache.insert(uri, source.clone());
-        if let Some(canonical) = canonical {
-            cache.insert(canonical, source);
-        }
+        cache.insert(uri, source);
     }
 
     fn remove_indexed_file(&self, uri: &Url) {
-        self.index.remove_file(uri);
         self.analysis.enqueue_file_removal(uri.clone());
         self.closed_sources.write().expect("closed source cache lock poisoned").remove(uri);
-        self.indexed_files.write().expect("indexed file lock poisoned").remove(uri);
     }
 
     fn schedule_workspace_scan(&self, roots: &[Url]) {
         let config = self.config.read().expect("server config lock poisoned").clone();
-        self.clear_core_source_uris();
         let filesystem_roots = roots.iter().filter_map(|root| root.to_file_path().ok()).collect();
         self.analysis.configure_workspace(WorkspaceScanRequest {
             roots: filesystem_roots,
@@ -610,91 +520,20 @@ impl Backend {
         });
     }
 
-    fn remove_workspace_root(&self, root: &Url) -> bool {
-        let Ok(root_path) = root.to_file_path() else { return false };
+    fn remove_workspace_root(&self, root: &Url) {
+        let Ok(root_path) = root.to_file_path() else { return };
         let files = self
-            .indexed_files
+            .closed_sources
             .read()
-            .expect("indexed file lock poisoned")
-            .iter()
+            .expect("closed source cache lock poisoned")
+            .keys()
             .filter(|uri| uri.to_file_path().ok().is_some_and(|path| path.starts_with(&root_path)))
             .cloned()
             .collect::<Vec<_>>();
-        let removed_core_source = files.iter().any(|uri| self.is_core_source_uri(uri));
         for uri in &files {
-            self.index.remove_file(uri);
             self.closed_sources.write().expect("closed source cache lock poisoned").remove(uri);
         }
-        self.indexed_files
-            .write()
-            .expect("indexed file lock poisoned")
-            .retain(|uri| !files.contains(uri));
         self.analysis.enqueue_file_removals(files);
-        removed_core_source
-    }
-
-    /// Resolves a recovered completion target through live semantic facts.
-    fn semantic_receiver(&self, semantic: &SemanticSnapshot, uri: &Url, doc: &DocumentSnapshot, position: Position) -> Option<LegacyResolvedReceiver> {
-        let target = completion::target_at_snapshot(doc, position)?;
-        self.semantic_receiver_for_range(semantic, uri, doc, target.receiver_range)
-    }
-
-    fn semantic_receiver_for_range(
-        &self,
-        semantic: &SemanticSnapshot,
-        uri: &Url,
-        doc: &DocumentSnapshot,
-        receiver_range: phalcom_common::range::SourceRange,
-    ) -> Option<LegacyResolvedReceiver> {
-        let receiver = doc.text.get(receiver_range.start..receiver_range.end)?;
-        let offset = receiver_range.end;
-        if receiver == "self" {
-            let class = semantic.class_at(uri, offset);
-            return class.map(|class| LegacyResolvedReceiver {
-                alternatives: vec![(class, LegacyReceiverKind::Instance)],
-            });
-        }
-        if receiver == "super" {
-            return semantic
-                .class_at(uri, offset)
-                .and_then(|class| semantic.class_surface(&class)?.superclass.clone())
-                .map(|class| LegacyResolvedReceiver {
-                    alternatives: vec![(class, LegacyReceiverKind::Instance)],
-                });
-        }
-        if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            return semantic.class_for_name(uri, receiver).map(|class| LegacyResolvedReceiver {
-                alternatives: vec![(class, LegacyReceiverKind::ClassObject)],
-            });
-        }
-        if receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            if let Some(formal_type) = semantic.formal_binding_type_at(uri, receiver, offset) {
-                if let Some(class) = semantic.class_for_name(uri, &formal_type) {
-                    let formal_resolved = LegacyResolvedReceiver {
-                        alternatives: vec![(class, LegacyReceiverKind::Instance)],
-                    };
-                    return Some(formal_resolved);
-                }
-            }
-            if let Some(value) = semantic.binding_at(uri, receiver, offset) {
-                if let Some(resolved) = receiver_from_shape(value.shape) {
-                    return Some(resolved);
-                }
-            }
-        }
-        let parse = phalcom_ast::parser::parse(receiver, receiver_range.start);
-        let expression = parse.program.statements.iter().find_map(|statement| match statement {
-            phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
-            _ => None,
-        })?;
-        if let Some(formal_expr_type) = semantic.formal_expression_type_at(uri, receiver_range.start) {
-            if let Some(class) = semantic.class_for_name(uri, &formal_expr_type) {
-                return Some(LegacyResolvedReceiver {
-                    alternatives: vec![(class, LegacyReceiverKind::Instance)],
-                });
-            }
-        }
-        receiver_from_shape(semantic.infer_expression(uri, expression, offset).shape)
     }
 
     /// Resolves a completion receiver through the pinned compiler snapshot.
@@ -723,7 +562,7 @@ impl Backend {
 
     fn compiler_callable_owner_at(
         &self,
-        compiler: &crate::semantic::CompilerSemanticSnapshot,
+        compiler: &phalcom_semantic::SemanticSnapshot,
         module: &phalcom_modules::ModuleId,
         offset: usize,
     ) -> Option<phalcom_semantic::DeclarationId> {
@@ -750,145 +589,6 @@ impl Backend {
         })
     }
 
-    fn semantic_member_targets_for_request(
-        &self,
-        request: &RequestContext,
-        uri: &Url,
-        position: Position,
-        selector: &str,
-    ) -> Option<Vec<ResolvedMemberTarget>> {
-        let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
-        if !receiver_targeted {
-            return None;
-        }
-
-        if matches!(request.source_match, SourceMatch::Exact) {
-            let resolved = match self.compiler_receiver(request, position) {
-                Some(resolved) => resolved,
-                None => {
-                    return Some(Vec::new());
-                }
-            };
-            let Some(compiler) = request.compiler.as_deref() else {
-                return Some(Vec::new());
-            };
-            let Some(module) = request.compiler_module() else {
-                return Some(Vec::new());
-            };
-            let Ok(selector) = phalcom_common::selector::Selector::try_decode_exact(selector) else {
-                return Some(Vec::new());
-            };
-            let mut seen = BTreeSet::new();
-            let mut targets = Vec::new();
-            let receiver_range = completion::target_at_snapshot(&request.document, position)?.receiver_range;
-            let access = compiler.editor().access_context_at(module, receiver_range.start);
-            for alternative in resolved.alternatives.iter() {
-                let receiver = &alternative.declaration;
-                let editor_receiver = phalcom_semantic::ResolvedReceiver {
-                    alternatives: Arc::from([phalcom_semantic::ReceiverAlternative {
-                        declaration: receiver.clone(),
-                        mode: alternative.mode,
-                    }]),
-                };
-                for member in compiler.editor().resolve_member(&editor_receiver, &selector, &access) {
-                    let phalcom_semantic::EditorMemberTarget::Callable(callable) = member.target else {
-                        continue;
-                    };
-                    if !seen.insert(callable.clone()) {
-                        continue;
-                    }
-                    let Some(member) = request.semantic.member_surface_for_canonical(&callable) else {
-                        continue;
-                    };
-                    targets.push(ResolvedMemberTarget {
-                        receiver: request.semantic.class_for_canonical(receiver),
-                        member,
-                    });
-                }
-            }
-            return Some(targets);
-        }
-
-        let resolved = self.semantic_receiver(&request.semantic, uri, &request.document, position);
-        let Some(resolved) = resolved else {
-            return Some(Vec::new());
-        };
-
-        let mut seen = BTreeSet::new();
-        let mut targets = Vec::new();
-        for (receiver, receiver_kind) in resolved.alternatives {
-            let side = match receiver_kind {
-                LegacyReceiverKind::Instance => crate::semantic::DispatchSide::Instance,
-                LegacyReceiverKind::ClassObject => crate::semantic::DispatchSide::Class,
-            };
-            let Some(member) = request.semantic.receiver_member(&receiver, selector, side) else {
-                continue;
-            };
-            if seen.insert(member.callable.clone()) {
-                targets.push(ResolvedMemberTarget { receiver, member });
-            }
-        }
-        Some(targets)
-    }
-
-    fn member_definition_location(&self, member: &crate::semantic::MemberSurface) -> Option<Location> {
-        let owner = &member.callable.owner;
-        let definition_uri = Url::parse(owner.module.as_str()).ok()?;
-        let range = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
-            line_index.range(member.name_range.start..member.name_range.end)
-        })?;
-        Some(Location { uri: definition_uri, range })
-    }
-
-    fn semantic_definition_locations_for_request(&self, request: &RequestContext, _uri: &Url, position: Position, selector: &str) -> Vec<Location> {
-        if !matches!(request.source_match, SourceMatch::Exact) {
-            return Vec::new();
-        }
-        let Some(compiler) = request.compiler.as_deref() else { return Vec::new() };
-        let Some(module) = request.compiler_module() else { return Vec::new() };
-        let Some(target) = completion::target_at_snapshot(&request.document, position) else {
-            return Vec::new();
-        };
-        let Some(receiver) = compiler.editor().resolve_receiver_at(module, target.receiver_range) else {
-            return Vec::new();
-        };
-        let Ok(selector) = phalcom_common::selector::Selector::try_decode_exact(selector) else {
-            return Vec::new();
-        };
-        let access = compiler.editor().access_context_at(module, target.receiver_range.start);
-        let mut locations = Vec::new();
-        for alternative in receiver.alternatives.iter() {
-            let single = phalcom_semantic::ResolvedReceiver {
-                alternatives: Arc::from([alternative.clone()]),
-            };
-            for member in compiler.editor().resolve_member(&single, &selector, &access) {
-                let target = match member.target {
-                    phalcom_semantic::EditorMemberTarget::Callable(callable) => phalcom_semantic::SemanticTargetId::Callable(callable),
-                    phalcom_semantic::EditorMemberTarget::Field(field) => phalcom_semantic::SemanticTargetId::Field(field),
-                };
-                locations.extend(self.compiler_sites_locations(compiler, compiler.editor().definition_sites(&target)));
-            }
-        }
-        locations.sort_by(|left, right| {
-            (
-                &left.uri,
-                left.range.start.line,
-                left.range.start.character,
-                left.range.end.line,
-                left.range.end.character,
-            )
-                .cmp(&(
-                    &right.uri,
-                    right.range.start.line,
-                    right.range.start.character,
-                    right.range.end.line,
-                    right.range.end.character,
-                ))
-        });
-        locations.dedup_by(|left, right| left.uri == right.uri && left.range == right.range);
-        locations
-    }
-
     fn compiler_target_at_request(&self, request: &RequestContext, offset: usize) -> Option<phalcom_semantic::SemanticTargetId> {
         if !matches!(request.source_match, SourceMatch::Exact) {
             return None;
@@ -906,45 +606,39 @@ impl Backend {
     /// equivalent yet (member kind and Phaldoc source ranges).
     fn compiler_callable_hover(&self, request: &RequestContext, callable: &phalcom_semantic::identity::CallableId) -> Option<CompilerCallableHover> {
         let compiler = request.compiler.as_deref()?;
-        let signature = compiler.callable_signatures.get(callable)?;
-        let owner = request.semantic.class_for_canonical(&callable.owner);
-        let lsp_callable = crate::semantic::CallableId {
-            owner: owner.clone(),
-            selector: callable.selector.encode(),
-            side: match callable.side {
-                phalcom_semantic::DispatchSide::Instance => crate::semantic::DispatchSide::Instance,
-                phalcom_semantic::DispatchSide::Class => crate::semantic::DispatchSide::Class,
+        let signature = compiler.callable_signatures.get(callable);
+        let source = compiler.source_index().callable_source(callable);
+        if signature.is_none() && source.is_none() {
+            return None;
+        }
+        let kind = source.map_or(hover::MemberKind::Method, |source| match source.kind {
+            phalcom_semantic::SourceCallableKind::Getter => hover::MemberKind::Getter,
+            phalcom_semantic::SourceCallableKind::Setter => hover::MemberKind::Setter,
+            phalcom_semantic::SourceCallableKind::Constructor => hover::MemberKind::Construct,
+            phalcom_semantic::SourceCallableKind::IndexGet => hover::MemberKind::Method,
+            phalcom_semantic::SourceCallableKind::IndexSet => hover::MemberKind::Method,
+            phalcom_semantic::SourceCallableKind::Method => match callable.side {
+                phalcom_semantic::DispatchSide::Instance => hover::MemberKind::Method,
+                phalcom_semantic::DispatchSide::Class => hover::MemberKind::StaticMethod,
             },
-        };
-        let compiler_side = callable.side;
-        let compiler_kind = compiler
-            .surfaces
-            .get(&callable.owner)
-            .and_then(|surface| surface.surface(compiler_side).get_callable(&callable.selector))
-            .map(|signature| signature.kind);
-        let metadata = request.semantic.member_surface_for_canonical(callable);
-        let kind = metadata.as_ref().map(hover_member_kind).unwrap_or_else(|| match compiler_kind {
-            Some(phalcom_semantic::dispatch::CallableSemanticKind::Constructor) => crate::index::MemberKind::Construct,
-            Some(phalcom_semantic::dispatch::CallableSemanticKind::Native | phalcom_semantic::dispatch::CallableSemanticKind::Ordinary) | None => {
-                if callable.side == phalcom_semantic::DispatchSide::Class {
-                    crate::index::MemberKind::StaticMethod
-                } else {
-                    crate::index::MemberKind::Method
-                }
-            }
         });
-        let phaldoc = metadata.as_ref().and_then(|member| self.member_phaldoc(member));
+        let phaldoc = source.and_then(|source| self.member_phaldoc(compiler, source));
         let presenter = phalcom_semantic::TypePresenter::new(&compiler.store);
-        let formal = match &signature.return_type {
+        let formal = signature.map_or(FormalPresentation::Unknown, |signature| match &signature.return_type {
             phalcom_semantic::types::TypeTerm::Canonical(ty) => FormalPresentation::Known(presenter.present_type(*ty)),
             phalcom_semantic::types::TypeTerm::SelfType(_) | phalcom_semantic::types::TypeTerm::Infer(_) => FormalPresentation::Unknown,
-        };
+        });
         Some((
             callable.selector.encode(),
-            SelectorSite { owner, receiver: None, kind },
+            SelectorSite {
+                owner: callable.owner.clone(),
+                receiver: None,
+                kind,
+            },
             phaldoc,
             formal,
-            request.semantic.return_for_callable(&lsp_callable),
+            compiler.advisory_callable(callable).map(|summary| summary.return_fact.clone()),
+            compiler.editor().native_callable_presentation(callable),
         ))
     }
 
@@ -954,29 +648,29 @@ impl Backend {
         &self,
         request: &RequestContext,
         declaration: &phalcom_semantic::identity::DeclarationId,
-    ) -> Option<(crate::semantic::ClassId, Option<crate::semantic::ClassId>, Option<hover::PhaldocDoc>)> {
+    ) -> Option<(
+        phalcom_semantic::DeclarationId,
+        Option<phalcom_semantic::DeclarationId>,
+        Option<hover::PhaldocDoc>,
+    )> {
         let compiler = request.compiler.as_deref()?;
         compiler.surfaces.get(declaration)?;
-        let class = request.semantic.class_for_canonical(declaration);
-        let superclass = compiler
-            .hierarchy
-            .superclass(declaration)
-            .map(|superclass| request.semantic.class_for_canonical(superclass));
-        let phaldoc = request.semantic.class_surface(&class).and_then(|metadata| {
-            let definition_uri = Url::parse(class.module.as_str()).ok()?;
+        let superclass = compiler.hierarchy.superclass(declaration).cloned();
+        let phaldoc = compiler.source_index().declaration_source(declaration).and_then(|metadata| {
+            let definition_uri = compiler_uri_for_module(compiler, &declaration.module)?;
             self.with_source_snapshot(&definition_uri, |text, _, line_index| {
                 hover::harvest_doc_for_declaration(
                     text,
                     line_index,
                     hover::DeclarationDocTarget::Class {
-                        declaration: metadata.source_range,
+                        declaration: metadata.declaration_range,
                         name: metadata.name_range,
                     },
                 )
             })
             .flatten()
         });
-        Some((class, superclass, phaldoc))
+        Some((declaration.clone(), superclass, phaldoc))
     }
 
     /// Builds field-hover inputs from compiler field identity and advisory
@@ -985,49 +679,95 @@ impl Backend {
         &self,
         request: &RequestContext,
         field: &phalcom_semantic::identity::FieldId,
-    ) -> Option<(String, SelectorSite, Option<InferredValue>)> {
+    ) -> Option<(String, SelectorSite, Option<phalcom_semantic::advisory::AdvisoryFact>)> {
         let compiler = request.compiler.as_deref()?;
         let side = field.side;
         let surface = compiler.surfaces.get(&field.owner)?.surface(side);
         surface.get_field(&field.name)?;
-        let owner = request.semantic.class_for_canonical(&field.owner);
-        let lsp_side = match side {
-            phalcom_semantic::DispatchSide::Instance => crate::semantic::DispatchSide::Instance,
-            phalcom_semantic::DispatchSide::Class => crate::semantic::DispatchSide::Class,
-        };
         Some((
             field.name.to_string(),
             SelectorSite {
-                owner: owner.clone(),
+                owner: field.owner.clone(),
                 receiver: None,
-                kind: crate::index::MemberKind::Field,
+                kind: hover::MemberKind::Field,
             },
-            request.semantic.field_value(&owner, &field.name, lsp_side),
+            compiler.advisory().field(field).cloned(),
         ))
     }
 
-    fn compiler_uri_for_module(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
+    fn compiler_binding_hover(&self, request: &RequestContext, binding: &phalcom_semantic::SourceSiteId) -> Option<String> {
+        let compiler = request.compiler.as_deref()?;
+        let source = compiler.source_index().module_for_site(binding)?;
+        let info = source.structure.bindings.get(binding)?;
+        let kind = match info.kind {
+            phalcom_semantic::SourceBindingKind::MethodParameter
+            | phalcom_semantic::SourceBindingKind::SetterParameter
+            | phalcom_semantic::SourceBindingKind::IndexParameter
+            | phalcom_semantic::SourceBindingKind::ClosureParameter => "parameter",
+            _ => "mutable binding",
+        };
+        let mut sections = vec![format!("`{}` — {kind}", info.name)];
+        if let Some(state) = compiler.formal_binding_at(binding) {
+            match phalcom_semantic::TypePresenter::new(&compiler.store).present_knowledge(&state.current) {
+                FormalPresentation::Known(text) => sections.push(format!("type: `{text}`")),
+                FormalPresentation::Dynamic => sections.push("type: `Dynamic`".to_string()),
+                _ => {}
+            }
+        }
+        if let Some(advisory) = compiler.advisory_fact(binding)
+            && !matches!(advisory.shape, phalcom_semantic::ValueShape::Unknown)
+        {
+            sections.push(format!(
+                "runtime value: `{}`",
+                phalcom_semantic::AdvisoryPresenter::present_shape(&advisory.shape)
+            ));
+        }
+        let module = match &binding.owner {
+            phalcom_semantic::SourceOwner::Module(module) => module,
+            phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
+        };
+        if let Some(uri) = compiler_uri_for_module(compiler, module)
+            && let Some(doc) = self.with_source_snapshot(&uri, |text, program, line_index| {
+                hover::harvest_doc_for_selector(text, program, line_index, &info.name)
+            })
+            && let Some(doc) = doc
+        {
+            if !doc.summary.is_empty() {
+                sections.push(doc.summary);
+            }
+            sections.extend(doc.tags.into_iter().map(|(tag, payload)| format!("- **@{tag}** {payload}")));
+        }
+        Some(sections.join("\n\n---\n\n"))
+    }
+
+    fn compiler_uri_for_module(&self, compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
         compiler_uri_for_module(compiler, module)
     }
 
-    fn compiler_site_location(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, site: &phalcom_semantic::SourceSiteId) -> Option<Location> {
+    fn compiler_site_location(&self, compiler: &phalcom_semantic::SemanticSnapshot, site: &phalcom_semantic::SourceSiteId) -> Option<Location> {
         let source = compiler.source_site(site)?;
         let module = match &site.owner {
             phalcom_semantic::SourceOwner::Module(module) => module,
             phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
         };
         let uri = self.compiler_uri_for_module(compiler, module)?;
-        let range = self.with_source_snapshot(&uri, |_, _, line_index| line_index.range(source.range.start..source.range.end))?;
+        let text = compiler
+            .sources
+            .get(module)
+            .map(|published| published.text.as_ref())
+            .or_else(|| compiler.presentation_source(module))?;
+        let line_index = LineIndex::new(text);
+        let range = line_index.range(source.range.start..source.range.end);
         Some(Location { uri, range })
     }
 
-    fn compiler_target_locations(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, target: &phalcom_semantic::SemanticTargetId) -> Vec<Location> {
+    fn compiler_target_locations(&self, compiler: &phalcom_semantic::SemanticSnapshot, target: &phalcom_semantic::SemanticTargetId) -> Vec<Location> {
         self.compiler_sites_locations(compiler, compiler.editor().definition_sites(target))
     }
 
     fn compiler_reference_locations(
         &self,
-        compiler: &crate::semantic::CompilerSemanticSnapshot,
+        compiler: &phalcom_semantic::SemanticSnapshot,
         target: &phalcom_semantic::SemanticTargetId,
         include_declaration: bool,
     ) -> Vec<Location> {
@@ -1040,7 +780,7 @@ impl Backend {
         self.compiler_sites_locations(compiler, sites)
     }
 
-    fn compiler_sites_locations(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, sites: Vec<phalcom_semantic::SourceSiteId>) -> Vec<Location> {
+    fn compiler_sites_locations(&self, compiler: &phalcom_semantic::SemanticSnapshot, sites: Vec<phalcom_semantic::SourceSiteId>) -> Vec<Location> {
         let mut locations = Vec::new();
         for site in sites {
             if let Some(location) = self.compiler_site_location(compiler, &site)
@@ -1054,7 +794,7 @@ impl Backend {
         locations
     }
 
-    fn compiler_workspace_symbols(&self, compiler: &crate::semantic::CompilerSemanticSnapshot, query: &str) -> Vec<SymbolInformation> {
+    fn compiler_workspace_symbols(&self, compiler: &phalcom_semantic::SemanticSnapshot, query: &str) -> Vec<SymbolInformation> {
         let query = query.to_lowercase();
         let mut symbols = Vec::new();
         for module in compiler.source_index().modules.values() {
@@ -1089,61 +829,18 @@ impl Backend {
         symbols
     }
 
-    /// Resolves the selector under `position` in the open document `uri`,
-    /// via that document's own cached parse and [`LineIndex`], together with
-    /// the matched node's own LSP [`tower_lsp::lsp_types::Range`] (so a
-    /// caller like `hover_at` can underline the exact span a selector was
-    /// resolved from, the way its keyword branch already does).
-    ///
-    /// Returns `None` if `uri` is not open, or if `position` sits on no
-    /// selector-bearing node (see [`index::selector_at_offset`]).
-    fn selector_at_document(&self, doc: &DocumentSnapshot, position: Position) -> Option<(String, tower_lsp::lsp_types::Range)> {
-        let offset = doc.line_index.offset(position);
-        index::selector_at_offset(&doc.parse.program, offset).map(|(selector, range)| (selector, doc.line_index.range(range.start..range.end)))
-    }
-
-    /// Maps one index [`Occurrence`] to an LSP [`Location`].
-    ///
-    /// The occurrence's file may or may not be currently open in the
-    /// client:
-    /// - **Open** (tracked in [`DocumentStore`]): map through that
-    ///   document's own [`LineIndex`], which reflects the live/unsaved
-    ///   buffer — the same text the index was last built from (Stage 2's
-    ///   `did_change` wiring keeps them in lockstep).
-    /// - **Not open**: maps through the worker-maintained [`CachedSource`]
-    ///   metadata for the indexed closed file.
-    ///
-    /// Returns `None` if the file is not open and has no cached source
-    /// metadata.
-    fn occurrence_to_location(&self, occurrence: &Occurrence) -> Option<Location> {
-        let location_uri = canonical_location_uri(&occurrence.uri);
-        if let Some(doc) = self.documents.snapshot(&occurrence.uri).or_else(|| self.documents.snapshot(&location_uri)) {
-            return Some(Location {
-                uri: location_uri,
-                range: doc.line_index.range(occurrence.range.start..occurrence.range.end),
-            });
-        }
-
-        let source = self.cached_source(&occurrence.uri).or_else(|| self.cached_source(&location_uri))?;
-        Some(Location {
-            uri: location_uri,
-            range: source.line_index.range(occurrence.range.start..occurrence.range.end),
-        })
-    }
-
-    /// Maps every occurrence in `occurrences` to an LSP [`Location`],
-    /// dropping any whose file could not be resolved
-    /// ([`Self::occurrence_to_location`]).
-    fn occurrences_to_locations(&self, occurrences: &[Occurrence]) -> Vec<Location> {
-        occurrences.iter().filter_map(|occ| self.occurrence_to_location(occ)).collect()
-    }
-
+    /// Maps source metadata from closed files through the current canonical
+    /// publication.
     fn cached_source(&self, uri: &Url) -> Option<CachedSource> {
         let source = self.closed_sources.read().expect("closed source cache lock poisoned").get(uri).cloned()?;
-        let snapshot = self.semantic.snapshot();
-        if let Some(module) = snapshot.module_for_uri(uri)
-            && let Some(revision) = snapshot.file_revision(module)
-            && revision != source.revision
+        let Some(snapshot) = self.analysis.snapshot() else {
+            return Some(source);
+        };
+        if let Some(module) = compiler_module_for_uri(&snapshot, uri)
+            && snapshot
+                .sources
+                .get(module)
+                .is_some_and(|published| published.text.as_ref() != source.text.as_ref())
         {
             return None;
         }
@@ -1196,75 +893,26 @@ impl Backend {
         None
     }
 
-    fn semantic_class_target(
+    fn member_phaldoc(
         &self,
-        request: &RequestContext,
-        uri: &Url,
-        position: Position,
-    ) -> Option<(crate::semantic::ClassSurface, tower_lsp::lsp_types::Range)> {
-        let doc = &request.document;
-        let offset = doc.line_index.offset(position);
-        if let Some(class) = request
-            .semantic
-            .class_name_at(uri, offset)
-            .filter(|_| matches!(request.source_match, SourceMatch::Exact))
-        {
-            let range = doc.line_index.range(class.name_range.start..class.name_range.end);
-            return Some((class, range));
-        }
-        let (name, name_range) = hover::qualified_identifier_at_offset(&doc.text, offset)?;
-        let class_id = request.semantic.class_for_name(uri, &name)?;
-        let class = request.semantic.class_surface(&class_id)?;
-        Some((class.clone(), doc.line_index.range(name_range)))
-    }
-
-    fn class_definition_location(&self, class: &crate::semantic::ClassSurface) -> Option<Location> {
-        let owner = &class.id;
-        let definition_uri = Url::parse(owner.module.as_str()).ok()?;
-        let range = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
-            line_index.range(class.name_range.start..class.name_range.end)
-        })?;
-        Some(Location { uri: definition_uri, range })
-    }
-
-    fn member_phaldoc(&self, member: &crate::semantic::MemberSurface) -> Option<hover::PhaldocDoc> {
-        let owner = &member.callable.owner;
-        let definition_uri = Url::parse(owner.module.as_str()).ok()?;
+        compiler: &phalcom_semantic::SemanticSnapshot,
+        member: &phalcom_semantic::source_index::CallableSourceInfo,
+    ) -> Option<hover::PhaldocDoc> {
+        let owner = &member.id.owner;
+        let definition_uri = compiler_uri_for_module(compiler, &owner.module)?;
         self.with_source_snapshot(&definition_uri, |text, program, line_index| {
             let target = hover::DeclarationDocTarget::Member {
-                declaration: member.source_range,
+                declaration: member.declaration_range,
                 name: member.name_range,
             };
             hover::harvest_doc_for_declaration(text, line_index, target)
-                .or_else(|| hover::harvest_pinned_doc_for_member(text, program, &owner.name, &member.callable.selector, member.source_range))
+                .or_else(|| hover::harvest_pinned_doc_for_member(text, program, &owner.name, &member.id.selector.encode(), member.declaration_range))
         })
         .flatten()
     }
 
-    /// Answers `textDocument/hover` (Stage 4): the pluggable composition of
-    /// [`crate::hover`]'s sources.
-    ///
-    /// A keyword/contextual-word hit at the cursor
-    /// ([`hover::keyword_at_offset`]) short-circuits straight to its blurb —
-    /// mirrors `hover.ts`'s keyword branch taking priority over the selector
-    /// layer. Otherwise resolves the selector under the cursor
-    /// ([`index::selector_at_offset`]) and renders whichever of the
-    /// selector layer's sources are present: user-class sites from
-    /// [`WorkspaceIndex::definition_info`], builtin sites from
-    /// live semantic core surface, and the harvested Phaldoc doc (from the selector's
-    /// *defining* file, which may not be the currently open one —
-    /// [`Self::with_source_snapshot`]) attached to a user-class definition —
-    /// with [`Hover::range`] set to the resolved selector's own span
-    /// ([`Self::selector_at_position`]), matching the keyword branch.
-    ///
-    /// If the cursor sits on neither a keyword nor a selector, falls back to
-    /// resolving a top-level `let`/`var` binding usage
-    /// ([`index::top_level_binding_at_offset`]) and rendering its harvested
-    /// Phaldoc doc, if any (doc-comments-phaldoc.md §5's `let`/`var`
-    /// placement-legality case).
-    ///
-    /// Returns `None` if nothing at the cursor resolves to a keyword, a
-    /// known selector, or a documented top-level binding.
+    /// Answers `textDocument/hover` from compiler-owned declaration, callable,
+    /// field, source, and advisory metadata.
     fn hover_at(&self, uri: &Url, position: Position) -> Option<Hover> {
         let request = self.request_context(uri)?;
         self.hover_at_request(&request, uri, position)
@@ -1292,35 +940,45 @@ impl Backend {
         None
     }
 
-    fn hover_at_request(&self, request: &RequestContext, uri: &Url, position: Position) -> Option<Hover> {
+    fn hover_at_request(&self, request: &RequestContext, _uri: &Url, position: Position) -> Option<Hover> {
         let offset = request.document.line_index.offset(position);
         if let Some(import_range) = import_path_range_at_offset(&request.document.parse.program, offset)
-            && let Some(location) = compiler_import_definition_location(request, position).or_else(|| self.cached_import_definition_location(request, position))
+            && let Some(location) = compiler_import_definition_location(request, position)
         {
             return Some(Hover {
                 contents: markdown_contents(format!("module: `{}`", location.uri)),
                 range: Some(request.document.line_index.range(import_range.start..import_range.end)),
             });
         }
-        let occurrence = matches!(request.source_match, SourceMatch::Exact)
-            .then(|| request.semantic.occurrence_at(uri, offset))
-            .flatten();
+        let compiler = request.compiler.as_deref()?;
+        let module = request.compiler_module()?;
+        if !matches!(request.source_match, SourceMatch::Exact) {
+            return None;
+        }
+        let occurrence = compiler.occurrence_at(module, offset);
         let Some(occurrence) = occurrence else {
             // Stale or unmapped text is syntax-only. Semantic fallbacks would
             // make an older index an accidental second authority.
             return None;
         };
-        let span = request.document.line_index.range(occurrence.range.start..occurrence.range.end);
+        let span = request
+            .document
+            .line_index
+            .range(occurrence.occurrence.range.start..occurrence.occurrence.range.end);
 
         if matches!(request.source_match, SourceMatch::Exact)
             && let Some(target) = self.compiler_target_at_request(request, offset)
         {
             match target {
                 phalcom_semantic::SemanticTargetId::Callable(callable)
-                    if let Some((selector, site, phaldoc, formal, advisory)) = self.compiler_callable_hover(request, &callable)
-                        && let Some(contents) =
+                    if let Some((selector, site, phaldoc, formal, advisory, native)) = self.compiler_callable_hover(request, &callable)
+                        && let Some(mut contents) =
                             hover::render_selector_hover_with_formal_value(&selector, &[site], phaldoc.as_ref(), Some(&formal), advisory.as_ref()) =>
                 {
+                    if let Some(native) = native {
+                        contents.push_str("\n\n---\n\n");
+                        contents.push_str(&hover::render_native_callable_details(native.documentation));
+                    }
                     return Some(Hover {
                         contents: markdown_contents(contents),
                         range: Some(span),
@@ -1343,184 +1001,19 @@ impl Backend {
                         range: Some(span),
                     });
                 }
+                phalcom_semantic::SemanticTargetId::Binding(binding) => {
+                    if let Some(contents) = self.compiler_binding_hover(request, &binding) {
+                        return Some(Hover {
+                            contents: markdown_contents(contents),
+                            range: Some(span),
+                        });
+                    }
+                }
                 _ => {}
             }
         }
 
-        match occurrence.target {
-            crate::semantic::SemanticTarget::Binding(binding) => {
-                let info = request.semantic.binding_info(uri, binding)?;
-                let value = request.semantic.binding_at(uri, &info.name, offset);
-                let formal_states = request.semantic.formal_binding_presentations_at(uri, &info.name, offset);
-                let formal = formal_states.as_ref().map(|states| &states.current);
-                let declared = formal_states.as_ref().and_then(|states| states.declared.as_ref());
-
-                let advisory_str = value.as_ref().map(|v| crate::semantic::render_value_shape(&v.shape));
-                let formal_text = formal.map(|presentation| presentation.text());
-                crate::parity::ShadowParityHarness::new().record_hover_parity(&info.name, formal_text.as_deref(), advisory_str.as_deref());
-
-                let phaldoc = hover::harvest_doc_for_selector(
-                    &request.document.text,
-                    &request.document.parse.program,
-                    &request.document.line_index,
-                    &info.name,
-                );
-                Some(Hover {
-                    contents: markdown_contents(hover::render_binding_hover_with_formal_and_declared(
-                        &info,
-                        formal,
-                        declared,
-                        value.as_ref(),
-                        phaldoc.as_ref(),
-                    )),
-                    range: Some(span),
-                })
-            }
-            crate::semantic::SemanticTarget::Class(class_id) => {
-                let class = request.semantic.class_surface(&class_id)?;
-                let phaldoc = Url::parse(class.id.module.as_str()).ok().and_then(|definition_uri| {
-                    self.with_source_snapshot(&definition_uri, |text, _, line_index| {
-                        hover::harvest_doc_for_declaration(
-                            text,
-                            line_index,
-                            hover::DeclarationDocTarget::Class {
-                                declaration: class.source_range,
-                                name: class.name_range,
-                            },
-                        )
-                    })
-                    .flatten()
-                });
-                Some(Hover {
-                    contents: markdown_contents(hover::render_class_hover(&class.id, class.superclass.as_ref(), phaldoc.as_ref())),
-                    range: Some(span),
-                })
-            }
-            crate::semantic::SemanticTarget::Callable(callable) => {
-                let member = request.semantic.member_surface(&callable)?;
-                let site = SelectorSite {
-                    owner: member.callable.owner.clone(),
-                    receiver: None,
-                    kind: hover_member_kind(member),
-                };
-                let phaldoc = self.member_phaldoc(member);
-                let formal = request.semantic.formal_callable_return_presentation(&callable);
-                let value = hover::render_selector_hover_with_formal_value(
-                    &callable.selector,
-                    &[site],
-                    phaldoc.as_ref(),
-                    formal.as_ref(),
-                    request.semantic.return_for_callable(&member.callable).as_ref(),
-                )?;
-                Some(Hover {
-                    contents: markdown_contents(value),
-                    range: Some(span),
-                })
-            }
-            crate::semantic::SemanticTarget::Field(field) => {
-                let callable = crate::semantic::CallableId {
-                    owner: field.owner.clone(),
-                    selector: field.name.clone(),
-                    side: field.side,
-                };
-                let member = request.semantic.member_surface(&callable)?;
-                let site = SelectorSite {
-                    owner: member.callable.owner.clone(),
-                    receiver: None,
-                    kind: hover_member_kind(member),
-                };
-                let phaldoc = self.member_phaldoc(member);
-                let inferred = request.semantic.field_value(&field.owner, &field.name, field.side);
-                let value = hover::render_selector_hover_with_value(&field.name, &[site], phaldoc.as_ref(), inferred.as_ref())?;
-                Some(Hover {
-                    contents: markdown_contents(value),
-                    range: Some(span),
-                })
-            }
-            crate::semantic::SemanticTarget::Member { .. } => {
-                let (selector, selector_span) = self.selector_at_document(&request.document, position)?;
-                if selector_span != span {
-                    return None;
-                }
-                let targets = self.semantic_member_targets_for_request(request, uri, position, &selector)?;
-                if targets.is_empty() {
-                    if matches!(request.source_match, SourceMatch::Exact) {
-                        return None;
-                    }
-                    let infos = self.index.definition_info(&selector);
-                    let mut sites = Vec::new();
-                    let mut docs = Vec::new();
-                    for info in infos {
-                        let module = request
-                            .semantic
-                            .module_for_uri(&info.uri)
-                            .cloned()
-                            .unwrap_or_else(|| crate::semantic::ModuleId::new(info.uri.to_string()));
-                        sites.push(SelectorSite {
-                            owner: crate::semantic::ClassId::new(module, info.class.clone()),
-                            receiver: None,
-                            kind: info.kind,
-                        });
-                        if let Some(doc) = self
-                            .with_source_snapshot(&info.uri, |text, program, line_index| {
-                                hover::harvest_doc_for_declaration(
-                                    text,
-                                    line_index,
-                                    hover::DeclarationDocTarget::Member {
-                                        declaration: info.range,
-                                        name: info.range,
-                                    },
-                                )
-                                .or_else(|| hover::harvest_pinned_doc_for_member(text, program, &info.class, &selector, info.range))
-                            })
-                            .flatten()
-                        {
-                            if !docs.contains(&doc) {
-                                docs.push(doc);
-                            }
-                        }
-                    }
-                    let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
-                    let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), None)?;
-                    return Some(Hover {
-                        contents: markdown_contents(value),
-                        range: Some(span),
-                    });
-                }
-                let mut sites = Vec::new();
-                let mut ids = Vec::new();
-                let mut docs = Vec::new();
-                for target in &targets {
-                    sites.push(SelectorSite {
-                        owner: target.member.callable.owner.clone(),
-                        receiver: Some(target.receiver.clone()),
-                        kind: hover_member_kind(&target.member),
-                    });
-                    ids.push(target.member.callable.clone());
-                    if target.member.callable.owner.module.as_str() != crate::core_documents::CORE_MODULE_URI
-                        && let Some(doc) = self.member_phaldoc(&target.member)
-                        && !docs.contains(&doc)
-                    {
-                        docs.push(doc);
-                    }
-                }
-                let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
-                let inferred = request.semantic.returns_for_callables(ids);
-                let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
-                Some(Hover {
-                    contents: markdown_contents(value),
-                    range: Some(span),
-                })
-            }
-            crate::semantic::SemanticTarget::Module(module_id) => {
-                let doc = format!("```phalcom\nmodule {}\n```", module_id.as_str());
-                Some(Hover {
-                    contents: markdown_contents(doc),
-                    range: Some(span),
-                })
-            }
-            crate::semantic::SemanticTarget::Operator(_) => None,
-        }
+        None
     }
 }
 
@@ -1579,70 +1072,31 @@ fn is_member_receiver_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b')' | b']')
 }
 
-fn receiver_from_shape(shape: ValueShape) -> Option<LegacyResolvedReceiver> {
-    let alternatives = match shape {
-        ValueShape::Instance(class) => vec![(class, LegacyReceiverKind::Instance)],
-        ValueShape::ClassObject(class) => vec![(class, LegacyReceiverKind::ClassObject)],
-        ValueShape::Union(shapes) => shapes
-            .into_iter()
-            .filter_map(|shape| match shape {
-                ValueShape::Instance(class) => Some((class, LegacyReceiverKind::Instance)),
-                ValueShape::ClassObject(class) => Some((class, LegacyReceiverKind::ClassObject)),
-                _ => None,
-            })
-            .collect(),
-        _ => return None,
-    };
-    (!alternatives.is_empty()).then_some(LegacyResolvedReceiver { alternatives })
-}
-
-#[derive(Debug, Clone)]
-struct LegacyResolvedReceiver {
-    alternatives: Vec<(crate::semantic::ClassId, LegacyReceiverKind)>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum LegacyReceiverKind {
-    Instance,
-    ClassObject,
-}
-
-fn hover_member_kind(member: &crate::semantic::MemberSurface) -> crate::index::MemberKind {
-    match member.kind {
-        crate::semantic::MemberKind::Getter => crate::index::MemberKind::Getter,
-        crate::semantic::MemberKind::Setter => crate::index::MemberKind::Setter,
-        crate::semantic::MemberKind::Field => crate::index::MemberKind::Field,
-        crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
-            if member.side == crate::semantic::DispatchSide::Class && member.is_constructor {
-                crate::index::MemberKind::Construct
-            } else if member.side == crate::semantic::DispatchSide::Class {
-                crate::index::MemberKind::StaticMethod
-            } else {
-                crate::index::MemberKind::Method
-            }
-        }
-    }
-}
-
 fn compiler_signature_for_call<'a>(
-    compiler: &'a crate::semantic::CompilerSemanticSnapshot,
+    compiler: &'a phalcom_semantic::SemanticSnapshot,
     module: &phalcom_modules::ModuleId,
     site: &signature_help::CallSite,
 ) -> Option<&'a phalcom_semantic::CallableSemanticSignature> {
-    let callable = compiler
-        .formal_fact_at(module, site.name_range.start)
-        .and_then(|fact| match &fact.fact {
-            phalcom_semantic::FormalFactRef::Callable(callable) | phalcom_semantic::FormalFactRef::Expression { callable, .. } => Some(callable),
-            phalcom_semantic::FormalFactRef::Binding { .. } => None,
-        })
-        .or_else(|| {
-            compiler
-                .occurrence_at(module, site.name_range.start)
-                .and_then(|occurrence| match occurrence.target {
-                    Some(phalcom_semantic::SemanticTargetId::Callable(callable)) => Some(callable),
-                    _ => None,
-                })
-        })?;
+    let exact = compiler
+        .occurrence_at(module, site.name_range.start)
+        .filter(|occurrence| occurrence.occurrence.role == phalcom_semantic::OccurrenceRole::Call)
+        .and_then(|occurrence| match occurrence.target {
+            Some(phalcom_semantic::SemanticTargetId::Callable(callable)) => Some(callable.clone()),
+            _ => None,
+        });
+    if let Some(callable) = exact {
+        return compiler.callable_signatures().get(&callable);
+    }
+
+    let receiver_range = site.receiver_range?;
+    let receiver = compiler.editor().resolve_receiver_at(module, receiver_range)?;
+    let selector = phalcom_common::selector::Selector::try_decode_exact(&site.selector).ok()?;
+    let pattern = phalcom_semantic::PartialCallPattern::from_selector_prefix(&selector);
+    let access = compiler.editor().access_context_at(module, site.name_range.start);
+    let candidates = compiler.editor().callable_candidates(&receiver, &pattern, &access);
+    let [callable] = candidates.as_slice() else {
+        return None;
+    };
     compiler.callable_signatures().get(callable)
 }
 
@@ -1753,63 +1207,29 @@ impl LanguageServer for Backend {
         let _span = PerfSpan::start_with_counters("initialized", self.perf_counters());
         if let Some(mut events) = self.analysis_events.lock().expect("analysis events lock poisoned").take() {
             let client = self.client.clone();
-            let indexed_files = self.indexed_files.clone();
             let closed_sources = self.closed_sources.clone();
-            let core_source_uris = self.core_source_uris.clone();
             let inlay_refresh = self.inlay_refresh.clone();
             let semantic_token_refresh = self.semantic_token_refresh.clone();
             let counters = self.perf_counters();
             let documents = self.documents.clone();
-            let semantic = self.semantic.clone();
+            let publication = self.analysis.publication_handle();
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
                     match event {
-                        AnalysisEvent::CoreSourceSelected { uri } => {
-                            let mut core_source_uris = core_source_uris.write().expect("core source URI lock poisoned");
-                            core_source_uris.clear();
-                            if let Some(uri) = uri {
-                                core_source_uris.insert(uri);
-                            }
-                        }
+                        AnalysisEvent::CoreSourceSelected { uri: _ } => {}
                         AnalysisEvent::WorkspaceFileIndexed { uri, text: _, revision } => {
-                            let cached_uri = uri.clone();
-                            let canonical_uri = cached_uri
-                                .to_file_path()
-                                .ok()
-                                .and_then(|path| path.canonicalize().ok())
-                                .and_then(|path| Url::from_file_path(path).ok());
-                            let source = {
-                                let cache = closed_sources.read().expect("closed source cache lock poisoned");
-                                cache
-                                    .get(&cached_uri)
-                                    .cloned()
-                                    .or_else(|| canonical_uri.as_ref().and_then(|uri| cache.get(uri).cloned()))
-                            };
+                            let source = closed_sources.read().expect("closed source cache lock poisoned").get(&uri).cloned();
                             let Some(source) = source else { continue };
-                            indexed_files.write().expect("indexed file lock poisoned").insert(uri);
                             let mut cache = closed_sources.write().expect("closed source cache lock poisoned");
-                            cache.insert(cached_uri, CachedSource { revision, ..source.clone() });
-                            if let Some(canonical_uri) = canonical_uri {
-                                cache.insert(canonical_uri, CachedSource { revision, ..source });
-                            }
+                            cache.insert(uri, CachedSource { revision, ..source });
                         }
                         AnalysisEvent::WorkspaceFileRemoved { uri } => {
-                            indexed_files.write().expect("indexed file lock poisoned").remove(&uri);
-                            let canonical_uri = uri
-                                .to_file_path()
-                                .ok()
-                                .and_then(|path| path.canonicalize().ok())
-                                .and_then(|path| Url::from_file_path(path).ok());
                             let mut cache = closed_sources.write().expect("closed source cache lock poisoned");
                             cache.remove(&uri);
-                            if let Some(canonical_uri) = canonical_uri {
-                                cache.remove(&canonical_uri);
-                            }
                         }
                         AnalysisEvent::Published { effects, .. } => {
-                            let compiler_snapshot = semantic.compiler_snapshot();
                             for uri in documents.open_uris() {
-                                let Some(publication) = combined_diagnostics_for(&documents, compiler_snapshot.as_deref(), &uri) else {
+                                let Some(publication) = combined_diagnostics_for(&documents, publication.load().as_deref(), &uri) else {
                                     continue;
                                 };
                                 client.publish_diagnostics(uri, publication.diagnostics, publication.version).await;
@@ -1886,9 +1306,8 @@ impl LanguageServer for Backend {
 
     /// Refreshes semantic/index state when workspace folders are added or removed.
     async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
-        let mut removed_core_source = false;
         for folder in &params.event.removed {
-            removed_core_source |= self.remove_workspace_root(&folder.uri);
+            self.remove_workspace_root(&folder.uri);
         }
         let roots = {
             let mut roots = self.workspace_roots.write().expect("workspace root lock poisoned");
@@ -1900,11 +1319,6 @@ impl LanguageServer for Backend {
             }
             roots.clone()
         };
-        if removed_core_source {
-            self.clear_core_source_uris();
-            let bundled = crate::core_documents::bundled_parse();
-            self.analysis.enqueue_core_update(crate::semantic::FileRevision(1), bundled.program);
-        }
         self.schedule_workspace_scan(&roots);
     }
 
@@ -1914,16 +1328,8 @@ impl LanguageServer for Backend {
         let mut refreshes = Vec::new();
         for change in params.changes {
             if change.typ == FileChangeType::DELETED {
-                self.index.remove_file(&change.uri);
                 self.closed_sources.write().expect("closed source cache lock poisoned").remove(&change.uri);
-                self.indexed_files.write().expect("indexed file lock poisoned").remove(&change.uri);
-                if self.is_core_source_uri(&change.uri) {
-                    let bundled = crate::core_documents::bundled_parse();
-                    self.analysis.enqueue_core_update(crate::semantic::FileRevision(1), bundled.program);
-                    self.clear_core_source_uris();
-                } else {
-                    removals.push(change.uri.clone());
-                }
+                removals.push(change.uri.clone());
             } else {
                 refreshes.push(DiskRefresh { uri: change.uri });
             }
@@ -2030,57 +1436,11 @@ impl LanguageServer for Backend {
             }
         }
 
-        if let Some((class, _)) = self.semantic_class_target(&request, &uri, position) {
-            return Ok(self
-                .class_definition_location(&class)
-                .map(|location| GotoDefinitionResponse::Array(vec![location])));
-        }
-
-        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
-            return Ok(Some(GotoDefinitionResponse::Array(vec![Location {
-                uri: uri.clone(),
-                range: request.document.line_index.range(range.start..range.end),
-            }])));
-        }
-
-        if let Some(location) = compiler_import_definition_location(&request, position).or_else(|| self.cached_import_definition_location(&request, position)) {
+        if let Some(location) = compiler_import_definition_location(&request, position) {
             return Ok(Some(GotoDefinitionResponse::Array(vec![location])));
         }
 
-        let Some((selector, _range)) = self.selector_at_document(&request.document, position) else {
-            return Ok(None);
-        };
-
-        if let Some(member) = matches!(request.source_match, SourceMatch::Exact)
-            .then(|| request.semantic.member_at(&uri, offset))
-            .flatten()
-            .filter(|member| member.callable.selector == selector)
-        {
-            return Ok(self
-                .member_definition_location(&member)
-                .map(|location| GotoDefinitionResponse::Array(vec![location])));
-        }
-
-        let receiver_targeted = completion::target_at_snapshot(&request.document, position).is_some();
-        if receiver_targeted && matches!(request.source_match, SourceMatch::Exact) {
-            let semantic_locations = self.semantic_definition_locations_for_request(&request, &uri, position, &selector);
-            return if semantic_locations.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(GotoDefinitionResponse::Array(semantic_locations)))
-            };
-        }
-
-        let locations = if matches!(request.source_match, SourceMatch::Exact) {
-            Vec::new()
-        } else {
-            self.occurrences_to_locations(&self.index.definitions(&selector))
-        };
-        if locations.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(GotoDefinitionResponse::Array(locations)))
-        }
+        Ok(None)
     }
 
     /// Resolves the selector under the cursor and returns every recorded
@@ -2102,34 +1462,11 @@ impl LanguageServer for Backend {
             }
         }
 
-        if let Some(range) = import_binding_declaration_at_offset(&request, offset) {
-            return Ok(Some(vec![Location {
-                uri: uri.clone(),
-                range: request.document.line_index.range(range.start..range.end),
-            }]));
-        }
-
-        let Some((selector, _range)) = self.selector_at_document(&request.document, position) else {
-            return Ok(None);
-        };
-
-        let mut occurrences = if matches!(request.source_match, SourceMatch::Exact) {
-            Vec::new()
-        } else {
-            self.index.references(&selector)
-        };
-        if params.context.include_declaration && !matches!(request.source_match, SourceMatch::Exact) {
-            occurrences.extend(self.index.definitions(&selector));
-        }
-
-        let locations = self.occurrences_to_locations(&occurrences);
-        if locations.is_empty() { Ok(None) } else { Ok(Some(locations)) }
+        Ok(None)
     }
 
-    /// Answers `workspace/symbol`: every indexed selector containing
-    /// `params.query` as a case-insensitive substring
-    /// ([`WorkspaceIndex::symbols_matching`]), rendered as
-    /// [`SymbolInformation`] at its first definition site.
+    /// Answers `workspace/symbol` from compiler-owned source declarations
+    /// whose names contain `params.query`.
     ///
     /// Every result reports [`SymbolKind::METHOD`] — the index does not yet
     /// distinguish getter/setter/construct/field kinds in a
@@ -2138,8 +1475,8 @@ impl LanguageServer for Backend {
     /// natural place to add it once).
     async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
         let symbols = self
-            .semantic
-            .compiler_snapshot()
+            .analysis
+            .snapshot()
             .map(|compiler| self.compiler_workspace_symbols(&compiler, &params.query))
             .unwrap_or_default();
         Ok(Some(symbols))
@@ -2159,7 +1496,7 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
         let offset = request.document.line_index.offset(position);
-        let privileged = self.is_core_source_uri(&uri);
+        let privileged = false;
         let line_prefix = request.document.text[..offset].rsplit('\n').next().unwrap_or_default();
         let import_context = crate::import_completion::detect_import_context(line_prefix);
         let mut items = if let Some(context) = import_context {
@@ -2257,14 +1594,6 @@ fn virtual_source_text(uri: &Url) -> Option<String> {
         .map(|text| text.to_string())
 }
 
-fn canonical_location_uri(uri: &Url) -> Url {
-    uri.to_file_path()
-        .ok()
-        .and_then(|path| path.canonicalize().ok())
-        .and_then(|path| Url::from_file_path(path).ok())
-        .unwrap_or_else(|| uri.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -2275,8 +1604,8 @@ mod tests {
 
     use super::super::analysis_service::{AnalysisEvent, TestBatchGate, TestScanGate};
     use super::{HintPolicy, PublicationRefresh, ServerConfig};
-    use crate::semantic::{FileRevision, SemanticGeneration};
     use crate::workspace_scan::AnalysisMode;
+    use phalcom_modules::SourceRevision;
 
     #[test]
     fn server_config_parses_nested_stable_hint_policy_and_sysroot_directory() {
@@ -2302,18 +1631,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn core_class_definition_location_resolves() {
+    async fn canonical_class_definition_location_resolves() {
         let (service, _) = LspService::new(super::Backend::new);
         let backend = service.inner();
         let uri = Url::parse("file:///main.ph").unwrap();
         let text = "class MyClass is Object {\n}\n".to_string();
         backend.documents.open_or_update_versioned(uri.clone(), text.clone(), Some(1));
         let parse_result = phalcom_ast::parser::parse(&text, 0);
-        let revision = crate::semantic::FileRevision(1);
+        let revision = SourceRevision(1);
         backend.update_semantic_for_source(&uri, revision, std::sync::Arc::from(text.as_str()), &parse_result.program);
         backend.analysis.flush();
 
-        let position = tower_lsp::lsp_types::Position { line: 0, character: 18 };
+        let position = tower_lsp::lsp_types::Position { line: 0, character: 10 };
         let params = tower_lsp::lsp_types::GotoDefinitionParams {
             text_document_position_params: tower_lsp::lsp_types::TextDocumentPositionParams {
                 text_document: tower_lsp::lsp_types::TextDocumentIdentifier { uri: uri.clone() },
@@ -2323,7 +1652,6 @@ mod tests {
             partial_result_params: Default::default(),
         };
         let response = backend.goto_definition(params).await.unwrap();
-        println!("RESPONSE: {response:?}");
         assert!(response.is_some());
     }
 
@@ -2444,7 +1772,7 @@ mod tests {
     async fn construction_initialize_hover_and_inlay_do_not_wait_for_semantic_batch() {
         let (service, _socket) = LspService::new(super::Backend::new);
         let backend = service.inner();
-        assert_eq!(backend.semantic.generation(), SemanticGeneration(0), "construction must not analyze core");
+        assert!(backend.analysis.snapshot().is_none(), "construction must not publish a source snapshot");
         assert_eq!(backend.perf_counters().snapshot().semantic_batches_started, 0);
 
         let gate = Arc::new(TestBatchGate::default());
@@ -2454,7 +1782,10 @@ mod tests {
         let parsed = phalcom_ast::parser::parse(source, 0);
         backend.documents.open_or_update(uri.clone(), source.to_string());
         backend.analysis.mark_open(uri.clone());
-        backend.analysis.enqueue_file_update(uri.clone(), FileRevision(1), parsed.program);
+        let text: Arc<str> = Arc::from(source);
+        backend
+            .analysis
+            .enqueue_file_update(uri.clone(), SourceRevision(1), text, Arc::new(parsed.program));
         gate.wait_until_before_entered();
 
         let initialize: tower_lsp::lsp_types::InitializeParams = serde_json::from_value(json!({
@@ -2582,7 +1913,7 @@ mod tests {
         backend.analysis.flush();
         let snapshot = backend.perf_counters().snapshot();
         assert_eq!(snapshot.semantic_batches_started, 0, "presentation-only configuration must not rebuild core");
-        assert_eq!(backend.semantic.generation(), SemanticGeneration(0));
+        assert!(backend.analysis.snapshot().is_none());
         drop(service);
     }
 }

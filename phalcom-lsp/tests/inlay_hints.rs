@@ -16,7 +16,7 @@ async fn stable_runtime_shapes_are_exposed_as_inlay_hints() {
         "server must advertise inlay hints: {init:#?}"
     );
 
-    lsp.open(&uri, &fixture.text).await;
+    lsp.open_and_wait(&uri, &fixture.text).await;
 
     let response = lsp.inlay_hints(&uri, 100).await;
     let labels = hint_labels(&response);
@@ -39,7 +39,7 @@ async fn unknown_parameter_does_not_get_a_fake_precise_hint() {
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(None).await;
-    lsp.open(&uri, &fixture.text).await;
+    lsp.open_and_wait(&uri, &fixture.text).await;
 
     let labels = hint_labels(&lsp.inlay_hints(&uri, 100).await);
 

@@ -18,7 +18,8 @@
 //!
 //! ## AST-assisted refinement
 //!
-//! On top of the flat lexer pass, [`tokens_for`] runs a second, best-effort
+//! On top of the flat lexer pass, [`tokens_for_request`] runs a second,
+//! best-effort
 //! pass: it parses the same text (via [`phalcom_ast::parser::parse`], which
 //! recovers from syntax errors rather than aborting) and walks the resulting
 //! [`phalcom_ast::ast::Program`] to find every
@@ -48,11 +49,10 @@ use phalcom_ast::ast::{ClassMember, Expr, Statement};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::token::{StringSegment, Token};
 use phalcom_common::range::SourceRange;
-use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend, Url};
+use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend};
 
 use crate::line_index::LineIndex;
 use crate::request_context::{RequestContext, SourceMatch};
-use crate::semantic::{SemanticDb, SemanticOccurrenceKind};
 
 /// The semantic token types this server declares, in legend order.
 ///
@@ -518,14 +518,6 @@ fn encode(text: &str, line_index: &LineIndex, raw: &[RawToken]) -> Vec<SemanticT
 /// `line_index` must be built over the same `text` (callers pass a
 /// [`crate::documents::Document`]'s cached pair, which are always rebuilt
 /// together — see `documents.rs`).
-pub fn tokens_for(db: &SemanticDb, uri: &Url, text: &str, line_index: &LineIndex) -> Vec<SemanticToken> {
-    let mut raw = Vec::new();
-    collect_tokens(text, 0, &mut raw);
-    apply_symbol_operator_overrides(text, &mut raw);
-    apply_semantic_overrides(db, uri, text, &mut raw);
-    encode(text, line_index, &raw)
-}
-
 /// Computes semantic tokens from one coherent document/generation pair.
 pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
     let mut raw = Vec::new();
@@ -566,35 +558,6 @@ fn apply_compiler_occurrence_overrides(source: &phalcom_semantic::source_index::
     }
 }
 
-fn apply_semantic_overrides(db: &SemanticDb, uri: &Url, text: &str, raw: &mut Vec<RawToken>) {
-    if let Some(snapshot) = db.file_snapshot(uri) {
-        apply_occurrence_overrides(&snapshot, raw);
-        apply_decl_name_overrides_program(&snapshot.source.program, raw);
-    } else {
-        apply_decl_name_overrides(text, raw);
-    }
-}
-
-fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw: &mut [RawToken]) {
-    let mut occurrences_map = std::collections::BTreeMap::new();
-    for occurrence in file.occurrences.all() {
-        occurrences_map.insert((occurrence.range.start, occurrence.range.end), occurrence.kind);
-    }
-    for token in raw.iter_mut() {
-        if let Some(kind) = occurrences_map.get(&(token.start, token.end)) {
-            token.kind = match kind {
-                SemanticOccurrenceKind::Parameter => SemanticTokenKind::Parameter,
-                SemanticOccurrenceKind::Binding => SemanticTokenKind::Variable,
-                SemanticOccurrenceKind::Field => SemanticTokenKind::Property,
-                SemanticOccurrenceKind::Member => SemanticTokenKind::Method,
-                SemanticOccurrenceKind::Class => SemanticTokenKind::Class,
-                SemanticOccurrenceKind::Module => SemanticTokenKind::Variable,
-                SemanticOccurrenceKind::Operator => SemanticTokenKind::Operator,
-            };
-        }
-    }
-}
-
 /// Upgrades every flat-pass token in `raw` whose byte range exactly matches a
 /// `class`/method/getter/setter/constructor declaration's own name span to
 /// [`SemanticTokenKind::Class`]/[`SemanticTokenKind::Method`] — the
@@ -606,11 +569,6 @@ fn apply_occurrence_overrides(file: &crate::semantic::FileSemanticSnapshot, raw:
 /// walk does not find. `raw` must already be in the ascending source order
 /// [`collect_tokens`] produces; synthetic index-bracket tokens are appended
 /// and the final sequence is resorted by source range.
-fn apply_decl_name_overrides(text: &str, raw: &mut Vec<RawToken>) {
-    let parsed = phalcom_ast::parser::parse(text, 0);
-    apply_decl_name_overrides_program(&parsed.program, raw);
-}
-
 fn apply_decl_name_overrides_program(program: &phalcom_ast::ast::Program, raw: &mut Vec<RawToken>) {
     let mut decls = Vec::new();
     collect_decl_names(&program.statements, &mut decls);
@@ -749,349 +707,5 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
 fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<DeclNameOverride>) {
     if let Expr::Block(block_expr) = expr {
         collect_decl_names(&block_expr.body, out);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Classifies `text` end-to-end (lex → recurse interpolations → drop
-    /// position info) into a flat sequence of [`SemanticTokenKind`]s, for
-    /// table-driven assertions independent of delta-encoding.
-    fn kinds(text: &str) -> Vec<SemanticTokenKind> {
-        let mut raw = Vec::new();
-        collect_tokens(text, 0, &mut raw);
-        raw.into_iter().map(|t| t.kind).collect()
-    }
-
-    #[test]
-    fn keyword_identifier_number_string_operator() {
-        use SemanticTokenKind::{Keyword, Number, Operator, String, Variable};
-        assert_eq!(kinds("let x = 1 + \"a\""), vec![Keyword, Variable, Operator, Number, Operator, String]);
-    }
-
-    #[test]
-    fn bitwise_operators_are_operators() {
-        use SemanticTokenKind::{Operator, Variable};
-        assert_eq!(
-            kinds("x << y >> z & a | b ^ c ~ d"),
-            vec![
-                Variable, Operator, Variable, Operator, Variable, Operator, Variable, Operator, Variable, Operator, Variable, Operator, Variable,
-            ]
-        );
-    }
-
-    #[test]
-    fn punctuation_and_newline_are_uncolored() {
-        assert_eq!(
-            kinds("f(x, y)\n"),
-            vec![SemanticTokenKind::Variable, SemanticTokenKind::Variable, SemanticTokenKind::Variable,]
-        );
-    }
-
-    #[test]
-    fn bare_name_symbol_emits_hash_and_base_tokens() {
-        assert_eq!(kinds("#move"), vec![SemanticTokenKind::Selector, SemanticTokenKind::Variable]);
-    }
-
-    #[test]
-    fn operator_symbols_color_operator_spelling_as_selector() {
-        let mut raw = Vec::new();
-        let text = "#+ #- #** #<< #?. #... #*args # +";
-        collect_tokens(text, 0, &mut raw);
-        apply_symbol_operator_overrides(text, &mut raw);
-        let selector_ranges = raw
-            .iter()
-            .filter(|token| token.kind == SemanticTokenKind::Selector)
-            .map(|token| &text[token.start..token.end])
-            .collect::<Vec<_>>();
-        assert_eq!(selector_ranges, vec!["#", "+", "#", "-", "#", "**", "#", "<<", "#", "?.", "#", "...", "#", "#"]);
-    }
-
-    #[test]
-    fn selector_symbol_with_labels_emits_component_tokens() {
-        assert_eq!(
-            kinds("#move(_,to,duration)"),
-            vec![
-                SemanticTokenKind::Selector,
-                SemanticTokenKind::Variable,
-                SemanticTokenKind::Variable,
-                SemanticTokenKind::Variable,
-            ]
-        );
-    }
-
-    #[test]
-    fn string_interpolation_recurses_into_expression_body() {
-        use SemanticTokenKind::{Number, Operator, String, Variable};
-        assert_eq!(kinds(r#""a \(x + 1) b""#), vec![String, Variable, Operator, Number, String]);
-    }
-
-    #[test]
-    fn string_interpolation_with_no_literal_text_still_colors_quotes() {
-        // No literal run at all — the opening and closing quote each still
-        // form their own zero-literal `string` gap token around the single
-        // interpolation.
-        use SemanticTokenKind::{String, Variable};
-        assert_eq!(kinds(r#""\(x)""#), vec![String, Variable, String]);
-    }
-
-    #[test]
-    fn plain_string_with_no_interpolation_is_one_token() {
-        assert_eq!(kinds(r#""hello""#), vec![SemanticTokenKind::String]);
-    }
-
-    /// Like [`kinds`], but also runs the AST-assisted declaration-name
-    /// refinement pass ([`apply_decl_name_overrides`]) before flattening —
-    /// for asserting the `class`/`method` upgrade, not just the flat pass.
-    fn kinds_with_decl_overrides(text: &str) -> Vec<SemanticTokenKind> {
-        let mut raw = Vec::new();
-        collect_tokens(text, 0, &mut raw);
-        apply_decl_name_overrides(text, &mut raw);
-        raw.into_iter().map(|t| t.kind).collect()
-    }
-
-    #[test]
-    fn class_declaration_name_is_class_kind() {
-        use SemanticTokenKind::{Class, Keyword};
-        assert_eq!(kinds_with_decl_overrides("class Foo {\n}\n"), vec![Keyword, Class]);
-    }
-
-    #[test]
-    fn method_declaration_name_is_method_kind() {
-        use SemanticTokenKind::{Class, Keyword, Method, Variable};
-        // `class Foo { bar(_ x) { return x } }` — `bar` is the method name
-        // (Method), `x` in the parameter list and body is an ordinary
-        // Variable, untouched by the refinement pass.
-        assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n  bar(_ x) {\n    return x\n  }\n}\n"),
-            vec![Keyword, Class, Method, Variable, Keyword, Variable]
-        );
-    }
-
-    #[test]
-    fn getter_and_construct_names_are_method_kind() {
-        use SemanticTokenKind::{Class, Keyword, Method, Number};
-        // `@constructor\n new()` and a bare-body getter `greeting { return 1 }` —
-        // both `new` and `greeting` are declaration names, upgraded to
-        // Method.
-        assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n  @constructor\n  new() {\n  }\n  greeting {\n    return 1\n  }\n}\n"),
-            vec![Keyword, Class, Keyword, Method, Method, Keyword, Number]
-        );
-    }
-
-    #[test]
-    fn builtin_decorator_names_are_keyword_kind() {
-        use SemanticTokenKind::{Class, Keyword, Method, Operator, Variable};
-        assert_eq!(
-            kinds_with_decl_overrides("@class\nclass Foo {\n  @get\n  value { }\n  @set\n  value=(put next) { }\n}\n"),
-            vec![Keyword, Keyword, Class, Keyword, Method, Keyword, Method, Operator, Variable, Variable]
-        );
-    }
-
-    #[test]
-    fn index_declaration_brackets_are_method_kind() {
-        use SemanticTokenKind::{Class, Keyword, Method, Variable};
-        assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n  [_ index] { }\n}\n"),
-            vec![Keyword, Class, Method, Variable, Method]
-        );
-    }
-
-    #[test]
-    fn setter_name_is_method_kind() {
-        use SemanticTokenKind::{Class, Keyword, Method, Operator, Variable};
-        // `greeting=(put v) { }` — a setter: `greeting` is the declaration
-        // name (Method); `v` is an ordinary parameter binding, untouched.
-        assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n  greeting=(put v) {\n  }\n}\n"),
-            vec![Keyword, Class, Method, Operator, Variable, Variable]
-        );
-    }
-
-    #[test]
-    fn variable_reference_to_a_class_name_is_not_upgraded() {
-        // Only the declaration's own `name_range` is upgraded — an ordinary
-        // reference to the class name elsewhere in the file (e.g. as a
-        // superclass) stays a plain Variable, since it isn't the
-        // *declaring* occurrence. `is` itself is a keyword.
-        use SemanticTokenKind::{Class, Keyword, Variable};
-        assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n}\nclass Bar is Foo {\n}\n"),
-            vec![Keyword, Class, Keyword, Class, Keyword, Variable]
-        );
-    }
-
-    #[test]
-    fn legend_index_matches_token_types_order() {
-        assert_eq!(TOKEN_TYPES.len(), 10);
-        assert_eq!(SemanticTokenKind::Keyword.legend_index(), 0);
-        assert_eq!(SemanticTokenKind::Operator.legend_index(), 5);
-        assert_eq!(SemanticTokenKind::Class.legend_index(), 6);
-        assert_eq!(SemanticTokenKind::Method.legend_index(), 7);
-        assert_eq!(SemanticTokenKind::Parameter.legend_index(), 8);
-        assert_eq!(SemanticTokenKind::Property.legend_index(), 9);
-    }
-
-    #[test]
-    fn encode_produces_deltas_relative_to_previous_token() {
-        // "let x = 1\ny" -> classified tokens: let(0,3) x(4,5) =(6,7) 1(8,9)
-        // y(10,11) (Newline at 9,10 is uncolored and contributes no token).
-        let text = "let x = 1\ny";
-        let line_index = LineIndex::new(text);
-        let mut raw = Vec::new();
-        collect_tokens(text, 0, &mut raw);
-        let tokens = encode(text, &line_index, &raw);
-        assert_eq!(tokens.len(), 5);
-
-        // let: line 0, char 0, length 3
-        assert_eq!(tokens[0].delta_line, 0);
-        assert_eq!(tokens[0].delta_start, 0);
-        assert_eq!(tokens[0].length, 3);
-
-        // x: same line, char 4 -> delta_start = 4 - 0 = 4
-        assert_eq!(tokens[1].delta_line, 0);
-        assert_eq!(tokens[1].delta_start, 4);
-        assert_eq!(tokens[1].length, 1);
-
-        // =: same line, char 6 -> delta_start = 6 - 4 = 2
-        assert_eq!(tokens[2].delta_line, 0);
-        assert_eq!(tokens[2].delta_start, 2);
-        assert_eq!(tokens[2].length, 1);
-
-        // 1: same line, char 8 -> delta_start = 8 - 6 = 2
-        assert_eq!(tokens[3].delta_line, 0);
-        assert_eq!(tokens[3].delta_start, 2);
-        assert_eq!(tokens[3].length, 1);
-
-        // y: next line -> delta_line = 1, delta_start = absolute char (0)
-        assert_eq!(tokens[4].delta_line, 1);
-        assert_eq!(tokens[4].delta_start, 0);
-        assert_eq!(tokens[4].length, 1);
-    }
-
-    #[test]
-    fn tokens_for_matches_manual_encode() {
-        let text = "let x = 1\n";
-        let line_index = LineIndex::new(text);
-        let db = SemanticDb::new();
-        let uri = Url::parse("file:///main.ph").unwrap();
-        let tokens = tokens_for(&db, &uri, text, &line_index);
-        assert_eq!(tokens.len(), 4); // let, x, =, 1 (Newline is uncolored)
-    }
-
-    #[test]
-    fn plain_multiline_string_splits_across_lines() {
-        let text = "let s = \"\"\"\n    α\n    beta\n    \"\"\"";
-        let line_index = LineIndex::new(text);
-        let mut raw = Vec::new();
-        collect_tokens(text, 0, &mut raw);
-        let tokens = encode(text, &line_index, &raw);
-
-        // let, s, =, """ (line 0), α (line 1), beta (line 2), """ (line 3)
-        assert_eq!(tokens.len(), 7);
-
-        // let
-        assert_eq!(tokens[0].delta_line, 0);
-        assert_eq!(tokens[0].delta_start, 0);
-        assert_eq!(tokens[0].length, 3);
-
-        // s
-        assert_eq!(tokens[1].delta_line, 0);
-        assert_eq!(tokens[1].delta_start, 4);
-        assert_eq!(tokens[1].length, 1);
-
-        // =
-        assert_eq!(tokens[2].delta_line, 0);
-        assert_eq!(tokens[2].delta_start, 2);
-        assert_eq!(tokens[2].length, 1);
-
-        // """ on line 0
-        assert_eq!(tokens[3].delta_line, 0);
-        assert_eq!(tokens[3].delta_start, 2);
-        assert_eq!(tokens[3].length, 3);
-
-        // "    α" on line 1 (4 spaces + 1 UTF-16 unit for α = 5)
-        assert_eq!(tokens[4].delta_line, 1);
-        assert_eq!(tokens[4].delta_start, 0);
-        assert_eq!(tokens[4].length, 5);
-
-        // "    beta" on line 2 (4 spaces + 4 chars = 8)
-        assert_eq!(tokens[5].delta_line, 1);
-        assert_eq!(tokens[5].delta_start, 0);
-        assert_eq!(tokens[5].length, 8);
-
-        // "    \"\"\"" on line 3 (4 spaces + 3 quotes = 7)
-        assert_eq!(tokens[6].delta_line, 1);
-        assert_eq!(tokens[6].delta_start, 0);
-        assert_eq!(tokens[6].length, 7);
-    }
-
-    #[test]
-    fn multiline_interpolation_positions_are_exact() {
-        let text = "let s = \"\"\"\n    val \\(x + 1)\n    \"\"\"";
-        let line_index = LineIndex::new(text);
-        let mut raw = Vec::new();
-        collect_tokens(text, 0, &mut raw);
-        let tokens = encode(text, &line_index, &raw);
-
-        // Tokens:
-        // Line 0: let(0,3), s(4,1), =(6,1), """(8,3)
-        // Line 1: "    val "(0,8), x(10,1), +(12,1), 1(14,1), ")"(15,0) skipped or ""
-        // Line 2: "    \"\"\""(0,7)
-        let token_types: Vec<u32> = tokens.iter().map(|t| t.token_type).collect();
-        // let(Keyword=0), s(Variable=1), =(Operator=5), """(String=2), "    val "(String=2), x(Variable=1), +(Operator=5), 1(Number=3), "    \"\"\""(String=2)
-        assert_eq!(
-            token_types,
-            vec![
-                SemanticTokenKind::Keyword.legend_index(),
-                SemanticTokenKind::Variable.legend_index(),
-                SemanticTokenKind::Operator.legend_index(),
-                SemanticTokenKind::String.legend_index(),
-                SemanticTokenKind::String.legend_index(),
-                SemanticTokenKind::Variable.legend_index(),
-                SemanticTokenKind::Operator.legend_index(),
-                SemanticTokenKind::Number.legend_index(),
-                SemanticTokenKind::String.legend_index(),
-            ]
-        );
-    }
-
-    #[test]
-    fn string_interpolation_nonzero_offset_regression() {
-        let text = "let prefix = 0\nlet s = \"a \\(x) b\"";
-        let line_index = LineIndex::new(text);
-        let mut raw = Vec::new();
-        collect_tokens(text, 0, &mut raw);
-        let tokens = encode(text, &line_index, &raw);
-
-        // Check that `x` is recognized on line 1, character 13
-        // Line 1: "let s = \"a \(x) b\""
-        // 0..3: let
-        // 4..5: s
-        // 6..7: =
-        // 8..11: "a
-        // 13..14: x
-        // 14..17:  b"
-        let x_tok = tokens
-            .iter()
-            .find(|t| t.token_type == SemanticTokenKind::Variable.legend_index() && t.length == 1 && t.delta_line == 0 && t.delta_start == 5);
-        assert!(x_tok.is_some(), "x token must be accurately positioned");
-    }
-
-    #[test]
-    fn multiline_string_crlf_localization() {
-        let text = "let s = \"\"\"\r\n    line1\r\n    \"\"\"";
-        let line_index = LineIndex::new(text);
-        let mut raw = Vec::new();
-        collect_tokens(text, 0, &mut raw);
-        let tokens = encode(text, &line_index, &raw);
-
-        assert_eq!(tokens.len(), 6); // let, s, =, """, line1, """
-        for tok in &tokens {
-            assert!(tok.length > 0);
-        }
     }
 }

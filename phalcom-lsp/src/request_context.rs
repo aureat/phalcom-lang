@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use phalcom_modules::{ModuleId, SourceId, SourceRevision};
+use phalcom_modules::ModuleId;
 use phalcom_semantic::SemanticSnapshot;
 use tower_lsp::lsp_types::Url;
 
@@ -19,7 +19,7 @@ pub enum SourceMatch {
     Unmapped,
 }
 
-/// Immutable request inputs pinned at handler entry.
+/// Immutable request inputs pinned for one request.
 #[derive(Clone)]
 pub struct RequestContext {
     /// URI used by the protocol request.
@@ -36,7 +36,7 @@ pub struct RequestContext {
 
 impl RequestContext {
     /// Pins document data and one canonical snapshot for the request lifetime.
-    pub fn new_with_compiler(document: DocumentSnapshot, compiler: Option<Arc<SemanticSnapshot>>, uri: &Url) -> Self {
+    pub fn new(document: DocumentSnapshot, compiler: Option<Arc<SemanticSnapshot>>, uri: &Url) -> Self {
         let canonical_module = compiler.as_deref().and_then(|snapshot| canonical_module_for_uri(snapshot, uri));
         let source_match = classify_source(&document, compiler.as_deref(), canonical_module.as_ref());
         Self {
@@ -66,10 +66,15 @@ fn classify_source(document: &DocumentSnapshot, snapshot: Option<&SemanticSnapsh
     let Some(module) = module else {
         return SourceMatch::Unmapped;
     };
-    let Some(source) = snapshot.sources.get(module) else {
+    let source_text = snapshot
+        .sources
+        .get(module)
+        .map(|source| source.text.as_ref())
+        .or_else(|| snapshot.presentation_source(module));
+    let Some(source_text) = source_text else {
         return SourceMatch::Unmapped;
     };
-    if source.text.as_ref() == document.text.as_ref() {
+    if source_text == document.text.as_ref() {
         SourceMatch::Exact
     } else {
         SourceMatch::Stale
@@ -91,7 +96,7 @@ fn canonical_module_for_uri(snapshot: &SemanticSnapshot, uri: &Url) -> Option<Mo
         return Some(module);
     }
     if uri.scheme() == "file" {
-        let source = SourceId(uri.to_file_path().ok()?.to_string_lossy().into());
+        let source = crate::source_transport::source_id_for_uri(uri)?;
         return snapshot.module_for_source(&source).cloned();
     }
     None
@@ -100,55 +105,87 @@ fn canonical_module_for_uri(snapshot: &SemanticSnapshot, uri: &Url) -> Option<Mo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phalcom_modules::{SourceLocation, WorkspaceSourceMutation};
+    use crate::documents::DocumentStore;
+    use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
     use phalcom_semantic::SemanticWorkspaceSession;
     use std::path::PathBuf;
 
-    #[test]
-    fn old_request_keeps_immutable_compiler_snapshot_after_new_publication() {
-        let path = PathBuf::from(format!("/tmp/phalcom-request-context-{}.ph", std::process::id()));
-        let uri = Url::from_file_path(&path).expect("test path must be a file URI");
+    fn source() -> (Url, SourceLocation) {
+        let path = PathBuf::from("/workspace/request.ph");
+        let uri = Url::from_file_path(&path).expect("test source URI");
         let location = SourceLocation {
             source_id: SourceId(path.to_string_lossy().into()),
             display_path: path,
         };
+        (uri, location)
+    }
+
+    fn published_snapshot(location: SourceLocation, text: &str) -> Arc<SemanticSnapshot> {
         let mut session = SemanticWorkspaceSession::new();
-        let first = session
-            .apply_module_mutation(WorkspaceSourceMutation::SetOverlay {
-                source: location.clone(),
-                text: Arc::from("class Main { old() {} }\n"),
-                revision: SourceRevision(1),
-            })
-            .expect("first publication");
-        let old = first.snapshot;
-        let old_id = old.id;
-        let old_text = old.sources.values().next().expect("source publication").text.clone();
-
-        let document = crate::documents::Document::new_with_revision("class Main { old() {} }\n".to_string(), SourceRevision(1));
-        let document = crate::documents::DocumentSnapshot {
-            text: document.text,
-            parse: document.parse,
-            line_index: document.line_index,
-            revision: document.revision,
-            version: document.version,
-        };
-        let request = RequestContext::new_with_compiler(document, Some(old.clone()), &uri);
-        let reader = std::thread::spawn(move || {
-            let pinned = request.compiler.expect("request must retain compiler snapshot");
-            (pinned.id, pinned.sources.values().next().expect("pinned source").text.clone())
-        });
-
-        let second = session
-            .apply_module_mutation(WorkspaceSourceMutation::SetOverlay {
+        session
+            .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
                 source: location,
-                text: Arc::from("class Main { new() {} }\n"),
-                revision: SourceRevision(2),
-            })
-            .expect("second publication");
-        assert_ne!(second.snapshot.id, old_id);
+                text: Arc::from(text),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            }])
+            .expect("canonical source publication");
+        session.last_snapshot().cloned().expect("published snapshot")
+    }
 
-        let (pinned_id, pinned_text) = reader.join().expect("reader must complete");
-        assert_eq!(pinned_id, old_id);
-        assert_eq!(pinned_text, old_text);
+    fn context(uri: &Url, text: &str, snapshot: Arc<SemanticSnapshot>) -> RequestContext {
+        let documents = DocumentStore::new();
+        documents.open_or_update(uri.clone(), text.to_string());
+        RequestContext::new(documents.snapshot(uri).expect("open test document"), Some(snapshot), uri)
+    }
+
+    #[test]
+    fn exact_source_allows_canonical_semantic_requests() {
+        let (uri, location) = source();
+        let snapshot = published_snapshot(location, "class Request {}\n");
+        let request = context(&uri, "class Request {}\n", snapshot);
+        assert_eq!(request.source_match, SourceMatch::Exact);
+        assert!(!request.is_stale());
+        assert!(request.compiler_module().is_some());
+    }
+
+    #[test]
+    fn stale_source_fails_closed() {
+        let (uri, location) = source();
+        let snapshot = published_snapshot(location, "class Request {}\n");
+        let request = context(&uri, "class Changed {}\n", snapshot);
+        assert_eq!(request.source_match, SourceMatch::Stale);
+        assert!(request.is_stale());
+    }
+
+    #[test]
+    fn unmapped_source_has_no_canonical_module() {
+        let (_mapped_uri, location) = source();
+        let snapshot = published_snapshot(location, "class Request {}\n");
+        let unmapped_uri = Url::parse("file:///workspace/other.ph").expect("unmapped URI");
+        let request = context(&unmapped_uri, "class Other {}\n", snapshot);
+        assert_eq!(request.source_match, SourceMatch::Unmapped);
+        assert!(request.is_stale());
+        assert!(request.compiler_module().is_none());
+    }
+
+    #[test]
+    fn compiler_core_presentation_text_is_an_exact_source() {
+        let (_uri, location) = source();
+        let snapshot = published_snapshot(location, "class Request {}\n");
+        let core = ModuleId::core();
+        let text = snapshot
+            .presentation_source(&core)
+            .expect("semantic publication must retain canonical core presentation text")
+            .to_owned();
+        let core_uri = Url::parse(crate::core_documents::CORE_MODULE_URI).expect("core URI");
+
+        let request = context(&core_uri, &text, snapshot);
+        assert_eq!(request.compiler_module(), Some(&core));
+        assert_eq!(
+            request.source_match,
+            SourceMatch::Exact,
+            "the compiler's own presentation source must be coherent with the pinned semantic snapshot"
+        );
     }
 }

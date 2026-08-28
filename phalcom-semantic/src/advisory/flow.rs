@@ -25,6 +25,8 @@ pub struct AdvisoryFlowContext<'a> {
     pub source_site_for_range: &'a dyn Fn(SourceRange) -> Option<SourceSiteId>,
     pub resolved_callable_for_range: &'a dyn Fn(SourceRange) -> Option<CallableId>,
     pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[phalcom_ast::ast::PackItem]) -> Option<CallableId>>,
+    pub resolve_formal_call_result: Option<&'a dyn Fn(&CallableId, Option<&ValueShape>) -> Option<AdvisoryFact>>,
+    pub advisory_transfer_target: Option<&'a dyn Fn(&CallableId) -> CallableId>,
     pub resolve_module_member: Option<&'a dyn Fn(&ValueShape, &str) -> Option<ValueShape>>,
     pub resolve_method_family: Option<&'a dyn Fn(&ValueShape, &NormalizedSelectorSpec) -> Option<CapturedMethodFamilyShape>>,
 }
@@ -38,6 +40,8 @@ pub struct AdvisoryFlowProduct {
     pub expressions: BTreeMap<SourceSiteId, AdvisoryFact>,
     /// Advisory facts observed at normal return statements.
     pub returns: Vec<AdvisoryFact>,
+    /// Canonical call targets keyed by the exact selector/name source range.
+    pub call_targets: Vec<(SourceRange, CallableId)>,
     /// Parameter facts contributed by resolved call sites in this traversal.
     pub parameter_contributions: BTreeMap<AdvisoryParameterSlot, AdvisoryFact>,
     /// Advisory facts observed for implicit field assignments.
@@ -142,6 +146,8 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
         source_site_for_range: context.source_site_for_range,
         resolved_callable_for_range: context.resolved_callable_for_range,
         resolve_callable_for_shape: context.resolve_callable_for_shape,
+        resolve_formal_call_result: context.resolve_formal_call_result,
+        advisory_transfer_target: context.advisory_transfer_target,
         resolve_module_member: context.resolve_module_member,
         resolve_method_family: context.resolve_method_family,
         call_observer: Some(&observe_call),
@@ -168,17 +174,20 @@ fn analyze_expression(expr: &phalcom_ast::ast::Expr, context: &AdvisoryFlowConte
 }
 
 fn record_call_contributions(product: &mut AdvisoryFlowProduct, context: &AdvisoryFlowContext<'_>, call: AdvisoryCallObservation) {
+    if let Some(range) = call.target_range {
+        product.call_targets.push((range, call.target.clone()));
+    }
     let mut positional = 0;
     for argument in call.arguments {
         let index = if let Some(label) = argument.label.as_deref() {
-            call.target
+            call.transfer_target
                 .selector
                 .slots
                 .iter()
                 .position(|slot| matches!(slot, SelectorSlot::Label(candidate) if candidate == label))
         } else {
             let index = call
-                .target
+                .transfer_target
                 .selector
                 .slots
                 .iter()
@@ -200,7 +209,7 @@ fn record_call_contributions(product: &mut AdvisoryFlowProduct, context: &Adviso
                 .fact
                 .derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(call.target.clone()))
         };
-        let slot = AdvisoryParameterSlot::new(call.target.clone(), index as u32);
+        let slot = AdvisoryParameterSlot::new(call.transfer_target.clone(), index as u32);
         product
             .parameter_contributions
             .entry(slot)

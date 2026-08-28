@@ -1,12 +1,11 @@
 //! Integration tests for LSP `phalcom/analysisStatus` status notifications.
 
-use std::fs;
-use std::sync::Arc;
-
 use phalcom_lsp::analysis_service::{AnalysisEvent, AnalysisService, WorkspaceScanRequest};
 use phalcom_lsp::analysis_status::AnalysisPhase;
-use phalcom_lsp::semantic::SemanticDb;
 use phalcom_lsp::workspace_scan::AnalysisMode;
+use phalcom_modules::SourceRevision;
+use std::fs;
+use std::sync::Arc;
 
 #[test]
 fn analysis_status_transitions_and_session_increment() {
@@ -15,8 +14,7 @@ fn analysis_status_transitions_and_session_increment() {
     fs::create_dir_all(&root).expect("create temp dir");
     fs::write(root.join("main.ph"), "class Main { main() {} }\n").expect("write main file");
 
-    let db = Arc::new(SemanticDb::new());
-    let (service, mut rx) = AnalysisService::new(db);
+    let (service, mut rx) = AnalysisService::new();
 
     // Initial status event on worker spawn
     let first = rx.blocking_recv().expect("starting status");
@@ -92,8 +90,7 @@ fn edit_only_batch_returns_to_ready_after_publication() {
     let file_path = root.join("main.ph");
     fs::write(&file_path, "class Main { main() {} }\n").expect("write main file");
 
-    let db = Arc::new(SemanticDb::new());
-    let (service, mut rx) = AnalysisService::new(db);
+    let (service, mut rx) = AnalysisService::new();
 
     service.configure_workspace(WorkspaceScanRequest {
         roots: vec![root.clone()],
@@ -118,7 +115,8 @@ fn edit_only_batch_returns_to_ready_after_publication() {
     let source = "class Main { main() { let x = 42; } }\n";
     let program = phalcom_ast::parse(source, 0).program;
     service.mark_open(uri.clone());
-    service.enqueue_file_update(uri, phalcom_lsp::semantic::FileRevision(2), program);
+    let text: Arc<str> = Arc::from(source);
+    service.enqueue_file_update(uri, SourceRevision(2), text, Arc::new(program));
     service.flush();
 
     let mut statuses = Vec::new();

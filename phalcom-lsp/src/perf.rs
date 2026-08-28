@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-/// Performance counters owned by one analysis service and semantic database.
+/// Performance counters owned by one analysis service and its worker.
 #[derive(Debug, Default)]
 pub struct PerfCounters {
     /// Count of source updates enqueued for analysis.
@@ -225,7 +225,7 @@ pub type PerfCountersHandle = Arc<PerfCounters>;
 
 /// Compatibility counter set for callers that used the original global API.
 ///
-/// Production analysis owns counters through [`crate::semantic::SemanticDb`]
+/// Production analysis owns counters through [`crate::analysis_service::AnalysisService`]
 /// and does not increment this set. Keeping this handle avoids breaking tools
 /// that imported `COUNTERS` while preventing their resets from affecting live
 /// services or parallel tests.

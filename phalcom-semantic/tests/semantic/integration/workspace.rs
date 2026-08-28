@@ -28,41 +28,35 @@ fn semantic_batch_publishes_once_and_retains_workspace_store_and_modules() {
     let mut session = SemanticWorkspaceSession::new();
 
     let first = session
-        .apply_module_mutations_at_generation(
-            [WorkspaceSourceBatchMutation::SetOverlay {
-                source: left.clone(),
-                text: Arc::from("class Left { value() {} }\n"),
-                revision: SourceRevision(1),
-                recovered_program: None,
-            }],
-            10,
-        )
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: left.clone(),
+            text: Arc::from("class Left { value() {} }\n"),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
         .expect("initial semantic publication");
     let left_module = first.snapshot.module_for_source(&left.source_id).cloned().expect("left module");
     let workspace = first.snapshot.id.workspace();
     let store = first.snapshot.store.id();
 
     let second = session
-        .apply_module_mutations_at_generation(
-            [
-                WorkspaceSourceBatchMutation::SetOverlay {
-                    source: left.clone(),
-                    text: Arc::from("class Left { value() {} changed() {} }\n"),
-                    revision: SourceRevision(2),
-                    recovered_program: None,
-                },
-                WorkspaceSourceBatchMutation::SetOverlay {
-                    source: right.clone(),
-                    text: Arc::from("class Right { value() {} }\n"),
-                    revision: SourceRevision(1),
-                    recovered_program: None,
-                },
-            ],
-            11,
-        )
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: left.clone(),
+                text: Arc::from("class Left { value() {} changed() {} }\n"),
+                revision: SourceRevision(2),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: right.clone(),
+                text: Arc::from("class Right { value() {} }\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
         .expect("coalesced semantic publication");
 
-    assert_eq!(second.snapshot.generation, 11);
+    assert_eq!(second.snapshot.generation, 2);
     assert_eq!(second.snapshot.id.workspace(), workspace);
     assert_eq!(second.snapshot.store.id(), store);
     assert_eq!(session.module_session().generation(), 2);

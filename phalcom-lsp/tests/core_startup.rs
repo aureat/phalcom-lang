@@ -1,12 +1,11 @@
 //! Core startup depth and demand-driven analysis coverage.
 
-use std::fs;
-use std::sync::Arc;
-
 use phalcom_lsp::analysis_service::{AnalysisEvent, AnalysisService, WorkspaceScanRequest};
 use phalcom_lsp::analysis_status::AnalysisPhase;
-use phalcom_lsp::semantic::SemanticDb;
 use phalcom_lsp::workspace_scan::AnalysisMode;
+use phalcom_modules::SourceRevision;
+use std::fs;
+use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
 
 #[test]
@@ -15,8 +14,7 @@ fn startup_publishes_core_surface_without_solving_callable_bodies() {
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).expect("create empty workspace root");
 
-    let db = Arc::new(SemanticDb::new());
-    let (service, mut events) = AnalysisService::new(db.clone());
+    let (service, mut events) = AnalysisService::new();
     let _ = events.blocking_recv().expect("initial status event");
 
     service.configure_workspace(WorkspaceScanRequest {
@@ -35,9 +33,7 @@ fn startup_publishes_core_surface_without_solving_callable_bodies() {
     }
 
     assert!(saw_ready, "startup must reach Ready");
-    let snapshot = db.snapshot();
-    assert!(!snapshot.classes.is_empty(), "startup must publish core declarations");
-    assert!(snapshot.summaries.is_empty(), "startup must not publish eager core callable summaries");
+    assert!(service.snapshot().is_none(), "empty workspace must not publish a source snapshot");
     assert_eq!(
         service.perf_counters().snapshot().callables_analyzed,
         0,
@@ -49,7 +45,7 @@ fn startup_publishes_core_surface_without_solving_callable_bodies() {
 }
 
 #[test]
-fn opening_selected_core_source_allows_explicit_deep_analysis() {
+fn opening_selected_core_source_remains_transport_only() {
     let root = std::env::temp_dir().join(format!("phalcom_lsp_core_deep_{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).expect("create workspace root");
@@ -57,8 +53,7 @@ fn opening_selected_core_source_allows_explicit_deep_analysis() {
     let source = "class Core { value() { 1 } }\n";
     fs::write(&core_path, source).expect("write core source");
 
-    let db = Arc::new(SemanticDb::new());
-    let (service, mut events) = AnalysisService::new(db.clone());
+    let (service, mut events) = AnalysisService::new();
     let _ = events.blocking_recv().expect("initial status event");
     service.configure_workspace(WorkspaceScanRequest {
         roots: vec![root.clone()],
@@ -70,15 +65,17 @@ fn opening_selected_core_source_allows_explicit_deep_analysis() {
     assert_eq!(service.perf_counters().snapshot().callables_analyzed, 0, "startup must remain surface-only");
 
     let core_uri = Url::from_file_path(&core_path).expect("core URI");
-    service.mark_open(core_uri);
-    service.enqueue_core_update(phalcom_lsp::semantic::FileRevision(2), phalcom_ast::parse(source, 0).program);
+    service.mark_open(core_uri.clone());
+    let text: Arc<str> = Arc::from(source);
+    service.enqueue_file_update(core_uri, SourceRevision(2), text, Arc::new(phalcom_ast::parse(source, 0).program));
     service.flush();
 
-    assert!(
-        service.perf_counters().snapshot().callables_analyzed > 0,
-        "opening core source must permit deep analysis: {:?}",
-        service.perf_counters().snapshot()
+    let counters = service.perf_counters().snapshot();
+    assert_eq!(
+        counters.callables_analyzed, 0,
+        "core source selection must not trigger LSP-owned body analysis: {counters:?}"
     );
+    assert!(service.snapshot().is_some(), "explicit source update must publish through canonical session");
 
     service.shutdown();
     let _ = fs::remove_dir_all(root);

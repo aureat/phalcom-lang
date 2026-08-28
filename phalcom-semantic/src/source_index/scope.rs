@@ -69,6 +69,14 @@ pub enum SourceBindingKind {
     Import,
 }
 
+/// Compiler-owned identity for receiver syntax that has implicit dispatch
+/// semantics rather than a lexical binding target.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SourceReceiverKind {
+    SelfValue,
+    SuperValue,
+}
+
 /// Snapshot-owned metadata for one lexical binding declaration site.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceBindingInfo {
@@ -108,6 +116,7 @@ pub struct SourceScopeIndex {
     pub bindings: BTreeMap<SourceSiteId, SourceBindingInfo>,
     pub sites: BTreeMap<SourceSiteId, SourceSite>,
     pub targets: BTreeMap<SourceSiteId, SemanticTargetId>,
+    pub receiver_kinds: BTreeMap<SourceSiteId, SourceReceiverKind>,
     pub declaration_sources: BTreeMap<DeclarationId, DeclarationSourceInfo>,
     pub callable_sources: BTreeMap<CallableId, CallableSourceInfo>,
     pub field_sources: BTreeMap<crate::identity::FieldId, FieldSourceInfo>,
@@ -143,6 +152,7 @@ impl SourceScopeIndex {
             bindings: BTreeMap::new(),
             sites: BTreeMap::new(),
             targets: BTreeMap::new(),
+            receiver_kinds: BTreeMap::new(),
             declaration_sources: BTreeMap::new(),
             callable_sources: BTreeMap::new(),
             field_sources: BTreeMap::new(),
@@ -203,6 +213,10 @@ impl SourceScopeIndex {
 
     pub(crate) fn register_target(&mut self, site: SourceSiteId, target: SemanticTargetId) {
         self.targets.insert(site, target);
+    }
+
+    pub(crate) fn register_receiver_kind(&mut self, site: SourceSiteId, kind: SourceReceiverKind) {
+        self.receiver_kinds.insert(site, kind);
     }
 
     /// Finds the innermost lexical scope containing `offset`.
@@ -298,5 +312,10 @@ impl SourceScopeIndex {
     /// Returns the exact canonical target attached to a source site, if any.
     pub fn target_for(&self, site: &SourceSiteId) -> Option<&SemanticTargetId> {
         self.targets.get(site)
+    }
+
+    /// Returns compiler-recorded receiver syntax for one source site.
+    pub fn receiver_kind(&self, site: &SourceSiteId) -> Option<SourceReceiverKind> {
+        self.receiver_kinds.get(site).copied()
     }
 }

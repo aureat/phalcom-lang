@@ -71,6 +71,10 @@ pub struct AdvisoryExpressionContext<'a> {
     /// Resolves a method call from an advisory receiver shape through the
     /// compiler dispatch adapter when no formal call attachment is available.
     pub resolve_callable_for_shape: Option<&'a dyn Fn(&ValueShape, &str, &[PackItem]) -> Option<CallableId>>,
+    /// Projects a canonical callable's formal result against the concrete receiver.
+    pub resolve_formal_call_result: Option<&'a dyn Fn(&CallableId, Option<&ValueShape>) -> Option<AdvisoryFact>>,
+    /// Maps a public callable identity to the compiler-owned advisory transfer/summary identity.
+    pub advisory_transfer_target: Option<&'a dyn Fn(&CallableId) -> CallableId>,
     /// Resolves a member of a compiler-linked module shape. This is kept
     /// separate from method dispatch because top-level module exports have no
     /// callable formal attachment of their own.
@@ -99,6 +103,10 @@ pub struct AdvisoryCallArgument {
 pub struct AdvisoryCallObservation {
     /// Resolved canonical callable target.
     pub target: CallableId,
+    /// Compiler-owned advisory parameter/summary transfer target.
+    pub transfer_target: CallableId,
+    /// Exact source range of the written selector/name token, when present.
+    pub target_range: Option<SourceRange>,
     /// Exact call expression range.
     pub range: SourceRange,
     /// Arguments evaluated in source order.
@@ -256,11 +264,11 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
         Expr::MethodCall(call) => {
             let receiver = analyze_expr(&call.object, context);
             let arguments = call.args.iter().map(|arg| analyze_pack(arg, context)).collect::<Vec<_>>();
-            resolved_call_or_unknown_with_shape(call.range, &receiver.shape, &call.method, &call.args, &arguments, context)
+            resolved_call_or_unknown_with_shape(call.range, call.method_range, &receiver.shape, &call.method, &call.args, &arguments, context)
         }
         Expr::UnqualifiedCall(call) => {
             let arguments = call.args.iter().map(|arg| analyze_pack(arg, context)).collect::<Vec<_>>();
-            resolved_call_or_unknown_with_arguments(call.range, &arguments, context)
+            resolved_call_or_unknown_with_arguments_at(call.range, call.name_range, &arguments, context)
         }
         Expr::GetProperty(property) => {
             let object = analyze_expr(&property.object, context);
@@ -427,72 +435,90 @@ fn resolved_call_or_unknown(range: SourceRange, context: &AdvisoryExpressionCont
 }
 
 fn resolved_call_or_unknown_with_arguments(range: SourceRange, arguments: &[AdvisoryCallArgument], context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
-    let Some(callable) = (context.resolved_callable_for_range)(range).map(advisory_callable_id) else {
+    resolved_call_or_unknown_with_arguments_at(range, None, arguments, context)
+}
+
+fn resolved_call_or_unknown_with_arguments_at(
+    range: SourceRange,
+    target_range: Option<SourceRange>,
+    arguments: &[AdvisoryCallArgument],
+    context: &AdvisoryExpressionContext<'_>,
+) -> AdvisoryFact {
+    let Some(callable) = (context.resolved_callable_for_range)(range) else {
         return unknown_at(context, range);
     };
-    observe_call(callable.clone(), range, arguments, context);
-    context
-        .callable_returns
-        .get(&callable)
-        .cloned()
-        .map(|fact| fact.derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable)))
-        .unwrap_or_else(AdvisoryFact::unknown)
+    resolved_callable_fact(callable, None, range, target_range, arguments, context)
 }
 
 fn resolved_call_or_unknown_with_shape(
     range: SourceRange,
+    target_range: Option<SourceRange>,
     receiver: &ValueShape,
     name: &str,
     args: &[PackItem],
     arguments: &[AdvisoryCallArgument],
     context: &AdvisoryExpressionContext<'_>,
 ) -> AdvisoryFact {
-    if let Some(callable) = (context.resolved_callable_for_range)(range) {
-        let callable = advisory_callable_id(callable);
-        observe_call(callable.clone(), range, arguments, context);
-        return callable_fact(callable, context);
-    }
-    let Some(resolve) = context.resolve_callable_for_shape else {
-        return unknown_at(context, range);
-    };
-    let Some(callable) = resolve(receiver, name, args) else {
-        return unknown_at(context, range);
-    };
-    observe_call(callable.clone(), range, arguments, context);
-    callable_fact(callable, context)
-}
-
-/// Source occurrence indexing retains constructor declarations on the class
-/// dispatch side, while advisory callable summaries model the generated
-/// instance initializer. Normalize that boundary before querying summaries.
-fn advisory_callable_id(callable: CallableId) -> CallableId {
-    if callable.side == DispatchSide::Class
-        && callable.selector.kind == phalcom_common::selector::SelectorKind::Method
-        && matches!(&callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
-    {
-        CallableId::new(callable.owner, callable.selector, DispatchSide::Instance)
-    } else {
+    let callable = if let Some(callable) = (context.resolved_callable_for_range)(range) {
         callable
-    }
+    } else {
+        let Some(resolve) = context.resolve_callable_for_shape else {
+            return unknown_at(context, range);
+        };
+        let Some(callable) = resolve(receiver, name, args) else {
+            return unknown_at(context, range);
+        };
+        callable
+    };
+    resolved_callable_fact(callable, Some(receiver), range, target_range, arguments, context)
 }
 
-fn observe_call(target: CallableId, range: SourceRange, arguments: &[AdvisoryCallArgument], context: &AdvisoryExpressionContext<'_>) {
+fn resolved_callable_fact(
+    callable: CallableId,
+    receiver: Option<&ValueShape>,
+    range: SourceRange,
+    target_range: Option<SourceRange>,
+    arguments: &[AdvisoryCallArgument],
+    context: &AdvisoryExpressionContext<'_>,
+) -> AdvisoryFact {
+    let transfer_target = context
+        .advisory_transfer_target
+        .map(|resolve| resolve(&callable))
+        .unwrap_or_else(|| callable.clone());
+    observe_call(callable.clone(), transfer_target.clone(), range, target_range, arguments, context);
+
+    if let Some(resolve) = context.resolve_formal_call_result
+        && let Some(fact) = resolve(&callable, receiver)
+    {
+        return fact.derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable));
+    }
+
+    context
+        .callable_returns
+        .get(&callable)
+        .or_else(|| context.callable_returns.get(&transfer_target))
+        .cloned()
+        .map(|fact| fact.derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable)))
+        .unwrap_or_else(AdvisoryFact::unknown)
+}
+
+fn observe_call(
+    target: CallableId,
+    transfer_target: CallableId,
+    range: SourceRange,
+    target_range: Option<SourceRange>,
+    arguments: &[AdvisoryCallArgument],
+    context: &AdvisoryExpressionContext<'_>,
+) {
     if let Some(observer) = context.call_observer {
         observer(AdvisoryCallObservation {
             target,
+            transfer_target,
+            target_range,
             range,
             arguments: arguments.to_vec(),
         });
     }
-}
-
-fn callable_fact(callable: CallableId, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
-    context
-        .callable_returns
-        .get(&callable)
-        .cloned()
-        .map(|fact| fact.derive(AdvisoryConfidence::Interprocedural, AdvisoryOrigin::Callable(callable)))
-        .unwrap_or_else(AdvisoryFact::unknown)
 }
 
 fn literal(context: &AdvisoryExpressionContext<'_>, declaration: Option<DeclarationId>, range: SourceRange) -> AdvisoryFact {

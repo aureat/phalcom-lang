@@ -12,10 +12,9 @@
 //!    source of truth for the prose and is deleted once this module is
 //!    green (deferred to a follow-up, sequenced edit per the plan).
 //! 2. **Selector signature + kind + defining class** — resolved by the
-//!    caller (`crate::backend::Backend::hover_at`) from
-//!    [`crate::index::WorkspaceIndex::definition_info`] (user classes) and
-//!    the live semantic core surface (builtins), then rendered
-//!    by [`render_selector_hover`].
+//!    caller (`crate::backend::Backend::hover_at`) from compiler-owned source
+//!    metadata and advisory facts, then rendered by
+//!    [`render_selector_hover`].
 //! 3. **Phaldoc harvest** ([`harvest_doc_for_declaration`]) — a raw re-scan of
 //!    the defining file's source text for `///` doc blocks, per
 //!    `docs/spec/v0.2/experimental/doc-comments-phaldoc.md` §1-5. Phaldoc is
@@ -37,8 +36,9 @@ use phalcom_ast::token::Token;
 
 use crate::line_index::LineIndex;
 use crate::selectors::class_member_selector;
-use crate::semantic::{BindingInfo, ClassId, Confidence, InferredValue, SemanticBindingKind, ValueShape};
 use phalcom_semantic::FormalPresentation;
+use phalcom_semantic::advisory::{AdvisoryConfidence, AdvisoryFact};
+use phalcom_semantic::identity::DeclarationId;
 
 /// The contextual (non-keyword-token) words that carry their own hover blurb
 /// only by convention, not by reserved-word status: they lex as
@@ -216,7 +216,8 @@ pub fn keyword_blurb(word: &str) -> Option<&'static str> {
 /// Keywords are not represented in the AST as such (the parser consumes them
 /// as grammar, not as a node), so this is a raw [`Lexer`] scan rather than a
 /// walk of a cached [`Program`] — the same class of lookup
-/// [`crate::index::selector_at_offset`] does for selectors, one level lower.
+/// Compiler-owned source metadata handles semantic selector resolution; this
+/// helper only handles syntax-level keyword spelling.
 /// Returns `None` if the token containing `offset` is not a keyword/
 /// contextual word (e.g. an ordinary identifier, a literal, or punctuation).
 pub fn keyword_at_offset(text: &str, offset: usize) -> Option<(&'static str, std::ops::Range<usize>)> {
@@ -246,7 +247,8 @@ pub fn identifier_at_offset(text: &str, offset: usize) -> Option<(String, Range<
 
 /// Returns the dotted identifier path containing `offset`, such as
 /// `Provider.User`, together with the range of the identifier under the
-/// cursor. The semantic database decides whether the path is a class.
+/// cursor. Compiler-owned semantic metadata decides whether the path is a
+/// class.
 pub fn qualified_identifier_at_offset(text: &str, offset: usize) -> Option<(String, Range<usize>)> {
     let (identifier, range) = identifier_at_offset(text, offset)?;
     let mut path_start = range.start;
@@ -656,7 +658,7 @@ pub fn render_keyword_hover(word: &str, blurb: &str) -> String {
 }
 
 /// Renders a class declaration/reference and its declaration-identity docs.
-pub fn render_class_hover(class: &ClassId, superclass: Option<&ClassId>, phaldoc: Option<&PhaldocDoc>) -> String {
+pub fn render_class_hover(class: &DeclarationId, superclass: Option<&DeclarationId>, phaldoc: Option<&PhaldocDoc>) -> String {
     let header = match superclass {
         Some(superclass) => format!("`{}` — class, is {}", class.name, superclass.name),
         None => format!("`{}` — class", class.name),
@@ -679,94 +681,51 @@ pub fn render_class_hover(class: &ClassId, superclass: Option<&ClassId>, phaldoc
     sections.join("\n\n---\n\n")
 }
 
-/// Renders one lexical binding or parameter with formal type knowledge or advisory value.
-pub fn render_binding_hover_with_formal(
-    binding: &BindingInfo,
-    formal: Option<&FormalPresentation>,
-    value: Option<&InferredValue>,
-    phaldoc: Option<&PhaldocDoc>,
-) -> String {
-    render_binding_hover_with_formal_and_declared(binding, formal, None, value, phaldoc)
-}
-
-/// Renders one binding with current formal knowledge and an optional
-/// compiler-owned declaration contract.
-pub fn render_binding_hover_with_formal_and_declared(
-    binding: &BindingInfo,
-    formal: Option<&FormalPresentation>,
-    declared: Option<&FormalPresentation>,
-    value: Option<&InferredValue>,
-    phaldoc: Option<&PhaldocDoc>,
-) -> String {
-    let kind = match binding.kind {
-        SemanticBindingKind::TopLevelLet | SemanticBindingKind::LocalLet => "mutable binding",
-        SemanticBindingKind::TopLevelConst | SemanticBindingKind::LocalConst => "constant binding",
-        SemanticBindingKind::MethodParameter | SemanticBindingKind::SetterParameter | SemanticBindingKind::IndexParameter => "parameter",
-        SemanticBindingKind::ClosureParameter => "closure parameter",
-        SemanticBindingKind::ForBinding => "loop binding",
-        SemanticBindingKind::Destructure => "destructured binding",
-        SemanticBindingKind::Import => "import binding",
-    };
-    let mut sections = vec![format!("`{}` — {kind}", binding.name)];
-    if let Some(formal) = formal.filter(|formal| !matches!(formal, FormalPresentation::Unknown)) {
-        sections.push(format!("`{}`: `{}`", binding.name, formal.text()));
-    } else if let Some(formal) = formal {
-        sections.push(format!("`{}`: `{}`", binding.name, formal.text()));
-        if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
-            sections.push(crate::presentation::advisory_hover(
-                "runtime value",
-                &crate::semantic::render_value_shape(&value.shape),
-            ));
-        }
-    } else if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
-        sections.push(crate::presentation::advisory_hover(
-            "runtime value",
-            &crate::semantic::render_value_shape(&value.shape),
-        ));
-    }
-    if let Some(declared) = declared.filter(|declared| !matches!(declared, FormalPresentation::Unknown))
-        && formal.is_none_or(|current| current.text() != declared.text())
-    {
-        sections.push(format!("Declared type: `{}`", declared.text()));
-    }
-    if let Some(doc) = phaldoc {
-        if !doc.summary.is_empty() {
-            sections.push(doc.summary.clone());
-        }
-        if !doc.tags.is_empty() {
-            sections.push(
-                doc.tags
-                    .iter()
-                    .map(|(tag, payload)| format!("- **@{tag}** {payload}"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            );
-        }
+/// Renders implementation/documentation details supplied by the compiler for
+/// one native callable. The semantic layer chooses the metadata; the LSP owns
+/// the Markdown presentation.
+pub fn render_native_callable_details(documentation: Option<&str>) -> String {
+    let mut sections = vec!["native primitive".to_string()];
+    if let Some(documentation) = documentation.filter(|text| !text.trim().is_empty()) {
+        sections.push(documentation.to_string());
     }
     sections.join("\n\n---\n\n")
 }
 
-/// Renders one lexical binding or parameter without relying on spelling alone.
-pub fn render_binding_hover(binding: &BindingInfo, value: Option<&InferredValue>, phaldoc: Option<&PhaldocDoc>) -> String {
-    render_binding_hover_with_formal(binding, None, value, phaldoc)
-}
-
+/// Renders one lexical binding or parameter with formal type knowledge or advisory value.
 /// One place a selector is declared/known, as [`render_selector_hover`]
 /// needs it: the class it is declared on and its dispatch kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectorSite {
     /// Module-qualified class that declares the member.
-    pub owner: ClassId,
+    pub owner: DeclarationId,
     /// Runtime receiver candidate used for a receiver-qualified hover.
-    pub receiver: Option<ClassId>,
+    pub receiver: Option<DeclarationId>,
     /// The member's dispatch kind (method/getter/setter/construct/...).
-    pub kind: crate::index::MemberKind,
+    pub kind: MemberKind,
+}
+
+/// Protocol-facing member kind derived from canonical source metadata.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+pub enum MemberKind {
+    /// Instance getter.
+    Getter,
+    /// Instance setter.
+    Setter,
+    /// Instance method.
+    Method,
+    /// Static method.
+    StaticMethod,
+    /// Constructor.
+    Construct,
+    /// Field accessor.
+    Field,
 }
 
 /// Renders a member kind as the lowercase word `render_selector_hover` shows
 /// (`"method"`, `"getter"`, `"setter"`, `"class method"`, `"construct"`, `"field"`).
-fn kind_word(kind: crate::index::MemberKind) -> &'static str {
-    use crate::index::MemberKind;
+fn kind_word(kind: MemberKind) -> &'static str {
+    use MemberKind;
     match kind {
         MemberKind::Getter => "getter",
         MemberKind::Setter => "setter",
@@ -779,8 +738,8 @@ fn kind_word(kind: crate::index::MemberKind) -> &'static str {
 
 /// Composes the selector-hover markdown from whichever of its independent
 /// sources are present: `sites` (the classes/kinds `selector` is declared or
-/// listed on — user-class [`crate::index::DefinitionInfo`]s or builtin
-/// live semantic core members, whichever the caller resolved),
+/// listed on — compiler-owned source members or builtin members, whichever the
+/// caller resolved),
 /// the harvested `phaldoc` summary/tags, and the (currently inert)
 /// [`render_contract_view`] seam.
 ///
@@ -796,7 +755,7 @@ pub fn render_selector_hover_with_value(
     selector: &str,
     sites: &[SelectorSite],
     phaldoc: Option<&PhaldocDoc>,
-    inferred: Option<&InferredValue>,
+    inferred: Option<&AdvisoryFact>,
 ) -> Option<String> {
     render_selector_hover_with_formal_value(selector, sites, phaldoc, None, inferred)
 }
@@ -807,7 +766,7 @@ pub fn render_selector_hover_with_formal_value(
     sites: &[SelectorSite],
     phaldoc: Option<&PhaldocDoc>,
     formal: Option<&FormalPresentation>,
-    inferred: Option<&InferredValue>,
+    inferred: Option<&AdvisoryFact>,
 ) -> Option<String> {
     if sites.is_empty() && phaldoc.is_none() {
         return None;
@@ -815,7 +774,7 @@ pub fn render_selector_hover_with_formal_value(
 
     let mut sections = Vec::new();
 
-    let is_field = sites.iter().any(|site| site.kind == crate::index::MemberKind::Field);
+    let is_field = sites.iter().any(|site| site.kind == MemberKind::Field);
 
     if sites.is_empty() {
         // A purely local, Phaldoc-only hover still gets a label so it never
@@ -828,57 +787,23 @@ pub fn render_selector_hover_with_formal_value(
         }
         let mut name_counts = BTreeMap::<String, usize>::new();
         for owner in owners.keys() {
-            *name_counts.entry(owner.name.clone()).or_default() += 1;
+            *name_counts.entry(owner.name.to_string()).or_default() += 1;
         }
         let classes = owners
             .keys()
             .map(|owner| {
-                if name_counts[&owner.name] == 1 {
-                    owner.name.clone()
+                if name_counts[owner.name.as_ref()] == 1 {
+                    owner.name.to_string()
                 } else {
-                    let module = owner.module.as_str().rsplit('/').next().unwrap_or(owner.module.as_str());
+                    let module_display = owner.module.to_string();
+                    let module = module_display.rsplit('/').next().unwrap_or(&module_display);
                     format!("{} ({module})", owner.name)
                 }
             })
             .collect::<Vec<_>>();
 
-        let mut native_info = None;
-        for site in sites {
-            if let Some(ukey) = phalcom_native_surface::UniverseKey::from_name(&site.owner.name) {
-                let side = match site.kind {
-                    crate::index::MemberKind::StaticMethod => phalcom_native_surface::NativeDispatch::Class,
-                    _ => phalcom_native_surface::NativeDispatch::Instance,
-                };
-                if let Some(native_rec) = phalcom_native_surface::find_native_surface(ukey, side, selector) {
-                    let mut b = vec!["native primitive"];
-                    if let Some(intrin) = native_rec.intrinsic() {
-                        b.push(match intrin {
-                            phalcom_native_surface::NativeIntrinsicId::BoolAnd => "intrinsic BoolAnd",
-                            phalcom_native_surface::NativeIntrinsicId::BoolOr => "intrinsic BoolOr",
-                            phalcom_native_surface::NativeIntrinsicId::BoolNot => "intrinsic BoolNot",
-                        });
-                    }
-                    if native_rec.effects() == phalcom_native_surface::EffectSpec::Pure {
-                        b.push("pure");
-                    }
-                    native_info = Some((b.join(" · "), native_rec.docs()));
-                    break;
-                }
-            }
-        }
-
         let kind = kind_word(*owners.values().next().unwrap_or(&sites[0].kind));
-        if let Some((badge, _)) = &native_info {
-            sections.push(format!("`{selector}` — {kind} on {}\n*{}*", classes.join(", "), badge));
-        } else {
-            sections.push(format!("`{selector}` — {kind} on {}", classes.join(", ")));
-        }
-
-        if phaldoc.is_none() {
-            if let Some((_, Some(docs))) = native_info {
-                sections.push(docs.to_string());
-            }
-        }
+        sections.push(format!("`{selector}` — {kind} on {}", classes.join(", ")));
     }
 
     if let Some(doc) = phaldoc {
@@ -894,14 +819,23 @@ pub fn render_selector_hover_with_formal_value(
     if let Some(formal) = formal {
         sections.push(format!("Return type: `{}`", formal.text()));
         if matches!(formal, FormalPresentation::Unknown)
-            && let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic)
+            && let Some(value) =
+                inferred.filter(|value| !matches!(value.shape, phalcom_semantic::ValueShape::Unknown) && value.confidence != AdvisoryConfidence::Heuristic)
         {
             let subject = if is_field { "runtime value" } else { "return value" };
-            sections.push(crate::presentation::advisory_hover(subject, &crate::semantic::render_value_shape(&value.shape)));
+            sections.push(crate::presentation::advisory_hover(
+                subject,
+                &phalcom_semantic::AdvisoryPresenter::present_shape(&value.shape),
+            ));
         }
-    } else if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
+    } else if let Some(value) =
+        inferred.filter(|value| !matches!(value.shape, phalcom_semantic::ValueShape::Unknown) && value.confidence != AdvisoryConfidence::Heuristic)
+    {
         let subject = if is_field { "runtime value" } else { "return value" };
-        sections.push(crate::presentation::advisory_hover(subject, &crate::semantic::render_value_shape(&value.shape)));
+        sections.push(crate::presentation::advisory_hover(
+            subject,
+            &phalcom_semantic::AdvisoryPresenter::present_shape(&value.shape),
+        ));
     }
 
     if let Some(contract_view) = render_contract_view(selector) {
@@ -909,333 +843,4 @@ pub fn render_selector_hover_with_formal_value(
     }
 
     Some(sections.join("\n\n---\n\n"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::line_index::LineIndex;
-    use phalcom_ast::parser::parse;
-
-    fn parsed(src: &str) -> (Program, LineIndex) {
-        let parse_result = parse(src, 0);
-        assert!(parse_result.errors.is_empty(), "{:?}", parse_result.errors);
-        (parse_result.program, LineIndex::new(src))
-    }
-
-    #[test]
-    fn keyword_blurb_covers_every_token_keyword_and_contextual_word() {
-        let all = [
-            "let",
-            "const",
-            "fn",
-            "class",
-            "return",
-            "true",
-            "false",
-            "if",
-            "else",
-            "while",
-            "for",
-            "break",
-            "continue",
-            "import",
-            "self",
-            "super",
-            "in",
-            "as",
-            "is",
-            "and",
-            "or",
-            "not",
-            "static",
-            "construct",
-            "throw",
-            "try",
-            "on",
-            "catch",
-            "ensure",
-            "match",
-        ];
-        for word in all {
-            assert!(keyword_blurb(word).is_some(), "missing blurb for {word:?}");
-        }
-    }
-
-    #[test]
-    fn keyword_at_offset_finds_self_keyword() {
-        let src = "class Point {\n  x() { self }\n}\n";
-        let offset = src.find("self").unwrap();
-        let (word, range) = keyword_at_offset(src, offset).expect("self is a keyword");
-        assert_eq!(word, "self");
-        assert_eq!(&src[range], "self");
-    }
-
-    #[test]
-    fn keyword_at_offset_finds_is_keyword() {
-        let src = "class Dog is Animal {\n}\n";
-        let offset = src.find("is").unwrap();
-        let (word, _) = keyword_at_offset(src, offset).expect("is is a keyword");
-        assert_eq!(word, "is");
-    }
-
-    #[test]
-    fn keyword_at_offset_none_for_plain_identifier() {
-        let src = "let x = 1\n";
-        let offset = src.find('x').unwrap();
-        assert_eq!(keyword_at_offset(src, offset), None);
-    }
-
-    #[test]
-    fn phaldoc_adjacency_attaches_to_the_immediately_following_method() {
-        let src = "class Point {\n  /// Moves the point.\n  move(_ x) { }\n}\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").expect("adjacent doc must attach");
-        assert_eq!(doc.summary, "Moves the point.");
-    }
-
-    #[test]
-    fn phaldoc_blank_line_breaks_adjacency() {
-        let src = "class Point {\n  /// Moves the point.\n\n  move(_ x) { }\n}\n";
-        let (program, line_index) = parsed(src);
-        assert_eq!(harvest_doc_for_selector(src, &program, &line_index, "move(_)"), None);
-    }
-
-    #[test]
-    fn phaldoc_is_selector_keyed_not_name_keyed() {
-        let src = "class Point {\n  /// Zero-arity reset.\n  reset() { }\n  /// Reset with a value.\n  reset(_ x) { }\n}\n";
-        let (program, line_index) = parsed(src);
-        let zero = harvest_doc_for_selector(src, &program, &line_index, "reset()").expect("reset() has its own doc");
-        let one = harvest_doc_for_selector(src, &program, &line_index, "reset(_)").expect("reset(_) has its own doc");
-        assert_eq!(zero.summary, "Zero-arity reset.");
-        assert_eq!(one.summary, "Reset with a value.");
-        assert_ne!(zero.summary, one.summary);
-    }
-
-    #[test]
-    fn phaldoc_detached_pin_overrides_adjacency() {
-        let src = "class Point {\n  /// selector: move(_,to)\n  /// A detached doc.\n\n  move(_ x, to) { }\n}\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_,to)").expect("pinned selector overrides adjacency");
-        assert_eq!(doc.summary, "A detached doc.");
-    }
-
-    #[test]
-    fn phaldoc_parses_tags() {
-        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// @returns the new position\n  move(_ x) { }\n}\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
-        assert_eq!(doc.summary, "Moves the point.");
-        assert_eq!(
-            doc.tags,
-            vec![
-                ("param".to_string(), "x how far to move".to_string()),
-                ("returns".to_string(), "the new position".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn phaldoc_attaches_to_a_top_level_let_binding() {
-        let src = "/// The application's shared counter.\nlet counter = Counter.new();\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "counter").expect("doc above a top-level let must attach to its bound name");
-        assert_eq!(doc.summary, "The application's shared counter.");
-    }
-
-    #[test]
-    fn phaldoc_attaches_to_a_top_level_const_binding() {
-        let src = "/// A fixed running total.\nconst total = 0;\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "total").expect("doc above a top-level const must attach to its bound name");
-        assert_eq!(doc.summary, "A fixed running total.");
-    }
-
-    #[test]
-    fn phaldoc_indented_continuation_line_folds_into_the_tag() {
-        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move,\n  ///   continued on an indented line\n  move(_ x) { }\n}\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
-        assert_eq!(
-            doc.tags,
-            vec![("param".to_string(), "x how far to move, continued on an indented line".to_string())]
-        );
-    }
-
-    #[test]
-    fn phaldoc_non_indented_following_line_does_not_fold_into_the_tag() {
-        // The second `///` line sits at the *same* indentation as the `@param`
-        // line's own body text — per §3 it is not a continuation, so it must
-        // not fold into the tag's payload.
-        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// not a continuation\n  move(_ x) { }\n}\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
-        assert_eq!(doc.tags, vec![("param".to_string(), "x how far to move".to_string())]);
-    }
-
-    #[test]
-    fn phaldoc_return_and_raises_aliases_canonicalize() {
-        let src = "class Point {\n  /// Summary.\n  ///\n  /// @return a value\n  /// @raises Error sometimes\n  move() { }\n}\n";
-        let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move()").unwrap();
-        assert_eq!(doc.tags[0].0, "returns");
-        assert_eq!(doc.tags[1].0, "throws");
-    }
-
-    #[test]
-    fn render_selector_hover_for_user_class_member() {
-        let sites = vec![SelectorSite {
-            owner: ClassId::new(crate::semantic::ModuleId::new("file:///point.ph"), "Point"),
-            receiver: None,
-            kind: crate::index::MemberKind::Method,
-        }];
-        let doc = PhaldocDoc {
-            summary: "Moves the point.".to_string(),
-            tags: vec![],
-        };
-        let rendered = render_selector_hover("move(_)", &sites, Some(&doc)).unwrap();
-        assert!(rendered.contains("move(_)"));
-        assert!(rendered.contains("method on Point"));
-        assert!(rendered.contains("Moves the point."));
-    }
-
-    #[test]
-    fn render_selector_hover_for_builtin_has_no_phaldoc_section() {
-        let sites = vec![SelectorSite {
-            owner: ClassId::new(crate::semantic::ModuleId::new(crate::semantic::CORE_MODULE_URI), "Bool"),
-            receiver: None,
-            kind: crate::index::MemberKind::Method,
-        }];
-        let rendered = render_selector_hover("ifTrue(_)", &sites, None).unwrap();
-        assert!(rendered.contains("ifTrue(_)"));
-        assert!(rendered.contains("method on Bool"));
-        // Native docs are now surfaced; a native with docs produces exactly one separator.
-        // Verify no user phaldoc section was injected (that would add more separators).
-        let sep_count = rendered.matches("---").count();
-        assert!(
-            sep_count <= 1,
-            "expected at most one section separator for a native hover without phaldoc, got {sep_count}"
-        );
-        // The native badge must appear for a core built-in
-        assert!(rendered.contains("native primitive"), "expected native primitive badge in hover");
-    }
-
-    #[test]
-    fn render_selector_hover_none_when_nothing_resolves() {
-        assert_eq!(render_selector_hover("mystery(_)", &[], None), None);
-    }
-
-    #[test]
-    fn render_selector_hover_includes_shared_return_summary() {
-        let value = InferredValue::flow(
-            ValueShape::Instance(crate::semantic::ClassId::new(crate::semantic::ModuleId::new("phalcom://core"), "String")),
-            (0..0).into(),
-        );
-        let sites = vec![SelectorSite {
-            owner: ClassId::new(crate::semantic::ModuleId::new("file:///factory.ph"), "Factory"),
-            receiver: None,
-            kind: crate::index::MemberKind::Method,
-        }];
-        let rendered = render_selector_hover_with_value("make()", &sites, None, Some(&value)).unwrap();
-        assert!(rendered.contains("`String`"));
-        assert!(rendered.contains("Inferred from local flow."));
-        assert!(!rendered.contains("Observed return"));
-        assert!(!rendered.contains(["Confidence", ":"].concat().as_str()));
-    }
-
-    #[test]
-    fn render_selector_hover_prefers_formal_return_state() {
-        let formal = FormalPresentation::Dynamic;
-        let sites = vec![SelectorSite {
-            owner: ClassId::new(crate::semantic::ModuleId::new("file:///factory.ph"), "Factory"),
-            receiver: None,
-            kind: crate::index::MemberKind::Method,
-        }];
-        let inferred = InferredValue::flow(
-            ValueShape::Instance(crate::semantic::ClassId::new(crate::semantic::ModuleId::new("phalcom://core"), "String")),
-            (0..0).into(),
-        );
-        let rendered = render_selector_hover_with_formal_value("make()", &sites, None, Some(&formal), Some(&inferred)).unwrap();
-        assert!(rendered.contains("Return type: `Dynamic`"));
-        assert!(!rendered.contains("Formal return"));
-        assert!(!rendered.contains("Observed return"));
-    }
-
-    #[test]
-    fn render_selector_hover_uses_advisory_return_when_formal_is_unknown() {
-        let sites = vec![SelectorSite {
-            owner: ClassId::new(crate::semantic::ModuleId::new("file:///factory.ph"), "Factory"),
-            receiver: None,
-            kind: crate::index::MemberKind::Method,
-        }];
-        let inferred = InferredValue::flow(
-            ValueShape::Instance(crate::semantic::ClassId::new(crate::semantic::ModuleId::new("phalcom://core"), "String")),
-            (0..0).into(),
-        );
-        let rendered = render_selector_hover_with_formal_value("make()", &sites, None, Some(&FormalPresentation::Unknown), Some(&inferred)).unwrap();
-        assert!(rendered.contains("Return type: `Unknown`"));
-        assert!(rendered.contains("`String`"));
-        assert!(rendered.contains("Inferred from local flow."));
-    }
-
-    #[test]
-    fn render_binding_hover_keeps_formal_dynamic_state_authoritative() {
-        let uri = tower_lsp::lsp_types::Url::parse("file:///main.ph").unwrap();
-        let document = crate::documents::Document::new("let value = 1\n".to_string());
-        let db = crate::semantic::SemanticDb::new();
-        db.update_file(&uri, crate::semantic::FileRevision(1), &document.parse.program);
-        let snapshot = db.snapshot();
-        let binding = snapshot
-            .files
-            .values()
-            .next()
-            .and_then(|file| file.source.scopes.bindings.values().next())
-            .expect("binding");
-        let formal = FormalPresentation::Dynamic;
-        let rendered = render_binding_hover_with_formal(binding, Some(&formal), None, None);
-        assert!(rendered.contains("`value`: `Dynamic`"));
-        assert!(!rendered.contains("Formal type"));
-        assert!(!rendered.contains("Observed type"));
-    }
-
-    #[test]
-    fn render_binding_hover_separates_materially_different_declared_type() {
-        let uri = tower_lsp::lsp_types::Url::parse("file:///main.ph").unwrap();
-        let document = crate::documents::Document::new("let value = 1\n".to_string());
-        let db = crate::semantic::SemanticDb::new();
-        db.update_file(&uri, crate::semantic::FileRevision(1), &document.parse.program);
-        let snapshot = db.snapshot();
-        let binding = snapshot
-            .files
-            .values()
-            .next()
-            .and_then(|file| file.source.scopes.bindings.values().next())
-            .expect("binding");
-        let current = FormalPresentation::Known("Int".to_string());
-        let declared = FormalPresentation::Known("Object".to_string());
-        let rendered = render_binding_hover_with_formal_and_declared(binding, Some(&current), Some(&declared), None, None);
-        assert!(rendered.contains("`value`: `Int`"), "{rendered:?}");
-        assert!(rendered.contains("Declared type: `Object`"), "{rendered:?}");
-
-        let rendered_same = render_binding_hover_with_formal_and_declared(binding, Some(&current), Some(&current), None, None);
-        assert!(!rendered_same.contains("Declared type"), "{rendered_same:?}");
-    }
-
-    #[test]
-    fn render_selector_hover_disambiguates_same_named_module_owners() {
-        let sites = vec![
-            SelectorSite {
-                owner: ClassId::new(crate::semantic::ModuleId::new("file:///a.ph"), "User"),
-                receiver: None,
-                kind: crate::index::MemberKind::Method,
-            },
-            SelectorSite {
-                owner: ClassId::new(crate::semantic::ModuleId::new("file:///b.ph"), "User"),
-                receiver: None,
-                kind: crate::index::MemberKind::Method,
-            },
-        ];
-        let rendered = render_selector_hover("ping()", &sites, None).unwrap();
-        assert!(rendered.contains("User (a.ph), User (b.ph)"), "{rendered:?}");
-    }
 }

@@ -50,7 +50,10 @@ pub use core_surface::*;
 pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
 pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
 pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
-pub use editor::{AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, ReceiverAlternative, ReceiverMode, ResolvedReceiver, VisibleSymbol};
+pub use editor::{
+    AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, NativeCallablePresentation, PartialCallPattern, ReceiverAlternative, ReceiverMode,
+    ResolvedReceiver, VisibleSymbol,
+};
 pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
     infer_intraprocedural_effects,
@@ -87,7 +90,7 @@ pub use workspace_inputs::*;
 
 pub use source::ParsedSourceUnit;
 pub use source_index::{CallableSourceAttachment, ModuleSourceIndex, SourceAttachmentError, SourceIndexFingerprints, SourceSemanticIndex};
-pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind};
+pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind, SourceReceiverKind};
 pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{
     SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex, build_source_scope_index,
