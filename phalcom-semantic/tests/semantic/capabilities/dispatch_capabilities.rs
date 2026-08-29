@@ -284,7 +284,7 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
 
     f.assert_binding_established(run, "object", derived);
-    f.assert_binding_established(run, "number", int_ty);
+    f.assert_binding_type(run, "number", int_ty);
     f.assert_binding_established(run, "text", string_ty);
 
     let derived_value = f.callable("Derived", "value", DispatchSide::Instance);

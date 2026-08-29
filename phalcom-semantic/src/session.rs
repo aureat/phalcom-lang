@@ -874,11 +874,14 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        // Source return annotations are published before bodies are checked,
-        // so an unannotated callable initially has an unknown return surface.
-        // Publish body-derived normal-return summaries into the local dispatch
+        // 7. Refine Callable Return Interfaces and Reach Fixed Point
+        //
+        // Declaration surfaces publish initial return facts. Body analysis
+        // then establishes or refutes them, while unannotated bodies infer
+        // return types. We promote those return contracts into the canonical
         // view, then recheck callers until that view reaches a fixed point.
         refresh_inferred_callable_results(InferredCallableRefreshInputs {
+            db: &mut self.db,
             sources: &input.sources,
             store: &mut self.store,
             hierarchy: &hierarchy,
@@ -1888,6 +1891,7 @@ fn advisory_status(status: crate::checker::CallableAnalysisStatus) -> AdvisoryPr
 /// then refreshes dispatch as a derived lookup projection. The fixed-point pass
 /// is required for calls such as `Probe.run -> Factory.of -> CellNum.new`.
 struct InferredCallableRefreshInputs<'a> {
+    db: &'a mut SemanticDb,
     sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     store: &'a mut TypeStore,
     hierarchy: &'a MapTypeHierarchy,
@@ -1917,6 +1921,7 @@ fn publishable_inferred_return(
 
 fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) -> Result<(), QueryOutcome<()>> {
     let InferredCallableRefreshInputs {
+        db,
         sources,
         store,
         hierarchy,
@@ -1933,25 +1938,10 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         budget,
         cancel,
     } = inputs;
-    // Synchronize initial return-contract validation into signatures and dispatch
-    // so annotated methods enter the fixed point with their body-certified authority.
-    for (callable, analysis) in callable_analyses.iter() {
-        let Some(signature) = callable_signatures.get_for_body(callable) else {
-            continue;
-        };
-        let signature_id = signature.callable.clone();
-        let Some(signature_mut) = callable_signatures.get_mut(&signature_id) else {
-            continue;
-        };
-        if signature_mut.declared_return.is_known() {
-            signature_mut.return_validation = analysis.return_validation;
-            let public = signature_mut.published_return_knowledge();
-            let _ = dispatch.update_callable_return_type(&signature_id, public);
-        }
-    }
-
     let max_iterations = callable_analyses.len().saturating_add(1).max(1);
-    for _ in 0..max_iterations {
+    let mut recomputed_in_prev_iteration = HashSet::new();
+
+    for iteration in 0..max_iterations {
         if cancel.is_cancelled() {
             return Err(QueryOutcome::Cancelled);
         }
@@ -1963,7 +1953,27 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                 continue;
             };
             let signature_id = signature.callable.clone();
-            let old_public = signature.published_return_knowledge();
+
+            let old_public = if iteration == 0 {
+                if let Some(prev) = previous_callable_analyses.and_then(|p| p.get(callable)) {
+                    let was_recomputed_in_step_7 = callable_dispositions.get(callable) == Some(&CallableRevisionDisposition::Recomputed);
+                    if was_recomputed_in_step_7 && signature.declared_return.is_unknown() {
+                        signature.published_return_knowledge()
+                    } else {
+                        let mut prev_sig = signature.clone();
+                        prev_sig.return_validation = prev.return_validation;
+                        if prev_sig.declared_return.is_unknown() {
+                            let summary = normal_return_summary(store, &prev.exits.normal_returns);
+                            prev_sig.inferred_return = publishable_inferred_return(prev.status, summary);
+                        }
+                        prev_sig.published_return_knowledge()
+                    }
+                } else {
+                    signature.published_return_knowledge()
+                }
+            } else {
+                signature.published_return_knowledge()
+            };
 
             let Some(signature_mut) = callable_signatures.get_mut(&signature_id) else {
                 continue;
@@ -1979,15 +1989,18 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
             }
 
             let new_public = signature_mut.published_return_knowledge();
-            if new_public != old_public {
+            let _ = dispatch.update_callable_return_type(&signature_id, new_public.clone());
+
+            if new_public != old_public || (recomputed_in_prev_iteration.contains(callable) && signature_mut.declared_return.is_unknown()) {
                 changed_callables.insert(callable.clone());
-                let _ = dispatch.update_callable_return_type(&signature_id, new_public);
             }
         }
 
         if changed_callables.is_empty() {
             break;
         }
+
+        let mut recomputed_in_this_iteration = HashSet::new();
 
         // Recheck only bodies that consume a newly published return contract.
         // This deliberately bypasses the source-surface query cache: that
@@ -2090,11 +2103,15 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                         Some(previous) if previous.dependency_fingerprint == analysis.dependency_fingerprint => previous.clone(),
                         _ => Arc::new(analysis),
                     };
-                    callable_analyses.insert(callable.clone(), replacement);
-                    callable_dispositions.insert(callable, CallableRevisionDisposition::Recomputed);
+                    callable_analyses.insert(callable.clone(), replacement.clone());
+                    db.update_callable_body_product(&callable, replacement);
+                    callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
+                    recomputed_in_this_iteration.insert(callable);
                 }
             }
         }
+
+        recomputed_in_prev_iteration = recomputed_in_this_iteration;
     }
 
     Ok(())

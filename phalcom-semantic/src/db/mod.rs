@@ -292,6 +292,21 @@ impl SemanticDb {
         Ok(())
     }
 
+    pub fn update_callable_body_product(&mut self, callable: &crate::identity::CallableId, analysis: Arc<crate::checker::CallableAnalysis>) {
+        let key = QueryKey::CallableBody(callable.clone());
+        let fp = analysis.dependency_fingerprint;
+        let query_value = crate::db::product::SemanticProduct::CallableBody(analysis.clone()).to_query_value();
+        if let Some(state) = self.query_states.get_mut(&key) {
+            if let QueryState::Ready { product_fingerprint, value, .. } = state {
+                *product_fingerprint = fp;
+                *value = query_value;
+            }
+        }
+        let product = Arc::new(SemanticProduct::CallableBody(analysis));
+        self.products.insert(key.clone(), product.clone());
+        self.last_known_good.insert(key, product);
+    }
+
     pub fn invalidate(&mut self, seeds: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
         let closure = self.index.reverse_closure(seeds);
         for key in &closure {

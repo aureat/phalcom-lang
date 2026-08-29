@@ -390,7 +390,14 @@ fn derive_fixed_return(target: &CallableApplicationTarget, premise: &CallPremise
     let Some(premise_status) = premise.knowledge.status() else {
         return premise.knowledge.clone();
     };
-    let authority = target_base_authority(target).meet(premise_status);
+    let authority = match target.authority {
+        CallTargetAuthority::ExactDispatch => {
+            let return_status = target.signature.return_type.status().unwrap_or(EvidenceStatus::Assumed);
+            target_base_authority(target).meet(premise_status).meet(return_status)
+        }
+        CallTargetAuthority::CallableValue(status) => status.meet(premise_status),
+        CallTargetAuthority::StructuralBuiltin => target_base_authority(target).meet(premise_status),
+    };
     let origin = target_fixed_return_origin(target);
     let return_type = match &target.signature.return_type {
         TypeKnowledge::Known(evidence) => TypeKnowledge::established(evidence.ty(), origin),

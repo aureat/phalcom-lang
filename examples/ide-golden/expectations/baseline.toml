@@ -1,7 +1,7 @@
 [workspace]
 root_project = "ide_golden"
 projects = ["ide_golden", "geo", "units"]
-phalcom_sources = 26
+phalcom_sources = 28
 entry = "ide_golden.main"
 steady_phase = "Ready"
 
