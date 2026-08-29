@@ -219,6 +219,7 @@ fn check_callable_body(
             ty,
             basis: crate::declaration_type::DeclaredTypeBasis::SourceAnnotation,
             origin: EvidenceOrigin::DeveloperAnnotation,
+            is_dynamic: false,
             source: Some(ann.range),
         })
     });

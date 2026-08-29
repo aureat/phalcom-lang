@@ -260,6 +260,7 @@ pub struct CallableReturnContract {
     pub ty: TypeId,
     pub basis: crate::declaration_type::DeclaredTypeBasis,
     pub origin: crate::types::evidence::EvidenceOrigin,
+    pub is_dynamic: bool,
     pub source: Option<SourceRange>,
 }
 
@@ -1594,6 +1595,9 @@ impl<'a> CheckingContext<'a> {
         };
         if contract.basis != crate::declaration_type::DeclaredTypeBasis::SourceAnnotation {
             return crate::signature::ReturnContractValidation::NotApplicable;
+        }
+        if contract.is_dynamic {
+            return crate::signature::ReturnContractValidation::DynamicBoundary;
         }
         if status != crate::checker::analysis::CallableAnalysisStatus::Complete {
             return crate::signature::ReturnContractValidation::Blocked;

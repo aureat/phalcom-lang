@@ -938,3 +938,51 @@ class Probe {
     assert_eq!(abrupt.return_validation, phalcom_semantic::ReturnContractValidation::Satisfied(EvidenceStatus::Established));
 }
 
+#[test]
+fn dynamic_return_yields_dynamic_boundary_validation() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  dynamo() -> Dynamic {
+    1
+  }
+}
+"#,
+    );
+
+    let dynamo = f.callable("Probe", "dynamo", DispatchSide::Class);
+    assert_eq!(dynamo.return_validation, phalcom_semantic::ReturnContractValidation::DynamicBoundary);
+}
+
+#[test]
+fn refuted_return_contract_is_not_upgraded_by_caller_callsite() {
+    let f = Fixture::new(
+        r#"
+class Broken {
+  @class
+  make() -> Int {
+    "string"
+  }
+}
+
+class Probe {
+  @class
+  run() {
+    let result = Broken.make()
+  }
+}
+"#,
+    );
+
+    let int_ty = f.ty("Int");
+    let broken = f.callable("Broken", "make", DispatchSide::Class);
+    assert_eq!(broken.return_validation, phalcom_semantic::ReturnContractValidation::Refuted);
+
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let result = f.binding(run, "result");
+    assert_eq!(result.current.ty(), Some(int_ty));
+    assert_eq!(result.current.status(), Some(EvidenceStatus::Assumed));
+}
+
+

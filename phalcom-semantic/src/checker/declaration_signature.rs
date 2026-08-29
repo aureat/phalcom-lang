@@ -185,10 +185,12 @@ fn initial_return_validation(
     declared_return: &DeclaredTypeFact,
     implementation: phalcom_native_meta::ImplementationKind,
 ) -> crate::signature::ReturnContractValidation {
-    if matches!(implementation, phalcom_native_meta::ImplementationKind::Source)
-        && declared_return.basis == DeclaredTypeBasis::SourceAnnotation
-        && declared_return.is_known()
-    {
+    if !matches!(implementation, phalcom_native_meta::ImplementationKind::Source) || declared_return.basis != DeclaredTypeBasis::SourceAnnotation {
+        return crate::signature::ReturnContractValidation::NotApplicable;
+    }
+    if declared_return.is_dynamic() {
+        crate::signature::ReturnContractValidation::DynamicBoundary
+    } else if declared_return.is_known() {
         crate::signature::ReturnContractValidation::Unchecked
     } else {
         crate::signature::ReturnContractValidation::NotApplicable

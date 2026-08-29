@@ -109,12 +109,22 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             ctx.bind_canonical_callable_parameter(parameter, body_range);
         }
         if !signature.is_constructor() || constructor_body {
+            let is_dynamic = signature.declared_return.is_dynamic();
             let declared_return = signature.declared_return.to_knowledge();
             if let Some(ret_ty) = declared_return.ty() {
                 ctx.expected_return = Some(CallableReturnContract {
                     ty: ret_ty,
                     basis: signature.declared_return.basis,
                     origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
+                    is_dynamic: false,
+                    source: None,
+                });
+            } else if is_dynamic {
+                ctx.expected_return = Some(CallableReturnContract {
+                    ty: ctx.store.unit(),
+                    basis: signature.declared_return.basis,
+                    origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
+                    is_dynamic: true,
                     source: None,
                 });
             }
