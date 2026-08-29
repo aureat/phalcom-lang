@@ -788,8 +788,13 @@ impl SemanticWorkspaceSession {
                                     base_resolver: &resolver,
                                     declarations: &declarations,
                                     field_signatures: Some(&field_signatures),
-                                    field_lifecycle: Some(&field_lifecycle),
+                                    field_lifecycle: Some(if is_constructor {
+                                        &default_field_lifecycle
+                                    } else {
+                                        &field_lifecycle
+                                    }),
                                 };
+
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
                                     CallableBodyQuery {

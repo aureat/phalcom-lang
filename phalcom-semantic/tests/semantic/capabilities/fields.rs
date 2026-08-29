@@ -196,5 +196,58 @@ class Cell {
     assert!(!f.diagnostics(phalcom_semantic::diagnostic::DiagnosticCode::FieldMismatch).is_empty());
 }
 
+#[test]
+fn constructor_lifecycle_is_independent_of_constructor_source_order() {
+    let order_a = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  initA(_ value: Int) {
+    _value = value
+  }
+
+  @constructor
+  initB() {
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let order_b = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  initB() {
+  }
+
+  @constructor
+  initA(_ value: Int) {
+    _value = value
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let read_a = order_a.callable("Cell", "read", DispatchSide::Instance);
+    let read_b = order_b.callable("Cell", "read", DispatchSide::Instance);
+
+    let val_a = order_a.expression(read_a, "_value");
+    let val_b = order_b.expression(read_b, "_value");
+
+    assert_eq!(val_a.knowledge.is_unknown(), val_b.knowledge.is_unknown());
+    assert_eq!(val_a.knowledge.status(), val_b.knowledge.status());
+    assert!(!val_a.knowledge.is_established());
+    assert!(!val_b.knowledge.is_established());
+}
+
+
 
 
