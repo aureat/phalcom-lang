@@ -293,7 +293,6 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
         }
 
-
         // --- 3. Assignments ---
         Expr::Assignment(assign) => {
             let target_expected = match &*assign.name {
@@ -386,23 +385,11 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
                         result.causal_invalidity = val_typed.causal_invalidity;
                         apply_relation_application_to_typed(&mut result, &application);
-                        let reconciliation = super::field_lifecycle::reconcile_field_write(
-                            &field_k,
-                            &val_typed.knowledge,
-                            &application.outcome,
-                        );
+                        let reconciliation = super::field_lifecycle::reconcile_field_write(&field_k, &val_typed.knowledge, &application.outcome);
                         let write_causal = val_typed.causal_invalidity.join(result.causal_invalidity);
-                        ctx.write_current_field(
-                            field_id,
-                            field_k,
-                            reconciliation.current,
-                            reconciliation.validity,
-                            write_causal,
-                        );
+                        ctx.write_current_field(field_id, field_k, reconciliation.current, reconciliation.validity, write_causal);
                         return result;
-
                     }
-
                 }
             }
             TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range)
@@ -1597,7 +1584,6 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
         typed.causal_invalidity = recv_typed.causal_invalidity.join(field_causal);
         return typed;
     }
-
 
     // 2. Check Getter selector
     if let Ok(sel) = Selector::getter(&get.property) {

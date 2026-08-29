@@ -937,7 +937,6 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
     summary.fact_count.hash(hasher);
 }
 
-
 fn hash_causal_invalidity_shape(causal: &CausalInvalidity, hasher: &mut impl Hasher) {
     match causal {
         CausalInvalidity::Clean => 0u8.hash(hasher),
@@ -1647,4 +1646,3 @@ mod tests {
         assert_eq!(h_cause0, h_cause1);
     }
 }
-

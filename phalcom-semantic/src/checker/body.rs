@@ -103,7 +103,6 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         field_lifecycle.seed_flow_for_owner(&mut ctx.flow, &callable.owner, constructor_body);
     }
 
-
     if let Some((signature_id, signature)) = declared_signature {
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));
         ctx.push_scope();

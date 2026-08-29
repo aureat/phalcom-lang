@@ -120,6 +120,7 @@ impl TestLsp {
         self.wait_for_exact_source_publication(uri, text).await;
     }
 
+    #[allow(dead_code)]
     pub async fn change_and_wait(&mut self, uri: &str, text: &str) {
         self.change(uri, text).await;
         self.wait_for_exact_source_publication(uri, text).await;

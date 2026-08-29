@@ -788,11 +788,7 @@ impl SemanticWorkspaceSession {
                                     base_resolver: &resolver,
                                     declarations: &declarations,
                                     field_signatures: Some(&field_signatures),
-                                    field_lifecycle: Some(if is_constructor {
-                                        &default_field_lifecycle
-                                    } else {
-                                        &field_lifecycle
-                                    }),
+                                    field_lifecycle: Some(if is_constructor { &default_field_lifecycle } else { &field_lifecycle }),
                                 };
 
                                 let outcome = query_callable_body_with_formal_inputs(
@@ -863,7 +859,6 @@ impl SemanticWorkspaceSession {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
             ctx.attach_field_signatures(&field_signatures);
             ctx.attach_field_lifecycle(&field_lifecycle);
-
 
             for stmt in &parsed_unit.program.statements {
                 match stmt {

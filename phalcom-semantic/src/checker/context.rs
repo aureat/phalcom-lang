@@ -1318,7 +1318,6 @@ impl<'a> CheckingContext<'a> {
         self.field_lifecycle = Some(field_lifecycle);
     }
 
-
     /// Returns the dispatch resolver currently visible to this context.
     pub fn dispatch_ref(&self) -> &SurfaceDispatchResolver {
         self.dispatch.get()
@@ -1513,7 +1512,6 @@ impl<'a> CheckingContext<'a> {
         self.resolve_field_read(owner, side, name)
     }
 
-
     pub(crate) fn write_current_field(
         &mut self,
         field: crate::identity::FieldId,
@@ -1541,7 +1539,6 @@ impl<'a> CheckingContext<'a> {
             causal_invalidity,
         );
     }
-
 
     pub fn resolve_type_name(&self, name: &str) -> Option<DeclarationId> {
         self.resolver.resolve_type_name(&self.current_module, name, &[])

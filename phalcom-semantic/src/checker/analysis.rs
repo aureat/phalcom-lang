@@ -199,7 +199,6 @@ pub struct FlowFieldSummary {
     pub causal_invalidity: CausalInvalidity,
 }
 
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FlowStateSummary {
     pub bindings: BTreeMap<BindingId, FlowBindingSummary>,

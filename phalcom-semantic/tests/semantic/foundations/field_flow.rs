@@ -1,20 +1,14 @@
 //! Foundation tests for field flow state and validity lattice.
 
 use phalcom_semantic::checker::causal::CausalInvalidity;
-use phalcom_semantic::checker::flow::{
-    FieldContractValidity, FieldInitialization, FieldState, FlowState, join_field_validity,
-};
+use phalcom_semantic::checker::flow::{FieldContractValidity, FieldInitialization, FieldState, FlowState, join_field_validity};
 use phalcom_semantic::identity::{DeclarationId, DispatchSide, FieldId, ModuleId};
 use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::outcome::{BlockReason, DynamicBoundaryObligation};
 use phalcom_semantic::types::store::TypeStore;
 
 fn make_field(name: &str) -> FieldId {
-    FieldId::new(
-        DeclarationId::new(ModuleId::core(), "Cell".into()),
-        name,
-        DispatchSide::Instance,
-    )
+    FieldId::new(DeclarationId::new(ModuleId::core(), "Cell".into()), name, DispatchSide::Instance)
 }
 
 #[test]
@@ -32,9 +26,7 @@ fn field_validity_join_never_strengthens_a_reachable_path() {
     assert_eq!(join_field_validity([Validated, blocked.clone()]), blocked);
     assert_eq!(join_field_validity([blocked.clone(), Refuted]), Refuted);
 
-    let dynamic = DynamicBoundary(DynamicBoundaryObligation {
-        reason: "dynamic call".into(),
-    });
+    let dynamic = DynamicBoundary(DynamicBoundaryObligation { reason: "dynamic call".into() });
     assert_eq!(join_field_validity([Validated, dynamic.clone()]), dynamic);
     assert_eq!(join_field_validity([dynamic, Refuted]), Refuted);
 }

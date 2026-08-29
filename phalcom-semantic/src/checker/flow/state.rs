@@ -121,7 +121,6 @@ mod field_tests {
             FieldInitialization::DefinitelyInitialized
         );
     }
-
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -162,11 +161,7 @@ pub fn join_field_validity(inputs: impl IntoIterator<Item = FieldContractValidit
         result = join_two_field_validities(result, input);
     }
 
-    if saw_any {
-        result
-    } else {
-        FieldContractValidity::Unchecked
-    }
+    if saw_any { result } else { FieldContractValidity::Unchecked }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -179,7 +174,6 @@ pub struct FieldState {
     pub causal_invalidity: CausalInvalidity,
     pub version: u32,
 }
-
 
 /// Compatibility alias retained for callers compiled against the parent plan.
 pub type FlowJoinFailure = FlowInvariantFailure;
@@ -390,7 +384,6 @@ impl FlowState {
             state.version += 1;
         }
     }
-
 
     /// Sequential assignment: replaces `current` fact, increments version,
     /// and invalidates dependent path facts (F4).
@@ -611,7 +604,6 @@ impl FlowState {
                     version: incoming.iter().map(|state| state.version).max().unwrap_or(0) + 1,
                 },
             );
-
         }
 
         // Facts: intersection across reachable states

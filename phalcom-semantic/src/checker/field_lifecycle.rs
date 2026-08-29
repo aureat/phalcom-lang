@@ -16,11 +16,7 @@ pub(crate) struct FieldWriteReconciliation {
     pub validity: FieldContractValidity,
 }
 
-pub(crate) fn reconcile_field_write(
-    _contract: &TypeKnowledge,
-    actual: &TypeKnowledge,
-    relation: &RelationOutcome,
-) -> FieldWriteReconciliation {
+pub(crate) fn reconcile_field_write(_contract: &TypeKnowledge, actual: &TypeKnowledge, relation: &RelationOutcome) -> FieldWriteReconciliation {
     let validity = match relation {
         RelationOutcome::Proven { .. } => match actual.status() {
             Some(EvidenceStatus::Established) => FieldContractValidity::Validated,
@@ -30,16 +26,13 @@ pub(crate) fn reconcile_field_write(
         RelationOutcome::Refuted(_) => FieldContractValidity::Refuted,
         RelationOutcome::Blocked(reason) => FieldContractValidity::Blocked(reason.clone()),
         RelationOutcome::DynamicBoundary(obligation) => FieldContractValidity::DynamicBoundary(obligation.clone()),
-        RelationOutcome::Cancelled | RelationOutcome::BudgetExceeded(_) | RelationOutcome::InternalFailure(_) => {
-            FieldContractValidity::Unchecked
-        }
+        RelationOutcome::Cancelled | RelationOutcome::BudgetExceeded(_) | RelationOutcome::InternalFailure(_) => FieldContractValidity::Unchecked,
     };
     FieldWriteReconciliation {
         current: actual.clone(),
         validity,
     }
 }
-
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FieldLifecycleFact {
@@ -106,10 +99,7 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
                 field.range,
             );
             let reconciliation = reconcile_field_write(&contract, &initializer.knowledge, &application.outcome);
-            let relation_causal = application
-                .cause
-                .map(CausalInvalidity::One)
-                .unwrap_or(CausalInvalidity::Clean);
+            let relation_causal = application.cause.map(CausalInvalidity::One).unwrap_or(CausalInvalidity::Clean);
             (
                 reconciliation.current,
                 FieldInitialization::DefinitelyInitialized,
@@ -139,8 +129,6 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
     table
 }
 
-
-
 pub(crate) fn lifecycle_read_knowledge(
     contract: &TypeKnowledge,
     initialization: FieldInitialization,
@@ -162,18 +150,10 @@ pub(crate) fn lifecycle_read_knowledge(
             Some(ty) => TypeKnowledge::assumed(ty, EvidenceOrigin::FieldLifecycle),
             None => contract.clone(),
         },
-        FieldContractValidity::Refuted => {
-            TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
-        }
-        FieldContractValidity::Blocked(_) => {
-            TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)
-        }
-        FieldContractValidity::DynamicBoundary(_) => {
-            TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape)
-        }
-        FieldContractValidity::Unchecked => {
-            TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
-        }
+        FieldContractValidity::Refuted => TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause),
+        FieldContractValidity::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
+        FieldContractValidity::DynamicBoundary(_) => TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape),
+        FieldContractValidity::Unchecked => TypeKnowledge::Unknown(UnknownReason::MissingInitializer),
     }
 }
 
@@ -232,23 +212,17 @@ pub(crate) fn finalize_instance_field_lifecycle<'a>(
                 field_causal.join(exit.causal_invalidity)
             })
             .fold(CausalInvalidity::Clean, CausalInvalidity::join);
-        fact.read_knowledge = lifecycle_read_knowledge(
-            &fact.contract,
-            fact.initialization,
-            &fact.validity,
-            fact.causal_invalidity,
-        );
+        fact.read_knowledge = lifecycle_read_knowledge(&fact.contract, fact.initialization, &fact.validity, fact.causal_invalidity);
     }
     result
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::identity::ModuleId;
     use crate::types::outcome::{BlockReason, DynamicBoundaryObligation, RelationEvidence, RelationFailure};
     use crate::types::store::TypeStore;
-    use crate::identity::ModuleId;
 
     #[test]
     fn reconcile_field_write_preserves_actual_and_derives_correct_validity() {
@@ -295,11 +269,7 @@ mod tests {
 
         let unknown = TypeKnowledge::Unknown(UnknownReason::MissingInitializer);
         let block_reason = BlockReason::UnknownType(UnknownReason::MissingInitializer);
-        let rec = reconcile_field_write(
-            &contract,
-            &unknown,
-            &RelationOutcome::Blocked(block_reason.clone()),
-        );
+        let rec = reconcile_field_write(&contract, &unknown, &RelationOutcome::Blocked(block_reason.clone()));
         assert_eq!(rec.current, unknown);
         assert_eq!(rec.validity, FieldContractValidity::Blocked(block_reason));
 
@@ -307,14 +277,8 @@ mod tests {
         let obligation = DynamicBoundaryObligation {
             reason: "dynamic write".into(),
         };
-        let rec = reconcile_field_write(
-            &contract,
-            &dynamic,
-            &RelationOutcome::DynamicBoundary(obligation.clone()),
-        );
+        let rec = reconcile_field_write(&contract, &dynamic, &RelationOutcome::DynamicBoundary(obligation.clone()));
         assert_eq!(rec.current, dynamic);
         assert_eq!(rec.validity, FieldContractValidity::DynamicBoundary(obligation));
-
     }
 }
-

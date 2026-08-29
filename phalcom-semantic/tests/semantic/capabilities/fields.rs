@@ -38,13 +38,17 @@ class Probe {
 
     assert_eq!(f.expression(increment, "_value").knowledge.ty(), Some(int_ty));
     assert_eq!(f.expression(read, "_value").knowledge.ty(), Some(int_ty));
-    assert_eq!(f.expression(read, "_value").knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
+    assert_eq!(
+        f.expression(read, "_value").knowledge.status(),
+        Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed)
+    );
     f.assert_binding_established(run, "counter", f.ty("Counter"));
     f.assert_binding_type(run, "after", int_ty);
-    assert_eq!(f.binding(run, "after").current.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
+    assert_eq!(
+        f.binding(run, "after").current.status(),
+        Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed)
+    );
     f.assert_no_error_diagnostics();
-
-
 }
 
 #[test]
@@ -76,7 +80,6 @@ class Cell {
     let val = positive.expression(read, "_value");
     assert_eq!(val.knowledge.ty(), Some(positive.ty("Int")));
     assert_eq!(val.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
-
 
     let negative = Fixture::new(
         r#"
@@ -136,19 +139,17 @@ class Cell {
     let string_ty = f.ty("String");
     let int_ty = f.ty("Int");
 
-    let exit = constructor
-        .exits
-        .normal_returns
-        .first()
-        .expect("constructor normal exit");
+    let exit = constructor.exits.normal_returns.first().expect("constructor normal exit");
     let field = exit.flow.fields.values().next().expect("field exit state");
 
-    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(
+        field.initialization,
+        phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized
+    );
     assert_eq!(field.current.ty(), Some(string_ty));
     assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Refuted);
     assert!(
-        !f.expression(read, "_value").knowledge.is_established()
-            || f.expression(read, "_value").knowledge.ty() != Some(int_ty),
+        !f.expression(read, "_value").knowledge.is_established() || f.expression(read, "_value").knowledge.ty() != Some(int_ty),
         "a refuted constructor write must not establish the declared field contract"
     );
     assert!(!f.diagnostics(phalcom_semantic::diagnostic::DiagnosticCode::FieldMismatch).is_empty());
@@ -172,14 +173,13 @@ class Cell {
     let constructor = f.callable("Cell", "new", DispatchSide::Instance);
     let int_ty = f.ty("Int");
 
-    let exit = constructor
-        .exits
-        .normal_returns
-        .first()
-        .expect("constructor normal exit");
+    let exit = constructor.exits.normal_returns.first().expect("constructor normal exit");
     let field = exit.flow.fields.values().next().expect("field exit state");
 
-    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(
+        field.initialization,
+        phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized
+    );
     assert_eq!(field.current.ty(), Some(int_ty));
     assert_eq!(field.current.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
     assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Assumed);
@@ -324,7 +324,10 @@ class Box {
     let constructor = f.callable("Box", "new", DispatchSide::Instance);
     let exit = constructor.exits.normal_returns.first().expect("constructor exit");
     let field = exit.flow.fields.values().next().expect("field flow");
-    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(
+        field.initialization,
+        phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized
+    );
     assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Validated);
 
     let read = f.callable("Box", "read", DispatchSide::Instance);
@@ -355,7 +358,10 @@ class Cell {
     let constructor = f.callable("Cell", "new", DispatchSide::Instance);
     let exit = constructor.exits.normal_returns.first().expect("constructor exit");
     let field = exit.flow.fields.values().next().expect("field flow");
-    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(
+        field.initialization,
+        phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized
+    );
     assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Validated);
 
     let read = f.callable("Cell", "read", DispatchSide::Instance);
@@ -386,7 +392,10 @@ class Cell {
     let constructor = f.callable("Cell", "new", DispatchSide::Instance);
     let exit = constructor.exits.normal_returns.first().expect("constructor exit");
     let field = exit.flow.fields.values().next().expect("field flow");
-    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(
+        field.initialization,
+        phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized
+    );
     assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Refuted);
 
     let read = f.callable("Cell", "read", DispatchSide::Instance);
@@ -528,11 +537,3 @@ class Probe {
     let get_call = f.expression(run, "Cell.new().get()");
     assert!(!get_call.knowledge.is_established());
 }
-
-
-
-
-
-
-
-
