@@ -106,3 +106,43 @@ class Counter {
     let field = choose.entry_flow.fields.values().next().expect("field flow summary");
     assert_eq!(field.contract.ty(), Some(f.ty("Number")));
 }
+
+#[test]
+fn wrong_constructor_write_is_initialized_but_never_certifies_field_contract() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  new() {
+    _value = "wrong"
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let constructor = f.callable("Cell", "new", DispatchSide::Instance);
+    let read = f.callable("Cell", "read", DispatchSide::Instance);
+    let string_ty = f.ty("String");
+    let int_ty = f.ty("Int");
+
+    let exit = constructor
+        .exits
+        .normal_returns
+        .first()
+        .expect("constructor normal exit");
+    let field = exit.flow.fields.values().next().expect("field exit state");
+
+    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(field.current.ty(), Some(string_ty));
+    assert!(
+        !f.expression(read, "_value").knowledge.is_established()
+            || f.expression(read, "_value").knowledge.ty() != Some(int_ty),
+        "a refuted constructor write must not establish the declared field contract"
+    );
+    assert!(!f.diagnostics(phalcom_semantic::diagnostic::DiagnosticCode::FieldMismatch).is_empty());
+}
+
