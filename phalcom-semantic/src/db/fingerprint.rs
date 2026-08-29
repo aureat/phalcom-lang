@@ -899,6 +899,23 @@ fn hash_flow_graph_semantics(graph: &FlowGraph, hasher: &mut impl Hasher) {
     graph.exits.hash(hasher);
 }
 
+fn hash_field_validity(validity: &crate::checker::flow::FieldContractValidity, hasher: &mut impl Hasher) {
+    match validity {
+        crate::checker::flow::FieldContractValidity::Unchecked => 0u8.hash(hasher),
+        crate::checker::flow::FieldContractValidity::Validated => 1u8.hash(hasher),
+        crate::checker::flow::FieldContractValidity::Assumed => 2u8.hash(hasher),
+        crate::checker::flow::FieldContractValidity::Refuted => 3u8.hash(hasher),
+        crate::checker::flow::FieldContractValidity::Blocked(reason) => {
+            4u8.hash(hasher);
+            hash_block_reason(reason, hasher);
+        }
+        crate::checker::flow::FieldContractValidity::DynamicBoundary(obligation) => {
+            5u8.hash(hasher);
+            obligation.reason.hash(hasher);
+        }
+    }
+}
+
 fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
     summary.bindings.len().hash(hasher);
     for (binding, state) in &summary.bindings {
@@ -914,9 +931,12 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
         hash_type_knowledge(&state.contract, false, hasher);
         hash_type_knowledge(&state.current, false, hasher);
         state.initialization.hash(hasher);
+        hash_field_validity(&state.validity, hasher);
+        hash_causal_invalidity_shape(&state.causal_invalidity, hasher);
     }
     summary.fact_count.hash(hasher);
 }
+
 
 fn hash_causal_invalidity_shape(causal: &CausalInvalidity, hasher: &mut impl Hasher) {
     match causal {

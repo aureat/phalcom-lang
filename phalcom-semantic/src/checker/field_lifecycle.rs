@@ -1,8 +1,9 @@
 //! Compiler-owned instance-field lifecycle proofs.
 
 use crate::checker::analysis::CallableAnalysis;
+use crate::checker::causal::CausalInvalidity;
 use crate::checker::context::CheckingContext;
-use crate::checker::flow::{FieldInitialization, FieldState, FlowState};
+use crate::checker::flow::{FieldContractValidity, FieldInitialization, FieldState, FlowState};
 use crate::identity::{DeclarationId, DispatchSide, FieldId};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::outcome::RelationOutcome;
@@ -15,6 +16,8 @@ pub struct FieldLifecycleFact {
     pub contract: TypeKnowledge,
     pub read_knowledge: TypeKnowledge,
     pub initialization: FieldInitialization,
+    pub validity: FieldContractValidity,
+    pub causal_invalidity: CausalInvalidity,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -38,6 +41,8 @@ impl FieldLifecycleTable {
                     TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
                 },
                 initialization: fact.initialization,
+                validity: fact.validity.clone(),
+                causal_invalidity: fact.causal_invalidity,
                 version: 0,
             });
         }
@@ -60,7 +65,7 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
         let Some((field_id, contract)) = ctx.resolve_field_contract(&owner, DispatchSide::Instance, &field.name) else {
             continue;
         };
-        let (read_knowledge, initialization) = if let Some(default) = &field.default {
+        let (read_knowledge, initialization, validity) = if let Some(default) = &field.default {
             let initializer = super::expression::synthesize_expr(ctx, default);
             let proven = contract
                 .ty()
@@ -69,12 +74,17 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
                 (
                     TypeKnowledge::established(contract.ty().expect("proven contract type"), EvidenceOrigin::FieldLifecycle),
                     FieldInitialization::DefinitelyInitialized,
+                    FieldContractValidity::Validated,
                 )
             } else {
-                (initializer, FieldInitialization::MaybeInitialized)
+                (initializer, FieldInitialization::MaybeInitialized, FieldContractValidity::Refuted)
             }
         } else {
-            (TypeKnowledge::Unknown(UnknownReason::MissingInitializer), FieldInitialization::Uninitialized)
+            (
+                TypeKnowledge::Unknown(UnknownReason::MissingInitializer),
+                FieldInitialization::Uninitialized,
+                FieldContractValidity::Unchecked,
+            )
         };
         table.fields.insert(
             field_id.clone(),
@@ -83,11 +93,14 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
                 contract,
                 read_knowledge,
                 initialization,
+                validity,
+                causal_invalidity: CausalInvalidity::Clean,
             },
         );
     }
     table
 }
+
 
 pub(crate) fn finalize_instance_field_lifecycle<'a>(
     defaults: &FieldLifecycleTable,

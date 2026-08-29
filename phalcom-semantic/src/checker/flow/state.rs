@@ -55,12 +55,16 @@ mod field_tests {
             contract: contract.clone(),
             current: TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::MissingInitializer),
             initialization: FieldInitialization::Uninitialized,
+            validity: FieldContractValidity::Unchecked,
+            causal_invalidity: CausalInvalidity::Clean,
             version: 0,
         });
         flow.write_field(
             &id,
             TypeKnowledge::established(string_ty, EvidenceOrigin::Flow),
             FieldInitialization::DefinitelyInitialized,
+            FieldContractValidity::Validated,
+            CausalInvalidity::Clean,
         );
         let state = flow.get_field(&id).expect("field state");
         assert_eq!(state.contract, contract);
@@ -80,6 +84,8 @@ mod field_tests {
             contract: contract.clone(),
             current,
             initialization,
+            validity: FieldContractValidity::Validated,
+            causal_invalidity: CausalInvalidity::Clean,
             version: 0,
         };
         let mut left = FlowState::new();
@@ -115,6 +121,7 @@ mod field_tests {
             FieldInitialization::DefinitelyInitialized
         );
     }
+
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -125,13 +132,54 @@ pub enum FieldInitialization {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FieldContractValidity {
+    Unchecked,
+    Validated,
+    Assumed,
+    Refuted,
+    Blocked(crate::types::outcome::BlockReason),
+    DynamicBoundary(crate::types::outcome::DynamicBoundaryObligation),
+}
+
+pub(crate) fn join_two_field_validities(a: FieldContractValidity, b: FieldContractValidity) -> FieldContractValidity {
+    use FieldContractValidity::*;
+    match (a, b) {
+        (Refuted, _) | (_, Refuted) => Refuted,
+        (Blocked(r), _) | (_, Blocked(r)) => Blocked(r),
+        (DynamicBoundary(o), _) | (_, DynamicBoundary(o)) => DynamicBoundary(o),
+        (Unchecked, _) | (_, Unchecked) => Unchecked,
+        (Assumed, _) | (_, Assumed) => Assumed,
+        (Validated, Validated) => Validated,
+    }
+}
+
+pub fn join_field_validity(inputs: impl IntoIterator<Item = FieldContractValidity>) -> FieldContractValidity {
+    let mut result = FieldContractValidity::Validated;
+    let mut saw_any = false;
+
+    for input in inputs {
+        saw_any = true;
+        result = join_two_field_validities(result, input);
+    }
+
+    if saw_any {
+        result
+    } else {
+        FieldContractValidity::Unchecked
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FieldState {
     pub field: FieldId,
     pub contract: TypeKnowledge,
     pub current: TypeKnowledge,
     pub initialization: FieldInitialization,
+    pub validity: FieldContractValidity,
+    pub causal_invalidity: CausalInvalidity,
     pub version: u32,
 }
+
 
 /// Compatibility alias retained for callers compiled against the parent plan.
 pub type FlowJoinFailure = FlowInvariantFailure;
@@ -326,13 +374,23 @@ impl FlowState {
         self.fields.get(field).map(|state| &state.current)
     }
 
-    pub fn write_field(&mut self, field: &FieldId, current: TypeKnowledge, initialization: FieldInitialization) {
+    pub fn write_field(
+        &mut self,
+        field: &FieldId,
+        current: TypeKnowledge,
+        initialization: FieldInitialization,
+        validity: FieldContractValidity,
+        causal_invalidity: CausalInvalidity,
+    ) {
         if let Some(state) = self.fields.get_mut(field) {
             state.current = current;
             state.initialization = initialization;
+            state.validity = validity;
+            state.causal_invalidity = causal_invalidity;
             state.version += 1;
         }
     }
+
 
     /// Sequential assignment: replaces `current` fact, increments version,
     /// and invalidates dependent path facts (F4).
@@ -536,6 +594,11 @@ impl FlowState {
             } else {
                 FieldInitialization::MaybeInitialized
             };
+            let validity = join_field_validity(incoming.iter().map(|state| state.validity.clone()));
+            let causal_invalidity = incoming
+                .iter()
+                .map(|state| state.causal_invalidity)
+                .fold(CausalInvalidity::Clean, CausalInvalidity::join);
             joined_fields.insert(
                 field.clone(),
                 FieldState {
@@ -543,9 +606,12 @@ impl FlowState {
                     contract: sample.contract.clone(),
                     current,
                     initialization,
+                    validity,
+                    causal_invalidity,
                     version: incoming.iter().map(|state| state.version).max().unwrap_or(0) + 1,
                 },
             );
+
         }
 
         // Facts: intersection across reachable states

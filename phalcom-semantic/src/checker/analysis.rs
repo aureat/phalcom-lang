@@ -195,7 +195,10 @@ pub struct FlowFieldSummary {
     pub contract: TypeKnowledge,
     pub current: TypeKnowledge,
     pub initialization: crate::checker::flow::FieldInitialization,
+    pub validity: crate::checker::flow::FieldContractValidity,
+    pub causal_invalidity: CausalInvalidity,
 }
+
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FlowStateSummary {

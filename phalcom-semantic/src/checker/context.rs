@@ -531,10 +531,13 @@ impl<'a> CheckingContext<'a> {
                             contract: state.contract.clone(),
                             current: state.current.clone(),
                             initialization: state.initialization,
+                            validity: state.validity.clone(),
+                            causal_invalidity: state.causal_invalidity,
                         },
                     )
                 })
                 .collect(),
+
             fact_count: self.flow.facts.len(),
         }
     }
@@ -1476,19 +1479,34 @@ impl<'a> CheckingContext<'a> {
         Some((field, current))
     }
 
-    pub(crate) fn write_current_field(&mut self, field: crate::identity::FieldId, contract: TypeKnowledge, current: TypeKnowledge) {
+    pub(crate) fn write_current_field(
+        &mut self,
+        field: crate::identity::FieldId,
+        contract: TypeKnowledge,
+        current: TypeKnowledge,
+        validity: crate::checker::flow::FieldContractValidity,
+        causal_invalidity: crate::checker::causal::CausalInvalidity,
+    ) {
         if self.flow.get_field(&field).is_none() {
             self.flow.seed_field(crate::checker::flow::FieldState {
                 field: field.clone(),
                 contract,
                 current: TypeKnowledge::Unknown(UnknownReason::MissingInitializer),
                 initialization: crate::checker::flow::FieldInitialization::Uninitialized,
+                validity: crate::checker::flow::FieldContractValidity::Unchecked,
+                causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
                 version: 0,
             });
         }
-        self.flow
-            .write_field(&field, current, crate::checker::flow::FieldInitialization::DefinitelyInitialized);
+        self.flow.write_field(
+            &field,
+            current,
+            crate::checker::flow::FieldInitialization::DefinitelyInitialized,
+            validity,
+            causal_invalidity,
+        );
     }
+
 
     pub fn resolve_type_name(&self, name: &str) -> Option<DeclarationId> {
         self.resolver.resolve_type_name(&self.current_module, name, &[])
