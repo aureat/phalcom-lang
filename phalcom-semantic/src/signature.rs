@@ -139,12 +139,7 @@ impl CallableSemanticSignature {
         self.declared_return
             .known_term()
             .cloned()
-            .or_else(|| {
-                self.inferred_return
-                    .as_ref()
-                    .and_then(TypeKnowledge::ty)
-                    .map(TypeTerm::Canonical)
-            })
+            .or_else(|| self.inferred_return.as_ref().and_then(TypeKnowledge::ty).map(TypeTerm::Canonical))
     }
 
     /// Whether this declaration is a constructor according to declaration-owned

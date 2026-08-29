@@ -528,7 +528,7 @@ fn hash_dispatch_callable_signature(signature: &crate::dispatch::CallableSignatu
 
 fn hash_member_surface(surface: &crate::surface::MemberSurface, include_provenance: bool, hasher: &mut impl Hasher) {
     let mut fields = surface.fields.iter().collect::<Vec<_>>();
-    fields.sort_by(|(left, _), (right, _)| left.cmp(right));
+    fields.sort_by_key(|(left, _)| *left);
     fields.len().hash(hasher);
     for (name, knowledge) in fields {
         name.hash(hasher);
@@ -537,7 +537,7 @@ fn hash_member_surface(surface: &crate::surface::MemberSurface, include_provenan
     }
 
     let mut callables = surface.callable_signatures.iter().collect::<Vec<_>>();
-    callables.sort_by(|(left, _), (right, _)| left.cmp(right));
+    callables.sort_by_key(|(left, _)| *left);
     callables.len().hash(hasher);
     for (selector, signature) in callables {
         selector.hash(hasher);
@@ -1568,4 +1568,3 @@ mod tests {
         }
     }
 }
-

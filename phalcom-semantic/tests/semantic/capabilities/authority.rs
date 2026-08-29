@@ -917,7 +917,10 @@ class Echo {
     );
 
     let echo = f.callable("Echo", "echo", DispatchSide::Class);
-    assert_eq!(echo.return_validation, phalcom_semantic::ReturnContractValidation::Satisfied(EvidenceStatus::Assumed));
+    assert_eq!(
+        echo.return_validation,
+        phalcom_semantic::ReturnContractValidation::Satisfied(EvidenceStatus::Assumed)
+    );
 }
 
 #[test]
@@ -935,7 +938,10 @@ class Probe {
 
     let abrupt = f.callable("Probe", "abrupt", DispatchSide::Class);
     assert!(abrupt.exits.normal_returns.is_empty());
-    assert_eq!(abrupt.return_validation, phalcom_semantic::ReturnContractValidation::Satisfied(EvidenceStatus::Established));
+    assert_eq!(
+        abrupt.return_validation,
+        phalcom_semantic::ReturnContractValidation::Satisfied(EvidenceStatus::Established)
+    );
 }
 
 #[test]
@@ -984,5 +990,3 @@ class Probe {
     assert_eq!(result.current.ty(), Some(int_ty));
     assert_eq!(result.current.status(), Some(EvidenceStatus::Assumed));
 }
-
-

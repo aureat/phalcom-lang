@@ -327,10 +327,7 @@ mod tests {
             status: AnalysisStatus::Invalid(DiagnosticCauseId(1)),
             causal_invalidity: CausalInvalidity::One(DiagnosticCauseId(1)),
         };
-        assert_eq!(
-            fact.publication_knowledge(),
-            TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
-        );
+        assert_eq!(fact.publication_knowledge(), TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
     }
 
     #[test]
@@ -341,9 +338,6 @@ mod tests {
             status: AnalysisStatus::Ready,
             causal_invalidity: CausalInvalidity::Clean,
         };
-        assert_eq!(
-            fact.publication_knowledge(),
-            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow)
-        );
+        assert_eq!(fact.publication_knowledge(), TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow));
     }
 }

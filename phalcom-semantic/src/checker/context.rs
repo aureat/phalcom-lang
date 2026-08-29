@@ -1656,10 +1656,7 @@ impl<'a> CheckingContext<'a> {
                         RelationOutcome::Refuted(_) => {
                             return crate::signature::ReturnContractValidation::Refuted;
                         }
-                        RelationOutcome::Blocked(_)
-                        | RelationOutcome::Cancelled
-                        | RelationOutcome::BudgetExceeded(_)
-                        | RelationOutcome::InternalFailure(_) => {
+                        RelationOutcome::Blocked(_) | RelationOutcome::Cancelled | RelationOutcome::BudgetExceeded(_) | RelationOutcome::InternalFailure(_) => {
                             return crate::signature::ReturnContractValidation::Blocked;
                         }
                         RelationOutcome::DynamicBoundary(_) => {

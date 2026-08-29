@@ -91,7 +91,9 @@ pub use prover::{
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
-pub use signature::{CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation};
+pub use signature::{
+    CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
+};
 pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,

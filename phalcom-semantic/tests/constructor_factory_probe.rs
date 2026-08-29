@@ -66,11 +66,7 @@ const x: Int = CellNum.of(42)
         "constructor call must formally produce CellNum: {constructor_call:#?}"
     );
     assert!(
-        factory_analysis
-            .exits
-            .normal_returns
-            .iter()
-            .any(|fact| fact.knowledge.ty() == Some(cell_ty)),
+        factory_analysis.exits.normal_returns.iter().any(|fact| fact.knowledge.ty() == Some(cell_ty)),
         "CellNum.of must publish the constructor result as a normal return: {factory_analysis:#?}"
     );
 

@@ -296,11 +296,12 @@ impl SemanticDb {
         let key = QueryKey::CallableBody(callable.clone());
         let fp = analysis.dependency_fingerprint;
         let query_value = crate::db::product::SemanticProduct::CallableBody(analysis.clone()).to_query_value();
-        if let Some(state) = self.query_states.get_mut(&key) {
-            if let QueryState::Ready { product_fingerprint, value, .. } = state {
-                *product_fingerprint = fp;
-                *value = query_value;
-            }
+        if let Some(QueryState::Ready {
+            product_fingerprint, value, ..
+        }) = self.query_states.get_mut(&key)
+        {
+            *product_fingerprint = fp;
+            *value = query_value;
         }
         let product = Arc::new(SemanticProduct::CallableBody(analysis));
         self.products.insert(key.clone(), product.clone());

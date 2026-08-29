@@ -2,8 +2,8 @@
 
 use super::analysis::{AnalysisStatus, NormalReturnFact};
 use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_relation};
-use super::causal::CausalInvalidity;
 use super::call::{CallPremise, CallableApplicationTarget, UnresolvedApplicationReason, analyze_unresolved_application, apply_resolved_callable};
+use super::causal::CausalInvalidity;
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
@@ -310,6 +310,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::only_used_in_recursion)]
 fn bind_declaration_pattern(
     ctx: &mut CheckingContext<'_>,
     pattern: &Pattern,
