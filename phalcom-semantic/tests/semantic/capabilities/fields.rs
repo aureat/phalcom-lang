@@ -304,6 +304,232 @@ class Reader {
     assert!(!call_expr.knowledge.is_established());
 }
 
+#[test]
+fn valid_constructor_literal_establishes_field_contract() {
+    let f = Fixture::new(
+        r#"
+class Box {
+  _value: Int
+
+  @constructor
+  new() {
+    _value = 1
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let constructor = f.callable("Box", "new", DispatchSide::Instance);
+    let exit = constructor.exits.normal_returns.first().expect("constructor exit");
+    let field = exit.flow.fields.values().next().expect("field flow");
+    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Validated);
+
+    let read = f.callable("Box", "read", DispatchSide::Instance);
+    f.assert_expression_established(f.expression(read, "_value"), f.ty("Int"));
+}
+
+#[test]
+fn both_branches_valid_initializes_and_validates_field() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  new(_ flag: Bool) {
+    if flag {
+      _value = 1
+    } else {
+      _value = 2
+    }
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let constructor = f.callable("Cell", "new", DispatchSide::Instance);
+    let exit = constructor.exits.normal_returns.first().expect("constructor exit");
+    let field = exit.flow.fields.values().next().expect("field flow");
+    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Validated);
+
+    let read = f.callable("Cell", "read", DispatchSide::Instance);
+    f.assert_expression_established(f.expression(read, "_value"), f.ty("Int"));
+}
+
+#[test]
+fn mixed_valid_and_refuted_branches_leaves_field_refuted() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  new(_ flag: Bool) {
+    if flag {
+      _value = 1
+    } else {
+      _value = "bad"
+    }
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let constructor = f.callable("Cell", "new", DispatchSide::Instance);
+    let exit = constructor.exits.normal_returns.first().expect("constructor exit");
+    let field = exit.flow.fields.values().next().expect("field flow");
+    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Refuted);
+
+    let read = f.callable("Cell", "read", DispatchSide::Instance);
+    assert!(!f.expression(read, "_value").knowledge.is_established());
+}
+
+#[test]
+fn multiple_constructors_all_valid_establishes_field_contract() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  initA() {
+    _value = 1
+  }
+
+  @constructor
+  initB() {
+    _value = 2
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let read = f.callable("Cell", "read", DispatchSide::Instance);
+    f.assert_expression_established(f.expression(read, "_value"), f.ty("Int"));
+}
+
+#[test]
+fn multiple_constructors_one_missing_does_not_establish_field_contract() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  initA() {
+    _value = 1
+  }
+
+  @constructor
+  initB() {
+    let dummy = 0
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let read = f.callable("Cell", "read", DispatchSide::Instance);
+    assert!(!f.expression(read, "_value").knowledge.is_established());
+}
+
+#[test]
+fn multiple_constructors_one_refuted_does_not_establish_field_contract() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  initA() {
+    _value = 1
+  }
+
+  @constructor
+  initB() {
+    _value = "bad"
+  }
+
+  read() { _value }
+}
+"#,
+    );
+
+    let read = f.callable("Cell", "read", DispatchSide::Instance);
+    assert!(!f.expression(read, "_value").knowledge.is_established());
+}
+
+#[test]
+fn return_field_call_composition_propagates_established_field_tail() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  new() {
+    _value = 1
+  }
+
+  get() { _value }
+}
+
+class Probe {
+  @class
+  run() {
+    Cell.new().get()
+  }
+}
+"#,
+    );
+
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let get_call = f.expression(run, "Cell.new().get()");
+    f.assert_expression_established(get_call, f.ty("Int"));
+}
+
+#[test]
+fn refuted_field_tail_cannot_establish_downstream_caller() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  @constructor
+  new() {
+    _value = "wrong"
+  }
+
+  get() { _value }
+}
+
+class Probe {
+  @class
+  run() {
+    Cell.new().get()
+  }
+}
+"#,
+    );
+
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let get_call = f.expression(run, "Cell.new().get()");
+    assert!(!get_call.knowledge.is_established());
+}
+
+
 
 
 
