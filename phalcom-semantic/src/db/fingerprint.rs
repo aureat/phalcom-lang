@@ -1587,4 +1587,64 @@ mod tests {
             assert!(hashes.insert(h), "hash collision for {variant:?}");
         }
     }
+
+    #[test]
+    fn field_validity_fingerprint_distinguishes_variants() {
+        use crate::checker::flow::FieldContractValidity;
+        use crate::types::outcome::{BlockReason, DynamicBoundaryObligation};
+
+        let variants = [
+            FieldContractValidity::Unchecked,
+            FieldContractValidity::Validated,
+            FieldContractValidity::Assumed,
+            FieldContractValidity::Refuted,
+            FieldContractValidity::Blocked(BlockReason::SuppressedDependency),
+            FieldContractValidity::DynamicBoundary(DynamicBoundaryObligation { reason: "dyn".into() }),
+        ];
+        let mut hashes = std::collections::BTreeSet::new();
+        for variant in &variants {
+            let mut hasher = DefaultHasher::new();
+            hash_field_validity(variant, &mut hasher);
+            let h = hasher.finish();
+            assert!(hashes.insert(h), "hash collision for {variant:?}");
+        }
+    }
+
+    #[test]
+    fn flow_summary_fingerprint_changes_on_field_validity_change() {
+        use crate::checker::analysis::{FlowFieldSummary, FlowStateSummary};
+        use crate::checker::flow::{FieldContractValidity, FieldInitialization};
+        use crate::identity::{DeclarationId, DispatchSide, FieldId, ModuleId};
+
+        let field = FieldId::new(DeclarationId::new(ModuleId::core(), "Cell".into()), "_value", DispatchSide::Instance);
+        let contract = TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::MissingInitializer);
+        let current = TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::MissingInitializer);
+
+        let make_summary = |validity: FieldContractValidity, causal: CausalInvalidity| {
+            let mut summary = FlowStateSummary::default();
+            summary.fields.insert(
+                field.clone(),
+                FlowFieldSummary {
+                    contract: contract.clone(),
+                    current: current.clone(),
+                    initialization: FieldInitialization::DefinitelyInitialized,
+                    validity,
+                    causal_invalidity: causal,
+                },
+            );
+            let mut hasher = DefaultHasher::new();
+            hash_flow_summary(&summary, &mut hasher);
+            hasher.finish()
+        };
+
+        let h_validated = make_summary(FieldContractValidity::Validated, CausalInvalidity::Clean);
+        let h_assumed = make_summary(FieldContractValidity::Assumed, CausalInvalidity::Clean);
+        assert_ne!(h_validated, h_assumed);
+
+        // Same shape causal invalidity (One(cause0) vs One(cause1)) produces same fingerprint
+        let h_cause0 = make_summary(FieldContractValidity::Refuted, CausalInvalidity::One(crate::identity::DiagnosticCauseId(0)));
+        let h_cause1 = make_summary(FieldContractValidity::Refuted, CausalInvalidity::One(crate::identity::DiagnosticCauseId(1)));
+        assert_eq!(h_cause0, h_cause1);
+    }
 }
+
