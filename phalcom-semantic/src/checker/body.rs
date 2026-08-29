@@ -113,6 +113,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             if let Some(ret_ty) = declared_return.ty() {
                 ctx.expected_return = Some(CallableReturnContract {
                     ty: ret_ty,
+                    basis: signature.declared_return.basis,
                     origin: crate::types::evidence::EvidenceOrigin::CallableSignature,
                     source: None,
                 });

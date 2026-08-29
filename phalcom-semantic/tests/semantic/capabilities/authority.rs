@@ -898,6 +898,43 @@ class Probe {
 "#,
     );
 
+    let broken = f.callable("Probe", "broken", DispatchSide::Class);
     assert!(!f.diagnostics(DiagnosticCode::ReturnMismatch).is_empty());
+    assert_eq!(broken.return_validation, phalcom_semantic::ReturnContractValidation::Refuted);
+}
+
+#[test]
+fn assumed_body_yields_satisfied_assumed_validation() {
+    let f = Fixture::new(
+        r#"
+class Echo {
+  @class
+  echo(_ value: String) -> String {
+    value
+  }
+}
+"#,
+    );
+
+    let echo = f.callable("Echo", "echo", DispatchSide::Class);
+    assert_eq!(echo.return_validation, phalcom_semantic::ReturnContractValidation::Satisfied(EvidenceStatus::Assumed));
+}
+
+#[test]
+fn vacuous_never_body_yields_satisfied_established_validation() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  abrupt() -> String {
+    throw "error"
+  }
+}
+"#,
+    );
+
+    let abrupt = f.callable("Probe", "abrupt", DispatchSide::Class);
+    assert!(abrupt.exits.normal_returns.is_empty());
+    assert_eq!(abrupt.return_validation, phalcom_semantic::ReturnContractValidation::Satisfied(EvidenceStatus::Established));
 }
 

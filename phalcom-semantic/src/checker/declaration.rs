@@ -217,6 +217,7 @@ fn check_callable_body(
         let (knowledge, _) = ctx.resolve_type_annotation(resolver, ann);
         knowledge.ty().map(|ty| CallableReturnContract {
             ty,
+            basis: crate::declaration_type::DeclaredTypeBasis::SourceAnnotation,
             origin: EvidenceOrigin::DeveloperAnnotation,
             source: Some(ann.range),
         })

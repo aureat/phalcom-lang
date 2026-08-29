@@ -258,6 +258,7 @@ struct CallDependencyFrame {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableReturnContract {
     pub ty: TypeId,
+    pub basis: crate::declaration_type::DeclaredTypeBasis,
     pub origin: crate::types::evidence::EvidenceOrigin,
     pub source: Option<SourceRange>,
 }
@@ -1536,6 +1537,7 @@ impl<'a> CheckingContext<'a> {
         status: crate::checker::analysis::CallableAnalysisStatus,
         normal_returns: Vec<crate::checker::analysis::NormalReturnFact>,
     ) -> crate::checker::analysis::CallableAnalysis {
+        let return_validation = self.validate_return_contract(status, &normal_returns);
         let entry_flow = self.current_flow_summary();
         let flow_graph = self
             .flow_graph
@@ -1570,7 +1572,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph,
             entry_flow,
             exits,
-            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+            return_validation,
             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
             internal_incidents: std::sync::Arc::from(self.analysis_incidents.into_values().collect::<Vec<_>>().into_boxed_slice()),
             explanations: std::sync::Arc::new(self.explanations),
@@ -1579,6 +1581,95 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.borrow().iter().cloned().collect::<Vec<_>>().into_boxed_slice()),
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
+        }
+    }
+
+    pub fn validate_return_contract(
+        &mut self,
+        status: crate::checker::analysis::CallableAnalysisStatus,
+        normal_returns: &[crate::checker::analysis::NormalReturnFact],
+    ) -> crate::signature::ReturnContractValidation {
+        let Some(contract) = self.expected_return.clone() else {
+            return crate::signature::ReturnContractValidation::NotApplicable;
+        };
+        if contract.basis != crate::declaration_type::DeclaredTypeBasis::SourceAnnotation {
+            return crate::signature::ReturnContractValidation::NotApplicable;
+        }
+        if status != crate::checker::analysis::CallableAnalysisStatus::Complete {
+            return crate::signature::ReturnContractValidation::Blocked;
+        }
+        if normal_returns.is_empty() {
+            return crate::signature::ReturnContractValidation::Satisfied(crate::types::evidence::EvidenceStatus::Established);
+        }
+
+        let mut accumulated_status = crate::types::evidence::EvidenceStatus::Established;
+        let mut has_dynamic = false;
+
+        for exit in normal_returns {
+            // 1. Raw relation check first when Known to detect genuine type refutation
+            if let Some(_raw_ty) = exit.knowledge.ty() {
+                let outcome = self.check_knowledge_against_type(&exit.knowledge, contract.ty);
+                if matches!(outcome, RelationOutcome::Refuted(_)) {
+                    return crate::signature::ReturnContractValidation::Refuted;
+                }
+            }
+
+            // 2. Causal / status admissibility check
+            if exit.causal_invalidity != crate::checker::causal::CausalInvalidity::Clean {
+                return crate::signature::ReturnContractValidation::Blocked;
+            }
+            match &exit.status {
+                AnalysisStatus::Ready => {}
+                AnalysisStatus::DynamicBoundary(_) => {
+                    has_dynamic = true;
+                    continue;
+                }
+                AnalysisStatus::Blocked(_)
+                | AnalysisStatus::Cancelled
+                | AnalysisStatus::BudgetExceeded(_)
+                | AnalysisStatus::InternalFailure(_)
+                | AnalysisStatus::Invalid(_)
+                | AnalysisStatus::Suppressed(_) => {
+                    return crate::signature::ReturnContractValidation::Blocked;
+                }
+            }
+
+            // 3. Admissible publication knowledge check
+            let pub_k = exit.publication_knowledge();
+            match &pub_k {
+                TypeKnowledge::Dynamic(_) => {
+                    has_dynamic = true;
+                }
+                TypeKnowledge::Unknown(_) => {
+                    return crate::signature::ReturnContractValidation::Blocked;
+                }
+                TypeKnowledge::Known(evidence) => {
+                    let outcome = self.check_knowledge_against_type(&pub_k, contract.ty);
+                    match outcome {
+                        RelationOutcome::Proven { .. } => {
+                            accumulated_status = accumulated_status.meet(evidence.status());
+                        }
+                        RelationOutcome::Refuted(_) => {
+                            return crate::signature::ReturnContractValidation::Refuted;
+                        }
+                        RelationOutcome::Blocked(_)
+                        | RelationOutcome::Cancelled
+                        | RelationOutcome::BudgetExceeded(_)
+                        | RelationOutcome::InternalFailure(_) => {
+                            return crate::signature::ReturnContractValidation::Blocked;
+                        }
+                        RelationOutcome::DynamicBoundary(_) => {
+                            has_dynamic = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if has_dynamic {
+            crate::signature::ReturnContractValidation::DynamicBoundary
+        } else {
+            crate::signature::ReturnContractValidation::Satisfied(accumulated_status)
         }
     }
 }
