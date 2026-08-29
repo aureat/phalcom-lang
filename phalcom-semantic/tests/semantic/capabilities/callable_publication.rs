@@ -128,3 +128,33 @@ class Maker {
     );
     f.assert_no_error_diagnostics();
 }
+
+#[test]
+fn interprocedural_authority_chain_propagates_established_return() {
+    let f = Fixture::new(
+        r#"
+class Source {
+  @class
+  make() -> Int { 1 }
+}
+class Middle {
+  @class
+  forward() { Source.make() }
+}
+class Probe {
+  @class
+  run() { let result = Middle.forward() }
+}
+"#,
+    );
+
+    let source_make = f.callable("Source", "make", DispatchSide::Class);
+    assert_eq!(source_make.return_validation, phalcom_semantic::ReturnContractValidation::Satisfied(phalcom_semantic::types::evidence::EvidenceStatus::Established));
+
+    let middle_forward = f.callable("Middle", "forward", DispatchSide::Class);
+    assert!(middle_forward.exits.normal_returns.iter().all(|exit| exit.publication_knowledge().is_established()));
+
+    let probe_run = f.callable("Probe", "run", DispatchSide::Class);
+    let result_binding = f.binding(probe_run, "result");
+    assert_eq!(result_binding.current.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Established));
+}

@@ -1905,6 +1905,16 @@ struct InferredCallableRefreshInputs<'a> {
     cancel: &'a CancellationToken,
 }
 
+fn publishable_inferred_return(
+    status: crate::checker::analysis::CallableAnalysisStatus,
+    summary: crate::types::evidence::TypeKnowledge,
+) -> Option<crate::types::evidence::TypeKnowledge> {
+    match status {
+        crate::checker::analysis::CallableAnalysisStatus::Complete if summary.is_known() || summary.is_dynamic() => Some(summary),
+        _ => None,
+    }
+}
+
 fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) -> Result<(), QueryOutcome<()>> {
     let InferredCallableRefreshInputs {
         sources,
@@ -1923,42 +1933,56 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         budget,
         cancel,
     } = inputs;
-    let max_iterations = callable_analyses.len().saturating_add(1).max(1);
+    // Synchronize initial return-contract validation into signatures and dispatch
+    // so annotated methods enter the fixed point with their body-certified authority.
+    for (callable, analysis) in callable_analyses.iter() {
+        let Some(signature) = callable_signatures.get_for_body(callable) else {
+            continue;
+        };
+        let signature_id = signature.callable.clone();
+        let Some(signature_mut) = callable_signatures.get_mut(&signature_id) else {
+            continue;
+        };
+        if signature_mut.declared_return.is_known() {
+            signature_mut.return_validation = analysis.return_validation;
+            let public = signature_mut.published_return_knowledge();
+            let _ = dispatch.update_callable_return_type(&signature_id, public);
+        }
+    }
 
+    let max_iterations = callable_analyses.len().saturating_add(1).max(1);
     for _ in 0..max_iterations {
         if cancel.is_cancelled() {
             return Err(QueryOutcome::Cancelled);
         }
 
-        let candidates = callable_analyses
-            .iter()
-            .filter_map(|(callable, analysis)| {
-                let signature = callable_signatures.get_for_body(callable)?;
-                if !signature.published_return_knowledge().is_unknown() {
-                    return None;
-                }
-                Some((callable.clone(), signature.callable.clone(), analysis.exits.normal_returns.clone()))
-            })
-            .collect::<Vec<_>>();
-
         let mut changed_callables = HashSet::new();
-        for (callable, signature_id, exits) in candidates {
-            let summary = normal_return_summary(store, &exits);
-            if !summary.is_known() {
-                continue;
-            }
-            let Some(signature) = callable_signatures.get_mut(&signature_id) else {
+
+        for (callable, analysis) in callable_analyses.iter() {
+            let Some(signature) = callable_signatures.get_for_body(callable) else {
                 continue;
             };
-            if signature.inferred_return.as_ref() == Some(&summary) {
-                continue;
-            }
-            signature.inferred_return = Some(summary.clone());
-            changed_callables.insert(callable.clone());
+            let signature_id = signature.callable.clone();
+            let old_public = signature.published_return_knowledge();
 
-            // Dispatch is a derived lookup projection. Failure to update that
-            // projection must never suppress canonical semantic publication.
-            let _ = dispatch.update_callable_return_type(&signature_id, summary);
+            let Some(signature_mut) = callable_signatures.get_mut(&signature_id) else {
+                continue;
+            };
+
+            if signature_mut.return_validation != analysis.return_validation {
+                signature_mut.return_validation = analysis.return_validation;
+            }
+
+            if signature_mut.declared_return.is_unknown() {
+                let summary = normal_return_summary(store, &analysis.exits.normal_returns);
+                signature_mut.inferred_return = publishable_inferred_return(analysis.status, summary);
+            }
+
+            let new_public = signature_mut.published_return_knowledge();
+            if new_public != old_public {
+                changed_callables.insert(callable.clone());
+                let _ = dispatch.update_callable_return_type(&signature_id, new_public);
+            }
         }
 
         if changed_callables.is_empty() {
