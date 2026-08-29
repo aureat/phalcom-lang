@@ -96,25 +96,32 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
         let Some((field_id, contract)) = ctx.resolve_field_contract(&owner, DispatchSide::Instance, &field.name) else {
             continue;
         };
-        let (read_knowledge, initialization, validity) = if let Some(default) = &field.default {
-            let initializer = super::expression::synthesize_expr(ctx, default);
-            let proven = contract
-                .ty()
-                .is_some_and(|expected| matches!(ctx.check_knowledge_against_type(&initializer, expected), RelationOutcome::Proven { .. }));
-            if proven {
-                (
-                    TypeKnowledge::established(contract.ty().expect("proven contract type"), EvidenceOrigin::FieldLifecycle),
-                    FieldInitialization::DefinitelyInitialized,
-                    FieldContractValidity::Validated,
-                )
-            } else {
-                (initializer, FieldInitialization::MaybeInitialized, FieldContractValidity::Refuted)
-            }
+        let (read_knowledge, initialization, validity, causal_invalidity) = if let Some(default) = &field.default {
+            let initializer = super::expression::synthesize_typed_expr(ctx, default);
+            let application = ctx.apply_assignability(
+                &initializer.knowledge,
+                &contract,
+                crate::diagnostic::DiagnosticCode::FieldMismatch,
+                format!("default initializer does not match field `{}` type", field.name),
+                field.range,
+            );
+            let reconciliation = reconcile_field_write(&contract, &initializer.knowledge, &application.outcome);
+            let relation_causal = application
+                .cause
+                .map(CausalInvalidity::One)
+                .unwrap_or(CausalInvalidity::Clean);
+            (
+                reconciliation.current,
+                FieldInitialization::DefinitelyInitialized,
+                reconciliation.validity,
+                initializer.causal_invalidity.join(relation_causal),
+            )
         } else {
             (
                 TypeKnowledge::Unknown(UnknownReason::MissingInitializer),
                 FieldInitialization::Uninitialized,
                 FieldContractValidity::Unchecked,
+                CausalInvalidity::Clean,
             )
         };
         table.fields.insert(
@@ -125,12 +132,13 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
                 read_knowledge,
                 initialization,
                 validity,
-                causal_invalidity: CausalInvalidity::Clean,
+                causal_invalidity,
             },
         );
     }
     table
 }
+
 
 
 pub(crate) fn finalize_instance_field_lifecycle<'a>(

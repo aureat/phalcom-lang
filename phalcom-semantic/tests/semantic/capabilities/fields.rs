@@ -178,4 +178,23 @@ class Cell {
     assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Assumed);
 }
 
+#[test]
+fn wrong_default_initializer_never_establishes_declared_field_contract() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int = "wrong"
+  read() { _value }
+}
+"#,
+    );
+
+    let read = f.callable("Cell", "read", DispatchSide::Instance);
+    let value = f.expression(read, "_value");
+    let int_ty = f.ty("Int");
+    assert!(!value.knowledge.is_established() || value.knowledge.ty() != Some(int_ty));
+    assert!(!f.diagnostics(phalcom_semantic::diagnostic::DiagnosticCode::FieldMismatch).is_empty());
+}
+
+
 
