@@ -14,7 +14,7 @@ use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, DeclarationId, ModuleId};
-use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
+use crate::signature::{CallableSemanticSignature, FieldSemanticSignature, ReturnContractValidation};
 use crate::source::ParsedModuleUnit;
 use crate::surface::DeclarationSurface;
 use crate::types::denotation::SemanticDenotation;
@@ -559,6 +559,20 @@ fn hash_source_span(span: &SemanticSourceSpan, hasher: &mut impl Hasher) {
     hash_range(span.range, hasher);
 }
 
+fn hash_return_contract_validation(validation: ReturnContractValidation, hasher: &mut impl Hasher) {
+    match validation {
+        ReturnContractValidation::NotApplicable => 0u8.hash(hasher),
+        ReturnContractValidation::Unchecked => 1u8.hash(hasher),
+        ReturnContractValidation::Satisfied(status) => {
+            2u8.hash(hasher);
+            status.hash(hasher);
+        }
+        ReturnContractValidation::Refuted => 3u8.hash(hasher),
+        ReturnContractValidation::Blocked => 4u8.hash(hasher),
+        ReturnContractValidation::DynamicBoundary => 5u8.hash(hasher),
+    }
+}
+
 fn hash_callable_semantic_signature(signature: &CallableSemanticSignature, include_source: bool, hasher: &mut impl Hasher) {
     signature.callable.hash(hasher);
     signature.owner.hash(hasher);
@@ -589,6 +603,7 @@ fn hash_callable_semantic_signature(signature: &CallableSemanticSignature, inclu
         }
     }
     signature.declared_return.hash(hasher);
+    hash_return_contract_validation(signature.return_validation, hasher);
     hash_type_knowledge_option(&signature.inferred_return, false, hasher);
     if include_source {
         match &signature.source {
@@ -1423,6 +1438,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
 
     analysis.dependencies.hash(&mut hasher);
     hash_callable_analysis_status(analysis.status, &analysis.internal_incidents, &mut hasher);
+    hash_return_contract_validation(analysis.return_validation, &mut hasher);
     // `dependency_fingerprint` is assigned from this fingerprint after
     // computation. Hashing it would make the product definition recursive.
     finish_product(hasher)
@@ -1526,3 +1542,30 @@ pub fn advisory_module_input_fingerprint(product: &crate::advisory::AdvisoryModu
 pub fn advisory_module_product_fingerprint(product: &crate::advisory::AdvisoryModuleProduct) -> ProductFingerprint {
     product.fingerprint
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::evidence::EvidenceStatus;
+
+    #[test]
+    fn return_contract_validation_fingerprint_distinguishes_variants() {
+        let variants = [
+            ReturnContractValidation::NotApplicable,
+            ReturnContractValidation::Unchecked,
+            ReturnContractValidation::Satisfied(EvidenceStatus::Assumed),
+            ReturnContractValidation::Satisfied(EvidenceStatus::Established),
+            ReturnContractValidation::Refuted,
+            ReturnContractValidation::Blocked,
+            ReturnContractValidation::DynamicBoundary,
+        ];
+        let mut hashes = std::collections::BTreeSet::new();
+        for variant in variants {
+            let mut hasher = DefaultHasher::new();
+            hash_return_contract_validation(variant, &mut hasher);
+            let h = hasher.finish();
+            assert!(hashes.insert(h), "hash collision for {variant:?}");
+        }
+    }
+}
+
