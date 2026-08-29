@@ -11,6 +11,7 @@ use phalcom_semantic::{Assignability, TypeId, analyze_single_module, check_assig
 use std::sync::Arc;
 
 type Analysis = phalcom_semantic::workspace::SemanticAnalysis;
+use crate::semantic::support::Fixture;
 
 fn analyze(source_text: &str) -> (ModuleId, Arc<str>, Analysis) {
     let module = ModuleId::core();
@@ -804,3 +805,100 @@ class Probe {
         );
     }
 }
+
+#[test]
+fn exact_dispatch_does_not_upgrade_assumed_source_return() {
+    let f = Fixture::new(
+        r#"
+class Echo {
+  @class
+  echo(_ value: String) -> String {
+    value
+  }
+}
+
+class Probe {
+  @class
+  run() {
+    let result = Echo.echo("hello")
+  }
+}
+"#,
+    );
+
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let result = f.binding(run, "result");
+    assert_eq!(result.current.status(), Some(EvidenceStatus::Assumed));
+}
+
+#[test]
+fn established_body_certifies_declared_public_return_without_narrowing_api() {
+    let f = Fixture::new(
+        r#"
+class Animal {}
+class Dog is Animal {
+  @constructor
+  new() {}
+}
+class Factory {
+  @class
+  make() -> Animal {
+    Dog.new()
+  }
+}
+class Probe {
+  @class
+  run() {
+    let result = Factory.make()
+  }
+}
+"#,
+    );
+
+    let animal = f.ty("Animal");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let result = f.binding(run, "result");
+    assert_eq!(result.current.ty(), Some(animal));
+    assert_eq!(result.current.status(), Some(EvidenceStatus::Established));
+}
+
+#[test]
+fn invalid_tail_recovery_knowledge_is_not_published_as_inferred_return() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  broken() {
+    let value: Int = "wrong"
+    value
+  }
+
+  @class
+  run() {
+    let result = Probe.broken()
+  }
+}
+"#,
+    );
+
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let result = f.binding(run, "result");
+    assert_ne!(result.current.status(), Some(EvidenceStatus::Established));
+}
+
+#[test]
+fn incompatible_body_refutes_source_contract_without_establishing_it() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  broken() -> Int {
+    "wrong"
+  }
+}
+"#,
+    );
+
+    assert!(!f.diagnostics(DiagnosticCode::ReturnMismatch).is_empty());
+}
+
