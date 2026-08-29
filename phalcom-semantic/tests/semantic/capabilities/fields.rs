@@ -138,6 +138,7 @@ class Cell {
 
     assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
     assert_eq!(field.current.ty(), Some(string_ty));
+    assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Refuted);
     assert!(
         !f.expression(read, "_value").knowledge.is_established()
             || f.expression(read, "_value").knowledge.ty() != Some(int_ty),
@@ -145,4 +146,36 @@ class Cell {
     );
     assert!(!f.diagnostics(phalcom_semantic::diagnostic::DiagnosticCode::FieldMismatch).is_empty());
 }
+
+#[test]
+fn assumed_constructor_write_remains_assumed_in_field_state() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Number
+
+  @constructor
+  new(_ value: Int) {
+    _value = value
+  }
+}
+"#,
+    );
+
+    let constructor = f.callable("Cell", "new", DispatchSide::Instance);
+    let int_ty = f.ty("Int");
+
+    let exit = constructor
+        .exits
+        .normal_returns
+        .first()
+        .expect("constructor normal exit");
+    let field = exit.flow.fields.values().next().expect("field exit state");
+
+    assert_eq!(field.initialization, phalcom_semantic::checker::flow::FieldInitialization::DefinitelyInitialized);
+    assert_eq!(field.current.ty(), Some(int_ty));
+    assert_eq!(field.current.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
+    assert_eq!(field.validity, phalcom_semantic::checker::flow::FieldContractValidity::Assumed);
+}
+
 

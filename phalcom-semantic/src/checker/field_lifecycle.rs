@@ -5,10 +5,41 @@ use crate::checker::causal::CausalInvalidity;
 use crate::checker::context::CheckingContext;
 use crate::checker::flow::{FieldContractValidity, FieldInitialization, FieldState, FlowState};
 use crate::identity::{DeclarationId, DispatchSide, FieldId};
-use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::outcome::RelationOutcome;
 use phalcom_ast::ast::{ClassDef, ClassMember};
 use std::collections::BTreeMap;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FieldWriteReconciliation {
+    pub current: TypeKnowledge,
+    pub validity: FieldContractValidity,
+}
+
+pub(crate) fn reconcile_field_write(
+    _contract: &TypeKnowledge,
+    actual: &TypeKnowledge,
+    relation: &RelationOutcome,
+) -> FieldWriteReconciliation {
+    let validity = match relation {
+        RelationOutcome::Proven { .. } => match actual.status() {
+            Some(EvidenceStatus::Established) => FieldContractValidity::Validated,
+            Some(EvidenceStatus::Assumed) => FieldContractValidity::Assumed,
+            None => FieldContractValidity::Unchecked,
+        },
+        RelationOutcome::Refuted(_) => FieldContractValidity::Refuted,
+        RelationOutcome::Blocked(reason) => FieldContractValidity::Blocked(reason.clone()),
+        RelationOutcome::DynamicBoundary(obligation) => FieldContractValidity::DynamicBoundary(obligation.clone()),
+        RelationOutcome::Cancelled | RelationOutcome::BudgetExceeded(_) | RelationOutcome::InternalFailure(_) => {
+            FieldContractValidity::Unchecked
+        }
+    };
+    FieldWriteReconciliation {
+        current: actual.clone(),
+        validity,
+    }
+}
+
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FieldLifecycleFact {
@@ -136,3 +167,79 @@ pub(crate) fn finalize_instance_field_lifecycle<'a>(
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::outcome::{BlockReason, DynamicBoundaryObligation, RelationEvidence, RelationFailure};
+    use crate::types::store::TypeStore;
+    use crate::identity::ModuleId;
+
+    #[test]
+    fn reconcile_field_write_preserves_actual_and_derives_correct_validity() {
+        let mut store = TypeStore::new();
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+        let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
+
+        let established_int = TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax);
+        let rec = reconcile_field_write(
+            &contract,
+            &established_int,
+            &RelationOutcome::Proven {
+                value: (),
+                evidence: RelationEvidence::default(),
+            },
+        );
+        assert_eq!(rec.current, established_int);
+        assert_eq!(rec.validity, FieldContractValidity::Validated);
+
+        let assumed_int = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
+        let rec = reconcile_field_write(
+            &contract,
+            &assumed_int,
+            &RelationOutcome::Proven {
+                value: (),
+                evidence: RelationEvidence::default(),
+            },
+        );
+        assert_eq!(rec.current, assumed_int);
+        assert_eq!(rec.validity, FieldContractValidity::Assumed);
+
+        let established_string = TypeKnowledge::established(string_ty, EvidenceOrigin::Syntax);
+        let rec = reconcile_field_write(
+            &contract,
+            &established_string,
+            &RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                actual: string_ty,
+                expected: int_ty,
+            }),
+        );
+        assert_eq!(rec.current, established_string);
+        assert_eq!(rec.validity, FieldContractValidity::Refuted);
+
+        let unknown = TypeKnowledge::Unknown(UnknownReason::MissingInitializer);
+        let block_reason = BlockReason::UnknownType(UnknownReason::MissingInitializer);
+        let rec = reconcile_field_write(
+            &contract,
+            &unknown,
+            &RelationOutcome::Blocked(block_reason.clone()),
+        );
+        assert_eq!(rec.current, unknown);
+        assert_eq!(rec.validity, FieldContractValidity::Blocked(block_reason));
+
+        let dynamic = TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape);
+        let obligation = DynamicBoundaryObligation {
+            reason: "dynamic write".into(),
+        };
+        let rec = reconcile_field_write(
+            &contract,
+            &dynamic,
+            &RelationOutcome::DynamicBoundary(obligation.clone()),
+        );
+        assert_eq!(rec.current, dynamic);
+        assert_eq!(rec.validity, FieldContractValidity::DynamicBoundary(obligation));
+
+    }
+}
+

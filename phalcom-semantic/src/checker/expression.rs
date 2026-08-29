@@ -383,20 +383,21 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
                         result.causal_invalidity = val_typed.causal_invalidity;
                         apply_relation_application_to_typed(&mut result, &application);
-                        let validity = if application.outcome.is_proven() {
-                            match val_typed.knowledge.status() {
-                                Some(crate::types::evidence::EvidenceStatus::Established) => crate::checker::flow::FieldContractValidity::Validated,
-                                Some(crate::types::evidence::EvidenceStatus::Assumed) => crate::checker::flow::FieldContractValidity::Assumed,
-                                None => crate::checker::flow::FieldContractValidity::Unchecked,
-                            }
-                        } else if application.outcome.is_refuted() {
-                            crate::checker::flow::FieldContractValidity::Refuted
-                        } else {
-                            crate::checker::flow::FieldContractValidity::Unchecked
-                        };
+                        let reconciliation = super::field_lifecycle::reconcile_field_write(
+                            &field_k,
+                            &val_typed.knowledge,
+                            &application.outcome,
+                        );
                         let write_causal = val_typed.causal_invalidity.join(result.causal_invalidity);
-                        ctx.write_current_field(field_id, field_k, val_typed.knowledge, validity, write_causal);
+                        ctx.write_current_field(
+                            field_id,
+                            field_k,
+                            reconciliation.current,
+                            reconciliation.validity,
+                            write_causal,
+                        );
                         return result;
+
                     }
 
                 }
