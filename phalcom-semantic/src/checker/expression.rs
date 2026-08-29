@@ -284,12 +284,15 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         }
         Expr::Field { value, range, .. } => {
             if let Some(class_decl) = ctx.current_class.clone() {
-                if let Some((_, field_k)) = ctx.resolve_current_field(&class_decl, ctx.current_side, value) {
-                    return TypedExpression::new(field_k.with_range(*range));
+                if let Some((_, field_k, field_causal)) = ctx.resolve_current_field(&class_decl, ctx.current_side, value) {
+                    let mut typed = TypedExpression::new(field_k.with_range(*range));
+                    typed.causal_invalidity = field_causal;
+                    return typed;
                 }
             }
             TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
         }
+
 
         // --- 3. Assignments ---
         Expr::Assignment(assign) => {
@@ -1584,16 +1587,17 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
     };
 
     // 1. Check Field on class surface
-    let field_opt = match ctx.store.get(recv_ty).clone() {
-        TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &get.property),
-        TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &get.property),
+    let field_read = match ctx.store.get(recv_ty).clone() {
+        TypeData::ClassObject { declaration } => ctx.resolve_field_read(&declaration, crate::identity::DispatchSide::Class, &get.property),
+        TypeData::Nominal { declaration } => ctx.resolve_field_read(&declaration, crate::identity::DispatchSide::Instance, &get.property),
         _ => None,
     };
-    if let Some(field_k) = field_opt {
+    if let Some((_, field_k, field_causal)) = field_read {
         let mut typed = TypedExpression::new(field_k.with_range(get.range));
-        typed.causal_invalidity = recv_typed.causal_invalidity;
+        typed.causal_invalidity = recv_typed.causal_invalidity.join(field_causal);
         return typed;
     }
+
 
     // 2. Check Getter selector
     if let Ok(sel) = Selector::getter(&get.property) {

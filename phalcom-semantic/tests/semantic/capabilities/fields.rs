@@ -255,6 +255,58 @@ class Cell {
     assert!(!val_b.knowledge.is_established());
 }
 
+#[test]
+fn field_read_propagates_causal_invalidity_from_mismatching_write() {
+    let f = Fixture::new(
+        r#"
+class Cell {
+  _value: Int
+
+  test() {
+    _value = "wrong"
+    _value
+  }
+}
+"#,
+    );
+
+    let test_fn = f.callable("Cell", "test", DispatchSide::Instance);
+    let read_expr = f.expression(test_fn, "_value");
+    assert_ne!(read_expr.causal_invalidity, phalcom_semantic::checker::causal::CausalInvalidity::Clean);
+}
+
+#[test]
+fn uninitialized_field_read_through_receiver_is_not_established() {
+    let f = Fixture::new(
+        r#"
+class Box {
+  _value: Int
+
+  @constructor
+  new() {
+    let dummy = 0
+  }
+
+  get() { _value }
+}
+
+class Reader {
+  @class
+  read(_ b: Box) {
+    b.get()
+  }
+}
+"#,
+    );
+
+    let reader = f.callable("Reader", "read", DispatchSide::Class);
+    let call_expr = f.expression(reader, "b.get()");
+    assert!(!call_expr.knowledge.is_established());
+}
+
+
+
+
 
 
 

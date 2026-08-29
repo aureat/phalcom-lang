@@ -862,6 +862,8 @@ impl SemanticWorkspaceSession {
         for (module_id, parsed_unit) in &input.sources {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
             ctx.attach_field_signatures(&field_signatures);
+            ctx.attach_field_lifecycle(&field_lifecycle);
+
 
             for stmt in &parsed_unit.program.statements {
                 match stmt {

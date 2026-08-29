@@ -99,8 +99,10 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         phalcom_common::selector::SelectorKind::Setter | phalcom_common::selector::SelectorKind::SubscriptSet
     );
     if let Some(field_lifecycle) = field_lifecycle {
+        ctx.attach_field_lifecycle(field_lifecycle);
         field_lifecycle.seed_flow_for_owner(&mut ctx.flow, &callable.owner, constructor_body);
     }
+
 
     if let Some((signature_id, signature)) = declared_signature {
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));

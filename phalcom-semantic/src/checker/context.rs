@@ -307,7 +307,9 @@ pub struct CheckingContext<'a> {
     pub dependencies: BTreeSet<CallableId>,
     semantic_dependencies: SharedSemanticDependencies,
     field_signatures: Option<&'a FieldSignatureTable>,
+    field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
     pub dispatch: DispatchAccess<'a>,
+
     pub diagnostics: Vec<SemanticDiagnostic>,
     pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
     pub terminal_status: Option<AnalysisStatus>,
@@ -380,7 +382,9 @@ impl<'a> CheckingContext<'a> {
             dependencies: BTreeSet::new(),
             semantic_dependencies,
             field_signatures: None,
+            field_lifecycle: None,
             dispatch: DispatchAccess::Owned(dispatch),
+
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
             terminal_status: None,
@@ -440,6 +444,7 @@ impl<'a> CheckingContext<'a> {
             dependencies: BTreeSet::new(),
             semantic_dependencies,
             field_signatures: None,
+            field_lifecycle: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
@@ -480,7 +485,9 @@ impl<'a> CheckingContext<'a> {
             dependencies: self.dependencies.clone(),
             semantic_dependencies: self.semantic_dependencies.clone(),
             field_signatures: self.field_signatures,
+            field_lifecycle: self.field_lifecycle,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
+
             diagnostics: Vec::new(),
             analysis_incidents: self.analysis_incidents.clone(),
             terminal_status: self.terminal_status.clone(),
@@ -1306,6 +1313,12 @@ impl<'a> CheckingContext<'a> {
         self.field_signatures = Some(field_signatures);
     }
 
+    /// Attaches compiler-owned instance field lifecycle table.
+    pub fn attach_field_lifecycle(&mut self, field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable) {
+        self.field_lifecycle = Some(field_lifecycle);
+    }
+
+
     /// Returns the dispatch resolver currently visible to this context.
     pub fn dispatch_ref(&self) -> &SurfaceDispatchResolver {
         self.dispatch.get()
@@ -1473,11 +1486,33 @@ impl<'a> CheckingContext<'a> {
         Some((field, signature.declared_type.to_knowledge()))
     }
 
-    pub(crate) fn resolve_current_field(&self, owner: &DeclarationId, side: DispatchSide, name: &str) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
+    pub(crate) fn resolve_field_read(
+        &self,
+        owner: &DeclarationId,
+        side: DispatchSide,
+        name: &str,
+    ) -> Option<(crate::identity::FieldId, TypeKnowledge, crate::checker::causal::CausalInvalidity)> {
         let (field, contract) = self.resolve_field_contract(owner, side, name)?;
-        let current = self.flow.get_field_current(&field).cloned().unwrap_or(contract);
-        Some((field, current))
+        if self.current_class.as_ref() == Some(owner) && self.current_side == side {
+            if let Some(state) = self.flow.get_field(&field) {
+                return Some((field, state.current.clone(), state.causal_invalidity));
+            }
+        }
+        if let Some(fact) = self.field_lifecycle.and_then(|t| t.fields.get(&field)) {
+            return Some((field, fact.read_knowledge.clone(), fact.causal_invalidity));
+        }
+        Some((field, contract, crate::checker::causal::CausalInvalidity::Clean))
     }
+
+    pub(crate) fn resolve_current_field(
+        &self,
+        owner: &DeclarationId,
+        side: DispatchSide,
+        name: &str,
+    ) -> Option<(crate::identity::FieldId, TypeKnowledge, crate::checker::causal::CausalInvalidity)> {
+        self.resolve_field_read(owner, side, name)
+    }
+
 
     pub(crate) fn write_current_field(
         &mut self,
