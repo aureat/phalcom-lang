@@ -141,6 +141,42 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
 
 
 
+pub(crate) fn lifecycle_read_knowledge(
+    contract: &TypeKnowledge,
+    initialization: FieldInitialization,
+    validity: &FieldContractValidity,
+    causal_invalidity: CausalInvalidity,
+) -> TypeKnowledge {
+    if initialization != FieldInitialization::DefinitelyInitialized {
+        return TypeKnowledge::Unknown(UnknownReason::MissingInitializer);
+    }
+    if causal_invalidity != CausalInvalidity::Clean {
+        return TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause);
+    }
+    match validity {
+        FieldContractValidity::Validated => match contract.ty() {
+            Some(ty) => TypeKnowledge::established(ty, EvidenceOrigin::FieldLifecycle),
+            None => contract.clone(),
+        },
+        FieldContractValidity::Assumed => match contract.ty() {
+            Some(ty) => TypeKnowledge::assumed(ty, EvidenceOrigin::FieldLifecycle),
+            None => contract.clone(),
+        },
+        FieldContractValidity::Refuted => {
+            TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
+        }
+        FieldContractValidity::Blocked(_) => {
+            TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)
+        }
+        FieldContractValidity::DynamicBoundary(_) => {
+            TypeKnowledge::Dynamic(crate::types::evidence::DynamicReason::ExplicitEscape)
+        }
+        FieldContractValidity::Unchecked => {
+            TypeKnowledge::Unknown(UnknownReason::MissingInitializer)
+        }
+    }
+}
+
 pub(crate) fn finalize_instance_field_lifecycle<'a>(
     defaults: &FieldLifecycleTable,
     constructors: impl IntoIterator<Item = &'a CallableAnalysis>,
@@ -153,28 +189,59 @@ pub(crate) fn finalize_instance_field_lifecycle<'a>(
     for fact in result.fields.values_mut() {
         let normal_exits = constructors
             .iter()
-            .flat_map(|constructor| constructor.exits.normal_returns.iter().map(|exit| &exit.flow))
+            .flat_map(|constructor| constructor.exits.normal_returns.iter())
             .collect::<Vec<_>>();
         if normal_exits.is_empty() {
             continue;
         }
         let definitely_initialized = normal_exits.iter().all(|exit| {
-            exit.fields
+            exit.flow
+                .fields
                 .get(&fact.field)
                 .is_some_and(|state| state.initialization == FieldInitialization::DefinitelyInitialized)
         });
+        let uninitialized = normal_exits.iter().all(|exit| {
+            exit.flow
+                .fields
+                .get(&fact.field)
+                .is_some_and(|state| state.initialization == FieldInitialization::Uninitialized)
+        });
         fact.initialization = if definitely_initialized {
             FieldInitialization::DefinitelyInitialized
+        } else if uninitialized {
+            FieldInitialization::Uninitialized
         } else {
             FieldInitialization::MaybeInitialized
         };
-        fact.read_knowledge = match (definitely_initialized, fact.contract.ty()) {
-            (true, Some(ty)) => TypeKnowledge::established(ty, EvidenceOrigin::FieldLifecycle),
-            _ => TypeKnowledge::Unknown(UnknownReason::MissingInitializer),
-        };
+        fact.validity = crate::checker::flow::join_field_validity(normal_exits.iter().map(|exit| {
+            exit.flow
+                .fields
+                .get(&fact.field)
+                .map(|state| state.validity.clone())
+                .unwrap_or(FieldContractValidity::Unchecked)
+        }));
+        fact.causal_invalidity = normal_exits
+            .iter()
+            .map(|exit| {
+                let field_causal = exit
+                    .flow
+                    .fields
+                    .get(&fact.field)
+                    .map(|state| state.causal_invalidity)
+                    .unwrap_or(CausalInvalidity::Clean);
+                field_causal.join(exit.causal_invalidity)
+            })
+            .fold(CausalInvalidity::Clean, CausalInvalidity::join);
+        fact.read_knowledge = lifecycle_read_knowledge(
+            &fact.contract,
+            fact.initialization,
+            &fact.validity,
+            fact.causal_invalidity,
+        );
     }
     result
 }
+
 
 #[cfg(test)]
 mod tests {

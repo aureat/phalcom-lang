@@ -36,11 +36,15 @@ class Probe {
     let read = f.callable("Counter", "read", DispatchSide::Instance);
     let run = f.callable("Probe", "run", DispatchSide::Class);
 
-    f.assert_expression_established(f.expression(increment, "_value"), int_ty);
-    f.assert_expression_established(f.expression(read, "_value"), int_ty);
+    assert_eq!(f.expression(increment, "_value").knowledge.ty(), Some(int_ty));
+    assert_eq!(f.expression(read, "_value").knowledge.ty(), Some(int_ty));
+    assert_eq!(f.expression(read, "_value").knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
     f.assert_binding_established(run, "counter", f.ty("Counter"));
-    f.assert_binding_established(run, "after", int_ty);
+    f.assert_binding_type(run, "after", int_ty);
+    assert_eq!(f.binding(run, "after").current.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
     f.assert_no_error_diagnostics();
+
+
 }
 
 #[test]
@@ -69,7 +73,10 @@ class Cell {
 "#,
     );
     let read = positive.callable("Cell", "read", DispatchSide::Instance);
-    positive.assert_expression_established(positive.expression(read, "_value"), positive.ty("Int"));
+    let val = positive.expression(read, "_value");
+    assert_eq!(val.knowledge.ty(), Some(positive.ty("Int")));
+    assert_eq!(val.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
+
 
     let negative = Fixture::new(
         r#"
