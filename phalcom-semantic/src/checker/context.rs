@@ -4,6 +4,7 @@ use crate::checker::flow::FlowState;
 use crate::checker::incident::{
     BindingContractSummary, InternalFailurePolicy, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind,
 };
+use crate::core_surface::CoreDeclarationIds;
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
@@ -166,6 +167,10 @@ impl<'a> TrackingTypeResolver<'a> {
     fn new(inner: &'a dyn TypeResolver, dependencies: SharedSemanticDependencies) -> Self {
         Self { inner, dependencies }
     }
+
+    pub(crate) fn inner(&self) -> &dyn TypeResolver {
+        self.inner
+    }
 }
 
 impl TypeResolver for TrackingTypeResolver<'_> {
@@ -204,6 +209,10 @@ pub struct TrackingTypeHierarchy<'a> {
 impl<'a> TrackingTypeHierarchy<'a> {
     fn new(inner: &'a dyn TypeHierarchy, dependencies: SharedSemanticDependencies) -> Self {
         Self { inner, dependencies }
+    }
+
+    pub(crate) fn inner(&self) -> &dyn TypeHierarchy {
+        self.inner
     }
 }
 
@@ -273,6 +282,11 @@ pub struct RelationApplication {
     pub explanation: Option<crate::identity::ExplanationId>,
 }
 
+pub struct FlowProbeResult<T> {
+    pub value: T,
+    pub flow: FlowState,
+}
+
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
     pub store: &'a mut TypeStore,
@@ -288,7 +302,8 @@ pub struct CheckingContext<'a> {
     pub expected_return: Option<CallableReturnContract>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
-    throw_exit_flows: Vec<crate::checker::analysis::FlowStateSummary>,
+    pub(crate) normal_return_exits: Vec<crate::checker::analysis::NormalReturnFact>,
+    pub(crate) throw_exit_flows: Vec<crate::checker::analysis::FlowStateSummary>,
     /// Binding products remain queryable after a branch-local scope closes.
     pub binding_history: BTreeMap<BindingId, crate::checker::analysis::BindingState>,
     pub(crate) loop_frames: Vec<LoopFlowFrame>,
@@ -309,7 +324,7 @@ pub struct CheckingContext<'a> {
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
     pub dispatch: DispatchAccess<'a>,
-
+    pub core_ids: CoreDeclarationIds,
     pub diagnostics: Vec<SemanticDiagnostic>,
     pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
     pub terminal_status: Option<AnalysisStatus>,
@@ -364,6 +379,7 @@ impl<'a> CheckingContext<'a> {
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
+            normal_return_exits: Vec::new(),
             throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
             loop_frames: Vec::new(),
@@ -384,6 +400,7 @@ impl<'a> CheckingContext<'a> {
             field_signatures: None,
             field_lifecycle: None,
             dispatch: DispatchAccess::Owned(dispatch),
+            core_ids: CoreDeclarationIds::default(),
 
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
@@ -426,6 +443,7 @@ impl<'a> CheckingContext<'a> {
             expected_return: None,
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
+            normal_return_exits: Vec::new(),
             throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
             loop_frames: Vec::new(),
@@ -446,6 +464,7 @@ impl<'a> CheckingContext<'a> {
             field_signatures: None,
             field_lifecycle: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
+            core_ids: CoreDeclarationIds::default(),
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
             terminal_status: None,
@@ -467,6 +486,7 @@ impl<'a> CheckingContext<'a> {
             expected_return: self.expected_return.clone(),
             scopes: self.scopes.clone(),
             flow: self.flow.clone(),
+            normal_return_exits: self.normal_return_exits.clone(),
             throw_exit_flows: self.throw_exit_flows.clone(),
             binding_history: self.binding_history.clone(),
             loop_frames: self.loop_frames.clone(),
@@ -487,11 +507,49 @@ impl<'a> CheckingContext<'a> {
             field_signatures: self.field_signatures,
             field_lifecycle: self.field_lifecycle,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
+            core_ids: self.core_ids.clone(),
 
             diagnostics: Vec::new(),
+
             analysis_incidents: self.analysis_incidents.clone(),
             terminal_status: self.terminal_status.clone(),
         }
+    }
+
+    /// Runs a speculative flow probe in an isolated child context.
+    /// Child-local products (diagnostics, derivations, callable exits, expressions,
+    /// dependencies) are discarded while the canonical TypeStore is updated monotonically
+    /// and CheckerControl budget/cancellation are shared.
+    pub fn run_flow_probe<T>(&mut self, entry: FlowState, run: impl FnOnce(&mut CheckingContext<'_>) -> T) -> FlowProbeResult<T> {
+        let mut probe = CheckingContext::new_with_dispatch_ref_and_control(
+            self.store,
+            self.hierarchy.inner(),
+            self.resolver.inner(),
+            self.declarations,
+            self.dispatch.get(),
+            self.current_module.clone(),
+            self.control.clone(),
+        );
+
+        probe.current_class = self.current_class.clone();
+        probe.current_side = self.current_side;
+        probe.current_callable = self.current_callable.clone();
+        probe.expected_return = self.expected_return.clone();
+        probe.scopes = self.scopes.clone();
+        probe.flow = entry;
+        probe.body_id = self.body_id;
+        probe.field_signatures = self.field_signatures;
+        probe.field_lifecycle = self.field_lifecycle;
+        probe.binding_history = self.binding_history.clone();
+        probe.next_binding_id = self.next_binding_id;
+        probe.next_local_expr_id = self.next_local_expr_id;
+        probe.next_diagnostic_cause = self.next_diagnostic_cause;
+        probe.next_analysis_incident = self.next_analysis_incident;
+
+        let value = run(&mut probe);
+        let flow = probe.flow;
+
+        FlowProbeResult { value, flow }
     }
 
     pub fn alloc_binding(&mut self) -> BindingId {
@@ -508,7 +566,7 @@ impl<'a> CheckingContext<'a> {
         self.control.is_cancelled()
     }
 
-    pub(crate) fn current_flow_summary(&self) -> crate::checker::analysis::FlowStateSummary {
+    pub fn current_flow_summary(&self) -> crate::checker::analysis::FlowStateSummary {
         let bindings = self
             .flow
             .bindings
@@ -549,8 +607,37 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    pub fn record_return_exit(&mut self, fact: crate::checker::analysis::NormalReturnFact) {
+        self.normal_return_exits.push(fact);
+        self.flow.mark_unreachable();
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn record_throw_exit(&mut self) {
+        self.record_throw_exit_and_terminate();
+    }
+
+    pub(crate) fn record_throw_exit_and_terminate(&mut self) {
         self.throw_exit_flows.push(self.current_flow_summary());
+        self.flow.mark_unreachable();
+    }
+
+    pub(crate) fn record_break_and_terminate(&mut self) {
+        self.record_break();
+        self.flow.mark_unreachable();
+    }
+
+    pub(crate) fn record_continue_and_terminate(&mut self) {
+        self.record_continue();
+        self.flow.mark_unreachable();
+    }
+
+    pub fn normal_return_exits(&self) -> &[crate::checker::analysis::NormalReturnFact] {
+        &self.normal_return_exits
+    }
+
+    pub(crate) fn take_normal_return_exits(&mut self) -> Vec<crate::checker::analysis::NormalReturnFact> {
+        std::mem::take(&mut self.normal_return_exits)
     }
 
     pub(crate) fn solve_inference(&mut self, session: &mut crate::checker::inference::InferenceSession) -> crate::checker::inference::InferenceOutcome {
@@ -629,44 +716,56 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    pub(crate) fn apply_flow_predicate(&mut self, predicate: &crate::checker::flow::FlowPredicate) -> Option<crate::identity::ExplanationId> {
+    pub(crate) fn apply_flow_predicate(&mut self, predicate: &crate::checker::flow::TrustedFlowPredicate) -> crate::checker::flow::PredicateTransfer {
         let prior_parent = predicate
+            .predicate
             .binding()
             .and_then(|binding| self.flow.get_binding(binding))
             .and_then(|state| state.explanation);
         let hierarchy = &self.hierarchy;
-        let applied = crate::checker::flow::transfer::apply_predicate(&mut self.flow, predicate, self.store, hierarchy)?;
-        let predicate_kind = match predicate {
-            crate::checker::flow::FlowPredicate::IsInstance { .. } => crate::explain::PredicateKind::IsInstance,
-            crate::checker::flow::FlowPredicate::IsNotInstance { .. } => crate::explain::PredicateKind::IsNotInstance,
-            crate::checker::flow::FlowPredicate::IsNil { .. } => crate::explain::PredicateKind::IsNil,
-            crate::checker::flow::FlowPredicate::NotNil { .. } => crate::explain::PredicateKind::NotNil,
-            crate::checker::flow::FlowPredicate::Equal { .. } | crate::checker::flow::FlowPredicate::EqualLiteral { .. } => {
-                crate::explain::PredicateKind::EqualLiteral
+        let outcome = crate::checker::flow::transfer::apply_predicate(&mut self.flow, predicate, self.store, hierarchy);
+        match &outcome {
+            crate::checker::flow::PredicateTransfer::Unchanged => {}
+            crate::checker::flow::PredicateTransfer::Contradiction { .. } => {
+                self.flow.mark_unreachable();
             }
-            crate::checker::flow::FlowPredicate::NotEqual { .. } | crate::checker::flow::FlowPredicate::NotEqualLiteral { .. } => {
-                crate::explain::PredicateKind::NotEqualLiteral
+            crate::checker::flow::PredicateTransfer::Refined(applied) => {
+                let predicate_kind = match &predicate.predicate {
+                    crate::checker::flow::FlowPredicate::IsInstance { .. } => crate::explain::PredicateKind::IsInstance,
+                    crate::checker::flow::FlowPredicate::IsNotInstance { .. } => crate::explain::PredicateKind::IsNotInstance,
+                    crate::checker::flow::FlowPredicate::IsNil { .. } => crate::explain::PredicateKind::IsNil,
+                    crate::checker::flow::FlowPredicate::NotNil { .. } => crate::explain::PredicateKind::NotNil,
+                    crate::checker::flow::FlowPredicate::Equal { .. } | crate::checker::flow::FlowPredicate::EqualLiteral { .. } => {
+                        crate::explain::PredicateKind::EqualLiteral
+                    }
+                    crate::checker::flow::FlowPredicate::NotEqual { .. } | crate::checker::flow::FlowPredicate::NotEqualLiteral { .. } => {
+                        crate::explain::PredicateKind::NotEqualLiteral
+                    }
+                    crate::checker::flow::FlowPredicate::OrderedPredicate { .. } => crate::explain::PredicateKind::Ordered,
+                    crate::checker::flow::FlowPredicate::Truthy { .. } => crate::explain::PredicateKind::Truthy,
+                    crate::checker::flow::FlowPredicate::Falsy { .. } => crate::explain::PredicateKind::Falsy,
+                };
+                let explanation = self.record_derivation(
+                    crate::explain::ExplanationStep::FlowRefinement {
+                        binding: applied.binding,
+                        predicate: predicate_kind,
+                        prior: applied.prior.clone(),
+                        refined: applied.refined.clone(),
+                    },
+                    crate::explain::DerivationRule::FlowRefinement { predicate_kind },
+                    applied.refined.status().unwrap_or(crate::types::evidence::EvidenceStatus::Established),
+                    crate::types::evidence::EvidenceOrigin::Flow,
+                    Vec::new(),
+                    prior_parent.into_iter().collect(),
+                );
+                self.flow.facts.insert(predicate.predicate.clone(), explanation);
+                self.flow.set_binding_explanation(applied.binding, explanation);
+                if let Some(state) = self.flow.get_binding(applied.binding).cloned() {
+                    self.binding_history.insert(applied.binding, state);
+                }
             }
-            crate::checker::flow::FlowPredicate::OrderedPredicate { .. } => crate::explain::PredicateKind::Ordered,
-            crate::checker::flow::FlowPredicate::Truthy { .. } => crate::explain::PredicateKind::Truthy,
-            crate::checker::flow::FlowPredicate::Falsy { .. } => crate::explain::PredicateKind::Falsy,
-        };
-        let explanation = self.record_derivation(
-            crate::explain::ExplanationStep::FlowRefinement {
-                binding: applied.binding,
-                predicate: predicate_kind,
-                prior: applied.prior,
-                refined: applied.refined.clone(),
-            },
-            crate::explain::DerivationRule::FlowRefinement { predicate_kind },
-            applied.refined.status().unwrap_or(crate::types::evidence::EvidenceStatus::Established),
-            crate::types::evidence::EvidenceOrigin::Flow,
-            Vec::new(),
-            prior_parent.into_iter().collect(),
-        );
-        self.flow.facts.insert(predicate.clone(), explanation);
-        self.flow.set_binding_explanation(applied.binding, explanation);
-        Some(explanation)
+        }
+        outcome
     }
 
     pub fn join_flow_states(&mut self, states: &[FlowState]) -> Result<FlowState, crate::checker::flow::state::FlowInvariantFailure> {
@@ -1553,6 +1652,10 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    pub(crate) fn core_type(&mut self, decl: &DeclarationId) -> Option<TypeId> {
+        self.declaration_info(decl).map(|info| info.form)
+    }
+
     pub fn record_derivation(
         &mut self,
         step: crate::explain::ExplanationStep,
@@ -1573,12 +1676,13 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn finalize(
-        self,
+        mut self,
         callable: CallableId,
         body_range: SourceRange,
         status: crate::checker::analysis::CallableAnalysisStatus,
     ) -> crate::checker::analysis::CallableAnalysis {
-        self.finalize_with_normal_returns(callable, body_range, status, Vec::new())
+        let normal_returns = self.take_normal_return_exits();
+        self.finalize_with_normal_returns(callable, body_range, status, normal_returns)
     }
 
     pub fn finalize_with_normal_returns(

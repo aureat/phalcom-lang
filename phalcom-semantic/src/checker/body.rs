@@ -134,12 +134,14 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
 
     // 2. Check each statement while charging budget and checking cancellation
     let mut status = CallableAnalysisStatus::Complete;
-    let mut normal_returns = Vec::new();
-    let mut can_fall_through = true;
 
     for (statement_index, stmt) in body.iter().enumerate() {
         if ctx.is_cancelled() {
             status = CallableAnalysisStatus::Cancelled;
+            break;
+        }
+
+        if !ctx.flow.is_reachable() {
             break;
         }
 
@@ -194,77 +196,68 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                     status = CallableAnalysisStatus::InternalFailure(incident);
                     break;
                 }
-                if can_fall_through && typed.knowledge.ty() != Some(ctx.store.never()) {
-                    normal_returns.push(NormalReturnFact {
+                if ctx.flow.is_reachable() && typed.knowledge.ty() != Some(ctx.store.never()) {
+                    let fact = NormalReturnFact {
                         knowledge: typed.knowledge,
                         flow: ctx.current_flow_summary(),
                         status: typed.status,
                         causal_invalidity: typed.causal_invalidity,
-                    });
+                    };
+                    ctx.record_return_exit(fact);
                 }
-                can_fall_through = false;
                 continue;
             }
         }
 
-        let returned = check_statement(&mut ctx, stmt);
+        check_statement(&mut ctx, stmt);
         if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status.clone() {
             status = CallableAnalysisStatus::InternalFailure(incident);
             break;
         }
-        if can_fall_through {
-            if let Some(fact) = returned {
-                if fact.knowledge.ty() != Some(ctx.store.never()) {
-                    normal_returns.push(fact);
-                }
-                can_fall_through = false;
-            } else if matches!(stmt, Statement::Throw { .. } | Statement::Break { .. } | Statement::Continue { .. }) {
-                can_fall_through = false;
-            } else if is_tail {
-                // `let`/`const` and declaration-like statements complete with
-                // Unit. Their initializer is checked for diagnostics and
-                // binding facts above, but never becomes the callable result.
-                let initializer_never = if let Statement::Let(binding) = stmt {
-                    binding.value.as_ref().is_some_and(|expr| {
-                        ctx.expressions
-                            .values()
-                            .any(|analysis| analysis.range == expr.range() && analysis.knowledge.ty() == Some(ctx.store.never()))
-                    })
-                } else {
-                    false
-                };
-                if !initializer_never {
-                    let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
-                    let mut exit_status = AnalysisStatus::Ready;
-                    let mut exit_causal = CausalInvalidity::Clean;
-                    if !constructor_body && !setter_body {
-                        if let Some(expected_return) = ctx.expected_return.clone() {
-                            let relation = ctx.apply_knowledge_against_type(
-                                &unit,
-                                expected_return.ty,
-                                crate::diagnostic::DiagnosticCode::ReturnMismatch,
-                                "tail statement completes with Unit, which is not assignable to method's declared return type",
-                                stmt_range(stmt),
-                            );
-                            if let Some(cause) = relation.cause {
-                                exit_status = AnalysisStatus::Invalid(cause);
-                                exit_causal = exit_causal.join(CausalInvalidity::One(cause));
-                            }
+        if is_tail && ctx.flow.is_reachable() {
+            // `let`/`const` and declaration-like statements complete with
+            // Unit. Their initializer is checked for diagnostics and
+            // binding facts above, but never becomes the callable result.
+            let initializer_never = if let Statement::Let(binding) = stmt {
+                binding.value.as_ref().is_some_and(|expr| {
+                    ctx.expressions
+                        .values()
+                        .any(|analysis| analysis.range == expr.range() && analysis.knowledge.ty() == Some(ctx.store.never()))
+                })
+            } else {
+                false
+            };
+            if !initializer_never {
+                let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
+                let mut exit_status = AnalysisStatus::Ready;
+                let mut exit_causal = CausalInvalidity::Clean;
+                if !constructor_body && !setter_body {
+                    if let Some(expected_return) = ctx.expected_return.clone() {
+                        let relation = ctx.apply_knowledge_against_type(
+                            &unit,
+                            expected_return.ty,
+                            crate::diagnostic::DiagnosticCode::ReturnMismatch,
+                            "tail statement completes with Unit, which is not assignable to method's declared return type",
+                            stmt_range(stmt),
+                        );
+                        if let Some(cause) = relation.cause {
+                            exit_status = AnalysisStatus::Invalid(cause);
+                            exit_causal = exit_causal.join(CausalInvalidity::One(cause));
                         }
                     }
-                    normal_returns.push(NormalReturnFact {
-                        knowledge: unit,
-                        flow: ctx.current_flow_summary(),
-                        status: exit_status,
-                        causal_invalidity: exit_causal,
-                    });
                 }
-                can_fall_through = false;
+                let fact = NormalReturnFact {
+                    knowledge: unit,
+                    flow: ctx.current_flow_summary(),
+                    status: exit_status,
+                    causal_invalidity: exit_causal,
+                };
+                ctx.record_return_exit(fact);
             }
         }
     }
 
-    if body.is_empty() && can_fall_through {
+    if body.is_empty() && ctx.flow.is_reachable() {
         let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
         let mut exit_status = AnalysisStatus::Ready;
         let mut exit_causal = CausalInvalidity::Clean;
@@ -283,16 +276,17 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                 }
             }
         }
-        normal_returns.push(NormalReturnFact {
+        let fact = NormalReturnFact {
             knowledge: unit,
             flow: ctx.current_flow_summary(),
             status: exit_status,
             causal_invalidity: exit_causal,
-        });
+        };
+        ctx.record_return_exit(fact);
     }
 
     if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status {
         status = CallableAnalysisStatus::InternalFailure(incident);
     }
-    ctx.finalize_with_normal_returns(callable, body_range, status, normal_returns)
+    ctx.finalize(callable, body_range, status)
 }

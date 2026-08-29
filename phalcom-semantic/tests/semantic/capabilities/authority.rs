@@ -261,10 +261,11 @@ class Probe {
     let derived = ty(&analysis, &module, "Derived");
     let int_ty = ty(&analysis, &module, "Int");
 
-    assert!(is_subtype(&analysis.snapshot.store, analysis.snapshot.hierarchy.as_ref(), derived, base));
+    let mut store = (*analysis.snapshot.store).clone();
+    assert!(is_subtype(&mut store, analysis.snapshot.hierarchy.as_ref(), derived, base));
     assert_eq!(
         check_assignability(
-            &analysis.snapshot.store,
+            &mut store,
             analysis.snapshot.hierarchy.as_ref(),
             &TypeKnowledge::established(derived, EvidenceOrigin::Flow),
             &TypeKnowledge::assumed(base, EvidenceOrigin::DeveloperAnnotation),
@@ -349,9 +350,10 @@ class Probe {
     let from_int_id = named_callable(&analysis, &module, "CellNum", "fromInt", DispatchSide::Class);
     let run = callable_analysis(&analysis, &run_id);
 
+    let mut store = (*analysis.snapshot.store).clone();
     assert!(matches!(
         check_assignability(
-            &analysis.snapshot.store,
+            &mut store,
             analysis.snapshot.hierarchy.as_ref(),
             &TypeKnowledge::established(string_ty, EvidenceOrigin::Syntax),
             &TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation),
@@ -452,9 +454,10 @@ class Probe {
     let x = binding(run, "x");
     assert_eq!(x.declared_type(), Some(string_ty));
     assert_eq!(x.current.ty(), Some(derived));
+    let mut store = (*analysis.snapshot.store).clone();
     assert!(matches!(
         check_assignability(
-            &analysis.snapshot.store,
+            &mut store,
             analysis.snapshot.hierarchy.as_ref(),
             &TypeKnowledge::established(derived, EvidenceOrigin::Flow),
             &TypeKnowledge::assumed(string_ty, EvidenceOrigin::DeveloperAnnotation),
@@ -623,9 +626,10 @@ class Probe {
         explanation.step,
         ExplanationStep::Literal { ty, .. } if ty == int_ty
     ));
+    let mut store = (*analysis.snapshot.store).clone();
     assert!(matches!(
         check_assignability(
-            &analysis.snapshot.store,
+            &mut store,
             analysis.snapshot.hierarchy.as_ref(),
             &literal.knowledge,
             &TypeKnowledge::assumed(string_ty, EvidenceOrigin::DeveloperAnnotation),
@@ -674,9 +678,10 @@ class Probe {
     assert_eq!(x.current.status(), Some(EvidenceStatus::Established));
     assert_eq!(x.current.origin(), Some(EvidenceOrigin::Syntax));
 
+    let mut store = (*analysis.snapshot.store).clone();
     assert!(matches!(
         check_assignability(
-            &analysis.snapshot.store,
+            &mut store,
             analysis.snapshot.hierarchy.as_ref(),
             &literal.knowledge,
             &TypeKnowledge::assumed(number_ty, EvidenceOrigin::DeveloperAnnotation),

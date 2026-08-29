@@ -6,7 +6,7 @@ pub mod state;
 pub mod transfer;
 
 pub use graph::{FlowEdge, FlowEdgeKind, FlowGraph, FlowNode, FlowNodeKind};
-pub use predicate::{FlowPredicate, PredicateEntry, extract_predicate, extract_trusted_predicate};
+pub use predicate::{FlowPredicate, PredicateAuthority, PredicateEntry, TrustedFlowPredicate, extract_trusted_predicate};
 pub use state::{FactSet, FieldContractValidity, FieldInitialization, FieldState, FlowInvariantFailure, FlowState, join_field_validity};
 
-pub use transfer::apply_predicate;
+pub use transfer::{AppliedFlowRefinement, PredicateTransfer, apply_predicate};

@@ -1,5 +1,7 @@
 mod advisory_domain;
+mod authority_boundaries;
 mod bidirectional_calls;
+
 mod binding_contracts;
 mod canonical_call_application;
 mod causal;
@@ -12,6 +14,7 @@ mod expression_composition;
 mod expression_engine;
 mod field_flow;
 mod flow_graph;
+mod flow_probe;
 
 mod generic_inference_proof_integrity;
 mod generics_core;
@@ -19,6 +22,7 @@ mod identity_diagnostics;
 mod inference;
 mod kinds;
 mod knowledge;
+mod predicate_transfer;
 mod semantic_correctness_regressions;
 mod substitution;
 mod type_annotations;

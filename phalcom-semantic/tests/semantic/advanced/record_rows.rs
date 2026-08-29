@@ -156,6 +156,6 @@ fn test_record_subtyping_read_only_width() {
     // sup: #{ a: Int }
     let sup = store.record(Box::new([RecordRowField { name: "a".into(), ty: int_ty }]));
 
-    assert!(is_subtype(&store, &hier, sub, sup), "Width subtyping allowed for ReadOnly");
-    assert!(!is_subtype(&store, &hier, sup, sub), "Narrow cannot subtype wide");
+    assert!(is_subtype(&mut store, &hier, sub, sup), "Width subtyping allowed for ReadOnly");
+    assert!(!is_subtype(&mut store, &hier, sup, sub), "Narrow cannot subtype wide");
 }

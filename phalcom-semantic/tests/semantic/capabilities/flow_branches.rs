@@ -1,6 +1,6 @@
 use crate::semantic::support::{Fixture, assert_source_contract, assert_validated, binding, known, union};
 use phalcom_semantic::identity::DispatchSide;
-use phalcom_semantic::types::evidence::EvidenceStatus;
+use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
 
 /// LAW: both reachable branch literals establish one precise joined result.
 #[test]
@@ -485,4 +485,244 @@ class Probe {
     assert!(
         !matches!(f.analysis.snapshot.store.get(values), phalcom_semantic::types::store::TypeData::Nominal { declaration } if declaration.name.as_ref() == "Object")
     );
+}
+
+/// LAW P3: canonical type test on an assumed parameter establishes the exact target.
+#[test]
+fn canonical_type_test_can_establish_exact_target_from_assumed_parameter() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ value: Object) {
+    if value.is(Int) {
+      let narrowed = value
+    }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    f.assert_binding_established(run, "narrowed", f.ty("Int"));
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW P4: a broad observation on an assumed narrow type does not strengthen the assumption.
+#[test]
+fn broad_test_on_narrow_assumed_union_preserves_assumed_status() {
+    let f = Fixture::new(
+        r#"
+class Animal {}
+class Cat is Animal {}
+class Dog is Animal {}
+
+class Probe {
+  @class
+  run(_ value: Cat) {
+    if value.is(Animal) {
+      let narrowed = value
+    }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let cat_ty = f.ty("Cat");
+    let narrowed = f.binding(run, "narrowed");
+    assert_eq!(narrowed.current.ty(), Some(cat_ty));
+    assert_eq!(narrowed.current.status(), Some(EvidenceStatus::Assumed));
+}
+
+/// LAW P6: trusted type test prunes branch contradicting established literal type.
+#[test]
+fn trusted_type_test_prunes_branch_contradicting_established_literal_type() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value = "hello"
+    let result = if value.is(Int) {
+      1
+    } else {
+      "ok"
+    }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    f.assert_binding_established(run, "result", f.ty("String"));
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW P10: contradictory branch does not publish bindings or error diagnostics.
+#[test]
+fn contradictory_branch_does_not_publish_bindings_or_diagnostics() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value = "hello"
+    if value.is(Int) {
+      let impossible = mystery()
+    }
+    let observed = value
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    assert!(f.bindings_named(run, "impossible").is_empty());
+    f.assert_no_error_diagnostics();
+    f.assert_binding_established(run, "observed", f.ty("String"));
+}
+
+/// LAW P7: assumed type contradicted by runtime observation degrades to InferenceConflict and stays reachable.
+#[test]
+fn assumed_type_contradicted_by_runtime_test_degrades_to_inference_conflict_and_stays_reachable() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ value: Int) {
+    if not value.is(Int) {
+      let residual = value
+    }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let residual = f.binding(run, "residual");
+    assert_eq!(residual.current, TypeKnowledge::Unknown(UnknownReason::InferenceConflict));
+}
+
+/// LAW P9: user-overloaded equality does not gain formal refinement authority.
+#[test]
+fn overloaded_equality_does_not_gain_formal_refinement_authority() {
+    let f = Fixture::new(
+        r#"
+class Liar {
+  ==(_ other: Object) -> Bool {
+    true
+  }
+}
+
+class Probe {
+  @class
+  run(_ liar: Liar) {
+    if liar == None {
+      let unchecked = liar
+    }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let liar_ty = f.ty("Liar");
+    let unchecked = f.binding(run, "unchecked");
+    assert_eq!(unchecked.current.ty(), Some(liar_ty));
+    assert_eq!(unchecked.current.status(), Some(EvidenceStatus::Assumed));
+}
+
+/// LAW P11/P12: if true uses only true branch value and prunes dead false branch.
+#[test]
+fn if_true_uses_only_true_branch_value() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value = if true { 1 } else { mystery() }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    f.assert_binding_established(run, "value", f.ty("Int"));
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW P11/P12: if false uses only false branch value and prunes dead true branch.
+#[test]
+fn if_false_uses_only_false_branch_value() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value = if false { mystery() } else { "ok" }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    f.assert_binding_established(run, "value", f.ty("String"));
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW P11: unary not on boolean constants inverts truth.
+#[test]
+fn if_not_true_and_if_not_false_prune_correct_branches() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let not_true = if not true { mystery() } else { 1 }
+    let not_false = if not false { "ok" } else { mystery() }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    f.assert_binding_established(run, "not_true", f.ty("Int"));
+    f.assert_binding_established(run, "not_false", f.ty("String"));
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW P12: constant false branch does not record callable normal return.
+#[test]
+fn constant_false_branch_does_not_record_callable_return() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() -> String {
+    if false {
+      return 1
+    }
+    return "live"
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    assert_eq!(run.exits.normal_returns.len(), 1);
+    assert_eq!(run.exits.normal_returns[0].knowledge.ty(), Some(f.ty("String")));
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW P1/P3: trusted narrowing certifies declared return without laundering assumptions.
+#[test]
+fn trusted_narrowing_can_certify_declared_return_without_laundering_assumptions() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  normalize(_ value: Object) -> Int {
+    if value.is(Int) {
+      return value
+    }
+    0
+  }
+}
+"#,
+    );
+    let normalize = f.callable("Probe", "normalize", DispatchSide::Class);
+    assert_eq!(normalize.exits.normal_returns.len(), 2);
+    assert!(normalize.exits.normal_returns.iter().all(|exit| exit.knowledge.ty() == Some(f.ty("Int"))));
+    f.assert_no_error_diagnostics();
 }

@@ -5,6 +5,7 @@ pub mod call;
 pub mod causal;
 pub(crate) mod composition;
 pub mod context;
+pub(crate) mod control;
 pub mod declaration;
 pub(crate) mod declaration_signature;
 pub mod expected;
@@ -13,6 +14,7 @@ pub mod field_lifecycle;
 pub mod flow;
 pub mod incident;
 pub mod inference;
+pub(crate) mod loop_analysis;
 pub mod result;
 pub mod statement;
 pub mod typed_expr;
@@ -38,6 +40,7 @@ pub use flow::FlowState;
 pub use inference::{InferenceOutcome, InferenceSession, InferenceSupport, InferenceTerm};
 pub use result::TypeCheckReport;
 
+pub use control::StatementControl;
 pub use statement::check_statement;
 pub use typed_expr::TypedExpression;
 

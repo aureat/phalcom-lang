@@ -4,7 +4,7 @@ use phalcom_modules::DeclarationId;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::checker::check_program;
 use phalcom_semantic::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
-use phalcom_semantic::checker::flow::predicate::{FlowPredicate, extract_predicate};
+use phalcom_semantic::checker::flow::predicate::{FlowPredicate, extract_predicate_shape};
 use phalcom_semantic::checker::flow::state::FlowState;
 use phalcom_semantic::checker::flow::transfer::apply_predicate;
 use phalcom_semantic::checker::statement::resolve_iteration_element;
@@ -146,17 +146,17 @@ fn test_predicate_extraction_from_ast() {
 
     // 1. is test
     let is_expr = parse_expr_helper("x.is(Int)");
-    let pred_is = extract_predicate(&mut ctx, &is_expr, true);
+    let pred_is = extract_predicate_shape(&mut ctx, &is_expr, true);
     assert!(matches!(pred_is, Some(FlowPredicate::IsInstance { binding, .. }) if binding == b1));
 
     // 2. != None test
     let not_nil_expr = parse_expr_helper("x != None");
-    let pred_not_nil = extract_predicate(&mut ctx, &not_nil_expr, true);
+    let pred_not_nil = extract_predicate_shape(&mut ctx, &not_nil_expr, true);
     assert_eq!(pred_not_nil, Some(FlowPredicate::NotNil { binding: b1 }));
 
     // 3. > 0 comparison test
     let ord_expr = parse_expr_helper("x > 0");
-    let pred_ord = extract_predicate(&mut ctx, &ord_expr, true);
+    let pred_ord = extract_predicate_shape(&mut ctx, &ord_expr, true);
     assert!(matches!(pred_ord, Some(FlowPredicate::OrderedPredicate { binding, ref op, threshold: 0 }) if binding == b1 && op == ">"));
 }
 
@@ -185,7 +185,7 @@ fn test_predicate_refinement_and_inversion() {
 
     // 1. Filter by IsInstance { target: Int }
     let pred = FlowPredicate::IsInstance { binding: b1, target: int_ty };
-    apply_predicate(&mut state, &pred, &mut store, &hierarchy);
+    apply_predicate(&mut state, &pred.clone().authoritative(), &mut store, &hierarchy);
     assert_eq!(state.get_current_type(b1).and_then(|k| k.ty()), Some(int_ty));
     assert!(state.facts.contains(&pred));
 
@@ -203,7 +203,7 @@ fn test_predicate_refinement_and_inversion() {
         TypeKnowledge::established(union_ty, EvidenceOrigin::Syntax),
         true,
     );
-    apply_predicate(&mut state2, &inv, &mut store, &hierarchy);
+    apply_predicate(&mut state2, &inv.clone().authoritative(), &mut store, &hierarchy);
     assert_eq!(state2.get_current_type(b1).and_then(|k| k.ty()), Some(str_ty));
     assert!(state2.facts.contains(&inv));
 }
@@ -425,8 +425,8 @@ fn test_mutation_invalidation_kills_dependent_facts() {
         literal: "\"hello\"".into(),
     };
 
-    apply_predicate(&mut state, &pred_x, &mut store, &hierarchy);
-    apply_predicate(&mut state, &pred_y, &mut store, &hierarchy);
+    apply_predicate(&mut state, &pred_x.clone().derived(), &mut store, &hierarchy);
+    apply_predicate(&mut state, &pred_y.clone().derived(), &mut store, &hierarchy);
 
     assert!(state.facts.contains(&pred_x));
     assert!(state.facts.contains(&pred_y));
@@ -470,8 +470,8 @@ fn test_flow_state_conservative_join_and_loop_widening() {
         binding: b1,
         literal: "10".into(),
     };
-    apply_predicate(&mut branch_a, &fact_shared, &mut store, &hierarchy);
-    apply_predicate(&mut branch_a, &fact_a_only, &mut store, &hierarchy);
+    apply_predicate(&mut branch_a, &fact_shared.clone().derived(), &mut store, &hierarchy);
+    apply_predicate(&mut branch_a, &fact_a_only.clone().derived(), &mut store, &hierarchy);
 
     let mut branch_b = FlowState::new();
     branch_b.declare(
@@ -482,7 +482,7 @@ fn test_flow_state_conservative_join_and_loop_widening() {
         TypeKnowledge::established(str_ty, EvidenceOrigin::Flow),
         true,
     );
-    apply_predicate(&mut branch_b, &fact_shared, &mut store, &hierarchy);
+    apply_predicate(&mut branch_b, &fact_shared.clone().derived(), &mut store, &hierarchy);
 
     let joined = FlowState::join(&[branch_a, branch_b], &mut store);
     assert!(joined.is_reachable());

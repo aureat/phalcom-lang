@@ -1,11 +1,22 @@
-//! Flow predicates for branch filtering and type refinement (Spec 04.5).
-
 use crate::checker::context::CheckingContext;
 use crate::checker::typed_expr::TypedExpression;
-use crate::identity::{BindingId, CallableId, DeclarationId, DispatchSide, ModuleId, PredicateId};
+use crate::identity::{BindingId, CallableId, PredicateId};
 use crate::types::id::TypeId;
 use phalcom_ast::ast::{BinaryOp, Expr, PackItem, UnaryOp};
-use phalcom_common::selector::{Selector, SelectorSlot};
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum PredicateAuthority {
+    /// The condition itself supplies a runtime/compiler-trusted observation.
+    AuthoritativeObservation,
+    /// Refinement depends on existing formal knowledge and may not strengthen it.
+    DerivedFilter,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrustedFlowPredicate {
+    pub predicate: FlowPredicate,
+    pub authority: PredicateAuthority,
+}
 
 /// A formal predicate asserted on a control flow path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -101,6 +112,22 @@ impl FlowPredicate {
             }
         }
     }
+
+    /// Wraps this predicate with authoritative runtime observation authority.
+    pub fn authoritative(self) -> TrustedFlowPredicate {
+        TrustedFlowPredicate {
+            predicate: self,
+            authority: PredicateAuthority::AuthoritativeObservation,
+        }
+    }
+
+    /// Wraps this predicate with derived filtering authority.
+    pub fn derived(self) -> TrustedFlowPredicate {
+        TrustedFlowPredicate {
+            predicate: self,
+            authority: PredicateAuthority::DerivedFilter,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,10 +136,10 @@ pub struct PredicateEntry {
     pub predicate: FlowPredicate,
 }
 
-/// Extracts a direct flow predicate from a conditional expression.
-pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool) -> Option<FlowPredicate> {
+/// Extracts a direct flow predicate from a conditional expression without authority validation.
+pub fn extract_predicate_shape(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool) -> Option<FlowPredicate> {
     match expr {
-        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Not) => extract_predicate(ctx, &unary.expr, !truth),
+        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Not) => extract_predicate_shape(ctx, &unary.expr, !truth),
         Expr::MethodCall(call) => match call.method.as_str() {
             "is" | "is!" => {
                 let Expr::Var { value: name, .. } = &call.object else { return None };
@@ -261,9 +288,9 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
                     if let Expr::Var { value: lname, .. } = &binary.left {
                         if lname == "None" {
                             return if truth {
-                                Some(FlowPredicate::NotNil { binding })
-                            } else {
                                 Some(FlowPredicate::IsNil { binding })
+                            } else {
+                                Some(FlowPredicate::NotNil { binding })
                             };
                         }
                     }
@@ -330,26 +357,159 @@ pub fn extract_predicate(ctx: &mut CheckingContext<'_>, expr: &Expr, truth: bool
     }
 }
 
-/// Extracts a predicate only when any type-test authority came from the
-/// canonical `Object#is`/`Object#is!` callable. Syntax that merely resembles
-/// those names cannot authorize formal refinement. Non-type-test predicates
-/// remain available to the ordinary syntax extractor.
-pub fn extract_trusted_predicate(ctx: &mut CheckingContext<'_>, condition: &Expr, condition_typed: &TypedExpression, truth: bool) -> Option<FlowPredicate> {
-    let predicate = extract_predicate(ctx, condition, truth)?;
-    if !matches!(predicate, FlowPredicate::IsInstance { .. } | FlowPredicate::IsNotInstance { .. }) {
-        return Some(predicate);
+/// Extracts a trusted flow predicate only when semantic identity authorizes formal proof.
+pub fn extract_trusted_predicate(
+    ctx: &mut CheckingContext<'_>,
+    condition: &Expr,
+    condition_typed: &TypedExpression,
+    truth: bool,
+) -> Option<TrustedFlowPredicate> {
+    let predicate = extract_predicate_shape(ctx, condition, truth)?;
+    let callable = resolve_predicate_callable(ctx, condition, condition_typed);
+    match &predicate {
+        FlowPredicate::IsInstance { .. } | FlowPredicate::IsNotInstance { .. } => {
+            if is_canonical_type_test(ctx, callable.as_ref()) {
+                Some(TrustedFlowPredicate {
+                    predicate,
+                    authority: PredicateAuthority::AuthoritativeObservation,
+                })
+            } else {
+                None
+            }
+        }
+        FlowPredicate::IsNil { .. }
+        | FlowPredicate::NotNil { .. }
+        | FlowPredicate::Equal { .. }
+        | FlowPredicate::NotEqual { .. }
+        | FlowPredicate::EqualLiteral { .. }
+        | FlowPredicate::NotEqualLiteral { .. } => {
+            if is_canonical_equality(ctx, callable.as_ref()) {
+                Some(TrustedFlowPredicate {
+                    predicate,
+                    authority: PredicateAuthority::DerivedFilter,
+                })
+            } else {
+                None
+            }
+        }
+        FlowPredicate::OrderedPredicate { .. } => {
+            if is_canonical_ordered_comparison(ctx, callable.as_ref()) {
+                Some(TrustedFlowPredicate {
+                    predicate,
+                    authority: PredicateAuthority::DerivedFilter,
+                })
+            } else {
+                None
+            }
+        }
+        FlowPredicate::Truthy { .. } | FlowPredicate::Falsy { .. } => {
+            if matches!(condition, Expr::Var { .. }) {
+                Some(TrustedFlowPredicate {
+                    predicate,
+                    authority: PredicateAuthority::DerivedFilter,
+                })
+            } else {
+                None
+            }
+        }
     }
-
-    let method = type_test_method(condition)?;
-    let selector = Selector::method(method, [SelectorSlot::Positional]).ok()?;
-    let canonical = CallableId::new(DeclarationId::new(ModuleId::core(), "Object".into()), selector, DispatchSide::Instance);
-    (condition_typed.callable.as_ref() == Some(&canonical)).then_some(predicate)
 }
 
-fn type_test_method(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Not) => type_test_method(&unary.expr),
-        Expr::MethodCall(call) if matches!(call.method.as_str(), "is" | "is!") => Some(call.method.as_str()),
-        _ => None,
+fn resolve_predicate_callable(ctx: &mut CheckingContext<'_>, condition: &Expr, condition_typed: &TypedExpression) -> Option<CallableId> {
+    if let Some(ref callable) = condition_typed.callable {
+        if is_canonical_type_test(ctx, Some(callable)) {
+            return Some(callable.clone());
+        }
+        if is_canonical_equality(ctx, Some(callable)) || is_canonical_ordered_comparison(ctx, Some(callable)) {
+            return Some(callable.clone());
+        }
     }
+    match condition {
+        Expr::Unary(unary) if matches!(unary.op, UnaryOp::Not) => match &unary.expr {
+            Expr::MethodCall(call) => {
+                let Expr::Var { value: name, .. } = &call.object else { return None };
+                let binding = ctx.lookup_binding_info(name)?;
+                let receiver_ty = ctx
+                    .flow
+                    .get_current_type(binding.id)
+                    .and_then(|k| k.ty())
+                    .or_else(|| ctx.core_type(&ctx.core_ids.object.clone()))?;
+                let selector =
+                    phalcom_common::selector::Selector::method(call.method.as_str(), vec![phalcom_common::selector::SelectorSlot::Positional]).ok()?;
+                let target = ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal);
+                if let crate::dispatch::ResolvedDispatchResult::Found(found) = target {
+                    Some(found.callable)
+                } else {
+                    None
+                }
+            }
+            Expr::Binary(binary) => {
+                let op_name = match binary.op {
+                    BinaryOp::Equal | BinaryOp::Same => "==",
+                    BinaryOp::NotEqual => "!=",
+                    BinaryOp::LessThan => "<",
+                    BinaryOp::LessThanOrEqual => "<=",
+                    BinaryOp::GreaterThan => ">",
+                    BinaryOp::GreaterThanOrEqual => ">=",
+                    _ => return None,
+                };
+                let name = if let Expr::Var { value: name, .. } = &binary.left {
+                    name
+                } else if let Expr::Var { value: name, .. } = &binary.right {
+                    name
+                } else {
+                    return None;
+                };
+                let binding = ctx.lookup_binding_info(name)?;
+                let receiver_ty = ctx
+                    .flow
+                    .get_current_type(binding.id)
+                    .and_then(|k| k.ty())
+                    .or_else(|| ctx.core_type(&ctx.core_ids.object.clone()))?;
+                let selector = phalcom_common::selector::Selector::method(op_name, vec![phalcom_common::selector::SelectorSlot::Positional]).ok()?;
+                let target = ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal);
+                if let crate::dispatch::ResolvedDispatchResult::Found(found) = target {
+                    Some(found.callable)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        },
+        _ => condition_typed.callable.clone(),
+    }
+}
+
+fn is_canonical_type_test(ctx: &CheckingContext<'_>, callable: Option<&CallableId>) -> bool {
+    let Some(callable) = callable else { return false };
+    let phalcom_common::selector::SelectorBase::Named(ref name) = callable.selector.base else {
+        return false;
+    };
+    callable.owner == ctx.core_ids.object && matches!(name.as_str(), "is" | "is!")
+}
+
+fn is_canonical_equality(ctx: &CheckingContext<'_>, callable: Option<&CallableId>) -> bool {
+    let Some(callable) = callable else { return false };
+    let phalcom_common::selector::SelectorBase::Named(ref name) = callable.selector.base else {
+        return false;
+    };
+    matches!(
+        &callable.owner,
+        owner if owner == &ctx.core_ids.object
+            || owner == &ctx.core_ids.bool_
+            || owner == &ctx.core_ids.int
+            || owner == &ctx.core_ids.float
+            || owner == &ctx.core_ids.string
+            || owner == &ctx.core_ids.symbol
+            || owner == &ctx.core_ids.number
+    ) && matches!(name.as_str(), "==" | "!=" | "equals" | "same")
+}
+
+fn is_canonical_ordered_comparison(ctx: &CheckingContext<'_>, callable: Option<&CallableId>) -> bool {
+    let Some(callable) = callable else { return false };
+    let phalcom_common::selector::SelectorBase::Named(ref name) = callable.selector.base else {
+        return false;
+    };
+    (callable.owner == ctx.core_ids.int || callable.owner == ctx.core_ids.float || callable.owner == ctx.core_ids.number)
+        && matches!(name.as_str(), "<" | "<=" | ">" | ">=" | "<=>")
 }

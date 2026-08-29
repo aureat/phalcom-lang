@@ -221,13 +221,13 @@ fn applied_generic_subtyping_is_invariant_and_class_object_is_hierarchical() {
     hierarchy.insert(decl_sub.clone(), decl_super.clone());
 
     // Int <: Number
-    assert!(is_subtype(&store, &hierarchy, int_ty, num_ty));
+    assert!(is_subtype(&mut store, &hierarchy, int_ty, num_ty));
 
     // Box<Int> is NOT a subtype of Box<Number> (invariant)
-    assert!(!is_subtype(&store, &hierarchy, box_int, box_num));
+    assert!(!is_subtype(&mut store, &hierarchy, box_int, box_num));
 
     // ClassObject(Sub) <: ClassObject(Super)
     let sub_class_obj = store.class_object_type(decl_sub);
     let super_class_obj = store.class_object_type(decl_super);
-    assert!(is_subtype(&store, &hierarchy, sub_class_obj, super_class_obj));
+    assert!(is_subtype(&mut store, &hierarchy, sub_class_obj, super_class_obj));
 }

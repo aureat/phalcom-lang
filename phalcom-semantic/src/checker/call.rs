@@ -600,11 +600,10 @@ pub(crate) fn structural_list_index_get_target(ctx: &mut CheckingContext<'_>, re
     let TypeData::Nominal { declaration } = ctx.store.get(origin) else {
         return None;
     };
-    if declaration.name.as_ref() != "List" || arguments.len() != 1 {
+    if declaration != &ctx.core_ids.list || arguments.len() != 1 {
         return None;
     }
-    let int_decl = ctx.resolve_type_name("Int")?;
-    let int_ty = ctx.nominal_type_of(&int_decl);
+    let int_ty = ctx.core_type(&ctx.core_ids.int.clone())?;
     let selector = Selector::subscript_get(vec![SelectorSlot::Positional]).ok()?;
     let signature = CallableSignature::new(
         selector,
@@ -627,7 +626,7 @@ pub(crate) fn structural_map_index_get_target(ctx: &mut CheckingContext<'_>, rec
     let TypeData::Nominal { declaration } = ctx.store.get(origin) else {
         return None;
     };
-    if declaration.name.as_ref() != "Map" || arguments.len() != 2 {
+    if declaration != &ctx.core_ids.map || arguments.len() != 2 {
         return None;
     }
     let selector = Selector::subscript_get(vec![SelectorSlot::Positional]).ok()?;
@@ -652,11 +651,10 @@ pub(crate) fn structural_list_index_set_target(ctx: &mut CheckingContext<'_>, re
     let TypeData::Nominal { declaration } = ctx.store.get(origin) else {
         return None;
     };
-    if declaration.name.as_ref() != "List" || arguments.len() != 1 {
+    if declaration != &ctx.core_ids.list || arguments.len() != 1 {
         return None;
     }
-    let int_decl = ctx.resolve_type_name("Int")?;
-    let int_ty = ctx.nominal_type_of(&int_decl);
+    let int_ty = ctx.core_type(&ctx.core_ids.int.clone())?;
     let element_ty = arguments[0];
     let selector = Selector::subscript_set(vec![SelectorSlot::Positional]).ok()?;
     let signature = CallableSignature::new(

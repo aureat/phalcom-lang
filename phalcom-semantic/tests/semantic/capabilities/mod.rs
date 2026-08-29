@@ -4,6 +4,7 @@ mod bindings;
 mod callable_publication;
 pub(crate) mod checker_smoke;
 mod constraints;
+mod control_regions;
 mod deep_regressions;
 mod diagnostics;
 mod dispatch;

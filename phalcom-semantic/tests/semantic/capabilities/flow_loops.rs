@@ -155,3 +155,195 @@ class Probe {
     );
     f.assert_no_error_diagnostics();
 }
+
+/// LAW: continue state feeds next header, not direct post-loop exit.
+#[test]
+fn continue_state_feeds_header_not_direct_post_loop_exit() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ keepGoing: Bool, _ skip: Bool) {
+    let x = 1
+    while keepGoing {
+      if skip {
+        x = "continued"
+        continue
+      }
+      x = 2.5
+      break
+    }
+    let observed = x
+  }
+}
+"#,
+    );
+
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let int_ty = f.ty("Int");
+    let string_ty = f.ty("String");
+    let float_ty = f.ty("Float");
+    let observed = f.binding(run, "observed").current.ty().expect("post-loop knowledge");
+    f.assert_union_members(observed, &[int_ty, string_ty, float_ty]);
+    f.assert_continue_edges_target_loop_headers(run);
+}
+
+/// LAW: dead suffix after continue never contributes loop facts.
+#[test]
+fn statement_after_continue_never_contributes_loop_fact() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ flag: Bool) {
+    let x = 1
+    while flag {
+      x = "seen"
+      continue
+      x = true
+    }
+    let y = x
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let y = f.binding(run, "y").current.ty().expect("post-loop type");
+    f.assert_union_members(y, &[f.ty("Int"), f.ty("String")]);
+    assert!(!f.union_contains(y, f.ty("Bool")));
+}
+
+/// LAW: dead suffix after break never contributes loop facts.
+#[test]
+fn statement_after_break_never_contributes_loop_fact() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ flag: Bool) {
+    let x = 1
+    while flag {
+      x = "seen"
+      break
+      x = true
+    }
+    let y = x
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let y = f.binding(run, "y").current.ty().expect("post-loop type");
+    f.assert_union_members(y, &[f.ty("Int"), f.ty("String")]);
+    assert!(!f.union_contains(y, f.ty("Bool")));
+}
+
+/// LAW: while let evaluates iteratively and pattern bindings remain scoped to body.
+#[test]
+fn while_let_is_cyclic_with_scoped_pattern_bindings() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ opt: Int) {
+    let x = 1
+    while let n = opt {
+      x = "seen"
+    }
+    let y = x
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let y = f.binding(run, "y").current.ty().expect("post-loop type");
+    f.assert_union_members(y, &[f.ty("Int"), f.ty("String")]);
+}
+
+/// LAW: nested loops preserve distinct frame targets for break and continue.
+#[test]
+fn nested_loop_target_ownership() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ outer: Bool, _ inner: Bool, _ skip: Bool, _ keepInner: Bool) {
+    let x: Object = 1
+    while outer {
+      while inner {
+        x = "inner-break"
+        break
+      }
+      if skip {
+        x = 2.5
+        continue
+      }
+      if keepInner {
+        break
+      }
+      x = true
+      break
+    }
+    let observed = x
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let int_ty = f.ty("Int");
+    let str_ty = f.ty("String");
+    let float_ty = f.ty("Float");
+    let bool_ty = f.ty("Bool");
+    let observed = f.binding(run, "observed").current.ty().expect("post-loop type");
+    f.assert_union_members(observed, &[int_ty, str_ty, float_ty, bool_ty]);
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW: all-abrupt loop body without break only exits via false condition.
+#[test]
+fn all_abrupt_loop_body_yields_false_condition_exit() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ flag: Bool) -> Object {
+    let x: Object = 1
+    while flag {
+      x = "returning"
+      return 42
+    }
+    x
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let int_ty = f.ty("Int");
+    f.assert_binding_established(run, "x", int_ty);
+    f.assert_no_error_diagnostics();
+}
+
+/// LAW: field mutation across loop cycles preserves field contract.
+#[test]
+fn field_mutation_through_loop_preserves_contract() {
+    let f = Fixture::new(
+        r#"
+class Counter {
+  _val: Int
+
+  init() {
+    self._val = 0
+    let count = 0
+    while (count < 3) {
+      count = count + 1
+      self._val = self._val + 1
+    }
+  }
+}
+"#,
+    );
+    let init = f.callable("Counter", "init", DispatchSide::Instance);
+    let int_ty = f.ty("Int");
+    f.assert_binding_established(init, "count", int_ty);
+    f.assert_no_error_diagnostics();
+}

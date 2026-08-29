@@ -18,12 +18,20 @@ tests are tracked separately in `generics.rs`.
 - `nested_branch_results_compose_transitively`
 - `known_branch_does_not_hide_reachable_unknown_branch_in_formal_analysis`
 
-## Loops and blocks (4)
+## Loops and blocks (12)
 
 - `loop_same_type_assignment_preserves_current_type`
 - `loop_join_includes_preheader_and_body_types`
 - `break_and_continue_preserve_loop_exit_and_backedge_facts`
 - `captured_block_write_is_not_applied_until_execution_is_proven`
+- `loop_fixpoint_preserves_mutated_integer_and_abrupt_edges`
+- `continue_state_feeds_header_not_direct_post_loop_exit`
+- `statement_after_continue_never_contributes_loop_fact`
+- `statement_after_break_never_contributes_loop_fact`
+- `while_let_is_cyclic_with_scoped_pattern_bindings`
+- `nested_loop_target_ownership`
+- `all_abrupt_loop_body_yields_false_condition_exit`
+- `field_mutation_through_loop_preserves_contract`
 
 ## Structural (8)
 
@@ -70,6 +78,18 @@ tests are tracked separately in `generics.rs`.
 - `mixed_generic_return_uses_weakest_value_support`
 - `independent_fixed_generic_return_stays_established`
 - `expected_context_cannot_fabricate_missing_generic_return`
+
+## Part 06 — Semantic completeness and identity hardening (9)
+
+- `authority_boundaries::user_object_name_is_not_universal_supertype`
+- `authority_boundaries::user_function_name_is_not_callable_supertype`
+- `authority_boundaries::generic_supertype_specialization_materializes_in_live_store`
+- `authority_boundaries::proven_relation_does_not_upgrade_assumed_actual`
+- `authority_boundaries::comparison_chain_single_evaluation_and_operation_conjunction`
+- `authority_boundaries::comparison_chain_missing_operator_fails_closed`
+- `authority_boundaries::membership_fails_closed_to_unknown`
+- `authority_boundaries::contextual_empty_list_inherits_expected_contract_authority`
+- `authority_boundaries::contextual_empty_map_preserves_expected_type`
 
 ## Complex scenario coverage
 

@@ -105,7 +105,7 @@ fn assumption_basis(actual: &TypeKnowledge) -> AssumptionBasis {
 
 /// Reconciles current formal knowledge against a persistent binding contract.
 pub fn reconcile_binding_contract(
-    store: &TypeStore,
+    store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
     contract: Option<&BindingContract>,
     actual: &TypeKnowledge,

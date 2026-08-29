@@ -1,12 +1,14 @@
 //! Statement type checking engine.
 
-use super::analysis::{AnalysisStatus, NormalReturnFact};
+use super::analysis::AnalysisStatus;
 use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_relation};
 use super::call::{CallPremise, CallableApplicationTarget, UnresolvedApplicationReason, analyze_unresolved_application, apply_resolved_callable};
 use super::causal::CausalInvalidity;
 use super::context::CheckingContext;
+use super::control::StatementControl;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
+use super::flow::FlowState;
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::denotation::ValueSemanticFact;
@@ -17,10 +19,9 @@ use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
-/// Checks a single statement, updating context bindings and recording
-/// diagnostics. A direct `return` reports its structured normal-return fact to
-/// callable-body analysis; all other statement forms return `None`.
-pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> Option<NormalReturnFact> {
+/// Checks a single statement, updating context bindings, recording exits, and
+/// reporting the resulting [`StatementControl`].
+pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> StatementControl {
     match statement {
         Statement::Let(binding) => {
             let (declared_k, annotation_invalidity) = binding
@@ -144,7 +145,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 binding.range,
                 val_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
             );
-            None
+            StatementControl::FallsThrough
         }
         Statement::Return(ret) => {
             let expected_ret = ctx
@@ -209,36 +210,35 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 ctx.attach_explanation_to_cause(cause, return_explanation);
             }
             ctx.record_call_dependency(val_typed.causal_invalidity, Some(return_explanation));
-            let fact = NormalReturnFact {
+            let fact = crate::checker::analysis::NormalReturnFact {
                 knowledge: val_typed.knowledge,
                 flow: ctx.current_flow_summary(),
                 status: val_typed.status,
                 causal_invalidity: val_typed.causal_invalidity,
             };
-            Some(fact)
+            ctx.record_return_exit(fact);
+            StatementControl::Return
         }
         Statement::Expr { expr, .. } => {
             analyze_expression(ctx, expr, &ExpectedType::None);
-            None
+            StatementControl::FallsThrough
         }
         Statement::Throw { expr, .. } => {
             analyze_expression(ctx, expr, &ExpectedType::None);
-            ctx.record_throw_exit();
-            None
+            ctx.record_throw_exit_and_terminate();
+            StatementControl::Throw
         }
         Statement::Break { .. } => {
-            ctx.record_break();
-            ctx.flow.mark_unreachable();
-            None
+            ctx.record_break_and_terminate();
+            StatementControl::Break
         }
         Statement::Continue { .. } => {
-            ctx.record_continue();
-            ctx.flow.mark_unreachable();
-            None
+            ctx.record_continue_and_terminate();
+            StatementControl::Continue
         }
         Statement::Class(class_def) => {
             super::declaration::check_class(ctx, class_def);
-            None
+            StatementControl::FallsThrough
         }
         Statement::For(for_stmt) => {
             let mut lane_facts = Vec::new();
@@ -283,30 +283,81 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 ));
             }
             let before = ctx.flow.clone();
-            ctx.push_loop_frame();
-            ctx.push_scope();
-            for (pat, fact, causal_invalidity, explanation) in lane_facts {
-                bind_pattern(ctx, pat, fact, causal_invalidity, explanation);
-            }
-            for s in &for_stmt.body {
-                check_statement(ctx, s);
-            }
-            let body_flow = ctx.flow.clone();
-            ctx.pop_scope();
-            let loop_frame = ctx.pop_loop_frame();
-            let mut loop_states = vec![before, body_flow];
-            loop_states.extend(loop_frame.continues);
-            loop_states.extend(loop_frame.breaks);
-            ctx.flow = match ctx.join_flow_states(&loop_states) {
-                Ok(flow) => flow,
+
+            let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
+                                 current_header: &FlowState|
+             -> (Option<FlowState>, FlowState, Vec<FlowState>, crate::checker::causal::CausalInvalidity) {
+                step_ctx.flow = current_header.clone();
+                let exit_flow = step_ctx.flow.clone();
+
+                step_ctx.push_loop_frame();
+                let body_res = super::control::analyze_executable_region_with_prelude(step_ctx, &for_stmt.body, for_stmt.range, &ExpectedType::None, |ctx| {
+                    for (pat, fact, causal, explanation) in &lane_facts {
+                        bind_pattern(ctx, pat, fact.clone(), *causal, *explanation);
+                    }
+                });
+                let body_flow = step_ctx.flow.clone();
+                let loop_frame = step_ctx.pop_loop_frame();
+                let normal_backedge = if body_res.completes_normally() { Some(body_flow) } else { None };
+                let mut continues = loop_frame.continues;
+                let breaks = loop_frame.breaks;
+                continues.extend(normal_backedge);
+                let backedge = if continues.is_empty() {
+                    None
+                } else if continues.len() == 1 {
+                    continues.pop()
+                } else {
+                    step_ctx.join_flow_states(&continues).ok()
+                };
+
+                (backedge, exit_flow, breaks, body_res.causal_invalidity)
+            };
+
+            let fixpoint = match super::loop_analysis::solve_loop_header(ctx, &before, |probe_ctx, current_header| {
+                let (backedge, _exit_flow, breaks, _causal) = evaluate_step(probe_ctx, current_header);
+                super::loop_analysis::LoopStepResult {
+                    normal_backedge: backedge,
+                    continues: Vec::new(),
+                    breaks,
+                }
+            }) {
+                Ok(fp) => fp,
                 Err(failure) => {
                     ctx.publish_flow_join_failure(failure, for_stmt.range);
-                    return None;
+                    return StatementControl::FallsThrough;
                 }
             };
-            None
+
+            // Final real pass at stable header
+            let (_backedge, exit_flow, breaks, _causal) = evaluate_step(ctx, &fixpoint.header);
+
+            let mut exit_states = Vec::new();
+            if exit_flow.is_reachable() {
+                exit_states.push(exit_flow);
+            }
+            for brk in breaks {
+                if brk.is_reachable() {
+                    exit_states.push(brk);
+                }
+            }
+
+            ctx.flow = if exit_states.is_empty() {
+                FlowState::unreachable()
+            } else if exit_states.len() == 1 {
+                exit_states.pop().unwrap()
+            } else {
+                match ctx.join_flow_states(&exit_states) {
+                    Ok(flow) => flow,
+                    Err(failure) => {
+                        ctx.publish_flow_join_failure(failure, for_stmt.range);
+                        return StatementControl::FallsThrough;
+                    }
+                }
+            };
+
+            StatementControl::FallsThrough
         }
-        _ => None,
+        _ => StatementControl::FallsThrough,
     }
 }
 
@@ -362,7 +413,7 @@ fn bind_declaration_pattern(
             }
         }
         Pattern::List { elements, rest, .. } => {
-            let list_origin = ctx.resolve_type_name("List").map(|decl| ctx.nominal_type_of(&decl));
+            let list_origin = ctx.core_type(&ctx.core_ids.list.clone());
             let element_knowledge = list_origin
                 .map(|origin| crate::checker::composition::decompose_list_element(ctx.store, &fact.knowledge, origin))
                 .unwrap_or_else(|| fact.knowledge.clone());
@@ -424,7 +475,7 @@ fn bind_pattern(
             }
         }
         Pattern::List { elements, rest, .. } => {
-            let list_origin = ctx.resolve_type_name("List").map(|decl| ctx.nominal_type_of(&decl));
+            let list_origin = ctx.core_type(&ctx.core_ids.list.clone());
             let element_knowledge = list_origin
                 .map(|origin| crate::checker::composition::decompose_list_element(ctx.store, &fact.knowledge, origin))
                 .unwrap_or_else(|| fact.knowledge.clone());

@@ -57,8 +57,11 @@ fn test_matrix_1_record_row_subtyping_and_unification() {
     let sup = store.record(Box::new([RecordRowField { name: "a".into(), ty: int_ty }]));
 
     // Structural width subtyping: { a: Int, b: String } <: { a: Int }
-    assert!(is_subtype(&store, &hier, sub, sup), "Record width subtyping must succeed for read-only fields");
-    assert!(!is_subtype(&store, &hier, sup, sub), "Narrow cannot subtype wide");
+    assert!(
+        is_subtype(&mut store, &hier, sub, sup),
+        "Record width subtyping must succeed for read-only fields"
+    );
+    assert!(!is_subtype(&mut store, &hier, sup, sub), "Narrow cannot subtype wide");
 
     // Row solver unification
     let empty_row = store.intern_record_row(RecordRowData {

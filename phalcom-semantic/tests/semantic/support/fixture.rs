@@ -302,8 +302,9 @@ impl Fixture {
     }
 
     pub fn assert_subtype(&self, sub: TypeId, sup: TypeId) {
+        let mut store = (*self.analysis.snapshot.store).clone();
         assert!(
-            is_subtype(&self.analysis.snapshot.store, self.analysis.snapshot.hierarchy.as_ref(), sub, sup),
+            is_subtype(&mut store, self.analysis.snapshot.hierarchy.as_ref(), sub, sup),
             "expected {sub:?} <: {sup:?}"
         );
     }
@@ -339,6 +340,26 @@ impl Fixture {
         };
         let expected_members: HashSet<TypeId> = expected.iter().copied().collect();
         assert_eq!(actual_members, expected_members, "unexpected union for {actual:?}");
+    }
+
+    pub fn union_contains(&self, actual: TypeId, member: TypeId) -> bool {
+        match self.analysis.snapshot.store.get(actual) {
+            TypeData::Union(members) => members.contains(&member),
+            _ => actual == member,
+        }
+    }
+
+    pub fn assert_continue_edges_target_loop_headers(&self, callable: &CallableAnalysis) {
+        for edge in callable.flow_graph.edges.values() {
+            if matches!(edge.kind, phalcom_semantic::checker::flow::graph::FlowEdgeKind::Continue) {
+                let target = callable.flow_graph.nodes.get(&edge.target).expect("target node exists");
+                assert!(
+                    matches!(target.kind, phalcom_semantic::checker::flow::graph::FlowNodeKind::LoopHeader),
+                    "continue edge must target a LoopHeader, got: {:?}",
+                    target.kind
+                );
+            }
+        }
     }
 
     pub fn assert_tuple_types(&self, actual: TypeId, expected: &[TypeId]) {

@@ -43,8 +43,8 @@ pub use advisory::{
     MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
 };
 pub use checker::{
-    CheckingContext, TypeCheckReport, TypedExpression, check_class, check_class_bodies, check_statement, register_class_surface, synthesize_expr,
-    synthesize_typed_expr,
+    CheckingContext, StatementControl, TypeCheckReport, TypedExpression, check_class, check_class_bodies, check_statement, register_class_surface,
+    synthesize_expr, synthesize_typed_expr,
 };
 pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};

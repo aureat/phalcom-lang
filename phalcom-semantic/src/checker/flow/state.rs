@@ -6,11 +6,12 @@ use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::predicate::FlowPredicate;
 use crate::identity::FieldId;
 use crate::identity::{AnalysisIncidentId, BindingId, ExplanationId};
-use crate::types::evidence::{TypeKnowledge, join_type_knowledge};
+use crate::types::denotation::SemanticDenotation;
+use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason, join_type_knowledge};
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Structural failures that make a path merge semantically unsafe.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -230,10 +231,66 @@ impl FactSet {
             .filter_map(|(predicate, explanation)| explanation.as_ref().map(|explanation| (predicate, explanation)))
     }
 
+    pub fn predicate_keys(&self) -> impl Iterator<Item = &FlowPredicate> {
+        self.facts.keys()
+    }
+
     /// Mutation invalidation: removes all facts referencing `binding` (F4).
     pub fn invalidate_binding(&mut self, binding: BindingId) {
         self.facts.retain(|pred, _| pred.binding() != Some(binding));
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum KnowledgeFixpointKey {
+    Known {
+        ty: TypeId,
+        status: EvidenceStatus,
+        origin: EvidenceOrigin,
+    },
+    Unknown(UnknownReason),
+    Dynamic(DynamicReason),
+}
+
+impl From<&TypeKnowledge> for KnowledgeFixpointKey {
+    fn from(k: &TypeKnowledge) -> Self {
+        match k {
+            TypeKnowledge::Known(known) => Self::Known {
+                ty: known.ty(),
+                status: known.status(),
+                origin: known.origin(),
+            },
+            TypeKnowledge::Unknown(u) => Self::Unknown(u.clone()),
+            TypeKnowledge::Dynamic(d) => Self::Dynamic(d.clone()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct BindingFixpointKey {
+    pub contract: Option<BindingContract>,
+    pub current: KnowledgeFixpointKey,
+    pub denotation: Option<SemanticDenotation>,
+    pub consistency: BindingConsistency,
+    pub causal_invalidity: CausalInvalidity,
+    pub mutable: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FieldFixpointKey {
+    pub contract: KnowledgeFixpointKey,
+    pub current: KnowledgeFixpointKey,
+    pub initialization: FieldInitialization,
+    pub validity: FieldContractValidity,
+    pub causal_invalidity: CausalInvalidity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FlowFixpointKey {
+    pub reachable: bool,
+    pub bindings: BTreeMap<BindingId, BindingFixpointKey>,
+    pub fields: BTreeMap<FieldId, FieldFixpointKey>,
+    pub predicates: BTreeSet<FlowPredicate>,
 }
 
 /// Path-sensitive state at a program point during body checking.
@@ -698,8 +755,244 @@ impl FlowState {
         })
     }
 
+    pub fn seed_binding(&mut self, state: BindingState) {
+        self.bindings.insert(state.binding, state);
+    }
+
     /// Invalidate mutable projection facts on opaque/unknown method calls (F4).
     pub fn invalidate_opaque_calls(&mut self) {
         // Retain direct immutable facts while invalidating volatile projection facts
+    }
+
+    /// Projects the flow state into a semantic key, stripping versions,
+    /// explanation IDs, and AST allocation metadata.
+    pub(crate) fn fixpoint_key(&self) -> FlowFixpointKey {
+        let bindings = self
+            .bindings
+            .iter()
+            .map(|(id, b)| {
+                (
+                    *id,
+                    BindingFixpointKey {
+                        contract: b.contract.clone(),
+                        current: (&b.current).into(),
+                        denotation: b.denotation,
+                        consistency: b.consistency.clone(),
+                        causal_invalidity: b.causal_invalidity,
+                        mutable: b.mutable,
+                    },
+                )
+            })
+            .collect();
+
+        let fields = self
+            .fields
+            .iter()
+            .map(|(id, f)| {
+                (
+                    id.clone(),
+                    FieldFixpointKey {
+                        contract: (&f.contract).into(),
+                        current: (&f.current).into(),
+                        initialization: f.initialization,
+                        validity: f.validity.clone(),
+                        causal_invalidity: f.causal_invalidity,
+                    },
+                )
+            })
+            .collect();
+
+        let predicates = self.facts.predicate_keys().cloned().collect();
+
+        FlowFixpointKey {
+            reachable: self.reachable,
+            bindings,
+            fields,
+            predicates,
+        }
+    }
+
+    /// Weakens changing/unstable dimensions to `Unknown(RecursiveFixpoint)`
+    /// upon solver exhaustion while preserving stable contracts and facts.
+    pub(crate) fn weaken_unstable_fixpoint_facts(previous: &FlowState, next: &FlowState) -> FlowState {
+        let mut weakened_bindings = next.bindings.clone();
+        for (id, next_b) in &next.bindings {
+            if let Some(prev_b) = previous.bindings.get(id) {
+                let prev_key = BindingFixpointKey {
+                    contract: prev_b.contract.clone(),
+                    current: (&prev_b.current).into(),
+                    denotation: prev_b.denotation,
+                    consistency: prev_b.consistency.clone(),
+                    causal_invalidity: prev_b.causal_invalidity,
+                    mutable: prev_b.mutable,
+                };
+                let next_key = BindingFixpointKey {
+                    contract: next_b.contract.clone(),
+                    current: (&next_b.current).into(),
+                    denotation: next_b.denotation,
+                    consistency: next_b.consistency.clone(),
+                    causal_invalidity: next_b.causal_invalidity,
+                    mutable: next_b.mutable,
+                };
+                if prev_key != next_key {
+                    let mut b = next_b.clone();
+                    b.current = TypeKnowledge::Unknown(UnknownReason::RecursiveFixpoint);
+                    b.denotation = None;
+                    b.consistency = if b.contract.is_some() {
+                        BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint)
+                    } else {
+                        BindingConsistency::Unconstrained
+                    };
+                    b.causal_invalidity = prev_b.causal_invalidity.join(next_b.causal_invalidity);
+                    b.version = prev_b.version.max(next_b.version) + 1;
+                    weakened_bindings.insert(*id, b);
+                }
+            }
+        }
+
+        let mut weakened_fields = next.fields.clone();
+        for (id, next_f) in &next.fields {
+            if let Some(prev_f) = previous.fields.get(id) {
+                let prev_key = FieldFixpointKey {
+                    contract: (&prev_f.contract).into(),
+                    current: (&prev_f.current).into(),
+                    initialization: prev_f.initialization,
+                    validity: prev_f.validity.clone(),
+                    causal_invalidity: prev_f.causal_invalidity,
+                };
+                let next_key = FieldFixpointKey {
+                    contract: (&next_f.contract).into(),
+                    current: (&next_f.current).into(),
+                    initialization: next_f.initialization,
+                    validity: next_f.validity.clone(),
+                    causal_invalidity: next_f.causal_invalidity,
+                };
+                if prev_key != next_key {
+                    let mut f = next_f.clone();
+                    f.current = TypeKnowledge::Unknown(UnknownReason::RecursiveFixpoint);
+                    f.initialization = if prev_f.initialization == next_f.initialization {
+                        prev_f.initialization
+                    } else {
+                        FieldInitialization::MaybeInitialized
+                    };
+                    f.validity = join_two_field_validities(prev_f.validity.clone(), next_f.validity.clone());
+                    f.causal_invalidity = prev_f.causal_invalidity.join(next_f.causal_invalidity);
+                    f.version = prev_f.version.max(next_f.version) + 1;
+                    weakened_fields.insert(id.clone(), f);
+                }
+            }
+        }
+
+        let invariant_facts = previous.facts.intersect(&next.facts);
+        FlowState {
+            bindings: weakened_bindings,
+            fields: weakened_fields,
+            facts: invariant_facts,
+            reachable: previous.reachable && next.reachable,
+            poisoned: previous.poisoned.or(next.poisoned),
+        }
+    }
+}
+
+#[cfg(test)]
+mod fixpoint_projection_tests {
+    use super::*;
+    use crate::identity::{DeclarationId, ModuleId};
+
+    #[test]
+    fn fixpoint_key_ignores_versions_and_explanation_ids() {
+        let mut store = TypeStore::new();
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+        let binding_id = BindingId(1);
+
+        let mut left = FlowState::new();
+        left.seed_binding(BindingState {
+            binding: binding_id,
+            name: "x".into(),
+            parameter: None,
+            range: SourceRange::default(),
+            contract: None,
+            current: TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            denotation: None,
+            consistency: BindingConsistency::Unconstrained,
+            causal_invalidity: CausalInvalidity::Clean,
+            mutable: true,
+            version: 0,
+            explanation: Some(ExplanationId(10)),
+        });
+
+        let mut right = FlowState::new();
+        right.seed_binding(BindingState {
+            binding: binding_id,
+            name: "x".into(),
+            parameter: None,
+            range: SourceRange::default(),
+            contract: None,
+            current: TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            denotation: None,
+            consistency: BindingConsistency::Unconstrained,
+            causal_invalidity: CausalInvalidity::Clean,
+            mutable: true,
+            version: 5,
+            explanation: Some(ExplanationId(999)),
+        });
+
+        assert_ne!(left, right);
+        assert_eq!(left.fixpoint_key(), right.fixpoint_key());
+    }
+
+    #[test]
+    fn weaken_unstable_fixpoint_facts_weakens_only_changing_dimensions() {
+        let mut store = TypeStore::new();
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+        let stable_id = BindingId(1);
+        let unstable_id = BindingId(2);
+
+        let mut prev = FlowState::new();
+        prev.seed_binding(BindingState {
+            binding: stable_id,
+            name: "a".into(),
+            parameter: None,
+            range: SourceRange::default(),
+            contract: None,
+            current: TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            denotation: None,
+            consistency: BindingConsistency::Unconstrained,
+            causal_invalidity: CausalInvalidity::Clean,
+            mutable: false,
+            version: 0,
+            explanation: None,
+        });
+        prev.seed_binding(BindingState {
+            binding: unstable_id,
+            name: "b".into(),
+            parameter: None,
+            range: SourceRange::default(),
+            contract: None,
+            current: TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            denotation: None,
+            consistency: BindingConsistency::Unconstrained,
+            causal_invalidity: CausalInvalidity::Clean,
+            mutable: true,
+            version: 0,
+            explanation: None,
+        });
+
+        let mut next = prev.clone();
+        next.write(
+            unstable_id,
+            TypeKnowledge::established(string_ty, EvidenceOrigin::Flow),
+            None,
+            BindingConsistency::Unconstrained,
+            CausalInvalidity::Clean,
+        );
+
+        let weakened = FlowState::weaken_unstable_fixpoint_facts(&prev, &next);
+        assert_eq!(weakened.get_binding(stable_id).unwrap().current.ty(), Some(int_ty));
+        assert!(matches!(
+            weakened.get_binding(unstable_id).unwrap().current,
+            TypeKnowledge::Unknown(UnknownReason::RecursiveFixpoint)
+        ));
     }
 }

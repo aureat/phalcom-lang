@@ -17,7 +17,7 @@ fn established_actual_is_retained_and_validated_against_contract() {
         source: None,
     };
 
-    let result = reconcile_binding_contract(&store, &hierarchy, Some(&contract), &actual);
+    let result = reconcile_binding_contract(&mut store, &hierarchy, Some(&contract), &actual);
     assert_eq!(result.current, actual);
     assert_eq!(result.consistency, BindingConsistency::Validated);
 }
@@ -33,7 +33,7 @@ fn eligible_no_evidence_receives_assumption_but_coverage_gap_does_not() {
         source: None,
     };
 
-    let eligible = reconcile_binding_contract(&store, &hierarchy, Some(&contract), &TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+    let eligible = reconcile_binding_contract(&mut store, &hierarchy, Some(&contract), &TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
     assert_eq!(eligible.current.status(), Some(phalcom_semantic::EvidenceStatus::Assumed));
     assert_eq!(
         eligible.consistency,
@@ -42,7 +42,12 @@ fn eligible_no_evidence_receives_assumption_but_coverage_gap_does_not() {
         }
     );
 
-    let blocked = reconcile_binding_contract(&store, &hierarchy, Some(&contract), &TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
+    let blocked = reconcile_binding_contract(
+        &mut store,
+        &hierarchy,
+        Some(&contract),
+        &TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
+    );
     assert_eq!(blocked.current.ty(), None);
     assert!(matches!(blocked.consistency, BindingConsistency::Blocked(_)));
 }
@@ -63,17 +68,17 @@ fn refuted_contract_does_not_replace_actual_knowledge() {
         source: None,
     };
 
-    let result = reconcile_binding_contract(&store, &hierarchy, Some(&contract), &actual);
+    let result = reconcile_binding_contract(&mut store, &hierarchy, Some(&contract), &actual);
     assert_eq!(result.current.ty(), Some(int_ty));
     assert!(matches!(result.consistency, BindingConsistency::Refuted { actual, expected, .. } if actual == int_ty && expected == string_ty));
 }
 
 #[test]
 fn no_contract_keeps_current_fact_unconstrained() {
-    let store = TypeStore::new();
+    let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
     let actual = TypeKnowledge::assumed(TypeId(0), EvidenceOrigin::CallableSignature);
-    let result = reconcile_binding_contract(&store, &hierarchy, None, &actual);
+    let result = reconcile_binding_contract(&mut store, &hierarchy, None, &actual);
     assert_eq!(result.current, actual);
     assert_eq!(result.consistency, BindingConsistency::Unconstrained);
 }

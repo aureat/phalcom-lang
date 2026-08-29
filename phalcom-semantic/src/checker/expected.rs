@@ -150,4 +150,32 @@ impl ExpectedType {
         }
         None
     }
+
+    pub fn contextual_knowledge(&self, ty: TypeId) -> Option<crate::types::evidence::TypeKnowledge> {
+        match self {
+            Self::Proper { ty: expected_ty, origin } => {
+                if *expected_ty == ty {
+                    let status = match origin {
+                        ExpectationOrigin::DeclarationContract
+                        | ExpectationOrigin::ReturnContract
+                        | ExpectationOrigin::AssignmentContract
+                        | ExpectationOrigin::ContextualBlockParameter => crate::types::evidence::EvidenceStatus::Assumed,
+                        ExpectationOrigin::ExplicitCheck => crate::types::evidence::EvidenceStatus::Established,
+                        _ => crate::types::evidence::EvidenceStatus::Assumed,
+                    };
+                    Some(match status {
+                        crate::types::evidence::EvidenceStatus::Established => {
+                            crate::types::evidence::TypeKnowledge::established(ty, crate::types::evidence::EvidenceOrigin::ContextualDerivation)
+                        }
+                        crate::types::evidence::EvidenceStatus::Assumed => {
+                            crate::types::evidence::TypeKnowledge::assumed(ty, crate::types::evidence::EvidenceOrigin::ContextualDerivation)
+                        }
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }

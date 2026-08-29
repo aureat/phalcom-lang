@@ -10,6 +10,8 @@ use super::statement::check_statement;
 use super::typed_expr::TypedExpression;
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
+use crate::checker::causal::CausalInvalidity;
+use crate::checker::flow::FlowState;
 use crate::diagnostic::DiagnosticCode;
 use crate::dispatch::{CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
 use crate::identity::DeclarationId;
@@ -20,10 +22,11 @@ use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
-    BinaryExpr, BinaryOp, Expr, GetPropertyExpr, IndexExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern,
-    ProductLabel, RecordLiteralEntry, SetIndexExpr, SetLiteralEntry, SetPropertyExpr, Statement, SymbolExpr, SymbolLiteralKind, TupleLiteralEntry, UnaryExpr,
-    UnaryOp, UnqualifiedCallExpr,
+    BinaryExpr, BinaryOp, ComparisonChainExpr, Expr, GetPropertyExpr, IndexExpr, IsMembershipExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey,
+    MembershipExpr, MethodCallExpr, PackItem, PackLabel, Pattern, ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr,
+    Statement, SymbolExpr, SymbolLiteralKind, TupleLiteralEntry, UnaryExpr, UnaryOp, UnqualifiedCallExpr,
 };
+use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
@@ -181,32 +184,32 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
     match expr {
         // --- 1. Primitive Literals ---
         Expr::Int { range, .. } => {
-            if let Some(decl) = ctx.resolve_type_name("Int") {
-                let ty = ctx.nominal_type_of(&decl);
+            let int_decl = ctx.core_ids.int.clone();
+            if let Some(ty) = ctx.core_type(&int_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
             }
         }
         Expr::Float { range, .. } => {
-            if let Some(decl) = ctx.resolve_type_name("Float") {
-                let ty = ctx.nominal_type_of(&decl);
+            let float_decl = ctx.core_ids.float.clone();
+            if let Some(ty) = ctx.core_type(&float_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
             }
         }
         Expr::String { range, .. } => {
-            if let Some(decl) = ctx.resolve_type_name("String") {
-                let ty = ctx.nominal_type_of(&decl);
+            let string_decl = ctx.core_ids.string.clone();
+            if let Some(ty) = ctx.core_type(&string_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
             }
         }
         Expr::Boolean { range, .. } => {
-            if let Some(decl) = ctx.resolve_type_name("Bool") {
-                let ty = ctx.nominal_type_of(&decl);
+            let bool_decl = ctx.core_ids.bool_.clone();
+            if let Some(ty) = ctx.core_type(&bool_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
@@ -411,11 +414,16 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             // because the block expression appears in that callable.
             let outer_expected_return = ctx.expected_return.take();
             let outer_flow = ctx.flow.clone();
+            let outer_normal_returns = ctx.take_normal_return_exits();
+            let outer_throw_exits = std::mem::take(&mut ctx.throw_exit_flows);
             ctx.push_scope();
             let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
 
-            let Some(top) = ctx.resolve_type_name("Object").map(|d| ctx.nominal_type_of(&d)) else {
+            let object_decl = ctx.core_ids.object.clone();
+            let Some(top) = ctx.core_type(&object_decl) else {
                 ctx.pop_scope();
+                ctx.normal_return_exits = outer_normal_returns;
+                ctx.throw_exit_flows = outer_throw_exits;
                 ctx.expected_return = outer_expected_return;
                 return TypedExpression::unknown(UnknownReason::UnannotatedDeclaration);
             };
@@ -473,11 +481,28 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 }
             }
             ctx.pop_scope();
+            let block_normal_returns = ctx.take_normal_return_exits();
+            let _block_throw_exits = std::mem::take(&mut ctx.throw_exit_flows);
+            ctx.normal_return_exits = outer_normal_returns;
+            ctx.throw_exit_flows = outer_throw_exits;
+
             // Constructing a closure does not execute its body. Keep facts
             // produced while checking the captured body inside that body.
             ctx.flow = outer_flow;
 
-            let Some(return_type) = tail_typed.knowledge.ty() else {
+            let mut block_return_values = block_normal_returns.into_iter().map(|f| f.knowledge).collect::<Vec<_>>();
+            if tail_typed.knowledge.ty() != Some(ctx.store.never()) && (block_return_values.is_empty() || tail_typed.knowledge.ty() != Some(ctx.store.unit())) {
+                block_return_values.push(tail_typed.knowledge.clone());
+            }
+            let closure_return_knowledge = if block_return_values.is_empty() {
+                tail_typed.knowledge
+            } else if block_return_values.len() == 1 {
+                block_return_values.remove(0)
+            } else {
+                crate::types::evidence::join_type_knowledge(ctx.store, block_return_values)
+            };
+
+            let Some(return_type) = closure_return_knowledge.ty() else {
                 ctx.expected_return = outer_expected_return;
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
@@ -494,61 +519,115 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         }
         Expr::IfLet(if_let) => {
             let val_typed = analyze_expression(ctx, &if_let.value, &ExpectedType::None);
-            let flow_before = ctx.flow.clone();
+            let before = ctx.flow.clone();
 
-            ctx.push_scope();
-            bind_pattern(ctx, &if_let.pattern, val_typed.fact(), val_typed.causal_invalidity);
-            let then_typed = analyze_expression(ctx, &Expr::Block(Box::new(if_let.then_body.clone())), expected);
-            let then_flow = ctx.flow.clone();
-            ctx.pop_scope();
+            ctx.flow = before.clone();
+            let pattern = &if_let.pattern;
+            let fact = val_typed.fact();
+            let causal = val_typed.causal_invalidity;
+            let then_result = super::control::analyze_executable_region_with_prelude(ctx, &if_let.then_body.body, if_let.then_body.range, expected, |ctx| {
+                bind_pattern(ctx, pattern, fact, causal);
+            });
 
-            let (else_typed, else_flow) = if let Some(ref else_body) = if_let.else_body {
-                ctx.flow = flow_before.clone();
-                ctx.push_scope();
-                let typed = analyze_expression(ctx, &Expr::Block(Box::new(else_body.clone())), expected);
-                let f = ctx.flow.clone();
-                ctx.pop_scope();
-                (typed, f)
+            ctx.flow = before.clone();
+            let else_result = if let Some(ref else_body) = if_let.else_body {
+                super::control::analyze_executable_region(ctx, &else_body.body, else_body.range, expected)
             } else {
-                (
-                    TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, if_let.range),
-                    flow_before,
-                )
-            };
-
-            let join_status = match ctx.join_flow_states(&[then_flow.clone(), else_flow.clone()]) {
-                Ok(flow) => {
-                    ctx.flow = flow;
-                    None
+                super::control::ExecutableRegionResult {
+                    value: Some(TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, if_let.range)),
+                    flow: before,
+                    causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
                 }
-                Err(failure) => Some(ctx.publish_flow_join_failure(failure, if_let.range)),
             };
 
-            let combined_knowledge = crate::types::evidence::join_type_knowledge(ctx.store, [then_typed.knowledge.clone(), else_typed.knowledge.clone()]);
-            let merged_denotation = match (then_typed.denotation, else_typed.denotation) {
-                (Some(d1), Some(d2)) if d1 == d2 => Some(d1),
-                _ => None,
-            };
-            let mut res = TypedExpression::new(combined_knowledge);
-            if let Some(status) = join_status {
-                res.status = status;
-            }
-            res.denotation = merged_denotation;
-            res.causal_invalidity = val_typed
-                .causal_invalidity
-                .join(then_typed.causal_invalidity)
-                .join(else_typed.causal_invalidity);
-            res
+            super::control::join_branch_results(ctx, val_typed.causal_invalidity, &then_result, &else_result, if_let.range)
         }
         Expr::WhileLet(while_let) => {
-            let val_typed = analyze_expression(ctx, &while_let.value, &ExpectedType::None);
-            ctx.push_scope();
-            bind_pattern(ctx, &while_let.pattern, val_typed.fact(), val_typed.causal_invalidity);
-            for stmt in &while_let.body {
-                check_statement(ctx, stmt);
+            let before = ctx.flow.clone();
+
+            let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
+                                 current_header: &FlowState|
+             -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
+                step_ctx.flow = current_header.clone();
+                let val_typed = analyze_expression(step_ctx, &while_let.value, &ExpectedType::None);
+                let exit_flow = step_ctx.flow.clone();
+                let pattern = &while_let.pattern;
+                let fact = val_typed.fact();
+                let causal = val_typed.causal_invalidity;
+
+                step_ctx.push_loop_frame();
+                let body_res = super::control::analyze_executable_region_with_prelude(step_ctx, &while_let.body, while_let.range, &ExpectedType::None, |ctx| {
+                    bind_pattern(ctx, pattern, fact, causal);
+                });
+                let body_flow = step_ctx.flow.clone();
+                let loop_frame = step_ctx.pop_loop_frame();
+                let normal_backedge = if body_res.completes_normally() { Some(body_flow) } else { None };
+                let mut continues = loop_frame.continues;
+                let breaks = loop_frame.breaks;
+                continues.extend(normal_backedge);
+                let backedge = if continues.is_empty() {
+                    None
+                } else if continues.len() == 1 {
+                    continues.pop()
+                } else {
+                    step_ctx.join_flow_states(&continues).ok()
+                };
+
+                (backedge, exit_flow, breaks, val_typed.causal_invalidity.join(body_res.causal_invalidity))
+            };
+
+            let fixpoint = match super::loop_analysis::solve_loop_header(ctx, &before, |probe_ctx, current_header| {
+                let (backedge, _exit_flow, breaks, _causal) = evaluate_step(probe_ctx, current_header);
+                super::loop_analysis::LoopStepResult {
+                    normal_backedge: backedge,
+                    continues: Vec::new(),
+                    breaks,
+                }
+            }) {
+                Ok(fp) => fp,
+                Err(failure) => {
+                    let status = ctx.publish_flow_join_failure(failure, while_let.range);
+                    let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, while_let.range);
+                    typed.status = status;
+                    return typed;
+                }
+            };
+
+            // Final real pass at stable header
+            let (_backedge, exit_flow, breaks, causal) = evaluate_step(ctx, &fixpoint.header);
+
+            let mut exit_states = Vec::new();
+            if exit_flow.is_reachable() {
+                exit_states.push(exit_flow);
             }
-            ctx.pop_scope();
-            TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, while_let.range)
+            for brk in breaks {
+                if brk.is_reachable() {
+                    exit_states.push(brk);
+                }
+            }
+
+            let join_status = if exit_states.is_empty() {
+                ctx.flow = FlowState::unreachable();
+                None
+            } else if exit_states.len() == 1 {
+                ctx.flow = exit_states.pop().unwrap();
+                None
+            } else {
+                match ctx.join_flow_states(&exit_states) {
+                    Ok(flow) => {
+                        ctx.flow = flow;
+                        None
+                    }
+                    Err(failure) => Some(ctx.publish_flow_join_failure(failure, while_let.range)),
+                }
+            };
+
+            let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, while_let.range);
+            if let Some(status) = join_status {
+                typed.status = status;
+            }
+            typed.causal_invalidity = causal;
+            typed
         }
 
         // --- 6. Message Sends and Invocations (Canonical Resolution E5) ---
@@ -564,37 +643,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         Expr::SetIndex(set_idx) => synthesize_set_index_expr(ctx, set_idx),
 
         // --- 8. Miscellaneous Expressions ---
-        Expr::ComparisonChain(chain) => {
-            for op in &chain.operands {
-                analyze_expression(ctx, op, &ExpectedType::None);
-            }
-            if let Some(decl) = ctx.resolve_type_name("Bool") {
-                let ty = ctx.nominal_type_of(&decl);
-                TypedExpression::established(ty, EvidenceOrigin::Flow, chain.range)
-            } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-            }
-        }
-        Expr::Membership(m) => {
-            analyze_expression(ctx, &m.left, &ExpectedType::None);
-            analyze_expression(ctx, &m.right, &ExpectedType::None);
-            if let Some(decl) = ctx.resolve_type_name("Bool") {
-                let ty = ctx.nominal_type_of(&decl);
-                TypedExpression::established(ty, EvidenceOrigin::Flow, m.range)
-            } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-            }
-        }
-        Expr::IsMembership(m) => {
-            analyze_expression(ctx, &m.left, &ExpectedType::None);
-            analyze_expression(ctx, &m.candidates, &ExpectedType::None);
-            if let Some(decl) = ctx.resolve_type_name("Bool") {
-                let ty = ctx.nominal_type_of(&decl);
-                TypedExpression::established(ty, EvidenceOrigin::Flow, m.range)
-            } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
-            }
-        }
+        Expr::ComparisonChain(chain) => synthesize_comparison_chain(ctx, chain),
+        Expr::Membership(m) => synthesize_membership_expr(ctx, m),
+        Expr::IsMembership(m) => synthesize_is_membership_expr(ctx, m),
         Expr::Range(r) => {
             if let Some(ref lower) = r.lower {
                 analyze_expression(ctx, lower, &ExpectedType::None);
@@ -602,10 +653,10 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Some(ref upper) = r.upper {
                 analyze_expression(ctx, upper, &ExpectedType::None);
             }
-            let Some(decl) = ctx.resolve_type_name("Object") else {
+            let object_decl = ctx.core_ids.object.clone();
+            let Some(ty) = ctx.core_type(&object_decl) else {
                 return TypedExpression::unknown(UnknownReason::UnannotatedDeclaration);
             };
-            let ty = ctx.nominal_type_of(&decl);
             TypedExpression::established(ty, EvidenceOrigin::Flow, r.range)
         }
         Expr::Ellipsis { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
@@ -618,11 +669,11 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 // ---------------------------------------------------------------------------
 
 fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> TypedExpression {
-    if let Some(decl) = ctx.resolve_type_name("Symbol") {
-        let ty = ctx.nominal_type_of(&decl);
+    let symbol_decl = ctx.core_ids.symbol.clone();
+    let string_decl = ctx.core_ids.string.clone();
+    if let Some(ty) = ctx.core_type(&symbol_decl) {
         TypedExpression::established(ty, EvidenceOrigin::Syntax, s.range)
-    } else if let Some(decl) = ctx.resolve_type_name("String") {
-        let ty = ctx.nominal_type_of(&decl);
+    } else if let Some(ty) = ctx.core_type(&string_decl) {
         TypedExpression::established(ty, EvidenceOrigin::Syntax, s.range)
     } else {
         TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
@@ -630,12 +681,13 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
 }
 
 fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let list_decl = ctx.resolve_type_name("List");
+    let list_decl = ctx.core_ids.list.clone();
     let expected_elem = expected.collection_element_type(ctx.store);
-    let list_form = list_decl.as_ref().map(|decl| {
+    let list_form = {
         let kind = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-        ctx.store.nominal_form(decl.clone(), kind)
-    });
+        Some(ctx.store.nominal_form(list_decl.clone(), kind))
+    };
+
     let mut contributions = Vec::new();
     let mut operands = Vec::new();
 
@@ -658,7 +710,17 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
     }
 
     let knowledge = if list.elements.is_empty() {
-        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+        if let Some(expected_ty) = expected.ty() {
+            if is_applied_core_collection(ctx.store, expected_ty, &list_decl) {
+                expected
+                    .contextual_knowledge(expected_ty)
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+            } else {
+                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+            }
+        } else {
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+        }
     } else if let Some(form) = list_form {
         crate::types::evidence::compose_required_knowledge(contributions, EvidenceOrigin::Syntax, |types| {
             if types.is_empty() {
@@ -679,12 +741,12 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
 }
 
 fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let set_decl = ctx.resolve_type_name("Set");
+    let set_decl = ctx.core_ids.set.clone();
     let expected_elem = expected.collection_element_type(ctx.store);
-    let set_form = set_decl.as_ref().map(|decl| {
+    let set_form = {
         let kind = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-        ctx.store.nominal_form(decl.clone(), kind)
-    });
+        Some(ctx.store.nominal_form(set_decl.clone(), kind))
+    };
     let mut contributions = Vec::new();
     let mut operands = Vec::new();
 
@@ -707,7 +769,17 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
     }
 
     let knowledge = if set.entries.is_empty() {
-        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+        if let Some(expected_ty) = expected.ty() {
+            if is_applied_core_collection(ctx.store, expected_ty, &set_decl) {
+                expected
+                    .contextual_knowledge(expected_ty)
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+            } else {
+                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+            }
+        } else {
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+        }
     } else if let Some(form) = set_form {
         crate::types::evidence::compose_required_knowledge(contributions, EvidenceOrigin::Syntax, |types| {
             if types.is_empty() {
@@ -728,13 +800,13 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
 }
 
 fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let map_decl = ctx.resolve_type_name("Map");
-    let symbol_decl = ctx.resolve_type_name("Symbol");
+    let map_decl = ctx.core_ids.map.clone();
+    let symbol_decl = ctx.core_ids.symbol.clone();
     let (expected_key, expected_val) = expected.map_key_val_types(ctx.store);
-    let map_form = map_decl.as_ref().map(|decl| {
+    let map_form = {
         let kind = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-        ctx.store.nominal_form(decl.clone(), kind)
-    });
+        Some(ctx.store.nominal_form(map_decl.clone(), kind))
+    };
     let mut operands = Vec::new();
     let mut key_knowledge = Vec::new();
     let mut value_knowledge = Vec::new();
@@ -744,9 +816,9 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
             MapLiteralEntry::Association { key, value, .. } => {
                 match key {
                     MapLiteralKey::BareSymbol { .. } => {
-                        let knowledge = symbol_decl
-                            .as_ref()
-                            .map(|decl| TypeKnowledge::established(ctx.nominal_type_of(decl), EvidenceOrigin::Syntax))
+                        let knowledge = ctx
+                            .core_type(&symbol_decl)
+                            .map(|ty| TypeKnowledge::established(ty, EvidenceOrigin::Syntax))
                             .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
                         key_knowledge.push(knowledge);
                     }
@@ -785,7 +857,19 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     };
     let key_lane = lane(key_knowledge);
     let value_lane = lane(value_knowledge);
-    let knowledge = if let Some(form) = map_form {
+    let knowledge = if map.entries.is_empty() {
+        if let Some(expected_ty) = expected.ty() {
+            if is_applied_core_collection(ctx.store, expected_ty, &map_decl) {
+                expected
+                    .contextual_knowledge(expected_ty)
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+            } else {
+                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+            }
+        } else {
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+        }
+    } else if let Some(form) = map_form {
         crate::types::evidence::compose_required_knowledge([key_lane, value_lane], EvidenceOrigin::Syntax, |types| {
             let [key, value] = types else {
                 return Err(UnknownReason::UncheckedExpression);
@@ -801,6 +885,15 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     });
     crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
     result
+}
+
+fn is_applied_core_collection(store: &crate::types::store::TypeStore, applied_ty: TypeId, core_decl: &DeclarationId) -> bool {
+    if let crate::types::store::TypeData::Applied { origin, .. } = store.get(applied_ty) {
+        if let crate::types::store::TypeData::Nominal { declaration } = store.get(*origin) {
+            return declaration == core_decl;
+        }
+    }
+    false
 }
 
 fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::ast::TupleLiteralExpr, _expected: &ExpectedType) -> TypedExpression {
@@ -1044,129 +1137,159 @@ fn synthesize_control_method_call(
     };
 
     let receiver_is_bool = ctx
-        .resolve_type_name("Bool")
-        .map(|declaration| ctx.nominal_type_of(&declaration))
+        .core_type(&ctx.core_ids.bool_.clone())
         .zip(receiver_typed.knowledge.ty())
         .is_some_and(|(bool_ty, receiver_ty)| bool_ty == receiver_ty);
     let receiver_is_literal_block = matches!(&call.object, Expr::Block(_));
 
     match call.method.as_str() {
-        "ifTrue" if receiver_is_bool && labeled_block("ifFalse").is_some() => {
+        "ifTrue" if receiver_is_bool => {
             let then_block = positional_block(0)?;
-            let else_block = labeled_block("ifFalse")?;
-            let before = ctx.flow.clone();
-
-            ctx.flow = before.clone();
-            if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(ctx, &call.object, receiver_typed, true) {
-                ctx.apply_flow_predicate(&predicate);
-            }
-            let then_typed = analyze_control_block(ctx, then_block, expected);
-            let then_flow = ctx.flow.clone();
-            ctx.flow = before.clone();
-            if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(ctx, &call.object, receiver_typed, false) {
-                ctx.apply_flow_predicate(&predicate);
-            }
-            let else_typed = analyze_control_block(ctx, else_block, expected);
-            let else_flow = ctx.flow.clone();
-
-            let join_status = match ctx.join_flow_states(&[then_flow.clone(), else_flow.clone()]) {
-                Ok(flow) => {
-                    ctx.flow = flow;
-                    None
-                }
-                Err(failure) => Some(ctx.publish_flow_join_failure(failure, call.range)),
-            };
-            let then_reachable = then_typed.knowledge.ty() != Some(ctx.store.never()) && then_flow.is_reachable();
-            let else_reachable = else_typed.knowledge.ty() != Some(ctx.store.never()) && else_flow.is_reachable();
-            let branch_values = [then_typed.knowledge.clone(), else_typed.knowledge.clone()];
-            let knowledge = crate::types::evidence::join_type_knowledge(ctx.store, branch_values.clone());
-            let mut typed = TypedExpression::new(knowledge.clone());
-            if let Some(status) = join_status {
-                typed.status = status;
-            }
-            typed.causal_invalidity = then_typed.causal_invalidity.join(else_typed.causal_invalidity);
-            typed.explanation_parents.extend(then_typed.explanation_parents.iter().copied());
-            typed.explanation_parents.extend(else_typed.explanation_parents.iter().copied());
-            let join = ctx.record_derivation(
-                crate::explain::ExplanationStep::BranchJoin {
-                    binding: None,
-                    branches: branch_values.into(),
-                    reachable: Box::new([then_reachable, else_reachable]),
-                    joined: knowledge,
-                },
-                crate::explain::DerivationRule::BranchJoin { branch_count: 2 },
-                EvidenceStatus::Established,
-                EvidenceOrigin::Flow,
-                Vec::new(),
-                typed.explanation_parents.clone(),
+            let else_block = labeled_block("ifFalse");
+            let branch_result = super::control::analyze_branch_pair(
+                ctx,
+                &call.object,
+                receiver_typed,
+                &then_block.body,
+                then_block.range,
+                else_block.map(|b| (b.body.as_slice(), b.range)),
+                call.range,
+                expected,
             );
-            typed.explanation_parents.push(join);
-            Some(typed)
+            Some(branch_result.typed)
         }
         "whileTrue" if receiver_is_literal_block => {
             let body = positional_block(0)?;
-            let before = ctx.flow.clone();
-            ctx.push_loop_frame();
-            let body_typed = analyze_control_block(ctx, body, &ExpectedType::None);
-            let body_flow = ctx.flow.clone();
-            let loop_frame = ctx.pop_loop_frame();
-            let mut loop_states = vec![before, body_flow];
-            loop_states.extend(loop_frame.continues);
-            loop_states.extend(loop_frame.breaks);
-            let join_status = match ctx.join_flow_states(&loop_states) {
-                Ok(flow) => {
-                    ctx.flow = flow;
-                    None
-                }
-                Err(failure) => Some(ctx.publish_flow_join_failure(failure, call.range)),
+            let condition_block = match &call.object {
+                Expr::Block(b) => b.as_ref(),
+                _ => return None,
             };
+            let expected_bool = ctx
+                .core_type(&ctx.core_ids.bool_.clone())
+                .map(|ty| ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::ExplicitCheck))
+                .unwrap_or_default();
+
+            let before = ctx.flow.clone();
+
+            let condition_expr = condition_block.body.last().and_then(|s| match s {
+                Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            });
+
+            let evaluate_step =
+                |step_ctx: &mut CheckingContext<'_>, current_header: &FlowState| -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
+                    step_ctx.flow = current_header.clone();
+                    let cond_res = super::control::analyze_executable_region(step_ctx, &condition_block.body, condition_block.range, &expected_bool);
+                    if !cond_res.completes_normally() {
+                        return (None, FlowState::unreachable(), Vec::new(), cond_res.causal_invalidity);
+                    }
+
+                    let (when_true, when_false) = if let (Some(cond_expr), Some(cond_typed)) = (condition_expr, &cond_res.value) {
+                        let truth = super::control::condition_truth(cond_expr);
+                        let when_true = match truth {
+                            super::control::ConditionTruth::AlwaysFalse => FlowState::unreachable(),
+                            _ => {
+                                step_ctx.flow = cond_res.flow.clone();
+                                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, cond_expr, cond_typed, true) {
+                                    step_ctx.apply_flow_predicate(&predicate);
+                                }
+                                step_ctx.flow.clone()
+                            }
+                        };
+                        let when_false = match truth {
+                            super::control::ConditionTruth::AlwaysTrue => FlowState::unreachable(),
+                            _ => {
+                                step_ctx.flow = cond_res.flow.clone();
+                                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, cond_expr, cond_typed, false) {
+                                    step_ctx.apply_flow_predicate(&predicate);
+                                }
+                                step_ctx.flow.clone()
+                            }
+                        };
+                        (when_true, when_false)
+                    } else {
+                        (cond_res.flow.clone(), cond_res.flow.clone())
+                    };
+
+                    if !when_true.is_reachable() {
+                        return (None, when_false, Vec::new(), cond_res.causal_invalidity);
+                    }
+
+                    step_ctx.flow = when_true;
+                    step_ctx.push_loop_frame();
+                    let body_res = super::control::analyze_executable_region(step_ctx, &body.body, body.range, &ExpectedType::None);
+                    let body_flow = step_ctx.flow.clone();
+                    let loop_frame = step_ctx.pop_loop_frame();
+                    let normal_backedge = if body_res.completes_normally() { Some(body_flow) } else { None };
+                    let mut continues = loop_frame.continues;
+                    let breaks = loop_frame.breaks;
+                    continues.extend(normal_backedge);
+                    let backedge = if continues.is_empty() {
+                        None
+                    } else if continues.len() == 1 {
+                        continues.pop()
+                    } else {
+                        step_ctx.join_flow_states(&continues).ok()
+                    };
+
+                    (backedge, when_false, breaks, cond_res.causal_invalidity.join(body_res.causal_invalidity))
+                };
+
+            let fixpoint = match super::loop_analysis::solve_loop_header(ctx, &before, |probe_ctx, current_header| {
+                let (backedge, _false_exit, breaks, _causal) = evaluate_step(probe_ctx, current_header);
+                super::loop_analysis::LoopStepResult {
+                    normal_backedge: backedge,
+                    continues: Vec::new(),
+                    breaks,
+                }
+            }) {
+                Ok(fp) => fp,
+                Err(failure) => {
+                    let status = ctx.publish_flow_join_failure(failure, call.range);
+                    let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, call.range);
+                    typed.status = status;
+                    return Some(typed);
+                }
+            };
+
+            // Final real pass at stable header
+            let (_backedge, when_false, breaks, causal) = evaluate_step(ctx, &fixpoint.header);
+
+            let mut exit_states = Vec::new();
+            if when_false.is_reachable() {
+                exit_states.push(when_false);
+            }
+            for brk in breaks {
+                if brk.is_reachable() {
+                    exit_states.push(brk);
+                }
+            }
+
+            let join_status = if exit_states.is_empty() {
+                ctx.flow = FlowState::unreachable();
+                None
+            } else if exit_states.len() == 1 {
+                ctx.flow = exit_states.pop().unwrap();
+                None
+            } else {
+                match ctx.join_flow_states(&exit_states) {
+                    Ok(flow) => {
+                        ctx.flow = flow;
+                        None
+                    }
+                    Err(failure) => Some(ctx.publish_flow_join_failure(failure, call.range)),
+                }
+            };
+
             let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, call.range);
             if let Some(status) = join_status {
                 typed.status = status;
             }
-            typed.causal_invalidity = body_typed.causal_invalidity;
+            typed.causal_invalidity = causal;
             Some(typed)
         }
         _ => None,
     }
-}
-
-/// Checks one sacred control-flow block in its own lexical scope. `return`,
-/// `throw`, `break`, and `continue` terminate that path so callers can exclude
-/// it from subsequent reachable joins.
-fn analyze_control_block(ctx: &mut CheckingContext<'_>, block: &phalcom_ast::ast::BlockExpr, expected: &ExpectedType) -> TypedExpression {
-    ctx.push_scope();
-    let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, block.range);
-    for statement in &block.body {
-        match statement {
-            Statement::Expr { expr, .. } => result = analyze_expression(ctx, expr, expected),
-            Statement::Return(_) => {
-                result = check_statement(ctx, statement)
-                    .map(|fact| TypedExpression::new(fact.knowledge))
-                    .unwrap_or_else(|| TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range));
-                ctx.flow.mark_unreachable();
-                break;
-            }
-            Statement::Throw { .. } => {
-                check_statement(ctx, statement);
-                result = TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range);
-                ctx.flow.mark_unreachable();
-                break;
-            }
-            Statement::Break { .. } | Statement::Continue { .. } => {
-                check_statement(ctx, statement);
-                result = TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range);
-                ctx.flow.mark_unreachable();
-                break;
-            }
-            _ => {
-                check_statement(ctx, statement);
-                result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, block.range);
-            }
-        }
-    }
-    ctx.pop_scope();
-    result
 }
 
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
@@ -1319,10 +1442,16 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
     TypedExpression::unknown(UnknownReason::UnresolvedName(call.name.as_str().into()))
 }
 
-fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) -> TypedExpression {
-    let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
-
-    let op_name = match binary.op {
+pub(crate) fn apply_binary_operation_from_typed(
+    ctx: &mut CheckingContext<'_>,
+    left_expr: &Expr,
+    left_typed: &TypedExpression,
+    op: BinaryOp,
+    right_expr: &Expr,
+    right_typed: &TypedExpression,
+    range: SourceRange,
+) -> TypedExpression {
+    let op_name = match op {
         BinaryOp::Add => "+",
         BinaryOp::Subtract => "-",
         BinaryOp::Multiply => "*",
@@ -1348,10 +1477,11 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
     };
 
     let Ok(selector) = Selector::method(op_name, vec![SelectorSlot::Positional]) else {
-        let premise = CallPremise::from_typed(ctx, &left_typed);
-        let arguments = vec![super::call::ApplicationArgument::Positional {
-            expression: &binary.right,
-            range: binary.right.range(),
+        let premise = CallPremise::from_typed(ctx, left_typed);
+        let arguments = vec![super::call::ApplicationArgument::PreAnalyzed {
+            label: None,
+            typed: right_typed,
+            range: right_expr.range(),
         }];
         return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into();
     };
@@ -1360,27 +1490,26 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
         .ty()
         .map(|left_ty| ctx.resolve_dispatch_target(left_ty, &selector, left_typed.dispatch_lookup.clone()));
 
-    if let Some(right_knowledge) = static_binary_operand_knowledge(ctx, &binary.right)
-        && let Some(right_ty) = right_knowledge.ty()
-        && let Some(reflected_selector) = reflected_binary_selector(&binary.op)
+    if let Some(right_ty) = right_typed.knowledge.ty()
+        && let Some(reflected_selector) = reflected_binary_selector(&op)
         && let ResolvedDispatchResult::Found(reflected) = ctx.resolve_dispatch_target(right_ty, &reflected_selector, crate::dispatch::DispatchLookup::Normal)
-        && should_use_reflected_binary_target(ctx, &left_typed.knowledge, right_ty, &right_knowledge, direct.as_ref(), &reflected)
+        && should_use_reflected_binary_target(ctx, &left_typed.knowledge, right_ty, &right_typed.knowledge, direct.as_ref(), &reflected)
     {
-        let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
-        let premise = CallPremise::from_typed(ctx, &right_typed);
+        let premise = CallPremise::from_typed(ctx, right_typed);
         let target = CallableApplicationTarget::from_dispatch(reflected);
         let arguments = vec![super::call::ApplicationArgument::PreAnalyzed {
-            label: if matches!(binary.op, BinaryOp::Compare) { None } else { Some("from") },
-            typed: &left_typed,
-            range: binary.left.range(),
+            label: if matches!(op, BinaryOp::Compare) { None } else { Some("from") },
+            typed: left_typed,
+            range: left_expr.range(),
         }];
-        return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, binary.range).into();
+        return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, range).into();
     }
 
-    let premise = CallPremise::from_typed(ctx, &left_typed);
-    let arguments = vec![super::call::ApplicationArgument::Positional {
-        expression: &binary.right,
-        range: binary.right.range(),
+    let premise = CallPremise::from_typed(ctx, left_typed);
+    let arguments = vec![super::call::ApplicationArgument::PreAnalyzed {
+        label: None,
+        typed: right_typed,
+        range: right_expr.range(),
     }];
     let Some(direct) = direct else {
         let reason = match &left_typed.knowledge {
@@ -1393,7 +1522,7 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
     match direct {
         ResolvedDispatchResult::Found(resolved) => {
             let target = CallableApplicationTarget::from_dispatch(resolved);
-            apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, binary.range).into()
+            apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, range).into()
         }
         ResolvedDispatchResult::Missing { .. } => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
@@ -1411,21 +1540,75 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) ->
     }
 }
 
-fn static_binary_operand_knowledge(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Option<TypeKnowledge> {
-    match expr {
-        Expr::Var { value, .. } => ctx.lookup_local_knowledge(value),
-        Expr::Int { .. } => static_nominal_knowledge(ctx, "Int"),
-        Expr::Float { .. } => static_nominal_knowledge(ctx, "Float"),
-        Expr::String { .. } => static_nominal_knowledge(ctx, "String"),
-        Expr::Boolean { .. } => static_nominal_knowledge(ctx, "Bool"),
-        Expr::Symbol(_) => static_nominal_knowledge(ctx, "Symbol"),
-        _ => None,
-    }
+fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) -> TypedExpression {
+    let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
+    let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
+    apply_binary_operation_from_typed(ctx, &binary.left, &left_typed, binary.op.clone(), &binary.right, &right_typed, binary.range)
 }
 
-fn static_nominal_knowledge(ctx: &mut CheckingContext<'_>, name: &str) -> Option<TypeKnowledge> {
-    let declaration = ctx.resolve_type_name(name)?;
-    Some(TypeKnowledge::established(ctx.nominal_type_of(&declaration), EvidenceOrigin::Syntax))
+fn synthesize_comparison_chain(ctx: &mut CheckingContext<'_>, chain: &ComparisonChainExpr) -> TypedExpression {
+    if chain.operands.is_empty() {
+        return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
+    }
+    let operands: Vec<TypedExpression> = chain.operands.iter().map(|expr| analyze_expression(ctx, expr, &ExpectedType::None)).collect();
+
+    let bool_decl = ctx.core_ids.bool_.clone();
+    let bool_ty = ctx.core_type(&bool_decl).unwrap_or(ctx.store.unit());
+
+    let mut link_results = Vec::new();
+    for (i, op) in chain.operators.iter().enumerate() {
+        if i + 1 >= operands.len() {
+            break;
+        }
+        let left_expr = &chain.operands[i];
+        let left_typed = &operands[i];
+        let right_expr = &chain.operands[i + 1];
+        let right_typed = &operands[i + 1];
+        let link_range = left_expr.range().merge(&right_expr.range());
+        let link_result = match op {
+            RelationOp::Binary(b_op) => apply_binary_operation_from_typed(ctx, left_expr, left_typed, b_op.clone(), right_expr, right_typed, link_range),
+            RelationOp::Matches | RelationOp::Understands => TypedExpression::unknown(UnknownReason::UncheckedExpression),
+        };
+        link_results.push(link_result);
+    }
+
+    let knowledge = if link_results.is_empty() {
+        TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
+    } else {
+        crate::types::evidence::compose_required_knowledge(link_results.iter().map(|l| l.knowledge.clone()), EvidenceOrigin::Flow, |_types| Ok(bool_ty))
+    };
+
+    let mut causal = operands.iter().fold(CausalInvalidity::Clean, |acc, op| acc.join(op.causal_invalidity));
+    for link in &link_results {
+        causal = causal.join(link.causal_invalidity);
+    }
+
+    let mut result = TypedExpression::new(match knowledge {
+        TypeKnowledge::Known(_) => knowledge.with_range(chain.range),
+        other => other,
+    });
+    result.causal_invalidity = causal;
+    crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    crate::checker::composition::propagate_required_dependencies(&mut result, &link_results);
+    result
+}
+
+fn synthesize_membership_expr(ctx: &mut CheckingContext<'_>, m: &MembershipExpr) -> TypedExpression {
+    let left = analyze_expression(ctx, &m.left, &ExpectedType::None);
+    let right = analyze_expression(ctx, &m.right, &ExpectedType::None);
+    let mut result = TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    result.causal_invalidity = left.causal_invalidity.join(right.causal_invalidity);
+    crate::checker::composition::propagate_required_dependencies(&mut result, &[left, right]);
+    result
+}
+
+fn synthesize_is_membership_expr(ctx: &mut CheckingContext<'_>, m: &IsMembershipExpr) -> TypedExpression {
+    let left = analyze_expression(ctx, &m.left, &ExpectedType::None);
+    let candidates = analyze_expression(ctx, &m.candidates, &ExpectedType::None);
+    let mut result = TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    result.causal_invalidity = left.causal_invalidity.join(candidates.causal_invalidity);
+    crate::checker::composition::propagate_required_dependencies(&mut result, &[left, candidates]);
+    result
 }
 
 fn should_use_reflected_binary_target(

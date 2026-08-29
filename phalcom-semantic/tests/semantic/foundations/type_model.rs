@@ -71,33 +71,33 @@ fn relation_outcomes_distinguish_terminal_states() {
     let token = CancellationToken::new();
 
     // 1. Proven
-    let proven_res = check_subtype_bounded(&store, &hier, int_ty, int_ty, &mut budget, &token);
+    let proven_res = check_subtype_bounded(&mut store, &hier, int_ty, int_ty, &mut budget, &token);
     assert!(proven_res.is_proven());
 
     // 2. Refuted
-    let refuted_res = check_subtype_bounded(&store, &hier, int_ty, str_ty, &mut budget, &token);
+    let refuted_res = check_subtype_bounded(&mut store, &hier, int_ty, str_ty, &mut budget, &token);
     assert!(refuted_res.is_refuted());
 
     // 3. Cancelled
     let cancelled_token = CancellationToken::new();
     cancelled_token.cancel();
-    let cancelled_res = check_subtype_bounded(&store, &hier, int_ty, str_ty, &mut budget, &cancelled_token);
+    let cancelled_res = check_subtype_bounded(&mut store, &hier, int_ty, str_ty, &mut budget, &cancelled_token);
     assert!(cancelled_res.is_cancelled());
 
     // 4. BudgetExceeded
     let mut zero_budget = QueryBudget::new(0);
-    let budget_res = check_subtype_bounded(&store, &hier, int_ty, str_ty, &mut zero_budget, &token);
+    let budget_res = check_subtype_bounded(&mut store, &hier, int_ty, str_ty, &mut zero_budget, &token);
     assert!(budget_res.is_budget_exceeded());
 
     // 5. DynamicBoundary
     let dyn_k = TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape);
     let known_k = TypeKnowledge::assumed(store.proper_type(int_ty).unwrap(), EvidenceOrigin::DeveloperAnnotation);
-    let dyn_res = check_assignability_bounded(&store, &hier, &dyn_k, &known_k, &mut budget, &token);
+    let dyn_res = check_assignability_bounded(&mut store, &hier, &dyn_k, &known_k, &mut budget, &token);
     assert!(dyn_res.is_dynamic_boundary());
 
     // 6. Blocked
     let unk_k = TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration);
-    let blocked_res = check_assignability_bounded(&store, &hier, &unk_k, &known_k, &mut budget, &token);
+    let blocked_res = check_assignability_bounded(&mut store, &hier, &unk_k, &known_k, &mut budget, &token);
     assert!(blocked_res.is_blocked());
 }
 
@@ -123,7 +123,7 @@ fn inheritance_cycle_terminates_and_refutes() {
 
     let mut budget = QueryBudget::default();
     let token = CancellationToken::new();
-    let outcome = check_subtype_bounded(&store, &hier, t_a, t_target, &mut budget, &token);
+    let outcome = check_subtype_bounded(&mut store, &hier, t_a, t_target, &mut budget, &token);
     assert!(outcome.is_refuted());
 }
 

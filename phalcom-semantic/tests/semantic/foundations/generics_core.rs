@@ -164,7 +164,7 @@ fn gate_01_5_d_variance_subtyping_and_generic_inheritance() {
 
     let mut hier = MapTypeHierarchy::new();
     hier.insert(core_decl("Int"), core_decl("Number"));
-    assert!(is_subtype(&store, &hier, int_ty, num_ty));
+    assert!(is_subtype(&mut store, &hier, int_ty, num_ty));
 
     // 1. Covariant container: Producer<+T> => Producer<Int> <: Producer<Number>
     let decl_producer = core_decl("Producer");
@@ -176,11 +176,11 @@ fn gate_01_5_d_variance_subtyping_and_generic_inheritance() {
     let prod_num = store.apply_type_form(producer_form, &[num_ty]).unwrap();
 
     assert!(
-        is_subtype(&store, &hier, prod_int, prod_num),
+        is_subtype(&mut store, &hier, prod_int, prod_num),
         "Covariant application must preserve subtyping Producer<Int> <: Producer<Number>"
     );
     assert!(
-        !is_subtype(&store, &hier, prod_num, prod_int),
+        !is_subtype(&mut store, &hier, prod_num, prod_int),
         "Covariant application must refute reverse Producer<Number> <: Producer<Int>"
     );
 
@@ -193,11 +193,11 @@ fn gate_01_5_d_variance_subtyping_and_generic_inheritance() {
     let cons_num = store.apply_type_form(consumer_form, &[num_ty]).unwrap();
 
     assert!(
-        is_subtype(&store, &hier, cons_num, cons_int),
+        is_subtype(&mut store, &hier, cons_num, cons_int),
         "Contravariant application must invert subtyping Consumer<Number> <: Consumer<Int>"
     );
     assert!(
-        !is_subtype(&store, &hier, cons_int, cons_num),
+        !is_subtype(&mut store, &hier, cons_int, cons_num),
         "Contravariant application must refute non-inverted Consumer<Int> <: Consumer<Number>"
     );
 
@@ -225,7 +225,7 @@ fn gate_01_5_d_variance_subtyping_and_generic_inheritance() {
     let seq_int = store.apply_type_form(seq_form, &[int_ty]).unwrap();
 
     assert!(
-        is_subtype(&store, &hier, names_int, seq_int),
+        is_subtype(&mut store, &hier, names_int, seq_int),
         "Names<Int> must specialize and inherit Sequence<Int>"
     );
 }

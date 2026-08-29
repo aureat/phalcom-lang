@@ -5,6 +5,7 @@ use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBounda
 use super::row::{RecordAccess, RecordRowTail};
 use super::store::{TypeData, TypeStore};
 use super::variance::Variance;
+use crate::core_surface::CoreDeclarationIds;
 use crate::declarations::GenericSupertypeTemplate;
 use crate::identity::DeclarationId;
 use std::collections::HashSet;
@@ -139,7 +140,7 @@ pub enum RefutationReason {
 
 /// Evaluates subtyping with explicit budgets, cancellation, and cycle detection.
 pub fn check_subtype_bounded(
-    store: &TypeStore,
+    store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
     sub: TypeId,
     sup: TypeId,
@@ -161,7 +162,7 @@ pub fn check_subtype_bounded(
 }
 
 fn check_subtype_impl(
-    store: &TypeStore,
+    store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
     sub: TypeId,
     sup: TypeId,
@@ -184,8 +185,8 @@ fn check_subtype_impl(
         return RelationOutcome::Refuted(RelationFailure::CycleDetected { sub, sup });
     }
 
-    let sub_data = store.get(sub);
-    let sup_data = store.get(sup);
+    let sub_data = store.get(sub).clone();
+    let sup_data = store.get(sup).clone();
 
     let res = match (sub_data, sup_data) {
         (TypeData::Union(members), _) => {
@@ -213,25 +214,26 @@ fn check_subtype_impl(
             RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
         }
         (TypeData::ClassObject { declaration: sub_decl }, TypeData::ClassObject { declaration: sup_decl }) => {
-            if hierarchy.is_subclass(sub_decl, sup_decl) {
+            if hierarchy.is_subclass(&sub_decl, &sup_decl) {
                 RelationOutcome::proven(())
             } else {
                 RelationOutcome::Refuted(RelationFailure::IncompatibleNominal {
-                    actual: sub_decl.clone(),
-                    expected: sup_decl.clone(),
+                    actual: sub_decl,
+                    expected: sup_decl,
                 })
             }
         }
         (TypeData::Nominal { declaration: sub_decl }, TypeData::Nominal { declaration: sup_decl }) => {
-            if hierarchy.is_subclass(sub_decl, sup_decl) {
+            if hierarchy.is_subclass(&sub_decl, &sup_decl) || CoreDeclarationIds::default().is_object(&sup_decl) {
                 RelationOutcome::proven(())
             } else {
                 RelationOutcome::Refuted(RelationFailure::IncompatibleNominal {
-                    actual: sub_decl.clone(),
-                    expected: sup_decl.clone(),
+                    actual: sub_decl,
+                    expected: sup_decl,
                 })
             }
         }
+
         (
             TypeData::Applied {
                 origin: sub_orig,
@@ -245,13 +247,14 @@ fn check_subtype_impl(
             if sub_orig == sup_orig {
                 // If origins match, check arguments against declaration variance
                 if sub_args.len() == sup_args.len() {
-                    let origin_decl = match store.get(*sub_orig) {
-                        TypeData::Nominal { declaration } => Some(declaration),
+                    let origin_decl = match store.get(sub_orig) {
+                        TypeData::Nominal { declaration } => Some(declaration.clone()),
                         _ => None,
                     };
 
                     for (idx, (&a_sub, &a_sup)) in sub_args.iter().zip(sup_args.iter()).enumerate() {
                         let variance = origin_decl
+                            .as_ref()
                             .and_then(|decl| store.get_parameter_variance(decl, idx as u32))
                             .unwrap_or(Variance::Invariant);
 
@@ -291,8 +294,8 @@ fn check_subtype_impl(
                 }
             } else {
                 // Check generic supertype template if sub origin has one
-                if let TypeData::Nominal { declaration: sub_decl } = store.get(*sub_orig) {
-                    if let Some(template) = hierarchy.supertype_template(sub_decl) {
+                if let TypeData::Nominal { declaration: sub_decl } = store.get(sub_orig).clone() {
+                    if let Some(template) = hierarchy.supertype_template(&sub_decl) {
                         let mut env = super::environment::TypeEnvironment::new();
                         // Search existing TypeParameterIds in store for this declaration
                         for (idx, &arg) in sub_args.iter().enumerate() {
@@ -302,7 +305,7 @@ fn check_subtype_impl(
                                 env.bind_param(param_id, arg);
                             }
                         }
-                        let specialized_super = TypeView::new(template.supertype, env).materialize(&mut store.clone());
+                        let specialized_super = TypeView::new(template.supertype, env).materialize(store);
                         check_subtype_impl(store, hierarchy, specialized_super, sup, budget, cancellation, visited)
                     } else {
                         RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
@@ -336,8 +339,8 @@ fn check_subtype_impl(
         (TypeData::Record(sub_row_id), TypeData::Record(sup_row_id)) => check_record_row_subtype(
             store,
             hierarchy,
-            *sub_row_id,
-            *sup_row_id,
+            sub_row_id,
+            sup_row_id,
             sub,
             sup,
             RecordAccess::ReadOnly,
@@ -368,13 +371,14 @@ fn check_subtype_impl(
             }
         }
         (TypeData::Callable(_), TypeData::Nominal { declaration: sup_decl }) => {
-            if sup_decl.name.as_ref() == "Function" || sup_decl.name.as_ref() == "Closure" || sup_decl.name.as_ref() == "Object" {
+            let core_ids = CoreDeclarationIds::default();
+            if core_ids.is_callable_supertype(&sup_decl) {
                 RelationOutcome::proven(())
             } else {
                 RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
         }
-        (_, TypeData::Nominal { declaration: sup_decl }) if sup_decl.name.as_ref() == "Object" => RelationOutcome::proven(()),
+        (_, TypeData::Nominal { declaration: sup_decl }) if CoreDeclarationIds::default().is_object(&sup_decl) => RelationOutcome::proven(()),
         (TypeData::Unit, TypeData::Unit) => RelationOutcome::proven(()),
         _ => RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup }),
     };
@@ -384,7 +388,7 @@ fn check_subtype_impl(
 }
 
 /// Check whether `sub` is a canonical subtype of `sup` (`sub <: sup`).
-pub fn is_subtype(store: &TypeStore, hierarchy: &dyn TypeHierarchy, sub: TypeId, sup: TypeId) -> bool {
+pub fn is_subtype(store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, sub: TypeId, sup: TypeId) -> bool {
     let mut budget = QueryBudget::default();
     let cancellation = CancellationToken::new();
     check_subtype_bounded(store, hierarchy, sub, sup, &mut budget, &cancellation).is_proven()
@@ -392,7 +396,7 @@ pub fn is_subtype(store: &TypeStore, hierarchy: &dyn TypeHierarchy, sub: TypeId,
 
 /// Evaluates assignability with bounded queries, cancellation, and cycle tracking.
 pub fn check_assignability_bounded(
-    store: &TypeStore,
+    store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
     actual: &TypeKnowledge,
     expected: &TypeKnowledge,
@@ -421,7 +425,7 @@ pub fn check_assignability_bounded(
 /// Checks formal knowledge against a canonical contract type without first
 /// manufacturing an expected `TypeKnowledge` value.
 pub fn check_knowledge_against_type_bounded(
-    store: &TypeStore,
+    store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
     actual: &TypeKnowledge,
     expected: TypeId,
@@ -456,7 +460,7 @@ pub fn check_knowledge_against_type_bounded(
 }
 
 /// Unbounded convenience wrapper for knowledge-to-contract checking.
-pub fn check_knowledge_against_type(store: &TypeStore, hierarchy: &dyn TypeHierarchy, actual: &TypeKnowledge, expected: TypeId) -> Assignability {
+pub fn check_knowledge_against_type(store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, actual: &TypeKnowledge, expected: TypeId) -> Assignability {
     let mut budget = QueryBudget::default();
     let cancellation = CancellationToken::new();
     let outcome = check_knowledge_against_type_bounded(store, hierarchy, actual, expected, &mut budget, &cancellation);
@@ -488,7 +492,7 @@ fn relation_to_assignability(outcome: RelationOutcome, actual: Option<TypeId>, e
 }
 
 /// Checks assignability from an expression's type knowledge to an expected type knowledge.
-pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, actual: &TypeKnowledge, expected: &TypeKnowledge) -> Assignability {
+pub fn check_assignability(store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, actual: &TypeKnowledge, expected: &TypeKnowledge) -> Assignability {
     let mut budget = QueryBudget::default();
     let cancellation = CancellationToken::new();
     let outcome = check_assignability_bounded(store, hierarchy, actual, expected, &mut budget, &cancellation);
@@ -498,7 +502,7 @@ pub fn check_assignability(store: &TypeStore, hierarchy: &dyn TypeHierarchy, act
 // Recursive record checking carries shared query state explicitly for budget and cycle control.
 #[allow(clippy::too_many_arguments)]
 pub fn check_record_row_subtype(
-    store: &TypeStore,
+    store: &mut TypeStore,
     hierarchy: &dyn TypeHierarchy,
     sub_row_id: RecordRowId,
     sup_row_id: RecordRowId,
@@ -509,8 +513,8 @@ pub fn check_record_row_subtype(
     cancellation: &CancellationToken,
     visited: &mut HashSet<(TypeId, TypeId)>,
 ) -> RelationOutcome<()> {
-    let sub_row = store.record_row(sub_row_id);
-    let sup_row = store.record_row(sup_row_id);
+    let sub_row = store.record_row(sub_row_id).clone();
+    let sup_row = store.record_row(sup_row_id).clone();
 
     match access {
         RecordAccess::ReadOnly => {
@@ -625,23 +629,25 @@ mod tests {
         let t_str = store.nominal(string);
 
         // Int <: Int
-        assert!(is_subtype(&store, &hier, t_int, t_int));
+        assert!(is_subtype(&mut store, &hier, t_int, t_int));
         // Never <: Int
-        assert!(is_subtype(&store, &hier, store.never(), t_int));
+        let never = store.never();
+        assert!(is_subtype(&mut store, &hier, never, t_int));
         // Int <: Number
-        assert!(is_subtype(&store, &hier, t_int, t_num));
+
+        assert!(is_subtype(&mut store, &hier, t_int, t_num));
         // Int <: Object
-        assert!(is_subtype(&store, &hier, t_int, t_obj));
+        assert!(is_subtype(&mut store, &hier, t_int, t_obj));
         // String !<: Int
-        assert!(!is_subtype(&store, &hier, t_str, t_int));
+        assert!(!is_subtype(&mut store, &hier, t_str, t_int));
 
         // Int <: (Int | String)
         let int_or_str = store.union(&[t_int, t_str]);
-        assert!(is_subtype(&store, &hier, t_int, int_or_str));
+        assert!(is_subtype(&mut store, &hier, t_int, int_or_str));
         // (Int | String) <: Object
-        assert!(is_subtype(&store, &hier, int_or_str, t_obj));
+        assert!(is_subtype(&mut store, &hier, int_or_str, t_obj));
         // (Int | String) !<: Number
-        assert!(!is_subtype(&store, &hier, int_or_str, t_num));
+        assert!(!is_subtype(&mut store, &hier, int_or_str, t_num));
     }
 
     #[test]
@@ -655,7 +661,7 @@ mod tests {
         let actual = TypeKnowledge::established(t_int, EvidenceOrigin::Syntax);
         let expected = TypeKnowledge::assumed(t_str, EvidenceOrigin::DeveloperAnnotation);
 
-        let res = check_assignability(&store, &hier, &actual, &expected);
+        let res = check_assignability(&mut store, &hier, &actual, &expected);
         assert!(res.is_refuted());
     }
 
@@ -667,7 +673,7 @@ mod tests {
         let expected_ty = store.nominal(test_decl("String"));
         let actual = TypeKnowledge::established(actual_ty, super::super::evidence::EvidenceOrigin::Syntax);
 
-        let result = check_knowledge_against_type(&store, &hier, &actual, expected_ty);
+        let result = check_knowledge_against_type(&mut store, &hier, &actual, expected_ty);
         assert_eq!(
             result,
             Assignability::Refuted {
@@ -688,12 +694,12 @@ mod tests {
         let token = CancellationToken::new();
         token.cancel();
         let mut budget = QueryBudget::new(10);
-        let res = check_subtype_bounded(&store, &hier, t_int, t_str, &mut budget, &token);
+        let res = check_subtype_bounded(&mut store, &hier, t_int, t_str, &mut budget, &token);
         assert!(res.is_cancelled());
 
         let uncancelled = CancellationToken::new();
         let mut tiny_budget = QueryBudget::new(0);
-        let res = check_subtype_bounded(&store, &hier, t_int, t_str, &mut tiny_budget, &uncancelled);
+        let res = check_subtype_bounded(&mut store, &hier, t_int, t_str, &mut tiny_budget, &uncancelled);
         assert!(res.is_budget_exceeded());
     }
 
@@ -710,7 +716,7 @@ mod tests {
 
         let token = CancellationToken::new();
         let mut tiny_budget = QueryBudget::new(2);
-        let exhausted = check_subtype_bounded(&store, &hier, actual, expected, &mut tiny_budget, &token);
+        let exhausted = check_subtype_bounded(&mut store, &hier, actual, expected, &mut tiny_budget, &token);
         assert!(
             matches!(exhausted, RelationOutcome::BudgetExceeded(_)),
             "nested exhaustion was flattened: {exhausted:#?}"
@@ -718,7 +724,7 @@ mod tests {
 
         token.cancel();
         let mut budget = QueryBudget::default();
-        let cancelled = check_subtype_bounded(&store, &hier, actual, expected, &mut budget, &token);
+        let cancelled = check_subtype_bounded(&mut store, &hier, actual, expected, &mut budget, &token);
         assert_eq!(cancelled, RelationOutcome::Cancelled);
     }
 
@@ -732,13 +738,13 @@ mod tests {
 
         let mut budget = QueryBudget::default();
         let token = CancellationToken::new();
-        let bounded = check_assignability_bounded(&store, &hier, &actual, &expected, &mut budget, &token);
+        let bounded = check_assignability_bounded(&mut store, &hier, &actual, &expected, &mut budget, &token);
         let RelationOutcome::DynamicBoundary(obligation) = bounded else {
             panic!("expected dynamic boundary, got {bounded:#?}");
         };
         assert_eq!(obligation.reason, "dynamic boundary");
 
-        let projected = check_assignability(&store, &hier, &actual, &expected);
+        let projected = check_assignability(&mut store, &hier, &actual, &expected);
         assert!(matches!(projected, Assignability::DynamicBoundary(ref obligation) if obligation.reason == "dynamic boundary"));
         assert!(!projected.is_assignable(), "dynamic boundary is not static proof");
     }

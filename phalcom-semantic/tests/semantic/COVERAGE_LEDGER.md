@@ -127,3 +127,18 @@ coverage. New source fixtures must use canonical pipe-block syntax.
 product-hardening prerequisite: the current published product does not yet
 represent those abrupt paths with sufficient fidelity, so this ledger does not
 claim that deeper oracle merely because the branch value tests are green.
+
+## Part 06 closure laws
+
+| Law | Status | Evidence |
+| --- | --- | --- |
+| C1-C2 canonical identity and core shadowing | READY | `foundations::authority_boundaries::{user_object_name_is_not_universal_supertype,user_function_name_is_not_callable_supertype}` |
+| C3-C4 live TypeStore materialization | READY | `foundations::authority_boundaries::generic_supertype_specialization_materializes_in_live_store` |
+| C5 relation non-strengthening | READY | `foundations::authority_boundaries::proven_relation_does_not_upgrade_assumed_actual` |
+| C6-C8 comparison result proof and single evaluation | READY | `foundations::authority_boundaries::{comparison_chain_single_evaluation_and_operation_conjunction,comparison_chain_missing_operator_fails_closed}` |
+| C9 membership fail-closed | READY | `foundations::authority_boundaries::membership_fails_closed_to_unknown` |
+| C10-C12 contextual-empty authority | READY | `foundations::authority_boundaries::{contextual_empty_list_inherits_expected_contract_authority,contextual_empty_map_preserves_expected_type}`; wrong collection context remains formal Unknown |
+| C13-C14 established-site and recovery quarantine | READY | `docs/impl/semantic/semantic-correctness/part-4/2026-08-29-semantic-authority-audit.md`; authority and composition regressions |
+| C15 incremental equivalence | READY | `incremental::type_store_revisions`, `incremental::fingerprints`, `incremental::callable_dependencies` |
+| C16 presentation non-authority | READY | `integration::{advisory_analysis,presentation,editor_type_hints}` |
+| C17 no hidden language design | READY | membership and unsupported comparison links stay `Unknown(UncheckedExpression)` |

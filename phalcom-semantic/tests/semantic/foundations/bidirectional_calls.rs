@@ -70,7 +70,9 @@ fn test_bidirectional_empty_collections() {
         expr,
         &ExpectedType::proper_from(expected_list_int, phalcom_semantic::checker::expected::ExpectationOrigin::ExplicitCheck),
     );
-    assert_eq!(typed.knowledge, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+    assert_eq!(typed.ty(), Some(expected_list_int));
+    let unconstrained = analyze_expression(&mut ctx, expr, &ExpectedType::None);
+    assert_eq!(unconstrained.knowledge, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
 
     // Contextual checking validates a concrete literal without replacing its
     // established syntax knowledge with the expected supertype.
