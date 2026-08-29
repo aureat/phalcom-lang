@@ -36,6 +36,7 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
         entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
         exits: phalcom_semantic::checker::BodyExitFacts::default(),
+        return_validation: phalcom_semantic::ReturnContractValidation::NotApplicable,
         diagnostics: Arc::new([]),
         internal_incidents: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),

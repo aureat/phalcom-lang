@@ -117,6 +117,7 @@ pub(crate) fn canonical_core_class_new_signature(store: &mut crate::types::store
         generics: None,
         parameters: Vec::<CallableParameterSemantic>::new().into_boxed_slice(),
         declared_return: DeclaredTypeFact::from_knowledge_with_basis(&knowledge, DeclaredTypeBasis::ConstructorSemantics),
+        return_validation: crate::signature::ReturnContractValidation::NotApplicable,
         inferred_return: None,
         source: None,
         implementation: phalcom_native_meta::ImplementationKind::Generated,
@@ -178,6 +179,20 @@ pub(crate) fn semantic_field_signature_for_member(
 
 pub(crate) fn project_field_signature(signature: &FieldSemanticSignature) -> TypeKnowledge {
     signature.declared_type.to_knowledge()
+}
+
+fn initial_return_validation(
+    declared_return: &DeclaredTypeFact,
+    implementation: phalcom_native_meta::ImplementationKind,
+) -> crate::signature::ReturnContractValidation {
+    if matches!(implementation, phalcom_native_meta::ImplementationKind::Source)
+        && declared_return.basis == DeclaredTypeBasis::SourceAnnotation
+        && declared_return.is_known()
+    {
+        crate::signature::ReturnContractValidation::Unchecked
+    } else {
+        crate::signature::ReturnContractValidation::NotApplicable
+    }
 }
 
 pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {
@@ -305,6 +320,8 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
         ClassMember::Field(_) | ClassMember::Variant(_) => return None,
     };
 
+    let return_validation = initial_return_validation(&declared_return, phalcom_native_meta::ImplementationKind::Source);
+
     Some(CallableSemanticSignature {
         callable: callable.clone(),
         owner: owner.clone(),
@@ -313,6 +330,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
         generics,
         parameters,
         declared_return,
+        return_validation,
         inferred_return: None,
         source: None,
         implementation: phalcom_native_meta::ImplementationKind::Source,

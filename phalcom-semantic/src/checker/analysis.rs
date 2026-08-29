@@ -296,6 +296,7 @@ pub struct CallableAnalysis {
     pub flow_graph: Arc<crate::checker::flow::graph::FlowGraph>,
     pub entry_flow: FlowStateSummary,
     pub exits: BodyExitFacts,
+    pub return_validation: crate::signature::ReturnContractValidation,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
     /// Structured analyzer incidents kept separate from source diagnostics.
     pub internal_incidents: Arc<[InternalSemanticIncident]>,

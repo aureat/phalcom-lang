@@ -3,13 +3,31 @@
 use super::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use super::diagnostic::SemanticSourceSpan;
 use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
-use super::types::evidence::TypeKnowledge;
+use super::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
 use super::types::parameter::{GenericSignature, TypeTerm};
 use phalcom_ast::ast::RestMode;
 use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
 use std::collections::HashMap;
+
+/// Epistemic certification state for a source return contract.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ReturnContractValidation {
+    /// No source-authored return contract requires body certification.
+    NotApplicable,
+    /// Source contract exists but no complete body proof has been published yet.
+    Unchecked,
+    /// Every normal return satisfies the contract. The payload is the weakest
+    /// implementation evidence supporting the contract.
+    Satisfied(EvidenceStatus),
+    /// At least one normal return is proven incompatible with the contract.
+    Refuted,
+    /// Analysis could not decide the contract soundly.
+    Blocked,
+    /// Validation crosses an explicit Dynamic boundary.
+    DynamicBoundary,
+}
 
 /// Canonical parameter specification for a callable signature.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +75,7 @@ impl CallableParameterSemantic {
 /// Canonical semantic type publication for a callable.
 ///
 /// `declared_return` is the declaration-owned requirement (possibly unknown).
+/// `return_validation` indicates body certification state for source contracts.
 /// `inferred_return` is a body-derived published result and must never be fed
 /// back as the callable body's declaration constraint.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -68,6 +87,7 @@ pub struct CallableSemanticSignature {
     pub generics: Option<GenericSignature>,
     pub parameters: Box<[CallableParameterSemantic]>,
     pub declared_return: DeclaredTypeFact,
+    pub return_validation: ReturnContractValidation,
     pub inferred_return: Option<TypeKnowledge>,
     pub source: Option<SemanticSourceSpan>,
     pub implementation: ImplementationKind,
@@ -92,6 +112,22 @@ impl CallableSemanticSignature {
     }
 
     pub fn published_return_knowledge(&self) -> TypeKnowledge {
+        if self.declared_return.is_known() {
+            let declared = self.declared_return.to_knowledge();
+            if self.declared_return.basis == DeclaredTypeBasis::SourceAnnotation
+                && self.return_validation == ReturnContractValidation::Satisfied(EvidenceStatus::Established)
+            {
+                if let Some(ty) = declared.ty() {
+                    return TypeKnowledge::established(ty, EvidenceOrigin::CallableSignature);
+                }
+            }
+            return declared;
+        }
+
+        if self.declared_return.is_dynamic() {
+            return self.declared_return.to_knowledge();
+        }
+
         self.inferred_return
             .as_ref()
             .filter(|knowledge| knowledge.is_known() || knowledge.is_dynamic())
@@ -100,11 +136,15 @@ impl CallableSemanticSignature {
     }
 
     pub fn published_return_term(&self) -> Option<TypeTerm> {
-        self.inferred_return
-            .as_ref()
-            .and_then(TypeKnowledge::ty)
-            .map(TypeTerm::Canonical)
-            .or_else(|| self.declared_return.known_term().cloned())
+        self.declared_return
+            .known_term()
+            .cloned()
+            .or_else(|| {
+                self.inferred_return
+                    .as_ref()
+                    .and_then(TypeKnowledge::ty)
+                    .map(TypeTerm::Canonical)
+            })
     }
 
     /// Whether this declaration is a constructor according to declaration-owned
@@ -216,5 +256,75 @@ impl FieldSignatureTable {
 
     pub fn iter(&self) -> impl Iterator<Item = (&FieldId, &FieldSemanticSignature)> {
         self.by_id.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::id::TypeId;
+
+    #[test]
+    fn published_return_knowledge_source_annotation_is_assumed_until_satisfied_established() {
+        let owner = DeclarationId::new(crate::identity::ModuleId::core(), "Test".into());
+        let selector = Selector::method("run", vec![]).unwrap();
+        let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+        let int_fact = DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(1)), DeclaredTypeBasis::SourceAnnotation);
+
+        let mut sig = CallableSemanticSignature {
+            callable: callable.clone(),
+            owner,
+            side: DispatchSide::Instance,
+            selector,
+            generics: None,
+            parameters: Box::new([]),
+            declared_return: int_fact,
+            return_validation: ReturnContractValidation::Unchecked,
+            inferred_return: None,
+            source: None,
+            implementation: ImplementationKind::Source,
+            native_id: None,
+            effects: EffectSpec::Unknown,
+            raises: RaisesSpec::Unknown,
+            flow: ReturnFlowSpec::Value,
+            lifecycle: NativeLifecycleSpec::UNKNOWN,
+        };
+
+        assert_eq!(sig.published_return_knowledge().status(), Some(EvidenceStatus::Assumed));
+
+        sig.return_validation = ReturnContractValidation::Satisfied(EvidenceStatus::Assumed);
+        assert_eq!(sig.published_return_knowledge().status(), Some(EvidenceStatus::Assumed));
+
+        sig.return_validation = ReturnContractValidation::Satisfied(EvidenceStatus::Established);
+        assert_eq!(sig.published_return_knowledge().status(), Some(EvidenceStatus::Established));
+    }
+
+    #[test]
+    fn published_return_term_preserves_declared_term() {
+        let owner = DeclarationId::new(crate::identity::ModuleId::core(), "Test".into());
+        let selector = Selector::method("run", vec![]).unwrap();
+        let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+        let declared = DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(10)), DeclaredTypeBasis::SourceAnnotation);
+
+        let sig = CallableSemanticSignature {
+            callable: callable.clone(),
+            owner,
+            side: DispatchSide::Instance,
+            selector,
+            generics: None,
+            parameters: Box::new([]),
+            declared_return: declared,
+            return_validation: ReturnContractValidation::Satisfied(EvidenceStatus::Established),
+            inferred_return: Some(TypeKnowledge::established(TypeId(20), EvidenceOrigin::Flow)),
+            source: None,
+            implementation: ImplementationKind::Source,
+            native_id: None,
+            effects: EffectSpec::Unknown,
+            raises: RaisesSpec::Unknown,
+            flow: ReturnFlowSpec::Value,
+            lifecycle: NativeLifecycleSpec::UNKNOWN,
+        };
+
+        assert_eq!(sig.published_return_term(), Some(TypeTerm::Canonical(TypeId(10))));
     }
 }

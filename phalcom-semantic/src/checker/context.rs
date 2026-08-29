@@ -1570,6 +1570,7 @@ impl<'a> CheckingContext<'a> {
             flow_graph,
             entry_flow,
             exits,
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
             internal_incidents: std::sync::Arc::from(self.analysis_incidents.into_values().collect::<Vec<_>>().into_boxed_slice()),
             explanations: std::sync::Arc::new(self.explanations),

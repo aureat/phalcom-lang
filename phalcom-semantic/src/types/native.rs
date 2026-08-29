@@ -342,6 +342,7 @@ pub fn register_native_surfaces(
                 &return_knowledge,
                 crate::declaration_type::DeclaredTypeBasis::NativeSignature,
             ),
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
             inferred_return: None,
             source: None,
             implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,

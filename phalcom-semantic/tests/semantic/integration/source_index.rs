@@ -368,6 +368,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         flow_graph: Arc::new(FlowGraph::default()),
         entry_flow: FlowStateSummary::default(),
         exits: Default::default(),
+        return_validation: phalcom_semantic::ReturnContractValidation::NotApplicable,
         diagnostics: Arc::from([]),
         internal_incidents: Arc::from([]),
         explanations: Arc::new(ExplanationArena::default()),
