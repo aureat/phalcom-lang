@@ -1,4 +1,4 @@
-use phalcom_semantic::explain::{ExplanationArena, ExplanationStep, causal_slice};
+use phalcom_semantic::explain::{ExplanationArena, ExplanationStep, PredicateKind, causal_slice};
 use phalcom_semantic::identity::{BindingId, BodyId, ExpressionId, LocalExpressionId, TypeId};
 use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus};
 
@@ -20,6 +20,7 @@ fn test_explanation_arena_and_causal_slice() {
     let n2 = arena.alloc(
         ExplanationStep::FlowRefinement {
             binding: BindingId(1),
+            predicate: PredicateKind::IsInstance,
             prior: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(1), EvidenceOrigin::Syntax),
             refined: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
         },

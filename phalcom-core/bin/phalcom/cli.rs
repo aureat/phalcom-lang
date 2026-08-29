@@ -8,6 +8,23 @@ use serde::Serialize;
 use std::sync::Arc;
 use std::{fs, path::PathBuf};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum DiagnosticDetailArg {
+    Compact,
+    Explain,
+    Trace,
+}
+
+impl From<DiagnosticDetailArg> for phalcom_semantic::DiagnosticDetail {
+    fn from(value: DiagnosticDetailArg) -> Self {
+        match value {
+            DiagnosticDetailArg::Compact => Self::Compact,
+            DiagnosticDetailArg::Explain => Self::Explain,
+            DiagnosticDetailArg::Trace => Self::Trace,
+        }
+    }
+}
+
 /// Run, tokenize, parse, or disassemble phalcom source.
 #[derive(Parser)]
 #[command(author, about, long_about = None)]
@@ -55,6 +72,10 @@ pub struct Cli {
     /// separable, so `--color=always --plain` yields ASCII glyphs *with* color).
     #[arg(long)]
     pub(crate) plain: bool,
+
+    /// Semantic diagnostic detail: compact, explain (default), or trace.
+    #[arg(long, value_enum, default_value_t = DiagnosticDetailArg::Explain, global = true)]
+    pub(crate) diagnostic_detail: DiagnosticDetailArg,
 
     /// Show core library frames in tracebacks
     #[arg(long)]
@@ -245,9 +266,19 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
                 }
             }
             if let phalcom_core::modules::compile::ProgramCompileError::Semantic(diags) = &err {
-                for (module, module_diags) in diags.iter() {
-                    for diag in module_diags {
-                        eprintln!("Semantic error in {module} [{}]: {}", diag.code, diag.message);
+                if let Some(snapshot) = diags.snapshot.as_deref() {
+                    let detail: phalcom_semantic::DiagnosticDetail = cli.diagnostic_detail.into();
+                    let config = cli.render_config();
+                    for (_, module_diags) in diags.iter() {
+                        for diag in module_diags {
+                            print_rich_semantic_text(diag, snapshot, snapshot.sources().as_ref(), detail, &config);
+                        }
+                    }
+                } else {
+                    for (module, module_diags) in diags.iter() {
+                        for diag in module_diags {
+                            eprintln!("Semantic error in {module} [{}]: {}", diag.code, diag.message);
+                        }
                     }
                 }
                 std::process::exit(65);
@@ -385,6 +416,181 @@ fn semantic_source<'a>(
     (Some(unit.text.as_ref()), path)
 }
 
+fn semantic_report_severity(severity: phalcom_semantic::DiagnosticSeverity) -> phalcom_diagnostics::Severity {
+    match severity {
+        phalcom_semantic::DiagnosticSeverity::Error => phalcom_diagnostics::Severity::Error,
+        phalcom_semantic::DiagnosticSeverity::Warning => phalcom_diagnostics::Severity::Warning,
+        phalcom_semantic::DiagnosticSeverity::Information => phalcom_diagnostics::Severity::Information,
+        phalcom_semantic::DiagnosticSeverity::Hint => phalcom_diagnostics::Severity::Hint,
+    }
+}
+
+fn presented_semantic_text(
+    presented: &phalcom_semantic::PresentedDiagnostic,
+    sources: &std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    config: &RenderConfig,
+) -> String {
+    let (source, path) = semantic_source(sources, &presented.primary.module);
+    let mut snippet_labels = Vec::new();
+    if source.is_some() {
+        snippet_labels.push(phalcom_diagnostics::Label {
+            span: presented.primary.range,
+            text: presented.headline.as_str(),
+            kind: phalcom_diagnostics::LabelKind::Primary,
+        });
+        for label in presented.labels.iter().filter(|label| label.span.module == presented.primary.module) {
+            snippet_labels.push(phalcom_diagnostics::Label {
+                span: label.span.range,
+                text: label.message.as_str(),
+                kind: phalcom_diagnostics::LabelKind::Secondary,
+            });
+        }
+    }
+    let snippets = source
+        .map(|source| {
+            vec![phalcom_diagnostics::SourceSnippet {
+                file: path,
+                source,
+                labels: snippet_labels,
+            }]
+        })
+        .unwrap_or_default();
+    let mut sections = Vec::new();
+    sections.push(phalcom_diagnostics::ReportSection {
+        kind: phalcom_diagnostics::ReportSectionKind::Explanation,
+        lines: presented.explanation.iter().map(|line| line.text.clone()).collect(),
+    });
+    sections.push(phalcom_diagnostics::ReportSection {
+        kind: phalcom_diagnostics::ReportSectionKind::Guidance,
+        lines: presented.guidance.iter().map(|line| line.text.clone()).collect(),
+    });
+    sections.push(phalcom_diagnostics::ReportSection {
+        kind: phalcom_diagnostics::ReportSectionKind::Context,
+        lines: presented.context.iter().map(|line| line.text.clone()).collect(),
+    });
+    sections.push(phalcom_diagnostics::ReportSection {
+        kind: phalcom_diagnostics::ReportSectionKind::Trace,
+        lines: presented
+            .trace
+            .iter()
+            .map(|node| {
+                format!(
+                    "[e{}] {:?} {:?}/{:?}  {}",
+                    node.reference.explanation.0, node.rule, node.status, node.origin, node.text
+                )
+            })
+            .collect(),
+    });
+    phalcom_diagnostics::format_diagnostic(
+        Some(presented.code.as_str()),
+        semantic_report_severity(presented.severity),
+        &presented.headline,
+        &snippets,
+        &[],
+        &sections,
+        config,
+    )
+}
+
+fn guidance_kind(guidance: &phalcom_semantic::DiagnosticGuidance) -> &'static str {
+    match guidance {
+        phalcom_semantic::DiagnosticGuidance::ChangeAnnotation { .. } => "change_annotation",
+        phalcom_semantic::DiagnosticGuidance::SupplyAssignableValue { .. } => "supply_assignable_value",
+        phalcom_semantic::DiagnosticGuidance::UseCallableShape { .. } => "use_callable_shape",
+        phalcom_semantic::DiagnosticGuidance::EstablishTypeEvidence { .. } => "establish_type_evidence",
+        phalcom_semantic::DiagnosticGuidance::ResolveGenericParameter { .. } => "resolve_generic_parameter",
+    }
+}
+
+fn print_rich_semantic_json(
+    diag: &phalcom_semantic::SemanticDiagnostic,
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    sources: &std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    detail: phalcom_semantic::DiagnosticDetail,
+) {
+    let presenter = phalcom_semantic::DiagnosticPresenter::new(snapshot);
+    let presented = presenter.present(diag, detail);
+    let full = presenter.present(diag, phalcom_semantic::DiagnosticDetail::Trace);
+    let (primary_source, primary_path) = semantic_source(sources, &diag.primary.module);
+    let explanation = presented
+        .explanation
+        .iter()
+        .map(|line| {
+            let metadata = full.trace.iter().find(|node| node.text == line.text);
+            serde_json::json!({
+                "rule": metadata.map(|node| node.rule.as_str()),
+                "status": metadata.map(|node| node.status.as_str()),
+                "origin": metadata.map(|node| node.origin.as_str()),
+                "message": line.text,
+            })
+        })
+        .collect::<Vec<_>>();
+    let guidance = diag
+        .guidance
+        .iter()
+        .zip(presented.guidance.iter())
+        .map(|(guidance, line)| serde_json::json!({ "kind": guidance_kind(guidance), "message": line.text }))
+        .collect::<Vec<_>>();
+    let trace = presented
+        .trace
+        .iter()
+        .map(|node| {
+            serde_json::json!({
+                "rule": node.rule.as_str(),
+                "status": node.status.as_str(),
+                "origin": node.origin.as_str(),
+                "message": node.text,
+            })
+        })
+        .collect::<Vec<_>>();
+    let labels = presented
+        .labels
+        .iter()
+        .map(|label| {
+            let (label_source, label_path) = semantic_source(sources, &label.span.module);
+            serde_json::json!({
+                "module": label.span.module.to_string(),
+                "source": label_path,
+                "range": semantic_json_range(label_source.or(primary_source), label.span.range.start..label.span.range.end),
+                "message": label.message,
+                "role": label.role.as_str(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let value = serde_json::json!({
+        "severity": semantic_severity_name(presented.severity),
+        "code": presented.code.as_str(),
+        "message": presented.headline,
+        "module": presented.primary.module.to_string(),
+        "source": primary_path,
+        "range": semantic_json_range(primary_source, presented.primary.range.start..presented.primary.range.end),
+        "labels": labels,
+        "explanation": explanation,
+        "guidance": guidance,
+        "context": presented.context.iter().map(|line| line.text.clone()).collect::<Vec<_>>(),
+        "trace": trace,
+        "fixes": presented.fixes.iter().map(|fix| fix.message.clone()).collect::<Vec<_>>(),
+    });
+    match serde_json::to_string(&value) {
+        Ok(json) => println!("{json}"),
+        Err(error) => eprintln!("failed to serialize semantic diagnostic: {error}"),
+    }
+}
+
+fn print_rich_semantic_text(
+    diag: &phalcom_semantic::SemanticDiagnostic,
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    sources: &std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    detail: phalcom_semantic::DiagnosticDetail,
+    config: &RenderConfig,
+) {
+    let presented = phalcom_semantic::DiagnosticPresenter::new(snapshot).present(diag, detail);
+    eprint!("{}", presented_semantic_text(&presented, sources, config));
+    for label in presented.labels.iter().filter(|label| label.span.module != presented.primary.module) {
+        eprintln!("related [{}] {}: {}", label.span.module, label.span.range.start, label.message);
+    }
+}
+
 fn semantic_json_value(
     diag: &phalcom_semantic::SemanticDiagnostic,
     sources: &std::collections::BTreeMap<phalcom_modules::identity::ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
@@ -472,7 +678,7 @@ fn print_semantic_text(
 /// intended for editor tooling (e.g. an LSP-less VS Code extension shelling
 /// out per save); `--format text` (default) reuses the existing span-aware
 /// renderer.
-pub fn cmd_check(args: CheckArgs) -> Result<()> {
+pub fn cmd_check(args: CheckArgs, detail: DiagnosticDetailArg, render_config: RenderConfig) -> Result<()> {
     let selection = if let Some(p) = args.path.clone() {
         if !p.exists() {
             eprintln!("Error: File {} does not exist", p.display());
@@ -499,9 +705,9 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
             if analyzed.semantic.has_errors() {
                 for diag in analyzed.semantic.all_diagnostics() {
                     if args.format == "json" {
-                        print_semantic_json(diag, &analyzed.sources);
+                        print_rich_semantic_json(diag, &analyzed.semantic, &analyzed.sources, detail.into());
                     } else {
-                        print_semantic_text(diag, &analyzed.sources);
+                        print_rich_semantic_text(diag, &analyzed.semantic, &analyzed.sources, detail.into(), &render_config);
                     }
                 }
                 std::process::exit(65);

@@ -44,7 +44,7 @@ use tower_lsp::lsp_types::{
 use tower_lsp::{Client, LanguageServer};
 
 use crate::completion;
-use crate::diagnostics::{SemanticDiagnosticSource, semantic_diagnostics_to_lsp_diagnostics_with_sources, syntax_errors_to_diagnostics};
+use crate::diagnostics::{SemanticDiagnosticSource, semantic_diagnostics_to_lsp_diagnostics_with_snapshot, syntax_errors_to_diagnostics};
 use crate::documents::DocumentStore;
 use crate::hover::{self, SelectorSite};
 use crate::inlay_hints::HintPolicy;
@@ -179,8 +179,9 @@ fn combined_diagnostics_for(
                 line_index: (*document.line_index).clone(),
             },
         );
-        diagnostics.extend(semantic_diagnostics_to_lsp_diagnostics_with_sources(
+        diagnostics.extend(semantic_diagnostics_to_lsp_diagnostics_with_snapshot(
             semantic_diagnostics,
+            compiler_snapshot,
             &document.line_index,
             uri,
             &diagnostic_sources,

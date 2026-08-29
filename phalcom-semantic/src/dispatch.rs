@@ -106,9 +106,16 @@ impl CallableSignature {
 
 /// Complete result of resolving dispatch, capturing visited hierarchy trace.
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DispatchSignatureSpecialization {
+    pub receiver: TypeId,
+    pub unspecialized_return: TypeKnowledge,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedDispatch {
     pub callable: CallableId,
     pub signature: CallableSignature,
+    pub specialization: Option<DispatchSignatureSpecialization>,
     pub visited_owners: Box<[DeclarationId]>,
 }
 
@@ -258,6 +265,7 @@ impl SurfaceDispatchResolver {
                     return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
                         callable: callable_id,
                         signature: sig.clone(),
+                        specialization: None,
                         visited_owners: visited.into_boxed_slice(),
                     }));
                 }

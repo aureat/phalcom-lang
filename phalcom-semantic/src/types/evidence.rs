@@ -330,6 +330,15 @@ pub enum EvidenceStatus {
     Assumed,
 }
 
+impl EvidenceStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Established => "established",
+            Self::Assumed => "assumed",
+        }
+    }
+}
+
 /// Primary semantic origin of formal type knowledge.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum EvidenceOrigin {
@@ -344,6 +353,24 @@ pub enum EvidenceOrigin {
     FieldLifecycle,
     ContextualDerivation,
     PatternDecomposition,
+}
+
+impl EvidenceOrigin {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Syntax => "syntax",
+            Self::DeclarationSemantics => "declaration_semantics",
+            Self::ConstructorSemantics => "constructor_semantics",
+            Self::CallableSignature => "callable_signature",
+            Self::NativeSignature => "native_signature",
+            Self::DeveloperAnnotation => "developer_annotation",
+            Self::GenericInference => "generic_inference",
+            Self::Flow => "flow",
+            Self::FieldLifecycle => "field_lifecycle",
+            Self::ContextualDerivation => "contextual_derivation",
+            Self::PatternDecomposition => "pattern_decomposition",
+        }
+    }
 }
 
 /// Provenance facts explaining where type evidence was synthesized or constrained.

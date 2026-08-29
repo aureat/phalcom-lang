@@ -371,6 +371,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         diagnostics: Arc::from([]),
         internal_incidents: Arc::from([]),
         explanations: Arc::new(ExplanationArena::default()),
+        return_explanation: None,
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),
         dependency_fingerprint: ProductFingerprint::new(1),

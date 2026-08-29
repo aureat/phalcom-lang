@@ -10,6 +10,7 @@ pub mod db;
 pub mod declaration_type;
 pub mod declarations;
 pub mod diagnostic;
+pub mod diagnostic_presentation;
 pub mod dispatch;
 pub mod editor;
 pub mod effects;
@@ -50,8 +51,16 @@ pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueRea
 pub use core_surface::*;
 pub use declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
-pub use diagnostic::{DiagnosticCode, DiagnosticLabel, DiagnosticSeverity, SemanticDiagnostic, SemanticSourceSpan};
-pub use dispatch::{CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchTarget, SurfaceDispatchResolver};
+pub use diagnostic::{
+    DiagnosticCode, DiagnosticFix, DiagnosticGuidance, DiagnosticLabel, DiagnosticSeverity, ExplanationRef, SemanticDiagnostic, SemanticSourceSpan,
+};
+pub use diagnostic_presentation::{
+    DiagnosticDetail, DiagnosticPresenter, PresentedDiagnostic, PresentedLabel, PresentedLabelRole, PresentedLine, PresentedTraceNode,
+};
+pub use dispatch::{
+    CallableParameter, CallableSignature, DispatchResolver, DispatchResult, DispatchSide, DispatchSignatureSpecialization, DispatchTarget,
+    SurfaceDispatchResolver,
+};
 pub use editor::{
     AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, EditorTypeHint, EditorTypeHintKind, NativeCallablePresentation, PartialCallPattern,
     ReceiverAlternative, ReceiverMode, ResolvedReceiver, VisibleSymbol,
@@ -60,7 +69,7 @@ pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
     infer_intraprocedural_effects,
 };
-pub use explain::{ExplanationArena, ExplanationNode, ExplanationStep, causal_slice};
+pub use explain::{DerivationRule, ExplanationArena, ExplanationNode, ExplanationStep, causal_slice, causal_trace};
 pub use export::{
     CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,
     SemanticExportError, export_kind, export_type_form,

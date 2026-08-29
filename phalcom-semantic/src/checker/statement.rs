@@ -85,6 +85,10 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     TypeKnowledge::Known(_) => ctx.check_knowledge_against_type(&val_typed.knowledge, contract.ty),
                 },
             };
+            let relation_explanation = contract.as_ref().map(|contract| {
+                let parents = val_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)).into_iter().collect();
+                ctx.record_type_relation_with_parents(&val_typed.knowledge, contract.ty, &relation, binding.range, parents)
+            });
             let reconciliation = reconcile_binding_relation(contract.as_ref(), &val_typed.knowledge, relation.clone());
             let mut causal_invalidity = val_typed.causal_invalidity.join(annotation_invalidity);
             if matches!(reconciliation.consistency, crate::checker::binding::BindingConsistency::Refuted { .. }) {
@@ -99,6 +103,17 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 }
                 if let Some(val) = &binding.value {
                     diag = diag.with_label(val.range(), "inferred type");
+                }
+                if let (Some(callable), Some(explanation)) = (ctx.current_callable.clone(), relation_explanation) {
+                    diag = diag.with_explanation(crate::diagnostic::ExplanationRef::new(callable, explanation));
+                }
+                if let (Some(annotation), TypeKnowledge::Known(evidence)) = (&binding.annotation, &val_typed.knowledge) {
+                    if evidence.status() == crate::types::evidence::EvidenceStatus::Established {
+                        diag = diag.with_guidance(crate::diagnostic::DiagnosticGuidance::ChangeAnnotation {
+                            range: annotation.range,
+                            ty: evidence.ty(),
+                        });
+                    }
                 }
                 let cause = ctx.emit_diagnostic(diag).expect("error diagnostic has cause");
                 val_typed.invalidate(cause);
@@ -125,6 +140,8 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 contract,
                 causal_invalidity,
                 binding.kind == BindingKind::Let,
+                binding.range,
+                val_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
             );
             None
         }
@@ -140,15 +157,40 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 TypedExpression::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics, ret.range)
             };
 
-            if let Some(expected) = ctx.expected_return.clone() {
-                ctx.apply_knowledge_against_type(
+            let relation = if let Some(expected) = ctx.expected_return.clone() {
+                Some(ctx.apply_knowledge_against_type(
                     &val_typed.knowledge,
                     expected.ty,
                     DiagnosticCode::ReturnMismatch,
                     "returned value is not assignable to method's declared return type",
                     ret.range,
-                );
+                ))
+            } else {
+                None
+            };
+            let mut parents = val_typed
+                .expression_id
+                .and_then(|id| ctx.explanation_for_expression(id))
+                .into_iter()
+                .collect::<Vec<_>>();
+            if let Some(explanation) = relation.as_ref().and_then(|application| application.explanation) {
+                parents.push(explanation);
             }
+            let return_explanation = ctx.record_derivation(
+                crate::explain::ExplanationStep::ReturnCheck {
+                    actual: val_typed.knowledge.clone(),
+                    expected: ctx.expected_return.as_ref().map(|contract| contract.ty),
+                },
+                crate::explain::DerivationRule::ReturnTypeCheck,
+                val_typed.knowledge.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
+                val_typed.knowledge.origin().unwrap_or(EvidenceOrigin::Flow),
+                Vec::new(),
+                parents,
+            );
+            if let Some(cause) = relation.as_ref().and_then(|application| application.cause) {
+                ctx.attach_explanation_to_cause(cause, return_explanation);
+            }
+            ctx.record_call_dependency(val_typed.causal_invalidity, Some(return_explanation));
             Some(val_typed.knowledge)
         }
         Statement::Expr { expr, .. } => {
@@ -191,14 +233,36 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     TypeKnowledge::Dynamic(reason) => (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
                 };
 
+                let mut parents = iter_typed
+                    .expression_id
+                    .and_then(|id| ctx.explanation_for_expression(id))
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let iteration = ctx.record_derivation(
+                    crate::explain::ExplanationStep::IterationElement {
+                        iterable: iter_typed.knowledge.clone(),
+                        element: elem_knowledge.clone(),
+                        callable: ctx.resolved_callable_for_current_expression(),
+                    },
+                    crate::explain::DerivationRule::IterationElementResolution,
+                    elem_knowledge.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
+                    elem_knowledge.origin().unwrap_or(EvidenceOrigin::Flow),
+                    Vec::new(),
+                    std::mem::take(&mut parents),
+                );
                 let elem_fact = ValueSemanticFact::new(elem_knowledge);
-                lane_facts.push((&lane.pattern, elem_fact, iter_typed.causal_invalidity.join(iteration_causal_invalidity)));
+                lane_facts.push((
+                    &lane.pattern,
+                    elem_fact,
+                    iter_typed.causal_invalidity.join(iteration_causal_invalidity),
+                    Some(iteration),
+                ));
             }
             let before = ctx.flow.clone();
             ctx.push_loop_frame();
             ctx.push_scope();
-            for (pat, fact, causal_invalidity) in lane_facts {
-                bind_pattern(ctx, pat, fact, causal_invalidity);
+            for (pat, fact, causal_invalidity, explanation) in lane_facts {
+                bind_pattern(ctx, pat, fact, causal_invalidity, explanation);
             }
             for s in &for_stmt.body {
                 check_statement(ctx, s);
@@ -229,10 +293,13 @@ fn bind_declaration_pattern(
     contract: Option<BindingContract>,
     causal_invalidity: crate::checker::causal::CausalInvalidity,
     mutable: bool,
+    range: phalcom_common::range::SourceRange,
+    explanation: Option<crate::identity::ExplanationId>,
 ) {
     match pattern {
         Pattern::Name { name, range: name_range } => {
-            ctx.declare_binding(BindingSeed {
+            let has_contract = contract.is_some();
+            let result = ctx.declare_binding(BindingSeed {
                 parameter: None,
                 name: name.clone(),
                 range: *name_range,
@@ -242,16 +309,31 @@ fn bind_declaration_pattern(
                 causal_invalidity,
                 mutable,
             });
+            if !has_contract {
+                if let (crate::checker::binding::BindingDeclarationResult::Inserted(binding), Some(explanation)) = (result, explanation) {
+                    ctx.flow.set_binding_explanation(binding, explanation);
+                }
+            }
         }
         Pattern::Tuple { elements, .. } => {
             for (index, element) in elements.iter().enumerate() {
-                let component = ValueSemanticFact::new(crate::checker::composition::decompose_tuple_component(
-                    ctx.store,
-                    &fact.knowledge,
-                    index,
-                    elements.len(),
-                ));
-                bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable);
+                let knowledge = crate::checker::composition::decompose_tuple_component(ctx.store, &fact.knowledge, index, elements.len());
+                let component_explanation = explanation.map(|source| {
+                    ctx.record_derivation(
+                        crate::explain::ExplanationStep::ProductComponent {
+                            source,
+                            index,
+                            result: knowledge.clone(),
+                        },
+                        crate::explain::DerivationRule::ProductDecomposition,
+                        knowledge.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
+                        knowledge.origin().unwrap_or(EvidenceOrigin::Flow),
+                        Vec::new(),
+                        vec![source],
+                    )
+                });
+                let component = ValueSemanticFact::new(knowledge);
+                bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable, range, component_explanation);
             }
         }
         Pattern::List { elements, rest, .. } => {
@@ -267,23 +349,43 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    range,
+                    explanation,
                 );
             }
             if let Some(rest) = rest {
                 let rest_knowledge = list_origin
                     .map(|origin| crate::checker::composition::decompose_list_rest(ctx.store, &fact.knowledge, origin))
                     .unwrap_or_else(|| fact.knowledge.clone());
-                bind_declaration_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), None, causal_invalidity, mutable);
+                bind_declaration_pattern(
+                    ctx,
+                    rest,
+                    ValueSemanticFact::new(rest_knowledge),
+                    None,
+                    causal_invalidity,
+                    mutable,
+                    range,
+                    explanation,
+                );
             }
         }
         _ => {}
     }
 }
 
-fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact, causal_invalidity: crate::checker::causal::CausalInvalidity) {
+fn bind_pattern(
+    ctx: &mut CheckingContext<'_>,
+    pattern: &Pattern,
+    fact: ValueSemanticFact,
+    causal_invalidity: crate::checker::causal::CausalInvalidity,
+    explanation: Option<crate::identity::ExplanationId>,
+) {
     match pattern {
         Pattern::Name { name, range, .. } => {
             ctx.bind_pattern_binding_with_causal(name.clone(), fact, *range, causal_invalidity);
+            if let (Some(binding), Some(explanation)) = (ctx.lookup_binding_info(name).map(|info| info.id), explanation) {
+                ctx.flow.set_binding_explanation(binding, explanation);
+            }
         }
         Pattern::Tuple { elements, .. } => {
             for (index, element) in elements.iter().enumerate() {
@@ -293,7 +395,7 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
                     index,
                     elements.len(),
                 ));
-                bind_pattern(ctx, element, component, causal_invalidity);
+                bind_pattern(ctx, element, component, causal_invalidity, explanation);
             }
         }
         Pattern::List { elements, rest, .. } => {
@@ -302,13 +404,13 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
                 .map(|origin| crate::checker::composition::decompose_list_element(ctx.store, &fact.knowledge, origin))
                 .unwrap_or_else(|| fact.knowledge.clone());
             for element in elements {
-                bind_pattern(ctx, element, ValueSemanticFact::new(element_knowledge.clone()), causal_invalidity);
+                bind_pattern(ctx, element, ValueSemanticFact::new(element_knowledge.clone()), causal_invalidity, explanation);
             }
             if let Some(rest) = rest {
                 let rest_knowledge = list_origin
                     .map(|origin| crate::checker::composition::decompose_list_rest(ctx.store, &fact.knowledge, origin))
                     .unwrap_or_else(|| fact.knowledge.clone());
-                bind_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), causal_invalidity);
+                bind_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), causal_invalidity, explanation);
             }
         }
         _ => {}

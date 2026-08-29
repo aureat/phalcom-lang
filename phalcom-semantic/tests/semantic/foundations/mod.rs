@@ -4,6 +4,7 @@ mod binding_contracts;
 mod canonical_call_application;
 mod causal;
 mod declarations;
+mod diagnostic_presentation;
 mod diagnostics;
 mod explanations;
 mod expression_analysis;

@@ -216,7 +216,7 @@ class Probe {
     assert!(matches!(call.status, AnalysisStatus::Invalid(_)), "{call:#?}");
     assert_eq!(call.knowledge, TypeKnowledge::Unknown(UnknownReason::InferenceConflict));
 
-    let diagnostics = f.diagnostics(DiagnosticCode::ArgumentMismatch);
+    let diagnostics = f.diagnostics(DiagnosticCode::GenericConstraintUnsatisfied);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
     assert_eq!(diagnostics[0].primary_range, f.expression(run, "\"bad\"").range);
 }

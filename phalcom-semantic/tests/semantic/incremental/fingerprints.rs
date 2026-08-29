@@ -117,6 +117,7 @@ fn callable_analysis() -> CallableAnalysis {
         diagnostics: Arc::from([]),
         internal_incidents: Arc::from([]),
         explanations: Arc::new(ExplanationArena::default()),
+        return_explanation: None,
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),
         dependency_fingerprint: ProductFingerprint::new(0),

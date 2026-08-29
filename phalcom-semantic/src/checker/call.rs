@@ -9,7 +9,7 @@ use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::{InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use crate::checker::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
+use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, DispatchSignatureSpecialization};
 use crate::identity::{CallableId, ExplanationId};
 use crate::types::evidence::DynamicReason;
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
@@ -32,6 +32,7 @@ pub(crate) struct CallableApplicationTarget {
     pub signature: CallableSignature,
     pub callable: Option<CallableId>,
     pub authority: CallTargetAuthority,
+    pub specialization: Option<DispatchSignatureSpecialization>,
 }
 
 impl CallableApplicationTarget {
@@ -40,11 +41,14 @@ impl CallableApplicationTarget {
             signature,
             callable: Some(callable),
             authority: CallTargetAuthority::ExactDispatch,
+            specialization: None,
         }
     }
 
     pub(crate) fn from_dispatch(resolved: Box<crate::dispatch::ResolvedDispatch>) -> Self {
-        Self::exact(resolved.callable, resolved.signature)
+        let mut target = Self::exact(resolved.callable, resolved.signature);
+        target.specialization = resolved.specialization;
+        target
     }
 
     pub(crate) fn callable_value(signature: CallableSignature, status: EvidenceStatus) -> Self {
@@ -52,6 +56,7 @@ impl CallableApplicationTarget {
             signature,
             callable: None,
             authority: CallTargetAuthority::CallableValue(status),
+            specialization: None,
         }
     }
 
@@ -60,6 +65,7 @@ impl CallableApplicationTarget {
             signature,
             callable: None,
             authority: CallTargetAuthority::StructuralBuiltin,
+            specialization: None,
         }
     }
 }
@@ -418,17 +424,55 @@ fn shape_failure_message(failure: &ArgumentShapeFailure) -> Option<String> {
     }
 }
 
-fn emit_shape_failures(ctx: &mut CheckingContext<'_>, failures: &[ArgumentShapeFailure], range: SourceRange) {
+fn emit_shape_failures(
+    ctx: &mut CheckingContext<'_>,
+    failures: &[ArgumentShapeFailure],
+    range: SourceRange,
+    callable: Option<CallableId>,
+    parameters: &[CallableParameter],
+) {
+    let structured = failures
+        .iter()
+        .filter_map(|failure| match failure {
+            ArgumentShapeFailure::MissingRequiredParameter { parameter_index } => Some(crate::explain::CallShapeExplanation::MissingRequired {
+                parameter_index: *parameter_index as u16,
+                label: parameters.get(*parameter_index).and_then(|parameter| parameter.external_label.clone()),
+            }),
+            ArgumentShapeFailure::UnexpectedPositional { argument_index } => Some(crate::explain::CallShapeExplanation::UnexpectedPositional {
+                argument_index: *argument_index as u16,
+            }),
+            ArgumentShapeFailure::UnknownLabel { label, .. } => Some(crate::explain::CallShapeExplanation::UnknownLabel { label: label.clone() }),
+            ArgumentShapeFailure::DuplicateParameterBinding { parameter_index } => Some(crate::explain::CallShapeExplanation::DuplicateParameter {
+                parameter_index: *parameter_index as u16,
+            }),
+            ArgumentShapeFailure::UnsupportedRestShape | ArgumentShapeFailure::DynamicShape => None,
+        })
+        .collect::<Vec<_>>();
+    let explanation = (!structured.is_empty()).then(|| {
+        ctx.record_derivation(
+            crate::explain::ExplanationStep::CallShape {
+                callable: callable.clone(),
+                failures: structured.into_boxed_slice(),
+            },
+            crate::explain::DerivationRule::CallShape,
+            EvidenceStatus::Established,
+            EvidenceOrigin::DeclarationSemantics,
+            vec![crate::explain::EvidenceRef::SourceSpan(range)],
+            Vec::new(),
+        )
+    });
     for failure in failures {
         let Some(message) = shape_failure_message(failure) else {
             continue;
         };
-        if let Some(cause) = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-            ctx.current_module.clone(),
-            DiagnosticCode::CallShapeMismatch,
-            message,
-            range,
-        )) {
+        let mut diagnostic = SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::CallShapeMismatch, message, range);
+        if let (Some(owner), Some(explanation)) = (ctx.current_callable.clone(), explanation) {
+            diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
+        }
+        if let Some(callable) = callable.clone() {
+            diagnostic = diagnostic.with_guidance(crate::diagnostic::DiagnosticGuidance::UseCallableShape { callable });
+        }
+        if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
             ctx.record_call_status(AnalysisStatus::Invalid(cause));
         }
     }
@@ -481,7 +525,7 @@ fn apply_non_generic_callable(
     let plan = match bind_static_arguments(arguments, &target.signature.parameters) {
         Ok(plan) => Some(plan),
         Err(failures) => {
-            emit_shape_failures(ctx, &failures, call_range);
+            emit_shape_failures(ctx, &failures, call_range, target.callable.clone(), &target.signature.parameters);
             None
         }
     };
@@ -499,13 +543,47 @@ fn apply_non_generic_callable(
             ctx.record_call_status(typed.status.clone());
         }
         if let Some(parameter) = parameter {
-            ctx.apply_assignability(
+            let relation = ctx.apply_assignability(
                 &typed.knowledge,
                 &parameter.ty,
                 DiagnosticCode::ArgumentMismatch,
                 argument_relation_message(argument_index, argument, parameter),
                 argument.range(),
             );
+            if let (Some(call), Some(argument_id), Some(expected_ty)) = (ctx.current_expression_id(), typed.expression_id, parameter.ty.ty()) {
+                let mut parents = Vec::new();
+                if let Some(argument_explanation) = ctx.explanation_for_expression(argument_id) {
+                    parents.push(argument_explanation);
+                }
+                if let Some(relation_explanation) = relation.explanation {
+                    parents.push(relation_explanation);
+                }
+                let explanation = ctx.record_derivation(
+                    crate::explain::ExplanationStep::ArgumentCheck {
+                        call,
+                        argument: argument_id,
+                        parameter_index: plan
+                            .as_ref()
+                            .and_then(|plan| plan.bindings.iter().find(|binding| binding.argument_index == argument_index))
+                            .map(|binding| binding.parameter_index as u16)
+                            .unwrap_or(argument_index as u16),
+                        actual: typed.knowledge.clone(),
+                        expected: expected_ty,
+                    },
+                    crate::explain::DerivationRule::ArgumentChecking,
+                    typed.knowledge.status().unwrap_or(EvidenceStatus::Assumed),
+                    typed.knowledge.origin().unwrap_or(EvidenceOrigin::Flow),
+                    vec![
+                        crate::explain::EvidenceRef::SourceSpan(argument.range()),
+                        crate::explain::EvidenceRef::TypeId(expected_ty),
+                    ],
+                    parents,
+                );
+                if let Some(cause) = relation.cause {
+                    ctx.attach_explanation_to_cause(cause, explanation);
+                }
+                ctx.record_call_dependency(CausalInvalidity::Clean, Some(explanation));
+            }
         }
     }
 
@@ -679,7 +757,7 @@ fn apply_generic_callable_inner(
     let binding_plan = match bind_static_arguments(args, &signature.parameters) {
         Ok(plan) => plan,
         Err(failures) => {
-            emit_shape_failures(ctx, &failures, call_range);
+            emit_shape_failures(ctx, &failures, call_range, None, &signature.parameters);
             for argument in args.iter().copied() {
                 let typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
                 record_generic_argument_capture(ctx, &typed);
@@ -752,13 +830,34 @@ fn apply_generic_callable_inner(
             })
             .unwrap_or(ConstraintOrigin::Explicit);
         session.record_required_premise(&parameter_term, origin.clone(), &argument_typed.knowledge, explanation);
+        let mut stable_constraint_explanation = explanation;
+        if let Some(argument_ty) = argument_typed.knowledge.ty() {
+            for parameter in session.projected_parameters_for_term(&parameter_term, &var_map) {
+                let constraint = ctx.record_derivation(
+                    crate::explain::ExplanationStep::GenericConstraint {
+                        parameter,
+                        origin: crate::explain::GenericConstraintOrigin::Argument {
+                            parameter_index: binding.parameter_index as u16,
+                        },
+                        relation: crate::explain::GenericConstraintRelation::SupertypeOf(argument_ty),
+                    },
+                    crate::explain::DerivationRule::GenericConstraint,
+                    argument_typed.knowledge.status().unwrap_or(EvidenceStatus::Assumed),
+                    argument_typed.knowledge.origin().unwrap_or(EvidenceOrigin::GenericInference),
+                    vec![crate::explain::EvidenceRef::TypeId(argument_ty)],
+                    explanation.into_iter().collect(),
+                );
+                stable_constraint_explanation = Some(constraint);
+                ctx.record_call_dependency(CausalInvalidity::Clean, Some(constraint));
+            }
+        }
         match &argument_typed.knowledge {
             TypeKnowledge::Known(evidence) => {
                 if let Some(support) = inference_support(&argument_typed.knowledge) {
                     session.add_constraint_with_support(
                         InferenceRelation::Subtype(InferenceTerm::Canonical(evidence.ty()), parameter_term),
                         origin,
-                        explanation,
+                        stable_constraint_explanation,
                         support,
                     );
                 }
@@ -777,6 +876,11 @@ fn apply_generic_callable_inner(
         crate::checker::inference::InferenceOutcome::Solved(_) => {
             Some(publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range))
         }
+        _ => None,
+    };
+
+    let argument_underconstrained = match &argument_outcome {
+        crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value.clone()),
         _ => None,
     };
 
@@ -803,20 +907,112 @@ fn apply_generic_callable_inner(
         argument_outcome
     };
 
-    match &outcome {
-        crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
-            if !ctx.call_status_is_recorded() {
-                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+    let underconstrained = argument_underconstrained.as_ref().or_else(|| match &outcome {
+        crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value),
+        _ => None,
+    });
+
+    if let Some(underconstrained) = underconstrained
+        && !ctx.call_status_is_recorded()
+    {
+        let parameter = underconstrained
+            .unsolved_vars
+            .iter()
+            .find_map(|variable| session.parameter_for_variable(*variable, &var_map));
+        let explanation = ctx.record_derivation(
+            crate::explain::ExplanationStep::UnknownBoundary {
+                reason: UnknownReason::UnderconstrainedTypeVariable,
+                source: Some(call_range),
+            },
+            crate::explain::DerivationRule::UnknownPropagation,
+            EvidenceStatus::Assumed,
+            EvidenceOrigin::GenericInference,
+            vec![crate::explain::EvidenceRef::SourceSpan(call_range)],
+            session.all_constraint_explanation_roots(),
+        );
+        let mut diagnostic = SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::GenericInferenceUnderconstrained,
+            "generic inference has insufficient value-producing evidence",
+            call_range,
+        );
+        if let Some(owner) = ctx.current_callable.clone() {
+            diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
+        }
+        if let Some(parameter) = parameter {
+            diagnostic = diagnostic.with_guidance(crate::diagnostic::DiagnosticGuidance::ResolveGenericParameter { parameter });
+        }
+        ctx.diagnostics.push(diagnostic);
+        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+    }
+
+    if let crate::checker::inference::InferenceOutcome::Solved(_) = &outcome {
+        for parameter in generic_sig.parameters.iter().copied() {
+            if let Some(ty) = session.projected_solution(parameter, &var_map, ctx.store) {
+                let status = var_map
+                    .get(&parameter)
+                    .and_then(|term| session.term_support(term))
+                    .map(|support| match support {
+                        InferenceSupport::Established => EvidenceStatus::Established,
+                        InferenceSupport::Assumed => EvidenceStatus::Assumed,
+                    })
+                    .unwrap_or(EvidenceStatus::Assumed);
+                let explanation = ctx.record_derivation(
+                    crate::explain::ExplanationStep::GenericSolution { parameter, ty, status },
+                    crate::explain::DerivationRule::GenericSolution,
+                    status,
+                    EvidenceOrigin::GenericInference,
+                    vec![crate::explain::EvidenceRef::TypeId(ty)],
+                    Vec::new(),
+                );
+                ctx.record_call_dependency(CausalInvalidity::Clean, Some(explanation));
             }
         }
+    }
+
+    match &outcome {
+        crate::checker::inference::InferenceOutcome::Underconstrained(_) => {}
         crate::checker::inference::InferenceOutcome::Conflicting(conflict) => {
-            let range = conflict_source_range(ctx, conflict, call_range);
-            if let Some(cause) = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            let range = conflict_source_range(ctx, &session, conflict, call_range);
+            let parameter = match &conflict.failure {
+                crate::checker::inference::InferenceFailureReason::ConflictingBounds { var, .. }
+                | crate::checker::inference::InferenceFailureReason::OccursCheck { var }
+                | crate::checker::inference::InferenceFailureReason::KindMismatch { var, .. }
+                | crate::checker::inference::InferenceFailureReason::MissingVariableMetadata { var } => session.parameter_for_variable(*var, &var_map),
+                crate::checker::inference::InferenceFailureReason::StructuralMismatch { .. }
+                | crate::checker::inference::InferenceFailureReason::UnresolvedSelf => None,
+            };
+            let parents = session.constraint_explanation_roots(&conflict.constraint_indices);
+            let explanation = ctx.record_derivation(
+                crate::explain::ExplanationStep::GenericConflict {
+                    parameter,
+                    constraints: parents.clone().into_boxed_slice(),
+                },
+                crate::explain::DerivationRule::GenericConflict,
+                EvidenceStatus::Established,
+                EvidenceOrigin::GenericInference,
+                vec![crate::explain::EvidenceRef::SourceSpan(range)],
+                parents,
+            );
+            let violates_declared_constraint = matches!(conflict.origin, Some(ConstraintOrigin::GenericWhere { .. }))
+                || conflict
+                    .constraint_indices
+                    .iter()
+                    .any(|index| matches!(session.constraint_origin(*index), Some(ConstraintOrigin::GenericWhere { .. })));
+            let mut diagnostic = SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),
-                DiagnosticCode::ArgumentMismatch,
+                if violates_declared_constraint {
+                    DiagnosticCode::GenericConstraintUnsatisfied
+                } else {
+                    DiagnosticCode::GenericInferenceConflict
+                },
                 generic_conflict_message(conflict),
                 range,
-            )) {
+            );
+            if let Some(owner) = ctx.current_callable.clone() {
+                diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
+            }
+            if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
                 ctx.record_call_status(AnalysisStatus::Invalid(cause));
             }
         }
@@ -919,11 +1115,22 @@ fn publish_generic_return(
     }
 }
 
-fn conflict_source_range(ctx: &CheckingContext<'_>, conflict: &crate::checker::inference::InferenceConflict, fallback: SourceRange) -> SourceRange {
-    match conflict.origin.as_ref() {
-        Some(ConstraintOrigin::Argument { argument, .. }) => ctx.expressions.get(argument).map(|analysis| analysis.range).unwrap_or(fallback),
-        _ => fallback,
-    }
+fn conflict_source_range(
+    ctx: &CheckingContext<'_>,
+    session: &InferenceSession,
+    conflict: &crate::checker::inference::InferenceConflict,
+    fallback: SourceRange,
+) -> SourceRange {
+    let argument = match conflict.origin.as_ref() {
+        Some(ConstraintOrigin::Argument { argument, .. }) => Some(*argument),
+        _ => conflict.constraint_indices.iter().find_map(|index| match session.constraint_origin(*index) {
+            Some(ConstraintOrigin::Argument { argument, .. }) => Some(*argument),
+            _ => None,
+        }),
+    };
+    argument
+        .and_then(|argument| ctx.expressions.get(&argument).map(|analysis| analysis.range))
+        .unwrap_or(fallback)
 }
 
 fn generic_conflict_message(conflict: &crate::checker::inference::InferenceConflict) -> String {
@@ -954,6 +1161,66 @@ pub(crate) fn apply_resolved_callable(
     call_range: SourceRange,
 ) -> CallCheckResult {
     ctx.begin_call_causal_capture();
+    if let (Some(callable), Some(call_id), Some(specialization)) = (target.callable.clone(), ctx.current_expression_id(), target.specialization.as_ref()) {
+        let selection = ctx.record_derivation(
+            crate::explain::ExplanationStep::CallableSelection {
+                callable: callable.clone(),
+                receiver: specialization.receiver,
+            },
+            crate::explain::DerivationRule::CallableSelection,
+            EvidenceStatus::Established,
+            EvidenceOrigin::DeclarationSemantics,
+            vec![crate::explain::EvidenceRef::TypeId(specialization.receiver)],
+            premise.explanation.into_iter().collect(),
+        );
+        let kind = ctx.record_derivation(
+            crate::explain::ExplanationStep::CallableKind {
+                callable: callable.clone(),
+                kind: target.signature.kind,
+            },
+            crate::explain::DerivationRule::CallableSelection,
+            EvidenceStatus::Established,
+            target_fixed_return_origin(target),
+            Vec::new(),
+            vec![selection],
+        );
+        let mut root = kind;
+        if let Some(unspecialized_ty) = specialization.unspecialized_return.ty() {
+            let declared_return = ctx.record_derivation(
+                crate::explain::ExplanationStep::CallableReturn {
+                    callable: callable.clone(),
+                    ty: unspecialized_ty,
+                },
+                crate::explain::DerivationRule::CallableReturn,
+                specialization.unspecialized_return.status().unwrap_or(EvidenceStatus::Assumed),
+                specialization.unspecialized_return.origin().unwrap_or(EvidenceOrigin::CallableSignature),
+                vec![crate::explain::EvidenceRef::TypeId(unspecialized_ty)],
+                vec![kind],
+            );
+            root = declared_return;
+            if let Some(resolved_ty) = target.signature.return_type.ty() {
+                if resolved_ty != unspecialized_ty {
+                    root = ctx.record_derivation(
+                        crate::explain::ExplanationStep::SelfTypeSpecialization {
+                            self_ty: unspecialized_ty,
+                            receiver: specialization.receiver,
+                            resolved: resolved_ty,
+                        },
+                        crate::explain::DerivationRule::SelfSpecialization,
+                        target.signature.return_type.status().unwrap_or(EvidenceStatus::Established),
+                        target_fixed_return_origin(target),
+                        vec![
+                            crate::explain::EvidenceRef::TypeId(unspecialized_ty),
+                            crate::explain::EvidenceRef::TypeId(resolved_ty),
+                        ],
+                        vec![declared_return],
+                    );
+                }
+            }
+        }
+        let _ = call_id;
+        ctx.record_call_dependency(CausalInvalidity::Clean, Some(root));
+    }
     let knowledge = if target.signature.generics.as_ref().is_some_and(|generics| !generics.parameters.is_empty()) {
         let result = apply_generic_callable(ctx, target, premise, arguments, expected, call_range);
         cap_result_to_premise_authority(target, premise, result, call_range)
@@ -1136,6 +1403,7 @@ mod tests {
             ),
             (
                 InferenceOutcome::Conflicting(InferenceConflict {
+                    constraint_indices: Box::from([2]),
                     constraint_index: Some(2),
                     origin: None,
                     failure: InferenceFailureReason::StructuralMismatch {

@@ -116,6 +116,104 @@ pub fn semantic_diagnostic_to_lsp_diagnostic_with_sources(
     }
 }
 
+fn presented_semantic_diagnostic_to_lsp_diagnostic_with_sources(
+    presented: &phalcom_semantic::PresentedDiagnostic,
+    primary_index: &LineIndex,
+    primary_uri: &tower_lsp::lsp_types::Url,
+    sources: &BTreeMap<phalcom_modules::identity::ModuleId, SemanticDiagnosticSource>,
+) -> Diagnostic {
+    use phalcom_semantic::DiagnosticSeverity as SemSeverity;
+    let severity = match presented.severity {
+        SemSeverity::Error => DiagnosticSeverity::ERROR,
+        SemSeverity::Warning => DiagnosticSeverity::WARNING,
+        SemSeverity::Information => DiagnosticSeverity::INFORMATION,
+        SemSeverity::Hint => DiagnosticSeverity::HINT,
+    };
+    let mut related = Vec::new();
+    for label in &presented.labels {
+        let source = if label.span.module == presented.primary.module {
+            None
+        } else {
+            sources.get(&label.span.module)
+        };
+        let (label_uri, label_index) = source.map(|source| (&source.uri, &source.line_index)).unwrap_or((primary_uri, primary_index));
+        let message = if source.is_some() || label.span.module == presented.primary.module {
+            label.message.clone()
+        } else {
+            format!("{} (source module {})", label.message, label.span.module)
+        };
+        related.push(tower_lsp::lsp_types::DiagnosticRelatedInformation {
+            location: tower_lsp::lsp_types::Location {
+                uri: label_uri.clone(),
+                range: label_index.range(label.span.range.start..label.span.range.end),
+            },
+            message,
+        });
+    }
+    let primary_location = || tower_lsp::lsp_types::Location {
+        uri: primary_uri.clone(),
+        range: primary_index.range(presented.primary.range.start..presented.primary.range.end),
+    };
+    for line in &presented.explanation {
+        related.push(tower_lsp::lsp_types::DiagnosticRelatedInformation {
+            location: primary_location(),
+            message: line.text.clone(),
+        });
+    }
+    for line in &presented.guidance {
+        related.push(tower_lsp::lsp_types::DiagnosticRelatedInformation {
+            location: primary_location(),
+            message: format!("guidance: {}", line.text),
+        });
+    }
+    for line in &presented.context {
+        related.push(tower_lsp::lsp_types::DiagnosticRelatedInformation {
+            location: primary_location(),
+            message: format!("context: {}", line.text),
+        });
+    }
+    let related_information = (!related.is_empty()).then_some(related);
+
+    Diagnostic {
+        range: primary_index.range(presented.primary.range.start..presented.primary.range.end),
+        severity: Some(severity),
+        code: Some(tower_lsp::lsp_types::NumberOrString::String(presented.code.as_str().to_string())),
+        source: Some("phalcom-typecheck".to_string()),
+        message: presented.headline.clone(),
+        related_information,
+        ..Diagnostic::default()
+    }
+}
+
+/// Projects one compiler semantic diagnostic through the shared protocol-neutral
+/// presenter and then maps the result into LSP fields. No type reasoning or
+/// explanation prose is generated in the LSP crate.
+pub fn semantic_diagnostic_to_lsp_diagnostic_with_snapshot(
+    diag: &phalcom_semantic::SemanticDiagnostic,
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    primary_index: &LineIndex,
+    primary_uri: &tower_lsp::lsp_types::Url,
+    sources: &BTreeMap<phalcom_modules::identity::ModuleId, SemanticDiagnosticSource>,
+) -> Diagnostic {
+    let presented = phalcom_semantic::DiagnosticPresenter::new(snapshot).present(diag, phalcom_semantic::DiagnosticDetail::Compact);
+    presented_semantic_diagnostic_to_lsp_diagnostic_with_sources(&presented, primary_index, primary_uri, sources)
+}
+
+/// Converts a module's semantic diagnostics through the shared semantic
+/// presentation model. This is the production LSP diagnostic path.
+pub fn semantic_diagnostics_to_lsp_diagnostics_with_snapshot(
+    diags: &[phalcom_semantic::SemanticDiagnostic],
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    primary_index: &LineIndex,
+    primary_uri: &tower_lsp::lsp_types::Url,
+    sources: &BTreeMap<phalcom_modules::identity::ModuleId, SemanticDiagnosticSource>,
+) -> Vec<Diagnostic> {
+    diags
+        .iter()
+        .map(|diag| semantic_diagnostic_to_lsp_diagnostic_with_snapshot(diag, snapshot, primary_index, primary_uri, sources))
+        .collect()
+}
+
 /// Converts every [`SemanticDiagnostic`] into LSP [`Diagnostic`]s.
 pub fn semantic_diagnostics_to_lsp_diagnostics(
     diags: &[phalcom_semantic::SemanticDiagnostic],
@@ -173,6 +271,58 @@ mod tests {
             assert_eq!(diag.range, index.range(err.range.clone()));
             assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
         }
+    }
+
+    #[test]
+    fn presented_semantic_diagnostic_projects_explanation_guidance_and_context_without_ansi() {
+        let source = "const result: Int = CellNum.new(42)\n";
+        let index = LineIndex::new(source);
+        let uri = tower_lsp::lsp_types::Url::parse("file:///workspace/main.ph").unwrap();
+        let presented = phalcom_semantic::PresentedDiagnostic {
+            code: phalcom_semantic::DiagnosticCode::BindingInitializerMismatch,
+            severity: phalcom_semantic::DiagnosticSeverity::Error,
+            headline: "initializer conflicts with declared type".into(),
+            primary: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::core(), (14..17).into()),
+            labels: vec![
+                phalcom_semantic::PresentedLabel {
+                    span: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::core(), (14..17).into()),
+                    message: "required `Int`".into(),
+                    role: phalcom_semantic::PresentedLabelRole::Required,
+                },
+                phalcom_semantic::PresentedLabel {
+                    span: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::core(), (20..35).into()),
+                    message: "proven `CellNum`".into(),
+                    role: phalcom_semantic::PresentedLabelRole::Established,
+                },
+            ],
+            explanation: vec![phalcom_semantic::PresentedLine {
+                text: "here `Self` resolves to `CellNum`".into(),
+            }],
+            guidance: vec![phalcom_semantic::PresentedLine {
+                text: "the annotation can be changed to `CellNum`".into(),
+            }],
+            context: vec![phalcom_semantic::PresentedLine {
+                text: "tooling currently observes this value as `CellNum`".into(),
+            }],
+            trace: Vec::new(),
+            fixes: Vec::new(),
+        };
+
+        let diagnostic = presented_semantic_diagnostic_to_lsp_diagnostic_with_sources(&presented, &index, &uri, &BTreeMap::new());
+        assert_eq!(diagnostic.message, "initializer conflicts with declared type");
+        assert_eq!(diagnostic.severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(
+            diagnostic.code,
+            Some(tower_lsp::lsp_types::NumberOrString::String("type.binding.initializer_mismatch".to_string()))
+        );
+        let related = diagnostic.related_information.expect("rich related information");
+        assert!(related.iter().any(|item| item.message == "required `Int`"));
+        assert!(related.iter().any(|item| item.message == "proven `CellNum`"));
+        assert!(related.iter().any(|item| item.message == "here `Self` resolves to `CellNum`"));
+        assert!(related.iter().any(|item| item.message.starts_with("guidance: ")));
+        assert!(related.iter().any(|item| item.message.starts_with("context: ")));
+        assert!(related.iter().all(|item| !item.message.contains("\u{1b}[")));
+        assert!(!diagnostic.message.contains("\u{1b}["));
     }
 
     #[test]

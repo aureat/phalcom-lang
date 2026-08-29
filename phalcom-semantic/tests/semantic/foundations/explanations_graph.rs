@@ -1,80 +1,136 @@
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
-use phalcom_semantic::explain::{DerivationRule, EvidenceRef, ExplanationArena, ExplanationStep, PredicateKind, causal_slice};
-use phalcom_semantic::identity::{BindingId, BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId, TypeId};
-use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus};
+use phalcom_semantic::explain::{DerivationRule, EvidenceRef, ExplanationArena, ExplanationStep, PredicateKind, causal_slice, causal_trace};
+use phalcom_semantic::identity::{BindingId, BodyId, ExpressionId, LocalExpressionId, TypeId};
+use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::outcome::{BlockReason, RelationFailure, RelationOutcome};
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 10 };
 
-#[test]
-fn test_explanation_graph_derivation_rules() {
-    let mut arena = ExplanationArena::new();
+fn known(ty: TypeId) -> TypeKnowledge {
+    TypeKnowledge::established(ty, EvidenceOrigin::Syntax)
+}
 
-    let lit_expr = ExpressionId::new(BodyId(1), LocalExpressionId(0));
-    let lit_step = ExplanationStep::Literal {
-        expression: lit_expr,
-        ty: TypeId(1),
-    };
-    let n1 = arena.alloc_full(
-        lit_step.clone(),
+#[test]
+fn causal_trace_is_deterministic_parent_first_and_deduplicated() {
+    let mut arena = ExplanationArena::new();
+    let expr = ExpressionId::new(BodyId(1), LocalExpressionId(0));
+
+    let shared = arena.alloc_full(
+        ExplanationStep::Literal {
+            expression: expr,
+            ty: TypeId(1),
+        },
         DerivationRule::LiteralSynthesis,
         EvidenceStatus::Established,
         EvidenceOrigin::Syntax,
         vec![EvidenceRef::SourceSpan(RANGE), EvidenceRef::TypeId(TypeId(1))],
         Vec::new(),
     );
-
-    let call_step = ExplanationStep::MethodCall {
-        call: ExpressionId::new(BodyId(1), LocalExpressionId(1)),
-        callable: CallableId::new(
-            DeclarationId::new(ModuleId::core(), "Number".into()),
-            Selector::getter("plus").unwrap(),
-            DispatchSide::Instance,
-        ),
-        return_ty: TypeId(2),
-    };
-    let n2 = arena.alloc_full(
-        call_step,
-        DerivationRule::MethodCallReturn { selector: "plus".into() },
+    let left = arena.alloc(
+        ExplanationStep::Declared {
+            binding: Some(BindingId(1)),
+            range: RANGE,
+            ty: TypeId(1),
+        },
         EvidenceStatus::Established,
-        EvidenceOrigin::Flow,
-        vec![EvidenceRef::TypeId(TypeId(2))],
-        vec![n1],
+        EvidenceOrigin::DeveloperAnnotation,
+        vec![shared],
     );
-
-    let flow_step = ExplanationStep::FlowRefinement {
-        binding: BindingId(1),
-        prior: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(2), EvidenceOrigin::Syntax),
-        refined: phalcom_semantic::types::evidence::TypeKnowledge::established(TypeId(2), EvidenceOrigin::Flow),
-    };
-    let n3 = arena.alloc_full(
-        flow_step,
-        DerivationRule::FlowRefinement {
-            predicate_kind: PredicateKind::IsInstance,
+    let right = arena.alloc(
+        ExplanationStep::TypeRequirement {
+            expected: TypeId(2),
+            origin: phalcom_semantic::checker::expected::ExpectationOrigin::ExplicitCheck,
+            source: None,
+        },
+        EvidenceStatus::Established,
+        EvidenceOrigin::DeveloperAnnotation,
+        vec![shared],
+    );
+    let root = arena.alloc(
+        ExplanationStep::TypeRelation {
+            actual: known(TypeId(1)),
+            expected: TypeId(2),
+            outcome: RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                actual: TypeId(1),
+                expected: TypeId(2),
+            }),
         },
         EvidenceStatus::Established,
         EvidenceOrigin::Flow,
-        vec![EvidenceRef::BindingVersion {
-            binding: BindingId(1),
-            version: 1,
-        }],
-        vec![n2],
+        vec![left, right],
     );
 
-    assert_eq!(arena.len(), 3);
+    let trace = causal_trace(&arena, root);
+    assert_eq!(trace.iter().map(|node| node.id).collect::<Vec<_>>(), vec![shared, left, right, root]);
+    assert_eq!(trace.iter().filter(|node| node.id == shared).count(), 1);
+    assert_eq!(trace.last().unwrap().id, root);
 
-    let node3 = arena.get(n3).unwrap();
+    // Compatibility slice keeps the historical root-first view.
+    assert_eq!(causal_slice(&arena, root).first().unwrap().id, root);
+}
+
+#[test]
+fn type_relation_preserves_refuted_and_blocked_outcomes() {
+    let mut arena = ExplanationArena::new();
+    let refuted = arena.alloc(
+        ExplanationStep::TypeRelation {
+            actual: known(TypeId(1)),
+            expected: TypeId(2),
+            outcome: RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                actual: TypeId(1),
+                expected: TypeId(2),
+            }),
+        },
+        EvidenceStatus::Established,
+        EvidenceOrigin::Flow,
+        Vec::new(),
+    );
+    let blocked = arena.alloc(
+        ExplanationStep::TypeRelation {
+            actual: TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration),
+            expected: TypeId(2),
+            outcome: RelationOutcome::Blocked(BlockReason::UnknownType(UnknownReason::UnannotatedDeclaration)),
+        },
+        EvidenceStatus::Assumed,
+        EvidenceOrigin::Flow,
+        Vec::new(),
+    );
+
+    assert!(matches!(
+        &arena.get(refuted).unwrap().step,
+        ExplanationStep::TypeRelation {
+            outcome: RelationOutcome::Refuted(_),
+            ..
+        }
+    ));
+    assert!(matches!(
+        &arena.get(blocked).unwrap().step,
+        ExplanationStep::TypeRelation {
+            outcome: RelationOutcome::Blocked(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn flow_refinement_keeps_actual_predicate_kind() {
+    let mut arena = ExplanationArena::new();
+    let node = arena.alloc(
+        ExplanationStep::FlowRefinement {
+            binding: BindingId(1),
+            predicate: PredicateKind::Falsy,
+            prior: known(TypeId(1)),
+            refined: known(TypeId(2)),
+        },
+        EvidenceStatus::Established,
+        EvidenceOrigin::Flow,
+        Vec::new(),
+    );
+
     assert_eq!(
-        node3.rule,
+        arena.get(node).unwrap().rule,
         DerivationRule::FlowRefinement {
-            predicate_kind: PredicateKind::IsInstance
+            predicate_kind: PredicateKind::Falsy
         }
     );
-    assert_eq!(node3.parents, vec![n2]);
-
-    let slice = causal_slice(&arena, n3);
-    assert_eq!(slice.len(), 3);
-    assert_eq!(slice[0].id, n3);
-    assert_eq!(slice[1].id, n2);
-    assert_eq!(slice[2].id, n1);
 }

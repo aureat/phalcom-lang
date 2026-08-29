@@ -470,6 +470,41 @@ impl Fixture {
         assert_eq!(expression.callable.as_ref(), Some(expected), "unexpected resolved callable: {expression:#?}");
     }
 
+    pub fn explanation<'a>(&'a self, callable: &'a CallableAnalysis, expression: &ExpressionAnalysis) -> &'a phalcom_semantic::ExplanationNode {
+        let id = expression.explanation.expect("expected expression explanation");
+        callable.explanations.get(id).expect("missing explanation node")
+    }
+
+    pub fn explanation_trace<'a>(&'a self, callable: &'a CallableAnalysis, expression: &ExpressionAnalysis) -> Vec<&'a phalcom_semantic::ExplanationNode> {
+        let id = expression.explanation.expect("expected expression explanation");
+        phalcom_semantic::causal_trace(&callable.explanations, id)
+    }
+
+    pub fn assert_trace_has(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        predicate: impl Fn(&phalcom_semantic::ExplanationStep) -> bool,
+    ) {
+        let trace = self.explanation_trace(callable, expression);
+        assert!(trace.iter().any(|node| predicate(&node.step)), "missing expected trace step: {trace:#?}");
+    }
+
+    pub fn diagnostic_trace<'a>(&'a self, diagnostic: &SemanticDiagnostic) -> Vec<&'a phalcom_semantic::ExplanationNode> {
+        diagnostic
+            .explanations
+            .iter()
+            .flat_map(|reference| {
+                let arena = self
+                    .analysis
+                    .snapshot
+                    .explanation_arena(&reference.callable)
+                    .expect("diagnostic explanation arena");
+                phalcom_semantic::causal_trace(arena, reference.explanation)
+            })
+            .collect()
+    }
+
     pub fn assert_explanation_rule(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, expected: DerivationRule) {
         let id = expression.explanation.expect("expected expression explanation");
         let node = callable.explanations.get(id).expect("missing explanation node");

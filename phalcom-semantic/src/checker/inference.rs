@@ -204,6 +204,9 @@ pub struct UnderconstrainedInference {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InferenceConflict {
+    /// Deterministic bounded causal constraint set. The legacy single index is
+    /// retained during v1 migration for callers that only need the failing edge.
+    pub constraint_indices: Box<[u32]>,
     pub constraint_index: Option<u32>,
     pub origin: Option<ConstraintOrigin>,
     pub failure: InferenceFailureReason,
@@ -254,6 +257,7 @@ pub struct InferenceSession {
     required_premises: Vec<RequiredInferencePremise>,
     subtype_edges: Vec<InferenceSubtypeEdge>,
     bound_origins: HashMap<(InferVarId, TypeId), (u32, ConstraintOrigin)>,
+    variable_constraint_indices: HashMap<InferVarId, Vec<u32>>,
     next_var_index: u32,
 }
 
@@ -350,6 +354,63 @@ impl InferenceSession {
             proof = proof.meet(current);
         }
         proof
+    }
+
+    pub fn projected_parameters_for_term(&self, term: &InferenceTerm, parameters: &HashMap<TypeParameterId, InferenceTerm>) -> Vec<TypeParameterId> {
+        let variables = self.term_variables(term);
+        let mut result: Vec<_> = parameters
+            .iter()
+            .filter_map(|(parameter, mapped)| match mapped {
+                InferenceTerm::Var(variable) if variables.contains(&self.find_var(*variable)) => Some(*parameter),
+                _ => None,
+            })
+            .collect();
+        result.sort_by_key(|parameter| parameter.index());
+        result
+    }
+
+    pub fn constraint_explanation_roots(&self, indices: &[u32]) -> Vec<ExplanationId> {
+        let mut roots = indices
+            .iter()
+            .filter_map(|index| self.constraints.get(*index as usize).and_then(|constraint| constraint.explanation))
+            .collect::<Vec<_>>();
+        roots.sort_by_key(|id| id.0);
+        roots.dedup();
+        roots
+    }
+
+    pub fn constraint_origin(&self, index: u32) -> Option<&ConstraintOrigin> {
+        self.constraints.get(index as usize).map(|constraint| &constraint.origin)
+    }
+
+    pub fn parameter_for_variable(&self, variable: InferVarId, parameters: &HashMap<TypeParameterId, InferenceTerm>) -> Option<TypeParameterId> {
+        let representative = self.find_var(variable);
+        let mut candidates = parameters
+            .iter()
+            .filter_map(|(parameter, term)| match term {
+                InferenceTerm::Var(candidate) if self.find_var(*candidate) == representative => Some(*parameter),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by_key(|parameter| parameter.index());
+        candidates.into_iter().next()
+    }
+
+    pub fn all_constraint_explanation_roots(&self) -> Vec<ExplanationId> {
+        let mut roots = self.constraints.iter().filter_map(|constraint| constraint.explanation).collect::<Vec<_>>();
+        roots.sort_by_key(|id| id.0);
+        roots.dedup();
+        roots
+    }
+
+    pub fn projected_solution(
+        &mut self,
+        parameter: TypeParameterId,
+        parameters: &HashMap<TypeParameterId, InferenceTerm>,
+        store: &mut TypeStore,
+    ) -> Option<TypeId> {
+        let term = parameters.get(&parameter)?;
+        self.materialize(term, store).ok()
     }
 
     fn variable_by_representative(&self, variable: InferVarId) -> Option<&InferenceVariable> {
@@ -466,9 +527,11 @@ impl InferenceSession {
                     Ok(effect) => {
                         changed |= effect.is_changed();
                         self.record_bound_origin(&constraint.relation, constraint.origin.clone(), constraint_index as u32, store);
+                        self.record_variable_constraint_indices(&constraint.relation, constraint_index as u32);
                     }
                     Err(failure) => {
-                        return self.failure_outcome(failure, Some(constraint_index as u32), Some(constraint.origin.clone()));
+                        let related = self.related_constraint_indices(&constraint.relation);
+                        return self.failure_outcome_with_related(failure, Some(constraint_index as u32), Some(constraint.origin.clone()), &related);
                     }
                 }
             }
@@ -602,16 +665,75 @@ impl InferenceSession {
     }
 
     fn failure_outcome(&mut self, failure: InferenceFailureReason, constraint_index: Option<u32>, origin: Option<ConstraintOrigin>) -> InferenceOutcome {
+        self.failure_outcome_with_related(failure, constraint_index, origin, &[])
+    }
+
+    fn failure_outcome_with_related(
+        &mut self,
+        failure: InferenceFailureReason,
+        constraint_index: Option<u32>,
+        origin: Option<ConstraintOrigin>,
+        related_constraint_indices: &[u32],
+    ) -> InferenceOutcome {
         self.mark_failure(&failure);
         if matches!(failure, InferenceFailureReason::MissingVariableMetadata { .. }) {
             InferenceOutcome::InternalFailure(failure)
         } else {
+            let mut constraint_indices = related_constraint_indices.to_vec();
+            if let Some(index) = constraint_index {
+                constraint_indices.push(index);
+            }
+            if let InferenceFailureReason::ConflictingBounds { var, lower, upper } = &failure {
+                let rep = self.find_var(*var);
+                for bound in [*lower, *upper] {
+                    if let Some((index, _)) = self.bound_origins.get(&(rep, bound)) {
+                        constraint_indices.push(*index);
+                    }
+                }
+            }
+            constraint_indices.sort_unstable();
+            constraint_indices.dedup();
+            constraint_indices.truncate(4);
             InferenceOutcome::Conflicting(InferenceConflict {
+                constraint_indices: constraint_indices.into_boxed_slice(),
                 constraint_index,
                 origin,
                 failure,
             })
         }
+    }
+
+    fn record_variable_constraint_indices(&mut self, relation: &InferenceRelation, constraint_index: u32) {
+        let terms = match relation {
+            InferenceRelation::Equivalent(left, right) | InferenceRelation::Subtype(left, right) => [left, right],
+        };
+        for term in terms {
+            for variable in self.term_variables(term) {
+                let representative = self.find_var(variable);
+                let indices = self.variable_constraint_indices.entry(representative).or_default();
+                if !indices.contains(&constraint_index) {
+                    indices.push(constraint_index);
+                }
+            }
+        }
+    }
+
+    fn related_constraint_indices(&self, relation: &InferenceRelation) -> Vec<u32> {
+        let terms = match relation {
+            InferenceRelation::Equivalent(left, right) | InferenceRelation::Subtype(left, right) => [left, right],
+        };
+        let mut indices = Vec::new();
+        for term in terms {
+            for variable in self.term_variables(term) {
+                let representative = self.find_var(variable);
+                if let Some(recorded) = self.variable_constraint_indices.get(&representative) {
+                    indices.extend(recorded.iter().copied());
+                }
+            }
+        }
+        indices.sort_unstable();
+        indices.dedup();
+        indices
     }
 
     fn record_bound_origin(&mut self, relation: &InferenceRelation, origin: ConstraintOrigin, constraint_index: u32, store: &mut TypeStore) {
@@ -1025,6 +1147,12 @@ impl InferenceSession {
                 for ((variable, ty), origin) in origins {
                     let representative = if variable == rep1 { rep2 } else { variable };
                     self.bound_origins.entry((representative, ty)).or_insert(origin);
+                }
+                if let Some(indices) = self.variable_constraint_indices.remove(&rep1) {
+                    let target = self.variable_constraint_indices.entry(rep2).or_default();
+                    target.extend(indices);
+                    target.sort_unstable();
+                    target.dedup();
                 }
                 Ok(SolveEffect::Changed)
             }

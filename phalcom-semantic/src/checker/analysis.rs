@@ -273,6 +273,7 @@ pub struct CallableAnalysis {
     /// Structured analyzer incidents kept separate from source diagnostics.
     pub internal_incidents: Arc<[InternalSemanticIncident]>,
     pub explanations: Arc<crate::explain::ExplanationArena>,
+    pub return_explanation: Option<ExplanationId>,
     pub dependencies: Arc<[CallableId]>,
     pub semantic_dependencies: Arc<[SemanticDependency]>,
     /// Semantic result fingerprint used to decide whether downstream queries

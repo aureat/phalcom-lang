@@ -268,6 +268,7 @@ pub struct RelationApplication {
     pub outcome: RelationOutcome<()>,
     pub cause: Option<DiagnosticCauseId>,
     pub status: Option<AnalysisStatus>,
+    pub explanation: Option<crate::identity::ExplanationId>,
 }
 
 /// The active context during semantic type checking.
@@ -616,6 +617,46 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
+    pub(crate) fn apply_flow_predicate(&mut self, predicate: &crate::checker::flow::FlowPredicate) -> Option<crate::identity::ExplanationId> {
+        let prior_parent = predicate
+            .binding()
+            .and_then(|binding| self.flow.get_binding(binding))
+            .and_then(|state| state.explanation);
+        let hierarchy = &self.hierarchy;
+        let applied = crate::checker::flow::transfer::apply_predicate(&mut self.flow, predicate, self.store, hierarchy)?;
+        let predicate_kind = match predicate {
+            crate::checker::flow::FlowPredicate::IsInstance { .. } => crate::explain::PredicateKind::IsInstance,
+            crate::checker::flow::FlowPredicate::IsNotInstance { .. } => crate::explain::PredicateKind::IsNotInstance,
+            crate::checker::flow::FlowPredicate::IsNil { .. } => crate::explain::PredicateKind::IsNil,
+            crate::checker::flow::FlowPredicate::NotNil { .. } => crate::explain::PredicateKind::NotNil,
+            crate::checker::flow::FlowPredicate::Equal { .. } | crate::checker::flow::FlowPredicate::EqualLiteral { .. } => {
+                crate::explain::PredicateKind::EqualLiteral
+            }
+            crate::checker::flow::FlowPredicate::NotEqual { .. } | crate::checker::flow::FlowPredicate::NotEqualLiteral { .. } => {
+                crate::explain::PredicateKind::NotEqualLiteral
+            }
+            crate::checker::flow::FlowPredicate::OrderedPredicate { .. } => crate::explain::PredicateKind::Ordered,
+            crate::checker::flow::FlowPredicate::Truthy { .. } => crate::explain::PredicateKind::Truthy,
+            crate::checker::flow::FlowPredicate::Falsy { .. } => crate::explain::PredicateKind::Falsy,
+        };
+        let explanation = self.record_derivation(
+            crate::explain::ExplanationStep::FlowRefinement {
+                binding: applied.binding,
+                predicate: predicate_kind,
+                prior: applied.prior,
+                refined: applied.refined.clone(),
+            },
+            crate::explain::DerivationRule::FlowRefinement { predicate_kind },
+            applied.refined.status().unwrap_or(crate::types::evidence::EvidenceStatus::Established),
+            crate::types::evidence::EvidenceOrigin::Flow,
+            Vec::new(),
+            prior_parent.into_iter().collect(),
+        );
+        self.flow.facts.insert(predicate.clone(), explanation);
+        self.flow.set_binding_explanation(applied.binding, explanation);
+        Some(explanation)
+    }
+
     pub fn join_flow_states(&mut self, states: &[FlowState]) -> Result<FlowState, crate::checker::flow::state::FlowInvariantFailure> {
         FlowState::join_with_hierarchy(states, self.store, &self.hierarchy)
     }
@@ -686,6 +727,18 @@ impl<'a> CheckingContext<'a> {
         Some(cause)
     }
 
+    pub(crate) fn attach_explanation_to_cause(&mut self, cause: crate::identity::DiagnosticCauseId, explanation: crate::identity::ExplanationId) {
+        let Some(callable) = self.current_callable.clone() else {
+            return;
+        };
+        let reference = crate::diagnostic::ExplanationRef::new(callable, explanation);
+        if let Some(diagnostic) = self.diagnostics.iter_mut().rev().find(|diagnostic| diagnostic.root_cause == Some(cause)) {
+            if !diagnostic.explanations.contains(&reference) {
+                diagnostic.explanations.push(reference);
+            }
+        }
+    }
+
     /// Publishes diagnostics produced by a resolver while retaining every
     /// owning error cause in the bounded causal domain. Resolver APIs return a
     /// vector because one annotation may contain several invalid relations;
@@ -712,6 +765,45 @@ impl<'a> CheckingContext<'a> {
         (knowledge, causal_invalidity)
     }
 
+    pub(crate) fn record_type_relation_with_parents(
+        &mut self,
+        actual: &TypeKnowledge,
+        expected: TypeId,
+        outcome: &RelationOutcome<()>,
+        range: SourceRange,
+        parents: Vec<crate::identity::ExplanationId>,
+    ) -> crate::identity::ExplanationId {
+        let status = actual.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed);
+        let origin = actual.origin().unwrap_or(crate::types::evidence::EvidenceOrigin::Flow);
+        self.record_derivation(
+            crate::explain::ExplanationStep::TypeRelation {
+                actual: actual.clone(),
+                expected,
+                outcome: outcome.clone(),
+            },
+            crate::explain::DerivationRule::TypeRelation,
+            status,
+            origin,
+            vec![crate::explain::EvidenceRef::TypeId(expected), crate::explain::EvidenceRef::SourceSpan(range)],
+            parents,
+        )
+    }
+
+    fn record_type_relation(
+        &mut self,
+        actual: &TypeKnowledge,
+        expected: TypeId,
+        outcome: &RelationOutcome<()>,
+        range: SourceRange,
+    ) -> crate::identity::ExplanationId {
+        let parents = self
+            .current_expression_id()
+            .and_then(|expression| self.explanation_for_expression(expression))
+            .into_iter()
+            .collect();
+        self.record_type_relation_with_parents(actual, expected, outcome, range, parents)
+    }
+
     pub fn apply_relation_outcome(
         &mut self,
         outcome: RelationOutcome<()>,
@@ -719,9 +811,15 @@ impl<'a> CheckingContext<'a> {
         message: impl Into<String>,
         range: SourceRange,
         owner: Option<ExpressionId>,
+        explanation: Option<crate::identity::ExplanationId>,
     ) -> RelationApplication {
+        let message = message.into();
         let cause = if matches!(&outcome, RelationOutcome::Refuted(_)) {
-            self.emit_diagnostic(SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range))
+            let mut diagnostic = SemanticDiagnostic::error_in(self.current_module.clone(), code, message, range);
+            if let (Some(callable), Some(explanation)) = (self.current_callable.clone(), explanation) {
+                diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(callable, explanation));
+            }
+            self.emit_diagnostic(diagnostic)
         } else {
             None
         };
@@ -760,7 +858,15 @@ impl<'a> CheckingContext<'a> {
             }
         }
 
-        RelationApplication { outcome, cause, status }
+        if let Some(explanation) = explanation {
+            self.record_call_dependency(crate::checker::causal::CausalInvalidity::Clean, Some(explanation));
+        }
+        RelationApplication {
+            outcome,
+            cause,
+            status,
+            explanation,
+        }
     }
 
     pub fn publish_analysis_incident(&mut self, message: impl Into<String>) -> AnalysisIncidentId {
@@ -814,7 +920,8 @@ impl<'a> CheckingContext<'a> {
         let outcome = self
             .control
             .relation(|budget, cancellation| check_assignability_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
-        self.apply_relation_outcome(outcome, code, message, range, None)
+        let explanation = expected.ty().map(|expected_ty| self.record_type_relation(actual, expected_ty, &outcome, range));
+        self.apply_relation_outcome(outcome, code, message, range, None, explanation)
     }
 
     pub fn apply_knowledge_against_type(
@@ -828,7 +935,8 @@ impl<'a> CheckingContext<'a> {
         let outcome = self
             .control
             .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
-        self.apply_relation_outcome(outcome, code, message, range, None)
+        let explanation = Some(self.record_type_relation(actual, expected, &outcome, range));
+        self.apply_relation_outcome(outcome, code, message, range, None, explanation)
     }
 
     /// Evaluates one contract relation while sharing this body's budget and
@@ -850,7 +958,8 @@ impl<'a> CheckingContext<'a> {
         let outcome = self
             .control
             .relation(|budget, cancellation| check_knowledge_against_type_bounded(self.store, &self.hierarchy, actual, expected, budget, cancellation));
-        let application = self.apply_relation_outcome(outcome, code, message, range, Some(owner));
+        let explanation = Some(self.record_type_relation(actual, expected, &outcome, range));
+        let application = self.apply_relation_outcome(outcome, code, message, range, Some(owner), explanation);
         if let Some(cause) = application.cause {
             self.expression_owned_causes.entry(owner).or_insert(cause);
         }
@@ -1288,6 +1397,10 @@ impl<'a> CheckingContext<'a> {
                 }
                 self.dependencies.insert(resolved.callable.clone());
                 self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
+                resolved.specialization = Some(crate::dispatch::DispatchSignatureSpecialization {
+                    receiver,
+                    unspecialized_return: resolved.signature.return_type.clone(),
+                });
                 resolved.signature = self.specialize_dispatch_signature(receiver, resolved.signature);
                 if let Some(expression) = self.current_expression_id() {
                     self.resolved_callables.insert(expression, resolved.callable.clone());
@@ -1301,6 +1414,10 @@ impl<'a> CheckingContext<'a> {
                     }
                     self.dependencies.insert(resolved.callable.clone());
                     self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
+                    resolved.specialization = Some(crate::dispatch::DispatchSignatureSpecialization {
+                        receiver,
+                        unspecialized_return: resolved.signature.return_type.clone(),
+                    });
                     resolved.signature = self.specialize_dispatch_signature(receiver, resolved.signature.clone());
                 }
                 ResolvedDispatchResult::Ambiguous(ambiguous)
@@ -1413,7 +1530,7 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn finalize_with_normal_returns(
-        self,
+        mut self,
         callable: CallableId,
         body_range: SourceRange,
         status: crate::checker::analysis::CallableAnalysisStatus,
@@ -1424,6 +1541,17 @@ impl<'a> CheckingContext<'a> {
             .flow_graph
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
 
+        let return_summary = crate::checker::analysis::normal_return_summary(self.store, &normal_return_values);
+        let return_explanation = Some(self.explanations.alloc(
+            crate::explain::ExplanationStep::CallableReturnSummary {
+                callable: callable.clone(),
+                returns: normal_return_values.clone().into_boxed_slice(),
+                result: return_summary.clone(),
+            },
+            return_summary.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
+            return_summary.origin().unwrap_or(crate::types::evidence::EvidenceOrigin::Flow),
+            Vec::new(),
+        ));
         let exits = crate::checker::analysis::BodyExitFacts {
             returns: if normal_return_values.is_empty() {
                 Vec::new()
@@ -1450,6 +1578,7 @@ impl<'a> CheckingContext<'a> {
             diagnostics: std::sync::Arc::from(self.diagnostics.into_boxed_slice()),
             internal_incidents: std::sync::Arc::from(self.analysis_incidents.into_values().collect::<Vec<_>>().into_boxed_slice()),
             explanations: std::sync::Arc::new(self.explanations),
+            return_explanation,
             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
             semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.borrow().iter().cloned().collect::<Vec<_>>().into_boxed_slice()),
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),

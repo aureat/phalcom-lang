@@ -4,6 +4,8 @@
 //! target and share the same assertion/fixture infrastructure as the focused
 //! semantic capability suite.
 
+mod type_diagnostics;
+
 use crate::semantic::support::{Fixture, WorkspaceFixture, assert_source_contract, binding, known, union};
 use phalcom_ast::parse;
 use phalcom_semantic::checker::BindingConsistency;

@@ -34,31 +34,107 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     if let Some(cause_id) = ctx.pop_expression_owner(expr_id) {
         typed.invalidate(cause_id);
     }
-    let explanation_id = if let Some(ty) = typed.knowledge.ty() {
-        let step = match expr {
-            Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } => {
-                crate::explain::ExplanationStep::Literal { expression: expr_id, ty }
-            }
-            Expr::MethodCall(_) => match typed.callable.clone() {
-                Some(callable) => crate::explain::ExplanationStep::MethodCall {
-                    call: expr_id,
-                    callable,
-                    return_ty: ty,
-                },
-                None => crate::explain::ExplanationStep::UnresolvedCall { call: expr_id, return_ty: ty },
-            },
-            _ => crate::explain::ExplanationStep::Literal { expression: expr_id, ty },
-        };
-        let rule = step.derivation_rule();
-        let ev = vec![crate::explain::EvidenceRef::SourceSpan(expr.range()), crate::explain::EvidenceRef::TypeId(ty)];
-        let status = typed.knowledge.status().unwrap_or(EvidenceStatus::Established);
-        let origin = typed.knowledge.origin().unwrap_or(EvidenceOrigin::Syntax);
-        Some(ctx.record_derivation(step, rule, status, origin, ev, typed.explanation_parents.clone()))
-    } else {
-        None
-    };
-    ctx.record_call_dependency(typed.causal_invalidity, explanation_id);
 
+    if let (Some(expected_ty), Some(origin)) = (expected.ty(), expected.origin()) {
+        let requirement = crate::explain::ExplanationStep::TypeRequirement {
+            expected: expected_ty,
+            origin,
+            source: Some(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), expr.range())),
+        };
+        let requirement_id = ctx.record_derivation(
+            requirement,
+            crate::explain::DerivationRule::TypeRequirement,
+            EvidenceStatus::Established,
+            EvidenceOrigin::DeveloperAnnotation,
+            vec![
+                crate::explain::EvidenceRef::SourceSpan(expr.range()),
+                crate::explain::EvidenceRef::TypeId(expected_ty),
+            ],
+            Vec::new(),
+        );
+        typed.explanation_parents.push(requirement_id);
+    }
+
+    let step = match &typed.knowledge {
+        TypeKnowledge::Known(_) => {
+            let ty = typed.knowledge.ty().expect("known expression has type");
+            match expr {
+                Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } => {
+                    crate::explain::ExplanationStep::Literal { expression: expr_id, ty }
+                }
+                Expr::Var { value, .. } => match ctx.lookup_binding_info(value) {
+                    Some(info) => crate::explain::ExplanationStep::BindingRead {
+                        expression: expr_id,
+                        binding: info.id,
+                        knowledge: typed.knowledge.clone(),
+                    },
+                    None => crate::explain::ExplanationStep::ExpressionResult {
+                        expression: expr_id,
+                        knowledge: typed.knowledge.clone(),
+                    },
+                },
+                Expr::MethodCall(_) => match typed.callable.clone() {
+                    Some(callable) => crate::explain::ExplanationStep::MethodCall {
+                        call: expr_id,
+                        callable,
+                        return_ty: ty,
+                    },
+                    None => crate::explain::ExplanationStep::UnresolvedCall { call: expr_id, return_ty: ty },
+                },
+                Expr::ListLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
+                    expression: expr_id,
+                    kind: crate::explain::CollectionKind::List,
+                    element_types: Box::new([]),
+                    result: ty,
+                },
+                Expr::SetLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
+                    expression: expr_id,
+                    kind: crate::explain::CollectionKind::Set,
+                    element_types: Box::new([]),
+                    result: ty,
+                },
+                Expr::MapLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
+                    expression: expr_id,
+                    kind: crate::explain::CollectionKind::Map,
+                    element_types: Box::new([]),
+                    result: ty,
+                },
+                Expr::TupleLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
+                    expression: expr_id,
+                    kind: crate::explain::CollectionKind::Tuple,
+                    element_types: Box::new([]),
+                    result: ty,
+                },
+                Expr::RecordLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
+                    expression: expr_id,
+                    kind: crate::explain::CollectionKind::Record,
+                    element_types: Box::new([]),
+                    result: ty,
+                },
+                _ => crate::explain::ExplanationStep::ExpressionResult {
+                    expression: expr_id,
+                    knowledge: typed.knowledge.clone(),
+                },
+            }
+        }
+        TypeKnowledge::Unknown(reason) => crate::explain::ExplanationStep::UnknownBoundary {
+            reason: reason.clone(),
+            source: Some(expr.range()),
+        },
+        TypeKnowledge::Dynamic(reason) => crate::explain::ExplanationStep::DynamicBoundary {
+            reason: reason.clone(),
+            source: Some(expr.range()),
+        },
+    };
+    let rule = step.derivation_rule();
+    let mut ev = vec![crate::explain::EvidenceRef::SourceSpan(expr.range())];
+    if let Some(ty) = typed.knowledge.ty() {
+        ev.push(crate::explain::EvidenceRef::TypeId(ty));
+    }
+    let status = typed.knowledge.status().unwrap_or(EvidenceStatus::Assumed);
+    let origin = typed.knowledge.origin().unwrap_or(EvidenceOrigin::Syntax);
+    let explanation_id = Some(ctx.record_derivation(step, rule, status, origin, ev, typed.explanation_parents.clone()));
+    ctx.record_call_dependency(typed.causal_invalidity, explanation_id);
     typed.expression_id = Some(expr_id);
     ctx.publish_expression_analysis(expr_id, expr.range(), &typed, explanation_id);
     typed
@@ -146,6 +222,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 if let Some(info) = ctx.lookup_binding_info(value) {
                     if let Some(state) = ctx.flow.get_binding(info.id) {
                         typed.causal_invalidity = state.causal_invalidity;
+                        if let Some(explanation) = state.explanation {
+                            typed.explanation_parents.push(explanation);
+                        }
                     }
                 }
                 typed
@@ -433,7 +512,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 )
             };
 
-            let join_status = match ctx.join_flow_states(&[then_flow, else_flow]) {
+            let join_status = match ctx.join_flow_states(&[then_flow.clone(), else_flow.clone()]) {
                 Ok(flow) => {
                     ctx.flow = flow;
                     None
@@ -975,34 +1054,49 @@ fn synthesize_control_method_call(
 
             ctx.flow = before.clone();
             if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(ctx, &call.object, receiver_typed, true) {
-                let hierarchy = &ctx.hierarchy;
-                crate::checker::flow::apply_predicate(&mut ctx.flow, &predicate, ctx.store, hierarchy);
+                ctx.apply_flow_predicate(&predicate);
             }
             let then_typed = analyze_control_block(ctx, then_block, expected);
             let then_flow = ctx.flow.clone();
             ctx.flow = before.clone();
             if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(ctx, &call.object, receiver_typed, false) {
-                let hierarchy = &ctx.hierarchy;
-                crate::checker::flow::apply_predicate(&mut ctx.flow, &predicate, ctx.store, hierarchy);
+                ctx.apply_flow_predicate(&predicate);
             }
             let else_typed = analyze_control_block(ctx, else_block, expected);
             let else_flow = ctx.flow.clone();
 
-            let join_status = match ctx.join_flow_states(&[then_flow, else_flow]) {
+            let join_status = match ctx.join_flow_states(&[then_flow.clone(), else_flow.clone()]) {
                 Ok(flow) => {
                     ctx.flow = flow;
                     None
                 }
                 Err(failure) => Some(ctx.publish_flow_join_failure(failure, call.range)),
             };
-            let knowledge = crate::types::evidence::join_type_knowledge(ctx.store, [then_typed.knowledge.clone(), else_typed.knowledge.clone()]);
-            let mut typed = TypedExpression::new(knowledge);
+            let then_reachable = then_typed.knowledge.ty() != Some(ctx.store.never()) && then_flow.is_reachable();
+            let else_reachable = else_typed.knowledge.ty() != Some(ctx.store.never()) && else_flow.is_reachable();
+            let branch_values = [then_typed.knowledge.clone(), else_typed.knowledge.clone()];
+            let knowledge = crate::types::evidence::join_type_knowledge(ctx.store, branch_values.clone());
+            let mut typed = TypedExpression::new(knowledge.clone());
             if let Some(status) = join_status {
                 typed.status = status;
             }
             typed.causal_invalidity = then_typed.causal_invalidity.join(else_typed.causal_invalidity);
-            typed.explanation_parents.extend(then_typed.explanation_parents);
-            typed.explanation_parents.extend(else_typed.explanation_parents);
+            typed.explanation_parents.extend(then_typed.explanation_parents.iter().copied());
+            typed.explanation_parents.extend(else_typed.explanation_parents.iter().copied());
+            let join = ctx.record_derivation(
+                crate::explain::ExplanationStep::BranchJoin {
+                    binding: None,
+                    branches: branch_values.into(),
+                    reachable: Box::new([then_reachable, else_reachable]),
+                    joined: knowledge,
+                },
+                crate::explain::DerivationRule::BranchJoin { branch_count: 2 },
+                EvidenceStatus::Established,
+                EvidenceOrigin::Flow,
+                Vec::new(),
+                typed.explanation_parents.clone(),
+            );
+            typed.explanation_parents.push(join);
             Some(typed)
         }
         "whileTrue" if receiver_is_literal_block => {

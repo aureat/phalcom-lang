@@ -95,3 +95,7 @@ The three capability gates named by the gap-closure plan now execute without
 `#[ignore]`: higher-order closure invocation, field lifecycle, and collection
 rest/destructuring. The two incremental/flow RED capability scenarios and the
 imported canonical-identity scenario are also READY after their focused tests.
+
+## Rich type diagnostics v1
+
+The rich-diagnostics acceptance gate is owned by `foundations::diagnostic_presentation` and `golden::type_diagnostics`. It verifies that presentation remains a projection over compiler-owned semantics and covers constructor/Self mismatch, argument mismatch, generic conflict, flow refinement, unknown/underconstrained boundaries, kind/type-constructor errors, structural product failure, and return mismatch.

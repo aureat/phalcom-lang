@@ -68,6 +68,7 @@ pub struct CompiledProgram {
 #[derive(Clone, Debug, Default)]
 pub struct ProgramSemanticDiagnostics {
     pub by_module: BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+    pub snapshot: Option<Arc<phalcom_semantic::SemanticSnapshot>>,
 }
 
 impl ProgramSemanticDiagnostics {
@@ -77,7 +78,10 @@ impl ProgramSemanticDiagnostics {
             .iter()
             .map(|(module, diagnostics)| (module.clone(), diagnostics.to_vec()))
             .collect();
-        Self { by_module }
+        Self {
+            by_module,
+            snapshot: Some(Arc::new(snapshot.clone())),
+        }
     }
 
     pub fn is_empty(&self) -> bool {

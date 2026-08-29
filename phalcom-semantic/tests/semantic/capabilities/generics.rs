@@ -129,10 +129,10 @@ class Probe {
         "expected-result contradiction must own call invalidity"
     );
     assert!(
-        !f.diagnostics(DiagnosticCode::BindingInitializerMismatch).is_empty() || !f.diagnostics(DiagnosticCode::ArgumentMismatch).is_empty(),
+        !f.diagnostics(DiagnosticCode::BindingInitializerMismatch).is_empty() || !f.diagnostics(DiagnosticCode::GenericInferenceConflict).is_empty(),
         "conflicting constraints should produce an owning diagnostic"
     );
-    f.assert_only_error_codes(&[DiagnosticCode::BindingInitializerMismatch, DiagnosticCode::ArgumentMismatch]);
+    f.assert_only_error_codes(&[DiagnosticCode::BindingInitializerMismatch, DiagnosticCode::GenericInferenceConflict]);
 }
 
 /// LAW: assumed input evidence yields an assumed generic return.
@@ -247,7 +247,17 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Probe.make()");
     assert_eq!(call.knowledge.ty(), None, "expected context cannot fabricate generic return evidence");
-    assert!(matches!(call.status, AnalysisStatus::Blocked(_)));
+    assert!(matches!(call.status, AnalysisStatus::Blocked(_)), "{call:#?}");
+    f.assert_diagnostic(DiagnosticCode::GenericInferenceUnderconstrained, 1);
+    let diagnostic = f
+        .diagnostics(DiagnosticCode::GenericInferenceUnderconstrained)
+        .into_iter()
+        .next()
+        .expect("underconstrained diagnostic");
+    assert!(
+        diagnostic.root_cause.is_none(),
+        "underconstrained presentation must not create formal invalidity"
+    );
 }
 
 /// G03: repeated calls in one body solve independent substitutions independently.

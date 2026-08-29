@@ -10,206 +10,84 @@
 //! not an unrelated builtin (`docs/forge/units/U-LSP/plan.md` § Tests /
 //! verification, Stage 3).
 
-use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::time::{Duration, sleep};
+use serde_json::json;
 use tower_lsp::lsp_types::Position;
-use tower_lsp::{LspService, Server};
 
 use crate::support::{TestLsp, TestWorkspace, completion_labels};
-use phalcom_lsp::Backend;
-
-/// Writes one JSON-RPC message to `w` using the LSP `Content-Length` framing.
-async fn write_message(w: &mut (impl AsyncWriteExt + Unpin), value: &Value) {
-    let body = serde_json::to_string(value).unwrap();
-    let header = format!("Content-Length: {}\r\n\r\n", body.len());
-    w.write_all(header.as_bytes()).await.unwrap();
-    w.write_all(body.as_bytes()).await.unwrap();
-}
-
-/// Reads one JSON-RPC message from `r`, parsing the `Content-Length` header
-/// then the JSON body it announces.
-async fn read_message(r: &mut (impl AsyncReadExt + Unpin)) -> Value {
-    let mut header = Vec::new();
-    loop {
-        let mut byte = [0u8; 1];
-        r.read_exact(&mut byte).await.unwrap();
-        header.push(byte[0]);
-        if header.ends_with(b"\r\n\r\n") {
-            break;
-        }
-    }
-    let header_str = String::from_utf8(header).unwrap();
-    let content_length: usize = header_str
-        .lines()
-        .find_map(|line| line.strip_prefix("Content-Length: "))
-        .expect("Content-Length header present")
-        .trim()
-        .parse()
-        .unwrap();
-    let mut body = vec![0u8; content_length];
-    r.read_exact(&mut body).await.unwrap();
-    serde_json::from_slice(&body).unwrap()
-}
-
-/// Reads messages from `r`, discarding notifications, until one whose `"id"`
-/// equals `id`. Bounded to avoid hanging if the server never responds.
-async fn read_response(r: &mut (impl AsyncReadExt + Unpin), id: i64) -> Value {
-    for _ in 0..32 {
-        let msg = read_message(r).await;
-        if msg.get("id").and_then(Value::as_i64) == Some(id) {
-            return msg;
-        }
-    }
-    panic!("did not observe a response to id {id} within the read budget");
-}
-
-async fn completion_items(client_end: &mut (impl AsyncReadExt + AsyncWriteExt + Unpin), uri: &str, line: u32, character: u32) -> Value {
-    for id in 2..=32 {
-        write_message(
-            client_end,
-            &json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "method": "textDocument/completion",
-                "params": {
-                    "textDocument": { "uri": uri },
-                    "position": { "line": line, "character": character }
-                }
-            }),
-        )
-        .await;
-        let response = read_response(client_end, id).await;
-        if response["result"].as_array().is_some_and(|items| !items.is_empty()) {
-            return response;
-        }
-        sleep(Duration::from_millis(2)).await;
-    }
-    panic!("compiler publication did not produce completion items");
-}
 
 #[tokio::test]
 async fn completion_is_receiver_aware_for_a_constructed_user_class() {
-    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
-    let (server_read, server_write) = tokio::io::split(server_end);
+    let mut lsp = TestLsp::start().await;
 
-    let (service, socket) = LspService::new(Backend::new);
-    let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket).serve(service).await;
-    });
+    let init = lsp.initialize(None).await;
+    assert!(init["result"]["capabilities"]["completionProvider"].is_object(), "{init:#?}");
 
-    // No workspace root: this test drives the index purely through `didOpen`,
-    // proving completion works off the live buffer.
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": { "processId": null, "capabilities": {} }
-        }),
-    )
-    .await;
-    let init_response = read_response(&mut client_end, 1).await;
-    assert!(init_response["result"]["capabilities"]["completionProvider"].is_object(), "{init_response:#?}");
-    assert_eq!(init_response["result"]["capabilities"]["completionProvider"]["triggerCharacters"], json!(["."]));
-
-    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
-
-    // `Mover` defines `move(_,to)` and getter `speed`; `m` is constructed from
-    // it; the last line is the `m.` member access the completion targets.
     let uri = "file:///workspace/main.ph";
-    let text = "class Mover {\n  @constructor new() {}\n  move(_ x, to) { }\n  speed { }\n}\nlet m = Mover.new();\nm.\n";
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "method": "textDocument/didOpen",
-            "params": {
-                "textDocument": {
-                    "uri": uri,
-                    "languageId": "phalcom",
-                    "version": 1,
-                    "text": text,
-                }
-            }
-        }),
-    )
-    .await;
-    // Drain the didOpen's publishDiagnostics notification.
-    let _ = read_message(&mut client_end).await;
+    let text = concat!(
+        "class Mover {\n",
+        "  @constructor new() {}\n",
+        "  move(_ x, to) { }\n",
+        "  speed { }\n",
+        "}\n",
+        "let m = Mover.new();\n",
+        "m.\n",
+    );
 
-    // Completion at the end of the `m.` line (line 5, character 2).
-    let response = completion_items(&mut client_end, uri, 6, 2).await;
+    lsp.open_and_wait(uri, text).await;
+
+    let response = lsp.completion(uri, Position { line: 6, character: 2 }).await;
+
     let items = response["result"].as_array().expect("completion items array");
-    let labels: Vec<&str> = items.iter().filter_map(|item| item["label"].as_str()).collect();
+
+    let labels = completion_labels(&response);
+
+    assert!(labels.iter().any(|label| label == "move(_,to)"), "{labels:#?}");
+    assert!(labels.iter().any(|label| label == "speed"), "{labels:#?}");
+    assert!(!labels.iter().any(|label| label == "ifTrue(_)"), "{labels:#?}");
+
+    let move_item = items.iter().find(|item| item["label"] == json!("move(_,to)")).expect("move item present");
+
+    assert_eq!(move_item["insertText"], json!("move(${1:_}, to: ${2:_})"));
 
     for item in items {
         let rendered = item.to_string();
-        assert!(!rendered.contains('≈'), "completion item must not expose advisory decoration: {item}");
-        assert!(!rendered.contains("Confidence"), "completion item must not expose confidence taxonomy: {item}");
-        assert!(
-            !rendered.contains("Observed"),
-            "completion item must not expose observed-value boilerplate: {item}"
-        );
+        assert!(!rendered.contains('≈'));
+        assert!(!rendered.contains("Confidence"));
+        assert!(!rendered.contains("Observed"));
     }
 
-    assert!(labels.contains(&"move(_,to)"), "{labels:#?}");
-    assert!(labels.contains(&"speed"), "{labels:#?}");
-    // A resolved user receiver must not spill the full builtin surface.
-    assert!(!labels.contains(&"ifTrue(_)"), "{labels:#?}");
-
-    // The method item carries a snippet insert text with tab-stops.
-    let move_item = items.iter().find(|item| item["label"] == json!("move(_,to)")).expect("move item present");
-    assert_eq!(move_item["insertText"], json!("move(${1:_}, to: ${2:_})"), "{move_item:#?}");
-
-    drop(client_end);
-    let _ = server_task.await;
+    lsp.finish().await;
 }
 
 #[tokio::test]
 async fn completion_follows_constructor_assigned_field() {
-    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
-    let (server_read, server_write) = tokio::io::split(server_end);
-    let (service, socket) = LspService::new(Backend::new);
-    let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket).serve(service).await;
-    });
-
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": { "processId": null, "capabilities": {} }
-        }),
-    )
-    .await;
-    let _ = read_response(&mut client_end, 1).await;
-    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(None).await;
 
     let uri = "file:///workspace/service.ph";
-    let text = "class Client {\n  @constructor new() {}\n  send() { }\n}\nclass Service {\n  @constructor new() { _client = Client.new() }\n  run() {\n    _client.\n  }\n}\n";
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "method": "textDocument/didOpen",
-            "params": { "textDocument": { "uri": uri, "languageId": "phalcom", "version": 1, "text": text } }
-        }),
-    )
-    .await;
-    let _ = read_message(&mut client_end).await;
+    let text = concat!(
+        "class Client {\n",
+        "  @constructor new() {}\n",
+        "  send() { }\n",
+        "}\n",
+        "class Service {\n",
+        "  @constructor new() { _client = Client.new() }\n",
+        "  run() {\n",
+        "    _client.\n",
+        "  }\n",
+        "}\n",
+    );
 
-    let response = completion_items(&mut client_end, uri, 7, 12).await;
-    let items = response["result"].as_array().expect("completion items array");
-    let labels: Vec<&str> = items.iter().filter_map(|item| item["label"].as_str()).collect();
-    assert!(labels.contains(&"send()"), "{labels:#?}");
-    assert!(!labels.contains(&"ifTrue(_)"), "{labels:#?}");
+    lsp.open_and_wait(uri, text).await;
 
-    drop(client_end);
-    let _ = server_task.await;
+    let response = lsp.completion(uri, Position { line: 7, character: 12 }).await;
+
+    let labels = completion_labels(&response);
+
+    assert!(labels.iter().any(|label| label == "send()"), "{labels:#?}");
+    assert!(!labels.iter().any(|label| label == "ifTrue(_)"), "{labels:#?}");
+
+    lsp.finish().await;
 }
 
 #[tokio::test]

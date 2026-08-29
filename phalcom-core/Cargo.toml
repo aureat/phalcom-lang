@@ -80,6 +80,11 @@ path = "tests/spec03_5_conformance.rs"
 name = "spec03_5_census"
 path = "tests/spec03_5_census.rs"
 
+[[test]]
+name = "diagnostic_cli"
+path = "tests/diagnostic_cli.rs"
+
+
 
 
 [features]

@@ -158,7 +158,6 @@ impl TestBatchGate {
             state = self.condvar.wait(state).expect("test gate condvar poisoned");
         }
     }
-
 }
 
 #[cfg(test)]

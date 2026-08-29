@@ -33,14 +33,16 @@ fn main() -> Result<()> {
     // renderer in `phalcom-core` to read (IS §3.2). See
     // `phalcom_core::diagnostics::RENDER_CONFIG`'s docs for why this is a `OnceLock` bridge
     // rather than an explicitly threaded parameter today.
-    phalcom_core::diagnostics::install_render_config(cli.render_config());
+    let render_config = cli.render_config();
+    let diagnostic_detail = cli.diagnostic_detail;
+    phalcom_core::diagnostics::install_render_config(render_config);
 
     let result = match cli.command {
         None => cmd_run(cli),
         Some(Commands::Tokenize(args)) => cmd_tokenize(args),
         Some(Commands::Parse(args)) => cmd_parse(args),
         Some(Commands::Disasm(args)) => cmd_disasm(args),
-        Some(Commands::Check(args)) => cmd_check(args),
+        Some(Commands::Check(args)) => cmd_check(args, diagnostic_detail, render_config),
         Some(Commands::Version) => cmd_version(),
     };
 

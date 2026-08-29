@@ -2,14 +2,29 @@
 
 use super::predicate::FlowPredicate;
 use super::state::FlowState;
-use crate::identity::{BindingId, ExplanationId};
+use crate::identity::BindingId;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use crate::types::id::TypeId;
 use crate::types::relation::{self, TypeHierarchy};
 use crate::types::store::TypeStore;
 
-/// Applies a predicate to refine a flow state along a branch.
-pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppliedFlowRefinement {
+    pub binding: BindingId,
+    pub prior: TypeKnowledge,
+    pub refined: TypeKnowledge,
+}
+
+/// Applies a predicate and returns the concrete binding refinement, if any.
+/// Explanation identity is deliberately allocated by the checking context.
+pub fn apply_predicate(
+    state: &mut FlowState,
+    predicate: &FlowPredicate,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+) -> Option<AppliedFlowRefinement> {
+    let binding = predicate.binding();
+    let prior = binding.and_then(|binding| state.get_current_type(binding)).cloned();
     match predicate {
         FlowPredicate::IsInstance { binding, target } => {
             refine_binding_type(state, *binding, *target, store, hierarchy);
@@ -65,7 +80,12 @@ pub fn apply_predicate(state: &mut FlowState, predicate: &FlowPredicate, store: 
         | FlowPredicate::Falsy { .. } => {}
     }
 
-    state.facts.insert(predicate.clone(), ExplanationId(0));
+    state.facts.insert_unexplained(predicate.clone());
+    let (Some(binding), Some(prior)) = (binding, prior) else {
+        return None;
+    };
+    let refined = state.get_current_type(binding)?.clone();
+    (refined != prior).then_some(AppliedFlowRefinement { binding, prior, refined })
 }
 
 fn refine_binding_type(state: &mut FlowState, binding: BindingId, target: TypeId, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy) {

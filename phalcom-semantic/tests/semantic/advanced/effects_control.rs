@@ -39,6 +39,7 @@ fn mock_callable(expressions: BTreeMap<ExpressionId, ExpressionAnalysis>) -> Cal
         diagnostics: Arc::new([]),
         internal_incidents: Arc::new([]),
         explanations: Arc::new(phalcom_semantic::explain::ExplanationArena::default()),
+        return_explanation: None,
         dependencies: Arc::new([]),
         semantic_dependencies: Arc::new([]),
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),

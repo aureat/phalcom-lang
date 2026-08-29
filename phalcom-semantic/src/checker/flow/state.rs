@@ -140,7 +140,7 @@ pub type FlowJoinFailure = FlowInvariantFailure;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FactSet {
     // Stored as predicate -> explanation mapping
-    facts: BTreeMap<FlowPredicate, ExplanationId>,
+    facts: BTreeMap<FlowPredicate, Option<ExplanationId>>,
 }
 
 impl FactSet {
@@ -149,7 +149,11 @@ impl FactSet {
     }
 
     pub fn insert(&mut self, predicate: FlowPredicate, explanation: ExplanationId) {
-        self.facts.insert(predicate, explanation);
+        self.facts.insert(predicate, Some(explanation));
+    }
+
+    pub fn insert_unexplained(&mut self, predicate: FlowPredicate) {
+        self.facts.entry(predicate).or_insert(None);
     }
 
     pub fn contains(&self, predicate: &FlowPredicate) -> bool {
@@ -157,14 +161,14 @@ impl FactSet {
     }
 
     pub fn get_explanation(&self, predicate: &FlowPredicate) -> Option<ExplanationId> {
-        self.facts.get(predicate).copied()
+        self.facts.get(predicate).copied().flatten()
     }
 
     pub fn intersect(&self, other: &Self) -> Self {
         let mut result = BTreeMap::new();
         for (pred, exp) in &self.facts {
-            if other.facts.contains_key(pred) {
-                result.insert(pred.clone(), *exp);
+            if let Some(other_exp) = other.facts.get(pred) {
+                result.insert(pred.clone(), exp.or(*other_exp));
             }
         }
         Self { facts: result }
@@ -179,7 +183,9 @@ impl FactSet {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&FlowPredicate, &ExplanationId)> {
-        self.facts.iter()
+        self.facts
+            .iter()
+            .filter_map(|(predicate, explanation)| explanation.as_ref().map(|explanation| (predicate, explanation)))
     }
 
     /// Mutation invalidation: removes all facts referencing `binding` (F4).

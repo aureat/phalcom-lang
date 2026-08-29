@@ -20,6 +20,9 @@ pub enum DiagnosticCode {
     AssignmentMismatch,
     ReturnMismatch,
     ArgumentMismatch,
+    GenericInferenceConflict,
+    GenericInferenceUnderconstrained,
+    GenericConstraintUnsatisfied,
     CallShapeMismatch,
     NotCallable,
     FieldMismatch,
@@ -53,6 +56,9 @@ impl DiagnosticCode {
             Self::AssignmentMismatch => "type.assignment.mismatch",
             Self::ReturnMismatch => "type.return.mismatch",
             Self::ArgumentMismatch => "type.call.argument_mismatch",
+            Self::GenericInferenceConflict => "type.generic.inference_conflict",
+            Self::GenericInferenceUnderconstrained => "type.generic.underconstrained",
+            Self::GenericConstraintUnsatisfied => "type.generic.constraint_unsatisfied",
             Self::CallShapeMismatch => "type.call.shape_mismatch",
             Self::NotCallable => "type.call.not_callable",
             Self::FieldMismatch => "type.field.mismatch",
@@ -121,6 +127,27 @@ pub struct DiagnosticFix {
     pub replacement: Option<(SourceRange, String)>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DiagnosticGuidance {
+    ChangeAnnotation {
+        range: SourceRange,
+        ty: crate::types::TypeId,
+    },
+    SupplyAssignableValue {
+        expected: crate::types::TypeId,
+    },
+    UseCallableShape {
+        callable: crate::identity::CallableId,
+    },
+    EstablishTypeEvidence {
+        range: SourceRange,
+        expected: Option<crate::types::TypeId>,
+    },
+    ResolveGenericParameter {
+        parameter: crate::types::TypeParameterId,
+    },
+}
+
 impl DiagnosticFix {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
@@ -137,6 +164,23 @@ impl DiagnosticFix {
     }
 }
 
+/// A diagnostic-owned reference into one callable-local explanation arena.
+///
+/// Explanation IDs are intentionally only meaningful within the callable that
+/// allocated them. Qualifying the local ID prevents an aggregated snapshot
+/// from accidentally resolving an explanation against the wrong arena.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExplanationRef {
+    pub callable: crate::identity::CallableId,
+    pub explanation: crate::identity::ExplanationId,
+}
+
+impl ExplanationRef {
+    pub fn new(callable: crate::identity::CallableId, explanation: crate::identity::ExplanationId) -> Self {
+        Self { callable, explanation }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticDiagnostic {
     pub code: DiagnosticCode,
@@ -147,7 +191,8 @@ pub struct SemanticDiagnostic {
     pub labels: Vec<DiagnosticLabel>,
     pub notes: Vec<String>,
     pub helps: Vec<String>,
-    pub explanations: Vec<crate::identity::ExplanationId>,
+    pub guidance: Vec<DiagnosticGuidance>,
+    pub explanations: Vec<ExplanationRef>,
     pub fixes: Vec<DiagnosticFix>,
     pub root_cause: Option<crate::identity::DiagnosticCauseId>,
 }
@@ -164,6 +209,7 @@ impl SemanticDiagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             helps: Vec::new(),
+            guidance: Vec::new(),
             explanations: Vec::new(),
             fixes: Vec::new(),
             root_cause: None,
@@ -181,6 +227,7 @@ impl SemanticDiagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             helps: Vec::new(),
+            guidance: Vec::new(),
             explanations: Vec::new(),
             fixes: Vec::new(),
             root_cause: None,
@@ -197,6 +244,7 @@ impl SemanticDiagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             helps: Vec::new(),
+            guidance: Vec::new(),
             explanations: Vec::new(),
             fixes: Vec::new(),
             root_cause: None,
@@ -232,8 +280,13 @@ impl SemanticDiagnostic {
         self
     }
 
-    pub fn with_explanation(mut self, id: crate::identity::ExplanationId) -> Self {
-        self.explanations.push(id);
+    pub fn with_guidance(mut self, guidance: DiagnosticGuidance) -> Self {
+        self.guidance.push(guidance);
+        self
+    }
+
+    pub fn with_explanation(mut self, explanation: ExplanationRef) -> Self {
+        self.explanations.push(explanation);
         self
     }
 
@@ -274,5 +327,18 @@ impl SemanticDiagnostic {
         } else {
             format!("[{}]: {}", self.code.as_str(), self.message)
         }
+    }
+}
+
+impl crate::snapshot::SemanticSnapshot {
+    /// Resolves a callable-qualified explanation reference within this exact
+    /// immutable snapshot.
+    pub fn explanation_node(&self, reference: &ExplanationRef) -> Option<&crate::explain::ExplanationNode> {
+        self.callable_analyses.get(&reference.callable)?.explanations.get(reference.explanation)
+    }
+
+    /// Returns the callable-local explanation arena owned by this snapshot.
+    pub fn explanation_arena(&self, callable: &crate::identity::CallableId) -> Option<&crate::explain::ExplanationArena> {
+        Some(self.callable_analyses.get(callable)?.explanations.as_ref())
     }
 }

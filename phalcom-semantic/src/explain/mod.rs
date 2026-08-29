@@ -5,5 +5,8 @@ pub mod node;
 pub mod slice;
 
 pub use arena::ExplanationArena;
-pub use node::{DerivationRule, EvidenceRef, ExplanationNode, ExplanationStep, PredicateKind};
-pub use slice::causal_slice;
+pub use node::{
+    CallShapeExplanation, CollectionKind, DerivationRule, EvidenceRef, ExplanationNode, ExplanationStep, GenericConstraintOrigin, GenericConstraintRelation,
+    PredicateKind,
+};
+pub use slice::{causal_slice, causal_trace};

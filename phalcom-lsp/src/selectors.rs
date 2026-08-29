@@ -5,7 +5,9 @@
 //! [`Selector`] values. This module provides AST-to-Selector conversion
 //! powered by `phalcom_common::selector`.
 
-use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, NormalizedSelectorSpec, PackItem, PackLabel, SelectorSpecSyntax, SetterDef};
+use phalcom_ast::ast::{
+    ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, NormalizedSelectorSpec, PackItem, PackLabel, SelectorSpecSyntax, SetterDef,
+};
 pub use phalcom_common::selector::{
     Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
 };
