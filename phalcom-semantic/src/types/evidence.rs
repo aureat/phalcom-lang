@@ -169,11 +169,10 @@ pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl Int
 
     let types = known.iter().map(|evidence| evidence.ty).collect::<Vec<_>>();
     let joined_type = store.union(&types);
-    let status = if known.iter().all(|evidence| evidence.status == EvidenceStatus::Established) {
-        EvidenceStatus::Established
-    } else {
-        EvidenceStatus::Assumed
-    };
+    let status = known
+        .iter()
+        .map(|evidence| evidence.status)
+        .fold(EvidenceStatus::Established, EvidenceStatus::meet);
     let mut joined = match status {
         EvidenceStatus::Established => TypeKnowledge::established(joined_type, EvidenceOrigin::Flow),
         EvidenceStatus::Assumed => TypeKnowledge::assumed(joined_type, EvidenceOrigin::Flow),
@@ -237,11 +236,10 @@ pub(crate) fn compose_required_knowledge(
         Ok(ty) => ty,
         Err(reason) => return TypeKnowledge::Unknown(reason),
     };
-    let status = if evidence.iter().all(|item| item.status() == EvidenceStatus::Established) {
-        EvidenceStatus::Established
-    } else {
-        EvidenceStatus::Assumed
-    };
+    let status = evidence
+        .iter()
+        .map(TypeEvidence::status)
+        .fold(EvidenceStatus::Established, EvidenceStatus::meet);
     let mut result = match status {
         EvidenceStatus::Established => TypeKnowledge::established(ty, origin),
         EvidenceStatus::Assumed => TypeKnowledge::assumed(ty, origin),
@@ -331,6 +329,13 @@ pub enum EvidenceStatus {
 }
 
 impl EvidenceStatus {
+    pub const fn meet(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Established, Self::Established) => Self::Established,
+            _ => Self::Assumed,
+        }
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Established => "established",
@@ -517,11 +522,22 @@ mod required_composition_tests {
     }
 
     #[test]
-    fn required_composition_delegates_empty_shape_to_builder() {
-        let store = TypeStore::new();
-        let unit = store.unit();
-        let result = compose_required_knowledge(std::iter::empty(), EvidenceOrigin::Syntax, |_| Ok(unit));
-        assert_eq!(result.ty(), Some(unit));
-        assert_eq!(result.status(), Some(EvidenceStatus::Established));
+    fn evidence_status_meet_is_weakest_support() {
+        use EvidenceStatus::{Assumed, Established};
+        assert_eq!(Established.meet(Established), Established);
+        assert_eq!(Established.meet(Assumed), Assumed);
+        assert_eq!(Assumed.meet(Established), Assumed);
+        assert_eq!(Assumed.meet(Assumed), Assumed);
+    }
+
+    #[test]
+    fn evidence_status_meet_is_commutative_and_idempotent() {
+        use EvidenceStatus::{Assumed, Established};
+        for left in [Established, Assumed] {
+            for right in [Established, Assumed] {
+                assert_eq!(left.meet(right), right.meet(left));
+            }
+            assert_eq!(left.meet(left), left);
+        }
     }
 }

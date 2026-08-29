@@ -354,14 +354,6 @@ pub(crate) fn bind_static_arguments(
     }
 }
 
-fn minimum_evidence_status(left: EvidenceStatus, right: EvidenceStatus) -> EvidenceStatus {
-    if left == EvidenceStatus::Assumed || right == EvidenceStatus::Assumed {
-        EvidenceStatus::Assumed
-    } else {
-        EvidenceStatus::Established
-    }
-}
-
 fn target_base_authority(target: &CallableApplicationTarget) -> EvidenceStatus {
     match target.authority {
         CallTargetAuthority::ExactDispatch | CallTargetAuthority::StructuralBuiltin => EvidenceStatus::Established,
@@ -387,7 +379,7 @@ fn target_fixed_return_origin(target: &CallableApplicationTarget) -> EvidenceOri
 fn weaken_known_to_status(knowledge: TypeKnowledge, maximum: EvidenceStatus, origin: EvidenceOrigin, range: SourceRange) -> TypeKnowledge {
     match knowledge {
         TypeKnowledge::Known(evidence) => {
-            let status = minimum_evidence_status(evidence.status(), maximum);
+            let status = evidence.status().meet(maximum);
             TypeKnowledge::Known(evidence).with_status_and_origin(status, origin, range)
         }
         other => other.with_range(range),
@@ -398,7 +390,7 @@ fn derive_fixed_return(target: &CallableApplicationTarget, premise: &CallPremise
     let Some(premise_status) = premise.knowledge.status() else {
         return premise.knowledge.clone();
     };
-    let authority = minimum_evidence_status(target_base_authority(target), premise_status);
+    let authority = target_base_authority(target).meet(premise_status);
     let origin = target_fixed_return_origin(target);
     let return_type = match &target.signature.return_type {
         TypeKnowledge::Known(evidence) => TypeKnowledge::established(evidence.ty(), origin),
@@ -510,7 +502,7 @@ fn cap_result_to_premise_authority(target: &CallableApplicationTarget, premise: 
     let Some(premise_status) = premise.knowledge.status() else {
         return result;
     };
-    let maximum = minimum_evidence_status(target_base_authority(target), premise_status);
+    let maximum = target_base_authority(target).meet(premise_status);
     let origin = result.origin().unwrap_or(EvidenceOrigin::GenericInference);
     weaken_known_to_status(result, maximum, origin, range)
 }
