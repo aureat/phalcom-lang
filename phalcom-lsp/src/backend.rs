@@ -1265,7 +1265,7 @@ impl LanguageServer for Backend {
                             client.send_notification::<AnalysisStatusNotification>(status).await;
                         }
                         AnalysisEvent::Log(log) => {
-                            client.send_notification::<crate::analysis_log::AnalysisLogNotification>(log).await;
+                            client.send_notification::<crate::analysis_log::AnalysisLogNotification>(*log).await;
                         }
                         AnalysisEvent::Error { message } => {
                             client.log_message(MessageType::ERROR, message).await;
