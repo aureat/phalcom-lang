@@ -492,7 +492,13 @@ impl Backend {
         self.analysis.enqueue_file_update(uri.clone(), revision, text, Arc::new(program.clone()));
     }
 
-    fn cache_source(&self, uri: Url, revision: phalcom_modules::SourceRevision, text: impl Into<Arc<str>>, program: impl Into<Arc<phalcom_ast::ast::Program>>) {
+    fn cache_source(
+        &self,
+        uri: Url,
+        _revision: phalcom_modules::SourceRevision,
+        text: impl Into<Arc<str>>,
+        program: impl Into<Arc<phalcom_ast::ast::Program>>,
+    ) {
         let text = text.into();
         let program = program.into();
         let source = CachedSource {

@@ -1,5 +1,4 @@
 use crate::semantic::support::Fixture;
-use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::{DerivationRule, DiagnosticCode, DiagnosticDetail, DiagnosticPresenter, PresentedLabelRole};
 
 #[test]
@@ -106,6 +105,62 @@ class Probe {
     assert_eq!(compact.primary, explain.primary);
     assert!(compact.explanation.len() <= 2);
     assert!(explain.explanation.len() >= compact.explanation.len());
+}
+
+#[test]
+fn advisory_isolation_strictly_excludes_advisory_context_on_formal_contradiction() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let x: Int = "not an int"
+  }
+}
+"#,
+    );
+    let diagnostic = fixture
+        .diagnostics(DiagnosticCode::BindingInitializerMismatch)
+        .into_iter()
+        .next()
+        .expect("binding mismatch diagnostic");
+    let presenter = DiagnosticPresenter::new(&fixture.analysis.snapshot);
+    let presented = presenter.present(diagnostic, DiagnosticDetail::Explain);
+
+    // Formally refuted cases must NEVER attach advisory context.
+    assert!(
+        presented.context.is_empty(),
+        "formal contradiction must have empty advisory context, got: {:?}",
+        presented.context
+    );
+}
+
+#[test]
+fn call_shape_presentation_has_clear_guidance() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(f: (Int, String) -> Int) {
+    let x = f(1)
+  }
+}
+"#,
+    );
+    let diagnostic = fixture
+        .diagnostics(DiagnosticCode::CallShapeMismatch)
+        .into_iter()
+        .next()
+        .expect("call shape diagnostic");
+    let presenter = DiagnosticPresenter::new(&fixture.analysis.snapshot);
+    let presented = presenter.present(diagnostic, DiagnosticDetail::Explain);
+
+    assert_eq!(presented.code, DiagnosticCode::CallShapeMismatch);
+    assert!(
+        presented.explanation.iter().any(|line| line.text.contains("missing required argument")),
+        "explanation should describe missing argument: {:?}",
+        presented.explanation
+    );
 }
 
 #[test]

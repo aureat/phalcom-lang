@@ -907,7 +907,7 @@ fn apply_generic_callable_inner(
         argument_outcome
     };
 
-    let underconstrained = argument_underconstrained.as_ref().or_else(|| match &outcome {
+    let underconstrained = argument_underconstrained.as_ref().or(match &outcome {
         crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value),
         _ => None,
     });

@@ -180,7 +180,11 @@ impl<'a> DiagnosticPresenter<'a> {
     fn labels(&self, diagnostic: &SemanticDiagnostic, trace: &[(ExplanationRef, &ExplanationNode)]) -> Vec<PresentedLabel> {
         let mut labels = Vec::new();
         let relation = trace.iter().rev().find_map(|(_, node)| match &node.step {
-            ExplanationStep::TypeRelation { actual, expected, outcome } if matches!(outcome, RelationOutcome::Refuted(_)) => Some((actual, *expected)),
+            ExplanationStep::TypeRelation {
+                actual,
+                expected,
+                outcome: RelationOutcome::Refuted(_),
+            } => Some((actual, *expected)),
             _ => None,
         });
         if let Some((actual, expected)) = relation {
