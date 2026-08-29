@@ -799,7 +799,7 @@ class Probe {
         let id = zero_arg_callable(&module, "Probe", name, DispatchSide::Class);
         let body = callable_analysis(&analysis, &id);
         assert_eq!(
-            body.exits.normal_return_values.len(),
+            body.exits.normal_returns.len(),
             if name == "abrupt" { 0 } else { 1 },
             "summary paths for {name}"
         );
@@ -881,9 +881,8 @@ class Probe {
 "#,
     );
 
-    let run = f.callable("Probe", "run", DispatchSide::Class);
-    let result = f.binding(run, "result");
-    assert_ne!(result.current.status(), Some(EvidenceStatus::Established));
+    let broken = f.callable("Probe", "broken", DispatchSide::Class);
+    assert!(broken.exits.normal_returns.iter().all(|exit| !exit.publication_knowledge().is_established()));
 }
 
 #[test]

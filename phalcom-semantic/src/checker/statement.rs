@@ -1,7 +1,8 @@
 //! Statement type checking engine.
 
-use super::analysis::AnalysisStatus;
+use super::analysis::{AnalysisStatus, NormalReturnFact};
 use super::binding::{BindingContract, BindingContractOrigin, BindingSeed, reconcile_binding_relation};
+use super::causal::CausalInvalidity;
 use super::call::{CallPremise, CallableApplicationTarget, UnresolvedApplicationReason, analyze_unresolved_application, apply_resolved_callable};
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
@@ -17,9 +18,9 @@ use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
 /// Checks a single statement, updating context bindings and recording
-/// diagnostics. A direct `return` reports its typed normal-return value to
+/// diagnostics. A direct `return` reports its structured normal-return fact to
 /// callable-body analysis; all other statement forms return `None`.
-pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> Option<TypeKnowledge> {
+pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> Option<NormalReturnFact> {
     match statement {
         Statement::Let(binding) => {
             let (declared_k, annotation_invalidity) = binding
@@ -151,7 +152,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 .as_ref()
                 .map(|contract| ExpectedType::proper_from(contract.ty, ExpectationOrigin::ReturnContract))
                 .unwrap_or_default();
-            let val_typed = if let Some(expr) = &ret.value {
+            let mut val_typed = if let Some(expr) = &ret.value {
                 analyze_expression(ctx, expr, &expected_ret)
             } else {
                 TypedExpression::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics, ret.range)
@@ -168,6 +169,23 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             } else {
                 None
             };
+            if let Some(relation_application) = &relation {
+                if let Some(cause) = relation_application.cause {
+                    val_typed.status = AnalysisStatus::Invalid(cause);
+                    val_typed.causal_invalidity = val_typed.causal_invalidity.join(CausalInvalidity::One(cause));
+                } else {
+                    val_typed.status = match &relation_application.outcome {
+                        RelationOutcome::Blocked(reason) => AnalysisStatus::Blocked(reason.clone()),
+                        RelationOutcome::Cancelled => AnalysisStatus::Cancelled,
+                        RelationOutcome::BudgetExceeded(report) => AnalysisStatus::BudgetExceeded(report.clone()),
+                        RelationOutcome::InternalFailure(message) => AnalysisStatus::InternalFailure(ctx.publish_analysis_incident(message)),
+                        RelationOutcome::DynamicBoundary(_) => AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection),
+                        _ => val_typed.status.clone(),
+                    };
+                }
+            }
+            ctx.sync_expression_outcome(&val_typed);
+
             let mut parents = val_typed
                 .expression_id
                 .and_then(|id| ctx.explanation_for_expression(id))
@@ -191,7 +209,13 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 ctx.attach_explanation_to_cause(cause, return_explanation);
             }
             ctx.record_call_dependency(val_typed.causal_invalidity, Some(return_explanation));
-            Some(val_typed.knowledge)
+            let fact = NormalReturnFact {
+                knowledge: val_typed.knowledge,
+                flow: ctx.current_flow_summary(),
+                status: val_typed.status,
+                causal_invalidity: val_typed.causal_invalidity,
+            };
+            Some(fact)
         }
         Statement::Expr { expr, .. } => {
             analyze_expression(ctx, expr, &ExpectedType::None);

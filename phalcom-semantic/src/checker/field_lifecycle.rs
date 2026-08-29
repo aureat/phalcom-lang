@@ -99,7 +99,10 @@ pub(crate) fn finalize_instance_field_lifecycle<'a>(
     }
     let mut result = defaults.clone();
     for fact in result.fields.values_mut() {
-        let normal_exits = constructors.iter().flat_map(|constructor| constructor.exits.returns.iter()).collect::<Vec<_>>();
+        let normal_exits = constructors
+            .iter()
+            .flat_map(|constructor| constructor.exits.normal_returns.iter().map(|exit| &exit.flow))
+            .collect::<Vec<_>>();
         if normal_exits.is_empty() {
             continue;
         }

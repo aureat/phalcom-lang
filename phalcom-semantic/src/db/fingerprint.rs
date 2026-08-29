@@ -6,7 +6,8 @@
 //! dependents?" and deliberately omit incidental source movement for contract
 //! products such as interfaces, declaration surfaces, and callable signatures.
 
-use crate::checker::analysis::{AnalysisStatus, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, FlowStateSummary};
+use crate::checker::analysis::{AnalysisStatus, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, FlowStateSummary, NormalReturnFact};
+use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use crate::checker::incident::{BindingContractSummary, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
@@ -902,14 +903,25 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
     summary.fact_count.hash(hasher);
 }
 
-fn hash_exit_facts(exits: &BodyExitFacts, hasher: &mut impl Hasher) {
-    exits.returns.len().hash(hasher);
-    for summary in &exits.returns {
-        hash_flow_summary(summary, hasher);
+fn hash_causal_invalidity_shape(causal: &CausalInvalidity, hasher: &mut impl Hasher) {
+    match causal {
+        CausalInvalidity::Clean => 0u8.hash(hasher),
+        CausalInvalidity::One(_) => 1u8.hash(hasher),
+        CausalInvalidity::Multiple => 2u8.hash(hasher),
     }
-    exits.normal_return_values.len().hash(hasher);
-    for value in &exits.normal_return_values {
-        hash_type_knowledge(value, false, hasher);
+}
+
+fn hash_normal_return_fact(fact: &NormalReturnFact, hasher: &mut impl Hasher) {
+    hash_type_knowledge(&fact.knowledge, false, hasher);
+    hash_flow_summary(&fact.flow, hasher);
+    hash_analysis_status(&fact.status, &[], hasher);
+    hash_causal_invalidity_shape(&fact.causal_invalidity, hasher);
+}
+
+fn hash_exit_facts(exits: &BodyExitFacts, hasher: &mut impl Hasher) {
+    exits.normal_returns.len().hash(hasher);
+    for fact in &exits.normal_returns {
+        hash_normal_return_fact(fact, hasher);
     }
     exits.throws.len().hash(hasher);
     for summary in &exits.throws {

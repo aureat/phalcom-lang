@@ -1,6 +1,7 @@
 //! Full callable body type checking and CallableAnalysis generation (Spec 04.5 / Wave 5).
 
-use crate::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus};
+use crate::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, NormalReturnFact};
+use crate::checker::causal::CausalInvalidity;
 use crate::checker::context::{CallableReturnContract, CheckerControl, CheckingContext};
 use crate::checker::flow::graph::FlowGraph;
 use crate::checker::statement::check_statement;
@@ -8,6 +9,8 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::{CallableId, ModuleId};
 use crate::types::annotation::TypeResolver;
+use crate::types::evidence::DynamicReason;
+use crate::types::outcome::RelationOutcome;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::Statement;
@@ -119,7 +122,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
 
     // 2. Check each statement while charging budget and checking cancellation
     let mut status = CallableAnalysisStatus::Complete;
-    let mut normal_return_values = Vec::new();
+    let mut normal_returns = Vec::new();
     let mut can_fall_through = true;
 
     for (statement_index, stmt) in body.iter().enumerate() {
@@ -149,16 +152,30 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                         crate::checker::expected::ExpectedType::proper_from(contract.ty, crate::checker::expected::ExpectationOrigin::ReturnContract)
                     })
                     .unwrap_or_default();
-                let typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
+                let mut typed = crate::checker::expression::analyze_expression(&mut ctx, expr, &expected);
                 if !constructor_body && !setter_body {
                     if let Some(expected_return) = ctx.expected_return.clone() {
-                        ctx.apply_knowledge_against_type(
+                        let relation = ctx.apply_knowledge_against_type(
                             &typed.knowledge,
                             expected_return.ty,
                             crate::diagnostic::DiagnosticCode::ReturnMismatch,
                             "tail expression result is not assignable to method's declared return type",
                             *range,
                         );
+                        if let Some(cause) = relation.cause {
+                            typed.status = AnalysisStatus::Invalid(cause);
+                            typed.causal_invalidity = typed.causal_invalidity.join(CausalInvalidity::One(cause));
+                        } else {
+                            typed.status = match &relation.outcome {
+                                RelationOutcome::Blocked(reason) => AnalysisStatus::Blocked(reason.clone()),
+                                RelationOutcome::Cancelled => AnalysisStatus::Cancelled,
+                                RelationOutcome::BudgetExceeded(report) => AnalysisStatus::BudgetExceeded(report.clone()),
+                                RelationOutcome::InternalFailure(message) => AnalysisStatus::InternalFailure(ctx.publish_analysis_incident(message)),
+                                RelationOutcome::DynamicBoundary(_) => AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection),
+                                _ => typed.status.clone(),
+                            };
+                        }
+                        ctx.sync_expression_outcome(&typed);
                     }
                 }
                 if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status.clone() {
@@ -166,7 +183,12 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                     break;
                 }
                 if can_fall_through && typed.knowledge.ty() != Some(ctx.store.never()) {
-                    normal_return_values.push(typed.knowledge);
+                    normal_returns.push(NormalReturnFact {
+                        knowledge: typed.knowledge,
+                        flow: ctx.current_flow_summary(),
+                        status: typed.status,
+                        causal_invalidity: typed.causal_invalidity,
+                    });
                 }
                 can_fall_through = false;
                 continue;
@@ -179,9 +201,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             break;
         }
         if can_fall_through {
-            if let Some(value) = returned {
-                if value.ty() != Some(ctx.store.never()) {
-                    normal_return_values.push(value);
+            if let Some(fact) = returned {
+                if fact.knowledge.ty() != Some(ctx.store.never()) {
+                    normal_returns.push(fact);
                 }
                 can_fall_through = false;
             } else if matches!(stmt, Statement::Throw { .. } | Statement::Break { .. } | Statement::Continue { .. }) {
@@ -201,18 +223,29 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
                 };
                 if !initializer_never {
                     let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
+                    let mut exit_status = AnalysisStatus::Ready;
+                    let mut exit_causal = CausalInvalidity::Clean;
                     if !constructor_body && !setter_body {
                         if let Some(expected_return) = ctx.expected_return.clone() {
-                            ctx.apply_knowledge_against_type(
+                            let relation = ctx.apply_knowledge_against_type(
                                 &unit,
                                 expected_return.ty,
                                 crate::diagnostic::DiagnosticCode::ReturnMismatch,
                                 "tail statement completes with Unit, which is not assignable to method's declared return type",
                                 stmt_range(stmt),
                             );
+                            if let Some(cause) = relation.cause {
+                                exit_status = AnalysisStatus::Invalid(cause);
+                                exit_causal = exit_causal.join(CausalInvalidity::One(cause));
+                            }
                         }
                     }
-                    normal_return_values.push(unit);
+                    normal_returns.push(NormalReturnFact {
+                        knowledge: unit,
+                        flow: ctx.current_flow_summary(),
+                        status: exit_status,
+                        causal_invalidity: exit_causal,
+                    });
                 }
                 can_fall_through = false;
             }
@@ -221,22 +254,33 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
 
     if body.is_empty() && can_fall_through {
         let unit = crate::types::evidence::TypeKnowledge::established(ctx.store.unit(), crate::types::evidence::EvidenceOrigin::Flow);
+        let mut exit_status = AnalysisStatus::Ready;
+        let mut exit_causal = CausalInvalidity::Clean;
         if !constructor_body && !setter_body {
             if let Some(expected_return) = ctx.expected_return.clone() {
-                ctx.apply_knowledge_against_type(
+                let relation = ctx.apply_knowledge_against_type(
                     &unit,
                     expected_return.ty,
                     crate::diagnostic::DiagnosticCode::ReturnMismatch,
                     "empty callable body completes with Unit, which is not assignable to method's declared return type",
                     body_range,
                 );
+                if let Some(cause) = relation.cause {
+                    exit_status = AnalysisStatus::Invalid(cause);
+                    exit_causal = exit_causal.join(CausalInvalidity::One(cause));
+                }
             }
         }
-        normal_return_values.push(unit);
+        normal_returns.push(NormalReturnFact {
+            knowledge: unit,
+            flow: ctx.current_flow_summary(),
+            status: exit_status,
+            causal_invalidity: exit_causal,
+        });
     }
 
     if let Some(AnalysisStatus::InternalFailure(incident)) = ctx.terminal_status {
         status = CallableAnalysisStatus::InternalFailure(incident);
     }
-    ctx.finalize_with_normal_returns(callable, body_range, status, normal_return_values)
+    ctx.finalize_with_normal_returns(callable, body_range, status, normal_returns)
 }

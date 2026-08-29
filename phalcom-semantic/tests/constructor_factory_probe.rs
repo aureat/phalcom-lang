@@ -68,9 +68,9 @@ const x: Int = CellNum.of(42)
     assert!(
         factory_analysis
             .exits
-            .normal_return_values
+            .normal_returns
             .iter()
-            .any(|knowledge| knowledge.ty() == Some(cell_ty)),
+            .any(|fact| fact.knowledge.ty() == Some(cell_ty)),
         "CellNum.of must publish the constructor result as a normal return: {factory_analysis:#?}"
     );
 

@@ -204,14 +204,41 @@ pub struct FlowStateSummary {
     pub fact_count: usize,
 }
 
+/// A single recorded normal exit fact.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NormalReturnFact {
+    pub knowledge: TypeKnowledge,
+    pub flow: FlowStateSummary,
+    pub status: AnalysisStatus,
+    pub causal_invalidity: CausalInvalidity,
+}
+
+impl NormalReturnFact {
+    pub fn publication_knowledge(&self) -> TypeKnowledge {
+        if self.causal_invalidity != CausalInvalidity::Clean {
+            return TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SuppressedByInvalidCause);
+        }
+        match &self.status {
+            AnalysisStatus::Ready => self.knowledge.clone(),
+            AnalysisStatus::Invalid(_) | AnalysisStatus::Suppressed(_) => {
+                TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SuppressedByInvalidCause)
+            }
+            AnalysisStatus::Blocked(_) => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked),
+            AnalysisStatus::DynamicBoundary(reason) => match &self.knowledge {
+                TypeKnowledge::Dynamic(_) => self.knowledge.clone(),
+                _ => TypeKnowledge::Dynamic(reason.clone()),
+            },
+            AnalysisStatus::Cancelled => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceCancelled),
+            AnalysisStatus::BudgetExceeded(_) => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceBudgetExceeded),
+            AnalysisStatus::InternalFailure(_) => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked),
+        }
+    }
+}
+
 /// Recorded exit facts across returns, throws, and unreachable points.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BodyExitFacts {
-    pub returns: Vec<FlowStateSummary>,
-    /// Type knowledge produced by normal callable exits. An empty vector
-    /// means no normal return path exists (`Never`); abrupt exits are not
-    /// values and therefore do not participate in this collection.
-    pub normal_return_values: Vec<TypeKnowledge>,
+    pub normal_returns: Vec<NormalReturnFact>,
     pub throws: Vec<FlowStateSummary>,
     pub unreachable: bool,
 }
@@ -219,14 +246,14 @@ pub struct BodyExitFacts {
 /// Joins values from all normal callable exits into one published return
 /// knowledge fact. Abrupt-only bodies produce `Never`; incomplete knowledge
 /// keeps the summary incomplete instead of inventing a return type.
-pub fn normal_return_summary(store: &mut crate::types::store::TypeStore, values: &[TypeKnowledge]) -> TypeKnowledge {
+pub fn normal_return_summary(store: &mut crate::types::store::TypeStore, exits: &[NormalReturnFact]) -> TypeKnowledge {
     use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, join_type_knowledge};
 
-    if values.is_empty() {
+    if exits.is_empty() {
         return TypeKnowledge::established(store.never(), EvidenceOrigin::Flow);
     }
 
-    join_type_knowledge(store, values.iter().cloned())
+    join_type_knowledge(store, exits.iter().map(NormalReturnFact::publication_knowledge))
 }
 
 /// Index of expression analysis products within a body.
@@ -281,4 +308,41 @@ pub struct CallableAnalysis {
     /// not a hash of dependency-edge metadata.
     pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::checker::causal::CausalInvalidity;
+    use crate::identity::DiagnosticCauseId;
+    use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+    use crate::types::id::TypeId;
+
+    #[test]
+    fn invalid_normal_return_fact_suppresses_recovery_knowledge_for_publication() {
+        let fact = NormalReturnFact {
+            knowledge: TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            flow: FlowStateSummary::default(),
+            status: AnalysisStatus::Invalid(DiagnosticCauseId(1)),
+            causal_invalidity: CausalInvalidity::One(DiagnosticCauseId(1)),
+        };
+        assert_eq!(
+            fact.publication_knowledge(),
+            TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
+        );
+    }
+
+    #[test]
+    fn clean_normal_return_fact_preserves_knowledge_for_publication() {
+        let fact = NormalReturnFact {
+            knowledge: TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            flow: FlowStateSummary::default(),
+            status: AnalysisStatus::Ready,
+            causal_invalidity: CausalInvalidity::Clean,
+        };
+        assert_eq!(
+            fact.publication_knowledge(),
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow)
+        );
+    }
 }

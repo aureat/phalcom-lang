@@ -114,16 +114,16 @@ class Maker {
     let captured_seed = f.binding(make, "seed");
 
     assert_eq!(captured_seed.current.ty(), Some(int_ty), "captured parameter must retain its outer identity");
-    assert_eq!(make.exits.normal_return_values.len(), 1);
+    assert_eq!(make.exits.normal_returns.len(), 1);
     assert!(
-        make.exits.normal_return_values[0].ty().is_some(),
+        make.exits.normal_returns[0].knowledge.ty().is_some(),
         "returning a closure must publish closure knowledge, not Unit"
     );
 
     let returning_block = f.callable("Maker", "makeReturningBlock", DispatchSide::Instance);
-    assert_eq!(returning_block.exits.normal_return_values.len(), 1);
+    assert_eq!(returning_block.exits.normal_returns.len(), 1);
     assert!(
-        returning_block.exits.normal_return_values[0].ty().is_some(),
+        returning_block.exits.normal_returns[0].knowledge.ty().is_some(),
         "nested block return must not erase outer closure result"
     );
     f.assert_no_error_diagnostics();

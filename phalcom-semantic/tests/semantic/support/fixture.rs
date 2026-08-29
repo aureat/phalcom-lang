@@ -528,8 +528,8 @@ impl Fixture {
     }
 
     pub fn assert_normal_return(&self, callable: &CallableAnalysis, expected: KnowledgeExpectation) {
-        assert_eq!(callable.exits.normal_return_values.len(), 1, "expected one published normal return");
-        self.assert_knowledge(&callable.exits.normal_return_values[0], &expected);
+        assert_eq!(callable.exits.normal_returns.len(), 1, "expected one published normal return");
+        self.assert_knowledge(&callable.exits.normal_returns[0].knowledge, &expected);
     }
 
     pub fn expression_at<'a>(&'a self, callable: &'a CallableAnalysis, locator: SourceLocator<'_>) -> &'a ExpressionAnalysis {

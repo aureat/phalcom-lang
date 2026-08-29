@@ -166,8 +166,14 @@ class Probe {
 fn normal_return_summary_preserves_dynamic_reason() {
     let mut store = TypeStore::new();
     let dynamic = TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection);
+    let exit = phalcom_semantic::checker::analysis::NormalReturnFact {
+        knowledge: dynamic.clone(),
+        flow: Default::default(),
+        status: phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
+        causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+    };
 
-    let summary = normal_return_summary(&mut store, std::slice::from_ref(&dynamic));
+    let summary = normal_return_summary(&mut store, std::slice::from_ref(&exit));
 
     assert_eq!(summary, dynamic, "return summarization must preserve Dynamic and its reason",);
 }
@@ -180,8 +186,14 @@ fn normal_return_summary_preserves_dynamic_reason() {
 fn normal_return_summary_preserves_existing_unknown_reason() {
     let mut store = TypeStore::new();
     let unknown = TypeKnowledge::Unknown(UnknownReason::UnresolvedName("missing".into()));
+    let exit = phalcom_semantic::checker::analysis::NormalReturnFact {
+        knowledge: unknown.clone(),
+        flow: Default::default(),
+        status: phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
+        causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+    };
 
-    let summary = normal_return_summary(&mut store, std::slice::from_ref(&unknown));
+    let summary = normal_return_summary(&mut store, std::slice::from_ref(&exit));
 
     assert_eq!(summary, unknown, "return summarization must preserve the actual reason analysis is unknown",);
 }

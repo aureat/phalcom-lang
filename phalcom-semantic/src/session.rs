@@ -1937,13 +1937,13 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                 if !signature.published_return_knowledge().is_unknown() {
                     return None;
                 }
-                Some((callable.clone(), signature.callable.clone(), analysis.exits.normal_return_values.clone()))
+                Some((callable.clone(), signature.callable.clone(), analysis.exits.normal_returns.clone()))
             })
             .collect::<Vec<_>>();
 
         let mut changed_callables = HashSet::new();
-        for (callable, signature_id, values) in candidates {
-            let summary = normal_return_summary(store, &values);
+        for (callable, signature_id, exits) in candidates {
+            let summary = normal_return_summary(store, &exits);
             if !summary.is_known() {
                 continue;
             }

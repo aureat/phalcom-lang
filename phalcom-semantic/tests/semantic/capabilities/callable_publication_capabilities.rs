@@ -27,8 +27,8 @@ class Probe {
     let cat = f.ty("Cat");
     let dog = f.ty("Dog");
     let factory = f.callable("Factory", "make", DispatchSide::Class);
-    for normal in &factory.exits.normal_return_values {
-        if let Some(ty) = normal.ty() {
+    for normal in &factory.exits.normal_returns {
+        if let Some(ty) = normal.knowledge.ty() {
             f.assert_union_members(ty, &[cat, dog]);
         }
     }

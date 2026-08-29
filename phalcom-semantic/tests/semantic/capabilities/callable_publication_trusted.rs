@@ -75,8 +75,8 @@ class Demo {
                 && evidence.status() == EvidenceStatus::Established
                 && evidence.origin() == EvidenceOrigin::NativeSignature));
 
-        assert_eq!(analysis.exits.normal_return_values.len(), 1);
-        assert!(matches!(&analysis.exits.normal_return_values[0], TypeKnowledge::Known(evidence)
+        assert_eq!(analysis.exits.normal_returns.len(), 1);
+        assert!(matches!(&analysis.exits.normal_returns[0].knowledge, TypeKnowledge::Known(evidence)
             if snapshot.store.format_type(evidence.ty()) == case.expected_type
                 && evidence.status() == EvidenceStatus::Established));
     }

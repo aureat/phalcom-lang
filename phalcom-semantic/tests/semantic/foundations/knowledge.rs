@@ -61,7 +61,13 @@ fn normal_return_summary_preserves_assumed_exit_evidence() {
     let mut store = TypeStore::new();
     let int = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
 
-    let summary = phalcom_semantic::checker::analysis::normal_return_summary(&mut store, &[TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature)]);
+    let exit = phalcom_semantic::checker::analysis::NormalReturnFact {
+        knowledge: TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature),
+        flow: Default::default(),
+        status: phalcom_semantic::checker::analysis::AnalysisStatus::Ready,
+        causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+    };
+    let summary = phalcom_semantic::checker::analysis::normal_return_summary(&mut store, &[exit]);
 
     assert_eq!(summary.ty(), Some(int));
     assert_eq!(summary.status(), Some(EvidenceStatus::Assumed));

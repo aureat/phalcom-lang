@@ -1138,7 +1138,7 @@ fn analyze_control_block(ctx: &mut CheckingContext<'_>, block: &phalcom_ast::ast
             Statement::Expr { expr, .. } => result = analyze_expression(ctx, expr, expected),
             Statement::Return(_) => {
                 result = check_statement(ctx, statement)
-                    .map(TypedExpression::new)
+                    .map(|fact| TypedExpression::new(fact.knowledge))
                     .unwrap_or_else(|| TypedExpression::established(ctx.store.never(), EvidenceOrigin::Flow, block.range));
                 ctx.flow.mark_unreachable();
                 break;

@@ -499,7 +499,7 @@ impl<'a> CheckingContext<'a> {
         self.control.is_cancelled()
     }
 
-    fn current_flow_summary(&self) -> crate::checker::analysis::FlowStateSummary {
+    pub(crate) fn current_flow_summary(&self) -> crate::checker::analysis::FlowStateSummary {
         let bindings = self
             .flow
             .bindings
@@ -1534,18 +1534,18 @@ impl<'a> CheckingContext<'a> {
         callable: CallableId,
         body_range: SourceRange,
         status: crate::checker::analysis::CallableAnalysisStatus,
-        normal_return_values: Vec<crate::types::evidence::TypeKnowledge>,
+        normal_returns: Vec<crate::checker::analysis::NormalReturnFact>,
     ) -> crate::checker::analysis::CallableAnalysis {
         let entry_flow = self.current_flow_summary();
         let flow_graph = self
             .flow_graph
             .unwrap_or_else(|| std::sync::Arc::new(crate::checker::flow::graph::FlowGraph::default()));
 
-        let return_summary = crate::checker::analysis::normal_return_summary(self.store, &normal_return_values);
+        let return_summary = crate::checker::analysis::normal_return_summary(self.store, &normal_returns);
         let return_explanation = Some(self.explanations.alloc(
             crate::explain::ExplanationStep::CallableReturnSummary {
                 callable: callable.clone(),
-                returns: normal_return_values.clone().into_boxed_slice(),
+                returns: normal_returns.iter().map(|exit| exit.knowledge.clone()).collect::<Vec<_>>().into_boxed_slice(),
                 result: return_summary.clone(),
             },
             return_summary.status().unwrap_or(crate::types::evidence::EvidenceStatus::Assumed),
@@ -1553,12 +1553,7 @@ impl<'a> CheckingContext<'a> {
             Vec::new(),
         ));
         let exits = crate::checker::analysis::BodyExitFacts {
-            returns: if normal_return_values.is_empty() {
-                Vec::new()
-            } else {
-                vec![entry_flow.clone()]
-            },
-            normal_return_values,
+            normal_returns,
             throws: self.throw_exit_flows,
             unreachable: false,
         };
