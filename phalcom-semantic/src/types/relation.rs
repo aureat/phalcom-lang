@@ -332,9 +332,7 @@ fn check_subtype_impl(
                 RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
         }
-        (TypeData::ExactCase { enum_type, .. }, _) => {
-            check_subtype_impl(store, hierarchy, enum_type, sup, budget, cancellation, visited)
-        }
+        (TypeData::ExactCase { enum_type, .. }, _) => check_subtype_impl(store, hierarchy, enum_type, sup, budget, cancellation, visited),
 
         (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
             if sub_elems.len() == sup_elems.len() {
@@ -397,6 +395,29 @@ fn check_subtype_impl(
             } else {
                 RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
+        }
+        (TypeData::Family(sub_fid), TypeData::Family(sup_fid)) => {
+            let sub_family = store.get_family(sub_fid).clone();
+            let sup_family = store.get_family(sup_fid).clone();
+            // Width subtyping: every required member in sup_family must be present in sub_family
+            for sup_m in sup_family.members.iter() {
+                let Some(sub_m) = sub_family.find_operation(&sup_m.operation) else {
+                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                };
+                if sub_m.member_kind != sup_m.member_kind {
+                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                }
+                // Member subtyping: sub_m.ty <: sup_m.ty
+                let out = check_subtype_impl(store, hierarchy, sub_m.ty, sup_m.ty, budget, cancellation, visited);
+                match out {
+                    RelationOutcome::Proven { .. } => {}
+                    RelationOutcome::Refuted(_) => {
+                        return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                    }
+                    terminal => return terminal,
+                }
+            }
+            RelationOutcome::proven(())
         }
         (_, TypeData::Nominal { declaration: sup_decl }) if CoreDeclarationIds::default().is_object(&sup_decl) => RelationOutcome::proven(()),
         (TypeData::Unit, TypeData::Unit) => RelationOutcome::proven(()),

@@ -28,13 +28,15 @@ pub struct DispatchOwner {
     pub side: DispatchSide,
 }
 
+use phalcom_ast::ast::RestMode;
+
 /// Parameter in a callable signature.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableParameter {
     pub external_label: Option<String>,
     pub local_name: String,
     pub ty: TypeKnowledge,
-    pub rest: bool,
+    pub rest: RestMode,
 }
 
 impl CallableParameter {
@@ -43,7 +45,7 @@ impl CallableParameter {
             external_label: None,
             local_name: local_name.into(),
             ty,
-            rest: false,
+            rest: RestMode::None,
         }
     }
 
@@ -52,9 +54,13 @@ impl CallableParameter {
         self
     }
 
-    pub fn with_rest(mut self, rest: bool) -> Self {
+    pub fn with_rest(mut self, rest: RestMode) -> Self {
         self.rest = rest;
         self
+    }
+
+    pub fn is_rest(&self) -> bool {
+        self.rest != RestMode::None
     }
 }
 

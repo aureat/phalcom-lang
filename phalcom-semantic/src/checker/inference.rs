@@ -36,11 +36,13 @@ pub struct InferenceTupleElement {
     pub term: InferenceTerm,
 }
 
+use phalcom_ast::ast::RestMode;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InferenceCallableParameter {
     pub label: Option<Box<str>>,
     pub term: InferenceTerm,
-    pub rest: bool,
+    pub rest: RestMode,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1077,6 +1079,7 @@ impl InferenceSession {
             TypeData::Tuple(elems) => elems.iter().any(|e| self.occurs_in_type(var, e.ty, store)),
             TypeData::Record(row_id) => store.record_row(*row_id).fields.iter().any(|f| self.occurs_in_type(var, f.ty, store)),
             TypeData::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_type(var, p.ty, store)) || self.occurs_in_type(var, c.return_type, store),
+            TypeData::Family(fid) => store.get_family(*fid).members.iter().any(|m| self.occurs_in_type(var, m.ty, store)),
             _ => false,
         }
     }
@@ -1202,10 +1205,7 @@ impl InferenceSession {
                     })
                 }
             }
-            (
-                InferenceTerm::ExactCase { variant: v1, enum_type: e1 },
-                InferenceTerm::ExactCase { variant: v2, enum_type: e2 },
-            ) => {
+            (InferenceTerm::ExactCase { variant: v1, enum_type: e1 }, InferenceTerm::ExactCase { variant: v2, enum_type: e2 }) => {
                 if v1 != v2 {
                     return Err(InferenceFailureReason::StructuralMismatch {
                         left: Box::new(left.clone()),
@@ -1216,7 +1216,11 @@ impl InferenceSession {
             }
             (InferenceTerm::Canonical(ty), InferenceTerm::ExactCase { variant, enum_type })
             | (InferenceTerm::ExactCase { variant, enum_type }, InferenceTerm::Canonical(ty)) => {
-                if let TypeData::ExactCase { variant: canon_var, enum_type: canon_enum } = store.get(*ty).clone() {
+                if let TypeData::ExactCase {
+                    variant: canon_var,
+                    enum_type: canon_enum,
+                } = store.get(*ty).clone()
+                {
                     if canon_var != *variant {
                         return Err(InferenceFailureReason::StructuralMismatch {
                             left: Box::new(left.clone()),

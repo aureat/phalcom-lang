@@ -5,8 +5,7 @@ use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeS
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::enum_semantics::{
-    EnumInfo, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape,
-    VariantVisibility,
+    EnumInfo, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
 };
 use crate::identity::{DeclarationId, ModuleId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId};
 use crate::resolver::LinkedTypeResolver;
@@ -32,14 +31,9 @@ pub fn build_enum_semantics(
     let mut diagnostics = Vec::new();
 
     let generic_sig = declarations.generic_signature(owner).cloned();
-    let generic_params: Vec<TypeParameterId> = generic_sig
-        .as_ref()
-        .map(|sig| sig.parameters.to_vec())
-        .unwrap_or_default();
+    let generic_params: Vec<TypeParameterId> = generic_sig.as_ref().map(|sig| sig.parameters.to_vec()).unwrap_or_default();
 
-    let root_form = declarations
-        .form(owner)
-        .unwrap_or_else(|| store.nominal(owner.clone()));
+    let root_form = declarations.form(owner).unwrap_or_else(|| store.nominal(owner.clone()));
 
     let default_result_type = if generic_params.is_empty() {
         root_form
@@ -118,7 +112,10 @@ pub fn build_enum_semantics(
                         diagnostics.push(SemanticDiagnostic::error_in(
                             module_id.clone(),
                             DiagnosticCode::EnumVariantResultWrongOwner,
-                            format!("return type of variant `{}` must be an instance of enclosing enum `{}`", variant.name, owner.name),
+                            format!(
+                                "return type of variant `{}` must be an instance of enclosing enum `{}`",
+                                variant.name, owner.name
+                            ),
                             ret_ann.range,
                         ));
                         (default_result_type, CaseTypeEnvironment::default())
@@ -129,7 +126,10 @@ pub fn build_enum_semantics(
                                 diagnostics.push(SemanticDiagnostic::error_in(
                                     module_id.clone(),
                                     DiagnosticCode::EnumVariantResultUnsaturated,
-                                    format!("return type of variant `{}` expects {} type arguments, got {}", variant.name, expected_arity, got_arity),
+                                    format!(
+                                        "return type of variant `{}` expects {} type arguments, got {}",
+                                        variant.name, expected_arity, got_arity
+                                    ),
                                     ret_ann.range,
                                 ));
                                 (ret_ty, CaseTypeEnvironment::default())
@@ -156,7 +156,10 @@ pub fn build_enum_semantics(
                                 diagnostics.push(SemanticDiagnostic::error_in(
                                     module_id.clone(),
                                     DiagnosticCode::EnumVariantResultWrongOwner,
-                                    format!("return type of variant `{}` must be an instance of enclosing enum `{}`", variant.name, owner.name),
+                                    format!(
+                                        "return type of variant `{}` must be an instance of enclosing enum `{}`",
+                                        variant.name, owner.name
+                                    ),
                                     ret_ann.range,
                                 ));
                                 (ret_ty, CaseTypeEnvironment::default())
@@ -179,17 +182,15 @@ pub fn build_enum_semantics(
         };
 
         let type_handle = store.intern_variant_identity(variant_id.clone());
-        let exact_case_template = store
-            .exact_case_type(&variant_id, result_type_template)
-            .unwrap_or_else(|_| {
-                store.intern_with_kind(
-                    crate::types::store::TypeData::ExactCase {
-                        variant: type_handle,
-                        enum_type: default_result_type,
-                    },
-                    KindId::TYPE,
-                )
-            });
+        let exact_case_template = store.exact_case_type(&variant_id, result_type_template).unwrap_or_else(|_| {
+            store.intern_with_kind(
+                crate::types::store::TypeData::ExactCase {
+                    variant: type_handle,
+                    enum_type: default_result_type,
+                },
+                KindId::TYPE,
+            )
+        });
 
         // Resolve payload fields
         let mut fields = Vec::new();

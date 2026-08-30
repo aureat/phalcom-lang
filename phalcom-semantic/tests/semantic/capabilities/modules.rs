@@ -102,7 +102,7 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
         parameters: Box::new([CallableParameterType {
             label: Some("arg".into()),
             ty: int_ty,
-            rest: false,
+            rest: phalcom_ast::ast::RestMode::None,
         }]),
         return_type: str_ty,
     });

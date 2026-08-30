@@ -7,6 +7,7 @@ pub mod constraint;
 pub mod denotation;
 pub mod environment;
 pub mod evidence;
+pub mod family;
 pub mod id;
 pub mod kind;
 pub mod native;
@@ -24,11 +25,12 @@ pub use annotation::{SimpleTypeResolver, TypeFormResolution, TypeResolver, resol
 pub use application::TypeApplicationError;
 pub use case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 pub use constraint::{ConstraintSet, TypeConstraint};
-pub use denotation::{SemanticDenotation, ValueSemanticFact};
+pub use denotation::{AssociatedValueDenotation, CapturedAssociatedMember, SemanticDenotation, ValueSemanticFact};
 pub use environment::{SpecializedCallableView, SpecializedMemberView, TypeEnvironment, TypeView};
 pub use evidence::{
     ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason, join_type_knowledge,
 };
+pub use family::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape, FamilyType, FamilyTypeError, FamilyTypeId};
 pub use id::{InferVarId, KindId, ProperTypeId, RecordRowId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
 pub use kind::{KindApplicationError, KindData};
 pub use native::{

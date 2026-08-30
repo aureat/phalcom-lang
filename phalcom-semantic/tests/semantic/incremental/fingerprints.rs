@@ -112,6 +112,8 @@ fn callable_analysis() -> CallableAnalysis {
         body_range: SourceRange { start: 0, end: 20 },
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
+        associated_resolutions: Arc::new(BTreeMap::new()),
+        family_applications: Arc::new(BTreeMap::new()),
         flow_graph: Arc::new(FlowGraph::default()),
         entry_flow: FlowStateSummary::default(),
         exits: BodyExitFacts::default(),

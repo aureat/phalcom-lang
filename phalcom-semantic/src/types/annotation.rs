@@ -310,7 +310,11 @@ pub fn resolve_type_form(
                 param_types.push(CallableParameterType {
                     label: param.label.clone().map(Into::into),
                     ty,
-                    rest: param.rest,
+                    rest: if param.rest {
+                        phalcom_ast::ast::RestMode::Positional
+                    } else {
+                        phalcom_ast::ast::RestMode::None
+                    },
                 });
             }
 

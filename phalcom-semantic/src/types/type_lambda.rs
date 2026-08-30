@@ -292,7 +292,11 @@ impl TypeLambdaArena {
                         Ok(super::store::CallableParameterType {
                             label: p.label.clone(),
                             ty: self.subst_scoped_to_canonical(p.ty, depth, args, store)?,
-                            rest: p.rest,
+                            rest: if p.rest {
+                                phalcom_ast::ast::RestMode::Positional
+                            } else {
+                                phalcom_ast::ast::RestMode::None
+                            },
                         })
                     })
                     .collect::<Result<_, BetaReductionError>>()?;

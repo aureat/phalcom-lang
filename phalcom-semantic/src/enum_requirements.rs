@@ -57,12 +57,7 @@ impl EnumRequirementTable {
         Self::default()
     }
 
-    pub fn insert(
-        &mut self,
-        owner: DeclarationId,
-        requirements: Arc<[EnumRequirement]>,
-        statuses: Arc<[CaseRequirementResult]>,
-    ) {
+    pub fn insert(&mut self, owner: DeclarationId, requirements: Arc<[EnumRequirement]>, statuses: Arc<[CaseRequirementResult]>) {
         self.requirements.insert(owner.clone(), requirements);
         self.case_statuses.insert(owner, statuses);
     }

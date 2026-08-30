@@ -401,4 +401,3 @@ fn enum_is_a_keyword_but_enum_prefixed_names_are_identifiers() {
         ]
     );
 }
-

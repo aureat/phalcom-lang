@@ -140,7 +140,7 @@ fn lowers_labeled_tuple_and_callable_forms() {
     assert!(
         matches!(env.store.get(callable.ty()), TypeData::Callable(CallableType { parameters, return_type })
         if parameters[1].label.as_deref() == Some("names")
-            && parameters[1].rest
+            && parameters[1].is_rest()
             && *return_type == env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap())
     );
 }

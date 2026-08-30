@@ -112,14 +112,12 @@ enum Result<T, E> {
 	isOk -> Bool
 	isErr -> Bool
 
-	@variant
-	:: Ok(_ value: T) {
+	::Ok(_ value: T) {
 		isOk { true }
 		isErr { false }
 	}
 	
-	@variant
-	:: Err(_ error: T) {
+	::Err(_ error: T) {
 		isOk { false }
 		isErr { true }
 	}

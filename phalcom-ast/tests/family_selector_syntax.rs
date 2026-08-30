@@ -1,7 +1,7 @@
 use phalcom_ast::{
     ast::{
-        AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode,
-        AssociatedResidualSelectorSyntax, BinaryOp, Expr, Statement, SymbolLiteralKind,
+        AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, BinaryOp, Expr, Statement,
+        SymbolLiteralKind,
     },
     error::SyntaxErrorKind,
     parse_source,
@@ -43,7 +43,12 @@ fn associated_named_modes_parse_correctly() {
         panic!("expected Named member");
     };
     assert_eq!(named.base, "name");
-    assert!(matches!(named.mode, AssociatedNamedMode::Getter { explicit_separator_range: None }));
+    assert!(matches!(
+        named.mode,
+        AssociatedNamedMode::Getter {
+            explicit_separator_range: None
+        }
+    ));
 
     // 2. Explicit getter: receiver::name::
     let lookup = associated_lookup("receiver::name::");
@@ -51,7 +56,12 @@ fn associated_named_modes_parse_correctly() {
         panic!("expected Named member");
     };
     assert_eq!(named.base, "name");
-    assert!(matches!(named.mode, AssociatedNamedMode::Getter { explicit_separator_range: Some(_) }));
+    assert!(matches!(
+        named.mode,
+        AssociatedNamedMode::Getter {
+            explicit_separator_range: Some(_)
+        }
+    ));
 
     // 3. Family lookup: receiver::name::*
     let lookup = associated_lookup("receiver::name::*");
@@ -67,7 +77,11 @@ fn associated_named_modes_parse_correctly() {
         panic!("expected Named member");
     };
     assert_eq!(named.base, "name");
-    let AssociatedNamedMode::Exact { residual: AssociatedResidualSelectorSyntax::Method { slots, .. }, .. } = named.mode else {
+    let AssociatedNamedMode::Exact {
+        residual: AssociatedResidualSelectorSyntax::Method { slots, .. },
+        ..
+    } = named.mode
+    else {
         panic!("expected Exact method mode");
     };
     assert!(slots.is_empty());
@@ -78,7 +92,11 @@ fn associated_named_modes_parse_correctly() {
         panic!("expected Named member");
     };
     assert_eq!(named.base, "name");
-    let AssociatedNamedMode::Exact { residual: AssociatedResidualSelectorSyntax::Method { slots, .. }, .. } = named.mode else {
+    let AssociatedNamedMode::Exact {
+        residual: AssociatedResidualSelectorSyntax::Method { slots, .. },
+        ..
+    } = named.mode
+    else {
         panic!("expected Exact method mode");
     };
     assert_eq!(slots.len(), 2);
@@ -91,7 +109,13 @@ fn associated_named_modes_parse_correctly() {
         panic!("expected Named member");
     };
     assert_eq!(named.base, "name");
-    assert!(matches!(named.mode, AssociatedNamedMode::Exact { residual: AssociatedResidualSelectorSyntax::Setter { .. }, .. }));
+    assert!(matches!(
+        named.mode,
+        AssociatedNamedMode::Exact {
+            residual: AssociatedResidualSelectorSyntax::Setter { .. },
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -183,8 +207,7 @@ fn first_class_selector_specs_keep_hash_for_reflection() {
 fn shift_right_with_selector_pattern_remains_an_ordinary_binary_send() {
     let program = parse_source("Behavior >> #name(_, ..., foo)", 0).expect("reflection expression parses");
     let Statement::Expr {
-        expr: Expr::Binary(binary),
-        ..
+        expr: Expr::Binary(binary), ..
     } = &program.statements[0]
     else {
         panic!("expected binary >> expression");

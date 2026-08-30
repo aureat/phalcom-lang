@@ -554,7 +554,12 @@ impl SourceScopeBuilder<'_> {
         is_constructor: bool,
         member_side: DispatchSide,
     ) -> Option<CallableId> {
-        let slots = method.params.iter().map(parameter_slot).collect::<Vec<_>>();
+        let slots = method
+            .params
+            .iter()
+            .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
+            .map(parameter_slot)
+            .collect::<Vec<_>>();
         Selector::method(&method.name, slots)
             .ok()
             .map(|selector| CallableId::new(declaration.clone(), selector, if is_constructor { DispatchSide::Class } else { member_side }))

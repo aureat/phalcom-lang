@@ -1,6 +1,7 @@
 //! Canonical Type Store with interning and normalization.
 
 use super::application::TypeApplicationError;
+use super::family::{FamilyMemberType, FamilyMemberTypeKind, FamilyType, FamilyTypeError, FamilyTypeId};
 use super::id::{KindId, ProperTypeId, RecordRowId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
@@ -8,6 +9,7 @@ use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::variance::Variance;
 use crate::identity::{DeclarationId, VariantId};
+use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -21,11 +23,37 @@ pub struct TupleTypeElement {
 
 pub type RecordTypeField = RecordRowField;
 
+use phalcom_ast::ast::RestMode;
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CallableParameterType {
     pub label: Option<Box<str>>,
     pub ty: TypeId,
-    pub rest: bool,
+    pub rest: RestMode,
+}
+
+impl CallableParameterType {
+    pub fn new(ty: TypeId) -> Self {
+        Self {
+            label: None,
+            ty,
+            rest: RestMode::None,
+        }
+    }
+
+    pub fn with_label(mut self, label: impl Into<Box<str>>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    pub fn with_rest(mut self, rest: RestMode) -> Self {
+        self.rest = rest;
+        self
+    }
+
+    pub fn is_rest(&self) -> bool {
+        self.rest != RestMode::None
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -57,6 +85,8 @@ pub enum TypeData {
     Record(RecordRowId),
     /// Callable / block signature.
     Callable(CallableType),
+    /// First-class structural associated member family.
+    Family(FamilyTypeId),
     /// Type variable parameter in generic declaration.
     Parameter(TypeParameterId),
     /// First-class type lambda form.
@@ -80,6 +110,8 @@ pub struct TypeStore {
     lambda_arena: TypeLambdaArena,
     row_arena: Vec<RecordRowData>,
     row_interner: HashMap<RecordRowData, RecordRowId>,
+    family_arena: Vec<FamilyType>,
+    family_interner: HashMap<FamilyType, FamilyTypeId>,
     variant_identities: Vec<VariantId>,
     variant_identity_to_id: HashMap<VariantId, VariantTypeId>,
 
@@ -108,6 +140,8 @@ impl TypeStore {
             lambda_arena: TypeLambdaArena::new(),
             row_arena: Vec::new(),
             row_interner: HashMap::new(),
+            family_arena: Vec::new(),
+            family_interner: HashMap::new(),
             variant_identities: Vec::new(),
             variant_identity_to_id: HashMap::new(),
             never_id: TypeId::DUMMY,
@@ -498,6 +532,59 @@ impl TypeStore {
         self.intern_with_kind(TypeData::Callable(callable), KindId::TYPE)
     }
 
+    /// Interns a structural associated family type.
+    pub fn family_type(&mut self, members: impl IntoIterator<Item = FamilyMemberType>) -> Result<TypeId, FamilyTypeError> {
+        let member_vec: Vec<FamilyMemberType> = members.into_iter().collect();
+        for member in &member_vec {
+            if member.member_kind == FamilyMemberTypeKind::Callable {
+                if !matches!(self.get(member.ty), TypeData::Callable(_)) {
+                    return Err(FamilyTypeError::CallableMemberNotCallable {
+                        operation: member.operation.clone(),
+                        ty: member.ty,
+                    });
+                }
+            }
+        }
+
+        let mut sorted_members = member_vec;
+        sorted_members.sort_by(|a, b| a.operation.cmp(&b.operation));
+
+        let mut deduped: Vec<FamilyMemberType> = Vec::with_capacity(sorted_members.len());
+        for member in sorted_members {
+            if let Some(last) = deduped.last() {
+                if last.operation == member.operation {
+                    if last == &member {
+                        continue;
+                    } else {
+                        return Err(FamilyTypeError::DuplicateOperationShape { operation: member.operation });
+                    }
+                }
+            }
+            deduped.push(member);
+        }
+
+        let family = FamilyType::new(deduped.into_boxed_slice());
+        let family_id = if let Some(&id) = self.family_interner.get(&family) {
+            id
+        } else {
+            let id = FamilyTypeId::new(self.family_arena.len() as u32);
+            self.family_arena.push(family.clone());
+            self.family_interner.insert(family, id);
+            id
+        };
+
+        Ok(self.intern_with_kind(TypeData::Family(family_id), KindId::TYPE))
+    }
+
+    #[inline]
+    pub fn get_family(&self, id: FamilyTypeId) -> &FamilyType {
+        &self.family_arena[id.index()]
+    }
+
+    pub fn family_count(&self) -> usize {
+        self.family_arena.len()
+    }
+
     /// Interns a `List<T>` applied type.
     pub fn list_of(&mut self, list_form: TypeId, element: TypeId) -> Result<TypeId, TypeApplicationError> {
         self.apply_type_form(list_form, &[element])
@@ -604,7 +691,12 @@ impl TypeStore {
                     .iter()
                     .map(|p| {
                         let t_str = self.format_type(p.ty);
-                        let prefix = if p.rest { "..." } else { "" };
+                        let prefix = match p.rest {
+                            RestMode::None => "",
+                            RestMode::Positional => "...",
+                            RestMode::Labeled => "...#",
+                            RestMode::Complete => "...*",
+                        };
                         if let Some(ref l) = p.label {
                             format!("{prefix}{l}: {t_str}")
                         } else {
@@ -615,6 +707,40 @@ impl TypeStore {
                     .join(", ");
                 let ret = self.format_type(callable.return_type);
                 format!("({params}) -> {ret}")
+            }
+            TypeData::Family(fid) => {
+                let family = &self.family_arena[fid.index()];
+                let member_strs = family
+                    .members
+                    .iter()
+                    .map(|m| {
+                        let kind_str = match m.operation.kind {
+                            SelectorKind::Method => "method",
+                            SelectorKind::Getter => "getter",
+                            SelectorKind::Setter => "setter",
+                            SelectorKind::SubscriptGet => "subscript_get",
+                            SelectorKind::SubscriptSet => "subscript_set",
+                        };
+                        let mut slots_str = String::new();
+                        if m.operation.kind == SelectorKind::Method {
+                            let slots = m
+                                .operation
+                                .slots
+                                .iter()
+                                .map(|s| match s {
+                                    SelectorSlot::Positional => "_",
+                                    SelectorSlot::Label(l) => l.as_str(),
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            slots_str = format!("({slots})");
+                        }
+                        let t_str = self.format_type(m.ty);
+                        format!("{kind_str}{slots_str}: {t_str}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                format!("family {{{member_strs}}}")
             }
             TypeData::ExactCase { variant, enum_type } => {
                 let variant_id = self.variant_identity(*variant);
@@ -694,8 +820,7 @@ impl TypeStore {
         match self.get(ty) {
             TypeData::Parameter(p) => *p == target,
             TypeData::Applied { origin, arguments } => {
-                self.contains_type_parameter(*origin, target)
-                    || arguments.iter().any(|&a| self.contains_type_parameter(a, target))
+                self.contains_type_parameter(*origin, target) || arguments.iter().any(|&a| self.contains_type_parameter(a, target))
             }
             TypeData::Union(members) => members.iter().any(|&m| self.contains_type_parameter(m, target)),
             TypeData::Tuple(elems) => elems.iter().any(|e| self.contains_type_parameter(e.ty, target)),
@@ -704,8 +829,7 @@ impl TypeStore {
                 row.fields.iter().any(|f| self.contains_type_parameter(f.ty, target))
             }
             TypeData::Callable(call) => {
-                call.parameters.iter().any(|p| self.contains_type_parameter(p.ty, target))
-                    || self.contains_type_parameter(call.return_type, target)
+                call.parameters.iter().any(|p| self.contains_type_parameter(p.ty, target)) || self.contains_type_parameter(call.return_type, target)
             }
             TypeData::ExactCase { enum_type, .. } => self.contains_type_parameter(*enum_type, target),
             _ => false,
@@ -727,10 +851,7 @@ impl TypeStore {
 pub enum ExactCaseTypeError {
     EnumTypeMalformed,
     NominalOriginMissing,
-    WrongOwner {
-        expected: DeclarationId,
-        got: DeclarationId,
-    },
+    WrongOwner { expected: DeclarationId, got: DeclarationId },
 }
 
 #[cfg(test)]

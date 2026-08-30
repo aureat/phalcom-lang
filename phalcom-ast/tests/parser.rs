@@ -19,9 +19,8 @@
 
 use phalcom_ast::{
     ast::{
-        AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, ClassMember,
-        EnumMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry,
-        ReturnStatement, Statement, SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
+        AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, ClassMember, EnumMember, Expr, GenericConstraintSyntax, KindSyntax,
+        MemberBody, RecordLiteralEntry, ReturnStatement, Statement, SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,

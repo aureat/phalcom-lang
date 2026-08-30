@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod associated;
 pub mod binding;
 pub mod body;
 pub mod call;
@@ -23,6 +24,10 @@ pub mod typed_expr;
 pub use analysis::{
     AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex,
     FlowStateSummary,
+};
+pub use associated::{
+    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationResolution,
+    FamilyApplicationResolutionIndex, FamilyApplicationSelection, SpecializedAssociatedMember,
 };
 pub use binding::{
     AssumptionBasis, BindingConsistency, BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingReconciliation, BindingSeed,

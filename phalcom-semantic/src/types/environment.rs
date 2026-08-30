@@ -151,6 +151,19 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 return_type,
             })
         }
+        TypeData::Family(fid) => {
+            let family = store.get_family(fid).clone();
+            let subst_members: Vec<crate::types::family::FamilyMemberType> = family
+                .members
+                .iter()
+                .map(|m| crate::types::family::FamilyMemberType {
+                    operation: m.operation.clone(),
+                    member_kind: m.member_kind,
+                    ty: materialize_view(store, m.ty, env),
+                })
+                .collect();
+            store.family_type(subst_members).unwrap_or(ty)
+        }
         TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } | TypeData::Lambda(_) => ty,
     }
 }

@@ -45,11 +45,12 @@ pub use advisory::{
     AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySummaryEffects, AdvisoryTargetResolution, AdvisoryWorkspace, CapturedMethodFamilyShape,
     MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
 };
-pub use checker::{
-    CheckingContext, StatementControl, TypeCheckReport, TypedExpression, check_class, check_class_bodies, check_statement, register_class_surface,
-    synthesize_expr, synthesize_typed_expr,
-};
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
+pub use checker::{
+    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution,
+    FamilyApplicationResolutionIndex, FamilyApplicationSelection, SpecializedAssociatedMember, StatementControl, TypeCheckReport, TypedExpression, check_class,
+    check_class_bodies, check_statement, register_class_surface, synthesize_expr, synthesize_typed_expr,
+};
 pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};
 pub use core_surface::*;
@@ -75,8 +76,7 @@ pub use effects::{
 };
 pub use enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementTable};
 pub use enum_semantics::{
-    EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape,
-    VariantVisibility,
+    EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
 };
 pub use explain::{DerivationRule, ExplanationArena, ExplanationNode, ExplanationStep, causal_slice, causal_trace};
 pub use export::{
@@ -84,9 +84,9 @@ pub use export::{
     SemanticExportError, export_kind, export_type_form,
 };
 pub use identity::{
-    AssociatedFamilyId, BindingId, CallableId, CallableOwnerId, CallableParameterId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId,
-    SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId, VariantConstructorId, VariantFamilyId,
-    VariantFieldId, VariantId, WorkspaceId,
+    AssociatedFamilyId, BindingId, CallableId, CallableOwnerId, CallableParameterId, DeclarationId, FieldId, InvocationTargetId, ModuleId, ProperTypeId,
+    SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId,
+    VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;

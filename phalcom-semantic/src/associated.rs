@@ -97,7 +97,11 @@ pub fn build_associated_surface(
             diagnostics.push(SemanticDiagnostic::error_in(
                 module_id.clone(),
                 DiagnosticCode::EnumFamilyInheritedBehaviorConflict,
-                format!("variant family `{}` on `{}` conflicts with inherited class behavior", format_selector_base(base), owner.name),
+                format!(
+                    "variant family `{}` on `{}` conflicts with inherited class behavior",
+                    format_selector_base(base),
+                    owner.name
+                ),
                 span.as_ref().map(|s| s.range).unwrap_or_default(),
             ));
         }
@@ -113,7 +117,11 @@ pub fn build_associated_surface(
             diagnostics.push(SemanticDiagnostic::error_in(
                 module_id.clone(),
                 DiagnosticCode::EnumFamilyCategoryConflict,
-                format!("associated family `{}` on `{}` cannot contain both variants and class methods", format_selector_base(&base), owner.name),
+                format!(
+                    "associated family `{}` on `{}` cannot contain both variants and class methods",
+                    format_selector_base(&base),
+                    owner.name
+                ),
                 span.as_ref().map(|s| s.range).unwrap_or_default(),
             ));
             let members: Vec<AssociatedMemberId> = variant_groups

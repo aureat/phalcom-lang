@@ -171,4 +171,3 @@ fn iface_10_enum_and_class_duplicate_name_rejected() {
         result
     );
 }
-

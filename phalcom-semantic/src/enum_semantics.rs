@@ -1,9 +1,7 @@
 //! Canonical enum and variant semantic declaration products.
 
 use crate::declaration_type::DeclaredTypeFact;
-use crate::identity::{
-    DeclarationId, SemanticSourceSpan, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId,
-};
+use crate::identity::{DeclarationId, SemanticSourceSpan, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId};
 use crate::surface::MemberVisibility;
 use crate::types::case_environment::CaseTypeEnvironment;
 use crate::types::id::{TypeId, VariantTypeId};

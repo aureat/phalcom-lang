@@ -16,7 +16,7 @@ use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, Unkn
 use crate::types::id::TypeId;
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
 use crate::types::store::{TypeData, TypeStore};
-use phalcom_ast::ast::{Expr, PackItem, PackLabel};
+use phalcom_ast::ast::{Expr, PackItem, PackLabel, RestMode};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
@@ -31,6 +31,7 @@ pub(crate) enum CallTargetAuthority {
 pub(crate) struct CallableApplicationTarget {
     pub signature: CallableSignature,
     pub callable: Option<CallableId>,
+    pub target: Option<crate::identity::InvocationTargetId>,
     pub authority: CallTargetAuthority,
     pub specialization: Option<DispatchSignatureSpecialization>,
 }
@@ -39,7 +40,18 @@ impl CallableApplicationTarget {
     pub(crate) fn exact(callable: CallableId, signature: CallableSignature) -> Self {
         Self {
             signature,
-            callable: Some(callable),
+            callable: Some(callable.clone()),
+            target: Some(crate::identity::InvocationTargetId::Behavioral(callable)),
+            authority: CallTargetAuthority::ExactDispatch,
+            specialization: None,
+        }
+    }
+
+    pub(crate) fn variant_constructor(variant: crate::identity::VariantId, signature: CallableSignature) -> Self {
+        Self {
+            signature,
+            callable: None,
+            target: Some(crate::identity::InvocationTargetId::variant_constructor(variant)),
             authority: CallTargetAuthority::ExactDispatch,
             specialization: None,
         }
@@ -55,6 +67,7 @@ impl CallableApplicationTarget {
         Self {
             signature,
             callable: None,
+            target: None,
             authority: CallTargetAuthority::CallableValue(status),
             specialization: None,
         }
@@ -64,6 +77,7 @@ impl CallableApplicationTarget {
         Self {
             signature,
             callable: None,
+            target: None,
             authority: CallTargetAuthority::StructuralBuiltin,
             specialization: None,
         }
@@ -86,8 +100,10 @@ pub(crate) fn callable_value_target(store: &TypeStore, callable_ty: TypeId, auth
         let mut formal = CallableParameter::new("argument", TypeKnowledge::assumed(parameter.ty, EvidenceOrigin::CallableSignature)).with_rest(parameter.rest);
         if let Some(label) = &parameter.label {
             formal = formal.with_label(label.to_string());
-            slots.push(SelectorSlot::Label(label.to_string()));
-        } else {
+            if parameter.rest == RestMode::None {
+                slots.push(SelectorSlot::Label(label.to_string()));
+            }
+        } else if parameter.rest == RestMode::None {
             slots.push(SelectorSlot::Positional);
         }
         parameters.push(formal);
@@ -241,7 +257,6 @@ pub(crate) enum ArgumentShapeFailure {
     UnexpectedPositional { argument_index: usize },
     UnknownLabel { argument_index: usize, label: String },
     DuplicateParameterBinding { parameter_index: usize },
-    UnsupportedRestShape,
     DynamicShape,
 }
 
@@ -265,9 +280,6 @@ pub(crate) fn bind_static_arguments(
     arguments: &[ApplicationArgument<'_>],
     parameters: &[CallableParameter],
 ) -> Result<ArgumentBindingPlan, Vec<ArgumentShapeFailure>> {
-    if parameters.iter().any(|parameter| parameter.rest) {
-        return Err(vec![ArgumentShapeFailure::UnsupportedRestShape]);
-    }
     if arguments
         .iter()
         .any(|argument| matches!(argument, ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. }))
@@ -279,74 +291,84 @@ pub(crate) fn bind_static_arguments(
     let mut bound = vec![false; parameters.len()];
     let mut failures = Vec::new();
     let mut positional_cursor = 0;
+
+    let positional_rest_idx = parameters
+        .iter()
+        .position(|parameter| matches!(parameter.rest, RestMode::Positional | RestMode::Complete));
+    let labeled_rest_idx = parameters
+        .iter()
+        .position(|parameter| matches!(parameter.rest, RestMode::Labeled | RestMode::Complete));
+
     for (argument_index, argument) in arguments.iter().enumerate() {
-        let parameter_index = match argument {
-            ApplicationArgument::Positional { .. } => {
-                let mut found = None;
+        match argument {
+            ApplicationArgument::Positional { .. } | ApplicationArgument::PreAnalyzed { label: None, .. } => {
+                let mut found_fixed = None;
                 while positional_cursor < parameters.len() {
                     let index = positional_cursor;
                     positional_cursor += 1;
-                    if parameters[index].external_label.is_none() && !bound[index] {
-                        found = Some(index);
+                    if parameters[index].rest == RestMode::None && parameters[index].external_label.is_none() && !bound[index] {
+                        found_fixed = Some(index);
                         break;
                     }
                 }
-                found
+
+                if let Some(parameter_index) = found_fixed {
+                    bound[parameter_index] = true;
+                    bindings.push(ArgumentBinding {
+                        argument_index,
+                        parameter_index,
+                    });
+                } else if let Some(rest_idx) = positional_rest_idx {
+                    bound[rest_idx] = true;
+                    bindings.push(ArgumentBinding {
+                        argument_index,
+                        parameter_index: rest_idx,
+                    });
+                } else {
+                    failures.push(ArgumentShapeFailure::UnexpectedPositional { argument_index });
+                }
             }
-            ApplicationArgument::PreAnalyzed { label: Some(label), .. } => parameters
-                .iter()
-                .enumerate()
-                .find_map(|(index, parameter)| (parameter.external_label.as_deref() == Some(*label)).then_some(index)),
-            ApplicationArgument::PreAnalyzed { label: None, .. } => {
-                let mut found = None;
-                while positional_cursor < parameters.len() {
-                    let index = positional_cursor;
-                    positional_cursor += 1;
-                    if parameters[index].external_label.is_none() && !bound[index] {
-                        found = Some(index);
-                        break;
+            ApplicationArgument::Labeled { label, .. } | ApplicationArgument::PreAnalyzed { label: Some(label), .. } => {
+                let found_fixed = parameters
+                    .iter()
+                    .enumerate()
+                    .find(|(_, parameter)| parameter.rest == RestMode::None && parameter.external_label.as_deref() == Some(*label));
+
+                if let Some((parameter_index, _)) = found_fixed {
+                    if bound[parameter_index] {
+                        failures.push(ArgumentShapeFailure::DuplicateParameterBinding { parameter_index });
+                    } else {
+                        bound[parameter_index] = true;
+                        bindings.push(ArgumentBinding {
+                            argument_index,
+                            parameter_index,
+                        });
                     }
+                } else if let Some(rest_idx) = labeled_rest_idx {
+                    bound[rest_idx] = true;
+                    bindings.push(ArgumentBinding {
+                        argument_index,
+                        parameter_index: rest_idx,
+                    });
+                } else {
+                    failures.push(ArgumentShapeFailure::UnknownLabel {
+                        argument_index,
+                        label: (*label).to_string(),
+                    });
                 }
-                found
             }
-            ApplicationArgument::Labeled { label, .. } => parameters
-                .iter()
-                .enumerate()
-                .find_map(|(index, parameter)| (parameter.external_label.as_deref() == Some(*label)).then_some(index)),
-            ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => None,
-        };
-        let Some(parameter_index) = parameter_index else {
-            failures.push(match argument {
-                ApplicationArgument::Positional { .. } | ApplicationArgument::PreAnalyzed { label: None, .. } => {
-                    ArgumentShapeFailure::UnexpectedPositional { argument_index }
-                }
-                ApplicationArgument::PreAnalyzed { label: Some(label), .. } => ArgumentShapeFailure::UnknownLabel {
-                    argument_index,
-                    label: (*label).to_string(),
-                },
-                ApplicationArgument::Labeled { label, .. } => ArgumentShapeFailure::UnknownLabel {
-                    argument_index,
-                    label: (*label).to_string(),
-                },
-                ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => ArgumentShapeFailure::DynamicShape,
-            });
-            continue;
-        };
-        if bound[parameter_index] {
-            failures.push(ArgumentShapeFailure::DuplicateParameterBinding { parameter_index });
-            continue;
+            ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => {
+                failures.push(ArgumentShapeFailure::DynamicShape);
+            }
         }
-        bound[parameter_index] = true;
-        bindings.push(ArgumentBinding {
-            argument_index,
-            parameter_index,
-        });
     }
+
     for (parameter_index, parameter) in parameters.iter().enumerate() {
-        if !parameter.rest && !bound[parameter_index] {
+        if parameter.rest == RestMode::None && !bound[parameter_index] {
             failures.push(ArgumentShapeFailure::MissingRequiredParameter { parameter_index });
         }
     }
+
     if failures.is_empty() {
         Ok(ArgumentBindingPlan { bindings })
     } else {
@@ -419,7 +441,7 @@ fn shape_failure_message(failure: &ArgumentShapeFailure) -> Option<String> {
         ArgumentShapeFailure::DuplicateParameterBinding { parameter_index } => {
             Some(format!("parameter at position {} is bound more than once", parameter_index + 1))
         }
-        ArgumentShapeFailure::UnsupportedRestShape | ArgumentShapeFailure::DynamicShape => None,
+        ArgumentShapeFailure::DynamicShape => None,
     }
 }
 
@@ -444,7 +466,7 @@ fn emit_shape_failures(
             ArgumentShapeFailure::DuplicateParameterBinding { parameter_index } => Some(crate::explain::CallShapeExplanation::DuplicateParameter {
                 parameter_index: *parameter_index as u16,
             }),
-            ArgumentShapeFailure::UnsupportedRestShape | ArgumentShapeFailure::DynamicShape => None,
+            ArgumentShapeFailure::DynamicShape => None,
         })
         .collect::<Vec<_>>();
     let explanation = (!structured.is_empty()).then(|| {
@@ -474,11 +496,6 @@ fn emit_shape_failures(
         if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
             ctx.record_call_status(AnalysisStatus::Invalid(cause));
         }
-    }
-    if failures.iter().any(|failure| matches!(failure, ArgumentShapeFailure::UnsupportedRestShape)) {
-        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::OpaqueNative(
-            "callable rest shape is not modeled".into(),
-        )));
     }
 }
 
@@ -1381,14 +1398,15 @@ fn inference_support(knowledge: &TypeKnowledge) -> Option<InferenceSupport> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplicationArgument, ArgumentShapeFailure, StaticCallShape, application_arguments, bind_static_arguments, static_call_shape, terminal_generic_return,
+        ApplicationArgument, ArgumentBindingPlan, ArgumentShapeFailure, StaticCallShape, application_arguments, bind_static_arguments, static_call_shape,
+        terminal_generic_return,
     };
     use crate::checker::inference::{InferenceConflict, InferenceFailureReason, InferenceOutcome, InferenceTerm, UnderconstrainedInference};
     use crate::dispatch::CallableParameter;
     use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
     use crate::types::id::TypeId;
     use crate::types::outcome::{BlockReason, BudgetKind, BudgetReport};
-    use phalcom_ast::ast::{Expr, Statement};
+    use phalcom_ast::ast::{Expr, RestMode, Statement};
     use phalcom_ast::parse_source;
     use phalcom_common::range::SourceRange;
 
@@ -1528,7 +1546,48 @@ mod tests {
         let duplicate = bind_static_arguments(&duplicate, &parameters).expect_err("duplicate label");
         assert!(duplicate.contains(&ArgumentShapeFailure::DuplicateParameterBinding { parameter_index: 1 }));
 
-        let rest = [CallableParameter::new("rest", TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)).with_rest(true)];
-        assert_eq!(bind_static_arguments(&[], &rest), Err(vec![ArgumentShapeFailure::UnsupportedRestShape]));
+        let rest_pos = [CallableParameter::new("rest", TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)).with_rest(RestMode::Positional)];
+        assert_eq!(bind_static_arguments(&[], &rest_pos), Ok(ArgumentBindingPlan { bindings: vec![] }));
+
+        let positional_args = [
+            ApplicationArgument::Positional { expression: &expr, range },
+            ApplicationArgument::Positional { expression: &expr, range },
+        ];
+        let plan = bind_static_arguments(&positional_args, &rest_pos).expect("positional rest binds multiple arguments");
+        assert_eq!(plan.bindings.len(), 2);
+        assert_eq!(plan.bindings[0].parameter_index, 0);
+        assert_eq!(plan.bindings[1].parameter_index, 0);
+
+        let rest_labeled = [CallableParameter::new("rest", TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)).with_rest(RestMode::Labeled)];
+        let labeled_args = [
+            ApplicationArgument::Labeled {
+                label: "foo",
+                expression: &expr,
+                range,
+            },
+            ApplicationArgument::Labeled {
+                label: "bar",
+                expression: &expr,
+                range,
+            },
+        ];
+        let plan_lab = bind_static_arguments(&labeled_args, &rest_labeled).expect("labeled rest binds multiple labeled arguments");
+        assert_eq!(plan_lab.bindings.len(), 2);
+        assert_eq!(plan_lab.bindings[0].parameter_index, 0);
+        assert_eq!(plan_lab.bindings[1].parameter_index, 0);
+
+        let rest_complete = [CallableParameter::new("rest", TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)).with_rest(RestMode::Complete)];
+        let mixed_args = [
+            ApplicationArgument::Positional { expression: &expr, range },
+            ApplicationArgument::Labeled {
+                label: "extra",
+                expression: &expr,
+                range,
+            },
+        ];
+        let plan_comp = bind_static_arguments(&mixed_args, &rest_complete).expect("complete rest binds both positional and labeled arguments");
+        assert_eq!(plan_comp.bindings.len(), 2);
+        assert_eq!(plan_comp.bindings[0].parameter_index, 0);
+        assert_eq!(plan_comp.bindings[1].parameter_index, 0);
     }
 }

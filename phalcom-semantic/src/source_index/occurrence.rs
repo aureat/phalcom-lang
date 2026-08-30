@@ -309,28 +309,26 @@ impl OccurrenceBuilder<'_> {
                                 }
                             }
                         }
-                        phalcom_ast::ast::EnumMember::Behavior(b) => {
-                            match b {
-                                phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
-                                    if let Some(body) = m.body.statements() {
-                                        self.statements(body);
-                                    }
-                                }
-                                phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
-                                    if let Some(body) = g.body.statements() {
-                                        self.statements(body);
-                                    }
-                                }
-                                phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
-                                    if let Some(body) = s.body.statements() {
-                                        self.statements(body);
-                                    }
-                                }
-                                phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
-                                    self.statements(&i.body);
+                        phalcom_ast::ast::EnumMember::Behavior(b) => match b {
+                            phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
+                                if let Some(body) = m.body.statements() {
+                                    self.statements(body);
                                 }
                             }
-                        }
+                            phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
+                                if let Some(body) = g.body.statements() {
+                                    self.statements(body);
+                                }
+                            }
+                            phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
+                                if let Some(body) = s.body.statements() {
+                                    self.statements(body);
+                                }
+                            }
+                            phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
+                                self.statements(&i.body);
+                            }
+                        },
                     }
                 }
             }

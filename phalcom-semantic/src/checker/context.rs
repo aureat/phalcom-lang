@@ -168,7 +168,7 @@ impl<'a> TrackingTypeResolver<'a> {
         Self { inner, dependencies }
     }
 
-    pub(crate) fn inner(&self) -> &dyn TypeResolver {
+    pub(crate) fn inner(&self) -> &'a dyn TypeResolver {
         self.inner
     }
 }
@@ -211,7 +211,7 @@ impl<'a> TrackingTypeHierarchy<'a> {
         Self { inner, dependencies }
     }
 
-    pub(crate) fn inner(&self) -> &dyn TypeHierarchy {
+    pub(crate) fn inner(&self) -> &'a dyn TypeHierarchy {
         self.inner
     }
 }
@@ -313,6 +313,8 @@ pub struct CheckingContext<'a> {
     pub next_analysis_incident: u32,
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
+    pub associated_resolutions: crate::checker::associated::AssociatedResolutionIndex,
+    pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
     pub explanations: crate::explain::ExplanationArena,
     expression_owners: Vec<ExpressionId>,
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
@@ -323,6 +325,8 @@ pub struct CheckingContext<'a> {
     semantic_dependencies: SharedSemanticDependencies,
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub enum_table: Option<&'a crate::enum_semantics::EnumSemanticTable>,
+    pub associated_table: Option<&'a crate::associated::AssociatedFamilyTable>,
     pub dispatch: DispatchAccess<'a>,
     pub core_ids: CoreDeclarationIds,
     pub diagnostics: Vec<SemanticDiagnostic>,
@@ -389,6 +393,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
+            associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
+            family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -399,6 +405,8 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            enum_table: None,
+            associated_table: None,
             dispatch: DispatchAccess::Owned(dispatch),
             core_ids: CoreDeclarationIds::default(),
 
@@ -453,6 +461,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
+            associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
+            family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -463,6 +473,8 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            enum_table: None,
+            associated_table: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
             core_ids: CoreDeclarationIds::default(),
             diagnostics: Vec::new(),
@@ -496,6 +508,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: self.next_analysis_incident,
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
+            associated_resolutions: self.associated_resolutions.clone(),
+            family_applications: self.family_applications.clone(),
             explanations: self.explanations.clone(),
             expression_owners: self.expression_owners.clone(),
             expression_owned_causes: self.expression_owned_causes.clone(),
@@ -506,6 +520,8 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies: self.semantic_dependencies.clone(),
             field_signatures: self.field_signatures,
             field_lifecycle: self.field_lifecycle,
+            enum_table: self.enum_table,
+            associated_table: self.associated_table,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             core_ids: self.core_ids.clone(),
 
@@ -540,6 +556,8 @@ impl<'a> CheckingContext<'a> {
         probe.body_id = self.body_id;
         probe.field_signatures = self.field_signatures;
         probe.field_lifecycle = self.field_lifecycle;
+        probe.enum_table = self.enum_table;
+        probe.associated_table = self.associated_table;
         probe.binding_history = self.binding_history.clone();
         probe.next_binding_id = self.next_binding_id;
         probe.next_local_expr_id = self.next_local_expr_id;
@@ -1090,7 +1108,7 @@ impl<'a> CheckingContext<'a> {
 
         let mut analysis = ExpressionAnalysis::ready(id, range, typed.knowledge.clone());
         analysis.callable = typed.callable.clone();
-        analysis.denotation = typed.denotation;
+        analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
         analysis.explanation = explanation;
@@ -1111,7 +1129,7 @@ impl<'a> CheckingContext<'a> {
 
         analysis.knowledge = typed.knowledge.clone();
         analysis.callable = typed.callable.clone();
-        analysis.denotation = typed.denotation;
+        analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
     }
@@ -1162,7 +1180,7 @@ impl<'a> CheckingContext<'a> {
             },
         };
         let reconciliation = reconcile_binding_relation(seed.contract.as_ref(), &seed.current, relation);
-        let denotation = seed.denotation;
+        let denotation = seed.denotation.clone();
         let name = seed.name.clone();
         let contract_explanation = seed.contract.as_ref().map(|contract| {
             let actual = reconciliation.current.clone();
@@ -1333,7 +1351,7 @@ impl<'a> CheckingContext<'a> {
         let state = self.flow.get_binding(info.id)?;
         Some(ValueSemanticFact {
             knowledge: state.current.clone(),
-            denotation: state.denotation,
+            denotation: state.denotation.clone(),
         })
     }
 
@@ -1415,6 +1433,34 @@ impl<'a> CheckingContext<'a> {
     /// Attaches compiler-owned instance field lifecycle table.
     pub fn attach_field_lifecycle(&mut self, field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable) {
         self.field_lifecycle = Some(field_lifecycle);
+    }
+
+    /// Attaches compiler-owned enum semantics table.
+    pub fn attach_enum_semantics(&mut self, enum_table: &'a crate::enum_semantics::EnumSemanticTable) {
+        self.enum_table = Some(enum_table);
+    }
+
+    /// Attaches compiler-owned associated family table.
+    pub fn attach_associated_families(&mut self, associated_table: &'a crate::associated::AssociatedFamilyTable) {
+        self.associated_table = Some(associated_table);
+    }
+
+    /// Reads enum metadata while recording the enum-declaration dependency.
+    pub fn enum_info(&self, owner: &DeclarationId) -> Option<&crate::enum_semantics::EnumInfo> {
+        self.record_enum_declaration_dependency(owner);
+        self.enum_table.and_then(|t| t.enums.get(owner).map(|arc| &**arc))
+    }
+
+    /// Reads variant metadata while recording the enum-declaration dependency.
+    pub fn variant_info(&self, variant: &crate::identity::VariantId) -> Option<&crate::enum_semantics::VariantInfo> {
+        self.record_enum_declaration_dependency(&variant.owner);
+        self.enum_table.and_then(|t| t.variants.get(variant).map(|arc| &**arc))
+    }
+
+    /// Reads associated family surface while recording the associated-surface dependency.
+    pub fn associated_surface(&self, owner: &DeclarationId) -> Option<&crate::associated::AssociatedSurface> {
+        self.record_associated_surface_dependency(owner);
+        self.associated_table.and_then(|t| t.surfaces.get(owner).map(|arc| &**arc))
     }
 
     /// Returns the dispatch resolver currently visible to this context.
@@ -1724,6 +1770,8 @@ impl<'a> CheckingContext<'a> {
                 bindings.extend(self.flow.bindings);
                 bindings
             },
+            associated_resolutions: std::sync::Arc::new(self.associated_resolutions),
+            family_applications: std::sync::Arc::new(self.family_applications),
             flow_graph,
             entry_flow,
             exits,
@@ -1737,6 +1785,26 @@ impl<'a> CheckingContext<'a> {
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }
+    }
+
+    pub fn record_associated_resolution(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::AssociatedResolution) {
+        self.associated_resolutions.insert(expr_id, resolution);
+    }
+
+    pub fn record_family_application(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::FamilyApplicationResolution) {
+        self.family_applications.insert(expr_id, resolution);
+    }
+
+    pub fn record_enum_declaration_dependency(&self, decl: &DeclarationId) {
+        self.semantic_dependencies
+            .borrow_mut()
+            .insert(crate::checker::analysis::SemanticDependency::EnumDeclaration(decl.clone()));
+    }
+
+    pub fn record_associated_surface_dependency(&self, decl: &DeclarationId) {
+        self.semantic_dependencies
+            .borrow_mut()
+            .insert(crate::checker::analysis::SemanticDependency::AssociatedSurface(decl.clone()));
     }
 
     pub fn validate_return_contract(

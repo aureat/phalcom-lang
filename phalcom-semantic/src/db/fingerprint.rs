@@ -778,6 +778,37 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
             2u8.hash(hasher);
             kind.hash(hasher);
         }
+        Some(SemanticDenotation::AssociatedValue(assoc)) => {
+            3u8.hash(hasher);
+            match assoc {
+                crate::types::denotation::AssociatedValueDenotation::Exact {
+                    owner_form,
+                    lookup_owner,
+                    member,
+                    target,
+                } => {
+                    0u8.hash(hasher);
+                    owner_form.hash(hasher);
+                    lookup_owner.hash(hasher);
+                    member.hash(hasher);
+                    target.hash(hasher);
+                }
+                crate::types::denotation::AssociatedValueDenotation::Family {
+                    owner_form,
+                    lookup_owner,
+                    family,
+                    members,
+                } => {
+                    1u8.hash(hasher);
+                    owner_form.hash(hasher);
+                    lookup_owner.hash(hasher);
+                    family.hash(hasher);
+                    for m in members.iter() {
+                        m.hash(hasher);
+                    }
+                }
+            }
+        }
     }
 }
 

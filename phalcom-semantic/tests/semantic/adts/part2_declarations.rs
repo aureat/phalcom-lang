@@ -5,6 +5,7 @@ use phalcom_common::selector::{Selector, SelectorBase, SelectorSlot};
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::associated::build_associated_surface;
+use phalcom_semantic::checker::AssociatedResolutionKind;
 use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::enum_requirements::{
@@ -350,4 +351,93 @@ const none_case = Option::None
     assert!(enum_info.is_some(), "enum product for Option should be published");
     let info = enum_info.unwrap();
     assert_eq!(info.variants.len(), 2);
+}
+
+#[test]
+fn associated_singleton_getter_publishes_exact_value_resolution() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Probe {
+  @class run() { State::Ready }
+}
+
+enum State {
+  @variant Ready
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let probe = DeclarationId::new(module.clone(), "Probe".into());
+    let run = CallableId::new(probe, Selector::method("run", []).expect("run selector"), DispatchSide::Class);
+    let callable = analysis.snapshot.callable_analyses.get(&run).expect("Probe.run analysis");
+    let expression = callable
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("State::Ready"))
+        .expect("associated singleton expression");
+    let state = DeclarationId::new(module, "State".into());
+    let ready = VariantId::new(state, Selector::getter("Ready").expect("Ready selector"));
+    let expected = analysis
+        .snapshot
+        .enum_semantics
+        .variant_info(&ready)
+        .expect("Ready metadata")
+        .exact_case_template;
+
+    assert_eq!(expression.knowledge.ty(), Some(expected), "{expression:#?}");
+    let resolution = callable.associated_resolutions.get(&expression.id).expect("associated resolution");
+    assert!(matches!(
+        &resolution.kind,
+        AssociatedResolutionKind::ExactValue { member: phalcom_semantic::AssociatedMemberId::Variant(id), value_type }
+            if id == &ready && *value_type == expected
+    ));
+}
+
+#[test]
+fn associated_variant_constructor_uses_canonical_call_binding() {
+    let module = ModuleId::core();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Probe {
+  @class run() { State::Value(value: 1) }
+}
+
+enum State {
+  @variant Value(value: Int)
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let probe = DeclarationId::new(module.clone(), "Probe".into());
+    let run = CallableId::new(probe, Selector::method("run", []).expect("run selector"), DispatchSide::Class);
+    let callable = analysis.snapshot.callable_analyses.get(&run).expect("Probe.run analysis");
+    let expression = callable
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("State::Value(value: 1)"))
+        .expect("associated constructor invocation");
+    let state = DeclarationId::new(module, "State".into());
+    let value = VariantId::new(
+        state,
+        Selector::method("Value", [SelectorSlot::Label("value".to_string())]).expect("Value selector"),
+    );
+    let expected = analysis
+        .snapshot
+        .enum_semantics
+        .variant_info(&value)
+        .expect("Value metadata")
+        .exact_case_template;
+
+    assert_eq!(expression.knowledge.ty(), Some(expected), "{expression:#?}");
+    let resolution = callable.associated_resolutions.get(&expression.id).expect("associated invocation resolution");
+    assert!(matches!(
+        &resolution.kind,
+        AssociatedResolutionKind::StaticInvoke { member: phalcom_semantic::AssociatedMemberId::Variant(id), target, result_type }
+            if id == &value && matches!(target, phalcom_semantic::InvocationTargetId::VariantConstructor(_)) && *result_type == expected
+    ));
 }

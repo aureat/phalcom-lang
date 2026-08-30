@@ -106,6 +106,19 @@ impl TypeSubstitution {
                     return_type,
                 })
             }
+            TypeData::Family(fid) => {
+                let family = store.get_family(fid).clone();
+                let subst_members: Vec<crate::types::family::FamilyMemberType> = family
+                    .members
+                    .iter()
+                    .map(|m| crate::types::family::FamilyMemberType {
+                        operation: m.operation.clone(),
+                        member_kind: m.member_kind,
+                        ty: self.apply(store, m.ty),
+                    })
+                    .collect();
+                store.family_type(subst_members).unwrap_or(ty)
+            }
             TypeData::SelfType(_) => ty,
             TypeData::Lambda(_) => ty,
             TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
@@ -209,6 +222,19 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 parameters: params.into_boxed_slice(),
                 return_type,
             })
+        }
+        TypeData::Family(fid) => {
+            let family = store.get_family(fid).clone();
+            let subst_members: Vec<crate::types::family::FamilyMemberType> = family
+                .members
+                .iter()
+                .map(|m| crate::types::family::FamilyMemberType {
+                    operation: m.operation.clone(),
+                    member_kind: m.member_kind,
+                    ty: specialize_self_type(store, declarations, receiver, m.ty),
+                })
+                .collect();
+            store.family_type(subst_members).unwrap_or(ty)
         }
         TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }

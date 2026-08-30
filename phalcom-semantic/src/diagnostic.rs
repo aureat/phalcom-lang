@@ -57,6 +57,21 @@ pub enum DiagnosticCode {
     EnumRequirementIncomplete,
     EnumRequirementMissing,
     EnumRequirementIncompatible,
+    AssociatedOwnerUnresolved,
+    AssociatedOwnerNotTypeForm,
+    AssociatedOwnerNotDeclarationBacked,
+    AssociatedFamilyMissing,
+    AssociatedFamilyInaccessible,
+    AssociatedMemberMissing,
+    AssociatedMemberInaccessible,
+    AssociatedMemberNotConstructible,
+    AssociatedCallShapeMissing,
+    AssociatedCallAmbiguous,
+    AssociatedCallDynamicShape,
+    AssociatedGenericUnderconstrained,
+    AssociatedGenericOwnerConflict,
+    AssociatedGadtOwnerConflict,
+    AssociatedFamilyTypeInvalid,
 }
 
 impl DiagnosticCode {
@@ -106,6 +121,21 @@ impl DiagnosticCode {
             Self::EnumRequirementIncomplete => "enum.requirement.incomplete",
             Self::EnumRequirementMissing => "enum.requirement.missing",
             Self::EnumRequirementIncompatible => "enum.requirement.incompatible",
+            Self::AssociatedOwnerUnresolved => "associated.owner.unresolved",
+            Self::AssociatedOwnerNotTypeForm => "associated.owner.not_type_form",
+            Self::AssociatedOwnerNotDeclarationBacked => "associated.owner.not_declaration_backed",
+            Self::AssociatedFamilyMissing => "associated.family.missing",
+            Self::AssociatedFamilyInaccessible => "associated.family.inaccessible",
+            Self::AssociatedMemberMissing => "associated.member.missing",
+            Self::AssociatedMemberInaccessible => "associated.member.inaccessible",
+            Self::AssociatedMemberNotConstructible => "associated.member.not_constructible",
+            Self::AssociatedCallShapeMissing => "associated.call.shape_missing",
+            Self::AssociatedCallAmbiguous => "associated.call.ambiguous",
+            Self::AssociatedCallDynamicShape => "associated.call.dynamic_shape",
+            Self::AssociatedGenericUnderconstrained => "associated.generic.underconstrained",
+            Self::AssociatedGenericOwnerConflict => "associated.generic.owner_conflict",
+            Self::AssociatedGadtOwnerConflict => "associated.gadt.owner_conflict",
+            Self::AssociatedFamilyTypeInvalid => "associated.family.type_invalid",
         }
     }
 }

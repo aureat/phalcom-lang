@@ -210,6 +210,8 @@ class Owner {
         declarations: &declarations,
         field_signatures: None,
         field_lifecycle: None,
+        enum_semantics: None,
+        associated_families: None,
     };
     let class_def = unit
         .program

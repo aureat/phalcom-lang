@@ -98,11 +98,7 @@ pub fn selector_from_variant(variant: &VariantDecl) -> Selector {
             slots: Box::new([]),
         }),
         Some(payload) => {
-            let slots = payload
-                .parameters
-                .iter()
-                .map(selector_slot_from_parameter)
-                .collect::<Vec<_>>();
+            let slots = payload.parameters.iter().map(selector_slot_from_parameter).collect::<Vec<_>>();
             Selector::method(&variant.name, slots).unwrap_or_else(|_| Selector {
                 base: SelectorBase::Named(variant.name.clone()),
                 kind: SelectorKind::Method,

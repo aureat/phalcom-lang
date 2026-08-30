@@ -33,6 +33,8 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         body_range: RANGE,
         expressions,
         bindings: BTreeMap::new(),
+        associated_resolutions: Arc::new(BTreeMap::new()),
+        family_applications: Arc::new(BTreeMap::new()),
         flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
         entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
         exits: phalcom_semantic::checker::BodyExitFacts::default(),

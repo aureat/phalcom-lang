@@ -285,6 +285,42 @@ impl CallableId {
     }
 }
 
+/// Canonical target of an invocation (behavioral callable or variant constructor).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InvocationTargetId {
+    Behavioral(CallableId),
+    VariantConstructor(VariantConstructorId),
+}
+
+impl InvocationTargetId {
+    pub fn behavioral(callable: CallableId) -> Self {
+        Self::Behavioral(callable)
+    }
+
+    pub fn variant_constructor(variant: VariantId) -> Self {
+        Self::VariantConstructor(VariantConstructorId::new(variant))
+    }
+
+    pub fn callable_id(&self) -> Option<&CallableId> {
+        match self {
+            Self::Behavioral(c) => Some(c),
+            Self::VariantConstructor(_) => None,
+        }
+    }
+}
+
+impl From<CallableId> for InvocationTargetId {
+    fn from(callable: CallableId) -> Self {
+        Self::Behavioral(callable)
+    }
+}
+
+impl From<VariantConstructorId> for InvocationTargetId {
+    fn from(ctor: VariantConstructorId) -> Self {
+        Self::VariantConstructor(ctor)
+    }
+}
+
 /// Canonical identity of a declared callable parameter.
 ///
 /// Names and source ranges are presentation metadata; declaration-order index

@@ -969,7 +969,7 @@ pub enum ExpansionMode {
 }
 
 /// A parameter's rest-binding lane. Binding semantics remain deferred to F.3.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RestMode {
     None,
     Positional,
@@ -1619,9 +1619,7 @@ pub struct AssociatedNamedMemberSyntax {
 #[derive(Debug, Clone)]
 pub enum AssociatedNamedMode {
     /// `owner::name` or `owner::name::`.
-    Getter {
-        explicit_separator_range: Option<SourceRange>,
-    },
+    Getter { explicit_separator_range: Option<SourceRange> },
     /// `owner::name::shape`.
     Exact {
         second_separator_range: SourceRange,
@@ -1636,14 +1634,8 @@ pub enum AssociatedNamedMode {
 
 #[derive(Debug, Clone)]
 pub enum AssociatedResidualSelectorSyntax {
-    Method {
-        slots: Vec<SelectorSlotSyntax>,
-        range: SourceRange,
-    },
-    Setter {
-        put_range: SourceRange,
-        range: SourceRange,
-    },
+    Method { slots: Vec<SelectorSlotSyntax>, range: SourceRange },
+    Setter { put_range: SourceRange, range: SourceRange },
 }
 
 #[derive(Debug, Clone)]
@@ -1763,7 +1755,6 @@ impl SelectorSpecSyntax {
         }
     }
 }
-
 
 /// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH): a name symbol
 /// (`#move`) or a selector symbol (`#move(_,to,duration)`, `#+`, `#==`).

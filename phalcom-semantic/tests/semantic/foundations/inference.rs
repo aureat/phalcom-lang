@@ -194,13 +194,13 @@ fn test_generic_signature_instantiation_and_callable_solving() {
         parameters: vec![InferenceCallableParameter {
             label: None,
             term: var_t.clone(),
-            rest: false,
+            rest: phalcom_ast::ast::RestMode::None,
         }]
         .into_boxed_slice(),
         return_type: Box::new(var_t.clone()),
     });
 
-    // Argument is Int => ?T == Int
+    // Add constraint: Int <: ?T
     session.add_constraint(
         InferenceRelation::Subtype(InferenceTerm::Canonical(int_ty), var_t.clone()),
         ConstraintOrigin::Explicit,
@@ -215,7 +215,7 @@ fn test_generic_signature_instantiation_and_callable_solving() {
         parameters: vec![phalcom_semantic::types::store::CallableParameterType {
             label: None,
             ty: int_ty,
-            rest: false,
+            rest: phalcom_ast::ast::RestMode::None,
         }]
         .into_boxed_slice(),
         return_type: int_ty,

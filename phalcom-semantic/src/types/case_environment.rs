@@ -112,10 +112,7 @@ pub fn derive_case_environment(
         for (&p, &t) in &bindings {
             let updated_t = new_subst.apply(store, t);
             if store.contains_type_parameter(updated_t, p) {
-                return Err(CaseEnvironmentError::CyclicEquality {
-                    parameter: p,
-                    rhs: updated_t,
-                });
+                return Err(CaseEnvironmentError::CyclicEquality { parameter: p, rhs: updated_t });
             }
             updated_bindings.insert(p, updated_t);
         }

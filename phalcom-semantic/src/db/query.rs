@@ -41,6 +41,8 @@ pub struct FormalQueryInputs<'a> {
     pub declarations: &'a DeclarationTypeTable,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
+    pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
 }
 
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
@@ -51,6 +53,8 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
+        crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration) => QueryKey::EnumDeclaration(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration) => QueryKey::AssociatedSurface(declaration.clone()),
     }
 }
 
@@ -89,7 +93,6 @@ fn class_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &Declaratio
         _ => None,
     })
 }
-
 
 fn superclass_source<'a>(unit: &'a ParsedModuleUnit, class_def: &ClassDef) -> Option<&'a str> {
     let range = class_def.superclass.as_ref()?.range;
@@ -616,7 +619,10 @@ pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInf
     QueryOutcome::Ready(info)
 }
 
-pub fn query_enum_declaration(db: &mut SemanticDb, product: Arc<crate::db::product::EnumDeclarationProduct>) -> QueryOutcome<Arc<crate::db::product::EnumDeclarationProduct>> {
+pub fn query_enum_declaration(
+    db: &mut SemanticDb,
+    product: Arc<crate::db::product::EnumDeclarationProduct>,
+) -> QueryOutcome<Arc<crate::db::product::EnumDeclarationProduct>> {
     let key = QueryKey::EnumDeclaration(product.info.owner.clone());
     let input_fingerprint = crate::db::fingerprint::enum_declaration_input_fingerprint(&product.info);
     if db.validate_reuse(&key, input_fingerprint) {
@@ -643,7 +649,11 @@ pub fn query_enum_declaration(db: &mut SemanticDb, product: Arc<crate::db::produ
     QueryOutcome::Ready(product)
 }
 
-pub fn query_enum_requirements(db: &mut SemanticDb, owner: DeclarationId, product: Arc<crate::db::product::EnumRequirementsProduct>) -> QueryOutcome<Arc<crate::db::product::EnumRequirementsProduct>> {
+pub fn query_enum_requirements(
+    db: &mut SemanticDb,
+    owner: DeclarationId,
+    product: Arc<crate::db::product::EnumRequirementsProduct>,
+) -> QueryOutcome<Arc<crate::db::product::EnumRequirementsProduct>> {
     let key = QueryKey::EnumRequirements(owner.clone());
     let input_fingerprint = crate::db::fingerprint::enum_requirements_input_fingerprint(&owner);
     if db.validate_reuse(&key, input_fingerprint) {
@@ -670,7 +680,10 @@ pub fn query_enum_requirements(db: &mut SemanticDb, owner: DeclarationId, produc
     QueryOutcome::Ready(product)
 }
 
-pub fn query_associated_surface(db: &mut SemanticDb, surface: Arc<crate::associated::AssociatedSurface>) -> QueryOutcome<Arc<crate::associated::AssociatedSurface>> {
+pub fn query_associated_surface(
+    db: &mut SemanticDb,
+    surface: Arc<crate::associated::AssociatedSurface>,
+) -> QueryOutcome<Arc<crate::associated::AssociatedSurface>> {
     let key = QueryKey::AssociatedSurface(surface.owner.clone());
     let input_fingerprint = crate::db::fingerprint::associated_surface_input_fingerprint(&surface.owner);
     if db.validate_reuse(&key, input_fingerprint) {
@@ -843,11 +856,9 @@ pub fn query_callable_signature(
     let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) else {
         return query_failure(db, key, format!("missing class declaration for {:?}", callable.owner));
     };
-    let Some(member) = class_def
-        .members
-        .iter()
-        .find(|member| crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).is_some_and(|candidate| candidate == callable))
-    else {
+    let Some(member) = class_def.members.iter().find(|member| {
+        crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).is_some_and(|candidate| candidate == callable)
+    }) else {
         return query_failure(db, key, format!("missing source declaration for callable {callable:?}"));
     };
 
@@ -1312,6 +1323,8 @@ fn query_callable_body_with_requirement(
             cancel,
             field_signatures: formal_inputs.and_then(|inputs| inputs.field_signatures),
             field_lifecycle: formal_inputs.and_then(|inputs| inputs.field_lifecycle),
+            enum_semantics: formal_inputs.and_then(|inputs| inputs.enum_semantics),
+            associated_families: formal_inputs.and_then(|inputs| inputs.associated_families),
         },
     );
 

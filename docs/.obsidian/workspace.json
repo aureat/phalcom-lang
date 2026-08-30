@@ -187,10 +187,14 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "spec/phalcom-language-spec-adts.md",
+    "impl/adt-gadt-associated-lookup/part-4/04-runtime-representation-execution-model-family-reification-lowering-implementation-plan.md",
+    "impl/adt-gadt-associated-lookup/part-4/04-runtime-representation-execution-model-family-reification-lowering-technical-spec.md",
+    "impl/adt-gadt-associated-lookup/part-4",
+    "impl/adt-gadt-associated-lookup/untitled folder",
     "impl/adt-gadt-associated-lookup/part-3.5/03.5-part3-forward-compatibility-integration-and-verification-checklist.md",
     "impl/adt-gadt-associated-lookup/part-3.5/03.5-g1-boundary-option-b-ready-family-type-source-design-spec.md",
     "impl/adt-gadt-associated-lookup/part-3.5",
-    "impl/adt-gadt-associated-lookup/untitled folder",
     "impl/adt-gadt-associated-lookup/part-3/03-associated-resolution-family-values-generic-specialization-invocation-typing-implementation-plan.md",
     "impl/adt-gadt-associated-lookup/part-3/03-associated-resolution-family-values-generic-specialization-invocation-typing-technical-spec.md",
     "impl/adt-gadt-associated-lookup/03-associated-resolution-family-values-generic-specialization-invocation-typing-implementation-plan.md",
@@ -216,12 +220,8 @@
     "agents",
     "work/pending/phalcom-updated-language-semantics-handoff-current.md",
     "work/pending/phalcom-updated-language-semantics-handoff.md",
-    "work/pending/phalcom-updated-language-semantics-implementation-spec.md",
-    "spec/phalcom-selectors.md",
-    "spec/phalcom-symbols.md",
     "spec/primitives",
     "work/pending/phalcom_a1_a3_fix_package/tests/product_regression_tests.ph",
-    "work/pending/phalcom_a1_a3_fix_package/tests/symbol_label_canonicalization.ph",
-    "work/pending/phalcom_a1_a3_fix_package/tests/record_order_independence.ph"
+    "work/pending/phalcom_a1_a3_fix_package/tests/symbol_label_canonicalization.ph"
   ]
 }

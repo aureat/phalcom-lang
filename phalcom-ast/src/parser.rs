@@ -1159,9 +1159,7 @@ impl<'source> Parser<'source> {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        if !header_attrs.is_empty()
-            || (matches!(self.peek(), Token::Class | Token::Enum) && matches!(self.peek_next(), Token::Identifier(_)))
-        {
+        if !header_attrs.is_empty() || (matches!(self.peek(), Token::Class | Token::Enum) && matches!(self.peek_next(), Token::Identifier(_))) {
             let stmt = if matches!(self.peek(), Token::Enum) {
                 self.parse_enum(header_attrs)?
             } else {
@@ -2738,10 +2736,7 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            Some(VariantPayloadSyntax {
-                parameters,
-                range: p_range,
-            })
+            Some(VariantPayloadSyntax { parameters, range: p_range })
         } else {
             None
         };
@@ -2778,10 +2773,7 @@ impl<'source> Parser<'source> {
             }
             self.expect(&Token::RBrace, &["\"}\""])?;
             let b_range = (b_start..self.prev_end).into();
-            Some(VariantBody {
-                members,
-                range: b_range,
-            })
+            Some(VariantBody { members, range: b_range })
         } else {
             None
         };
@@ -3688,9 +3680,9 @@ impl<'source> Parser<'source> {
                         _ => unreachable!(),
                     };
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message(
-                            format!("{decl_kind}.nested_declaration: {decl_kind} declarations are only allowed at a module's top level, not nested inside a block"),
-                        ),
+                        kind: SyntaxErrorKind::Message(format!(
+                            "{decl_kind}.nested_declaration: {decl_kind} declarations are only allowed at a module's top level, not nested inside a block"
+                        )),
                         range: keyword_start..keyword_start + kw_len,
                     });
                 }
@@ -4723,10 +4715,7 @@ impl<'source> Parser<'source> {
                         base_range,
                         mode: AssociatedNamedMode::Exact {
                             second_separator_range,
-                            residual: AssociatedResidualSelectorSyntax::Method {
-                                slots,
-                                range: res_range,
-                            },
+                            residual: AssociatedResidualSelectorSyntax::Method { slots, range: res_range },
                         },
                         range: member_range,
                     }),
@@ -4758,10 +4747,7 @@ impl<'source> Parser<'source> {
                         base_range,
                         mode: AssociatedNamedMode::Exact {
                             second_separator_range,
-                            residual: AssociatedResidualSelectorSyntax::Setter {
-                                put_range,
-                                range: res_range,
-                            },
+                            residual: AssociatedResidualSelectorSyntax::Setter { put_range, range: res_range },
                         },
                         range: member_range,
                     }),

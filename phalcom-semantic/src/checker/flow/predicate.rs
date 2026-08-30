@@ -510,6 +510,5 @@ fn is_canonical_ordered_comparison(ctx: &CheckingContext<'_>, callable: Option<&
         return false;
     };
     let owner = callable.declaration_owner();
-    (owner == &ctx.core_ids.int || owner == &ctx.core_ids.float || owner == &ctx.core_ids.number)
-        && matches!(name.as_str(), "<" | "<=" | ">" | ">=" | "<=>")
+    (owner == &ctx.core_ids.int || owner == &ctx.core_ids.float || owner == &ctx.core_ids.number) && matches!(name.as_str(), "<" | "<=" | ">" | ">=" | "<=>")
 }

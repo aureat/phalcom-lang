@@ -1,4 +1,5 @@
 use phalcom_ast::parse_source;
+use phalcom_common::range::SourceRange;
 use phalcom_modules::identity::ModuleId;
 use phalcom_native_meta::universe::UniverseKey;
 use phalcom_semantic::checker::context::CheckingContext;
@@ -201,4 +202,57 @@ fn flow_join_preserves_only_identical_denotation() {
     // Joining different denotations clears it
     let merged_diff = ValueSemanticFact::merge(&fact_int1, &fact_string, fact_int1.knowledge.clone());
     assert_eq!(merged_diff.denotation, None);
+}
+
+#[test]
+fn type_form_expression_synthesizes_class_object_and_applied_denotation() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut resolver = SimpleTypeResolver::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
+    let module = ModuleId::core();
+
+    let int_decl = test_universe_resolver(UniverseKey::Int);
+    let list_decl = test_universe_resolver(UniverseKey::List);
+    resolver.insert("Int", int_decl.clone());
+    resolver.insert("List", list_decl.clone());
+
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+
+    let annotation = phalcom_ast::ast::TypeAnnotation {
+        expr: phalcom_ast::ast::TypeAnnotationExpr::Application {
+            origin: Box::new(phalcom_ast::ast::TypeAnnotation {
+                expr: phalcom_ast::ast::TypeAnnotationExpr::Reference(phalcom_ast::ast::StaticSymbolRef {
+                    root: "List".into(),
+                    root_range: SourceRange { start: 0, end: 4 },
+                    members: Vec::new(),
+                    range: SourceRange { start: 0, end: 4 },
+                }),
+                range: SourceRange { start: 0, end: 4 },
+            }),
+            arguments: vec![phalcom_ast::ast::TypeAnnotation {
+                expr: phalcom_ast::ast::TypeAnnotationExpr::Reference(phalcom_ast::ast::StaticSymbolRef {
+                    root: "Int".into(),
+                    root_range: SourceRange { start: 5, end: 8 },
+                    members: Vec::new(),
+                    range: SourceRange { start: 5, end: 8 },
+                }),
+                range: SourceRange { start: 5, end: 8 },
+            }],
+            range: SourceRange { start: 0, end: 9 },
+        },
+        range: SourceRange { start: 0, end: 9 },
+    };
+    let expr = phalcom_ast::ast::Expr::TypeForm(Box::new(annotation));
+
+    let typed = synthesize_typed_expr(&mut ctx, &expr);
+
+    let list_class_obj = declarations.class_object_type(&list_decl).unwrap();
+    let list_form = declarations.form(&list_decl).unwrap();
+    let int_form = declarations.form(&int_decl).unwrap();
+    let applied_form = ctx.store.apply_type_form(list_form, &[int_form]).unwrap();
+
+    assert_eq!(typed.ty(), Some(list_class_obj));
+    assert_eq!(typed.denotation, Some(SemanticDenotation::TypeForm(applied_form)));
+    assert_eq!(ctx.store.kind_of(applied_form), KindId::TYPE);
 }
