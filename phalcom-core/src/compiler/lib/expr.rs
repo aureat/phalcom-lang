@@ -19,42 +19,6 @@ enum PositionalExpansionTarget {
 }
 
 impl<'vm> Compiler<'vm> {
-    /// Returns the exact selector for an immediately-called MethodRef when
-    /// the call shape is statically identical to that selector. The caller
-    /// can then emit an ordinary dynamic send while still evaluating the
-    /// MethodRef receiver exactly once.
-    fn immediate_exact_method_ref_selector(
-        &mut self,
-        method_call: &phalcom_ast::ast::MethodCallExpr,
-    ) -> Result<Option<crate::interner::Symbol>, CompilerError> {
-        if method_call.method != "call" || Self::needs_dynamic_pack(&method_call.args) {
-            return Ok(None);
-        }
-        let Expr::MethodRef(method_ref) = &method_call.object else {
-            return Ok(None);
-        };
-        let NormalizedSelectorSpec::Exact(selector) = method_ref
-            .spec
-            .normalize()
-            .map_err(|error| CompilerError::Message(format!("invalid selector specification: {error}")))?
-        else {
-            return Ok(None);
-        };
-        if !matches!(selector.kind, phalcom_common::selector::SelectorKind::Method) {
-            return Ok(None);
-        }
-        let arity = checked_send_arity("family call", method_call.args.len(), method_call.range)?;
-        let labels = self.pack_labels(&method_call.args)?;
-        let phalcom_common::selector::SelectorBase::Named(base) = &selector.base else {
-            return Ok(None);
-        };
-        let call_selector = encode_selector(base, &labels, SignatureKind::Method(arity));
-        if call_selector != selector.encode() {
-            return Ok(None);
-        }
-        Ok(Some(self.vm.interner.intern(&call_selector)))
-    }
-
     pub(super) fn needs_dynamic_pack(items: &[PackItem]) -> bool {
         items.iter().any(|item| {
             matches!(
@@ -411,20 +375,6 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::MethodCall(method_call) => {
                 self.check_bounded_method_call(&method_call)?;
-                if let Some(selector_sym) = self.immediate_exact_method_ref_selector(&method_call)? {
-                    let method_call = *method_call;
-                    let Expr::MethodRef(method_ref) = method_call.object else {
-                        unreachable!("immediate exact MethodRef selector was validated above");
-                    };
-                    let arity = method_call.args.len() as u8;
-                    self.compile_expr(method_ref.receiver)?;
-                    for arg in method_call.args {
-                        self.compile_pack_item(arg)?;
-                    }
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                    self.emit(Bytecode::Invoke(arity, selector_idx), method_call.range);
-                    return Ok(());
-                }
                 let internal_call = method_call.method.starts_with("_$");
                 let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
                 if internal_call && !is_invariant_guard && !self.compiling_privileged_core() && !self.compiler_internal {
@@ -559,11 +509,11 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
             }
-            Expr::MethodRef(method_ref) => {
-                let method_ref = *method_ref;
-                let (spec_idx, kind) = self.compile_selector_spec_constant(&method_ref.spec)?;
-                self.compile_expr(method_ref.receiver)?;
-                self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, method_ref.range);
+            Expr::AssociatedLookup(expr) => {
+                return Err(CompilerError::AssociatedLookupNotLoweredYet(expr.range));
+            }
+            Expr::AssociatedInvoke(expr) => {
+                return Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range));
             }
             Expr::GetProperty(get_prop) => {
                 self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
@@ -1721,6 +1671,7 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn compile_selector_spec_constant(&mut self, spec: &SelectorSpecSyntax) -> Result<(u16, FamilySpecKind), CompilerError> {
         let normalized = spec.normalize().map_err(|error| match error {
             phalcom_common::selector::SelectorError::TooManySlots => CompilerError::ArityLimit {
@@ -1769,6 +1720,7 @@ impl<'vm> Compiler<'vm> {
     }
 }
 
+#[allow(dead_code)]
 fn selector_spec_slot_count(spec: &SelectorSpecSyntax) -> usize {
     match spec {
         SelectorSpecSyntax::Exact(exact) => exact.slots.len(),

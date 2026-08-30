@@ -40,6 +40,8 @@ pub enum Token {
     Fn,
     /// The `class` keyword introducing a class declaration.
     Class,
+    /// The `enum` keyword introducing an algebraic data type declaration.
+    Enum,
     /// The `return` keyword.
     Return,
     /// The `true` boolean literal keyword.

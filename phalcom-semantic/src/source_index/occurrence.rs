@@ -280,6 +280,60 @@ impl OccurrenceBuilder<'_> {
                 self.statements(&for_statement.body);
             }
             Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
+            Statement::Enum(enum_def) => {
+                for member in &enum_def.members {
+                    match member {
+                        phalcom_ast::ast::EnumMember::Variant(v) => {
+                            if let Some(body) = &v.body {
+                                for b_member in &body.members {
+                                    match b_member {
+                                        phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
+                                            if let Some(body) = m.body.statements() {
+                                                self.statements(body);
+                                            }
+                                        }
+                                        phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
+                                            if let Some(body) = g.body.statements() {
+                                                self.statements(body);
+                                            }
+                                        }
+                                        phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
+                                            if let Some(body) = s.body.statements() {
+                                                self.statements(body);
+                                            }
+                                        }
+                                        phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
+                                            self.statements(&i.body);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        phalcom_ast::ast::EnumMember::Behavior(b) => {
+                            match b {
+                                phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
+                                    if let Some(body) = m.body.statements() {
+                                        self.statements(body);
+                                    }
+                                }
+                                phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
+                                    if let Some(body) = g.body.statements() {
+                                        self.statements(body);
+                                    }
+                                }
+                                phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
+                                    if let Some(body) = s.body.statements() {
+                                        self.statements(body);
+                                    }
+                                }
+                                phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
+                                    self.statements(&i.body);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -406,7 +460,11 @@ impl OccurrenceBuilder<'_> {
                 self.expr(&index.value, OccurrenceRole::Read);
             }
             Expr::Block(block) => self.block(block),
-            Expr::MethodRef(reference) => self.expr(&reference.receiver, OccurrenceRole::Reference),
+            Expr::AssociatedLookup(lookup) => self.expr(&lookup.receiver, OccurrenceRole::Reference),
+            Expr::AssociatedInvoke(invoke) => {
+                self.expr(&invoke.receiver, OccurrenceRole::Reference);
+                self.pack(&invoke.args);
+            }
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {
                     match entry {

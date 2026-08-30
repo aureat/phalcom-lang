@@ -441,6 +441,7 @@ impl<'input> Lexer<'input> {
                 "const" => Token::Const,
                 "fn" => Token::Fn,
                 "class" => Token::Class,
+                "enum" => Token::Enum,
                 "return" => Token::Return,
                 "true" => Token::True,
                 "false" => Token::False,

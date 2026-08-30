@@ -19,8 +19,9 @@
 
 use phalcom_ast::{
     ast::{
-        ClassMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement, SelectorSpecSyntax, Statement,
-        SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
+        AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, ClassMember,
+        EnumMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry,
+        ReturnStatement, Statement, SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -222,57 +223,58 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
     assert_eq!(source_slice(source, field.name_range), "_field");
 
     let source = "receiver::method\n";
-    let program = parse_source(source, 0).expect("method reference parses");
+    let program = parse_source(source, 0).expect("associated lookup parses");
     let Statement::Expr {
-        expr: Expr::MethodRef(reference),
+        expr: Expr::AssociatedLookup(lookup),
         ..
     } = &program.statements[0]
     else {
-        panic!("expected method reference");
+        panic!("expected associated lookup");
     };
-    assert_eq!(source_slice(source, reference.selector_range.expect("written method reference")), "method");
+    let AssociatedMemberSyntax::Named(named) = &lookup.member else {
+        panic!("expected named member");
+    };
+    assert_eq!(named.base, "method");
 
-    let source = "@sealed\nclass Shape {\n  @variant Circle(radius:)\n}\n";
-    let program = parse_source(source, 0).expect("variant class parses");
-    let Statement::Class(class) = &program.statements[0] else {
-        panic!("expected class");
+    let source = "enum Shape {\n  @variant Circle(radius: Float)\n}\n";
+    let program = parse_source(source, 0).expect("variant enum parses");
+    let Statement::Enum(enum_def) = &program.statements[0] else {
+        panic!("expected enum");
     };
-    let ClassMember::Variant(variant) = &class.members[0] else {
+    let EnumMember::Variant(variant) = &enum_def.members[0] else {
         panic!("expected variant");
     };
     assert_eq!(source_slice(source, variant.name_range), "Circle");
 }
 
 #[test]
-fn selector_spec_owns_method_parens_and_preserves_pattern_components() {
+fn associated_invoke_and_exact_method_syntax() {
     let source = "receiver::method()\n";
-    let program = parse_source(source, 0).expect("exact selector method parses");
+    let program = parse_source(source, 0).expect("direct associated invoke parses");
     let Statement::Expr {
-        expr: Expr::MethodRef(reference),
+        expr: Expr::AssociatedInvoke(invoke),
         ..
     } = &program.statements[0]
     else {
-        panic!("expected MethodRef");
+        panic!("expected AssociatedInvoke");
     };
-    assert!(matches!(reference.spec, SelectorSpecSyntax::Exact(ref exact) if exact.base == "method" && exact.slots.is_empty()));
-    assert_eq!(source_slice(source, reference.selector_range.expect("selector range")), "method()");
+    assert_eq!(invoke.base, "method");
+    assert!(invoke.args.is_empty());
 
-    let source = "receiver::method(_, ..., tail)\n";
-    let program = parse_source(source, 0).expect("pattern selector parses");
+    let source = "receiver::method::()\n";
+    let program = parse_source(source, 0).expect("exact method lookup parses");
     let Statement::Expr {
-        expr: Expr::MethodRef(reference),
+        expr: Expr::AssociatedLookup(lookup),
         ..
     } = &program.statements[0]
     else {
-        panic!("expected MethodRef");
+        panic!("expected AssociatedLookup");
     };
-    let SelectorSpecSyntax::Pattern(pattern) = &reference.spec else {
-        panic!("expected patterned selector");
+    let AssociatedMemberSyntax::Named(named) = &lookup.member else {
+        panic!("expected named member");
     };
-    assert_eq!(pattern.prefix.len(), 1);
-    assert_eq!(pattern.suffix.len(), 1);
-    assert_eq!(source_slice(source, pattern.gap_range), "...");
-    assert_eq!(source_slice(source, pattern.suffix[0].range), "tail");
+    assert_eq!(named.base, "method");
+    assert!(matches!(named.mode, AssociatedNamedMode::Exact { residual: AssociatedResidualSelectorSyntax::Method { ref slots, .. }, .. } if slots.is_empty()));
 }
 
 #[test]

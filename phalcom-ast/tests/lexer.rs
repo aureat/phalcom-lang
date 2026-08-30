@@ -387,3 +387,18 @@ fn operator_selector_following_number() {
         ]
     );
 }
+
+#[test]
+fn enum_is_a_keyword_but_enum_prefixed_names_are_identifiers() {
+    assert_eq!(
+        tokens("enum enumerate enum_val my_enum"),
+        vec![
+            Token::Enum,
+            Token::Identifier("enumerate".into()),
+            Token::Identifier("enum_val".into()),
+            Token::Identifier("my_enum".into()),
+            Token::Eof,
+        ]
+    );
+}
+

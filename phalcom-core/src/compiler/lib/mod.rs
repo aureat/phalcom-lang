@@ -629,6 +629,9 @@ impl<'vm> Compiler<'vm> {
             Statement::Class(class_def) => {
                 self.compile_class(class_def)?;
             }
+            Statement::Enum(enum_def) => {
+                return Err(CompilerError::EnumNotLoweredYet(enum_def.range));
+            }
             Statement::For(for_stmt) => {
                 // A `for` is a statement consumed for effect (U-ITER spec
                 // §1.2): it leaves no value, so `emit_pop` is irrelevant.

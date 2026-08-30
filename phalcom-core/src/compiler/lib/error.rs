@@ -313,6 +313,18 @@ pub enum CompilerError {
     /// Declaration-only member without implementation or `@native`.
     #[error("class.declaration_requires_implementation: member '{0}' has no body and is not `@native`.")]
     DeclarationBodyRequiresImplementation(String, SourceRange),
+
+    /// Enum lowering staging error.
+    #[error("enum lowering is not implemented until the ADT/GADT semantic/runtime parts land")]
+    EnumNotLoweredYet(SourceRange),
+
+    /// Associated lookup staging error.
+    #[error("associated lookup lowering is not implemented until associated semantic resolution lands")]
+    AssociatedLookupNotLoweredYet(SourceRange),
+
+    /// Associated invoke staging error.
+    #[error("associated family invocation lowering is not implemented until associated semantic resolution lands")]
+    AssociatedInvokeNotLoweredYet(SourceRange),
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

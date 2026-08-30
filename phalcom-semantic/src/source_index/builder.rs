@@ -169,7 +169,8 @@ impl TypeReferenceTargetCollector<'_> {
             | Statement::Break { .. }
             | Statement::Continue { .. }
             | Statement::Throw { .. }
-            | Statement::Export(_) => {}
+            | Statement::Export(_)
+            | Statement::Enum(_) => {}
         }
     }
 
@@ -393,7 +394,7 @@ impl SourceScopeBuilder<'_> {
                 Statement::Expr { expr, .. } => self.visit_expr(scope, expr),
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
-                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
+                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Enum(_) => {}
             }
         }
     }
@@ -764,7 +765,6 @@ impl SourceScopeBuilder<'_> {
                 self.visit_expr(scope, &index.value);
             }
             Expr::Block(block) => self.visit_block(scope, block),
-            Expr::MethodRef(reference) => self.visit_expr(scope, &reference.receiver),
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {
                     match entry {
@@ -819,6 +819,11 @@ impl SourceScopeBuilder<'_> {
                         }
                     }
                 }
+            }
+            Expr::AssociatedLookup(lookup) => self.visit_expr(scope, &lookup.receiver),
+            Expr::AssociatedInvoke(invoke) => {
+                self.visit_expr(scope, &invoke.receiver);
+                self.visit_pack_items(scope, &invoke.args);
             }
             Expr::Int { .. }
             | Expr::Float { .. }
@@ -885,6 +890,7 @@ fn statements_range(statements: &[Statement]) -> SourceRange {
 fn statement_range(statement: &Statement) -> SourceRange {
     match statement {
         Statement::Class(class) => class.range,
+        Statement::Enum(enum_def) => enum_def.range,
         Statement::Let(binding) => binding.range,
         Statement::Return(return_statement) => return_statement.range,
         Statement::Expr { range, .. } => *range,
