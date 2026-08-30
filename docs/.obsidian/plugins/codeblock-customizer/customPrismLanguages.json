@@ -1,5 +1,5 @@
 {
-  "phalcom": {
+  "ph": {
     "comment": [
       {
         "pattern": "/\\/\\*[\\s\\S]*?\\*\\//",
@@ -22,14 +22,14 @@
       }
     ],
     "declarationAnnotation": {
-      "pattern": "/@(class|sealed|constructor|construct)\\b/",
+      "pattern": "/@(class|enum|sealed|constructor|construct|get|set|variant|data|protocol)\\b/",
       "alias": "keyword"
     },
     "annotation": {
       "pattern": "/@[A-Za-z_][A-Za-z0-9_]*\\b/",
       "alias": "builtin"
     },
-    "keyword": "/\\b(?:let|const|type|class|fn|is|where|if|else|while|for|match|matches|try|catch|on|ensure|throw|break|continue|return|import|from|export|expose|as|in|and|or|not|with|super|self|static|var|construct)\\b/",
+    "keyword": "/\\b(?:let|const|type|class|enum|case|is|is!|where|when|if|else|while|for|match|matches|understands|try|catch|on|ensure|throw|raise|break|continue|return|import|from|export|expose|as|in|and|or|not|with|super|self|static|var|constructor)\\b/",
     "boolean": "/\\b(?:true|false)\\b/",
     "symbol": [
       {

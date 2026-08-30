@@ -4,17 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "9dfb7ee05112b6cc",
+        "id": "e160eeaf4a4cc27e",
         "type": "tabs",
         "children": [
           {
-            "id": "e351412831514433",
+            "id": "46e666892420d783",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "spec/primitives/Enum II.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "Enum II"
             }
           }
         ]
@@ -181,32 +185,34 @@
       "bases:Create new base": false
     }
   },
-  "active": "e351412831514433",
+  "active": "46e666892420d783",
   "lastOpenFiles": [
+    "spec/primitives/Selectors II.md",
+    "spec/primitives/Selectors I.md",
+    "spec/primitives/Untitled 2.md",
+    "spec/primitives/Enum I.md",
+    "spec/primitives/float.md",
+    "spec/primitives/Loops I.md",
+    "spec/selectors.md",
+    "spec/primitives/Enum II.md",
+    "impl/semantic/phalcom-adts-gadts-technical-spec.md",
     "spec/type system foundations.md",
     "impl/semantic/semantic-correctness/part-4/2026-08-29-semantic-authority-audit.md",
     "spec/symbols.md",
-    "spec/selectors.md",
     "spec/README.md",
     "spec/typing/01-core-type-lattice-and-unit.md",
-    "spec/primitives/Untitled 1.md",
-    "spec/primitives/Untitled 2.md",
-    "spec/primitives/Untitled 3.md",
     "work/pending/lsp",
     "work/pending/untitled folder",
     "agents/detailed-impl-spec-prompt.md",
     "agents/concise-handoff-prompt.md",
     "agents",
-    "spec/primitives/Untitled.md",
     "work/pending/phalcom-updated-language-semantics-handoff-current.md",
     "work/pending/phalcom-updated-language-semantics-handoff.md",
     "work/pending/phalcom-updated-language-semantics-implementation-spec.md",
-    "spec/primitives/newer syntax.md",
     "spec/phalcom-selectors.md",
     "spec/phalcom-symbols.md",
     "superpowers/specs/2026-08-20-variant-global-recognition-design.md",
     "spec/next/semantics/in-membership-operators-implementation-spec.md",
-    "spec/primitives/float.md",
     "spec/primitives",
     "work/pending/collections/F.2-pre-F3-amended-completion-gate-final.md",
     "work/analyses/hashbrown-in-phalcom-next-hour.md",
@@ -216,8 +222,6 @@
     "work/pending/phalcom_a1_a3_fix_package/tests",
     "work/pending/phalcom_a1_a3_fix_package/A1-A3-product-fix-instructions.md",
     "work/pending/phalcom_a1_a3_fix_package",
-    "work/pending/fsco/fs-v2-implementation-spec.md",
-    "work/pending/fsco/streams-v2-implementation-spec.md",
     "work/pending/fsco"
   ]
 }
