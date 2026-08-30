@@ -374,7 +374,7 @@ fn class_object_method_family_uses_canonical_dispatch_owner_chain() {
     let source: Arc<str> = Arc::from(
         r#"
 class Person {}
-const family = Person::new(...)
+const family = Person::new
 "#,
     );
     let parsed = phalcom_ast::parse(&source, 0);

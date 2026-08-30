@@ -2,6 +2,7 @@
 
 pub mod annotation;
 pub mod application;
+pub mod case_environment;
 pub mod constraint;
 pub mod denotation;
 pub mod environment;
@@ -21,13 +22,14 @@ pub mod variance;
 
 pub use annotation::{SimpleTypeResolver, TypeFormResolution, TypeResolver, resolve_type_annotation, resolve_type_form};
 pub use application::TypeApplicationError;
+pub use case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 pub use constraint::{ConstraintSet, TypeConstraint};
 pub use denotation::{SemanticDenotation, ValueSemanticFact};
 pub use environment::{SpecializedCallableView, SpecializedMemberView, TypeEnvironment, TypeView};
 pub use evidence::{
     ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason, join_type_knowledge,
 };
-pub use id::{InferVarId, KindId, ProperTypeId, RecordRowId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
+pub use id::{InferVarId, KindId, ProperTypeId, RecordRowId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
 pub use kind::{KindApplicationError, KindData};
 pub use native::{
     NativeSurfaceImportError, NativeSurfaceImportReport, NativeTypeResolutionError, normalize_native_type, register_native_surfaces, resolve_native_type_form,

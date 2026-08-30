@@ -83,7 +83,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         ctx.attach_field_signatures(field_signatures);
     }
     ctx.current_callable = Some(callable.clone());
-    ctx.current_class = Some(callable.owner.clone());
+    ctx.current_class = Some(callable.declaration_owner().clone());
     ctx.current_side = callable.side;
 
     // 1. Build flow graph for the body statements
@@ -101,7 +101,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     );
     if let Some(field_lifecycle) = field_lifecycle {
         ctx.attach_field_lifecycle(field_lifecycle);
-        field_lifecycle.seed_flow_for_owner(&mut ctx.flow, &callable.owner, constructor_body);
+        field_lifecycle.seed_flow_for_owner(&mut ctx.flow, callable.declaration_owner(), constructor_body);
     }
 
     if let Some((signature_id, signature)) = declared_signature {

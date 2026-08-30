@@ -17,6 +17,10 @@ use std::sync::Arc;
 
 /// Declaration-surface query payload.
 ///
+use crate::associated::AssociatedSurface;
+use crate::enum_requirements::{CaseRequirementResult, EnumRequirement};
+use crate::enum_semantics::{EnumInfo, VariantInfo};
+
 /// The semantic surface is the dependency-visible product. Diagnostics are retained
 /// alongside it so the query that resolves member annotations also owns the resulting
 /// user-facing errors without making diagnostic-only changes invalidate body consumers.
@@ -33,6 +37,22 @@ impl DeclarationSurfaceProduct {
     pub fn new(surface: Arc<DeclarationSurface>, diagnostics: Arc<[SemanticDiagnostic]>) -> Self {
         Self { surface, diagnostics }
     }
+}
+
+/// Product of compiling an enum declaration and its variants.
+#[derive(Clone, Debug)]
+pub struct EnumDeclarationProduct {
+    pub info: Arc<EnumInfo>,
+    pub variants: Arc<[VariantInfo]>,
+    pub diagnostics: Arc<[SemanticDiagnostic]>,
+}
+
+/// Product of checking closed-enum requirements against case implementations.
+#[derive(Clone, Debug)]
+pub struct EnumRequirementsProduct {
+    pub requirements: Arc<[EnumRequirement]>,
+    pub case_statuses: Arc<[CaseRequirementResult]>,
+    pub diagnostics: Arc<[SemanticDiagnostic]>,
 }
 
 /// Strongly-typed wrapper around semantic database product variants.
@@ -54,6 +74,9 @@ pub enum SemanticProduct {
     AdvisoryModule(Arc<AdvisoryModuleProduct>),
     ModuleDiagnostics(Arc<[SemanticDiagnostic]>),
     SemanticComponent(Arc<LinkedProgram>),
+    EnumDeclaration(Arc<EnumDeclarationProduct>),
+    EnumRequirements(Arc<EnumRequirementsProduct>),
+    AssociatedSurface(Arc<AssociatedSurface>),
 }
 
 impl SemanticProduct {
@@ -178,6 +201,27 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_enum_declaration(&self) -> Option<&Arc<EnumDeclarationProduct>> {
+        match self {
+            Self::EnumDeclaration(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_enum_requirements(&self) -> Option<&Arc<EnumRequirementsProduct>> {
+        match self {
+            Self::EnumRequirements(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_associated_surface(&self) -> Option<&Arc<AssociatedSurface>> {
+        match self {
+            Self::AssociatedSurface(surface) => Some(surface),
+            _ => None,
+        }
+    }
+
     /// Converts typed product into type-erased `QueryValue`.
     pub fn to_query_value(&self) -> QueryValue {
         let kind = match self {
@@ -197,6 +241,9 @@ impl SemanticProduct {
             Self::AdvisoryModule(_) => b"advisory-module".as_slice(),
             Self::ModuleDiagnostics(_) => b"module-diagnostics".as_slice(),
             Self::SemanticComponent(_) => b"semantic-component".as_slice(),
+            Self::EnumDeclaration(_) => b"enum-declaration".as_slice(),
+            Self::EnumRequirements(_) => b"enum-requirements".as_slice(),
+            Self::AssociatedSurface(_) => b"associated-surface".as_slice(),
         };
         QueryValue::from_bytes(kind)
     }

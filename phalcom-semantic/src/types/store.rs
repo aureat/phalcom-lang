@@ -1,13 +1,13 @@
 //! Canonical Type Store with interning and normalization.
 
 use super::application::TypeApplicationError;
-use super::id::{KindId, ProperTypeId, RecordRowId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId};
+use super::id::{KindId, ProperTypeId, RecordRowId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
 use super::kind::{KindApplicationError, KindData};
 use super::parameter::{SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::variance::Variance;
-use crate::identity::DeclarationId;
+use crate::identity::{DeclarationId, VariantId};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -47,6 +47,8 @@ pub enum TypeData {
     Nominal { declaration: DeclarationId },
     /// Generic type application (e.g. `List<Int>`).
     Applied { origin: TypeId, arguments: Box<[TypeId]> },
+    /// Exact static enum case type (e.g. `ExactCase<Option::Some(_), Option<Int>>`).
+    ExactCase { variant: VariantTypeId, enum_type: TypeId },
     /// Flat, deduplicated, sorted union of two or more distinct types.
     Union(Box<[TypeId]>),
     /// Tuple type.
@@ -78,6 +80,8 @@ pub struct TypeStore {
     lambda_arena: TypeLambdaArena,
     row_arena: Vec<RecordRowData>,
     row_interner: HashMap<RecordRowData, RecordRowId>,
+    variant_identities: Vec<VariantId>,
+    variant_identity_to_id: HashMap<VariantId, VariantTypeId>,
 
     never_id: TypeId,
     unit_id: TypeId,
@@ -104,6 +108,8 @@ impl TypeStore {
             lambda_arena: TypeLambdaArena::new(),
             row_arena: Vec::new(),
             row_interner: HashMap::new(),
+            variant_identities: Vec::new(),
+            variant_identity_to_id: HashMap::new(),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
         };
@@ -610,9 +616,99 @@ impl TypeStore {
                 let ret = self.format_type(callable.return_type);
                 format!("({params}) -> {ret}")
             }
+            TypeData::ExactCase { variant, enum_type } => {
+                let variant_id = self.variant_identity(*variant);
+                let enum_str = self.format_type(*enum_type);
+                format!("ExactCase<{}::{}, {enum_str}>", variant_id.owner.name, variant_id.selector.encode())
+            }
             TypeData::Parameter(param_id) => self.type_parameters[param_id.index()].name.to_string(),
             TypeData::Lambda(_) => "[TypeLambda]".to_string(),
             TypeData::SelfType(_) => "Self".to_string(),
+        }
+    }
+
+    /// Interns a [`VariantId`] into a compact store-relative [`VariantTypeId`].
+    pub fn intern_variant_identity(&mut self, variant: VariantId) -> VariantTypeId {
+        if let Some(&id) = self.variant_identity_to_id.get(&variant) {
+            return id;
+        }
+        let id = VariantTypeId::from_index(self.variant_identities.len());
+        self.variant_identities.push(variant.clone());
+        self.variant_identity_to_id.insert(variant, id);
+        id
+    }
+
+    /// Returns the stable [`VariantId`] corresponding to a [`VariantTypeId`].
+    pub fn variant_identity(&self, id: VariantTypeId) -> &VariantId {
+        &self.variant_identities[id.index()]
+    }
+
+    /// Returns nominal origin declaration of `ty` if it is a nominal type or applied generic nominal type.
+    pub fn nominal_origin_declaration(&self, ty: TypeId) -> Option<&DeclarationId> {
+        match self.get(ty) {
+            TypeData::Nominal { declaration } => Some(declaration),
+            TypeData::Applied { origin, .. } => self.nominal_origin_declaration(*origin),
+            _ => None,
+        }
+    }
+
+    /// Decomposes a nominal or applied nominal type into `(declaration, type_arguments)`.
+    pub fn applied_nominal_parts(&self, ty: TypeId) -> Option<(DeclarationId, Vec<TypeId>)> {
+        match self.get(ty) {
+            TypeData::Nominal { declaration } => Some((declaration.clone(), Vec::new())),
+            TypeData::Applied { origin, arguments } => {
+                let decl = self.nominal_origin_declaration(*origin)?;
+                Some((decl.clone(), arguments.to_vec()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Validates and interns a canonical exact static case type `ExactCase(variant, enum_type)`.
+    pub fn exact_case_type(&mut self, variant: &VariantId, enum_type: TypeId) -> Result<TypeId, ExactCaseTypeError> {
+        let enum_kind = self.kind_of(enum_type);
+        if enum_kind != KindId::TYPE {
+            return Err(ExactCaseTypeError::EnumTypeMalformed);
+        }
+        let Some(origin) = self.nominal_origin_declaration(enum_type) else {
+            return Err(ExactCaseTypeError::NominalOriginMissing);
+        };
+        if *origin != variant.owner {
+            return Err(ExactCaseTypeError::WrongOwner {
+                expected: variant.owner.clone(),
+                got: origin.clone(),
+            });
+        }
+        let variant_type_id = self.intern_variant_identity(variant.clone());
+        Ok(self.intern_with_kind(
+            TypeData::ExactCase {
+                variant: variant_type_id,
+                enum_type,
+            },
+            KindId::TYPE,
+        ))
+    }
+
+    /// Checks if a type contains a specific type parameter.
+    pub fn contains_type_parameter(&self, ty: TypeId, target: TypeParameterId) -> bool {
+        match self.get(ty) {
+            TypeData::Parameter(p) => *p == target,
+            TypeData::Applied { origin, arguments } => {
+                self.contains_type_parameter(*origin, target)
+                    || arguments.iter().any(|&a| self.contains_type_parameter(a, target))
+            }
+            TypeData::Union(members) => members.iter().any(|&m| self.contains_type_parameter(m, target)),
+            TypeData::Tuple(elems) => elems.iter().any(|e| self.contains_type_parameter(e.ty, target)),
+            TypeData::Record(row_id) => {
+                let row = self.record_row(*row_id);
+                row.fields.iter().any(|f| self.contains_type_parameter(f.ty, target))
+            }
+            TypeData::Callable(call) => {
+                call.parameters.iter().any(|p| self.contains_type_parameter(p.ty, target))
+                    || self.contains_type_parameter(call.return_type, target)
+            }
+            TypeData::ExactCase { enum_type, .. } => self.contains_type_parameter(*enum_type, target),
+            _ => false,
         }
     }
 
@@ -624,6 +720,17 @@ impl TypeStore {
             crate::types::evidence::TypeKnowledge::Unknown(_) => "Unknown".to_string(),
         }
     }
+}
+
+/// Error returned when constructing an invalid exact-case static type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExactCaseTypeError {
+    EnumTypeMalformed,
+    NominalOriginMissing,
+    WrongOwner {
+        expected: DeclarationId,
+        got: DeclarationId,
+    },
 }
 
 #[cfg(test)]

@@ -187,6 +187,14 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "impl/adt-gadt-associated-lookup/part-3.5/03.5-part3-forward-compatibility-integration-and-verification-checklist.md",
+    "impl/adt-gadt-associated-lookup/part-3.5/03.5-g1-boundary-option-b-ready-family-type-source-design-spec.md",
+    "impl/adt-gadt-associated-lookup/part-3.5",
+    "impl/adt-gadt-associated-lookup/untitled folder",
+    "impl/adt-gadt-associated-lookup/part-3/03-associated-resolution-family-values-generic-specialization-invocation-typing-implementation-plan.md",
+    "impl/adt-gadt-associated-lookup/part-3/03-associated-resolution-family-values-generic-specialization-invocation-typing-technical-spec.md",
+    "impl/adt-gadt-associated-lookup/03-associated-resolution-family-values-generic-specialization-invocation-typing-implementation-plan.md",
+    "impl/adt-gadt-associated-lookup/part-3",
     "spec/primitives/Selectors II.md",
     "spec/primitives/Selectors I.md",
     "spec/primitives/Untitled 2.md",
@@ -211,17 +219,9 @@
     "work/pending/phalcom-updated-language-semantics-implementation-spec.md",
     "spec/phalcom-selectors.md",
     "spec/phalcom-symbols.md",
-    "superpowers/specs/2026-08-20-variant-global-recognition-design.md",
-    "spec/next/semantics/in-membership-operators-implementation-spec.md",
     "spec/primitives",
-    "work/pending/collections/F.2-pre-F3-amended-completion-gate-final.md",
-    "work/analyses/hashbrown-in-phalcom-next-hour.md",
     "work/pending/phalcom_a1_a3_fix_package/tests/product_regression_tests.ph",
     "work/pending/phalcom_a1_a3_fix_package/tests/symbol_label_canonicalization.ph",
-    "work/pending/phalcom_a1_a3_fix_package/tests/record_order_independence.ph",
-    "work/pending/phalcom_a1_a3_fix_package/tests",
-    "work/pending/phalcom_a1_a3_fix_package/A1-A3-product-fix-instructions.md",
-    "work/pending/phalcom_a1_a3_fix_package",
-    "work/pending/fsco"
+    "work/pending/phalcom_a1_a3_fix_package/tests/record_order_independence.ph"
   ]
 }

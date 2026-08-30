@@ -55,4 +55,7 @@ pub enum QueryKey {
     AdvisoryModule(ModuleId),
     ModuleDiagnostics(ModuleId),
     ModuleMetadata(ModuleId),
+    EnumDeclaration(DeclarationId),
+    EnumRequirements(DeclarationId),
+    AssociatedSurface(DeclarationId),
 }

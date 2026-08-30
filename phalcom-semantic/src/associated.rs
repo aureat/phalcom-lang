@@ -1,0 +1,167 @@
+use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
+use crate::identity::{AssociatedFamilyId, CallableId, DeclarationId, VariantId};
+use phalcom_common::selector::SelectorBase;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
+
+/// The category of an associated family.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AssociatedFamilyKind {
+    Behavioral,
+    Variant,
+}
+
+/// A member belonging to an associated family.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AssociatedMemberId {
+    Behavioral(CallableId),
+    Variant(VariantId),
+}
+
+/// Metadata describing one associated family on a declaration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociatedFamilyInfo {
+    pub id: AssociatedFamilyId,
+    pub kind: AssociatedFamilyKind,
+    pub members: Box<[AssociatedMemberId]>,
+}
+
+/// Complete associated family namespace surface for one declaration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociatedSurface {
+    pub owner: DeclarationId,
+    pub families: BTreeMap<SelectorBase, AssociatedFamilyInfo>,
+}
+
+impl AssociatedSurface {
+    pub fn new(owner: DeclarationId) -> Self {
+        Self {
+            owner,
+            families: BTreeMap::new(),
+        }
+    }
+}
+
+/// Table of associated family surfaces indexed by declaration owner.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AssociatedFamilyTable {
+    pub surfaces: HashMap<DeclarationId, Arc<AssociatedSurface>>,
+}
+
+impl AssociatedFamilyTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, owner: DeclarationId, surface: Arc<AssociatedSurface>) {
+        self.surfaces.insert(owner, surface);
+    }
+}
+
+fn format_selector_base(base: &SelectorBase) -> &str {
+    match base {
+        SelectorBase::Named(name) => name.as_str(),
+        SelectorBase::Subscript => "[]",
+    }
+}
+
+/// Computes the [`AssociatedSurface`] for a declaration and validates family conflicts.
+pub fn build_associated_surface(
+    owner: &DeclarationId,
+    variants: Option<&[VariantId]>,
+    class_callables: &[CallableId],
+    inherited_class_bases: &HashSet<SelectorBase>,
+    module_id: &crate::identity::ModuleId,
+    span: Option<SemanticSourceSpan>,
+) -> (Arc<AssociatedSurface>, Arc<[SemanticDiagnostic]>) {
+    let mut diagnostics = Vec::new();
+    let mut surface = AssociatedSurface::new(owner.clone());
+
+    let mut variant_groups: BTreeMap<SelectorBase, Vec<VariantId>> = BTreeMap::new();
+    if let Some(vars) = variants {
+        for v in vars {
+            let base = v.selector.base.clone();
+            variant_groups.entry(base).or_default().push(v.clone());
+        }
+    }
+
+    let mut behavioral_groups: BTreeMap<SelectorBase, Vec<CallableId>> = BTreeMap::new();
+    for c in class_callables {
+        let base = c.selector.base.clone();
+        behavioral_groups.entry(base).or_default().push(c.clone());
+    }
+
+    // Check inherited conflicts for variants
+    for base in variant_groups.keys() {
+        if inherited_class_bases.contains(base) {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module_id.clone(),
+                DiagnosticCode::EnumFamilyInheritedBehaviorConflict,
+                format!("variant family `{}` on `{}` conflicts with inherited class behavior", format_selector_base(base), owner.name),
+                span.as_ref().map(|s| s.range).unwrap_or_default(),
+            ));
+        }
+    }
+
+    let all_bases: BTreeSet<SelectorBase> = variant_groups.keys().chain(behavioral_groups.keys()).cloned().collect();
+
+    for base in all_bases {
+        let has_variants = variant_groups.contains_key(&base);
+        let has_behavioral = behavioral_groups.contains_key(&base);
+
+        if has_variants && has_behavioral {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module_id.clone(),
+                DiagnosticCode::EnumFamilyCategoryConflict,
+                format!("associated family `{}` on `{}` cannot contain both variants and class methods", format_selector_base(&base), owner.name),
+                span.as_ref().map(|s| s.range).unwrap_or_default(),
+            ));
+            let members: Vec<AssociatedMemberId> = variant_groups
+                .remove(&base)
+                .unwrap_or_default()
+                .into_iter()
+                .map(AssociatedMemberId::Variant)
+                .chain(
+                    behavioral_groups
+                        .remove(&base)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(AssociatedMemberId::Behavioral),
+                )
+                .collect();
+            let family_id = AssociatedFamilyId::new(owner.clone(), base.clone());
+            surface.families.insert(
+                base,
+                AssociatedFamilyInfo {
+                    id: family_id,
+                    kind: AssociatedFamilyKind::Variant,
+                    members: members.into_boxed_slice(),
+                },
+            );
+        } else if let Some(vars) = variant_groups.remove(&base) {
+            let family_id = AssociatedFamilyId::new(owner.clone(), base.clone());
+            let members: Vec<AssociatedMemberId> = vars.into_iter().map(AssociatedMemberId::Variant).collect();
+            surface.families.insert(
+                base,
+                AssociatedFamilyInfo {
+                    id: family_id,
+                    kind: AssociatedFamilyKind::Variant,
+                    members: members.into_boxed_slice(),
+                },
+            );
+        } else if let Some(calls) = behavioral_groups.remove(&base) {
+            let family_id = AssociatedFamilyId::new(owner.clone(), base.clone());
+            let members: Vec<AssociatedMemberId> = calls.into_iter().map(AssociatedMemberId::Behavioral).collect();
+            surface.families.insert(
+                base,
+                AssociatedFamilyInfo {
+                    id: family_id,
+                    kind: AssociatedFamilyKind::Behavioral,
+                    members: members.into_boxed_slice(),
+                },
+            );
+        }
+    }
+
+    (Arc::new(surface), Arc::from(diagnostics.into_boxed_slice()))
+}

@@ -354,7 +354,7 @@ impl<'a> EditorSemanticQuery<'a> {
         let owner = self.snapshot.source_site_at(module, offset).map(|site| &site.id.owner);
         match owner {
             Some(SourceOwner::Callable(callable)) => AccessContext {
-                enclosing_declaration: Some(callable.owner.clone()),
+                enclosing_declaration: Some(callable.declaration_owner().clone()),
                 enclosing_callable: Some(callable.clone()),
             },
             _ => AccessContext {
@@ -462,8 +462,8 @@ impl<'a> EditorSemanticQuery<'a> {
             return None;
         };
         let declaration = match kind {
-            crate::source_index::SourceReceiverKind::SelfValue => callable.owner.clone(),
-            crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(&callable.owner).cloned()?,
+            crate::source_index::SourceReceiverKind::SelfValue => callable.declaration_owner().clone(),
+            crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(callable.declaration_owner()).cloned()?,
         };
         Some(ResolvedReceiver {
             alternatives: Arc::from([ReceiverAlternative {
@@ -489,8 +489,8 @@ impl<'a> EditorSemanticQuery<'a> {
                 .map(|(callable, _)| callable.clone());
             let Some(callable) = callable else { continue };
             let declaration = match kind {
-                crate::source_index::SourceReceiverKind::SelfValue => callable.owner,
-                crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(&callable.owner).cloned()?,
+                crate::source_index::SourceReceiverKind::SelfValue => callable.declaration_owner().clone(),
+                crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(callable.declaration_owner()).cloned()?,
             };
             return Some(ResolvedReceiver {
                 alternatives: Arc::from([ReceiverAlternative {

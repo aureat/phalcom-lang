@@ -494,11 +494,8 @@ impl SourceSemanticIndex {
     /// Returns module shard owning one snapshot-local source site.
     pub fn module_for_site(&self, site: &SourceSiteId) -> Option<&ModuleSourceIndex> {
         let module = match &site.owner {
-            crate::identity::SourceOwner::Module(module)
-            | crate::identity::SourceOwner::Callable(crate::identity::CallableId {
-                owner: crate::identity::DeclarationId { module, .. },
-                ..
-            }) => module,
+            crate::identity::SourceOwner::Module(module) => module,
+            crate::identity::SourceOwner::Callable(callable) => callable.module(),
         };
         self.module(module)
     }
@@ -516,7 +513,7 @@ impl SourceSemanticIndex {
 
     /// Returns canonical source metadata for one callable identity.
     pub fn callable_source(&self, id: &CallableId) -> Option<&CallableSourceInfo> {
-        self.modules.get(&id.owner.module)?.structure.callable_sources.get(id)
+        self.modules.get(id.module())?.structure.callable_sources.get(id)
     }
 
     /// Returns canonical source metadata for one field identity.
@@ -539,7 +536,7 @@ impl SourceSemanticIndex {
 
     /// Returns the exact formal attachment for one callable.
     pub fn formal_attachment(&self, callable: &CallableId) -> Option<&CallableSourceAttachment> {
-        let module = self.modules.get(&callable.owner.module)?;
+        let module = self.modules.get(callable.module())?;
         module.attachments.get(callable).map(AsRef::as_ref)
     }
 
@@ -560,11 +557,8 @@ impl SourceSemanticIndex {
     /// Returns one source site by owner-qualified snapshot-local identity.
     pub fn source_site(&self, site: &SourceSiteId) -> Option<&SourceSite> {
         let module = match &site.owner {
-            crate::identity::SourceOwner::Module(module)
-            | crate::identity::SourceOwner::Callable(crate::identity::CallableId {
-                owner: crate::identity::DeclarationId { module, .. },
-                ..
-            }) => module,
+            crate::identity::SourceOwner::Module(module) => module,
+            crate::identity::SourceOwner::Callable(callable) => callable.module(),
         };
         let module_index = self.modules.get(module)?;
         if let Some(site) = module_index.structure.site(site) {

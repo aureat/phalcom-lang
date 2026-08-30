@@ -113,13 +113,13 @@ enum Result<T, E> {
 	isErr -> Bool
 
 	@variant
-	Ok(_ value: T) {
+	:: Ok(_ value: T) {
 		isOk { true }
 		isErr { false }
 	}
 	
 	@variant
-	Err(_ error: T) {
+	:: Err(_ error: T) {
 		isOk { false }
 		isErr { true }
 	}
@@ -134,7 +134,7 @@ Result::Err::* // the whole family
 Result::Err
 Result::Err*
 
-Result::call // really want this to be the whole family
+Result::*call::* // really want this to be the whole family
 
 Result::Ok:: // getter only
 ```

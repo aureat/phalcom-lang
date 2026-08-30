@@ -97,6 +97,11 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
             let subst_args: Vec<TypeId> = arguments.iter().map(|&a| materialize_view(store, a, env)).collect();
             store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
         }
+        TypeData::ExactCase { variant, enum_type } => {
+            let subst_enum = materialize_view(store, enum_type, env);
+            let variant_id = store.variant_identity(variant).clone();
+            store.exact_case_type(&variant_id, subst_enum).unwrap_or(ty)
+        }
         TypeData::Union(members) => {
             let subst_members: Vec<TypeId> = members.iter().map(|&m| materialize_view(store, m, env)).collect();
             store.union(&subst_members)

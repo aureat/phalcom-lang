@@ -316,6 +316,26 @@ fn check_subtype_impl(
             }
         }
 
+        (
+            TypeData::ExactCase {
+                variant: sub_var,
+                enum_type: sub_enum,
+            },
+            TypeData::ExactCase {
+                variant: sup_var,
+                enum_type: sup_enum,
+            },
+        ) => {
+            if sub_var == sup_var {
+                check_subtype_impl(store, hierarchy, sub_enum, sup_enum, budget, cancellation, visited)
+            } else {
+                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+            }
+        }
+        (TypeData::ExactCase { enum_type, .. }, _) => {
+            check_subtype_impl(store, hierarchy, enum_type, sup, budget, cancellation, visited)
+        }
+
         (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
             if sub_elems.len() == sup_elems.len() {
                 for (a, b) in sub_elems.iter().zip(sup_elems.iter()) {

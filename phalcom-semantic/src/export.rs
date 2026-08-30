@@ -154,6 +154,7 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
                 index: p_data.index as u16,
             })
         }
+        TypeData::ExactCase { enum_type, .. } => export_type_form(store, *enum_type),
         TypeData::Lambda(_) | TypeData::SelfType(_) | TypeData::ClassObject { .. } => Err(SemanticExportError::NonExportableTypeForm { form }),
     }
 }

@@ -44,6 +44,19 @@ pub enum DiagnosticCode {
     AnalysisInternalFailure,
     TypeRelationCycle,
     TypeDynamicBoundary,
+    EnumVariantDuplicate,
+    EnumVariantResultWrongOwner,
+    EnumVariantResultUnsaturated,
+    EnumVariantResultInvalid,
+    EnumVariantGadtCyclicEquality,
+    EnumVariantVisibilityInvalid,
+    EnumCaseStaticBehaviorUnsupported,
+    EnumCaseDeclarationOnlyBehavior,
+    EnumFamilyCategoryConflict,
+    EnumFamilyInheritedBehaviorConflict,
+    EnumRequirementIncomplete,
+    EnumRequirementMissing,
+    EnumRequirementIncompatible,
 }
 
 impl DiagnosticCode {
@@ -80,6 +93,19 @@ impl DiagnosticCode {
             Self::AnalysisInternalFailure => "analysis.internal_failure",
             Self::TypeRelationCycle => "type.relation.cycle",
             Self::TypeDynamicBoundary => "type.dynamic_boundary",
+            Self::EnumVariantDuplicate => "enum.variant.duplicate",
+            Self::EnumVariantResultWrongOwner => "enum.variant.result_wrong_owner",
+            Self::EnumVariantResultUnsaturated => "enum.variant.result_unsaturated",
+            Self::EnumVariantResultInvalid => "enum.variant.result_invalid",
+            Self::EnumVariantGadtCyclicEquality => "enum.variant.gadt_cyclic_equality",
+            Self::EnumVariantVisibilityInvalid => "enum.variant.visibility_invalid",
+            Self::EnumCaseStaticBehaviorUnsupported => "enum.case.static_behavior_unsupported",
+            Self::EnumCaseDeclarationOnlyBehavior => "enum.case.declaration_only_behavior",
+            Self::EnumFamilyCategoryConflict => "enum.family.category_conflict",
+            Self::EnumFamilyInheritedBehaviorConflict => "enum.family.inherited_behavior_conflict",
+            Self::EnumRequirementIncomplete => "enum.requirement.incomplete",
+            Self::EnumRequirementMissing => "enum.requirement.missing",
+            Self::EnumRequirementIncompatible => "enum.requirement.incompatible",
         }
     }
 }

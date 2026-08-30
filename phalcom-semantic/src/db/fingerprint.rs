@@ -1355,7 +1355,7 @@ pub fn callable_body_input_fingerprint_with_fields(
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
-    for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| field.owner == callable.owner) {
+    for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
         field.hash(&mut hasher);
         hash_type_knowledge(&fact.contract, true, &mut hasher);
         hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
@@ -1381,13 +1381,13 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
-    if let Some(unit) = sources.get(&callable.owner.module) {
+    if let Some(unit) = sources.get(callable.module()) {
         unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
     }
     source_resolution_input_fingerprint(sources).raw().hash(&mut hasher);
     semantic_component_product_fingerprint(linked).raw().hash(&mut hasher);
     if let Some(lifecycle) = lifecycle {
-        for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| field.owner == callable.owner) {
+        for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
             field.hash(&mut hasher);
             hash_type_knowledge(&fact.contract, true, &mut hasher);
             hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
@@ -1560,6 +1560,64 @@ pub fn advisory_module_input_fingerprint(product: &crate::advisory::AdvisoryModu
 
 pub fn advisory_module_product_fingerprint(product: &crate::advisory::AdvisoryModuleProduct) -> ProductFingerprint {
     product.fingerprint
+}
+
+pub fn enum_declaration_input_fingerprint(info: &crate::enum_semantics::EnumInfo) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    info.owner.hash(&mut hasher);
+    info.root_form.hash(&mut hasher);
+    info.variants.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn enum_declaration_product_fingerprint(product: &crate::db::product::EnumDeclarationProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.info.owner.hash(&mut hasher);
+    product.info.variants.hash(&mut hasher);
+    for v in product.variants.iter() {
+        v.id.hash(&mut hasher);
+        v.type_handle.hash(&mut hasher);
+        v.shape.hash(&mut hasher);
+        v.result_type_template.hash(&mut hasher);
+        v.exact_case_template.hash(&mut hasher);
+    }
+    finish_product(hasher)
+}
+
+pub fn enum_requirements_input_fingerprint(owner: &DeclarationId) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    owner.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn enum_requirements_product_fingerprint(product: &crate::db::product::EnumRequirementsProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    for req in product.requirements.iter() {
+        req.id.hash(&mut hasher);
+    }
+    for status in product.case_statuses.iter() {
+        status.variant.hash(&mut hasher);
+        status.requirement.hash(&mut hasher);
+    }
+    finish_product(hasher)
+}
+
+pub fn associated_surface_input_fingerprint(owner: &DeclarationId) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    owner.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn associated_surface_product_fingerprint(surface: &crate::associated::AssociatedSurface) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    surface.owner.hash(&mut hasher);
+    for (base, family) in &surface.families {
+        base.hash(&mut hasher);
+        family.id.hash(&mut hasher);
+        family.kind.hash(&mut hasher);
+        family.members.hash(&mut hasher);
+    }
+    finish_product(hasher)
 }
 
 #[cfg(test)]

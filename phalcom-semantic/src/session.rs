@@ -16,12 +16,17 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, query_field_signature,
-    query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
+    query_associated_surface, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
+    query_enum_declaration, query_enum_requirements, query_field_signature, query_hierarchy_edge, query_linked_interface,
+    query_source_formal_attachment, query_source_structure, query_unlinked_interface,
 };
+use crate::associated::{AssociatedFamilyTable, build_associated_surface};
+use crate::db::product::EnumRequirementsProduct;
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
+use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
+use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::resolver::LinkedTypeResolver;
@@ -350,7 +355,7 @@ impl SemanticWorkspaceSession {
                         snapshot
                             .callable_analyses
                             .keys()
-                            .filter(|callable| callable.owner.module == *old_module_id)
+                            .filter(|callable| callable.module() == old_module_id)
                             .cloned()
                             .map(QueryKey::AdvisoryCallable),
                     );
@@ -386,6 +391,39 @@ impl SemanticWorkspaceSession {
                     if declarations.get(&decl_id).is_none() {
                         let kind = if !class_def.generic_parameters.is_empty() {
                             let param_kinds: Vec<KindId> = class_def
+                                .generic_parameters
+                                .iter()
+                                .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
+                                .collect();
+                            self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
+                        } else {
+                            KindId::TYPE
+                        };
+
+                        let form = if kind == KindId::TYPE {
+                            self.store.nominal_type(decl_id.clone())
+                        } else {
+                            self.store.nominal_form(decl_id.clone(), kind)
+                        };
+                        let class_obj_type = self.store.class_object_type(decl_id.clone());
+                        declarations.insert(DeclarationTypeInfo {
+                            declaration: decl_id,
+                            form,
+                            class_object_type: class_obj_type,
+                            kind,
+                            generic_signature: None,
+                            supertype_template: None,
+                        });
+                    }
+                } else if let Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    initial_blueprints.push(DeclarationBlueprint {
+                        id: decl_id.clone(),
+                        kind: DeclarationKind::Class,
+                    });
+                    if declarations.get(&decl_id).is_none() {
+                        let kind = if !enum_def.generic_parameters.is_empty() {
+                            let param_kinds: Vec<KindId> = enum_def
                                 .generic_parameters
                                 .iter()
                                 .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
@@ -541,6 +579,33 @@ impl SemanticWorkspaceSession {
                             kind: info.kind,
                             generic_signature,
                             supertype_template,
+                        });
+                    }
+                } else if let Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let generic_signature = if !enum_def.generic_parameters.is_empty() {
+                        Some(resolve_generic_signature(
+                            &mut self.store,
+                            &declarations,
+                            &resolver,
+                            module_id,
+                            TypeParameterOwner::Declaration(decl_id.clone()),
+                            &enum_def.generic_parameters,
+                            enum_def.where_clause.as_ref(),
+                            diags_by_module.entry(module_id.clone()).or_default(),
+                        ))
+                    } else {
+                        None
+                    };
+
+                    if let Some(info) = declarations.get(&decl_id).cloned() {
+                        declarations.insert(DeclarationTypeInfo {
+                            declaration: info.declaration,
+                            form: info.form,
+                            class_object_type: info.class_object_type,
+                            kind: info.kind,
+                            generic_signature,
+                            supertype_template: None,
                         });
                     }
                 }
@@ -709,6 +774,120 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        // 6b. Compile and publish enum declarations, associated surfaces, and closed-enum requirements.
+        let mut enum_semantics = EnumSemanticTable::new();
+        let mut enum_requirements_table = EnumRequirementTable::new();
+        let mut associated_surfaces_table = AssociatedFamilyTable::new();
+
+        for (module_id, parsed_unit) in &input.sources {
+            for stmt in &parsed_unit.program.statements {
+                let Statement::Enum(enum_def) = stmt else {
+                    continue;
+                };
+                let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                let enum_product = crate::checker::enum_declaration::build_enum_semantics(
+                    &decl_id,
+                    enum_def,
+                    &mut self.store,
+                    &declarations,
+                    &resolver,
+                    module_id,
+                );
+
+                diags_by_module.entry(module_id.clone()).or_default().extend(enum_product.diagnostics.iter().cloned());
+
+                enum_semantics.insert_enum(enum_product.info.clone());
+                for v in enum_product.variants.iter() {
+                    enum_semantics.insert_variant(Arc::new(v.clone()));
+                }
+
+                let arc_enum_product = Arc::new(enum_product);
+                let _ = query_enum_declaration(&mut self.db, arc_enum_product);
+
+                let (assoc_surface, assoc_diags) = build_associated_surface(
+                    &decl_id,
+                    Some(&enum_def.members.iter().filter_map(|m| match m {
+                        phalcom_ast::ast::EnumMember::Variant(v) => {
+                            let sel = phalcom_ast::selector::selector_from_variant(v);
+                            Some(crate::identity::VariantId::new(decl_id.clone(), sel))
+                        }
+                        _ => None,
+                    }).collect::<Vec<_>>()),
+                    &[],
+                    &std::collections::HashSet::new(),
+                    module_id,
+                    Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(assoc_diags.iter().cloned());
+                associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
+                let _ = query_associated_surface(&mut self.db, assoc_surface);
+
+                let variants_info: Vec<VariantInfo> = enum_def
+                    .members
+                    .iter()
+                    .filter_map(|m| match m {
+                        phalcom_ast::ast::EnumMember::Variant(v) => {
+                            let sel = phalcom_ast::selector::selector_from_variant(v);
+                            let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
+                            enum_semantics.variant_info(&vid).cloned()
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
+                let (case_statuses, req_diags) = check_enum_requirements(
+                    &decl_id,
+                    enum_semantics.enum_info(&decl_id).unwrap(),
+                    &variants_info,
+                    &[],
+                    &HashMap::new(),
+                    &mut self.store,
+                    &hierarchy,
+                    module_id,
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(req_diags.iter().cloned());
+                enum_requirements_table.insert(decl_id.clone(), Arc::from([]), case_statuses.clone());
+                let req_product = Arc::new(EnumRequirementsProduct {
+                    requirements: Arc::from([]),
+                    case_statuses,
+                    diagnostics: req_diags,
+                });
+                let _ = query_enum_requirements(&mut self.db, decl_id.clone(), req_product);
+            }
+        }
+
+        for (module_id, parsed_unit) in &input.sources {
+            for stmt in &parsed_unit.program.statements {
+                let Statement::Class(class_def) = stmt else {
+                    continue;
+                };
+                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let class_callables: Vec<CallableId> = class_def
+                    .members
+                    .iter()
+                    .filter_map(|m| {
+                        let side = crate::checker::declaration::member_side(m);
+                        if side == DispatchSide::Class {
+                            crate::checker::declaration_signature::callable_id_for_member(&decl_id, m)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let (assoc_surface, assoc_diags) = build_associated_surface(
+                    &decl_id,
+                    None,
+                    &class_callables,
+                    &std::collections::HashSet::new(),
+                    module_id,
+                    Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), class_def.range)),
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(assoc_diags.iter().cloned());
+                associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
+                let _ = query_associated_surface(&mut self.db, assoc_surface);
+            }
+        }
+
         // 7. Check field defaults, constructors, then ordinary callable bodies.
         // Constructor-first ordering makes lifecycle publication independent of
         // source member order.
@@ -828,7 +1007,7 @@ impl SemanticWorkspaceSession {
                                                 &default_field_lifecycle,
                                                 callable_analyses
                                                     .values()
-                                                    .filter(|analysis| analysis.callable.owner == decl_id && analysis.callable.side == DispatchSide::Instance)
+                                                    .filter(|analysis| analysis.callable.declaration_owner() == &decl_id && analysis.callable.side == DispatchSide::Instance)
                                                     .filter(|analysis| {
                                                         callable_signatures
                                                             .get_for_body(&analysis.callable)
@@ -1012,7 +1191,7 @@ impl SemanticWorkspaceSession {
                 let callables = advisory
                     .callables
                     .keys()
-                    .filter(|callable| callable.owner.module == *module)
+                    .filter(|callable| callable.module() == module)
                     .cloned()
                     .collect::<Vec<_>>();
                 if let QueryOutcome::Failed(error) = query_advisory_module(&mut self.db, module_product.clone(), callables) {
@@ -1042,6 +1221,9 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
+        snapshot_obj = snapshot_obj.with_enum_semantics(Arc::new(enum_semantics));
+        snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
+        snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
         let snapshot = Arc::new(snapshot_obj);
@@ -1056,6 +1238,7 @@ impl SemanticWorkspaceSession {
                 diagnostics_changed.insert(module);
             }
         }
+
         let module_graph_changed = previous_snapshot.as_deref().is_none_or(|previous| {
             previous.semantic_graph != snapshot.semantic_graph
                 || previous.module_products.resolved_imports != snapshot.module_products.resolved_imports
@@ -1087,7 +1270,7 @@ impl SemanticWorkspaceSession {
         stats.advisory_callables_recomputed = snapshot
             .callable_analyses
             .values()
-            .filter(|analysis| changed_modules.contains(&analysis.callable.owner.module))
+            .filter(|analysis| changed_modules.contains(analysis.callable.module()))
             .count();
         stats.modules_relinked = if module_graph_changed { changed_modules.len() } else { 0 };
         stats.project_graph_rebuilt = effects.module_graph_changed;
@@ -1199,7 +1382,7 @@ fn build_source_semantic_index(
         for callable in structure.callable_sources.values() {
             context
                 .callable_targets
-                .insert((callable.id.owner.clone(), callable.id.selector.clone()), callable.id.clone());
+                .insert((callable.id.declaration_owner().clone(), callable.id.selector.clone()), callable.id.clone());
         }
     }
     for (module, source) in sources {
@@ -1213,7 +1396,7 @@ fn build_source_semantic_index(
     }
     let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(scopes, sources, Some(&context));
     for analysis in callable_analyses.values() {
-        let module = &analysis.callable.owner.module;
+        let module = analysis.callable.module();
         if index.module(module).is_some() {
             let _ = index.attach_formal_analysis(module, analysis);
         }
@@ -1476,7 +1659,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                 }
             }
 
-            for analysis in ordered_analyses.iter().filter(|analysis| analysis.callable.owner.module == *module) {
+            for analysis in ordered_analyses.iter().filter(|analysis| analysis.callable.module() == module) {
                 let Some(body) = member_bodies.get(&analysis.callable).copied() else {
                     module_partial = true;
                     continue;
@@ -1519,7 +1702,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                     fields: &fields,
                     callable_returns: &advisory_returns,
                     builtins: &builtins,
-                    current_owner: Some(&analysis.callable.owner),
+                    current_owner: Some(analysis.callable.declaration_owner()),
                     dispatch_side: analysis.callable.side,
                     source_site_for_range: &site_for_range,
                     resolved_callable_for_range: &resolved_callable_for_range,
@@ -1667,7 +1850,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                 summary.parameters.iter().cloned().collect::<BTreeMap<_, _>>(),
             );
             contributions.replace_source(
-                crate::advisory::AdvisoryContributionSource::Module(callable.owner.module.clone()),
+                crate::advisory::AdvisoryContributionSource::Module(callable.module().clone()),
                 own_parameters,
             );
             solver_nodes.insert(
@@ -1867,7 +2050,7 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         SemanticTargetId::Binding(_) => AdvisoryOrigin::Binding(site.clone()),
         SemanticTargetId::Callable(_) => AdvisoryOrigin::CallSite(site.clone()),
         SemanticTargetId::Field(field) => AdvisoryOrigin::Field(field.clone()),
-        SemanticTargetId::Declaration(_) | SemanticTargetId::Module(_) => AdvisoryOrigin::Constraint(site.clone()),
+        SemanticTargetId::Declaration(_) | SemanticTargetId::Module(_) | SemanticTargetId::Variant(_) => AdvisoryOrigin::Constraint(site.clone()),
     };
     AdvisoryTargetResolution {
         target: target.clone(),

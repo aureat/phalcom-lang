@@ -6,7 +6,7 @@
 use super::context::CheckerControl;
 use crate::identity::{CallableId, ExplanationId, ExpressionId, InferVarId};
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
-use crate::types::id::{KindId, TypeId, TypeParameterId};
+use crate::types::id::{KindId, TypeId, TypeParameterId, VariantTypeId};
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
@@ -20,6 +20,10 @@ pub enum InferenceTerm {
     Applied {
         origin: Box<InferenceTerm>,
         arguments: Box<[InferenceTerm]>,
+    },
+    ExactCase {
+        variant: VariantTypeId,
+        enum_type: Box<InferenceTerm>,
     },
     Union(Box<[InferenceTerm]>),
     Tuple(Box<[InferenceTupleElement]>),
@@ -444,6 +448,13 @@ impl InferenceSession {
                 InferenceTerm::Applied {
                     origin: Box::new(orig_term),
                     arguments: arg_terms.into_boxed_slice(),
+                }
+            }
+            TypeData::ExactCase { variant, enum_type } => {
+                let enum_term = self.type_id_to_inference(*enum_type, subst, store);
+                InferenceTerm::ExactCase {
+                    variant: *variant,
+                    enum_type: Box::new(enum_term),
                 }
             }
             TypeData::Union(members) => {
@@ -892,6 +903,9 @@ impl InferenceSession {
                     self.collect_term_variables(argument, variables);
                 }
             }
+            InferenceTerm::ExactCase { enum_type, .. } => {
+                self.collect_term_variables(enum_type, variables);
+            }
             InferenceTerm::Union(members) => {
                 for member in members.iter() {
                     self.collect_term_variables(member, variables);
@@ -930,6 +944,9 @@ impl InferenceSession {
                     self.record_term_proof_state(argument, proof.clone());
                 }
             }
+            InferenceTerm::ExactCase { enum_type, .. } => {
+                self.record_term_proof_state(enum_type, proof);
+            }
             InferenceTerm::Union(members) => {
                 for member in members.iter() {
                     self.record_term_proof_state(member, proof.clone());
@@ -958,6 +975,9 @@ impl InferenceSession {
                 for argument in arguments.iter() {
                     self.record_term_support(argument, support);
                 }
+            }
+            InferenceTerm::ExactCase { enum_type, .. } => {
+                self.record_term_support(enum_type, support);
             }
             InferenceTerm::Union(members) => {
                 for member in members.iter() {
@@ -1052,6 +1072,7 @@ impl InferenceSession {
             TypeData::Applied { origin, arguments } => {
                 self.occurs_in_type(var, *origin, store) || arguments.iter().any(|&a| self.occurs_in_type(var, a, store))
             }
+            TypeData::ExactCase { enum_type, .. } => self.occurs_in_type(var, *enum_type, store),
             TypeData::Union(members) => members.iter().any(|&m| self.occurs_in_type(var, m, store)),
             TypeData::Tuple(elems) => elems.iter().any(|e| self.occurs_in_type(var, e.ty, store)),
             TypeData::Record(row_id) => store.record_row(*row_id).fields.iter().any(|f| self.occurs_in_type(var, f.ty, store)),
@@ -1067,6 +1088,7 @@ impl InferenceSession {
             InferenceTerm::Canonical(_) => false,
             InferenceTerm::Var(v) => self.find_var(*v) == rep,
             InferenceTerm::Applied { origin, arguments } => self.occurs_in_term(rep, origin) || arguments.iter().any(|a| self.occurs_in_term(rep, a)),
+            InferenceTerm::ExactCase { enum_type, .. } => self.occurs_in_term(rep, enum_type),
             InferenceTerm::Union(members) => members.iter().any(|m| self.occurs_in_term(rep, m)),
             InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.occurs_in_term(rep, &e.term)),
             InferenceTerm::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_term(rep, &p.term)) || self.occurs_in_term(rep, &c.return_type),
@@ -1180,6 +1202,36 @@ impl InferenceSession {
                     })
                 }
             }
+            (
+                InferenceTerm::ExactCase { variant: v1, enum_type: e1 },
+                InferenceTerm::ExactCase { variant: v2, enum_type: e2 },
+            ) => {
+                if v1 != v2 {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                self.unify_terms(e1, e2, store)
+            }
+            (InferenceTerm::Canonical(ty), InferenceTerm::ExactCase { variant, enum_type })
+            | (InferenceTerm::ExactCase { variant, enum_type }, InferenceTerm::Canonical(ty)) => {
+                if let TypeData::ExactCase { variant: canon_var, enum_type: canon_enum } = store.get(*ty).clone() {
+                    if canon_var != *variant {
+                        return Err(InferenceFailureReason::StructuralMismatch {
+                            left: Box::new(left.clone()),
+                            right: Box::new(right.clone()),
+                        });
+                    }
+                    let canon_enum_term = InferenceTerm::Canonical(canon_enum);
+                    self.unify_terms(enum_type, &canon_enum_term, store)
+                } else {
+                    Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    })
+                }
+            }
             (InferenceTerm::Applied { origin: o1, arguments: a1 }, InferenceTerm::Applied { origin: o2, arguments: a2 }) => {
                 if a1.len() != a2.len() {
                     return Err(InferenceFailureReason::StructuralMismatch {
@@ -1235,6 +1287,7 @@ impl InferenceSession {
         hier: &dyn TypeHierarchy,
     ) -> Result<SolveEffect, InferenceFailureReason> {
         match (sub, sup) {
+            (InferenceTerm::ExactCase { enum_type, .. }, sup) => self.subtype_terms(enum_type, sup, store, hier),
             (InferenceTerm::Var(sub_var), InferenceTerm::Var(sup_var)) => {
                 let sub_rep = self.find_var(*sub_var);
                 let sup_rep = self.find_var(*sup_var);
@@ -1313,6 +1366,13 @@ impl InferenceSession {
                 } else {
                     Err(UnderconstrainedInference { unsolved_vars: vec![*v] })
                 }
+            }
+            InferenceTerm::ExactCase { variant, enum_type } => {
+                let enum_ty = self.materialize(enum_type, store)?;
+                let variant_id = store.variant_identity(*variant).clone();
+                store
+                    .exact_case_type(&variant_id, enum_ty)
+                    .map_err(|_| UnderconstrainedInference { unsolved_vars: Vec::new() })
             }
             InferenceTerm::Applied { origin, arguments } => {
                 let orig_ty = self.materialize(origin, store)?;

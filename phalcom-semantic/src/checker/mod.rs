@@ -8,6 +8,7 @@ pub mod context;
 pub(crate) mod control;
 pub mod declaration;
 pub(crate) mod declaration_signature;
+pub mod enum_declaration;
 pub mod expected;
 pub mod expression;
 pub mod field_lifecycle;

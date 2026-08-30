@@ -1662,7 +1662,7 @@ fn reflected_target_has_runtime_priority(ctx: &CheckingContext<'_>, left_ty: Opt
     let Some(right) = nominal_instance_declaration(ctx, right_ty) else {
         return false;
     };
-    right != left && ctx.hierarchy.is_subclass(&right, &left) && reflected.callable.owner != left && ctx.hierarchy.is_subclass(&reflected.callable.owner, &left)
+    right != left && ctx.hierarchy.is_subclass(&right, &left) && reflected.callable.declaration_owner() != &left && ctx.hierarchy.is_subclass(reflected.callable.declaration_owner(), &left)
 }
 
 fn nominal_instance_declaration(ctx: &CheckingContext<'_>, mut ty: TypeId) -> Option<DeclarationId> {

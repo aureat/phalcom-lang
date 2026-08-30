@@ -19,8 +19,8 @@ class Router {
 class Service {
   @class
   run(_ formatter: Formatter) {
-    let exact = formatter::render(_)
-    let pattern = formatter::render(...)
+    let exact = formatter::render::(_)
+    let pattern = formatter::render
 
     let a = Router.use(exact, 42)
     let b = pattern(value: "x")

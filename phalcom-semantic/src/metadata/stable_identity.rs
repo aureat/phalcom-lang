@@ -47,7 +47,7 @@ pub fn to_stable_dispatch_side(side: DispatchSide) -> StableDispatchSide {
 
 pub fn to_stable_callable(callable: &CallableId) -> StableCallableRef {
     StableCallableRef {
-        owner: to_stable_declaration(&callable.owner),
+        owner: to_stable_declaration(callable.declaration_owner()),
         side: to_stable_dispatch_side(callable.side),
         selector: callable.selector.to_string().into_boxed_str(),
     }
