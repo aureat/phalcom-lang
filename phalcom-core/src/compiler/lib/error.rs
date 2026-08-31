@@ -325,6 +325,30 @@ pub enum CompilerError {
     /// Associated invoke staging error.
     #[error("associated family invocation lowering is not implemented until associated semantic resolution lands")]
     AssociatedInvokeNotLoweredYet(SourceRange),
+
+    /// No formal lowering semantics provided for enum declaration.
+    #[error("internal: enum declaration has no formal lowering semantics")]
+    MissingEnumLoweringSemantics(SourceRange),
+
+    /// No formal lowering record for this associated expression.
+    #[error("internal: associated expression has no formal lowering record")]
+    MissingAssociatedResolution(SourceRange),
+
+    /// No formal lowering record for this family application.
+    #[error("internal: family application expression has no formal lowering record")]
+    MissingFamilyApplicationResolution(SourceRange),
+
+    /// Ambiguous lowering site attachment.
+    #[error("internal: ambiguous lowering site attachment at {0:?}")]
+    AmbiguousLoweringSiteAttachment(SourceRange),
+
+    /// Unmaterialized executable target.
+    #[error("internal: unmaterialized executable target")]
+    UnmaterializedExecutableTarget(SourceRange),
+
+    /// Executable semantic pool index overflow.
+    #[error("compiler.semantic_pool_overflow: executable semantic pool overflow for {kind}")]
+    ExecutableSemanticPoolOverflow { kind: &'static str, span: SourceRange },
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

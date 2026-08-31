@@ -187,6 +187,9 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "spec/associated-lookup-surface.md",
+    "spec/nullary-adt-variant.md",
+    "spec/adts.md",
     "spec/phalcom-language-spec-adts.md",
     "impl/adt-gadt-associated-lookup/part-4/04-runtime-representation-execution-model-family-reification-lowering-implementation-plan.md",
     "impl/adt-gadt-associated-lookup/part-4/04-runtime-representation-execution-model-family-reification-lowering-technical-spec.md",
@@ -216,10 +219,7 @@
     "work/pending/lsp",
     "work/pending/untitled folder",
     "agents/detailed-impl-spec-prompt.md",
-    "agents/concise-handoff-prompt.md",
     "agents",
-    "work/pending/phalcom-updated-language-semantics-handoff-current.md",
-    "work/pending/phalcom-updated-language-semantics-handoff.md",
     "spec/primitives",
     "work/pending/phalcom_a1_a3_fix_package/tests/product_regression_tests.ph",
     "work/pending/phalcom_a1_a3_fix_package/tests/symbol_label_canonicalization.ph"

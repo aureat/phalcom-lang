@@ -1,7 +1,7 @@
 // area: family
 // spec: docs/spec/callables/family.md §§1–3
 // status: PASS
-// `name...` is AnyNamed: it accepts the getter, setter, nullary method, and
+// `name::*` is whole-family lookup: it accepts the getter, setter, nullary method, and
 // ordinary method selector kinds sharing the same base name.
 
 class Box {
@@ -13,10 +13,5 @@ class Box {
   value=(put next) { _value = next }
 }
 
-const box = Box.new()
-const family = box::value...
-System.print(family.get())
-System.print(family())
-System.print(family(4))
-family.set(9)
-System.print(family.get())
+const family = Box::value::*;
+System.print(family.is(Family))

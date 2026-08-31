@@ -1,9 +1,6 @@
 // area: family
 // spec: docs/spec/callables/family.md §1–3
 // status: PASS
-// Exact references retain selector identity, while a named structural pattern
-// routes both overload shapes through the current method table. `::` selector
-// specs are hashless; `#` is reserved for first-class selector values.
 
 class Point {
   @constructor
@@ -18,11 +15,11 @@ class Point {
 
 const p = Point.new(0, 0)
 
-const labeled = p::move(to,duration)
-const positional = p::move(_,_)
+const labeled = (Point >> #move(to, duration)).bind(p)
+const positional = (Point >> #move(_,_)).bind(p)
 System.print("(exact) " + labeled(to: 5, duration: 2))
 System.print("(exact) " + positional(5, 2))
 
-const f = p::move(...)
+const f = (Point >> #move(...)).bind(p)
 System.print("(pattern) " + f(to: 5, duration: 2))
 System.print("(pattern) " + f(5, 2))

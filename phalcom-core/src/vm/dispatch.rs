@@ -1610,6 +1610,9 @@ impl VM {
                         } else if let Some(class) = self.heap.as_class(id) {
                             let val = class.static_slots.get(slot as usize).copied().unwrap_or(Value::nil());
                             self.stack.push(self.surface_absence(val));
+                        } else if let Object::AdtCase(case) = self.heap.get(id) {
+                            let val = case.payload.get(slot as usize).copied().unwrap_or(Value::nil());
+                            self.stack.push(self.surface_absence(val));
                         } else {
                             let mut val_str = receiver.to_string(self);
                             if val_str.chars().count() > 40 {
@@ -1640,6 +1643,9 @@ impl VM {
                         self.guard_foreign_layout_access(receiver, guard)?;
                     }
                     if let Some(id) = receiver.as_obj() {
+                        if let Object::AdtCase(_) = self.heap.get(id) {
+                            return Err(RuntimeError::ImmutableCasePayload.into());
+                        }
                         if self.heap.as_instance(id).is_some() {
                             let instance = self.heap.instance_mut(id);
                             if (slot as usize) < instance.slots.len() {
@@ -1682,6 +1688,9 @@ impl VM {
                 Bytecode::NewInstance => {
                     let class_val = self.stack.pop().ok_or("Stack underflow for NewInstance class")?;
                     if let Some(class_id) = class_val.as_obj() {
+                        if self.adt_registry.is_enum_root(class_id) {
+                            return Err(RuntimeError::DirectEnumRootInstantiation.into());
+                        }
                         if self.heap.as_class(class_id).is_some() {
                             let field_count = self.heap.class(class_id).field_count;
                             let instance_ref = self.heap.alloc(Object::Instance(crate::heap::InstanceObject::new(class_id, field_count)));
@@ -1811,6 +1820,186 @@ impl VM {
                         reflected: symbol_text(reflected)?,
                     }))
                     .into());
+                }
+                Bytecode::Enum(spec_idx) => {
+                    let spec = callable.chunk.executable_semantics.enum_spec(spec_idx).clone();
+                    let root_class_id = self.register_enum_from_spec(&spec);
+                    self.stack.push(Value::obj(root_class_id));
+                }
+                Bytecode::VariantMethod { variant, selector } => {
+                    let variant_id = callable.chunk.executable_semantics.variant_target(variant).clone();
+                    let selector_val = callable.chunk.constants[selector as usize];
+                    let selector_sym = selector_val.as_symbol().unwrap();
+                    let method_val = self.pop()?;
+                    let method_ref = method_val.as_obj().ok_or("method value is not an object")?;
+                    let runtime_var_id = self.adt_registry.variant_by_semantic(&variant_id).ok_or("unregistered variant")?;
+                    let case_class_id = self.adt_registry.variant_descriptor(runtime_var_id).unwrap().behavior_class;
+                    self.heap.class_mut(case_class_id).methods.insert(selector_sym, method_ref);
+                }
+                Bytecode::FinalizeEnum(spec_idx) => {
+                    let spec = callable.chunk.executable_semantics.enum_spec(spec_idx);
+                    if let Some(enum_id) = self.adt_registry.enum_by_declaration(&spec.owner) {
+                        if let Some(desc) = self.adt_registry.enum_descriptor(enum_id).cloned() {
+                            self.finalize_class_base_names(desc.root_class);
+                            let meta_id = self.heap.class(desc.root_class).class;
+                            self.finalize_class_base_names(meta_id);
+                            for &v_id in desc.variants.iter() {
+                                if let Some(vdesc) = self.adt_registry.variant_descriptor(v_id) {
+                                    self.finalize_class_base_names(vdesc.behavior_class);
+                                }
+                            }
+                        }
+                    }
+                }
+                Bytecode::LoadVariantSingleton(variant_idx) => {
+                    let variant_id = callable.chunk.executable_semantics.variant_target(variant_idx);
+                    let runtime_var_id = self.adt_registry.variant_by_semantic(variant_id).ok_or("unregistered variant")?;
+                    let vdesc = self.adt_registry.variant_descriptor(runtime_var_id).unwrap();
+                    let val = vdesc.singleton.unwrap_or_else(|| Value::adt_singleton(runtime_var_id));
+                    self.stack.push(val);
+                }
+                Bytecode::ConstructVariant { variant, arity } => {
+                    let variant_id = callable.chunk.executable_semantics.variant_target(variant);
+                    let runtime_var_id = self.adt_registry.variant_by_semantic(variant_id).ok_or("unregistered variant")?;
+                    let argc = arity as usize;
+                    let payload: Vec<Value> = self.stack.drain(self.stack.len() - argc..).collect();
+                    let case_ref = self.heap.alloc_adt_case(runtime_var_id, payload.into_boxed_slice());
+                    self.stack.push(Value::obj(case_ref));
+                }
+                Bytecode::MakeResolvedBoundMethod(target_idx) => {
+                    let target = callable.chunk.executable_semantics.associated_target(target_idx).clone();
+                    let resolved = self.bind_behavioral_associated_target(&target)?;
+                    let bound_ref = self.heap.alloc(Object::BoundMethod(crate::heap::BoundMethodObject {
+                        method: resolved.method,
+                        receiver: resolved.receiver,
+                    }));
+                    self.stack.push(Value::obj(bound_ref));
+                }
+                Bytecode::InvokeResolvedAssociated { target, arity } => {
+                    let source_range = callable.chunk.span_at(ip);
+                    let argc = arity as usize;
+                    let target = callable.chunk.executable_semantics.associated_target(target).clone();
+                    let resolved = self.bind_behavioral_associated_target(&target)?;
+                    let receiver_idx = self.stack.len() - argc;
+                    self.stack.insert(receiver_idx, resolved.receiver);
+                    let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                    let frames_before = self.frames.len();
+                    self.call_method(&resolved.receiver, resolved.method, argc, source_range)?;
+                    if self.frames.len() > frames_before {
+                        self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                    }
+                }
+                Bytecode::MakeAssociatedFamily(desc_idx) => {
+                    let descriptor = callable.chunk.executable_semantics.family_descriptor(desc_idx).clone();
+                    let mut bound_owner = None;
+                    for entry in descriptor.entries.iter() {
+                        if let crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } = &entry.target {
+                            if let crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { lookup_owner, .. } = target {
+                                if let Ok(class_id) = self.resolve_declaration_class(lookup_owner) {
+                                    bound_owner = Some(Value::obj(class_id));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    let family_ref = self.heap.alloc_associated_family(descriptor, bound_owner);
+                    self.stack.push(Value::obj(family_ref));
+                }
+                Bytecode::InvokeAssociatedFamilyStatic { operation, arity } => {
+                    let op = callable.chunk.executable_semantics.family_operation(operation).clone();
+                    let argc = arity as usize;
+                    let source_range = callable.chunk.span_at(ip);
+                    let callee_idx = self.stack.len() - 1 - argc;
+                    let callee = self.stack[callee_idx];
+                    if let Some(callee_obj) = callee.as_obj() {
+                        if let Object::AssociatedFamily(fam) = self.heap.get(callee_obj) {
+                            let mut matching_entry = None;
+                            for entry in fam.descriptor.entries.iter() {
+                                if entry.operation == op {
+                                    matching_entry = Some(entry.clone());
+                                    break;
+                                }
+                            }
+                            let entry = matching_entry.ok_or(RuntimeError::AssociatedFamilyNoMatchingCandidate)?;
+                            match entry.target {
+                                crate::modules::semantic_lowering::ExecutableFamilyTarget::Singleton { variant } => {
+                                    let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                                    let vdesc = self.adt_registry.variant_descriptor(runtime_var_id).unwrap();
+                                    let val = vdesc.singleton.unwrap_or_else(|| Value::adt_singleton(runtime_var_id));
+                                    self.stack.truncate(callee_idx);
+                                    self.stack.push(val);
+                                }
+                                crate::modules::semantic_lowering::ExecutableFamilyTarget::VariantConstructor { variant } => {
+                                    let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                                    let payload: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
+                                    self.stack.pop();
+                                    let case_ref = self.heap.alloc_adt_case(runtime_var_id, payload.into_boxed_slice());
+                                    self.stack.push(Value::obj(case_ref));
+                                }
+                                crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => {
+                                    let resolved = self.bind_behavioral_associated_target(&target)?;
+                                    self.stack[callee_idx] = resolved.receiver;
+                                    let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                                    let frames_before = self.frames.len();
+                                    self.call_method(&resolved.receiver, resolved.method, argc, source_range)?;
+                                    if self.frames.len() > frames_before {
+                                        self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(RuntimeError::NotAnAssociatedFamily.into());
+                        }
+                    } else {
+                        return Err(RuntimeError::NotAnAssociatedFamily.into());
+                    }
+                }
+                Bytecode::InvokeAssociatedFamilyPack { candidates } => {
+                    let cand_set = callable.chunk.executable_semantics.family_candidate_set(candidates).clone();
+                    let source_range = callable.chunk.span_at(ip);
+                    let pack_val = self.pop()?;
+                    let callee = self.pop()?;
+                    if let Some(callee_obj) = callee.as_obj() {
+                        if let Object::AssociatedFamily(fam) = self.heap.get(callee_obj) {
+                            if let Some(cand) = cand_set.candidates.first() {
+                                if let Some(target) = &cand.target {
+                                    match target {
+                                        crate::modules::semantic_lowering::ExecutableInvocationTarget::VariantConstructor { variant } => {
+                                            let runtime_var_id = self.adt_registry.variant_by_semantic(variant).ok_or("unregistered variant")?;
+                                            let case_ref = self.heap.alloc_adt_case(runtime_var_id, Box::new([]));
+                                            self.stack.push(Value::obj(case_ref));
+                                        }
+                                        crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { .. } => {
+                                            let resolved = self.bind_behavioral_associated_target(target)?;
+                                            self.stack.push(resolved.receiver);
+                                            let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                                            let frames_before = self.frames.len();
+                                            self.call_method(&resolved.receiver, resolved.method, 0, source_range)?;
+                                            if self.frames.len() > frames_before {
+                                                self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(RuntimeError::NotAnAssociatedFamily.into());
+                        }
+                    } else {
+                        return Err(RuntimeError::NotAnAssociatedFamily.into());
+                    }
+                }
+                Bytecode::IsVariant(variant_idx) => {
+                    let variant_id = callable.chunk.executable_semantics.variant_target(variant_idx);
+                    let runtime_var_id = self.adt_registry.variant_by_semantic(variant_id);
+                    let val = self.pop()?;
+                    let result = runtime_var_id.map(|expected| self.value_is_variant(val, expected)).unwrap_or(false);
+                    self.stack.push(Value::bool(result));
+                }
+                Bytecode::GetVariantPayload(slot) => {
+                    let val = self.pop()?;
+                    let payload_val = self.case_payload_at(val, slot as usize)?;
+                    self.stack.push(payload_val);
                 }
                 Bytecode::InvokeCompilerInternal(arity, selector_idx) => {
                     self.invoke_compiler_internal_at(callable, ip, arity, selector_idx)?;

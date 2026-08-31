@@ -1247,6 +1247,9 @@ pub(crate) fn apply_resolved_callable(
     if let AnalysisStatus::Invalid(cause) = &premise.status {
         causal_invalidity = causal_invalidity.join(CausalInvalidity::One(*cause));
     }
+    if let Some(AnalysisStatus::Invalid(cause)) = &captured_status {
+        causal_invalidity = causal_invalidity.join(CausalInvalidity::One(*cause));
+    }
     if let Some(cause) = owning_cause {
         causal_invalidity = causal_invalidity.join(CausalInvalidity::One(cause));
     }

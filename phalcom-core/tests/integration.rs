@@ -1,3 +1,4 @@
+mod adt_runtime;
 mod collections_contract;
 mod contracts_metadata;
 mod declaration_grammar_dispatch;

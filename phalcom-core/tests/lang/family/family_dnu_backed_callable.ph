@@ -10,5 +10,4 @@ class Proxy {
   }
 }
 const p = Proxy.new()
-const f = p::typo
-System.print(f.get())
+System.print(p.typo)

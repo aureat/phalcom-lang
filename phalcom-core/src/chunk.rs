@@ -1,9 +1,126 @@
 use crate::bytecode::Bytecode;
+use crate::compiler::lib::CompilerError;
 use crate::heap::ClassId;
+use crate::modules::semantic_lowering::{
+    EnumLoweringSpec, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget,
+};
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
+use phalcom_semantic::identity::VariantId;
+use phalcom_semantic::types::family::FamilyOperationShape;
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+/// Cached resolution for an `InvokeResolvedAssociated` target.
+#[derive(Debug, Clone, Copy)]
+pub struct AssociatedTargetCache {
+    pub receiver: Value,
+    pub method: crate::heap::ObjRef,
+    pub world_version: u64,
+}
+
+/// Typed executable semantic side table stored directly on Chunk.
+#[derive(Debug, Clone, Default)]
+pub struct ExecutableSemanticPool {
+    pub enum_specs: Vec<Arc<EnumLoweringSpec>>,
+    pub variant_targets: Vec<VariantId>,
+    pub variant_target_index: HashMap<VariantId, u16>,
+    pub associated_targets: Vec<ExecutableInvocationTarget>,
+    pub associated_target_caches: Vec<Cell<Option<AssociatedTargetCache>>>,
+    pub family_descriptors: Vec<Arc<ExecutableFamilyDescriptor>>,
+    pub family_operations: Vec<FamilyOperationShape>,
+    pub family_candidate_sets: Vec<ExecutableFamilyCandidateSet>,
+}
+
+impl ExecutableSemanticPool {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_enum_spec(&mut self, spec: Arc<EnumLoweringSpec>, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.enum_specs.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "EnumSpec",
+            span,
+        })?;
+        self.enum_specs.push(spec);
+        Ok(index)
+    }
+
+    pub fn enum_spec(&self, index: u16) -> &EnumLoweringSpec {
+        &self.enum_specs[index as usize]
+    }
+
+    pub fn add_variant_target(&mut self, variant: &VariantId, span: SourceRange) -> Result<u16, CompilerError> {
+        if let Some(&index) = self.variant_target_index.get(variant) {
+            return Ok(index);
+        }
+        let index = u16::try_from(self.variant_targets.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "VariantTarget",
+            span,
+        })?;
+        self.variant_targets.push(variant.clone());
+        self.variant_target_index.insert(variant.clone(), index);
+        Ok(index)
+    }
+
+    pub fn variant_target(&self, index: u16) -> &VariantId {
+        &self.variant_targets[index as usize]
+    }
+
+    pub fn add_associated_target(&mut self, target: ExecutableInvocationTarget, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.associated_targets.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "AssociatedTarget",
+            span,
+        })?;
+        self.associated_targets.push(target);
+        self.associated_target_caches.push(Cell::new(None));
+        Ok(index)
+    }
+
+    pub fn associated_target(&self, index: u16) -> &ExecutableInvocationTarget {
+        &self.associated_targets[index as usize]
+    }
+
+    pub fn add_family_descriptor(&mut self, descriptor: Arc<ExecutableFamilyDescriptor>, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.family_descriptors.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "FamilyDescriptor",
+            span,
+        })?;
+        self.family_descriptors.push(descriptor);
+        Ok(index)
+    }
+
+    pub fn family_descriptor(&self, index: u16) -> &Arc<ExecutableFamilyDescriptor> {
+        &self.family_descriptors[index as usize]
+    }
+
+    pub fn add_family_operation(&mut self, operation: FamilyOperationShape, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.family_operations.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "FamilyOperation",
+            span,
+        })?;
+        self.family_operations.push(operation);
+        Ok(index)
+    }
+
+    pub fn family_operation(&self, index: u16) -> &FamilyOperationShape {
+        &self.family_operations[index as usize]
+    }
+
+    pub fn add_family_candidate_set(&mut self, candidates: ExecutableFamilyCandidateSet, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.family_candidate_sets.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "FamilyCandidateSet",
+            span,
+        })?;
+        self.family_candidate_sets.push(candidates);
+        Ok(index)
+    }
+
+    pub fn family_candidate_set(&self, index: u16) -> &ExecutableFamilyCandidateSet {
+        &self.family_candidate_sets[index as usize]
+    }
+}
 
 /// One monomorphic inline-cache slot, owned by a single `Bytecode::Invoke` site.
 #[derive(Debug, Clone, Copy)]
@@ -65,6 +182,8 @@ pub struct Chunk {
     /// same instruction, and a single union would pay for the wider variant at
     /// every site.
     pub gcaches: Vec<Cell<Option<GlobalCache>>>,
+    /// Typed pool of executable semantic specifications.
+    pub executable_semantics: ExecutableSemanticPool,
 }
 
 impl Default for Chunk {
@@ -83,6 +202,7 @@ impl Chunk {
             source_id: 0,
             caches: Vec::new(),
             gcaches: Vec::new(),
+            executable_semantics: ExecutableSemanticPool::new(),
         }
     }
 

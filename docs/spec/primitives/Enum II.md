@@ -137,3 +137,45 @@ Result::*call::* // really want this to be the whole family
 Result::Ok:: // getter only
 ```
 
+```ph
+enum Result<T, E> {
+	isOk -> Bool
+	isErr -> Bool
+
+	@variant
+	Ok(_ value: T) {
+		isOk { true }
+		isErr { false }
+	}
+	@variant
+	Err(_ error: T) {
+		isOk { false }
+		isErr { true }
+	}
+}
+
+enum Option<T> {
+	@variant Some(_ value: T)
+	@variant None
+}
+
+const Ok = Result::*Ok()
+const Ok = Result::Ok(_)
+const Err = Result::*Err
+const Err = Result::Err(_)
+
+const Some = Option::Some::(10)
+const None = Option::None
+
+
+```
+
+```ph
+10::+() // 10
+10::-() // -10
+10::not() // Object::doesNotUnderstand::(_)
+
+10::not
+
+Option::None
+```

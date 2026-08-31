@@ -25,6 +25,7 @@ pub(crate) enum ValueTag {
     Symbol = 5,
     Obj = 6,
     None = 7,
+    AdtSingleton = 8,
 }
 
 impl ValueTag {
@@ -39,6 +40,7 @@ impl ValueTag {
             5 => Self::Symbol,
             6 => Self::Obj,
             7 => Self::None,
+            8 => Self::AdtSingleton,
             _ => panic!("invalid ValueTag"),
         }
     }
@@ -114,6 +116,28 @@ impl Value {
         Self {
             payload: 0,
             meta: ValueTag::None as u64,
+        }
+    }
+
+    #[inline]
+    pub const fn adt_singleton(variant: crate::adt::RuntimeVariantId) -> Self {
+        Self {
+            payload: variant.0 as u64,
+            meta: ValueTag::AdtSingleton as u64,
+        }
+    }
+
+    #[inline]
+    pub fn is_adt_singleton(self) -> bool {
+        self.tag() == ValueTag::AdtSingleton && self.some_depth_raw() == 0
+    }
+
+    #[inline]
+    pub fn as_adt_singleton(self) -> Option<crate::adt::RuntimeVariantId> {
+        if self.is_adt_singleton() {
+            Some(crate::adt::RuntimeVariantId(self.payload as u32))
+        } else {
+            None
         }
     }
 
@@ -240,6 +264,7 @@ impl PartialEq for Value {
             }
             ValueTag::Symbol => (self.payload as u32) == (other.payload as u32),
             ValueTag::Obj => self.payload == other.payload,
+            ValueTag::AdtSingleton => (self.payload as u32) == (other.payload as u32),
         }
     }
 }
@@ -267,6 +292,7 @@ impl Hash for Value {
             }
             ValueTag::Symbol => (self.payload as u32).hash(state),
             ValueTag::Obj => self.payload.hash(state),
+            ValueTag::AdtSingleton => (self.payload as u32).hash(state),
         }
     }
 }

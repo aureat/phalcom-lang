@@ -178,6 +178,8 @@ impl Value {
                 Object::ProjectIdentity(id) => format!("<ProjectIdentity {}>", id.identity_str),
                 Object::Uri(u) => format!("<Uri {}>", u.uri_str),
                 Object::Typing(_) => "<typing>".to_string(),
+                Object::AdtCase(_) => "<case>".to_string(),
+                Object::AssociatedFamily(_) => "<associated family>".to_string(),
             };
         }
         "<invalid value>".to_string()
@@ -205,6 +207,7 @@ fn fmt_base_value(f: &mut fmt::Formatter<'_>, base: Value) -> fmt::Result {
             }
         }
         ValueTag::None => write!(f, "None"),
+        ValueTag::AdtSingleton => write!(f, "<singleton {:?}>", base.as_adt_singleton()),
     }
 }
 

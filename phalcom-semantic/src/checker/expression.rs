@@ -1733,6 +1733,16 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         };
         let arguments = application_arguments(&call.args);
         if let Some(ty) = fact.knowledge.ty() {
+            if matches!(ctx.store.get(ty), TypeData::Family { .. }) {
+                return analyze_unresolved_application(
+                    ctx,
+                    &premise,
+                    &arguments,
+                    UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                )
+                .into();
+            }
+
             if let Some(target) = super::call::callable_value_target(ctx.store, ty, fact.knowledge.status().unwrap_or(EvidenceStatus::Assumed)) {
                 match super::call::static_call_shape(&arguments) {
                     StaticCallShape::Exact(_) => {
@@ -1774,6 +1784,24 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                         .into();
                     }
                     ResolvedDispatchResult::Missing { .. } => {}
+                }
+
+                let is_family_or_callable = match ctx.store.get(ty) {
+                    TypeData::Nominal { declaration } => {
+                        declaration.name.as_ref() == "Family"
+                            || declaration.name.as_ref() == "BoundMethod"
+                            || declaration.name.as_ref() == "Method"
+                    }
+                    _ => false,
+                };
+                if is_family_or_callable {
+                    return analyze_unresolved_application(
+                        ctx,
+                        &premise,
+                        &arguments,
+                        UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+                    )
+                    .into();
                 }
             }
             return analyze_non_callable_invocation(ctx, &premise, &call.args, call.range).into();

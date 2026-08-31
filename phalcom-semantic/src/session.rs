@@ -1059,29 +1059,6 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        for (module_id, parsed_unit) in &input.sources {
-            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
-            ctx.attach_field_signatures(&field_signatures);
-            ctx.attach_field_lifecycle(&field_lifecycle);
-            ctx.attach_enum_semantics(&enum_semantics);
-            ctx.attach_associated_families(&associated_surfaces_table);
-
-            for stmt in &parsed_unit.program.statements {
-                match stmt {
-                    Statement::Class(class_def) => {
-                        check_class_field_initializers(&mut ctx, class_def);
-                    }
-                    _ => {
-                        check_statement(&mut ctx, stmt);
-                    }
-                }
-            }
-
-            if !ctx.diagnostics.is_empty() {
-                diags_by_module.entry(module_id.clone()).or_default().extend(ctx.diagnostics);
-            }
-        }
-
         // 7. Refine Callable Return Interfaces and Reach Fixed Point
         //
         // This is a specialized session-level loop: body inference and
@@ -1108,6 +1085,35 @@ impl SemanticWorkspaceSession {
             budget,
             cancel,
         })?;
+
+        for (module_id, parsed_unit) in &input.sources {
+            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+            ctx.attach_field_signatures(&field_signatures);
+            ctx.attach_field_lifecycle(&field_lifecycle);
+            ctx.attach_enum_semantics(&enum_semantics);
+            ctx.attach_associated_families(&associated_surfaces_table);
+
+            for stmt in &parsed_unit.program.statements {
+                match stmt {
+                    Statement::Class(class_def) => {
+                        check_class_field_initializers(&mut ctx, class_def);
+                    }
+                    _ => {
+                        check_statement(&mut ctx, stmt);
+                    }
+                }
+            }
+
+            if !ctx.diagnostics.is_empty() {
+                diags_by_module.entry(module_id.clone()).or_default().extend(ctx.diagnostics.clone());
+            }
+
+            let body_range = parsed_unit.program.preamble.range;
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            callable_analyses.insert(callable_id, Arc::new(analysis));
+        }
 
         // 8. Freeze and Publish Immutable Snapshot
         let mut diagnostics_map = BTreeMap::new();
@@ -1427,6 +1433,9 @@ fn build_source_semantic_index(
     for analysis in callable_analyses.values() {
         let module = analysis.callable.module();
         if index.module(module).is_some() {
+            if matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "<main>") {
+                continue;
+            }
             let _ = index.attach_formal_analysis(module, analysis);
         }
     }

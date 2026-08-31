@@ -422,6 +422,24 @@ pub enum RuntimeError {
         collection: &'static str,
     },
 
+    #[error("cannot mutate immutable ADT case payload")]
+    ImmutableCasePayload,
+
+    #[error("invalid variant payload slot {slot} (payload length is {len})")]
+    InvalidVariantPayloadSlot { slot: usize, len: usize },
+
+    #[error("cannot directly instantiate an enum root class; construction must occur through a variant")]
+    DirectEnumRootInstantiation,
+
+    #[error("unknown runtime variant id {0:?}")]
+    UnknownVariantId(crate::adt::RuntimeVariantId),
+
+    #[error("no candidate in associated family matches call shape")]
+    AssociatedFamilyNoMatchingCandidate,
+
+    #[error("value is not an associated family capability")]
+    NotAnAssociatedFamily,
+
     #[error("{0}")]
     Message(String),
 }

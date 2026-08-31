@@ -29,6 +29,8 @@
 //! the heap contract.
 
 mod accessors;
+pub mod adt;
+pub mod associated;
 mod block;
 mod bytes;
 mod class;
@@ -52,6 +54,8 @@ mod tuple;
 pub mod typing;
 mod upvalue;
 
+pub use adt::AdtCaseObject;
+pub use associated::AssociatedFamilyObject;
 pub use block::BlockObject;
 pub use bytes::BytesObject;
 pub use class::{ClassObject, is_strict_subclass, lookup_method_in_hierarchy, lookup_method_with_definer};
@@ -283,6 +287,20 @@ impl Heap {
         self.insert(Object::Range(RangeObject::new(lower, upper, upper_inclusive)))
     }
 
+    /// Allocates a fresh [`Object::AdtCase`] and returns its [`ObjRef`].
+    pub fn alloc_adt_case(&mut self, variant: crate::adt::RuntimeVariantId, payload: Box<[crate::value::Value]>) -> ObjRef {
+        self.insert(Object::AdtCase(Box::new(AdtCaseObject::new(variant, payload))))
+    }
+
+    /// Allocates a fresh [`Object::AssociatedFamily`] and returns its [`ObjRef`].
+    pub fn alloc_associated_family(
+        &mut self,
+        descriptor: std::sync::Arc<crate::modules::semantic_lowering::ExecutableFamilyDescriptor>,
+        bound_owner: Option<crate::value::Value>,
+    ) -> ObjRef {
+        self.insert(Object::AssociatedFamily(Box::new(AssociatedFamilyObject::new(descriptor, bound_owner))))
+    }
+
     /// Borrows the [`Object`] behind `id`.
     ///
     /// # Panics
@@ -363,6 +381,8 @@ impl Heap {
             Some(Object::ProjectIdentity(_)) => "ProjectIdentity",
             Some(Object::Uri(_)) => "Uri",
             Some(Object::Typing(_)) => "Typing",
+            Some(Object::AdtCase(_)) => "AdtCase",
+            Some(Object::AssociatedFamily(_)) => "AssociatedFamily",
             None => "<stale>",
         }
     }

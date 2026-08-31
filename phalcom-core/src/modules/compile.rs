@@ -45,6 +45,8 @@ pub struct CompiledModule {
     pub plan: ModuleMaterializationPlan,
     /// Symbolic reads retained for compiler/runtime lowering.
     pub linked_reads: Vec<phalcom_modules::LinkedReadSpec>,
+    /// Lowering semantics projected from formal analysis.
+    pub lowering: Arc<super::semantic_lowering::ModuleLoweringSemantics>,
 }
 
 /// Closed compiled program passed to runtime materialization.
@@ -466,7 +468,12 @@ impl ProgramCompiler {
             } else {
                 (None, None)
             };
-            modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text));
+            let lowering = super::semantic_lowering::build_module_lowering_semantics(id, &analyzed.semantic)
+                .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
+            modules.insert(
+                id.clone(),
+                compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)),
+            );
         }
 
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
@@ -514,7 +521,13 @@ fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCo
     Ok(ModulePath::from_components(components))
 }
 
-fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLocation>, source_text: Option<Arc<str>>) -> CompiledModule {
+fn compile_module(
+    id: ModuleId,
+    module: &LinkedModule,
+    source: Option<SourceLocation>,
+    source_text: Option<Arc<str>>,
+    lowering: Arc<super::semantic_lowering::ModuleLoweringSemantics>,
+) -> CompiledModule {
     let plan = ModuleMaterializationPlan::empty(module);
     CompiledModule {
         id,
@@ -524,5 +537,6 @@ fn compile_module(id: ModuleId, module: &LinkedModule, source: Option<SourceLoca
         interface: Arc::new(module.interface.clone()),
         linked_reads: module.linked_reads.clone(),
         plan,
+        lowering,
     }
 }

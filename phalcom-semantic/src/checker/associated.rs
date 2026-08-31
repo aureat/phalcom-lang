@@ -122,14 +122,21 @@ pub fn resolve_associated_owner(
     typed_owner: &TypedExpression,
     range: SourceRange,
 ) -> Result<AssociatedOwnerResolution, ()> {
-    let Some(SemanticDenotation::TypeForm(owner_form)) = typed_owner.denotation.clone() else {
-        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-            ctx.current_module.clone(),
-            DiagnosticCode::AssociatedOwnerNotTypeForm,
-            "associated lookup receiver is not a type form",
-            range,
-        ));
-        return Err(());
+    let owner_form = match typed_owner.denotation.clone() {
+        Some(SemanticDenotation::TypeForm(form)) => form,
+        _ => {
+            if let Some(ty) = typed_owner.knowledge.ty() {
+                ty
+            } else {
+                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AssociatedOwnerNotTypeForm,
+                    "associated lookup receiver is not a type form",
+                    range,
+                ));
+                return Err(());
+            }
+        }
     };
 
     let Some((lookup_owner, supplied_arguments)) = ctx.store.applied_nominal_parts(owner_form) else {
@@ -206,13 +213,15 @@ pub fn resolve_effective_associated_family(
             }
         }
 
-        // Also check class dispatch surface in case methods exist on class side
+        // Also check dispatch surfaces for class-side and instance-side methods
         if let Some(surface) = ctx.dispatch.get().get_surface(&decl) {
-            let class_surface = surface.surface(crate::identity::DispatchSide::Class);
-            for (selector, _) in &class_surface.callable_signatures {
-                if &selector.base == base && seen_selectors.insert(selector.clone()) {
-                    let callable_id = crate::identity::CallableId::new(decl.clone(), selector.clone(), crate::identity::DispatchSide::Class);
-                    collected_members.push(AssociatedMemberId::Behavioral(callable_id));
+            for side in [crate::identity::DispatchSide::Class, crate::identity::DispatchSide::Instance] {
+                let side_surface = surface.surface(side);
+                for (selector, _) in &side_surface.callable_signatures {
+                    if &selector.base == base && seen_selectors.insert(selector.clone()) {
+                        let callable_id = crate::identity::CallableId::new(decl.clone(), selector.clone(), side);
+                        collected_members.push(AssociatedMemberId::Behavioral(callable_id));
+                    }
                 }
             }
         }
@@ -443,14 +452,16 @@ pub fn specialize_associated_member(
                 return Err(());
             };
 
-            let return_ty = signature.return_type.ty().unwrap_or_else(|| ctx.store.unit());
+            let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Object".into());
+            let object_ty = ctx.store.nominal(object_decl);
+            let return_ty = signature.return_type.ty().unwrap_or(object_ty);
             let specialized_return = TypeView::new(return_ty, env.clone()).materialize(ctx.store);
 
             let parameters: Vec<CallableParameterType> = signature
                 .parameters
                 .iter()
                 .map(|p| {
-                    let param_ty = p.ty.ty().unwrap_or_else(|| ctx.store.unit());
+                    let param_ty = p.ty.ty().unwrap_or(object_ty);
                     let specialized_param = TypeView::new(param_ty, env.clone()).materialize(ctx.store);
                     CallableParameterType {
                         label: p.external_label.clone().map(Into::into),

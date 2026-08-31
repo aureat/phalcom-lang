@@ -1,1 +1,1 @@
-attr.illegal_target: `@variant` requires its enclosing class `Option` to also carry `@sealed`
+@variant` may only declare a variant inside an `enum` body

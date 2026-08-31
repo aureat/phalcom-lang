@@ -183,6 +183,10 @@ pub enum Object {
     Uri(Box<UriObject>),
     /// Boxed typing context or descriptor object ([`super::typing::TypingObject`]).
     Typing(Box<super::typing::TypingObject>),
+    /// ADT case object with immutable payload values.
+    AdtCase(Box<super::adt::AdtCaseObject>),
+    /// Reified first-class associated family capability object.
+    AssociatedFamily(Box<super::associated::AssociatedFamilyObject>),
 }
 
 /// A bound `::` method reference (selectors.md §3, U16-Open, U16-Pinned).

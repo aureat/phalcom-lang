@@ -178,6 +178,9 @@ pub fn class_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 )]
 pub fn class_new_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = expect_class(vm, receiver)?;
+    if vm.adt_registry.is_enum_root(class_id) {
+        return Err(RuntimeError::DirectEnumRootInstantiation.into());
+    }
     let target_class = vm.heap.class(class_id);
     if target_class.is_abstract {
         let error_cls = vm.universe.classes.error_class;

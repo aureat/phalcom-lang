@@ -82,6 +82,18 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "ValidateOrdering",
     "Same",
     "RaiseUnsupported",
+    "Enum",
+    "VariantMethod",
+    "FinalizeEnum",
+    "LoadVariantSingleton",
+    "ConstructVariant",
+    "MakeResolvedBoundMethod",
+    "InvokeResolvedAssociated",
+    "MakeAssociatedFamily",
+    "InvokeAssociatedFamilyStatic",
+    "InvokeAssociatedFamilyPack",
+    "IsVariant",
+    "GetVariantPayload",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -529,12 +541,64 @@ pub enum Bytecode {
         direct: u16,
         reflected: u16,
     },
+
+    /// Declares an enum root and hidden case behavior classes.
+    /// 0: index of ExecutableEnumSpec in chunk's executable_semantics pool.
+    Enum(u16),
+
+    /// Installs a compiled method on a hidden case behavior class.
+    /// variant: index of VariantId in chunk's executable_semantics pool.
+    /// selector: constant index of the method selector symbol.
+    VariantMethod { variant: u16, selector: u16 },
+
+    /// Finalizes the enum root and hidden case behavior classes.
+    /// 0: index of ExecutableEnumSpec in chunk's executable_semantics pool.
+    FinalizeEnum(u16),
+
+    /// Pushes the immediate canonical singleton value for an ADT variant.
+    /// 0: index of VariantId in chunk's executable_semantics pool.
+    LoadVariantSingleton(u16),
+
+    /// Allocates and pushes a fresh AdtCaseObject from top-N values.
+    /// variant: index of VariantId in chunk's executable_semantics pool.
+    /// arity: number of payload values to pop.
+    ConstructVariant { variant: u16, arity: u8 },
+
+    /// Reifies an exact behavioral associated target as a BoundMethodObject.
+    /// 0: index of ExecutableInvocationTarget in chunk's executable_semantics pool.
+    MakeResolvedBoundMethod(u16),
+
+    /// Invokes a statically resolved behavioral associated target directly.
+    /// target: index of ExecutableInvocationTarget in chunk's executable_semantics pool.
+    /// arity: number of argument values to pop.
+    InvokeResolvedAssociated { target: u16, arity: u8 },
+
+    /// Reifies a frozen first-class associated family capability object.
+    /// 0: index of ExecutableFamilyDescriptor in chunk's executable_semantics pool.
+    MakeAssociatedFamily(u16),
+
+    /// Invokes a statically known operation on a first-class family value.
+    /// operation: index of FamilyOperationShape in chunk's executable_semantics pool.
+    /// arity: number of argument values to pop.
+    InvokeAssociatedFamilyStatic { operation: u16, arity: u8 },
+
+    /// Dynamic pack invocation on a first-class family value over frozen candidates.
+    /// candidates: index of ExecutableFamilyCandidateSet in chunk's executable_semantics pool.
+    InvokeAssociatedFamilyPack { candidates: u16 },
+
+    /// Tests if a value is a specific variant (Part-5 primitive).
+    /// 0: index of VariantId in chunk's executable_semantics pool.
+    IsVariant(u16),
+
+    /// Extracts a payload slot from an AdtCaseObject (Part-5 primitive).
+    /// 0: payload slot index.
+    GetVariantPayload(u16),
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 78;
+    pub const VARIANTS: usize = 90;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -623,6 +687,18 @@ impl Bytecode {
             Bytecode::ValidateOrdering { .. } => 75,
             Bytecode::Same => 76,
             Bytecode::RaiseUnsupported { .. } => 77,
+            Bytecode::Enum(..) => 78,
+            Bytecode::VariantMethod { .. } => 79,
+            Bytecode::FinalizeEnum(..) => 80,
+            Bytecode::LoadVariantSingleton(..) => 81,
+            Bytecode::ConstructVariant { .. } => 82,
+            Bytecode::MakeResolvedBoundMethod(..) => 83,
+            Bytecode::InvokeResolvedAssociated { .. } => 84,
+            Bytecode::MakeAssociatedFamily(..) => 85,
+            Bytecode::InvokeAssociatedFamilyStatic { .. } => 86,
+            Bytecode::InvokeAssociatedFamilyPack { .. } => 87,
+            Bytecode::IsVariant(..) => 88,
+            Bytecode::GetVariantPayload(..) => 89,
         }
     }
 

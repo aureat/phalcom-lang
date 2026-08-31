@@ -577,20 +577,20 @@ impl Backend {
             if let Some(site) = source.expression_site_at(offset)
                 && let phalcom_semantic::SourceOwner::Callable(callable) = &site.id.owner
             {
-                return Some(callable.owner.clone());
+                return Some(callable.owner.declaration().clone());
             }
         }
         source.structure.sites.values().filter_map(|site| {
             let phalcom_semantic::SourceSiteKind::Callable(callable) = &site.kind else {
                 return None;
             };
-            site.range.contains(offset).then_some(callable.owner.clone())
+            site.range.contains(offset).then_some(callable.owner.declaration().clone())
         }).min_by_key(|owner| {
             source
                 .structure
                 .sites
                 .values()
-                .find(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::Callable(callable) if callable.owner == *owner && site.range.contains(offset)))
+                .find(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::Callable(callable) if callable.owner.declaration() == owner && site.range.contains(offset)))
                 .map_or(usize::MAX, |site| site.range.len())
         })
     }
@@ -636,7 +636,7 @@ impl Backend {
         Some((
             callable.selector.encode(),
             SelectorSite {
-                owner: callable.owner.clone(),
+                owner: callable.owner.declaration().clone(),
                 receiver: None,
                 kind,
             },

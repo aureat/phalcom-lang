@@ -1,0 +1,235 @@
+//! Associated expression lowering to direct bytecodes and family objects (Part 4).
+
+use crate::bytecode::Bytecode;
+use crate::compiler::lib::error::CompilerError;
+use crate::compiler::lib::Compiler;
+use crate::modules::semantic_lowering::{AssociatedLoweringSpec, LoweringSiteKind};
+use crate::value::Value;
+use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, Expr, PackItem};
+use phalcom_common::range::SourceRange;
+use phalcom_common::selector::Selector;
+use phalcom_modules::DeclarationId;
+use phalcom_semantic::identity::VariantId;
+
+impl<'vm> Compiler<'vm> {
+    /// Lowers an AssociatedLookup expression (e.g. `Option::None`, `Option::Some::`, `Type::#method::*`).
+    pub fn compile_associated_lookup(&mut self, expr: &AssociatedLookupExpr) -> Result<(), CompilerError> {
+        let spec = self.lowering().and_then(|l| {
+            l.associated
+                .iter()
+                .find(|(site, _)| site.range == expr.range && site.kind == LoweringSiteKind::AssociatedLookup)
+                .map(|(_, spec)| spec.clone())
+        });
+
+        if let Some(spec) = spec {
+            match spec {
+                AssociatedLoweringSpec::SingletonLoad { variant } => {
+                    let var_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_variant_target(&variant, expr.range)?;
+                    self.emit(Bytecode::LoadVariantSingleton(var_idx), expr.range);
+                    return Ok(());
+                }
+                AssociatedLoweringSpec::MakeVariantConstructorThunk { variant, .. } => {
+                    return self.compile_variant_constructor_thunk(&variant, expr.range);
+                }
+                AssociatedLoweringSpec::MakeResolvedBoundMethod { target } => {
+                    let target_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_associated_target(target, expr.range)?;
+                    self.emit(Bytecode::MakeResolvedBoundMethod(target_idx), expr.range);
+                    return Ok(());
+                }
+                AssociatedLoweringSpec::MakeAssociatedFamily { descriptor } => {
+                    let desc_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_family_descriptor(descriptor, expr.range)?;
+                    self.emit(Bytecode::MakeAssociatedFamily(desc_idx), expr.range);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
+        // Fallback for standalone/unlinked compilation
+        if let Expr::Var { value: name, .. } = &expr.receiver {
+            let module_id = self.vm.heap.module(self.module).id.clone();
+            let owner = DeclarationId::new(module_id, name.clone().into_boxed_str());
+            if let AssociatedMemberSyntax::Named(named) = &expr.member {
+                let selector = match Selector::getter(named.base.clone()) {
+                    Ok(sel) => sel,
+                    Err(_) => return Err(CompilerError::AssociatedLookupNotLoweredYet(expr.range)),
+                };
+                let variant_id = VariantId::new(owner, selector);
+                let var_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_variant_target(&variant_id, expr.range)?;
+                self.emit(Bytecode::LoadVariantSingleton(var_idx), expr.range);
+                return Ok(());
+            }
+        }
+
+        Err(CompilerError::AssociatedLookupNotLoweredYet(expr.range))
+    }
+
+    /// Lowers an AssociatedInvoke expression (e.g. `Option::Some(42)`, `Type::method(a, b)`).
+    pub fn compile_associated_invoke(&mut self, expr: &AssociatedInvokeExpr) -> Result<(), CompilerError> {
+        let spec = self.lowering().and_then(|l| {
+            l.associated
+                .iter()
+                .find(|(site, _)| site.range == expr.range && site.kind == LoweringSiteKind::AssociatedInvoke)
+                .map(|(_, spec)| spec.clone())
+        });
+
+        if let Some(spec) = spec {
+            match spec {
+                AssociatedLoweringSpec::SingletonLoad { variant } => {
+                    let var_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_variant_target(&variant, expr.range)?;
+                    self.emit(Bytecode::LoadVariantSingleton(var_idx), expr.range);
+                    return Ok(());
+                }
+                AssociatedLoweringSpec::ConstructVariant { variant, .. } => {
+                    for arg in &expr.args {
+                        self.compile_pack_item(arg.clone())?;
+                    }
+                    let arity = expr.args.len() as u8;
+                    let var_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_variant_target(&variant, expr.range)?;
+                    self.emit(Bytecode::ConstructVariant { variant: var_idx, arity }, expr.range);
+                    return Ok(());
+                }
+                AssociatedLoweringSpec::InvokeResolvedAssociated { target, .. } => {
+                    for arg in &expr.args {
+                        self.compile_pack_item(arg.clone())?;
+                    }
+                    let arity = expr.args.len() as u8;
+                    let target_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_associated_target(target, expr.range)?;
+                    self.emit(Bytecode::InvokeResolvedAssociated { target: target_idx, arity }, expr.range);
+                    return Ok(());
+                }
+                AssociatedLoweringSpec::MakeAssociatedFamily { descriptor } => {
+                    let desc_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_family_descriptor(descriptor, expr.range)?;
+                    self.emit(Bytecode::MakeAssociatedFamily(desc_idx), expr.range);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
+        // Fallback for standalone/unlinked compilation
+        if let Expr::Var { value: name, .. } = &expr.receiver {
+            let module_id = self.vm.heap.module(self.module).id.clone();
+            let owner = DeclarationId::new(module_id, name.clone().into_boxed_str());
+            let mut slots = Vec::new();
+            for item in &expr.args {
+                match item {
+                    PackItem::Positional { .. } => slots.push(phalcom_common::selector::SelectorSlot::Positional),
+                    PackItem::Labeled { label, .. } => match label {
+                        phalcom_ast::ast::PackLabel::Static { text, .. } => slots.push(phalcom_common::selector::SelectorSlot::Label(text.clone())),
+                        phalcom_ast::ast::PackLabel::Computed { .. } => slots.push(phalcom_common::selector::SelectorSlot::Positional),
+                    },
+                    PackItem::Expand { .. } => slots.push(phalcom_common::selector::SelectorSlot::Positional),
+                }
+            }
+            let selector = match Selector::new(
+                phalcom_common::selector::SelectorBase::Named(expr.base.clone()),
+                phalcom_common::selector::SelectorKind::Method,
+                slots.into_boxed_slice(),
+            ) {
+                Ok(sel) => sel,
+                Err(_) => return Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range)),
+            };
+            let variant_id = VariantId::new(owner, selector);
+            for arg in &expr.args {
+                self.compile_pack_item(arg.clone())?;
+            }
+            let arity = expr.args.len() as u8;
+            let var_idx = self
+                .functions
+                .last_mut()
+                .unwrap()
+                .chunk
+                .executable_semantics
+                .add_variant_target(&variant_id, expr.range)?;
+            self.emit(Bytecode::ConstructVariant { variant: var_idx, arity }, expr.range);
+            return Ok(());
+        }
+
+        Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range))
+    }
+
+    /// Emits a callable thunk that constructs a variant instance when called.
+    fn compile_variant_constructor_thunk(&mut self, variant: &VariantId, range: SourceRange) -> Result<(), CompilerError> {
+        let arity = variant.selector.slots.len() as u8;
+        let name_sym = self.vm.interner.intern(&format!("thunk::{}", variant.selector));
+        let param_names = (0..arity).map(|i| format!("_{i}")).collect();
+        let closure = self.compile_block(
+            Vec::new(),
+            name_sym,
+            phalcom_ast::ast::ClosureParameters::fixed(param_names),
+            false,
+            false,
+            None,
+        )?;
+
+        let cls = self.vm.heap.closure_mut(closure);
+        let mut callable = (*cls.callable).clone();
+        callable.chunk.code.clear();
+        callable.chunk.spans.clear();
+        callable.chunk.caches.clear();
+        callable.chunk.gcaches.clear();
+        let var_idx = callable.chunk.executable_semantics.add_variant_target(variant, range)?;
+        // Reserve slot 0 for receiver, arguments in slots 1..=arity
+        for slot in 1..=(arity as u16) {
+            callable.chunk.add_instruction(Bytecode::GetLocal(slot), range);
+        }
+        callable.chunk.add_instruction(Bytecode::ConstructVariant { variant: var_idx, arity }, range);
+        callable.chunk.add_instruction(Bytecode::Return, range);
+        callable.max_slots = (arity as usize) + 2;
+        cls.callable = std::rc::Rc::new(callable);
+
+        let const_idx = self.add_constant(Value::obj(closure));
+        self.emit(Bytecode::Closure(const_idx), range);
+
+        Ok(())
+    }
+}

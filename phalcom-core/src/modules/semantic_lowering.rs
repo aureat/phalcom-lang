@@ -1,0 +1,454 @@
+//! Semantic-to-Codegen Lowering Projection (Part 4).
+//!
+//! Bridges the formal `SemanticSnapshot` products to compact, immutable,
+//! backend-facing lowering specifications attached by `LoweringSite` keys.
+
+use phalcom_common::range::SourceRange;
+use phalcom_modules::{DeclarationId, ModuleId, SourceId};
+use phalcom_semantic::associated::AssociatedMemberId;
+use phalcom_semantic::checker::associated::{
+    AssociatedResolution, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationResolution,
+    FamilyApplicationSelection,
+};
+use phalcom_semantic::enum_semantics::VariantShape;
+use phalcom_semantic::identity::{CallableId, ExpressionId, InvocationTargetId, VariantFieldId, VariantId};
+use phalcom_semantic::snapshot::SemanticSnapshot;
+use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use thiserror::Error;
+
+/// Classification of an AST expression site for lowering attachment.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LoweringSiteKind {
+    AssociatedLookup,
+    AssociatedInvoke,
+    FamilyApplication,
+}
+
+/// Compiler-facing lowering attachment key.
+/// Keyed by source identity, source range, and site kind (no semantic IDs in AST).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LoweringSite {
+    pub source: SourceId,
+    pub range: SourceRange,
+    pub kind: LoweringSiteKind,
+}
+
+impl LoweringSite {
+    pub fn new(source: SourceId, range: SourceRange, kind: LoweringSiteKind) -> Self {
+        Self { source, range, kind }
+    }
+}
+
+/// Executable rest lane handling mode.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutableRestMode {
+    None,
+    Positional,
+    Labeled,
+    Complete,
+}
+
+/// Exact resolved invocation target specification.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutableInvocationTarget {
+    Behavioral {
+        lookup_owner: DeclarationId,
+        callable: CallableId,
+        operation: FamilyOperationShape,
+        rest_mode: ExecutableRestMode,
+    },
+    VariantConstructor {
+        variant: VariantId,
+    },
+}
+
+/// Target of a member entry in an executable family descriptor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExecutableFamilyTarget {
+    Singleton { variant: VariantId },
+    Behavioral { target: ExecutableInvocationTarget },
+    VariantConstructor { variant: VariantId },
+}
+
+/// One executable member entry in a frozen family descriptor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableFamilyEntry {
+    pub operation: FamilyOperationShape,
+    pub member_kind: FamilyMemberTypeKind,
+    pub target: ExecutableFamilyTarget,
+}
+
+/// Frozen executable family descriptor.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExecutableFamilyDescriptor {
+    pub entries: Box<[ExecutableFamilyEntry]>,
+}
+
+/// Candidate for dynamic family pack invocation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableFamilyCandidate {
+    pub operation: FamilyOperationShape,
+    pub target: Option<ExecutableInvocationTarget>,
+}
+
+/// Candidate set for dynamic family pack invocation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExecutableFamilyCandidateSet {
+    pub candidates: Box<[ExecutableFamilyCandidate]>,
+}
+
+/// Lowering specification for an associated expression site.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AssociatedLoweringSpec {
+    /// Canonical singleton variant load (immediate value).
+    SingletonLoad {
+        variant: VariantId,
+    },
+    /// Fresh constructor case allocation.
+    ConstructVariant {
+        variant: VariantId,
+        arity: u8,
+    },
+    /// Direct resolved behavioral call (no hierarchy walk, no dNU).
+    InvokeResolvedAssociated {
+        target: ExecutableInvocationTarget,
+        arity: u8,
+    },
+    /// Exact behavioral member reification as BoundMethod.
+    MakeResolvedBoundMethod {
+        target: ExecutableInvocationTarget,
+    },
+    /// Exact variant constructor reification as closure thunk.
+    MakeVariantConstructorThunk {
+        variant: VariantId,
+        operation: FamilyOperationShape,
+    },
+    /// Frozen whole-family capture.
+    MakeAssociatedFamily {
+        descriptor: Arc<ExecutableFamilyDescriptor>,
+    },
+    /// Dynamic associated invocation over frozen candidate set.
+    DynamicInvoke {
+        candidates: Box<[ExecutableFamilyCandidate]>,
+    },
+}
+
+/// Lowering specification for an application on a first-class family value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FamilyApplicationLoweringSpec {
+    /// Statically known operation invocation on family.
+    Static {
+        operation: FamilyOperationShape,
+        target: Option<ExecutableInvocationTarget>,
+        arity: u8,
+    },
+    /// Dynamic pack invocation restricted to frozen candidates.
+    DynamicPack {
+        candidates: Box<[FamilyApplicationCandidate]>,
+    },
+}
+
+/// Canonical payload field lowering specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VariantFieldLoweringSpec {
+    pub id: VariantFieldId,
+    pub local_name: Box<str>,
+    pub slot: u16,
+}
+
+/// Variant lowering specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VariantLoweringSpec {
+    pub id: VariantId,
+    pub shape: VariantShape,
+    pub payload_fields: Box<[VariantFieldLoweringSpec]>,
+}
+
+/// Enum declaration lowering specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnumLoweringSpec {
+    pub owner: DeclarationId,
+    pub variants: Box<[VariantLoweringSpec]>,
+}
+
+/// Complete compiled lowering semantics for a single module.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModuleLoweringSemantics {
+    pub module: ModuleId,
+    pub enums: Box<[EnumLoweringSpec]>,
+    pub associated: BTreeMap<LoweringSite, AssociatedLoweringSpec>,
+    pub family_applications: BTreeMap<LoweringSite, FamilyApplicationLoweringSpec>,
+}
+
+impl ModuleLoweringSemantics {
+    pub fn new(module: ModuleId) -> Self {
+        Self {
+            module,
+            enums: Box::new([]),
+            associated: BTreeMap::new(),
+            family_applications: BTreeMap::new(),
+        }
+    }
+}
+
+/// Errors occurring during semantic-to-lowering projection.
+#[derive(Clone, Debug, Error, PartialEq)]
+pub enum ProjectionError {
+    #[error("ambiguous lowering site attachment at {0:?}")]
+    AmbiguousLoweringSiteAttachment(LoweringSite),
+    #[error("missing source range for expression {0:?}")]
+    MissingSourceRange(ExpressionId),
+}
+
+/// Projects formal snapshot products into an immutable `ModuleLoweringSemantics` bundle.
+pub fn build_module_lowering_semantics(
+    module: &ModuleId,
+    snapshot: &SemanticSnapshot,
+) -> Result<ModuleLoweringSemantics, ProjectionError> {
+    let source_id = if let Some(parsed_unit) = snapshot.sources.get(module) {
+        parsed_unit
+            .source
+            .as_ref()
+            .map(|s| s.source_id.clone())
+            .unwrap_or_else(|| SourceId(module.to_string().into_boxed_str()))
+    } else {
+        SourceId(module.to_string().into_boxed_str())
+    };
+
+    // 1. Project Enums in this module
+    let mut enums = Vec::new();
+    for (owner, enum_info) in &snapshot.enum_semantics.enums {
+        if owner.module != *module {
+            continue;
+        }
+        let mut variants = Vec::new();
+        for variant_id in enum_info.variants.iter() {
+            let var_info = snapshot.enum_semantics.variant_info(variant_id);
+            let shape = var_info.map(|v| v.shape).unwrap_or(VariantShape::Singleton);
+            let mut payload_fields = Vec::new();
+            if let Some(vinfo) = var_info {
+                for (idx, field) in vinfo.fields.iter().enumerate() {
+                    payload_fields.push(VariantFieldLoweringSpec {
+                        id: field.id.clone(),
+                        local_name: field.local_name.clone(),
+                        slot: idx as u16,
+                    });
+                }
+            }
+            variants.push(VariantLoweringSpec {
+                id: variant_id.clone(),
+                shape,
+                payload_fields: payload_fields.into_boxed_slice(),
+            });
+        }
+        enums.push(EnumLoweringSpec {
+            owner: owner.clone(),
+            variants: variants.into_boxed_slice(),
+        });
+    }
+
+    // 2. Project Associated Expressions & Family Applications
+    let mut associated = BTreeMap::new();
+    let mut family_applications = BTreeMap::new();
+
+    for (callable_id, analysis) in snapshot.callable_analyses.iter() {
+        if callable_id.owner.module() != module {
+            continue;
+        }
+
+        // Associated resolutions
+        for (expr_id, resolution) in analysis.associated_resolutions.iter() {
+            let expr_analysis = analysis.expressions.get(expr_id);
+            let range = match expr_analysis {
+                Some(ea) => ea.range,
+                None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
+            };
+
+            let (kind, spec) = project_associated_resolution(resolution, snapshot);
+            let site = LoweringSite::new(source_id.clone(), range, kind);
+
+            if associated.contains_key(&site) {
+                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+            }
+            associated.insert(site, spec);
+        }
+
+        // Family applications
+        for (expr_id, fam_app) in analysis.family_applications.iter() {
+            let expr_analysis = analysis.expressions.get(expr_id);
+            let range = match expr_analysis {
+                Some(ea) => ea.range,
+                None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
+            };
+
+            let spec = project_family_application(fam_app);
+            let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::FamilyApplication);
+
+            if family_applications.contains_key(&site) {
+                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+            }
+            family_applications.insert(site, spec);
+        }
+    }
+
+    Ok(ModuleLoweringSemantics {
+        module: module.clone(),
+        enums: enums.into_boxed_slice(),
+        associated,
+        family_applications,
+    })
+}
+
+fn project_associated_resolution(
+    resolution: &AssociatedResolution,
+    snapshot: &SemanticSnapshot,
+) -> (LoweringSiteKind, AssociatedLoweringSpec) {
+    match &resolution.kind {
+        AssociatedResolutionKind::ExactValue { member, .. } => {
+            let spec = match member {
+                AssociatedMemberId::Variant(v) => AssociatedLoweringSpec::SingletonLoad { variant: v.clone() },
+                AssociatedMemberId::Behavioral(c) => AssociatedLoweringSpec::MakeResolvedBoundMethod {
+                    target: ExecutableInvocationTarget::Behavioral {
+                        lookup_owner: resolution.lookup_owner.clone(),
+                        callable: c.clone(),
+                        operation: FamilyOperationShape::getter(),
+                        rest_mode: ExecutableRestMode::None,
+                    },
+                },
+            };
+            (LoweringSiteKind::AssociatedLookup, spec)
+        }
+        AssociatedResolutionKind::ExactCallable { member, target, .. } => {
+            let spec = match target {
+                InvocationTargetId::Behavioral(c) => AssociatedLoweringSpec::MakeResolvedBoundMethod {
+                    target: ExecutableInvocationTarget::Behavioral {
+                        lookup_owner: resolution.lookup_owner.clone(),
+                        callable: c.clone(),
+                        operation: FamilyOperationShape::method(Vec::new()),
+                        rest_mode: ExecutableRestMode::None,
+                    },
+                },
+                InvocationTargetId::VariantConstructor(vc) => AssociatedLoweringSpec::MakeVariantConstructorThunk {
+                    variant: vc.variant.clone(),
+                    operation: FamilyOperationShape::method(Vec::new()),
+                },
+            };
+            (LoweringSiteKind::AssociatedLookup, spec)
+        }
+        AssociatedResolutionKind::Family { members, .. } => {
+            let mut entries = Vec::new();
+            for member in members.iter() {
+                let target = match &member.target {
+                    Some(InvocationTargetId::VariantConstructor(vc)) => {
+                        ExecutableFamilyTarget::VariantConstructor { variant: vc.variant.clone() }
+                    }
+                    Some(InvocationTargetId::Behavioral(c)) => {
+                        ExecutableFamilyTarget::Behavioral {
+                            target: ExecutableInvocationTarget::Behavioral {
+                                lookup_owner: resolution.lookup_owner.clone(),
+                                callable: c.clone(),
+                                operation: member.operation.clone(),
+                                rest_mode: ExecutableRestMode::None,
+                            },
+                        }
+                    }
+                    None => continue,
+                };
+                entries.push(ExecutableFamilyEntry {
+                    operation: member.operation.clone(),
+                    member_kind: phalcom_semantic::types::family::FamilyMemberTypeKind::Callable,
+                    target,
+                });
+            }
+            let desc = ExecutableFamilyDescriptor {
+                entries: entries.into_boxed_slice(),
+            };
+            (
+                LoweringSiteKind::AssociatedLookup,
+                AssociatedLoweringSpec::MakeAssociatedFamily {
+                    descriptor: Arc::new(desc),
+                },
+            )
+        }
+        AssociatedResolutionKind::StaticInvoke { member, target, .. } => {
+            let spec = match target {
+                InvocationTargetId::VariantConstructor(vc) => {
+                    let var_info = snapshot.enum_semantics.variant_info(&vc.variant);
+                    let arity = var_info.map(|v| v.fields.len() as u8).unwrap_or(0);
+                    AssociatedLoweringSpec::ConstructVariant {
+                        variant: vc.variant.clone(),
+                        arity,
+                    }
+                }
+                InvocationTargetId::Behavioral(c) => {
+                    let arity = c.selector.slots.len() as u8;
+                    AssociatedLoweringSpec::InvokeResolvedAssociated {
+                        target: ExecutableInvocationTarget::Behavioral {
+                            lookup_owner: resolution.lookup_owner.clone(),
+                            callable: c.clone(),
+                            operation: FamilyOperationShape::method(Vec::new()),
+                            rest_mode: ExecutableRestMode::None,
+                        },
+                        arity,
+                    }
+                }
+            };
+            (LoweringSiteKind::AssociatedInvoke, spec)
+        }
+        AssociatedResolutionKind::DynamicInvoke { candidates, .. } => {
+            let mut exec_candidates = Vec::new();
+            for c in candidates.iter() {
+                let target = c.target.as_ref().map(|t| match t {
+                    InvocationTargetId::Behavioral(cid) => ExecutableInvocationTarget::Behavioral {
+                        lookup_owner: resolution.lookup_owner.clone(),
+                        callable: cid.clone(),
+                        operation: c.operation.clone(),
+                        rest_mode: ExecutableRestMode::None,
+                    },
+                    InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor {
+                        variant: vc.variant.clone(),
+                    },
+                });
+                exec_candidates.push(ExecutableFamilyCandidate {
+                    operation: c.operation.clone(),
+                    target,
+                });
+            }
+            let spec = AssociatedLoweringSpec::DynamicInvoke {
+                candidates: exec_candidates.into_boxed_slice(),
+            };
+            (LoweringSiteKind::AssociatedInvoke, spec)
+        }
+    }
+}
+
+fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyApplicationLoweringSpec {
+    match &fam_app.selection {
+        FamilyApplicationSelection::Static { operation, target, .. } => {
+            let exec_target = target.as_ref().map(|t| match t {
+                InvocationTargetId::Behavioral(c) => ExecutableInvocationTarget::Behavioral {
+                    lookup_owner: c.owner.declaration().clone(),
+                    callable: c.clone(),
+                    operation: operation.clone(),
+                    rest_mode: ExecutableRestMode::None,
+                },
+                InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor {
+                    variant: vc.variant.clone(),
+                },
+            });
+            let arity = operation.slots.len() as u8;
+            FamilyApplicationLoweringSpec::Static {
+                operation: operation.clone(),
+                target: exec_target,
+                arity,
+            }
+        }
+        FamilyApplicationSelection::Dynamic { candidates, .. } => {
+            FamilyApplicationLoweringSpec::DynamicPack {
+                candidates: candidates.clone(),
+            }
+        }
+    }
+}

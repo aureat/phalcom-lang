@@ -510,10 +510,10 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::AssociatedLookup(expr) => {
-                return Err(CompilerError::AssociatedLookupNotLoweredYet(expr.range));
+                self.compile_associated_lookup(&expr)?;
             }
             Expr::AssociatedInvoke(expr) => {
-                return Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range));
+                self.compile_associated_invoke(&expr)?;
             }
             Expr::GetProperty(get_prop) => {
                 self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
