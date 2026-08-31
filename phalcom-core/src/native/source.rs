@@ -3,7 +3,7 @@
 use phalcom_ast::ast::{ClassDef, ClassMember, MemberBody, MethodDef, Program, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::builtin::BuiltinProjectSourceProvider;
-use phalcom_modules::identity::{BuiltinProject, ModuleId, ModulePath};
+use phalcom_modules::identity::{BuiltinPackage, ModuleId, ModulePath};
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
 use phalcom_native_meta::{NativeDispatch, NativeVisibility, UniverseKey};
 use std::collections::HashMap;
@@ -116,7 +116,7 @@ pub type UniverseSourceIndex = NativeSourceIndex;
 impl NativeSourceIndex {
     /// Builds a new index by scanning all parsed units from the canonical universe project.
     pub fn build() -> Result<Self, String> {
-        let provider = BuiltinProjectSourceProvider::new(BuiltinProject::Universe);
+        let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
         let mut index = Self::default();
 
         for node in provider.nodes() {
@@ -126,7 +126,7 @@ impl NativeSourceIndex {
                     .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
                     .collect::<Vec<_>>(),
             );
-            let module_id = ModuleId::builtin(BuiltinProject::Universe, path);
+            let module_id = ModuleId::builtin(BuiltinPackage::Universe, path);
             let parsed = provider
                 .load_parsed(&module_id)
                 .map_err(|e| format!("failed to load parsed universe module {module_id}: {e}"))?;

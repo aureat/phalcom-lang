@@ -70,7 +70,7 @@ impl CoreSource {
 }
 
 fn canonical_universe_source() -> String {
-    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
+    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinPackage::Universe);
     let mut combined = String::new();
     for node in provider.nodes() {
         let path = phalcom_modules::identity::ModulePath::from_components(
@@ -79,7 +79,7 @@ fn canonical_universe_source() -> String {
                 .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
                 .collect::<Vec<_>>(),
         );
-        let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
+        let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinPackage::Universe, path);
         let source = provider
             .source_text(&module)
             .unwrap_or_else(|error| panic!("failed to load canonical universe source {module}: {error}"));

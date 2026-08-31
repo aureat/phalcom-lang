@@ -89,14 +89,16 @@ impl Universe {
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
         let system_class = make_core_class(heap, "System", object_class, metaclass_class);
 
-        // The absence type (PDR-0033): `Option` is abstract and sealed, with
-        // concrete immediate variants `Some` and `None`. Class metadata remains
-        // ordinary so lookup/reflection can use the normal object model, but no
-        // Option surface value is an InstanceObject.
+        // Option is the language declaration/root runtime class.
+        // Some and None are runtime case behavior classes for the canonical
+        // Option variants. They are not independent semantic declarations.
         let option_class = make_core_class(heap, "Option", object_class, metaclass_class);
         heap.class_mut(option_class).is_abstract = true;
         let some_class = make_core_class(heap, "Some", option_class, metaclass_class);
         let none_class = make_core_class(heap, "None", option_class, metaclass_class);
+
+        // Unit is the zero-arity product type, a singleton immediate with no
+        // fields. It is not a semantic declaration, but a native runtime type.
         let unit_class = make_core_class(heap, "Unit", object_class, metaclass_class);
 
         // Kernel `List` (ADR-0020): a native heap variant, not an

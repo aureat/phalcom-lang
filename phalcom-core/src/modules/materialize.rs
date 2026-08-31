@@ -31,7 +31,7 @@ impl VM {
                 let obj_ref = self.heap.alloc(Object::Module(Box::new(module_obj)));
                 if matches!(
                     id.project,
-                    phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::identity::BuiltinProject::Universe)
+                    phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::identity::BuiltinPackage::Universe)
                 ) {
                     self.privileged_modules.insert(obj_ref);
                 }

@@ -1,11 +1,11 @@
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-    BuiltinProject, ImportSurface, InterfaceBuilder, InterfaceError, ModuleComponent, ModuleId, ModuleKind, ModulePath, UnlinkedExportTarget,
+    BuiltinPackage, ImportSurface, InterfaceBuilder, InterfaceError, ModuleComponent, ModuleId, ModuleKind, ModulePath, UnlinkedExportTarget,
 };
 
 fn make_test_id(name: &str) -> ModuleId {
     ModuleId::builtin(
-        BuiltinProject::Universe,
+        BuiltinPackage::Universe,
         ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
     )
 }

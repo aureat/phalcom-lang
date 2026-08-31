@@ -7,7 +7,7 @@ use crate::modules::linkage::{BindingRef, CompileBindings, LinkedImportInfo, Run
 use crate::vm::VM;
 use phalcom_ast::ast::{DependencyDecl, ImportDecl, ImportRoot, Program};
 use phalcom_modules::builtin::BuiltinProjectSourceProvider;
-use phalcom_modules::identity::{BuiltinProject, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, SyntheticProjectIdAllocator};
+use phalcom_modules::identity::{BuiltinPackage, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, SyntheticProjectIdAllocator};
 use phalcom_modules::linker::{ImportBindingId, LinkedReadSpec, SymbolId};
 use phalcom_modules::project::{ProjectUniverse, discover_owning_project};
 use phalcom_modules::resolver::ModuleResolver;
@@ -239,7 +239,7 @@ impl ModuleExecutionContext {
                 module_obj.metadata = Some(Arc::new(iface.metadata.clone()));
 
                 let obj_ref = vm.heap.alloc(crate::heap::Object::Module(Box::new(module_obj)));
-                if *bid == BuiltinProject::Universe {
+                if *bid == BuiltinPackage::Universe {
                     vm.privileged_modules.insert(obj_ref);
                 }
                 vm.module_registry

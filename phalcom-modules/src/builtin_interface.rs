@@ -2,7 +2,7 @@
 
 use crate::builtin::BuiltinProjectSourceProvider;
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{BuiltinProject, ModuleId, ProjectIdentity, SourceLocation};
+use crate::identity::{BuiltinPackage, ModuleId, ProjectIdentity, SourceLocation};
 use crate::interface::{DeclarationSurface, ExportSurface, InterfaceBuilder, UnlinkedExportTarget, UnlinkedModuleInterface};
 use crate::source::ParsedModuleUnit;
 use phalcom_common::range::SourceRange;
@@ -87,7 +87,7 @@ impl BuiltinInterfaceBuilder {
             error: e,
         })?;
 
-        if parsed.id.project == ProjectIdentity::Builtin(BuiltinProject::Universe) {
+        if parsed.id.project == ProjectIdentity::Builtin(BuiltinPackage::Universe) {
             if parsed.id.path.is_root() {
                 // Root/prelude bindings are policy data, not source declarations.
                 // Module and class presentation data comes exclusively from the

@@ -883,8 +883,8 @@ pub(crate) fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::Modu
         return None;
     }
     let project = match uri.host_str()? {
-        "universe" => phalcom_modules::BuiltinProject::Universe,
-        "std" => phalcom_modules::BuiltinProject::Std,
+        "universe" => phalcom_modules::BuiltinPackage::Universe,
+        "std" => phalcom_modules::BuiltinPackage::Std,
         _ => return None,
     };
     let components = uri

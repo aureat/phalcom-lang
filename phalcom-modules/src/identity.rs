@@ -9,15 +9,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A toolchain-owned builtin project identity.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum BuiltinProject {
+pub enum BuiltinPackage {
     Universe,
     Std,
 }
 
-/// Type alias for staged vocabulary convergence (§7).
-pub type BuiltinPackage = BuiltinProject;
-
-impl BuiltinProject {
+impl BuiltinPackage {
     pub const fn import_root(self) -> &'static str {
         match self {
             Self::Universe => "universe",
@@ -26,7 +23,7 @@ impl BuiltinProject {
     }
 }
 
-impl fmt::Display for BuiltinProject {
+impl fmt::Display for BuiltinPackage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.import_root())
     }
@@ -100,7 +97,7 @@ impl SyntheticProjectIdAllocator {
 /// Semantic project category. The variants are intentionally disjoint.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProjectIdentity {
-    Builtin(BuiltinProject),
+    Builtin(BuiltinPackage),
     Resolved(ResolvedProjectId),
     Synthetic(SyntheticProjectId),
 }
@@ -116,7 +113,7 @@ impl ProjectIdentity {
         }
     }
 
-    pub const fn as_builtin(self) -> Option<BuiltinProject> {
+    pub const fn as_builtin(self) -> Option<BuiltinPackage> {
         match self {
             Self::Builtin(id) => Some(id),
             _ => None,
@@ -156,7 +153,7 @@ impl fmt::Display for ProjectIdentity {
 /// Target of an absolute import root in a resolved project's root table.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ImportRootTarget {
-    Builtin(BuiltinProject),
+    Builtin(BuiltinPackage),
     Resolved(ResolvedProjectId),
 }
 
@@ -307,7 +304,7 @@ impl ModuleId {
         }
     }
 
-    pub fn builtin(project: BuiltinProject, path: ModulePath) -> Self {
+    pub fn builtin(project: BuiltinPackage, path: ModulePath) -> Self {
         Self {
             project: ProjectIdentity::Builtin(project),
             path,
@@ -318,7 +315,7 @@ impl ModuleId {
     /// It remains structurally builtin while staying distinct from `universe/`.
     pub fn core() -> Self {
         Self::builtin(
-            BuiltinProject::Universe,
+            BuiltinPackage::Universe,
             ModulePath::from_components(vec![ModuleComponent::from_identifier("core").expect("valid identifier")]),
         )
     }

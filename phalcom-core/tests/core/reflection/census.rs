@@ -155,7 +155,7 @@ fn physical_universe_corpus_matches_catalog() {
 
 #[test]
 fn package_exposures_match_catalog_children() {
-    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinProject::Universe);
+    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinPackage::Universe);
     for node in phalcom_modules::builtin::UNIVERSE_NODES.iter().filter(|node| node.kind.is_package_like()) {
         let path = phalcom_modules::identity::ModulePath::from_components(
             node.path
@@ -163,7 +163,7 @@ fn package_exposures_match_catalog_children() {
                 .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
                 .collect::<Vec<_>>(),
         );
-        let id = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinProject::Universe, path);
+        let id = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinPackage::Universe, path);
         let parsed = provider.load_parsed(&id).expect("canonical package must parse");
         let exposed = parsed
             .program

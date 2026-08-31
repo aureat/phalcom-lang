@@ -129,7 +129,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
     let components = module.path.components();
     !(matches!(
         module.project,
-        phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::BuiltinProject::Universe)
+        phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::BuiltinPackage::Universe)
     ) && components.len() == 1
         && components[0].as_str() == "core")
 }

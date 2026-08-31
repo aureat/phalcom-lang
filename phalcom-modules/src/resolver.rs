@@ -56,9 +56,9 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     ModuleComponent::from_identifier(&root_seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(root_seg.name.clone(), e))?;
 
                 let (target_root, is_self) = if root_seg.name == "universe" {
-                    (ImportRootTarget::Builtin(crate::identity::BuiltinProject::Universe), false)
+                    (ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Universe), false)
                 } else if root_seg.name == "std" {
-                    (ImportRootTarget::Builtin(crate::identity::BuiltinProject::Std), false)
+                    (ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Std), false)
                 } else if let Some(proj) = importer_project {
                     let roots = proj.import_roots();
                     roots

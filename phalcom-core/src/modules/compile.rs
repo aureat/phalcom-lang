@@ -2,7 +2,7 @@
 
 use super::artifact::ModuleMaterializationPlan;
 use phalcom_modules::{
-    BuiltinProject, BuiltinProjectSourceProvider, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram,
+    BuiltinPackage, BuiltinProjectSourceProvider, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram,
     ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError,
     SourceId, SourceLocation, discover_owning_project,
 };
@@ -337,8 +337,8 @@ impl ProgramAnalyzer {
             };
 
             let builtin = match &path.root {
-                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe" => BuiltinProject::Universe,
-                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "std" => BuiltinProject::Std,
+                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe" => BuiltinPackage::Universe,
+                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "std" => BuiltinPackage::Std,
                 _ => {
                     return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
                         import_name: path.to_string().into(),

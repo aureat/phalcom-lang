@@ -463,7 +463,12 @@ impl UniverseKey {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum UniverseBindingKind {
+    /// A runtime class that is also a canonical language declaration.
     Class,
+
+    /// A runtime class required by the VM/object model but which must not
+    /// create an independent source-semantic declaration.
+    RuntimeSupportClass,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -642,14 +647,14 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         key: UniverseKey::Some,
         name: "Some",
         kind: UniverseBindingKind::Class,
-        exported: true,
-        prelude: true,
+        exported: false,
+        prelude: false,
     },
     UniverseBindingSpec {
         key: UniverseKey::None,
         name: "None",
         kind: UniverseBindingKind::Class,
-        exported: true,
+        exported: false,
         prelude: false,
     },
     UniverseBindingSpec {

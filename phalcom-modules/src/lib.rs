@@ -31,7 +31,7 @@ pub use graph::{
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
 pub use identity::{
-    BuiltinProject, ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity,
+    BuiltinPackage, ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity,
     ResolvedProjectId, SourceId, SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator, builtin_module_uri,
 };
 pub use interface::{

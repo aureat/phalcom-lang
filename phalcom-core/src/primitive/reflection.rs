@@ -108,8 +108,8 @@ pub fn module_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
 
         match &pkg.id.project {
             phalcom_modules::ProjectIdentity::Builtin(b) => match b {
-                phalcom_modules::BuiltinProject::Universe => PackageInfoDescriptor::builtin_universe(None),
-                phalcom_modules::BuiltinProject::Std => PackageInfoDescriptor::builtin_std(None),
+                phalcom_modules::BuiltinPackage::Universe => PackageInfoDescriptor::builtin_universe(None),
+                phalcom_modules::BuiltinPackage::Std => PackageInfoDescriptor::builtin_std(None),
             },
             phalcom_modules::ProjectIdentity::Resolved(_) => {
                 let name = pkg.name.clone();
@@ -167,7 +167,7 @@ pub fn module_understands(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
             expected: 1,
             found: args.len(),
         }
-        .into());
+            .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -413,8 +413,8 @@ pub fn package_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
 
     let desc = match &root.id.project {
         phalcom_modules::ProjectIdentity::Builtin(b) => match b {
-            phalcom_modules::BuiltinProject::Universe => PackageInfoDescriptor::builtin_universe(None),
-            phalcom_modules::BuiltinProject::Std => PackageInfoDescriptor::builtin_std(None),
+            phalcom_modules::BuiltinPackage::Universe => PackageInfoDescriptor::builtin_universe(None),
+            phalcom_modules::BuiltinPackage::Std => PackageInfoDescriptor::builtin_std(None),
         },
         phalcom_modules::ProjectIdentity::Resolved(_) => {
             let name = root.name.clone();
@@ -939,7 +939,7 @@ pub fn export_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
             expected: 1,
             found: args.len(),
         }
-        .into());
+            .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -971,7 +971,7 @@ pub fn export_table_descriptor(vm: &mut VM, receiver: &Value, args: &[Value]) ->
             expected: 1,
             found: args.len(),
         }
-        .into());
+            .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -1007,7 +1007,7 @@ pub fn export_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             expected: 1,
             found: args.len(),
         }
-        .into());
+            .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -1147,7 +1147,7 @@ pub fn child_module_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]
             expected: 1,
             found: args.len(),
         }
-        .into());
+            .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -1179,7 +1179,7 @@ pub fn child_module_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> 
             expected: 1,
             found: args.len(),
         }
-        .into());
+            .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,

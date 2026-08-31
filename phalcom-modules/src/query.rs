@@ -66,14 +66,14 @@ impl<'a> ModuleQueryFacade<'a> {
             (
                 ModuleComponent::from_identifier("std").expect("std is canonical"),
                 ImportRootQueryTarget {
-                    target: ImportRootTarget::Builtin(crate::identity::BuiltinProject::Std),
+                    target: ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Std),
                     is_self: false,
                 },
             ),
             (
                 ModuleComponent::from_identifier("universe").expect("universe is canonical"),
                 ImportRootQueryTarget {
-                    target: ImportRootTarget::Builtin(crate::identity::BuiltinProject::Universe),
+                    target: ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Universe),
                     is_self: false,
                 },
             ),

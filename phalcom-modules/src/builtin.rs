@@ -1,7 +1,7 @@
 //! Provider-backed builtin project interfaces and canonical virtual source identity.
 
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{BuiltinProject, ModuleId, ModulePath, ProjectIdentity, SourceId};
+use crate::identity::{BuiltinPackage, ModuleId, ModulePath, ProjectIdentity, SourceId};
 use crate::interface::UnlinkedModuleInterface;
 use crate::source::ModuleKind;
 
@@ -494,11 +494,11 @@ const STD_NODES: &[BuiltinNodeSpec] = &[
 /// Toolchain-owned source/interface authority for one builtin project.
 #[derive(Clone, Copy, Debug)]
 pub struct BuiltinProjectSourceProvider {
-    builtin: BuiltinProject,
+    builtin: BuiltinPackage,
 }
 
 impl BuiltinProjectSourceProvider {
-    pub const fn new(builtin: BuiltinProject) -> Self {
+    pub const fn new(builtin: BuiltinPackage) -> Self {
         Self { builtin }
     }
 
@@ -535,171 +535,171 @@ impl BuiltinProjectSourceProvider {
 
         let components = id.path.components();
         let content = match (self.builtin, components) {
-            (BuiltinProject::Universe, []) => include_str!("../../phalcom-core/core/universe/src/package.ph"),
-            (BuiltinProject::Universe, [c]) if c.as_str() == "object" => include_str!("../../phalcom-core/core/universe/src/object/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "object" => {
+            (BuiltinPackage::Universe, []) => include_str!("../../phalcom-core/core/universe/src/package.ph"),
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "object" => include_str!("../../phalcom-core/core/universe/src/object/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "object" => {
                 include_str!("../../phalcom-core/core/universe/src/object/object.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "behavior" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "behavior" => {
                 include_str!("../../phalcom-core/core/universe/src/object/behavior.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "class" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "class" => {
                 include_str!("../../phalcom-core/core/universe/src/object/class.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "metaclass" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "metaclass" => {
                 include_str!("../../phalcom-core/core/universe/src/object/metaclass.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "ellipsis" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "ellipsis" => {
                 include_str!("../../phalcom-core/core/universe/src/object/ellipsis.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "ordering" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "object" && m.as_str() == "ordering" => {
                 include_str!("../../phalcom-core/core/universe/src/object/ordering.ph")
             }
-            (BuiltinProject::Universe, [c]) if c.as_str() == "scalar" => include_str!("../../phalcom-core/core/universe/src/scalar/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "number" => {
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "scalar" => include_str!("../../phalcom-core/core/universe/src/scalar/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "number" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/number.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "nil" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "nil" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/nil.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "string" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "string" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/string.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "bool" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "bool" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/bool.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "symbol" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "scalar" && m.as_str() == "symbol" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/symbol.ph")
             }
-            (BuiltinProject::Universe, [c]) if c.as_str() == "callable" => include_str!("../../phalcom-core/core/universe/src/callable/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "function" => {
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "callable" => include_str!("../../phalcom-core/core/universe/src/callable/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "function" => {
                 include_str!("../../phalcom-core/core/universe/src/callable/function.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "closure" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "closure" => {
                 include_str!("../../phalcom-core/core/universe/src/callable/closure.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "method" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "method" => {
                 include_str!("../../phalcom-core/core/universe/src/callable/method.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "family" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "callable" && m.as_str() == "family" => {
                 include_str!("../../phalcom-core/core/universe/src/callable/family.ph")
             }
-            (BuiltinProject::Universe, [c]) if c.as_str() == "option" => include_str!("../../phalcom-core/core/universe/src/option/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "option" && m.as_str() == "option" => {
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "option" => include_str!("../../phalcom-core/core/universe/src/option/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "option" && m.as_str() == "option" => {
                 include_str!("../../phalcom-core/core/universe/src/option/option.ph")
             }
-            (BuiltinProject::Universe, [c]) if c.as_str() == "collections" => include_str!("../../phalcom-core/core/universe/src/collections/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "iterable" => {
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "collections" => include_str!("../../phalcom-core/core/universe/src/collections/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "iterable" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/iterable.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "list" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "list" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/list.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "map" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "map" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/map.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "set" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "set" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/set.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "tuple" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "tuple" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/tuple.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "record" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "record" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/record.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "range" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "range" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/range.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "bytes" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "bytes" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/bytes.ph")
             }
-            (BuiltinProject::Universe, [c]) if c.as_str() == "errors" => include_str!("../../phalcom-core/core/universe/src/errors/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "error" => {
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "errors" => include_str!("../../phalcom-core/core/universe/src/errors/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "error" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/error.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "argument" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "argument" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/argument.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "indexing" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "indexing" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/indexing.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "contracts" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "contracts" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/contracts.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "unsupported" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "unsupported" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/unsupported.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "unimplemented" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "errors" && m.as_str() == "unimplemented" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/unimplemented.ph")
             }
-            (BuiltinProject::Universe, [c]) if c.as_str() == "reflection" => include_str!("../../phalcom-core/core/universe/src/reflection/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module" => {
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "reflection" => include_str!("../../phalcom-core/core/universe/src/reflection/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/module.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_object" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_object" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/package-object.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/project.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project_manifest" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project_manifest" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/project-manifest.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_info" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_info" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/package-info.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_author" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_author" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/package-author.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_requirement" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_requirement" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/package-requirement.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "resolved_project_dependency" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "resolved_project_dependency" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/resolved-project-dependency.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module_dependency" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module_dependency" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/module-dependency.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export_table" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export_table" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/export-table.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/export.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export_kind" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "export_kind" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/export-kind.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "child_module_table" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "child_module_table" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/child-module-table.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module_identity" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "module_identity" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/module-identity.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_identity" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "package_identity" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/package-identity.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project_identity" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "project_identity" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/project-identity.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "uri" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "uri" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/uri.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "selector" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "selector" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/selector.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "message" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "message" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/message.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "attribute" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "attribute" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/attribute.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "implementation" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "implementation" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/implementation.ph")
             }
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "typing" => {
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "reflection" && m.as_str() == "typing" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/typing/package.ph")
             }
-            (BuiltinProject::Universe, [c, m, child]) if c.as_str() == "reflection" && m.as_str() == "typing" => match child.as_str() {
+            (BuiltinPackage::Universe, [c, m, child]) if c.as_str() == "reflection" && m.as_str() == "typing" => match child.as_str() {
                 "kind" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/kind.ph"),
                 "type_descriptor" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-descriptor.ph"),
                 "type_parameter" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/type-parameter.ph"),
@@ -711,24 +711,24 @@ impl BuiltinProjectSourceProvider {
                 "context" => include_str!("../../phalcom-core/core/universe/src/reflection/typing/context.ph"),
                 _ => return Err(ModuleResolutionError::ModuleNotFound(format!("builtin source for {id} not found")).into()),
             },
-            (BuiltinProject::Universe, [c]) if c.as_str() == "concurrency" => include_str!("../../phalcom-core/core/universe/src/concurrency/package.ph"),
-            (BuiltinProject::Universe, [c, m]) if c.as_str() == "concurrency" && m.as_str() == "fiber" => {
+            (BuiltinPackage::Universe, [c]) if c.as_str() == "concurrency" => include_str!("../../phalcom-core/core/universe/src/concurrency/package.ph"),
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "concurrency" && m.as_str() == "fiber" => {
                 include_str!("../../phalcom-core/core/universe/src/concurrency/fiber.ph")
             }
-            (BuiltinProject::Std, []) => include_str!("../../phalcom-core/core/std/src/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "json" => include_str!("../../phalcom-core/core/std/src/json/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "io" => include_str!("../../phalcom-core/core/std/src/io/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "fs" => include_str!("../../phalcom-core/core/std/src/fs/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "path" => include_str!("../../phalcom-core/core/std/src/path/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "text" => include_str!("../../phalcom-core/core/std/src/text/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "regex" => include_str!("../../phalcom-core/core/std/src/regex/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "math" => include_str!("../../phalcom-core/core/std/src/math/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "random" => include_str!("../../phalcom-core/core/std/src/random/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "time" => include_str!("../../phalcom-core/core/std/src/time/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "process" => include_str!("../../phalcom-core/core/std/src/process/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "net" => include_str!("../../phalcom-core/core/std/src/net/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "concurrent" => include_str!("../../phalcom-core/core/std/src/concurrent/package.ph"),
-            (BuiltinProject::Std, [c]) if c.as_str() == "testing" => include_str!("../../phalcom-core/core/std/src/testing/package.ph"),
+            (BuiltinPackage::Std, []) => include_str!("../../phalcom-core/core/std/src/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "json" => include_str!("../../phalcom-core/core/std/src/json/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "io" => include_str!("../../phalcom-core/core/std/src/io/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "fs" => include_str!("../../phalcom-core/core/std/src/fs/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "path" => include_str!("../../phalcom-core/core/std/src/path/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "text" => include_str!("../../phalcom-core/core/std/src/text/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "regex" => include_str!("../../phalcom-core/core/std/src/regex/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "math" => include_str!("../../phalcom-core/core/std/src/math/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "random" => include_str!("../../phalcom-core/core/std/src/random/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "time" => include_str!("../../phalcom-core/core/std/src/time/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "process" => include_str!("../../phalcom-core/core/std/src/process/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "net" => include_str!("../../phalcom-core/core/std/src/net/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "concurrent" => include_str!("../../phalcom-core/core/std/src/concurrent/package.ph"),
+            (BuiltinPackage::Std, [c]) if c.as_str() == "testing" => include_str!("../../phalcom-core/core/std/src/testing/package.ph"),
             _ => return Err(ModuleResolutionError::ModuleNotFound(format!("builtin source for {id} not found")).into()),
         };
         Ok(Arc::from(content))
@@ -751,8 +751,8 @@ impl BuiltinProjectSourceProvider {
 
     pub fn nodes(&self) -> &'static [BuiltinNodeSpec] {
         match self.builtin {
-            BuiltinProject::Universe => UNIVERSE_NODES,
-            BuiltinProject::Std => STD_NODES,
+            BuiltinPackage::Universe => UNIVERSE_NODES,
+            BuiltinPackage::Std => STD_NODES,
         }
     }
 

@@ -540,7 +540,7 @@ impl VM {
     /// Allocates a builtin package with `logical_name` and registers it in `vm.module_registry`.
     pub fn create_builtin_package(&mut self, logical_name: &str) -> crate::heap::ObjRef {
         if logical_name == "universe" {
-            let id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinProject::Universe, phalcom_modules::ModulePath::root());
+            let id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinPackage::Universe, phalcom_modules::ModulePath::root());
             if let Some(rec) = self.module_registry.get(&id) {
                 return rec.object;
             }
