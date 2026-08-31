@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 528
 expression: "parse_display(\"let = \")"
 ---
 Expected one of identifier, "(", "[", "_" (at bytes 4..5)

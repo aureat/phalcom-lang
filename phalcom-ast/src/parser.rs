@@ -2125,61 +2125,214 @@ impl<'source> Parser<'source> {
     /// Returns a [`SyntaxErrorKind::Message`] diagnostic if a rest
     /// sub-pattern is not a list pattern's last element, or if the current
     /// token cannot begin a pattern.
+    /// Parses a pattern, supporting or-patterns (`p1 | p2`), wildcards (`_`),
+    /// tuples `(p1, ...)`, lists `[p1, ...]`, records `#{...}`, maps `{#...}`,
+    /// qualified/contextual variants (`Animal::Dog*`, `Dog(...)`, `Dog(x, ..., named: y)`),
+    /// and name bindings (`x`).
     fn parse_pattern(&mut self) -> ParserResult<Pattern> {
+        self.parse_or_pattern()
+    }
+
+    fn parse_or_pattern(&mut self) -> ParserResult<Pattern> {
+        let first = self.parse_pattern_atom()?;
+        if matches!(self.peek(), Token::Pipe) {
+            let mut alternatives = vec![first];
+            while self.eat(&Token::Pipe) {
+                self.skip_newlines();
+                alternatives.push(self.parse_pattern_atom()?);
+            }
+            let start = alternatives.first().unwrap().range().start;
+            let end = alternatives.last().unwrap().range().end;
+            Ok(Pattern::Or {
+                alternatives,
+                range: (start..end).into(),
+            })
+        } else {
+            Ok(first)
+        }
+    }
+
+    fn parse_pattern_atom(&mut self) -> ParserResult<Pattern> {
         match self.peek() {
+            Token::Underscore => {
+                let start = self.cur_start();
+                self.advance();
+                let range = (start..self.prev_end).into();
+                Ok(Pattern::Wildcard { range })
+            }
             Token::LParen => self.parse_tuple_pattern(),
             Token::LBracket => self.parse_list_pattern(),
             Token::RecordLBrace => self.parse_record_pattern(),
             Token::LBrace => self.parse_map_pattern(),
-            Token::Identifier(_) if matches!(self.peek_next(), Token::LParen) => self.parse_variant_pattern(),
+            Token::Identifier(_) => self.parse_identifier_or_variant_pattern(),
             _ => {
                 let start = self.cur_start();
-                let name = self.expect_identifier(&["identifier", "\"(\"", "\"[\""])?;
+                let name = self.expect_identifier(&["identifier", "\"(\"", "\"[\"", "\"_\""])?;
                 let range = (start..self.prev_end).into();
                 Ok(Pattern::Name { name, range })
             }
         }
     }
 
-    /// Parses `Variant(pattern, ...)`, including zero-payload `Variant()`.
-    fn parse_variant_pattern(&mut self) -> ParserResult<Pattern> {
+    fn parse_identifier_or_variant_pattern(&mut self) -> ParserResult<Pattern> {
         let start = self.cur_start();
-        let constructor = self.expect_identifier(&["variant constructor"])?;
-        self.expect(&Token::LParen, &["\"(\""])?;
-        let mut arguments = Vec::new();
-        if !matches!(self.peek(), Token::RParen) {
-            loop {
-                arguments.push(self.parse_pattern()?);
-                if !self.eat(&Token::Comma) {
-                    break;
-                }
-                if matches!(self.peek(), Token::RParen) {
-                    break;
+        let name = self.expect_identifier(&["identifier", "pattern"])?;
+        let root_range = (start..self.prev_end).into();
+
+        let mut members = Vec::new();
+        while self.eat(&Token::Dot) {
+            let m_start = self.cur_start();
+            let m_name = self.expect_identifier(&["qualified name"])?;
+            members.push(PathSegment {
+                name: m_name,
+                range: (m_start..self.prev_end).into(),
+            });
+        }
+
+        if self.eat(&Token::ColonColon) {
+            let owner_range = (start..self.prev_end).into();
+            let owner = Some(StaticSymbolRef {
+                root: name,
+                root_range,
+                members,
+                range: owner_range,
+            });
+            let base_start = self.cur_start();
+            let base = self.expect_identifier(&["variant constructor"])?;
+            let base_range = (base_start..self.prev_end).into();
+            self.parse_variant_pattern_suffix(start, owner, base, base_range)
+        } else if !members.is_empty() {
+            let range = (start..self.prev_end).into();
+            self.errors.push(SyntaxError {
+                kind: SyntaxErrorKind::Message("unexpected qualified path in pattern without `::`".to_string()),
+                range: start..self.prev_end,
+            });
+            Ok(Pattern::Name { name, range })
+        } else if matches!(self.peek(), Token::Asterisk | Token::LParen) {
+            self.parse_variant_pattern_suffix(start, None, name.clone(), root_range)
+        } else {
+            Ok(Pattern::Name {
+                name,
+                range: root_range,
+            })
+        }
+    }
+
+    fn parse_variant_pattern_suffix(
+        &mut self,
+        start: usize,
+        owner: Option<StaticSymbolRef>,
+        base: String,
+        base_range: SourceRange,
+    ) -> ParserResult<Pattern> {
+        if self.eat(&Token::Asterisk) {
+            let star_range = (self.prev_end - 1..self.prev_end).into();
+            let range = (start..self.prev_end).into();
+            Ok(Pattern::Variant(VariantPattern {
+                owner,
+                base,
+                base_range,
+                mode: VariantPatternMode::WholeFamily { star_range },
+                range,
+            }))
+        } else if self.eat(&Token::LParen) {
+            self.skip_newlines();
+            let mut prefix = Vec::new();
+            let mut suffix = Vec::new();
+            let mut gap_range: Option<SourceRange> = None;
+
+            if !matches!(self.peek(), Token::RParen) {
+                loop {
+                    self.skip_newlines();
+                    if self.peek() == &Token::DotDotDot {
+                        let dot_start = self.cur_start();
+                        self.advance();
+                        let d_range: SourceRange = (dot_start..self.prev_end).into();
+                        if let Some(_first_gap) = gap_range {
+                            self.errors.push(SyntaxError {
+                                kind: SyntaxErrorKind::Message("multiple `...` selector gaps in pattern".to_string()),
+                                range: dot_start..self.prev_end,
+                            });
+                        } else {
+                            gap_range = Some(d_range);
+                        }
+                    } else {
+                        let arg = self.parse_variant_pattern_argument()?;
+                        if gap_range.is_some() {
+                            suffix.push(arg);
+                        } else {
+                            prefix.push(arg);
+                        }
+                    }
+                    self.skip_newlines();
+                    if !self.eat(&Token::Comma) {
+                        break;
+                    }
+                    self.skip_newlines();
+                    if matches!(self.peek(), Token::RParen) {
+                        break;
+                    }
                 }
             }
+            self.expect(&Token::RParen, &["\")\""])?;
+            let range = (start..self.prev_end).into();
+            let mode = if let Some(gap_range) = gap_range {
+                VariantPatternMode::CallablePattern {
+                    prefix,
+                    gap_range,
+                    suffix,
+                }
+            } else {
+                VariantPatternMode::ExactCall {
+                    arguments: prefix,
+                }
+            };
+            Ok(Pattern::Variant(VariantPattern {
+                owner,
+                base,
+                base_range,
+                mode,
+                range,
+            }))
+        } else {
+            let range = (start..self.prev_end).into();
+            Ok(Pattern::Variant(VariantPattern {
+                owner,
+                base,
+                base_range,
+                mode: VariantPatternMode::Singleton,
+                range,
+            }))
         }
-        self.expect(&Token::RParen, &["\")\""])?;
-        let range: SourceRange = (start..self.prev_end).into();
-        Ok(Pattern::Variant(VariantPattern {
-            owner: None,
-            base: constructor,
-            base_range: (start..start).into(),
-            mode: VariantPatternMode::ExactCall {
-                arguments: arguments
-                    .into_iter()
-                    .map(|pattern| {
-                        let range = pattern.range();
-                        VariantPatternArgument {
-                            label: None,
-                            label_range: None,
-                            pattern,
-                            range,
-                        }
-                    })
-                    .collect(),
-            },
-            range,
-        }))
+    }
+
+    fn parse_variant_pattern_argument(&mut self) -> ParserResult<VariantPatternArgument> {
+        let start = self.cur_start();
+        if Self::label_name(self.peek()).is_some() && matches!(self.peek_next(), Token::Colon) {
+            let label_start = self.cur_start();
+            let label_str = Self::label_name(self.peek()).unwrap().to_string();
+            self.advance();
+            let label_range = (label_start..self.prev_end).into();
+            self.expect(&Token::Colon, &["\":\""])?;
+            self.skip_newlines();
+            let pattern = self.parse_pattern()?;
+            let range = (start..self.prev_end).into();
+            Ok(VariantPatternArgument {
+                label: Some(label_str),
+                label_range: Some(label_range),
+                pattern,
+                range,
+            })
+        } else {
+            let pattern = self.parse_pattern()?;
+            let range = pattern.range();
+            Ok(VariantPatternArgument {
+                label: None,
+                label_range: None,
+                pattern,
+                range,
+            })
+        }
     }
 
     fn parse_pattern_label(&mut self) -> ParserResult<String> {
@@ -2489,6 +2642,7 @@ impl<'source> Parser<'source> {
             Token::Try => "try",
             Token::Where => "where",
             Token::TypeKw => "type",
+            Token::Match => "match",
             _ => return None,
         })
     }
@@ -5232,6 +5386,54 @@ impl<'source> Parser<'source> {
         })))
     }
 
+    /// Parses a `match value { (pattern => branch)* }` pattern elimination expression.
+    fn parse_match_expression(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // 'match'
+        let value = Box::new(self.parse_expr_without_trailing_closures()?);
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        self.skip_newlines();
+        let mut arms = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            let arm_start = self.cur_start();
+            let pattern = self.parse_pattern()?;
+            let arrow_start = self.cur_start();
+            self.expect(&Token::FatArrow, &["\"=>\""])?;
+            let arrow_range = (arrow_start..self.prev_end).into();
+            self.skip_newlines();
+            let branch = Box::new(self.parse_match_arm_branch()?);
+            let arm_range = (arm_start..self.prev_end).into();
+            arms.push(MatchArm {
+                pattern,
+                branch,
+                arrow_range,
+                range: arm_range,
+            });
+            self.skip_newlines();
+            self.eat(&Token::Semicolon);
+            self.skip_newlines();
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+        Ok(Expr::Match(MatchExpr {
+            value,
+            arms,
+            range,
+        }))
+    }
+
+    fn parse_match_arm_branch(&mut self) -> ParserResult<Expr> {
+        if matches!(self.peek(), Token::LBrace) {
+            let next_is_map = (matches!(self.peek_next(), Token::Identifier(_) | Token::String(_) | Token::QuotedSymbol(_))
+                && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
+                || matches!(self.peek_next(), Token::LBracket | Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power);
+            if !next_is_map {
+                return self.parse_brace_block();
+            }
+        }
+        self.parse_expr()
+    }
+
     /// Parses a primary expression: a literal, variable/field, `self`/`super`,
     /// or a parenthesised expression.
     ///
@@ -5247,6 +5449,7 @@ impl<'source> Parser<'source> {
         let end = self.tokens[self.pos].end;
         let range = (start..end).into();
         match self.peek().clone() {
+            Token::Match => self.parse_match_expression(),
             Token::If => self.parse_if(),
             Token::While => self.parse_while(),
             Token::True => {

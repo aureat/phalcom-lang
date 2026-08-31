@@ -152,3 +152,41 @@ pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
         .collect::<Vec<_>>();
     Selector::method(name, slots).map(|s| s.encode()).unwrap_or_else(|_| format!("{name}()"))
 }
+
+fn slot_from_variant_pattern_arg(arg: &crate::ast::VariantPatternArgument) -> SelectorSlot {
+    match &arg.label {
+        Some(label) => SelectorSlot::Label(label.clone()),
+        None => SelectorSlot::Positional,
+    }
+}
+
+/// Constructs a structural exact [`Selector`] for a [`VariantPattern`] with `Singleton` or `ExactCall` mode.
+pub fn selector_from_exact_variant_pattern(pattern: &crate::ast::VariantPattern) -> Result<Selector, SelectorError> {
+    match &pattern.mode {
+        crate::ast::VariantPatternMode::Singleton => Selector::getter(&pattern.base),
+        crate::ast::VariantPatternMode::ExactCall { arguments } => {
+            let slots = arguments.iter().map(slot_from_variant_pattern_arg).collect::<Vec<_>>();
+            Selector::method(&pattern.base, slots)
+        }
+        _ => Err(SelectorError::InvalidPatternSlots),
+    }
+}
+
+/// Constructs a structural [`SelectorPattern`] for a [`VariantPattern`] with `CallablePattern` mode.
+pub fn selector_pattern_from_variant_pattern(pattern: &crate::ast::VariantPattern) -> Result<SelectorPattern, SelectorError> {
+    match &pattern.mode {
+        crate::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+            let prefix_slots = prefix.iter().map(slot_from_variant_pattern_arg).collect::<Vec<_>>();
+            let suffix_slots = suffix.iter().map(slot_from_variant_pattern_arg).collect::<Vec<_>>();
+            SelectorPattern::new(
+                SelectorBase::Named(pattern.base.clone()),
+                SelectorKindPattern::Exact(SelectorKind::Method),
+                prefix_slots.into_boxed_slice(),
+                suffix_slots.into_boxed_slice(),
+                true,
+            )
+        }
+        _ => Err(SelectorError::MissingGap),
+    }
+}
+
