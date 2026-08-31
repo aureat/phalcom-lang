@@ -38,7 +38,7 @@ jobs:
       - name: Verify patch
         run: git diff --check
       - name: Verify match regressions
-        run: cargo +stable test -p phalcom-semantic --test semantic match_regressions::
+        run: "cargo +stable test -p phalcom-semantic --test semantic match_regressions::"
       - name: Commit semantic changes
         run: |
           git config user.name 'phalcom-ci'
