@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/lexer.rs
+assertion_line: 219
 expression: "tokens(\"a.b :: c .. d ... e -> f => g\")"
 ---
 [

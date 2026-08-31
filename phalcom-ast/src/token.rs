@@ -102,6 +102,8 @@ pub enum Token {
     Where,
     /// The `type` keyword introducing transparent type alias declarations (Spec 04).
     TypeKw,
+    /// The `match` keyword introducing pattern elimination expressions (Part 05.1).
+    Match,
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),
@@ -220,6 +222,8 @@ pub enum Token {
     Subtype,
     /// The `=>>` type lambda arrow operator (Spec 04).
     TypeLambdaArrow,
+    /// The `=>` fat arrow operator used in match arms (Part 05.1).
+    FatArrow,
     /// The `?` punctuation mark.
     ///
     /// A lone `?` is reserved for a future ternary/try operator and is not part
