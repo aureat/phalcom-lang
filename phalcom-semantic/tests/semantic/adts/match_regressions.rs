@@ -159,3 +159,40 @@ class Test {
         "a statically unreachable arm must not widen or weaken the match expression result"
     );
 }
+
+#[test]
+fn all_abrupt_match_has_never_result() {
+    let source = r#"
+enum Choice {
+    @variant A -> Choice
+    @variant B -> Choice
+}
+
+class Test {
+    inspect(_ value: Choice) -> Int {
+        match value {
+            Choice::A => return 1
+            Choice::B => return 2
+        }
+    }
+}
+"#;
+
+    let module = test_module();
+    let parsed = phalcom_ast::parse_source(source, 0).expect("source should parse cleanly");
+    let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
+    let resolution = analysis
+        .snapshot
+        .callable_analyses
+        .values()
+        .flat_map(|callable| callable.match_resolutions.values())
+        .next()
+        .expect("match resolution");
+    let result_ty = resolution.result.ty().expect("all-abrupt match should still establish Never");
+
+    assert!(
+        matches!(analysis.snapshot.store.get(result_ty), phalcom_semantic::types::store::TypeData::Never),
+        "an exhaustive match with no normally completing arm must have Never result, got {:?}",
+        analysis.snapshot.store.get(result_ty)
+    );
+}
