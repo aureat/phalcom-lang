@@ -18,7 +18,7 @@ env:
 jobs:
   part-5-1-orchestration:
     name: Part 5.1 orchestration repair
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feat/adts'
+    if: github.event_name == 'pull_request'
     permissions:
       contents: write
     runs-on: ubuntu-latest
