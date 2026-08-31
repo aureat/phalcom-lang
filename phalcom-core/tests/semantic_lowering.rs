@@ -1,10 +1,10 @@
 //! Formal semantic snapshot to backend lowering projection tests (Part 4).
 
-use phalcom_common::selector::SelectorSlot;
+use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
-use phalcom_core::modules::semantic_lowering::{AssociatedLoweringSpec, LoweringSiteKind};
+use phalcom_core::modules::semantic_lowering::{AssociatedLoweringSpec, FamilyApplicationLoweringSpec, LoweringSiteKind};
 use phalcom_core::vm::VM;
 use phalcom_semantic::enum_semantics::VariantShape;
 use std::sync::Arc;
@@ -96,4 +96,54 @@ let result = Factory::make(value: 1)
     let chunk = &vm.heap.closure(closure).callable.chunk;
     assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::InvokeResolvedAssociated { arity: 1, .. })));
     assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::MakeFamily { .. })));
+}
+
+#[test]
+fn family_application_lowering_projects_static_and_dynamic_records() {
+    let source = r#"
+enum Weird {
+  @variant Marker
+  @variant Marker()
+  @variant Marker(_ value: Int)
+}
+
+let make = Weird::Marker::*;
+let static_value = make(1)
+let args = [1];
+let dynamic_value = make(*args)
+"#;
+    let (_vm, program, _closure) = compile_inline(source).expect("source should compile");
+    let lowering = &program.modules[&program.entry].lowering;
+    assert_eq!(lowering.family_applications.len(), 2);
+    assert!(
+        lowering
+            .family_applications
+            .keys()
+            .all(|site| { site.kind == LoweringSiteKind::FamilyApplication && site.range != phalcom_common::range::SourceRange::default() })
+    );
+
+    let static_spec = lowering
+        .family_applications
+        .values()
+        .find(|spec| matches!(spec, FamilyApplicationLoweringSpec::Static { .. }))
+        .expect("static family application lowering");
+    let FamilyApplicationLoweringSpec::Static { operation, target, arity } = static_spec else {
+        unreachable!();
+    };
+    assert_eq!(operation.kind, SelectorKind::Method);
+    assert_eq!(operation.slots.as_ref(), [SelectorSlot::Positional]);
+    assert!(target.is_some());
+    assert_eq!(*arity, 1);
+
+    let dynamic_spec = lowering
+        .family_applications
+        .values()
+        .find(|spec| matches!(spec, FamilyApplicationLoweringSpec::DynamicPack { .. }))
+        .expect("dynamic family application lowering");
+    let FamilyApplicationLoweringSpec::DynamicPack { candidates } = dynamic_spec else {
+        unreachable!();
+    };
+    assert_eq!(candidates.len(), 2);
+    assert!(candidates.iter().all(|candidate| candidate.operation.kind == SelectorKind::Method));
+    assert!(candidates.iter().all(|candidate| candidate.target.is_some()));
 }

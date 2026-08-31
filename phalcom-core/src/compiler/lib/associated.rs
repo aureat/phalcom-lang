@@ -1,9 +1,9 @@
 //! Associated expression lowering to direct bytecodes and family objects (Part 4).
 
 use crate::bytecode::Bytecode;
-use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::Compiler;
-use crate::modules::semantic_lowering::{AssociatedLoweringSpec, LoweringSiteKind};
+use crate::compiler::lib::error::CompilerError;
+use crate::modules::semantic_lowering::{AssociatedLoweringSpec, ExecutableFamilyCandidateSet, FamilyApplicationLoweringSpec, LoweringSiteKind};
 use crate::value::Value;
 use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, Expr, PackItem};
 use phalcom_common::range::SourceRange;
@@ -12,6 +12,65 @@ use phalcom_modules::DeclarationId;
 use phalcom_semantic::identity::VariantId;
 
 impl<'vm> Compiler<'vm> {
+    fn family_application_spec(&self, range: SourceRange) -> Option<FamilyApplicationLoweringSpec> {
+        self.lowering().and_then(|l| {
+            l.family_applications
+                .iter()
+                .find(|(site, _)| site.range == range && site.kind == LoweringSiteKind::FamilyApplication)
+                .map(|(_, spec)| spec.clone())
+        })
+    }
+
+    /// Lowers an ordinary call on a first-class associated family, when formal
+    /// semantics marked this source range as a family application.
+    pub fn compile_family_application_call(&mut self, callee: Expr, args: Vec<PackItem>, range: SourceRange) -> Result<bool, CompilerError> {
+        let Some(spec) = self.family_application_spec(range) else {
+            return Ok(false);
+        };
+
+        self.compile_expr(callee)?;
+        match spec {
+            FamilyApplicationLoweringSpec::Static { operation, arity, .. } => {
+                for arg in args {
+                    self.compile_pack_item(arg)?;
+                }
+                let operation_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_family_operation(operation, range)?;
+                self.emit(
+                    Bytecode::InvokeAssociatedFamilyStatic {
+                        operation: operation_idx,
+                        arity,
+                    },
+                    range,
+                );
+            }
+            FamilyApplicationLoweringSpec::DynamicPack { candidates } => {
+                let builder_slot = self.reserve_pack_scratch("$family_pack_builder", range)?;
+                self.emit(Bytecode::NewArgumentPack, range);
+                self.emit(Bytecode::SetLocal(builder_slot), range);
+                self.emit(Bytecode::Pop, range);
+                self.compile_dynamic_pack_items(builder_slot, args)?;
+                self.emit(Bytecode::GetLocal(builder_slot), range);
+                let candidates_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_family_candidate_set(ExecutableFamilyCandidateSet { candidates }, range)?;
+                self.emit(Bytecode::InvokeAssociatedFamilyPack { candidates: candidates_idx }, range);
+                self.release_pack_scratch_from(builder_slot, 1, range);
+            }
+        }
+
+        Ok(true)
+    }
+
     /// Lowers an AssociatedLookup expression (e.g. `Option::None`, `Option::Some::`, `Type::#method::*`).
     pub fn compile_associated_lookup(&mut self, expr: &AssociatedLookupExpr) -> Result<(), CompilerError> {
         let spec = self.lowering().and_then(|l| {

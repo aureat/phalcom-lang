@@ -137,7 +137,7 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-    fn compile_dynamic_pack_items(&mut self, builder_slot: u16, items: Vec<PackItem>) -> Result<(), CompilerError> {
+    pub(super) fn compile_dynamic_pack_items(&mut self, builder_slot: u16, items: Vec<PackItem>) -> Result<(), CompilerError> {
         for item in items {
             let range = match &item {
                 PackItem::Positional { range, .. } | PackItem::Labeled { range, .. } | PackItem::Expand { range, .. } => *range,
@@ -295,6 +295,16 @@ impl<'vm> Compiler<'vm> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
+                if self.compile_family_application_call(
+                    Expr::Var {
+                        value: call.name.clone(),
+                        range: call.name_range.unwrap_or(call.range),
+                    },
+                    call.args.clone(),
+                    call.range,
+                )? {
+                    return Ok(());
+                }
                 let name_sym = self.vm.interner.intern(&call.name);
                 let resolution = self.resolve_bare_name(name_sym);
                 if Self::needs_dynamic_pack(&call.args) {
@@ -379,6 +389,11 @@ impl<'vm> Compiler<'vm> {
                 let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
                 if internal_call && !is_invariant_guard && !self.compiling_privileged_core() && !self.compiler_internal {
                     return Err(CompilerError::InternalNamespaceReserved(method_call.method.clone(), method_call.range));
+                }
+                if method_call.method == "call"
+                    && self.compile_family_application_call(method_call.object.clone(), method_call.args.clone(), method_call.range)?
+                {
+                    return Ok(());
                 }
                 if Self::needs_dynamic_pack(&method_call.args) && !matches!(&method_call.object, Expr::SuperVar { .. }) {
                     let method_call = *method_call;

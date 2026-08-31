@@ -1,6 +1,7 @@
 //! Compiler lowering conformance for associated ADT expressions (Part 4).
 
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::SelectorKind;
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
@@ -51,4 +52,49 @@ let payload = Weird::Marker(1)
         )
     }));
     assert!(lowering.associated.keys().all(|site| site.range != SourceRange::default()));
+}
+
+#[test]
+fn family_application_calls_emit_associated_family_bytecodes() {
+    let source = r#"
+enum Weird {
+  @variant Marker
+  @variant Marker()
+  @variant Marker(_ value: Int)
+}
+
+let make = Weird::Marker::*;
+let static_value = make(1)
+let args = [1];
+let dynamic_value = make(*args)
+"#;
+    let (vm, _program, closure) = compile_inline(source).expect("source should compile");
+    let chunk = &vm.heap.closure(closure).callable.chunk;
+
+    let static_invocations: Vec<_> = chunk
+        .code
+        .iter()
+        .filter_map(|op| match op {
+            Bytecode::InvokeAssociatedFamilyStatic { operation, arity } => Some((*operation, *arity)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(static_invocations.len(), 1);
+    let (operation_index, arity) = static_invocations[0];
+    assert_eq!(arity, 1);
+    let operation = chunk.executable_semantics.family_operation(operation_index);
+    assert_eq!(operation.kind, SelectorKind::Method);
+
+    let dynamic_invocations: Vec<_> = chunk
+        .code
+        .iter()
+        .filter_map(|op| match op {
+            Bytecode::InvokeAssociatedFamilyPack { candidates } => Some(*candidates),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(dynamic_invocations.len(), 1);
+    let candidates = chunk.executable_semantics.family_candidate_set(dynamic_invocations[0]);
+    assert_eq!(candidates.candidates.len(), 2);
+    assert!(candidates.candidates.iter().all(|candidate| candidate.operation.kind == SelectorKind::Method));
 }

@@ -6,9 +6,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId, SourceId};
 use phalcom_semantic::associated::AssociatedMemberId;
-use phalcom_semantic::checker::associated::{
-    AssociatedResolution, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationSelection,
-};
+use phalcom_semantic::checker::associated::{AssociatedResolution, AssociatedResolutionKind, FamilyApplicationResolution, FamilyApplicationSelection};
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{CallableId, ExpressionId, InvocationTargetId, VariantFieldId, VariantId};
 use phalcom_semantic::snapshot::SemanticSnapshot;
@@ -127,7 +125,7 @@ pub enum FamilyApplicationLoweringSpec {
         arity: u8,
     },
     /// Dynamic pack invocation restricted to frozen candidates.
-    DynamicPack { candidates: Box<[FamilyApplicationCandidate]> },
+    DynamicPack { candidates: Box<[ExecutableFamilyCandidate]> },
 }
 
 /// Canonical payload field lowering specification.
@@ -429,15 +427,7 @@ fn variant_constructor_operation(snapshot: &SemanticSnapshot, variant: &VariantI
 fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyApplicationLoweringSpec {
     match &fam_app.selection {
         FamilyApplicationSelection::Static { operation, target, .. } => {
-            let exec_target = target.as_ref().map(|t| match t {
-                InvocationTargetId::Behavioral(c) => ExecutableInvocationTarget::Behavioral {
-                    lookup_owner: c.owner.declaration().clone(),
-                    callable: c.clone(),
-                    operation: operation.clone(),
-                    rest_mode: ExecutableRestMode::None,
-                },
-                InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
-            });
+            let exec_target = target.as_ref().map(|target| executable_invocation_target(target, operation));
             let arity = operation.slots.len() as u8;
             FamilyApplicationLoweringSpec::Static {
                 operation: operation.clone(),
@@ -445,8 +435,31 @@ fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyAp
                 arity,
             }
         }
-        FamilyApplicationSelection::Dynamic { candidates, .. } => FamilyApplicationLoweringSpec::DynamicPack {
-            candidates: candidates.clone(),
+        FamilyApplicationSelection::Dynamic { candidates, .. } => {
+            let exec_candidates = candidates
+                .iter()
+                .map(|candidate| ExecutableFamilyCandidate {
+                    operation: candidate.operation.clone(),
+                    target: candidate
+                        .target
+                        .as_ref()
+                        .map(|target| executable_invocation_target(target, &candidate.operation)),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            FamilyApplicationLoweringSpec::DynamicPack { candidates: exec_candidates }
+        }
+    }
+}
+
+fn executable_invocation_target(target: &InvocationTargetId, operation: &FamilyOperationShape) -> ExecutableInvocationTarget {
+    match target {
+        InvocationTargetId::Behavioral(c) => ExecutableInvocationTarget::Behavioral {
+            lookup_owner: c.owner.declaration().clone(),
+            callable: c.clone(),
+            operation: operation.clone(),
+            rest_mode: ExecutableRestMode::None,
         },
+        InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
     }
 }
