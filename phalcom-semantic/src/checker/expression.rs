@@ -2615,21 +2615,85 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
 pub fn synthesize_match_expr(
     ctx: &mut CheckingContext<'_>,
     match_expr: &phalcom_ast::ast::MatchExpr,
-    _expected: &ExpectedType,
+    expected: &ExpectedType,
 ) -> TypedExpression {
     let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
     let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
+    let scrutinee_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+
+    let initial_space = crate::checker::exhaustiveness::build_initial_pattern_space(ctx, scrutinee_ty);
+
+    let mut arm_spaces = Vec::with_capacity(match_expr.arms.len());
+    let mut arm_ranges = Vec::with_capacity(match_expr.arms.len());
+    let mut arm_data = Vec::with_capacity(match_expr.arms.len());
+    let mut branch_types = Vec::new();
+
+    for arm in &match_expr.arms {
+        ctx.push_scope();
+        let mut arm_bindings = Vec::new();
+        let (pattern_res, arm_space) = crate::checker::pattern::resolve_pattern(
+            ctx,
+            &arm.pattern,
+            scrutinee_ty,
+            &initial_space,
+            &mut arm_bindings,
+        );
+
+        let branch_typed = analyze_expression(ctx, &arm.branch, expected);
+        ctx.pop_scope();
+
+        arm_spaces.push(arm_space);
+        arm_ranges.push(arm.range);
+        branch_types.push(branch_typed.knowledge.clone());
+
+        let proof = match &pattern_res {
+            crate::match_semantics::PatternResolution::Variant(v) => {
+                v.candidates.first().map(|c| c.proof.clone()).unwrap_or_default()
+            }
+            _ => crate::match_semantics::BranchProofEnvironment::default(),
+        };
+
+        arm_data.push((pattern_res, arm_bindings, branch_typed.knowledge, proof));
+    }
+
+    let (exhaustiveness, arm_space_results) = crate::checker::exhaustiveness::evaluate_match_exhaustiveness(
+        ctx,
+        &initial_space,
+        &arm_spaces,
+        &arm_ranges,
+        match_expr.range,
+    );
+
+    let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
+    for (i, ((reachable, residual, usefulness), (pattern_res, arm_bindings, branch_result, proof))) in arm_space_results.into_iter().zip(arm_data.into_iter()).enumerate() {
+        arm_resolutions.push(crate::match_semantics::MatchArmResolution {
+            arm_index: i as u32,
+            pattern: pattern_res,
+            reachable_space: reachable.summarize(),
+            residual_after: residual.summarize(),
+            bindings: arm_bindings.into_boxed_slice(),
+            proof,
+            usefulness,
+            branch_result,
+        });
+    }
+
+    let unified_result = if branch_types.is_empty() {
+        TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow)
+    } else {
+        branch_types.first().cloned().unwrap_or_else(|| TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow))
+    };
 
     let resolution = crate::match_semantics::MatchResolution {
         expression: expr_id,
         scrutinee: scrutinee_typed.knowledge.clone(),
-        initial_space: crate::match_semantics::PatternSpaceSummary::Empty,
-        arms: Vec::new().into_boxed_slice(),
-        result: scrutinee_typed.knowledge.clone(),
-        exhaustiveness: crate::match_semantics::ExhaustivenessResult::Proven,
+        initial_space: initial_space.summarize(),
+        arms: arm_resolutions.into_boxed_slice(),
+        result: unified_result.clone(),
+        exhaustiveness,
     };
     ctx.record_match_resolution(expr_id, resolution);
 
-    TypedExpression::new(scrutinee_typed.knowledge)
+    TypedExpression::new(unified_result)
 }
 

@@ -49,7 +49,7 @@ pub fn solve_gadt_branch_proof(
 
     // Check consistency between case bindings and scrutinee arguments
     for (&param_id, &case_ty) in &variant_info.case_environment.bindings {
-        let param_index = param_id.index() as usize;
+        let param_index = store.type_parameter(param_id).index as usize;
         if let Some(&scrutinee_arg_ty) = scrutinee_args.get(param_index) {
             // Check if case_ty is compatible with scrutinee_arg_ty
             if case_ty != scrutinee_arg_ty {

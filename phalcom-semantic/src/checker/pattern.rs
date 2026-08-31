@@ -273,46 +273,31 @@ fn resolve_variant_pattern(
                     }
                 }
                 VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
-                    for (i, arg) in prefix.iter().enumerate() {
-                        let field_semantic = if let Some(ref label) = arg.label {
-                            v_info.fields.iter().find(|f| f.external_label.as_deref() == Some(label))
-                        } else {
-                            v_info.fields.get(i)
-                        };
-                        let (field_id, field_type) = if let Some(f) = field_semantic {
-                            let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
-                            (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
-                        } else {
-                            (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), i as u32),
-                                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-                            )
-                        };
-                        let f_expected_ty = field_type.ty().unwrap_or(expected_ty);
-                        let f_expected_space = PatternSpace::Opaque(f_expected_ty);
-                        let (child_res, f_space) = resolve_pattern(ctx, &arg.pattern, f_expected_ty, &f_expected_space, bindings);
-                        resolved_fields.push(ResolvedFieldPattern {
-                            field: field_id,
-                            field_type,
-                            child: Box::new(child_res),
-                        });
-                        field_spaces.push(f_space);
+                    // Initialize field_spaces for all variant fields with opaque wildcard spaces
+                    for f in v_info.fields.iter() {
+                        let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                        field_spaces.push(PatternSpace::Opaque(f_ty));
                     }
-                    for arg in suffix.iter() {
-                        let field_semantic = if let Some(ref label) = arg.label {
-                            v_info.fields.iter().find(|f| f.external_label.as_deref() == Some(label))
+
+                    for (i, arg) in prefix.iter().enumerate() {
+                        let (field_idx, field_semantic) = if let Some(ref label) = arg.label {
+                            v_info.fields.iter().enumerate().find(|(_, f)| f.external_label.as_deref() == Some(label))
+                                .map(|(idx, f)| (idx, Some(f)))
+                                .unwrap_or((i, None))
                         } else {
-                            None
+                            (i, v_info.fields.get(i))
                         };
+
                         let (field_id, field_type) = if let Some(f) = field_semantic {
                             let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
                             (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
                         } else {
                             (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), 0),
+                                crate::identity::VariantFieldId::new(variant_id.clone(), field_idx as u32),
                                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
                             )
                         };
+
                         let f_expected_ty = field_type.ty().unwrap_or(expected_ty);
                         let f_expected_space = PatternSpace::Opaque(f_expected_ty);
                         let (child_res, f_space) = resolve_pattern(ctx, &arg.pattern, f_expected_ty, &f_expected_space, bindings);
@@ -321,7 +306,42 @@ fn resolve_variant_pattern(
                             field_type,
                             child: Box::new(child_res),
                         });
-                        field_spaces.push(f_space);
+                        if field_idx < field_spaces.len() {
+                            field_spaces[field_idx] = f_space;
+                        }
+                    }
+
+                    for (s_idx, arg) in suffix.iter().enumerate() {
+                        let (field_idx, field_semantic) = if let Some(ref label) = arg.label {
+                            v_info.fields.iter().enumerate().find(|(_, f)| f.external_label.as_deref() == Some(label))
+                                .map(|(idx, f)| (idx, Some(f)))
+                                .unwrap_or((v_info.fields.len().saturating_sub(suffix.len() - s_idx), None))
+                        } else {
+                            let idx = v_info.fields.len().saturating_sub(suffix.len() - s_idx);
+                            (idx, v_info.fields.get(idx))
+                        };
+
+                        let (field_id, field_type) = if let Some(f) = field_semantic {
+                            let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                            (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
+                        } else {
+                            (
+                                crate::identity::VariantFieldId::new(variant_id.clone(), field_idx as u32),
+                                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                            )
+                        };
+
+                        let f_expected_ty = field_type.ty().unwrap_or(expected_ty);
+                        let f_expected_space = PatternSpace::Opaque(f_expected_ty);
+                        let (child_res, f_space) = resolve_pattern(ctx, &arg.pattern, f_expected_ty, &f_expected_space, bindings);
+                        resolved_fields.push(ResolvedFieldPattern {
+                            field: field_id,
+                            field_type,
+                            child: Box::new(child_res),
+                        });
+                        if field_idx < field_spaces.len() {
+                            field_spaces[field_idx] = f_space;
+                        }
                     }
                 }
                 VariantPatternMode::Singleton | VariantPatternMode::WholeFamily { .. } => {

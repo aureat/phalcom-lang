@@ -16,7 +16,7 @@ enum Expr<T> {
 }
 
 class Test {
-    evalInt(e: Expr<Int>) {
+    evalInt(_ e: Expr<Int>) {
         match e {
             Expr::LitInt(n) => n
         }

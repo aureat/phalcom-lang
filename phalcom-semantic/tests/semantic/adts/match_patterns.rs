@@ -16,7 +16,7 @@ enum Result<T, E> {
 }
 
 class Test {
-    check(res: Result<Int, String>) {
+    check(_ res: Result<Int, String>) {
         match res {
             Result::Ok(x) => x
             Result::Error(_, reason: msg) => 0
@@ -42,10 +42,10 @@ enum Animal {
 }
 
 class Test {
-    check(a: Animal) {
+    check(_ a: Animal) {
         match a {
-            Animal::Dog* => 1
-            Animal::Dog(name, ..., breed: b) => 2
+            Animal::Dog(name, ..., breed: b) => 1
+            Animal::Dog* => 2
             Animal::Cat => 3
         }
     }
@@ -54,6 +54,5 @@ class Test {
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
-
     assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "no semantic errors");
 }

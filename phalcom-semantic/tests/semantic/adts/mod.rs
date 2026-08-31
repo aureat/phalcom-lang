@@ -1,5 +1,6 @@
 pub(crate) mod declarations;
 pub(crate) mod exact_cases;
+pub(crate) mod exhaustiveness;
 pub(crate) mod gadt_cases;
 pub(crate) mod gadt_proofs;
 pub(crate) mod match_basic;

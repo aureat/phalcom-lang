@@ -72,6 +72,12 @@ pub enum DiagnosticCode {
     AssociatedGenericOwnerConflict,
     AssociatedGadtOwnerConflict,
     AssociatedFamilyTypeInvalid,
+    MatchNonExhaustive,
+    MatchArmRedundant,
+    MatchPatternUnresolved,
+    MatchPatternArityMismatch,
+    MatchPatternFieldMismatch,
+    MatchPatternContradictory,
 }
 
 impl DiagnosticCode {
@@ -136,6 +142,12 @@ impl DiagnosticCode {
             Self::AssociatedGenericOwnerConflict => "associated.generic.owner_conflict",
             Self::AssociatedGadtOwnerConflict => "associated.gadt.owner_conflict",
             Self::AssociatedFamilyTypeInvalid => "associated.family.type_invalid",
+            Self::MatchNonExhaustive => "match.non_exhaustive",
+            Self::MatchArmRedundant => "match.arm_redundant",
+            Self::MatchPatternUnresolved => "match.pattern_unresolved",
+            Self::MatchPatternArityMismatch => "match.pattern_arity_mismatch",
+            Self::MatchPatternFieldMismatch => "match.pattern_field_mismatch",
+            Self::MatchPatternContradictory => "match.pattern_contradictory",
         }
     }
 }

@@ -617,8 +617,13 @@ impl SemanticWorkspaceSession {
         let mut published_shells = BTreeSet::new();
         for (module_id, parsed_unit) in &input.sources {
             for statement in &parsed_unit.program.statements {
-                if let Statement::Class(class_def) = statement {
-                    let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let decl_name = match statement {
+                    Statement::Class(class_def) => Some(class_def.name.as_str()),
+                    Statement::Enum(enum_def) => Some(enum_def.name.as_str()),
+                    _ => None,
+                };
+                if let Some(name) = decl_name {
+                    let declaration = DeclarationId::new(module_id.clone(), name.into());
                     if published_shells.insert(declaration.clone()) {
                         let Some(info) = declarations.get(&declaration).cloned() else {
                             return Err(QueryOutcome::Failed(format!("missing declaration metadata for {declaration:?}")));
