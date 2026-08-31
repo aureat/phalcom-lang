@@ -258,6 +258,14 @@ pub enum ProjectionError {
     MissingVariantMetadata(VariantId),
     #[error("missing field layout for field {0:?} in variant {1:?}")]
     MissingFieldLayout(VariantFieldId, VariantId),
+    #[error("missing pattern binding for {0:?}")]
+    MissingPatternBinding(phalcom_semantic::identity::BindingId),
+    #[error("pattern binding index overflow for {0}")]
+    PatternBindingIndexOverflow(usize),
+    #[error("arity overflow for length {0}")]
+    ArityOverflow(usize),
+    #[error("slot overflow for index {0}")]
+    SlotOverflow(usize),
     #[error("non-proven match reached executable lowering for expression {0:?}")]
     NonProvenMatch(ExpressionId),
 }
@@ -282,17 +290,19 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
         }
         let mut variants = Vec::new();
         for variant_id in enum_info.variants.iter() {
-            let var_info = snapshot.enum_semantics.variant_info(variant_id);
-            let shape = var_info.map(|v| v.shape).unwrap_or(VariantShape::Singleton);
+            let vinfo = snapshot
+                .enum_semantics
+                .variant_info(variant_id)
+                .ok_or_else(|| ProjectionError::MissingVariantMetadata(variant_id.clone()))?;
+            let shape = vinfo.shape;
             let mut payload_fields = Vec::new();
-            if let Some(vinfo) = var_info {
-                for (idx, field) in vinfo.fields.iter().enumerate() {
-                    payload_fields.push(VariantFieldLoweringSpec {
-                        id: field.id.clone(),
-                        local_name: field.local_name.clone(),
-                        slot: idx as u16,
-                    });
-                }
+            for (idx, field) in vinfo.fields.iter().enumerate() {
+                let slot = u16::try_from(idx).map_err(|_| ProjectionError::SlotOverflow(idx))?;
+                payload_fields.push(VariantFieldLoweringSpec {
+                    id: field.id.clone(),
+                    local_name: field.local_name.clone(),
+                    slot,
+                });
             }
             variants.push(VariantLoweringSpec {
                 id: variant_id.clone(),
@@ -305,6 +315,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
             variants: variants.into_boxed_slice(),
         });
     }
+    enums.sort_by(|a, b| a.owner.cmp(&b.owner));
 
     // 2. Project Associated Expressions & Family Applications
     let mut associated = BTreeMap::new();
@@ -326,7 +337,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
 
-            let (kind, spec) = project_associated_resolution(resolution, snapshot);
+            let (kind, spec) = project_associated_resolution(resolution, snapshot)?;
             let site = LoweringSite::new(source_id.clone(), range, kind);
 
             if associated.contains_key(&site) {
@@ -434,10 +445,12 @@ fn project_pattern_resolution(
     match pattern {
         phalcom_semantic::match_semantics::PatternResolution::Wildcard => Ok(ExecutablePattern::Wildcard),
         phalcom_semantic::match_semantics::PatternResolution::Binding { binding, name, .. } => {
-            let binding_index = bindings
+            let index = bindings
                 .iter()
                 .position(|b| b.binding == *binding)
-                .unwrap_or(0) as u32;
+                .ok_or_else(|| ProjectionError::MissingPatternBinding(binding.clone()))?;
+            let binding_index = u32::try_from(index)
+                .map_err(|_| ProjectionError::PatternBindingIndexOverflow(index))?;
             Ok(ExecutablePattern::Binding {
                 binding_index,
                 name: name.clone(),
@@ -446,19 +459,18 @@ fn project_pattern_resolution(
         phalcom_semantic::match_semantics::PatternResolution::Variant(var_pat) => {
             let mut candidates = Vec::with_capacity(var_pat.candidates.len());
             for candidate in var_pat.candidates.iter() {
-                let var_info = snapshot.enum_semantics.variant_info(&candidate.variant);
+                let vinfo = snapshot
+                    .enum_semantics
+                    .variant_info(&candidate.variant)
+                    .ok_or_else(|| ProjectionError::MissingVariantMetadata(candidate.variant.clone()))?;
                 let mut field_projections = Vec::with_capacity(candidate.fields.len());
                 for field in candidate.fields.iter() {
-                    let slot = if let Some(vinfo) = var_info {
-                        vinfo
-                            .fields
-                            .iter()
-                            .position(|f| f.id == field.field)
-                            .map(|idx| idx as u16)
-                            .ok_or_else(|| ProjectionError::MissingFieldLayout(field.field.clone(), candidate.variant.clone()))?
-                    } else {
-                        return Err(ProjectionError::MissingVariantMetadata(candidate.variant.clone()));
-                    };
+                    let idx = vinfo
+                        .fields
+                        .iter()
+                        .position(|f| f.id == field.field)
+                        .ok_or_else(|| ProjectionError::MissingFieldLayout(field.field.clone(), candidate.variant.clone()))?;
+                    let slot = u16::try_from(idx).map_err(|_| ProjectionError::SlotOverflow(idx))?;
 
                     let child = project_pattern_resolution(&field.child, bindings, snapshot)?;
                     field_projections.push(ExecutableFieldProjection {
@@ -534,15 +546,18 @@ fn project_pattern_resolution(
     }
 }
 
-fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &SemanticSnapshot) -> (LoweringSiteKind, AssociatedLoweringSpec) {
+fn project_associated_resolution(
+    resolution: &AssociatedResolution,
+    snapshot: &SemanticSnapshot,
+) -> Result<(LoweringSiteKind, AssociatedLoweringSpec), ProjectionError> {
     match &resolution.kind {
         AssociatedResolutionKind::ExactValue { member, .. } => {
             let spec = match member {
                 AssociatedMemberId::Variant(v) => AssociatedLoweringSpec::SingletonLoad { variant: v.clone() },
             };
-            (LoweringSiteKind::AssociatedLookup, spec)
+            Ok((LoweringSiteKind::AssociatedLookup, spec))
         }
-        AssociatedResolutionKind::ExactCallable { member, target, .. } => {
+        AssociatedResolutionKind::ExactCallable { target, .. } => {
             let spec = match target {
                 InvocationTargetId::Behavioral(c) => AssociatedLoweringSpec::MakeResolvedBoundMethod {
                     target: ExecutableInvocationTarget::Behavioral {
@@ -557,16 +572,12 @@ fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &S
                     operation: variant_constructor_operation(snapshot, &vc.variant),
                 },
             };
-            (LoweringSiteKind::AssociatedLookup, spec)
+            Ok((LoweringSiteKind::AssociatedLookup, spec))
         }
         AssociatedResolutionKind::Family { members, .. } => {
             let mut entries = Vec::new();
             for member in members.iter() {
                 let (target, member_kind) = match (&member.member, &member.target) {
-                    // Singleton variants are exact values rather than call
-                    // targets. Preserve them as frozen value entries so a
-                    // family capture does not silently lose its canonical
-                    // singleton capability.
                     (AssociatedMemberId::Variant(variant), None) => {
                         (ExecutableFamilyTarget::Singleton { variant: variant.clone() }, FamilyMemberTypeKind::Value)
                     }
@@ -595,23 +606,28 @@ fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &S
             let desc = ExecutableFamilyDescriptor {
                 entries: entries.into_boxed_slice(),
             };
-            (
+            Ok((
                 LoweringSiteKind::AssociatedLookup,
                 AssociatedLoweringSpec::MakeAssociatedFamily { descriptor: Arc::new(desc) },
-            )
+            ))
         }
-        AssociatedResolutionKind::StaticInvoke { member, target, .. } => {
+        AssociatedResolutionKind::StaticInvoke { target, .. } => {
             let spec = match target {
                 InvocationTargetId::VariantConstructor(vc) => {
-                    let var_info = snapshot.enum_semantics.variant_info(&vc.variant);
-                    let arity = var_info.map(|v| v.fields.len() as u8).unwrap_or(0);
+                    let vinfo = snapshot
+                        .enum_semantics
+                        .variant_info(&vc.variant)
+                        .ok_or_else(|| ProjectionError::MissingVariantMetadata(vc.variant.clone()))?;
+                    let arity = u8::try_from(vinfo.fields.len())
+                        .map_err(|_| ProjectionError::ArityOverflow(vinfo.fields.len()))?;
                     AssociatedLoweringSpec::ConstructVariant {
                         variant: vc.variant.clone(),
                         arity,
                     }
                 }
                 InvocationTargetId::Behavioral(c) => {
-                    let arity = c.selector.slots.len() as u8;
+                    let arity = u8::try_from(c.selector.slots.len())
+                        .map_err(|_| ProjectionError::ArityOverflow(c.selector.slots.len()))?;
                     AssociatedLoweringSpec::InvokeResolvedAssociated {
                         target: ExecutableInvocationTarget::Behavioral {
                             lookup_owner: resolution.lookup_owner.clone(),
@@ -623,7 +639,7 @@ fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &S
                     }
                 }
             };
-            (LoweringSiteKind::AssociatedInvoke, spec)
+            Ok((LoweringSiteKind::AssociatedInvoke, spec))
         }
         AssociatedResolutionKind::DynamicInvoke { candidates, .. } => {
             let mut exec_candidates = Vec::new();
@@ -645,7 +661,7 @@ fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &S
             let spec = AssociatedLoweringSpec::DynamicInvoke {
                 candidates: exec_candidates.into_boxed_slice(),
             };
-            (LoweringSiteKind::AssociatedInvoke, spec)
+            Ok((LoweringSiteKind::AssociatedInvoke, spec))
         }
     }
 }

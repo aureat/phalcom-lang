@@ -361,6 +361,10 @@ pub enum CompilerError {
     /// Executable semantic pool index overflow.
     #[error("compiler.semantic_pool_overflow: executable semantic pool overflow for {kind}")]
     ExecutableSemanticPoolOverflow { kind: &'static str, span: SourceRange },
+
+    /// Static member on variant case is illegal.
+    #[error("variant.static_member_illegal: static or @class member '{0}' is not permitted on enum variant case.")]
+    IllegalStaticOnVariantMember(String, SourceRange),
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

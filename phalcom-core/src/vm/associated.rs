@@ -25,8 +25,10 @@ impl VM {
         }
 
         // 2. Check builtin classes
-        if let Some(class_id) = self.resolve_builtin_class_name(&decl.name) {
-            return Ok(class_id);
+        if matches!(decl.module.project, phalcom_modules::ProjectIdentity::Builtin(_)) {
+            if let Some(class_id) = self.resolve_builtin_class_name(&decl.name) {
+                return Ok(class_id);
+            }
         }
 
         // 3. Check module registry
@@ -40,13 +42,6 @@ impl VM {
                 if let Some(&class_id) = self.classes.get(&key) {
                     return Ok(class_id);
                 }
-            }
-        }
-
-        // 4. Fallback search across classes by name
-        for (key, &class_id) in &self.classes {
-            if self.interner.lookup(key.name) == decl.name.as_ref() {
-                return Ok(class_id);
             }
         }
 

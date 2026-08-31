@@ -40,12 +40,12 @@ impl VM {
             case_class.class = self.universe.classes.class_class;
             case_class.superclass = Some(root_class_id);
             let case_class_id = self.heap.alloc_class(case_class);
-            let discriminant = CaseDiscriminant(idx as u32);
+            let discriminant = CaseDiscriminant(u32::try_from(idx).expect("discriminant index overflow"));
             let shape = match var_spec.shape {
                 VariantShape::Singleton => RuntimeVariantShape::Singleton,
                 VariantShape::Constructor => RuntimeVariantShape::Constructor,
             };
-            let payload_arity = var_spec.payload_fields.len() as u16;
+            let payload_arity = u16::try_from(var_spec.payload_fields.len()).expect("payload arity overflow");
 
             let runtime_var_id = self
                 .adt_registry
@@ -54,7 +54,7 @@ impl VM {
             // Register payload field getters on the case behavior class
             let module = self.entry_module().or_else(|| self.core_module()).unwrap();
             for field in var_spec.payload_fields.iter() {
-                let slot = field.slot as usize;
+                let slot = field.slot;
                 let getter_name = &field.local_name;
                 let sig_str = crate::method::make_signature(getter_name, crate::method::SignatureKind::Getter);
                 let selector_sym = self.interner.intern(&sig_str);
