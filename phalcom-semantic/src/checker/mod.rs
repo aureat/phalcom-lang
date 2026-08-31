@@ -14,6 +14,7 @@ pub mod expected;
 pub mod expression;
 pub mod field_lifecycle;
 pub mod flow;
+pub mod gadt_proof;
 pub mod incident;
 pub mod inference;
 pub(crate) mod loop_analysis;
@@ -45,6 +46,7 @@ pub use expression::{analyze_expression, check_expr, check_typed_expr, synthesiz
 pub use incident::{BindingContractSummary, InternalFailurePolicy, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 
 pub use flow::FlowState;
+pub use gadt_proof::{GadtProofResult, solve_gadt_branch_proof};
 pub use inference::{InferenceOutcome, InferenceSession, InferenceSupport, InferenceTerm};
 pub use pattern::resolve_pattern;
 pub use pattern_space::{ListSpace, PatternSpace, VariantSpace};

@@ -222,7 +222,21 @@ fn resolve_variant_pattern(
                 continue;
             }
 
-            let exact_case = ctx.store.exact_case_type(variant_id, expected_ty).unwrap_or(v_info.exact_case_template);
+            let gadt_res = crate::checker::gadt_proof::solve_gadt_branch_proof(
+                ctx.store,
+                &ctx.hierarchy,
+                &owner_decl,
+                v_info,
+                expected_ty,
+            );
+
+            let (proof, exact_case) = match gadt_res {
+                crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
+                crate::checker::gadt_proof::GadtProofResult::Refuted => {
+                    continue;
+                }
+            };
+
             let mut resolved_fields = Vec::new();
             let mut field_spaces = Vec::new();
 
@@ -322,14 +336,14 @@ fn resolve_variant_pattern(
                 variant: variant_id.clone(),
                 exact_case,
                 fields: resolved_fields.into_boxed_slice(),
-                proof: BranchProofEnvironment::default(),
+                proof: proof.clone(),
             });
 
             candidate_spaces.push(PatternSpace::Variant(VariantSpace {
                 variant: variant_id.clone(),
                 exact_case,
                 fields: field_spaces.into_boxed_slice(),
-                proof: BranchProofEnvironment::default(),
+                proof,
             }));
         }
     }
