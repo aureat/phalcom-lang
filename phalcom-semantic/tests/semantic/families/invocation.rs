@@ -95,12 +95,17 @@ class Probe {
     assert_eq!(candidates.len(), 2);
     assert!(candidates.iter().all(|candidate| candidate.operation.kind == SelectorKind::Method));
     assert!(candidates.iter().all(|candidate| candidate.target.is_some()));
-    assert!(candidates.iter().any(|candidate| candidate.operation.slots.is_empty()));
-    assert!(
-        candidates
-            .iter()
-            .any(|candidate| candidate.operation.slots.as_ref() == [SelectorSlot::Positional])
-    );
+    assert!(candidates[0].operation.slots.is_empty());
+    assert_eq!(candidates[1].operation.slots.as_ref(), [SelectorSlot::Positional]);
+    assert!(matches!(
+        &candidates[0].target,
+        Some(InvocationTargetId::VariantConstructor(constructor)) if constructor.variant.selector.slots.is_empty()
+    ));
+    assert!(matches!(
+        &candidates[1].target,
+        Some(InvocationTargetId::VariantConstructor(constructor))
+            if constructor.variant.selector.slots.as_ref() == [SelectorSlot::Positional]
+    ));
 }
 
 fn analyze_source(module: ModuleId, source: Arc<str>) -> phalcom_semantic::workspace::SemanticAnalysis {

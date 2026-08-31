@@ -3,6 +3,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorKind;
 use phalcom_core::bytecode::Bytecode;
+use phalcom_core::compiler::lib::CompilerError;
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
 use phalcom_core::vm::VM;
@@ -97,4 +98,35 @@ let dynamic_value = make(*args)
     let candidates = chunk.executable_semantics.family_candidate_set(dynamic_invocations[0]);
     assert_eq!(candidates.candidates.len(), 2);
     assert!(candidates.candidates.iter().all(|candidate| candidate.operation.kind == SelectorKind::Method));
+    assert!(candidates.candidates[0].operation.slots.is_empty());
+    assert_eq!(
+        candidates.candidates[1].operation.slots.as_ref(),
+        [phalcom_common::selector::SelectorSlot::Positional]
+    );
+    assert!(candidates.candidates.iter().all(|candidate| candidate.target.is_some()));
+}
+
+#[test]
+fn family_application_without_formal_record_errors_before_ordinary_call_lowering() {
+    let source = r#"
+enum Weird {
+  @variant Marker
+  @variant Marker(_ value: Int)
+}
+
+let value = (Weird::Marker::*)(1)
+"#;
+    let mut program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("program should analyze");
+    let entry = program.entry.clone();
+    let lowering = Arc::make_mut(&mut program.modules.get_mut(&entry).expect("entry module").lowering);
+    assert_eq!(lowering.family_applications.len(), 1);
+    assert_eq!(lowering.family_application_sites.len(), 1);
+    lowering.family_applications.clear();
+
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("program should materialize");
+    let err = vm
+        .compile_program_module_closure(&entry, source, &program)
+        .expect_err("missing family application lowering must be a compiler error");
+    assert!(matches!(err, PhError::Compile(CompilerError::MissingFamilyApplicationResolution(_))));
 }

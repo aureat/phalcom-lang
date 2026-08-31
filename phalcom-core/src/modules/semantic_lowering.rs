@@ -11,7 +11,9 @@ use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{CallableId, ExpressionId, InvocationTargetId, VariantFieldId, VariantId};
 use phalcom_semantic::snapshot::SemanticSnapshot;
 use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
+use phalcom_semantic::types::store::TypeData;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -157,6 +159,8 @@ pub struct ModuleLoweringSemantics {
     pub module: ModuleId,
     pub enums: Box<[EnumLoweringSpec]>,
     pub associated: BTreeMap<LoweringSite, AssociatedLoweringSpec>,
+    pub family_values: BTreeSet<LoweringSite>,
+    pub family_application_sites: BTreeSet<LoweringSite>,
     pub family_applications: BTreeMap<LoweringSite, FamilyApplicationLoweringSpec>,
 }
 
@@ -166,6 +170,8 @@ impl ModuleLoweringSemantics {
             module,
             enums: Box::new([]),
             associated: BTreeMap::new(),
+            family_values: BTreeSet::new(),
+            family_application_sites: BTreeSet::new(),
             family_applications: BTreeMap::new(),
         }
     }
@@ -226,6 +232,8 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
 
     // 2. Project Associated Expressions & Family Applications
     let mut associated = BTreeMap::new();
+    let mut family_values = BTreeSet::new();
+    let mut family_application_sites = BTreeSet::new();
     let mut family_applications = BTreeMap::new();
 
     for (callable_id, analysis) in snapshot.callable_analyses.iter() {
@@ -250,6 +258,15 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
             associated.insert(site, spec);
         }
 
+        // Family-valued expressions
+        for expression in analysis.expressions.values() {
+            if let Some(ty) = expression.knowledge.ty()
+                && matches!(snapshot.store.get(ty), TypeData::Family(_))
+            {
+                family_values.insert(LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::FamilyApplication));
+            }
+        }
+
         // Family applications
         for (expr_id, fam_app) in analysis.family_applications.iter() {
             let expr_analysis = analysis.expressions.get(expr_id);
@@ -260,6 +277,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
 
             let spec = project_family_application(fam_app);
             let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::FamilyApplication);
+            family_application_sites.insert(site.clone());
 
             if family_applications.contains_key(&site) {
                 return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
@@ -272,6 +290,8 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
         module: module.clone(),
         enums: enums.into_boxed_slice(),
         associated,
+        family_values,
+        family_application_sites,
         family_applications,
     })
 }

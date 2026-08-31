@@ -21,10 +21,29 @@ impl<'vm> Compiler<'vm> {
         })
     }
 
+    fn family_application_site_exists(&self, range: SourceRange) -> bool {
+        self.lowering().is_some_and(|l| {
+            l.family_application_sites
+                .iter()
+                .any(|site| site.range == range && site.kind == LoweringSiteKind::FamilyApplication)
+        })
+    }
+
+    fn family_value_site_exists(&self, range: SourceRange) -> bool {
+        self.lowering().is_some_and(|l| {
+            l.family_values
+                .iter()
+                .any(|site| site.range == range && site.kind == LoweringSiteKind::FamilyApplication)
+        })
+    }
+
     /// Lowers an ordinary call on a first-class associated family, when formal
     /// semantics marked this source range as a family application.
     pub fn compile_family_application_call(&mut self, callee: Expr, args: Vec<PackItem>, range: SourceRange) -> Result<bool, CompilerError> {
         let Some(spec) = self.family_application_spec(range) else {
+            if self.family_application_site_exists(range) || self.family_value_site_exists(callee.range()) {
+                return Err(CompilerError::MissingFamilyApplicationResolution(range));
+            }
             return Ok(false);
         };
 
