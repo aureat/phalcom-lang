@@ -467,7 +467,7 @@ fn handle_run(args: RunArgs) {
         let run_bench = !args.corpus_only;
 
         if run_corpus {
-            let root = ws.join("phalcom-core/tests/lang");
+            let root = ws.join("phalcom-core/tests/fixtures/language");
             for path in suite::collect_corpus_cases(&root) {
                 let lane = suite::classify_lane(&path, &root);
                 if lane == Lane::Pending && !args.pending {

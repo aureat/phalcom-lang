@@ -1,52 +1,8 @@
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_modules::interface::InterfaceBuilder;
-use phalcom_modules::linker::{LinkedModule, LinkedProgram};
-use phalcom_modules::metadata::ModuleMetadata;
-use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::session::SemanticWorkspaceSession;
-use phalcom_semantic::source::ParsedModuleUnit;
-use phalcom_semantic::workspace::SemanticWorkspaceInput;
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
-fn build_input(module: ModuleId, source_code: &str, generation: u64) -> SemanticWorkspaceInput {
-    let parse_res = phalcom_ast::parse(source_code, 0);
-    let program = Arc::new(parse_res.program);
-    let _ = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program);
-
-    let linked_mod = LinkedModule {
-        interface: phalcom_modules::interface::LinkedModuleInterface {
-            module: module.clone(),
-            kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
-            metadata: ModuleMetadata::default(),
-        },
-        bindings: phalcom_modules::linker::ModuleBindingLayout::default(),
-        linked_reads: Vec::new(),
-        runtime_dependencies: Vec::new(),
-    };
-
-    let mut modules = BTreeMap::new();
-    modules.insert(module.clone(), linked_mod);
-
-    let linked = Arc::new(LinkedProgram {
-        universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules,
-        graphs: phalcom_modules::graph::ModuleGraphs::default(),
-        entry: module.clone(),
-        initialization_order: vec![module.clone()],
-    });
-
-    let mut sources = BTreeMap::new();
-    sources.insert(
-        module.clone(),
-        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source_code), program)),
-    );
-
-    SemanticWorkspaceInput { linked, sources, generation }
-}
+use super::support::single_module_input;
 
 #[test]
 fn stable_type_store_id_and_snapshots_across_revisions() {
@@ -72,7 +28,7 @@ class Counter {
 }
 
 "#;
-    let input1 = build_input(module.clone(), src1, 1);
+    let input1 = single_module_input(module.clone(), src1, 1);
     let update1 = session.update(input1);
     let store_id1 = update1.snapshot.store.id();
 
@@ -95,7 +51,7 @@ class Counter {
   }
 }
 "#;
-    let input2 = build_input(module.clone(), src2, 2);
+    let input2 = single_module_input(module.clone(), src2, 2);
     let update2 = session.update(input2);
     let store_id2 = update2.snapshot.store.id();
 
@@ -119,7 +75,7 @@ fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
         ModulePath::from_components(vec![ModuleComponent::from_identifier("effects").unwrap()]),
     );
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(build_input(module.clone(), "class Sample { value() -> Int { 1 } }", 1));
+    let first = session.update(single_module_input(module.clone(), "class Sample { value() -> Int { 1 } }", 1));
 
     assert!(first.effects.diagnostics_changed.contains(&module));
     assert!(first.effects.source_index_changed.contains(&module));
@@ -136,7 +92,7 @@ fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
     assert_eq!(first.stats.advisory_sources_recomputed, 1);
     assert_eq!(first.stats.advisory_callables_recomputed, 1);
 
-    let second = session.update(build_input(module.clone(), "class Sample { value() -> Int { 2 } }", 2));
+    let second = session.update(single_module_input(module.clone(), "class Sample { value() -> Int { 2 } }", 2));
 
     assert_eq!(first.snapshot.store.id(), second.snapshot.store.id());
     assert!(second.effects.source_index_changed.contains(&module));
@@ -171,7 +127,7 @@ class Worker {
   }
 }
 "#;
-    let input1 = build_input(module.clone(), src1, 1);
+    let input1 = single_module_input(module.clone(), src1, 1);
     let update1 = session.update(input1);
     assert_eq!(update1.snapshot.generation, 1);
 
@@ -185,7 +141,7 @@ class Worker {
   }
 }
 "#;
-    let input2 = build_input(module.clone(), src2, 2);
+    let input2 = single_module_input(module.clone(), src2, 2);
     let res = session.update_with_budget_and_cancel(input2, QueryBudget::default(), &cancel);
     assert!(res.is_err());
 
@@ -203,7 +159,7 @@ class Worker {
   }
 }
 "#;
-    let budgeted = session.update_with_budget_and_cancel(build_input(module.clone(), src3, 3), QueryBudget::new(0), &CancellationToken::new());
+    let budgeted = session.update_with_budget_and_cancel(single_module_input(module.clone(), src3, 3), QueryBudget::new(0), &CancellationToken::new());
     assert!(matches!(budgeted, Err(QueryOutcome::BudgetExceeded(_))));
     let published = session.last_snapshot().expect("published snapshot remains available");
     assert_eq!(published.generation, 1, "budget-exceeded candidate must not replace published snapshot");
@@ -221,7 +177,7 @@ fn one_session_has_one_type_store_identity_across_revisions() {
 
     for rev in 1..=100 {
         let src = format!("class Sample {{ compute -> Int {{ {} }} }}", rev);
-        let input = build_input(module.clone(), &src, rev);
+        let input = single_module_input(module.clone(), &src, rev);
         let update = session.update(input);
         assert_eq!(
             update.snapshot.store.id(),
@@ -251,7 +207,7 @@ class Point {
   _y: Int = 0
 }
 "#;
-    let input1 = build_input(module.clone(), src1, 1);
+    let input1 = single_module_input(module.clone(), src1, 1);
     let update1 = session.update(input1);
     let snapshot1 = update1.snapshot.clone();
     let store_id = snapshot1.store.id();
@@ -264,11 +220,11 @@ class Point {
 
     // Perform revisions 2 and 3 that intern unrelated types
     let src2 = "class Other { _v: String = \"\" }";
-    let input2 = build_input(module.clone(), src2, 2);
+    let input2 = single_module_input(module.clone(), src2, 2);
     let update2 = session.update(input2);
 
     let src3 = "class Another { _v: Bool = true }";
-    let input3 = build_input(module.clone(), src3, 3);
+    let input3 = single_module_input(module.clone(), src3, 3);
     let update3 = session.update(input3);
 
     // Verify snapshot 1 retains the exact TypeData for point_name_ty
@@ -294,10 +250,10 @@ fn distinct_workspace_sessions_have_distinct_snapshot_workspace_ids() {
     let mut session2 = SemanticWorkspaceSession::with_workspace(WorkspaceId::from_raw(20));
 
     let src = "class Sample {}";
-    let input1 = build_input(module.clone(), src, 1);
+    let input1 = single_module_input(module.clone(), src, 1);
     let update1 = session1.update(input1);
 
-    let input2 = build_input(module.clone(), src, 1);
+    let input2 = single_module_input(module.clone(), src, 1);
     let update2 = session2.update(input2);
 
     assert_eq!(update1.snapshot.id.workspace(), WorkspaceId::from_raw(10));
@@ -386,7 +342,7 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
     let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Holder".into());
     let mut session = SemanticWorkspaceSession::new();
 
-    let update1 = session.update(build_input(module.clone(), "class Holder<F: Type -> Type> {}", 1));
+    let update1 = session.update(single_module_input(module.clone(), "class Holder<F: Type -> Type> {}", 1));
     assert!(!update1.snapshot.has_errors());
     let signature1 = update1
         .snapshot
@@ -400,7 +356,7 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
     let parameter_kind1 = update1.snapshot.store.type_parameter(parameter1).kind;
     assert_ne!(parameter_kind1, KindId::TYPE);
 
-    let update2 = session.update(build_input(module, "class Holder<F> {}", 2));
+    let update2 = session.update(single_module_input(module, "class Holder<F> {}", 2));
     assert!(!update2.snapshot.has_errors());
     let signature2 = update2
         .snapshot
@@ -438,7 +394,7 @@ class Consumer {
   @class use(_ value: Holder) -> Int { 1 }
 }
 "#;
-    let _update1 = session.update(build_input(module.clone(), source1, 1));
+    let _update1 = session.update(single_module_input(module.clone(), source1, 1));
     let holder = DeclarationId::new(module.clone(), "Holder".into());
     let consumer = DeclarationId::new(module.clone(), "Consumer".into());
     let holder_shell = QueryKey::DeclarationShell(holder);
@@ -452,7 +408,7 @@ class Consumer {
   @class use(_ value: Holder) -> Int { 1 }
 }
 "#;
-    let update2 = session.update(build_input(module, source2, 2));
+    let update2 = session.update(single_module_input(module, source2, 2));
     let shell_fp2 = session.db().ready_product_fingerprint(&holder_shell).expect("updated holder shell product");
     let consumer_state2 = session.db().query_state(&consumer_surface).expect("updated consumer surface");
 

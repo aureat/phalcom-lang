@@ -105,3 +105,37 @@ fn render_hint(line_index: &LineIndex, hint: EditorTypeHint, policy: HintPolicy)
         data: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::obvious_initializer_text;
+    use phalcom_common::range::SourceRange;
+
+    #[test]
+    fn review_m1_01_ascii_initializer_is_detected_after_range() {
+        assert!(obvious_initializer_text("let count = 42\n", SourceRange::new(0, 9)));
+    }
+
+    #[test]
+    fn review_m1_02_utf8_before_initializer_keeps_byte_range_safe() {
+        assert!(obvious_initializer_text("let café = 42\n", SourceRange::new(0, 10)));
+    }
+
+    #[test]
+    fn review_m1_03_interior_utf8_offset_never_panics() {
+        let result = std::panic::catch_unwind(|| obvious_initializer_text("let café = 42\n", SourceRange::new(0, 9)));
+        assert!(result.is_ok(), "initializer suppression must not panic on an invalid UTF-8 boundary");
+    }
+
+    #[test]
+    fn review_m1_04_out_of_bounds_range_is_safe() {
+        let result = std::panic::catch_unwind(|| obvious_initializer_text("let value = 1", SourceRange::new(0, 100)));
+        assert!(result.is_ok());
+        assert!(!result.expect("closure result"));
+    }
+
+    #[test]
+    fn review_m1_05_non_literal_initializer_is_not_obvious() {
+        assert!(!obvious_initializer_text("let value = other\n", SourceRange::new(0, 10)));
+    }
+}

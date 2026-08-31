@@ -34,7 +34,7 @@ fn run(path: &Path) -> Output {
 }
 
 fn corpus_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/lang")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/language")
 }
 
 fn case_name(path: &Path) -> String {
@@ -199,17 +199,17 @@ fn check_cases(label: &str, pending: bool, negative: bool) {
     }
 }
 
-/// Runs all active PASS cases in `tests/lang/<label>/`.
+/// Runs all active PASS cases in `tests/fixtures/language/<label>/`.
 pub fn check_pass(label: &str) {
     check_cases(label, false, false);
 }
 
-/// Runs all NEGATIVE cases in `tests/lang/<label>/`.
+/// Runs all NEGATIVE cases in `tests/fixtures/language/<label>/`.
 pub fn check_negative(label: &str) {
     check_cases(label, false, true);
 }
 
-/// Runs all PENDING cases in `tests/lang/<label>/pending/`.
+/// Runs all PENDING cases in `tests/fixtures/language/<label>/pending/`.
 pub fn check_pending(label: &str) {
     check_cases(label, true, false);
 }

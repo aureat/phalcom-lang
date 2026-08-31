@@ -1,0 +1,96 @@
+//! Constructor surface and exact variant identity scenarios.
+
+use super::support::analyze_adt;
+use phalcom_common::selector::{Selector, SelectorSlot};
+use phalcom_semantic::checker::AssociatedResolutionKind;
+use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::enum_semantics::VariantShape;
+
+#[test]
+fn singleton_nullary_and_payload_constructors_remain_distinct() {
+    let case = analyze_adt(
+        r#"
+enum Animal {
+    @variant Dog
+    @variant Dog()
+    @variant Dog(_ name: String)
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+
+    let singleton = case.variant("Animal", Selector::getter("Dog").expect("singleton selector"));
+    let nullary = case.variant("Animal", Selector::method("Dog", []).expect("nullary selector"));
+    let payload = case.variant("Animal", Selector::method("Dog", [SelectorSlot::Positional]).expect("payload selector"));
+
+    assert_eq!(singleton.shape, VariantShape::Singleton);
+    assert_eq!(nullary.shape, VariantShape::Constructor);
+    assert_eq!(payload.shape, VariantShape::Constructor);
+    assert!(singleton.constructor.is_none());
+    assert_eq!(nullary.constructor.as_ref().expect("nullary signature").parameters.len(), 0);
+    assert_eq!(payload.fields.len(), 1);
+    assert_eq!(payload.fields[0].id, case.field_id(&payload.id, 0));
+    assert_eq!(payload.fields[0].local_name.as_ref(), "name");
+}
+
+#[test]
+fn adt_constr_01_payload_constructor_publishes_exact_and_root_result() {
+    let case = analyze_adt(
+        "enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\n\nclass Test { run() { Option<Int>::Some(42) } }\n",
+    );
+    let some = case.variant("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some"));
+    assert_eq!(some.fields.len(), 1);
+    let resolution = case
+        .analysis
+        .snapshot
+        .callable_analyses
+        .values()
+        .flat_map(|callable| callable.associated_resolutions.values())
+        .find(|resolution| matches!(resolution.kind, AssociatedResolutionKind::StaticInvoke { .. }))
+        .expect("Some constructor resolution");
+    assert!(matches!(resolution.kind, AssociatedResolutionKind::StaticInvoke { .. }));
+}
+
+#[test]
+fn adt_constr_02_nullary_invocation_does_not_resolve_singleton_getter() {
+    let case = analyze_adt("enum Animal { @variant Dog() }\nclass Test { run() { Animal::Dog() } }\n");
+    let dog = case.variant("Animal", Selector::method("Dog", []).expect("Dog"));
+    assert_eq!(dog.shape, VariantShape::Constructor);
+    assert!(case.diagnostics_for(DiagnosticCode::AssociatedMemberMissing).is_empty());
+}
+
+#[test]
+fn adt_constr_03_singleton_access_is_exact_value_not_zero_arg_call() {
+    let case = analyze_adt("enum Animal { @variant Dog }\nclass Test { run() { Animal::Dog } }\n");
+    let dog = case.variant("Animal", Selector::getter("Dog").expect("Dog"));
+    assert_eq!(dog.shape, VariantShape::Singleton);
+    assert!(dog.constructor.is_none());
+}
+
+#[test]
+fn adt_constr_04_wrong_label_reports_member_or_selector_diagnostic() {
+    let case = analyze_adt("enum Animal { @variant Dog(named age: Int) }\nclass Test { run() { Animal::Dog(other: 1) } }\n");
+    assert!(case.diagnostics().any(|diagnostic| {
+        diagnostic.code == DiagnosticCode::AssociatedMemberMissing
+    }));
+}
+
+#[test]
+fn adt_constr_05_generic_constructor_keeps_specialized_payload_contract() {
+    let case = analyze_adt("enum Result<T, E> { @variant Ok(_ value: T) -> Result<T, E> @variant Err(_ error: E) -> Result<T, E> }\n");
+    let ok = case.variant("Result", Selector::method("Ok", [SelectorSlot::Positional]).expect("Ok"));
+    let err = case.variant("Result", Selector::method("Err", [SelectorSlot::Positional]).expect("Err"));
+    assert_eq!(ok.constructor.as_ref().expect("Ok constructor").parameters[0].field, ok.fields[0].id);
+    assert_eq!(err.constructor.as_ref().expect("Err constructor").parameters[0].field, err.fields[0].id);
+    assert_ne!(ok.exact_case_template, err.exact_case_template);
+}
+
+#[test]
+fn adt_constr_06_exact_constructor_and_family_keep_distinct_member_identity() {
+    let case = analyze_adt("enum Animal { @variant Dog @variant Dog() @variant Dog(_ name: String) }\n");
+    let info = case.enum_info("Animal");
+    let family = case.family_id("Animal", "Dog");
+    assert_eq!(info.variant_families.as_ref(), [family.clone()]);
+    assert!(info.variants.iter().all(|variant| variant.family() == Some(family.clone())));
+    assert_eq!(info.variants.len(), 3);
+}

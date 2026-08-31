@@ -5,11 +5,11 @@
 //! (1) split() crashes unconditionally (core.ph:155 uses bare `List.new`, not `List.new()`)
 //! (2) trim/trimStart/trimEnd fail dispatch (declared as getters, called with `()` parens)
 //! (3) codePointAt(_) is a stub — multi-byte UTF-8 decode never implemented (lines 112 both return None)
-//! (4) Test corpus `tests/lang/strings/` empty; load-bearing tests shelved in `pending/` with `#[ignore]`
+//! (4) Test corpus `tests/fixtures/language/strings/` empty; load-bearing tests shelved in `pending/` with `#[ignore]`
 //! (5) Docs not synced: floor-census.md, core-classes.md, deferred-work.md still omit new bindings
 //! (6) ADR-0049 collision: two files claim same number, conflicting naming (raw* vs _ suffix per U-NATIVE-MARKER)
 //!
-//! See inline REVIEW comments in core.php and tests/lang.rs for details. Unit blocked pending fixes.
+//! See inline REVIEW comments in core.php and the language corpus runner for details. Unit blocked pending fixes.
 
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::expect_string;

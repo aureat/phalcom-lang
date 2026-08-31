@@ -1,14 +1,11 @@
 pub(crate) mod declarations;
 pub(crate) mod exact_cases;
-pub(crate) mod exhaustiveness;
-pub(crate) mod gadt_cases;
-pub(crate) mod gadt_proofs;
-pub(crate) mod match_basic;
-pub(crate) mod match_bindings;
-pub(crate) mod match_diagnostics;
-pub(crate) mod match_matrix;
-pub(crate) mod match_patterns;
-pub(crate) mod match_regressions;
-pub(crate) mod pattern_space;
+pub(crate) mod generics;
 pub(crate) mod requirements;
 pub(crate) mod variants;
+
+pub(crate) mod associated;
+pub(crate) mod behavior;
+pub(crate) mod constructors;
+pub(crate) mod matching;
+pub(crate) mod support;

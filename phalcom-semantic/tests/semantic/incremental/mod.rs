@@ -1,9 +1,12 @@
 mod advisory;
+mod adts;
 mod callable_dependencies;
 mod checker_dependencies;
 mod db;
 mod declaration_authority;
 mod fingerprints;
+mod match_analysis;
 mod product_stability;
 mod query_ownership;
+mod support;
 mod type_store_revisions;

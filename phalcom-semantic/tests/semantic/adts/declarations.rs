@@ -118,7 +118,7 @@ fn enum_associated_surface_rejects_namespace_collisions() {
 }
 
 #[test]
-fn closed_enum_requirements_report_missing_and_incompatible_cases() {
+fn adt_req_01_02_04_requirements_report_satisfied_missing_and_incompatible_cases() {
     let mut store = TypeStore::new();
     let hier = MapTypeHierarchy::new();
     let module = test_module();
@@ -404,4 +404,95 @@ enum State {
         AssociatedResolutionKind::StaticInvoke { member: phalcom_semantic::AssociatedMemberId::Variant(id), target, result_type }
             if id == &value && matches!(target, phalcom_semantic::InvocationTargetId::VariantConstructor(_)) && *result_type == expected
     ));
+}
+
+#[test]
+fn adt_decl_01_ordinary_closed_enum_publishes_owner_and_ordered_variants() {
+    let case = super::support::analyze_adt(
+        "enum Status {\n  @variant Active -> Status\n  @variant Inactive -> Status\n}\n",
+    );
+    let info = case.enum_info("Status");
+    assert_eq!(info.variants.len(), 2);
+    assert_eq!(info.variants[0].owner.name.as_ref(), "Status");
+    assert_eq!(info.variants[1].owner.name.as_ref(), "Status");
+    assert_eq!(info.variants[0].selector.encode(), "Active");
+    assert_eq!(info.variants[1].selector.encode(), "Inactive");
+    case.assert_no_diagnostics();
+}
+
+#[test]
+fn adt_decl_02_generic_parameter_is_owned_by_enum_and_reused_by_case() {
+    let case = super::support::analyze_adt(
+        "enum Option<T> {\n  @variant Some(_ value: T) -> Option<T>\n  @variant None -> Option<T>\n}\n",
+    );
+    let owner = &case.declaration("Option").declaration;
+    let signature = case.declaration("Option").generic_signature.as_ref().expect("generic signature");
+    assert_eq!(signature.parameter_count(), 1);
+    let parameter = signature.parameters[0];
+    let store = case.analysis.snapshot.store.as_ref();
+    assert_eq!(&store.type_parameter(parameter).owner, &phalcom_semantic::TypeParameterOwner::Declaration(owner.clone()));
+    let some = case.variant("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some selector"));
+    assert_eq!(store.get(some.fields[0].declared_type.canonical_type().expect("Some field type")), &phalcom_semantic::types::store::TypeData::Parameter(parameter));
+    assert!(some.case_environment.is_empty());
+    case.assert_no_diagnostics();
+}
+
+#[test]
+fn adt_decl_03_multi_parameter_result_keeps_parameter_order_and_roles() {
+    let case = super::support::analyze_adt(
+        "enum Result<T, E> {\n  @variant Ok(_ value: T) -> Result<T, E>\n  @variant Err(_ error: E) -> Result<T, E>\n}\n",
+    );
+    let declaration = case.declaration("Result");
+    let signature = declaration.generic_signature.as_ref().expect("Result generic signature");
+    assert_eq!(signature.parameter_count(), 2);
+    let store = case.analysis.snapshot.store.as_ref();
+    let ok = case.variant("Result", Selector::method("Ok", [SelectorSlot::Positional]).expect("Ok selector"));
+    let err = case.variant("Result", Selector::method("Err", [SelectorSlot::Positional]).expect("Err selector"));
+    assert_eq!(store.get(ok.fields[0].declared_type.canonical_type().expect("Ok field type")), &phalcom_semantic::types::store::TypeData::Parameter(signature.parameters[0]));
+    assert_eq!(store.get(err.fields[0].declared_type.canonical_type().expect("Err field type")), &phalcom_semantic::types::store::TypeData::Parameter(signature.parameters[1]));
+    assert_eq!(store.type_parameter(signature.parameters[0]).index, 0);
+    assert_eq!(store.type_parameter(signature.parameters[1]).index, 1);
+}
+
+#[test]
+fn adt_decl_04_gadt_result_templates_publish_case_environments() {
+    let case = super::support::analyze_adt(
+        "enum Expr<T> {\n  @variant Int(_ value: Int) -> Expr<Int>\n  @variant Bool(_ value: Bool) -> Expr<Bool>\n}\n",
+    );
+    let expr = case.enum_info("Expr");
+    assert_eq!(expr.variants.len(), 2);
+    let int = case.variant("Expr", Selector::method("Int", [SelectorSlot::Positional]).expect("Int selector"));
+    let bool_case = case.variant("Expr", Selector::method("Bool", [SelectorSlot::Positional]).expect("Bool selector"));
+    assert_eq!(int.case_environment.bindings.len(), 1);
+    assert_eq!(bool_case.case_environment.bindings.len(), 1);
+    assert_ne!(int.result_type_template, bool_case.result_type_template);
+}
+
+#[test]
+fn adt_decl_05_same_base_distinct_selector_declarations_do_not_collapse() {
+    let case = super::support::analyze_adt(
+        "enum Animal {\n  @variant Dog\n  @variant Dog()\n  @variant Dog(_ name: String)\n  @variant Dog(named age: Int)\n}\n",
+    );
+    let info = case.enum_info("Animal");
+    assert_eq!(info.variants.len(), 4);
+    let selectors = info.variants.iter().map(|variant| variant.selector.encode()).collect::<Vec<_>>();
+    assert_eq!(selectors, vec!["Dog".to_string(), "Dog()".to_string(), "Dog(_)".to_string(), "Dog(named)".to_string()]);
+    assert_eq!(info.variant_families.len(), 1);
+}
+
+#[test]
+fn adt_decl_06_duplicate_exact_selector_reports_specific_diagnostic() {
+    let case = super::support::analyze_adt("enum Duplicate {\n  @variant A\n  @variant A\n}\n");
+    assert_eq!(case.diagnostics_for(DiagnosticCode::EnumVariantDuplicate).len(), 1);
+    assert_eq!(case.enum_info("Duplicate").variants.len(), 2);
+}
+
+#[test]
+fn adt_decl_08_source_ranges_cover_enum_and_variant_metadata() {
+    let case = super::support::analyze_adt("enum Status {\n  @variant Active(_ code: Int) -> Status\n}\n");
+    let info = case.enum_info("Status");
+    assert!(info.source.as_ref().is_some_and(|span| span.range.start < span.range.end));
+    let variant = case.variant("Status", Selector::method("Active", [SelectorSlot::Positional]).expect("Active selector"));
+    assert!(variant.source.as_ref().is_some_and(|span| span.range.start < span.range.end));
+    assert!(variant.fields[0].source.as_ref().is_some_and(|span| span.range.start < span.range.end));
 }

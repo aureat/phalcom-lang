@@ -116,7 +116,7 @@ pub fn pair_snapshot() -> [[u64; Bytecode::VARIANTS]; Bytecode::VARIANTS] {
 
 /// Writes the histogram to stderr, descending by count.
 ///
-/// Deliberately stderr, not stdout: every golden fixture in `tests/lang/` asserts
+/// Deliberately stderr, not stdout: every golden fixture in `tests/fixtures/language/` asserts
 /// exact stdout, and the wren-suite comparison diffs stdout byte-for-byte against
 /// Wren's. Printing the histogram to stdout would fail every one of them and make
 /// the feature unusable on the corpus it most needs to measure.

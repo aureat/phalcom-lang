@@ -2,7 +2,7 @@
 
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_modules::interface::{InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface};
+use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
 use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
@@ -14,43 +14,7 @@ use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-
-fn single_module_input(module: ModuleId, source_code: &str, generation: u64) -> SemanticWorkspaceInput {
-    let parse_res = phalcom_ast::parse(source_code, 0);
-    let program = Arc::new(parse_res.program);
-    let _ = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program);
-
-    let linked_mod = LinkedModule {
-        interface: LinkedModuleInterface {
-            module: module.clone(),
-            kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
-            metadata: ModuleMetadata::default(),
-        },
-        bindings: ModuleBindingLayout::default(),
-        linked_reads: Vec::new(),
-        runtime_dependencies: Vec::new(),
-    };
-
-    let mut modules = BTreeMap::new();
-    modules.insert(module.clone(), linked_mod);
-
-    let linked = Arc::new(LinkedProgram {
-        universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules,
-        graphs: phalcom_modules::graph::ModuleGraphs::default(),
-        entry: module.clone(),
-        initialization_order: vec![module.clone()],
-    });
-
-    let mut sources = BTreeMap::new();
-    sources.insert(
-        module.clone(),
-        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source_code), program)),
-    );
-
-    SemanticWorkspaceInput { linked, sources, generation }
-}
+use super::support::single_module_input;
 
 #[test]
 fn case_a_unchanged_caller_changed_callee_signature_recomputes() {

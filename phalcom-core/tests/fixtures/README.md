@@ -1,6 +1,15 @@
 # Phalcom Test Fixtures
 
-This directory contains the test fixtures for the Phalcom programming language.
+This directory contains all Phalcom test fixtures.
+
+- `language/` contains the source-language corpus and its `.expected` sidecars.
+- `golden/`, `modules_linker/`, `modules_v1/`, and `universe_v1/` contain
+  focused compiler, module, and runtime fixtures.
+
+The Rust tests live under the unified `tests/core/` integration target. Fixture
+layout is independent from Rust module layout: source corpus cases are loaded
+through `tests/support/mod.rs`, while focused fixtures are addressed explicitly
+by their semantic test modules.
 
 ## Diagnostic Field-Assert Contract
 

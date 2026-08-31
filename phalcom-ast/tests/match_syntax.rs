@@ -203,3 +203,49 @@ fn parse_match_with_nested_and_or_patterns() {
     // Arm 2: None (bare identifier contextual singleton parsed as Name at AST stage)
     assert!(matches!(m.arms[2].pattern, Pattern::Name { ref name, .. } if name == "None"));
 }
+
+#[test]
+fn review_ast_01_nested_or_patterns_remain_inside_payload_node() {
+    let program = parse_source("match value { Some(Ok(x) | Cached(x)) => x _ => 0 }", 0).expect("match should parse");
+    let Statement::Expr { expr: Expr::Match(match_expr), .. } = &program.statements[0] else {
+        panic!("expected match expression");
+    };
+    let Pattern::Variant(outer) = &match_expr.arms[0].pattern else {
+        panic!("expected outer variant");
+    };
+    let VariantPatternMode::ExactCall { arguments } = &outer.mode else {
+        panic!("expected exact outer call");
+    };
+    assert!(matches!(arguments[0].pattern, Pattern::Or { ref alternatives, .. } if alternatives.len() == 2));
+}
+
+#[test]
+fn review_ast_02_selector_modes_preserve_getter_call_and_family_shape() {
+    let program = parse_source("match value { Animal::Dog => 1 Animal::Dog() => 2 Animal::Dog* => 3 }", 0).expect("match should parse");
+    let Statement::Expr { expr: Expr::Match(match_expr), .. } = &program.statements[0] else {
+        panic!("expected match expression");
+    };
+    let Pattern::Variant(getter) = &match_expr.arms[0].pattern else { panic!("expected getter pattern") };
+    assert!(matches!(getter.mode, VariantPatternMode::Singleton));
+    let Pattern::Variant(call) = &match_expr.arms[1].pattern else { panic!("expected call pattern") };
+    assert!(matches!(call.mode, VariantPatternMode::ExactCall { ref arguments } if arguments.is_empty()));
+    let Pattern::Variant(family) = &match_expr.arms[2].pattern else { panic!("expected family pattern") };
+    assert!(matches!(family.mode, VariantPatternMode::WholeFamily { .. }));
+}
+
+#[test]
+fn review_ast_03_source_ranges_cover_gap_and_label_tokens() {
+    let source = "match value { Animal::Dog(x, ..., named: y) => x }";
+    let program = parse_source(source, 0).expect("match should parse");
+    let Statement::Expr { expr: Expr::Match(match_expr), .. } = &program.statements[0] else {
+        panic!("expected match expression");
+    };
+    let Pattern::Variant(variant) = &match_expr.arms[0].pattern else { panic!("expected variant") };
+    assert!(variant.base_range.start < variant.base_range.end);
+    let VariantPatternMode::CallablePattern { gap_range, suffix, .. } = &variant.mode else {
+        panic!("expected callable pattern");
+    };
+    assert!(gap_range.start < gap_range.end);
+    assert_eq!(suffix[0].label.as_deref(), Some("named"));
+    assert!(suffix[0].label_range.expect("label range").start < suffix[0].label_range.expect("label range").end);
+}
