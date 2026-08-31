@@ -134,6 +134,60 @@ fn build_enum_or_opaque_space(ctx: &mut CheckingContext<'_>, scrutinee_ty: TypeI
     }
 }
 
+/// Classifies one arm against the original domain and the residual left by
+/// earlier arms. This is deliberately an ordered operation: callers can decide
+/// whether the branch body is semantically reachable before analyzing it.
+pub fn evaluate_match_arm_usefulness(
+    ctx: &mut CheckingContext<'_>,
+    initial_space: &PatternSpace,
+    current_space: &PatternSpace,
+    arm_space: &PatternSpace,
+    arm_range: phalcom_common::range::SourceRange,
+) -> (PatternSpace, PatternSpace, PatternUsefulness) {
+    let in_original_domain = initial_space.intersect(arm_space, ctx.store, &ctx.hierarchy).normalize();
+    let reachable = current_space.intersect(arm_space, ctx.store, &ctx.hierarchy).normalize();
+    let usefulness = if in_original_domain.is_empty() {
+        PatternUsefulness::Impossible
+    } else if reachable.is_empty() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::MatchArmRedundant,
+            "redundant match arm: earlier patterns already cover every reachable value of this pattern",
+            arm_range,
+        ));
+        PatternUsefulness::Redundant
+    } else {
+        PatternUsefulness::Useful
+    };
+
+    let residual_after = current_space.subtract(arm_space, ctx.store, &ctx.hierarchy).normalize();
+    (reachable, residual_after, usefulness)
+}
+
+/// Finalizes coverage after ordered arm elimination has produced the residual
+/// value-space.
+pub fn finalize_match_exhaustiveness(
+    ctx: &mut CheckingContext<'_>,
+    remaining_space: &PatternSpace,
+    match_range: phalcom_common::range::SourceRange,
+) -> ExhaustivenessResult {
+    if remaining_space.is_empty() {
+        ExhaustivenessResult::Proven
+    } else {
+        let witnesses = generate_coverage_witnesses(remaining_space, MAX_COVERAGE_WITNESSES);
+        ctx.emit_diagnostic(
+            SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::MatchNonExhaustive,
+                "non-exhaustive match: reachable values remain uncovered",
+                match_range,
+            )
+            .with_note(format!("{} uncovered value-space witness(es) retained", witnesses.len())),
+        );
+        ExhaustivenessResult::Missing(witnesses.into_boxed_slice())
+    }
+}
+
 /// Evaluates ordered match-arm usefulness, residual space, and final exhaustiveness.
 ///
 /// `Impossible` is measured against the original scrutinee domain; `Redundant`
@@ -150,43 +204,13 @@ pub fn evaluate_match_exhaustiveness(
     let mut arm_results = Vec::with_capacity(arm_spaces.len());
 
     for (index, arm_space) in arm_spaces.iter().enumerate() {
-        let in_original_domain = initial_space.intersect(arm_space, ctx.store, &ctx.hierarchy).normalize();
-        let reachable = current_space.intersect(arm_space, ctx.store, &ctx.hierarchy).normalize();
-        let usefulness = if in_original_domain.is_empty() {
-            PatternUsefulness::Impossible
-        } else if reachable.is_empty() {
-            let range = arm_ranges.get(index).copied().unwrap_or(match_range);
-            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::MatchArmRedundant,
-                "redundant match arm: earlier patterns already cover every reachable value of this pattern",
-                range,
-            ));
-            PatternUsefulness::Redundant
-        } else {
-            PatternUsefulness::Useful
-        };
-
-        current_space = current_space.subtract(arm_space, ctx.store, &ctx.hierarchy).normalize();
-        arm_results.push((reachable, current_space.clone(), usefulness));
+        let range = arm_ranges.get(index).copied().unwrap_or(match_range);
+        let (reachable, residual_after, usefulness) = evaluate_match_arm_usefulness(ctx, initial_space, &current_space, arm_space, range);
+        current_space = residual_after.clone();
+        arm_results.push((reachable, residual_after, usefulness));
     }
 
-    let exhaustiveness = if current_space.is_empty() {
-        ExhaustivenessResult::Proven
-    } else {
-        let witnesses = generate_coverage_witnesses(&current_space, MAX_COVERAGE_WITNESSES);
-        ctx.emit_diagnostic(
-            SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::MatchNonExhaustive,
-                "non-exhaustive match: reachable values remain uncovered",
-                match_range,
-            )
-            .with_note(format!("{} uncovered value-space witness(es) retained", witnesses.len())),
-        );
-        ExhaustivenessResult::Missing(witnesses.into_boxed_slice())
-    };
-
+    let exhaustiveness = finalize_match_exhaustiveness(ctx, &current_space, match_range);
     (exhaustiveness, arm_results)
 }
 
