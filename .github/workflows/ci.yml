@@ -37,6 +37,8 @@ jobs:
         run: cargo +stable fmt --all
       - name: Verify patch
         run: git diff --check
+      - name: Verify bottom match result
+        run: cargo +stable test -p phalcom-semantic --lib match_result_
       - name: Verify match regressions
         run: "cargo +stable test -p phalcom-semantic --test semantic match_regressions::"
       - name: Commit semantic changes
