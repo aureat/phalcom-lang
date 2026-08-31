@@ -7,17 +7,79 @@
 use super::context::CheckingContext;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
-use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
+use crate::identity::{CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
 use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeParameterOwner;
-use phalcom_ast::ast::{ClassMember, ParameterDef};
+use phalcom_ast::ast::{ClassMember, EnumBehaviorMember, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
+use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
-pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember) -> Option<CallableId> {
-    let declared_side = super::declaration::member_side(member);
-    match member {
-        ClassMember::Method(method) => {
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CallableSyntaxRef<'a> {
+    Method(&'a MethodDef),
+    Getter(&'a GetterDef),
+    Setter(&'a SetterDef),
+    Index(&'a IndexMethodDef),
+}
+
+impl<'a> CallableSyntaxRef<'a> {
+    pub(crate) fn range(&self) -> SourceRange {
+        match self {
+            CallableSyntaxRef::Method(m) => m.range,
+            CallableSyntaxRef::Getter(g) => g.range,
+            CallableSyntaxRef::Setter(s) => s.range,
+            CallableSyntaxRef::Index(i) => i.range,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn name_range(&self) -> SourceRange {
+        match self {
+            CallableSyntaxRef::Method(m) => m.name_range,
+            CallableSyntaxRef::Getter(g) => g.name_range,
+            CallableSyntaxRef::Setter(s) => s.name_range,
+            CallableSyntaxRef::Index(i) => i.name_range,
+        }
+    }
+
+    pub(crate) fn has_body(&self) -> bool {
+        match self {
+            CallableSyntaxRef::Method(m) => m.body.statements().is_some(),
+            CallableSyntaxRef::Getter(g) => g.body.statements().is_some(),
+            CallableSyntaxRef::Setter(s) => s.body.statements().is_some(),
+            CallableSyntaxRef::Index(_) => true,
+        }
+    }
+
+    pub(crate) fn attributes(&self) -> &[phalcom_ast::ast::Attribute] {
+        match self {
+            CallableSyntaxRef::Method(m) => &m.attributes,
+            CallableSyntaxRef::Getter(g) => &g.attributes,
+            CallableSyntaxRef::Setter(s) => &s.attributes,
+            CallableSyntaxRef::Index(i) => &i.attributes,
+        }
+    }
+}
+
+impl<'a> From<&'a EnumBehaviorMember> for CallableSyntaxRef<'a> {
+    fn from(member: &'a EnumBehaviorMember) -> Self {
+        match member {
+            EnumBehaviorMember::Method(m) => CallableSyntaxRef::Method(m),
+            EnumBehaviorMember::Getter(g) => CallableSyntaxRef::Getter(g),
+            EnumBehaviorMember::Setter(s) => CallableSyntaxRef::Setter(s),
+            EnumBehaviorMember::Index(i) => CallableSyntaxRef::Index(i),
+        }
+    }
+}
+
+pub(crate) fn callable_id_for_syntax(
+    owner: &CallableOwnerId,
+    syntax: CallableSyntaxRef<'_>,
+    declared_side: DispatchSide,
+) -> Option<CallableId> {
+    match syntax {
+        CallableSyntaxRef::Method(method) => {
             let slots = method
                 .params
                 .iter()
@@ -41,13 +103,13 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
             let side = if is_constructor { DispatchSide::Class } else { declared_side };
             Some(CallableId::new(owner.clone(), selector, side))
         }
-        ClassMember::Getter(getter) => Selector::getter(&getter.name)
+        CallableSyntaxRef::Getter(getter) => Selector::getter(&getter.name)
             .ok()
             .map(|selector| CallableId::new(owner.clone(), selector, declared_side)),
-        ClassMember::Setter(setter) => Selector::setter(&setter.name)
+        CallableSyntaxRef::Setter(setter) => Selector::setter(&setter.name)
             .ok()
             .map(|selector| CallableId::new(owner.clone(), selector, declared_side)),
-        ClassMember::Index(index) => {
+        CallableSyntaxRef::Index(index) => {
             let slots = index
                 .params
                 .iter()
@@ -71,8 +133,19 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
             };
             Some(CallableId::new(owner.clone(), selector, declared_side))
         }
-        ClassMember::Field(_) | ClassMember::Variant(_) => None,
     }
+}
+
+pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember) -> Option<CallableId> {
+    let declared_side = super::declaration::member_side(member);
+    let syntax = match member {
+        ClassMember::Method(m) => CallableSyntaxRef::Method(m),
+        ClassMember::Getter(g) => CallableSyntaxRef::Getter(g),
+        ClassMember::Setter(s) => CallableSyntaxRef::Setter(s),
+        ClassMember::Index(i) => CallableSyntaxRef::Index(i),
+        ClassMember::Field(_) | ClassMember::Variant(_) => return None,
+    };
+    callable_id_for_syntax(&CallableOwnerId::Declaration(owner.clone()), syntax, declared_side)
 }
 
 fn annotation_fact(
@@ -210,11 +283,17 @@ fn initial_return_validation(
     }
 }
 
-pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {
-    let callable = callable_id_for_member(owner, member)?;
+pub(crate) fn semantic_signature_for_syntax(
+    ctx: &mut CheckingContext<'_>,
+    owner: &CallableOwnerId,
+    syntax: CallableSyntaxRef<'_>,
+    declared_side: DispatchSide,
+) -> Option<CallableSemanticSignature> {
+    let callable = callable_id_for_syntax(owner, syntax, declared_side)?;
+    let declaration_owner = owner.declaration();
 
     let declaration_type_parameters = ctx
-        .declaration_generic_signature(owner)
+        .declaration_generic_signature(declaration_owner)
         .map(|signature| {
             signature
                 .parameters
@@ -233,8 +312,8 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
         type_parameters: declaration_type_parameters,
     };
 
-    let (generics, parameters, declared_return) = match member {
-        ClassMember::Method(method) => {
+    let (generics, parameters, declared_return) = match syntax {
+        CallableSyntaxRef::Method(method) => {
             let generic_signature = if method.generic_parameters.is_empty() {
                 None
             } else {
@@ -280,7 +359,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
             let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
             let declared_return = if is_constructor {
                 let self_type = ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
-                    owner: owner.clone(),
+                    owner: declaration_owner.clone(),
                     side: DispatchSide::Class,
                     role: crate::types::parameter::SelfRole::InstanceType,
                 });
@@ -291,7 +370,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
             };
             (generic_signature, parameters, declared_return)
         }
-        ClassMember::Getter(getter) => (
+        CallableSyntaxRef::Getter(getter) => (
             None,
             Vec::<CallableParameterSemantic>::new().into_boxed_slice(),
             annotation_fact(
@@ -301,7 +380,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
                 UnknownReason::UnannotatedDeclaration,
             ),
         ),
-        ClassMember::Setter(setter) => {
+        CallableSyntaxRef::Setter(setter) => {
             let parameter = parameter_fact(ctx, &callable, 0, &setter.param, &declaration_resolver, UnknownReason::UnannotatedDeclaration);
             let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
             (
@@ -310,7 +389,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
                 DeclaredTypeFact::from_knowledge_with_basis(&unit, DeclaredTypeBasis::DeclarationSemantics),
             )
         }
-        ClassMember::Index(index) => {
+        CallableSyntaxRef::Index(index) => {
             let mut parameters = index
                 .params
                 .iter()
@@ -332,14 +411,13 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
             };
             (None, parameters.into_boxed_slice(), declared_return)
         }
-        ClassMember::Field(_) | ClassMember::Variant(_) => return None,
     };
 
     let return_validation = initial_return_validation(&declared_return, phalcom_native_meta::ImplementationKind::Source);
 
     Some(CallableSemanticSignature {
         callable: callable.clone(),
-        owner: owner.clone(),
+        owner: declaration_owner.clone(),
         side: callable.side,
         selector: callable.selector.clone(),
         generics,
@@ -347,7 +425,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
         declared_return,
         return_validation,
         inferred_return: None,
-        source: None,
+        source: Some(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), syntax.range())),
         implementation: phalcom_native_meta::ImplementationKind::Source,
         native_id: None,
         effects: phalcom_native_meta::EffectSpec::Unknown,
@@ -355,6 +433,18 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
         flow: phalcom_native_meta::ReturnFlowSpec::Value,
         lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
     })
+}
+
+pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {
+    let declared_side = super::declaration::member_side(member);
+    let syntax = match member {
+        ClassMember::Method(m) => CallableSyntaxRef::Method(m),
+        ClassMember::Getter(g) => CallableSyntaxRef::Getter(g),
+        ClassMember::Setter(s) => CallableSyntaxRef::Setter(s),
+        ClassMember::Index(i) => CallableSyntaxRef::Index(i),
+        ClassMember::Field(_) | ClassMember::Variant(_) => return None,
+    };
+    semantic_signature_for_syntax(ctx, &CallableOwnerId::Declaration(owner.clone()), syntax, declared_side)
 }
 
 pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) -> CallableSignature {
