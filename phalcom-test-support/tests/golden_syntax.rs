@@ -12,7 +12,7 @@ fn every_golden_source_parses_without_errors() {
     collect_ph_files(workspace.root(), &mut paths).unwrap();
     paths.sort();
 
-    assert_eq!(paths.len(), 28, "golden source count changed: {paths:?}");
+    assert_eq!(paths.len(), 29, "golden source count changed: {paths:?}");
 
     for path in paths {
         let raw = fs::read_to_string(&path).unwrap();
