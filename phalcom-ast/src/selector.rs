@@ -189,4 +189,3 @@ pub fn selector_pattern_from_variant_pattern(pattern: &crate::ast::VariantPatter
         _ => Err(SelectorError::MissingGap),
     }
 }
-

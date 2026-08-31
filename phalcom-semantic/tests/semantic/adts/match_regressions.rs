@@ -12,13 +12,7 @@ fn diagnostics_for(source: &str) -> Vec<phalcom_semantic::diagnostic::SemanticDi
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("source should parse cleanly");
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
-    analysis
-        .snapshot
-        .diagnostics
-        .get(&module)
-        .cloned()
-        .unwrap_or_default()
-        .to_vec()
+    analysis.snapshot.diagnostics.get(&module).cloned().unwrap_or_default().to_vec()
 }
 
 #[test]

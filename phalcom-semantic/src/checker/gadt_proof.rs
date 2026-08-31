@@ -236,9 +236,10 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
         }
         (TypeData::Tuple(left_elements), TypeData::Tuple(right_elements)) => {
             left_elements.len() == right_elements.len()
-                && left_elements.iter().zip(right_elements.iter()).all(|(left, right)| {
-                    left.label == right.label && unify_equality(store, substitution, left.ty, right.ty)
-                })
+                && left_elements
+                    .iter()
+                    .zip(right_elements.iter())
+                    .all(|(left, right)| left.label == right.label && unify_equality(store, substitution, left.ty, right.ty))
         }
         (TypeData::Callable(left_callable), TypeData::Callable(right_callable)) => {
             left_callable.parameters.len() == right_callable.parameters.len()
@@ -246,17 +247,8 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
                     .parameters
                     .iter()
                     .zip(right_callable.parameters.iter())
-                    .all(|(left, right)| {
-                        left.label == right.label
-                            && left.rest == right.rest
-                            && unify_equality(store, substitution, left.ty, right.ty)
-                    })
-                && unify_equality(
-                    store,
-                    substitution,
-                    left_callable.return_type,
-                    right_callable.return_type,
-                )
+                    .all(|(left, right)| left.label == right.label && left.rest == right.rest && unify_equality(store, substitution, left.ty, right.ty))
+                && unify_equality(store, substitution, left_callable.return_type, right_callable.return_type)
         }
         // The remaining canonical forms contain no ordinary proper-type
         // parameter positions that this v1 GADT solver is permitted to rewrite.
@@ -265,12 +257,7 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
     }
 }
 
-fn bind_parameter(
-    store: &mut TypeStore,
-    substitution: &mut TypeSubstitution,
-    parameter: TypeParameterId,
-    ty: TypeId,
-) -> bool {
+fn bind_parameter(store: &mut TypeStore, substitution: &mut TypeSubstitution, parameter: TypeParameterId, ty: TypeId) -> bool {
     if let Some(existing) = substitution.get(parameter) {
         return unify_equality(store, substitution, existing, ty);
     }

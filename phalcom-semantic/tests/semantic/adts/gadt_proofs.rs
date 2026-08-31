@@ -27,5 +27,8 @@ class Test {
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
 
-    assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "no errors: LitBool is refuted for Expr<Int>");
+    assert!(
+        analysis.snapshot.diagnostics.values().all(|d| d.is_empty()),
+        "no errors: LitBool is refuted for Expr<Int>"
+    );
 }

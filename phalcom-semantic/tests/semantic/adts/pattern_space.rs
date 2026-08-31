@@ -15,20 +15,14 @@ fn test_module() -> ModuleId {
 fn pattern_space_normalization_flattens_and_removes_empty() {
     let space = PatternSpace::Union(Box::new([
         PatternSpace::Empty,
-        PatternSpace::Union(Box::new([
-            PatternSpace::Opaque(TypeId(1)),
-            PatternSpace::Empty,
-        ])),
+        PatternSpace::Union(Box::new([PatternSpace::Opaque(TypeId(1)), PatternSpace::Empty])),
         PatternSpace::Opaque(TypeId(2)),
     ]));
 
     let normalized = space.normalize();
     assert_eq!(
         normalized,
-        PatternSpace::Union(Box::new([
-            PatternSpace::Opaque(TypeId(1)),
-            PatternSpace::Opaque(TypeId(2)),
-        ]))
+        PatternSpace::Union(Box::new([PatternSpace::Opaque(TypeId(1)), PatternSpace::Opaque(TypeId(2)),]))
     );
 }
 
@@ -130,10 +124,7 @@ fn tuple_subtraction_computes_cartesian_difference() {
     let mut store = TypeStore::new();
     let hier = MapTypeHierarchy::new();
 
-    let full_tuple = PatternSpace::Tuple(Box::new([
-        PatternSpace::Opaque(TypeId(1)),
-        PatternSpace::Opaque(TypeId(2)),
-    ]));
+    let full_tuple = PatternSpace::Tuple(Box::new([PatternSpace::Opaque(TypeId(1)), PatternSpace::Opaque(TypeId(2))]));
 
     // Subtract identical tuple
     let sub1 = full_tuple.subtract(&full_tuple, &mut store, &hier);

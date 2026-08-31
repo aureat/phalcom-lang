@@ -208,7 +208,8 @@ impl PatternSpace {
                     exact_case: v1.exact_case,
                     fields: fields.into_boxed_slice(),
                     proof,
-                }).normalize()
+                })
+                .normalize()
             }
             (Self::Tuple(t1), Self::Tuple(t2)) => {
                 if t1.len() != t2.len() {
@@ -307,9 +308,7 @@ impl PatternSpace {
                 }
 
                 // Check if v2 strictly covers all fields of v1
-                let all_covered = v1.fields.iter().zip(v2.fields.iter()).all(|(f1, f2)| {
-                    f1.subtract(f2, store, hier).is_empty()
-                });
+                let all_covered = v1.fields.iter().zip(v2.fields.iter()).all(|(f1, f2)| f1.subtract(f2, store, hier).is_empty());
                 if all_covered {
                     return Self::Empty;
                 }
@@ -392,17 +391,13 @@ impl PatternSpace {
         match self {
             Self::Empty => PatternSpaceSummary::Empty,
             Self::Opaque(t) => PatternSpaceSummary::Opaque(*t),
-            Self::Union(members) => {
-                PatternSpaceSummary::Union(members.iter().map(Self::summarize).collect::<Vec<_>>().into_boxed_slice())
-            }
+            Self::Union(members) => PatternSpaceSummary::Union(members.iter().map(Self::summarize).collect::<Vec<_>>().into_boxed_slice()),
             Self::Variant(v) => PatternSpaceSummary::Variant {
                 variant: v.variant.clone(),
                 exact_case: v.exact_case,
                 fields: v.fields.iter().map(Self::summarize).collect::<Vec<_>>().into_boxed_slice(),
             },
-            Self::Tuple(elements) => {
-                PatternSpaceSummary::Tuple(elements.iter().map(Self::summarize).collect::<Vec<_>>().into_boxed_slice())
-            }
+            Self::Tuple(elements) => PatternSpaceSummary::Tuple(elements.iter().map(Self::summarize).collect::<Vec<_>>().into_boxed_slice()),
             Self::List(_) => PatternSpaceSummary::List,
         }
     }

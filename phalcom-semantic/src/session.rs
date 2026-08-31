@@ -898,14 +898,7 @@ impl SemanticWorkspaceSession {
 
         for (decl_id, _) in declarations.iter() {
             if !associated_surfaces_table.surfaces.contains_key(decl_id) {
-                let (assoc_surface, _) = build_associated_surface(
-                    decl_id,
-                    None,
-                    &[],
-                    &std::collections::HashSet::new(),
-                    &decl_id.module,
-                    None,
-                );
+                let (assoc_surface, _) = build_associated_surface(decl_id, None, &[], &std::collections::HashSet::new(), &decl_id.module, None);
                 associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
                 let _ = query_associated_surface(&mut self.db, assoc_surface);
             }

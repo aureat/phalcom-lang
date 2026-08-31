@@ -32,8 +32,8 @@ pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
 
 /// Convenience helper to analyze a single module as a standalone workspace.
 pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Program>) -> SemanticAnalysis {
-    let unlinked = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program).unwrap_or_else(|_| {
-        phalcom_modules::interface::UnlinkedModuleInterface {
+    let unlinked =
+        InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program).unwrap_or_else(|_| phalcom_modules::interface::UnlinkedModuleInterface {
             id: module.clone(),
             kind: ModuleKind::Module,
             imports: Vec::new(),
@@ -41,8 +41,7 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
             declarations: BTreeMap::new(),
             exposed_children: std::collections::BTreeSet::new(),
             metadata: ModuleMetadata::default(),
-        }
-    });
+        });
 
     let universe = Arc::new(phalcom_modules::project::ProjectUniverse::new());
     let mut interfaces = BTreeMap::new();

@@ -30,7 +30,10 @@ class Test {
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
-    assert!(diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternUnresolved), "reports MatchPatternUnresolved");
+    assert!(
+        diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternUnresolved),
+        "reports MatchPatternUnresolved"
+    );
 }
 
 #[test]
@@ -55,7 +58,10 @@ class Test {
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
-    assert!(diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternArityMismatch), "reports MatchPatternArityMismatch");
+    assert!(
+        diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternArityMismatch),
+        "reports MatchPatternArityMismatch"
+    );
 }
 
 #[test]
@@ -80,7 +86,10 @@ class Test {
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
-    assert!(diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternFieldMismatch), "reports MatchPatternFieldMismatch");
+    assert!(
+        diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternFieldMismatch),
+        "reports MatchPatternFieldMismatch"
+    );
 }
 
 #[test]
@@ -109,7 +118,10 @@ class Test {
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
-    assert!(diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternContradictory), "reports MatchPatternContradictory");
+    assert!(
+        diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternContradictory),
+        "reports MatchPatternContradictory"
+    );
 }
 
 #[test]
@@ -134,5 +146,8 @@ class Test {
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
-    assert!(diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternContradictory), "reports MatchPatternContradictory for refuted GADT variant");
+    assert!(
+        diags.iter().any(|d| d.code == DiagnosticCode::MatchPatternContradictory),
+        "reports MatchPatternContradictory for refuted GADT variant"
+    );
 }

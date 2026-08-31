@@ -62,10 +62,7 @@ impl VM {
     /// - Direct address lookup on defining owner class/metaclass.
     /// - Receiver bound to lookup_owner class object.
     /// - No hierarchy walk, no family-base search, no rest candidate ranking, no dNU, no visibility check.
-    pub fn bind_behavioral_associated_target(
-        &mut self,
-        target: &ExecutableInvocationTarget,
-    ) -> Result<ResolvedBehavioralAssociatedTarget, RuntimeError> {
+    pub fn bind_behavioral_associated_target(&mut self, target: &ExecutableInvocationTarget) -> Result<ResolvedBehavioralAssociatedTarget, RuntimeError> {
         match target {
             ExecutableInvocationTarget::Behavioral {
                 lookup_owner,
@@ -87,17 +84,20 @@ impl VM {
                             self.heap.class(defining_class).methods.get(&selector_sym).copied()
                         })
                     }
-                    ExecutableRestMode::Positional | ExecutableRestMode::Labeled | ExecutableRestMode::Complete => {
-                        self.heap.class(defining_metaclass).rest_methods.get(&selector_sym).copied().or_else(|| {
-                            self.heap.class(defining_class).rest_methods.get(&selector_sym).copied()
-                        })
-                    }
+                    ExecutableRestMode::Positional | ExecutableRestMode::Labeled | ExecutableRestMode::Complete => self
+                        .heap
+                        .class(defining_metaclass)
+                        .rest_methods
+                        .get(&selector_sym)
+                        .copied()
+                        .or_else(|| self.heap.class(defining_class).rest_methods.get(&selector_sym).copied()),
                 };
 
                 let method = method.ok_or_else(|| {
                     RuntimeError::Message(format!(
                         "associated method `{}` not found on defining class `{}`",
-                        callable.selector, callable.owner.declaration().name
+                        callable.selector,
+                        callable.owner.declaration().name
                     ))
                 })?;
 
@@ -106,12 +106,10 @@ impl VM {
                     method,
                 })
             }
-            ExecutableInvocationTarget::VariantConstructor { variant } => {
-                Err(RuntimeError::Message(format!(
-                    "bind_behavioral_associated_target called on variant constructor `{}`",
-                    variant.selector
-                )))
-            }
+            ExecutableInvocationTarget::VariantConstructor { variant } => Err(RuntimeError::Message(format!(
+                "bind_behavioral_associated_target called on variant constructor `{}`",
+                variant.selector
+            ))),
         }
     }
 }

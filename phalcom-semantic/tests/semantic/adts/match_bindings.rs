@@ -28,7 +28,10 @@ class Test {
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
 
-    assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "no scope leakage between match arms");
+    assert!(
+        analysis.snapshot.diagnostics.values().all(|d| d.is_empty()),
+        "no scope leakage between match arms"
+    );
 }
 
 #[test]
@@ -52,5 +55,8 @@ class Test {
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
-    assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "nested pattern bindings succeed without error");
+    assert!(
+        analysis.snapshot.diagnostics.values().all(|d| d.is_empty()),
+        "nested pattern bindings succeed without error"
+    );
 }

@@ -1,8 +1,5 @@
 use phalcom_ast::{
-    ast::{
-        Expr, MatchArm, MatchExpr, Pattern, Statement, VariantPattern, VariantPatternArgument,
-        VariantPatternMode,
-    },
+    ast::{Expr, MatchArm, MatchExpr, Pattern, Statement, VariantPattern, VariantPatternArgument, VariantPatternMode},
     parse_source,
 };
 use phalcom_common::range::SourceRange;
@@ -120,21 +117,31 @@ fn parse_match_with_families_gaps_and_wildcard() {
     assert_eq!(m.arms.len(), 4);
 
     // Arm 0: Animal::Dog*
-    let Pattern::Variant(v0) = &m.arms[0].pattern else { panic!("expected variant"); };
+    let Pattern::Variant(v0) = &m.arms[0].pattern else {
+        panic!("expected variant");
+    };
     assert_eq!(v0.base, "Dog");
     assert!(matches!(v0.mode, VariantPatternMode::WholeFamily { .. }));
 
     // Arm 1: Animal::Cat(...)
-    let Pattern::Variant(v1) = &m.arms[1].pattern else { panic!("expected variant"); };
+    let Pattern::Variant(v1) = &m.arms[1].pattern else {
+        panic!("expected variant");
+    };
     assert_eq!(v1.base, "Cat");
-    let VariantPatternMode::CallablePattern { prefix: p1, suffix: s1, .. } = &v1.mode else { panic!("expected CallablePattern"); };
+    let VariantPatternMode::CallablePattern { prefix: p1, suffix: s1, .. } = &v1.mode else {
+        panic!("expected CallablePattern");
+    };
     assert!(p1.is_empty());
     assert!(s1.is_empty());
 
     // Arm 2: Animal::Fox(name, ..., named: age)
-    let Pattern::Variant(v2) = &m.arms[2].pattern else { panic!("expected variant"); };
+    let Pattern::Variant(v2) = &m.arms[2].pattern else {
+        panic!("expected variant");
+    };
     assert_eq!(v2.base, "Fox");
-    let VariantPatternMode::CallablePattern { prefix: p2, suffix: s2, .. } = &v2.mode else { panic!("expected CallablePattern"); };
+    let VariantPatternMode::CallablePattern { prefix: p2, suffix: s2, .. } = &v2.mode else {
+        panic!("expected CallablePattern");
+    };
     assert_eq!(p2.len(), 1);
     assert!(matches!(p2[0].pattern, Pattern::Name { ref name, .. } if name == "name"));
     assert_eq!(s2.len(), 1);
@@ -155,24 +162,42 @@ fn parse_match_with_nested_and_or_patterns() {
     assert_eq!(m.arms.len(), 3);
 
     // Arm 0: Some(Ok(x) | Cached(x))
-    let Pattern::Variant(v0) = &m.arms[0].pattern else { panic!("expected variant"); };
+    let Pattern::Variant(v0) = &m.arms[0].pattern else {
+        panic!("expected variant");
+    };
     assert_eq!(v0.base, "Some");
-    let VariantPatternMode::ExactCall { arguments: args0 } = &v0.mode else { panic!("expected ExactCall"); };
+    let VariantPatternMode::ExactCall { arguments: args0 } = &v0.mode else {
+        panic!("expected ExactCall");
+    };
     assert_eq!(args0.len(), 1);
-    let Pattern::Or { alternatives, .. } = &args0[0].pattern else { panic!("expected Or pattern"); };
+    let Pattern::Or { alternatives, .. } = &args0[0].pattern else {
+        panic!("expected Or pattern");
+    };
     assert_eq!(alternatives.len(), 2);
-    let Pattern::Variant(alt0) = &alternatives[0] else { panic!("expected variant"); };
+    let Pattern::Variant(alt0) = &alternatives[0] else {
+        panic!("expected variant");
+    };
     assert_eq!(alt0.base, "Ok");
-    let Pattern::Variant(alt1) = &alternatives[1] else { panic!("expected variant"); };
+    let Pattern::Variant(alt1) = &alternatives[1] else {
+        panic!("expected variant");
+    };
     assert_eq!(alt1.base, "Cached");
 
     // Arm 1: Some(Error(_))
-    let Pattern::Variant(v1) = &m.arms[1].pattern else { panic!("expected variant"); };
+    let Pattern::Variant(v1) = &m.arms[1].pattern else {
+        panic!("expected variant");
+    };
     assert_eq!(v1.base, "Some");
-    let VariantPatternMode::ExactCall { arguments: args1 } = &v1.mode else { panic!("expected ExactCall"); };
-    let Pattern::Variant(inner) = &args1[0].pattern else { panic!("expected variant"); };
+    let VariantPatternMode::ExactCall { arguments: args1 } = &v1.mode else {
+        panic!("expected ExactCall");
+    };
+    let Pattern::Variant(inner) = &args1[0].pattern else {
+        panic!("expected variant");
+    };
     assert_eq!(inner.base, "Error");
-    let VariantPatternMode::ExactCall { arguments: inner_args } = &inner.mode else { panic!("expected ExactCall"); };
+    let VariantPatternMode::ExactCall { arguments: inner_args } = &inner.mode else {
+        panic!("expected ExactCall");
+    };
     assert!(matches!(inner_args[0].pattern, Pattern::Wildcard { .. }));
 
     // Arm 2: None (bare identifier contextual singleton parsed as Name at AST stage)

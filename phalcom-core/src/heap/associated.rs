@@ -13,9 +13,6 @@ pub struct AssociatedFamilyObject {
 
 impl AssociatedFamilyObject {
     pub fn new(descriptor: Arc<ExecutableFamilyDescriptor>, bound_owner: Option<Value>) -> Self {
-        Self {
-            descriptor,
-            bound_owner,
-        }
+        Self { descriptor, bound_owner }
     }
 }

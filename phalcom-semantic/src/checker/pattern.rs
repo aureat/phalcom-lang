@@ -9,8 +9,8 @@ use crate::checker::pattern_space::{PatternSpace, VariantSpace};
 use crate::enum_semantics::VariantShape;
 use crate::identity::{BindingId, DeclarationId, VariantFamilyId};
 use crate::match_semantics::{
-    BranchProofEnvironment, PatternBindingResolution, PatternResolution, ResolvedFieldPattern, ResolvedListPattern, ResolvedOrPattern,
-    ResolvedVariantCandidate, ResolvedVariantPattern, VariantSelectorConstraint,
+    PatternBindingResolution, PatternResolution, ResolvedFieldPattern, ResolvedListPattern, ResolvedOrPattern, ResolvedVariantCandidate,
+    ResolvedVariantPattern, VariantSelectorConstraint,
 };
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
@@ -67,14 +67,7 @@ fn resolve_pattern_with_mode(
 
             for alternative in alternatives {
                 let mut local_bindings = Vec::new();
-                let (resolution, space) = resolve_pattern_with_mode(
-                    ctx,
-                    alternative,
-                    expected_ty,
-                    expected_space,
-                    &mut local_bindings,
-                    BindingMode::Detached,
-                );
+                let (resolution, space) = resolve_pattern_with_mode(ctx, alternative, expected_ty, expected_space, &mut local_bindings, BindingMode::Detached);
 
                 let in_domain = expected_space.intersect(&space, ctx.store, &ctx.hierarchy).normalize();
                 let reachable = local_remaining.intersect(&space, ctx.store, &ctx.hierarchy).normalize();
@@ -127,8 +120,7 @@ fn resolve_pattern_with_mode(
                     _ => ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(expected_ty),
                 };
                 let elem_expected_space = PatternSpace::Opaque(elem_ty);
-                let (elem_res, elem_space) =
-                    resolve_pattern_with_mode(ctx, elem, elem_ty, &elem_expected_space, bindings, binding_mode);
+                let (elem_res, elem_space) = resolve_pattern_with_mode(ctx, elem, elem_ty, &elem_expected_space, bindings, binding_mode);
                 tuple_res.push(elem_res);
                 element_spaces.push(elem_space);
             }
@@ -143,20 +135,12 @@ fn resolve_pattern_with_mode(
             let mut prefix_res = Vec::with_capacity(elements.len());
             for elem in elements {
                 let elem_expected_space = PatternSpace::Opaque(elem_ty);
-                let (elem_res, _) =
-                    resolve_pattern_with_mode(ctx, elem, elem_ty, &elem_expected_space, bindings, binding_mode);
+                let (elem_res, _) = resolve_pattern_with_mode(ctx, elem, elem_ty, &elem_expected_space, bindings, binding_mode);
                 prefix_res.push(elem_res);
             }
             let rest_res = rest.as_ref().map(|rest_pattern| {
                 let elem_expected_space = PatternSpace::Opaque(elem_ty);
-                let (rest_resolution, _) = resolve_pattern_with_mode(
-                    ctx,
-                    rest_pattern,
-                    elem_ty,
-                    &elem_expected_space,
-                    bindings,
-                    binding_mode,
-                );
+                let (rest_resolution, _) = resolve_pattern_with_mode(ctx, rest_pattern, elem_ty, &elem_expected_space, bindings, binding_mode);
                 Box::new(rest_resolution)
             });
 
@@ -219,13 +203,7 @@ fn bind_name_pattern(
     )
 }
 
-fn declare_pattern_binding(
-    ctx: &mut CheckingContext<'_>,
-    name: &str,
-    range: SourceRange,
-    knowledge: &TypeKnowledge,
-    mode: BindingMode,
-) -> BindingId {
+fn declare_pattern_binding(ctx: &mut CheckingContext<'_>, name: &str, range: SourceRange, knowledge: &TypeKnowledge, mode: BindingMode) -> BindingId {
     match mode {
         BindingMode::Detached => ctx.alloc_binding(),
         BindingMode::Live => {
@@ -257,9 +235,9 @@ fn commit_shared_bindings(
     };
 
     let first_names = first.iter().map(|binding| binding.name.to_string()).collect::<BTreeSet<_>>();
-    let coherent = alternatives.iter().all(|alternative| {
-        alternative.iter().map(|binding| binding.name.to_string()).collect::<BTreeSet<_>>() == first_names
-    });
+    let coherent = alternatives
+        .iter()
+        .all(|alternative| alternative.iter().map(|binding| binding.name.to_string()).collect::<BTreeSet<_>>() == first_names);
     if !coherent {
         ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
@@ -280,10 +258,7 @@ fn commit_shared_bindings(
             continue;
         }
 
-        let knowledge = crate::types::evidence::join_type_knowledge(
-            ctx.store,
-            matching.iter().map(|binding| binding.knowledge.clone()).collect::<Vec<_>>(),
-        );
+        let knowledge = crate::types::evidence::join_type_knowledge(ctx.store, matching.iter().map(|binding| binding.knowledge.clone()).collect::<Vec<_>>());
         let source = matching.first().map(|binding| binding.source).unwrap_or(range);
 
         if let Some(existing) = output.iter().find(|binding| binding.name.as_ref() == name.as_str()).cloned() {
@@ -312,17 +287,10 @@ fn commit_shared_bindings(
     replacements
 }
 
-fn remap_pattern_bindings(
-    resolution: &mut PatternResolution,
-    replacements: &BTreeMap<String, (BindingId, TypeKnowledge)>,
-) {
+fn remap_pattern_bindings(resolution: &mut PatternResolution, replacements: &BTreeMap<String, (BindingId, TypeKnowledge)>) {
     match resolution {
         PatternResolution::Wildcard => {}
-        PatternResolution::Binding {
-            binding,
-            name,
-            knowledge,
-        } => {
+        PatternResolution::Binding { binding, name, knowledge } => {
             if let Some((replacement, joined)) = replacements.get(name.as_ref()) {
                 *binding = *replacement;
                 *knowledge = joined.clone();
@@ -387,13 +355,7 @@ fn try_resolve_contextual_singleton(
 
     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
 
-    let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(
-        ctx.store,
-        &ctx.hierarchy,
-        &owner,
-        &variant_info,
-        expected_ty,
-    ) {
+    let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner, &variant_info, expected_ty) {
         crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
         crate::checker::gadt_proof::GadtProofResult::Refuted => return None,
     };
@@ -447,8 +409,7 @@ fn resolve_variant_pattern(
         }
         decl
     } else {
-        expected_nominal_decl
-            .unwrap_or_else(|| DeclarationId::new(ctx.current_module.clone(), variant_pat.base.clone().into()))
+        expected_nominal_decl.unwrap_or_else(|| DeclarationId::new(ctx.current_module.clone(), variant_pat.base.clone().into()))
     };
 
     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner_decl.clone()));
@@ -468,8 +429,8 @@ fn resolve_variant_pattern(
     let constraint = match &variant_pat.mode {
         VariantPatternMode::WholeFamily { .. } => VariantSelectorConstraint::WholeFamily,
         VariantPatternMode::Singleton => {
-            let selector = selector_from_exact_variant_pattern(variant_pat)
-                .unwrap_or_else(|_| Selector::getter(&variant_pat.base).expect("variant getter selector"));
+            let selector =
+                selector_from_exact_variant_pattern(variant_pat).unwrap_or_else(|_| Selector::getter(&variant_pat.base).expect("variant getter selector"));
             VariantSelectorConstraint::Exact(selector)
         }
         VariantPatternMode::ExactCall { .. } => {
@@ -527,13 +488,7 @@ fn resolve_variant_pattern(
             }
             matched_any_variant = true;
 
-            let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(
-                ctx.store,
-                &ctx.hierarchy,
-                &owner_decl,
-                v_info,
-                expected_ty,
-            ) {
+            let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner_decl, v_info, expected_ty) {
                 crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
                 crate::checker::gadt_proof::GadtProofResult::Refuted => continue,
             };
@@ -544,10 +499,7 @@ fn resolve_variant_pattern(
             let mut local_bindings = Vec::new();
 
             let specialize_field = |ctx: &mut CheckingContext<'_>, raw: TypeId| {
-                let declaration_specialized = substitution
-                    .as_ref()
-                    .map(|substitution| substitution.apply(ctx.store, raw))
-                    .unwrap_or(raw);
+                let declaration_specialized = substitution.as_ref().map(|substitution| substitution.apply(ctx.store, raw)).unwrap_or(raw);
                 crate::checker::gadt_proof::apply_branch_proof(ctx.store, &proof, declaration_specialized)
             };
 
@@ -729,10 +681,7 @@ fn resolve_variant_pattern(
                                     ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                                         ctx.current_module.clone(),
                                         crate::diagnostic::DiagnosticCode::MatchPatternFieldMismatch,
-                                        format!(
-                                            "field label `{}` does not match any field of variant `{}`",
-                                            label, v_info.id.selector
-                                        ),
+                                        format!("field label `{}` does not match any field of variant `{}`", label, v_info.id.selector),
                                         argument.range,
                                     ));
                                 }
@@ -754,10 +703,7 @@ fn resolve_variant_pattern(
                                     ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                                         ctx.current_module.clone(),
                                         crate::diagnostic::DiagnosticCode::MatchPatternFieldMismatch,
-                                        format!(
-                                            "field label `{}` does not match any field of variant `{}`",
-                                            label, v_info.id.selector
-                                        ),
+                                        format!("field label `{}` does not match any field of variant `{}`", label, v_info.id.selector),
                                         argument.range,
                                     ));
                                 }

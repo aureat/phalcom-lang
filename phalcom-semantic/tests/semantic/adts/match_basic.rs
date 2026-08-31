@@ -5,13 +5,10 @@ use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::analyze_single_module;
-use phalcom_semantic::identity::{
-    BindingId, BodyId, DeclarationId, ExpressionId, LocalExpressionId, VariantFamilyId, VariantId,
-};
+use phalcom_semantic::identity::{BindingId, BodyId, DeclarationId, ExpressionId, LocalExpressionId, VariantFamilyId, VariantId};
 use phalcom_semantic::match_semantics::{
-    BranchProofEnvironment, ExhaustivenessResult, MatchArmResolution, MatchResolution,
-    PatternBindingResolution, PatternResolution, PatternSpaceSummary, PatternUsefulness,
-    ResolvedVariantCandidate, ResolvedVariantPattern, VariantSelectorConstraint,
+    BranchProofEnvironment, ExhaustivenessResult, MatchArmResolution, MatchResolution, PatternBindingResolution, PatternResolution, PatternSpaceSummary,
+    PatternUsefulness, ResolvedVariantCandidate, ResolvedVariantPattern, VariantSelectorConstraint,
 };
 use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use phalcom_semantic::types::id::TypeId;

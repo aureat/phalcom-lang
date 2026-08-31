@@ -9,8 +9,7 @@ use std::sync::Arc;
 fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError> {
     let mut vm = VM::new();
     let src: Arc<str> = source.into();
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(src))
-        .map_err(|e| PhError::from(e))?;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(src)).map_err(|e| PhError::from(e))?;
     vm.run_compiled(&program)?;
     let entry_id = program.initialization_order.last().expect("entry module");
     let mod_obj = vm.module_registry.get(entry_id).unwrap().object;

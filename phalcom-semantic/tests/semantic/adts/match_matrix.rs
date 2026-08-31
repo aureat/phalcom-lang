@@ -42,7 +42,10 @@ class Test {
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
 
-    assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "matrix simple and generic enums pass without diagnostics");
+    assert!(
+        analysis.snapshot.diagnostics.values().all(|d| d.is_empty()),
+        "matrix simple and generic enums pass without diagnostics"
+    );
 }
 
 #[test]
@@ -71,7 +74,10 @@ class Test {
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
 
-    assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "multi-parameter GADTs omit refuted cases correctly");
+    assert!(
+        analysis.snapshot.diagnostics.values().all(|d| d.is_empty()),
+        "multi-parameter GADTs omit refuted cases correctly"
+    );
 }
 
 #[test]
@@ -98,7 +104,10 @@ class Test {
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
 
-    assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "tuples, nested or-patterns, and wildcards pass cleanly");
+    assert!(
+        analysis.snapshot.diagnostics.values().all(|d| d.is_empty()),
+        "tuples, nested or-patterns, and wildcards pass cleanly"
+    );
 }
 
 #[test]
@@ -122,5 +131,8 @@ class Test {
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
     let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
 
-    assert!(analysis.snapshot.diagnostics.values().all(|d| d.is_empty()), "selector patterns with gaps and labels pass cleanly");
+    assert!(
+        analysis.snapshot.diagnostics.values().all(|d| d.is_empty()),
+        "selector patterns with gaps and labels pass cleanly"
+    );
 }

@@ -102,8 +102,6 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
                 crate::identity::DispatchSide::Instance => ValueShape::Instance(term.owner.clone()),
             },
         },
-        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Family(_) | TypeData::Parameter(_) | TypeData::Lambda(_) => {
-            ValueShape::Unknown
-        }
+        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Family(_) | TypeData::Parameter(_) | TypeData::Lambda(_) => ValueShape::Unknown,
     }
 }

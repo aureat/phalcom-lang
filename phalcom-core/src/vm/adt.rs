@@ -38,15 +38,9 @@ impl VM {
             };
             let payload_arity = var_spec.payload_fields.len() as u16;
 
-            let runtime_var_id = self.adt_registry.register_variant(
-                var_spec.id.clone(),
-                enum_id,
-                discriminant,
-                shape,
-                payload_arity,
-                case_class_id,
-                None,
-            );
+            let runtime_var_id = self
+                .adt_registry
+                .register_variant(var_spec.id.clone(), enum_id, discriminant, shape, payload_arity, case_class_id, None);
 
             // Register payload field getters on the case behavior class
             let module = self.entry_module().or_else(|| self.core_module()).unwrap();
@@ -58,7 +52,10 @@ impl VM {
 
                 let mut chunk = crate::chunk::Chunk::new();
                 chunk.add_instruction(crate::bytecode::Bytecode::GetLocal(0), phalcom_common::range::EmptySourceRange);
-                chunk.add_instruction(crate::bytecode::Bytecode::GetVariantPayload(slot as u16), phalcom_common::range::EmptySourceRange);
+                chunk.add_instruction(
+                    crate::bytecode::Bytecode::GetVariantPayload(slot as u16),
+                    phalcom_common::range::EmptySourceRange,
+                );
                 chunk.add_instruction(crate::bytecode::Bytecode::Return, phalcom_common::range::EmptySourceRange);
 
                 let callable = std::rc::Rc::new(crate::callable::Callable {

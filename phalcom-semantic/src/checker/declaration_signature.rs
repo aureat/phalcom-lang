@@ -20,8 +20,7 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
         ClassMember::Method(method) => {
             let slots = method
                 .params
-                .iter
-                ()
+                .iter()
                 .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
                 .map(|parameter| {
                     parameter

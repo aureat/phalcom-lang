@@ -411,9 +411,5 @@ fn match_keyword_and_fat_arrow_are_distinct_tokens() {
 
 #[test]
 fn fat_arrow_does_not_steal_type_lambda_arrow() {
-    assert_eq!(
-        tokens("=>> => ="),
-        vec![Token::TypeLambdaArrow, Token::FatArrow, Token::Equal, Token::Eof]
-    );
+    assert_eq!(tokens("=>> => ="), vec![Token::TypeLambdaArrow, Token::FatArrow, Token::Equal, Token::Eof]);
 }
-

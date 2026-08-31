@@ -24,7 +24,7 @@ pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRe
 pub use reflection_cache::ReflectionCache;
 pub use registry::{ModuleFailure, ModuleFailureRef, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleState, RuntimeProgramId};
 pub use semantic_lowering::{
-    AssociatedLoweringSpec, EnumLoweringSpec, ExecutableFamilyCandidate, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor,
-    ExecutableFamilyEntry, ExecutableFamilyTarget, ExecutableInvocationTarget, ExecutableRestMode, FamilyApplicationLoweringSpec,
-    LoweringSite, LoweringSiteKind, ModuleLoweringSemantics, VariantFieldLoweringSpec, VariantLoweringSpec, build_module_lowering_semantics,
+    AssociatedLoweringSpec, EnumLoweringSpec, ExecutableFamilyCandidate, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableFamilyEntry,
+    ExecutableFamilyTarget, ExecutableInvocationTarget, ExecutableRestMode, FamilyApplicationLoweringSpec, LoweringSite, LoweringSiteKind,
+    ModuleLoweringSemantics, VariantFieldLoweringSpec, VariantLoweringSpec, build_module_lowering_semantics,
 };

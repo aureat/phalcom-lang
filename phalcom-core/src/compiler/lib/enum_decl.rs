@@ -1,8 +1,8 @@
 //! Enum declaration lowering to Bytecode::Enum, VariantMethod, and FinalizeEnum (Part 4).
 
 use crate::bytecode::Bytecode;
-use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::Compiler;
+use crate::compiler::lib::error::CompilerError;
 use crate::method::MethodObject;
 use crate::modules::semantic_lowering::{EnumLoweringSpec, VariantFieldLoweringSpec, VariantLoweringSpec};
 use phalcom_ast::ast::{EnumBehaviorMember, EnumDef, EnumMember};
@@ -53,7 +53,11 @@ impl<'vm> Compiler<'vm> {
                         }
                     };
                     let vid = VariantId::new(owner.clone(), selector);
-                    let shape = if v.payload.is_some() { VariantShape::Constructor } else { VariantShape::Singleton };
+                    let shape = if v.payload.is_some() {
+                        VariantShape::Constructor
+                    } else {
+                        VariantShape::Singleton
+                    };
                     let mut fields = Vec::new();
                     if let Some(payload) = &v.payload {
                         for (idx, p) in payload.parameters.iter().enumerate() {
@@ -93,7 +97,10 @@ impl<'vm> Compiler<'vm> {
         for m in &enum_def.members {
             if let EnumMember::Variant(v) = m {
                 if let Some(body) = &v.body {
-                    let v_spec = spec.variants.iter().find(|vs| vs.id.selector.base == phalcom_common::selector::SelectorBase::Named(v.name.clone()));
+                    let v_spec = spec
+                        .variants
+                        .iter()
+                        .find(|vs| vs.id.selector.base == phalcom_common::selector::SelectorBase::Named(v.name.clone()));
                     if let Some(v_spec) = v_spec {
                         let var_idx = self
                             .functions
@@ -120,9 +127,11 @@ impl<'vm> Compiler<'vm> {
                                         false,
                                         None,
                                     )?;
-                                    let method_obj = self.vm.heap.alloc(crate::heap::Object::Method(Box::new(
-                                        MethodObject::new_single(selector_sym, sig_kind, crate::method::MethodKind::Closure(closure)),
-                                    )));
+                                    let method_obj = self.vm.heap.alloc(crate::heap::Object::Method(Box::new(MethodObject::new_single(
+                                        selector_sym,
+                                        sig_kind,
+                                        crate::method::MethodKind::Closure(closure),
+                                    ))));
                                     let method_const = self.add_constant(crate::value::Value::obj(method_obj));
                                     self.emit(Bytecode::Constant(method_const), method_def.range);
                                     self.emit(
@@ -147,9 +156,11 @@ impl<'vm> Compiler<'vm> {
                                         false,
                                         None,
                                     )?;
-                                    let method_obj = self.vm.heap.alloc(crate::heap::Object::Method(Box::new(
-                                        MethodObject::new_single(selector_sym, sig_kind, crate::method::MethodKind::Closure(closure)),
-                                    )));
+                                    let method_obj = self.vm.heap.alloc(crate::heap::Object::Method(Box::new(MethodObject::new_single(
+                                        selector_sym,
+                                        sig_kind,
+                                        crate::method::MethodKind::Closure(closure),
+                                    ))));
                                     let method_const = self.add_constant(crate::value::Value::obj(method_obj));
                                     self.emit(Bytecode::Constant(method_const), getter_def.range);
                                     self.emit(

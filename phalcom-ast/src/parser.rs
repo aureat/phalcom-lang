@@ -2211,20 +2211,11 @@ impl<'source> Parser<'source> {
         } else if matches!(self.peek(), Token::Asterisk | Token::LParen) {
             self.parse_variant_pattern_suffix(start, None, name.clone(), root_range)
         } else {
-            Ok(Pattern::Name {
-                name,
-                range: root_range,
-            })
+            Ok(Pattern::Name { name, range: root_range })
         }
     }
 
-    fn parse_variant_pattern_suffix(
-        &mut self,
-        start: usize,
-        owner: Option<StaticSymbolRef>,
-        base: String,
-        base_range: SourceRange,
-    ) -> ParserResult<Pattern> {
+    fn parse_variant_pattern_suffix(&mut self, start: usize, owner: Option<StaticSymbolRef>, base: String, base_range: SourceRange) -> ParserResult<Pattern> {
         if self.eat(&Token::Asterisk) {
             let star_range = (self.prev_end - 1..self.prev_end).into();
             let range = (start..self.prev_end).into();
@@ -2277,15 +2268,9 @@ impl<'source> Parser<'source> {
             self.expect(&Token::RParen, &["\")\""])?;
             let range = (start..self.prev_end).into();
             let mode = if let Some(gap_range) = gap_range {
-                VariantPatternMode::CallablePattern {
-                    prefix,
-                    gap_range,
-                    suffix,
-                }
+                VariantPatternMode::CallablePattern { prefix, gap_range, suffix }
             } else {
-                VariantPatternMode::ExactCall {
-                    arguments: prefix,
-                }
+                VariantPatternMode::ExactCall { arguments: prefix }
             };
             Ok(Pattern::Variant(VariantPattern {
                 owner,
@@ -5417,18 +5402,17 @@ impl<'source> Parser<'source> {
         }
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
-        Ok(Expr::Match(MatchExpr {
-            value,
-            arms,
-            range,
-        }))
+        Ok(Expr::Match(MatchExpr { value, arms, range }))
     }
 
     fn parse_match_arm_branch(&mut self) -> ParserResult<Expr> {
         if matches!(self.peek(), Token::LBrace) {
             let next_is_map = (matches!(self.peek_next(), Token::Identifier(_) | Token::String(_) | Token::QuotedSymbol(_))
                 && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
-                || matches!(self.peek_next(), Token::LBracket | Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power);
+                || matches!(
+                    self.peek_next(),
+                    Token::LBracket | Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power
+                );
             if !next_is_map {
                 return self.parse_brace_block();
             }

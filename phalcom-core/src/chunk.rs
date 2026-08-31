@@ -1,9 +1,7 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::CompilerError;
 use crate::heap::ClassId;
-use crate::modules::semantic_lowering::{
-    EnumLoweringSpec, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget,
-};
+use crate::modules::semantic_lowering::{EnumLoweringSpec, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget};
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::VariantId;
@@ -39,10 +37,7 @@ impl ExecutableSemanticPool {
     }
 
     pub fn add_enum_spec(&mut self, spec: Arc<EnumLoweringSpec>, span: SourceRange) -> Result<u16, CompilerError> {
-        let index = u16::try_from(self.enum_specs.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
-            kind: "EnumSpec",
-            span,
-        })?;
+        let index = u16::try_from(self.enum_specs.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "EnumSpec", span })?;
         self.enum_specs.push(spec);
         Ok(index)
     }
@@ -55,10 +50,7 @@ impl ExecutableSemanticPool {
         if let Some(&index) = self.variant_target_index.get(variant) {
             return Ok(index);
         }
-        let index = u16::try_from(self.variant_targets.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
-            kind: "VariantTarget",
-            span,
-        })?;
+        let index = u16::try_from(self.variant_targets.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "VariantTarget", span })?;
         self.variant_targets.push(variant.clone());
         self.variant_target_index.insert(variant.clone(), index);
         Ok(index)
@@ -96,10 +88,7 @@ impl ExecutableSemanticPool {
     }
 
     pub fn add_family_operation(&mut self, operation: FamilyOperationShape, span: SourceRange) -> Result<u16, CompilerError> {
-        let index = u16::try_from(self.family_operations.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
-            kind: "FamilyOperation",
-            span,
-        })?;
+        let index = u16::try_from(self.family_operations.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "FamilyOperation", span })?;
         self.family_operations.push(operation);
         Ok(index)
     }

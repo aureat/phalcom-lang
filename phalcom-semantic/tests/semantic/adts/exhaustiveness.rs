@@ -78,5 +78,8 @@ class Test {
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
-    assert!(diags.iter().any(|d| d.code == DiagnosticCode::MatchArmRedundant), "reports MatchArmRedundant warning");
+    assert!(
+        diags.iter().any(|d| d.code == DiagnosticCode::MatchArmRedundant),
+        "reports MatchArmRedundant warning"
+    );
 }

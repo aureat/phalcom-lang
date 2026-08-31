@@ -549,7 +549,10 @@ pub enum Bytecode {
     /// Installs a compiled method on a hidden case behavior class.
     /// variant: index of VariantId in chunk's executable_semantics pool.
     /// selector: constant index of the method selector symbol.
-    VariantMethod { variant: u16, selector: u16 },
+    VariantMethod {
+        variant: u16,
+        selector: u16,
+    },
 
     /// Finalizes the enum root and hidden case behavior classes.
     /// 0: index of ExecutableEnumSpec in chunk's executable_semantics pool.
@@ -562,7 +565,10 @@ pub enum Bytecode {
     /// Allocates and pushes a fresh AdtCaseObject from top-N values.
     /// variant: index of VariantId in chunk's executable_semantics pool.
     /// arity: number of payload values to pop.
-    ConstructVariant { variant: u16, arity: u8 },
+    ConstructVariant {
+        variant: u16,
+        arity: u8,
+    },
 
     /// Reifies an exact behavioral associated target as a BoundMethodObject.
     /// 0: index of ExecutableInvocationTarget in chunk's executable_semantics pool.
@@ -571,7 +577,10 @@ pub enum Bytecode {
     /// Invokes a statically resolved behavioral associated target directly.
     /// target: index of ExecutableInvocationTarget in chunk's executable_semantics pool.
     /// arity: number of argument values to pop.
-    InvokeResolvedAssociated { target: u16, arity: u8 },
+    InvokeResolvedAssociated {
+        target: u16,
+        arity: u8,
+    },
 
     /// Reifies a frozen first-class associated family capability object.
     /// 0: index of ExecutableFamilyDescriptor in chunk's executable_semantics pool.
@@ -580,11 +589,16 @@ pub enum Bytecode {
     /// Invokes a statically known operation on a first-class family value.
     /// operation: index of FamilyOperationShape in chunk's executable_semantics pool.
     /// arity: number of argument values to pop.
-    InvokeAssociatedFamilyStatic { operation: u16, arity: u8 },
+    InvokeAssociatedFamilyStatic {
+        operation: u16,
+        arity: u8,
+    },
 
     /// Dynamic pack invocation on a first-class family value over frozen candidates.
     /// candidates: index of ExecutableFamilyCandidateSet in chunk's executable_semantics pool.
-    InvokeAssociatedFamilyPack { candidates: u16 },
+    InvokeAssociatedFamilyPack {
+        candidates: u16,
+    },
 
     /// Tests if a value is a specific variant (Part-5 primitive).
     /// 0: index of VariantId in chunk's executable_semantics pool.

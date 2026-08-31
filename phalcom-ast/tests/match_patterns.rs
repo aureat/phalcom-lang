@@ -1,6 +1,4 @@
-use phalcom_ast::ast::{
-    Pattern, SourceRange, VariantPattern, VariantPatternArgument, VariantPatternMode,
-};
+use phalcom_ast::ast::{Pattern, SourceRange, VariantPattern, VariantPatternArgument, VariantPatternMode};
 
 #[test]
 fn or_and_wildcard_pattern_ast_shape() {
@@ -65,9 +63,7 @@ fn variant_pattern_modes_ast_shape() {
         owner: None,
         base: "Dog".into(),
         base_range: dummy_range,
-        mode: VariantPatternMode::WholeFamily {
-            star_range: dummy_range,
-        },
+        mode: VariantPatternMode::WholeFamily { star_range: dummy_range },
         range: dummy_range,
     };
     assert!(matches!(whole_family.mode, VariantPatternMode::WholeFamily { .. }));
@@ -105,9 +101,7 @@ fn variant_pattern_modes_ast_shape() {
 #[test]
 fn selector_projection_from_variant_patterns() {
     let dummy_range = SourceRange::new(0, 10);
-    use phalcom_ast::selector::{
-        selector_from_exact_variant_pattern, selector_pattern_from_variant_pattern, SelectorSlot,
-    };
+    use phalcom_ast::selector::{SelectorSlot, selector_from_exact_variant_pattern, selector_pattern_from_variant_pattern};
 
     // 1. Singleton
     let singleton = VariantPattern {
@@ -182,4 +176,3 @@ fn selector_projection_from_variant_patterns() {
     assert_eq!(pat_sel.prefix.as_ref(), &[SelectorSlot::Positional]);
     assert_eq!(pat_sel.suffix.as_ref(), &[SelectorSlot::Label("named".into())]);
 }
-

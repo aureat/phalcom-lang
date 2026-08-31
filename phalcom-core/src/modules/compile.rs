@@ -470,10 +470,7 @@ impl ProgramCompiler {
             };
             let lowering = super::semantic_lowering::build_module_lowering_semantics(id, &analyzed.semantic)
                 .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
-            modules.insert(
-                id.clone(),
-                compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)),
-            );
+            modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
         }
 
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(

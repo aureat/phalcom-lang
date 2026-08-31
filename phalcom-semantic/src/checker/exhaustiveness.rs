@@ -21,11 +21,7 @@ pub fn build_initial_pattern_space(ctx: &mut CheckingContext<'_>, scrutinee_ty: 
     build_initial_pattern_space_inner(ctx, scrutinee_ty, &mut visiting).normalize()
 }
 
-fn build_initial_pattern_space_inner(
-    ctx: &mut CheckingContext<'_>,
-    scrutinee_ty: TypeId,
-    visiting: &mut BTreeSet<TypeId>,
-) -> PatternSpace {
+fn build_initial_pattern_space_inner(ctx: &mut CheckingContext<'_>, scrutinee_ty: TypeId, visiting: &mut BTreeSet<TypeId>) -> PatternSpace {
     if !visiting.insert(scrutinee_ty) {
         return PatternSpace::Opaque(scrutinee_ty);
     }
@@ -44,19 +40,10 @@ fn build_initial_pattern_space_inner(
             let variant_id = ctx.store.variant_identity(variant).clone();
             let var_info = ctx.enum_table.and_then(|table| table.variants.get(&variant_id)).cloned();
             if let Some(info) = var_info {
-                ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(
-                    variant_id.owner.clone(),
-                ));
-                match crate::checker::gadt_proof::solve_gadt_branch_proof(
-                    ctx.store,
-                    &ctx.hierarchy,
-                    &variant_id.owner,
-                    &info,
-                    enum_type,
-                ) {
+                ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(variant_id.owner.clone()));
+                match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &variant_id.owner, &info, enum_type) {
                     crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => {
-                        let declaration_substitution =
-                            crate::types::substitution::substitution_for_applied(ctx.declarations, ctx.store, enum_type);
+                        let declaration_substitution = crate::types::substitution::substitution_for_applied(ctx.declarations, ctx.store, enum_type);
                         let fields = info
                             .fields
                             .iter()
@@ -66,8 +53,7 @@ fn build_initial_pattern_space_inner(
                                     .as_ref()
                                     .map(|substitution| substitution.apply(ctx.store, raw))
                                     .unwrap_or(raw);
-                                let branch_specialized =
-                                    crate::checker::gadt_proof::apply_branch_proof(ctx.store, &proof, declaration_specialized);
+                                let branch_specialized = crate::checker::gadt_proof::apply_branch_proof(ctx.store, &proof, declaration_specialized);
                                 build_initial_pattern_space_inner(ctx, branch_specialized, visiting)
                             })
                             .collect::<Vec<_>>();
@@ -98,11 +84,7 @@ fn build_initial_pattern_space_inner(
     result.normalize()
 }
 
-fn build_enum_or_opaque_space(
-    ctx: &mut CheckingContext<'_>,
-    scrutinee_ty: TypeId,
-    visiting: &mut BTreeSet<TypeId>,
-) -> PatternSpace {
+fn build_enum_or_opaque_space(ctx: &mut CheckingContext<'_>, scrutinee_ty: TypeId, visiting: &mut BTreeSet<TypeId>) -> PatternSpace {
     let Some(owner) = ctx.store.nominal_origin_declaration(scrutinee_ty).cloned() else {
         return PatternSpace::Opaque(scrutinee_ty);
     };
@@ -163,10 +145,7 @@ pub fn evaluate_match_exhaustiveness(
     arm_spaces: &[PatternSpace],
     arm_ranges: &[phalcom_common::range::SourceRange],
     match_range: phalcom_common::range::SourceRange,
-) -> (
-    ExhaustivenessResult,
-    Vec<(PatternSpace, PatternSpace, PatternUsefulness)>,
-) {
+) -> (ExhaustivenessResult, Vec<(PatternSpace, PatternSpace, PatternUsefulness)>) {
     let mut current_space = initial_space.clone().normalize();
     let mut arm_results = Vec::with_capacity(arm_spaces.len());
 
@@ -234,12 +213,7 @@ fn push_coverage_witnesses(space: &PatternSpace, limit: usize, output: &mut Vec<
             }
         }
         PatternSpace::Variant(variant) => {
-            let fields = variant
-                .fields
-                .iter()
-                .map(first_coverage_witness)
-                .collect::<Vec<_>>()
-                .into_boxed_slice();
+            let fields = variant.fields.iter().map(first_coverage_witness).collect::<Vec<_>>().into_boxed_slice();
             output.push(CoverageWitness::Variant {
                 variant: variant.variant.clone(),
                 exact_case: variant.exact_case,
@@ -269,9 +243,7 @@ fn first_coverage_witness(space: &PatternSpace) -> CoverageWitness {
             exact_case: variant.exact_case,
             fields: variant.fields.iter().map(first_coverage_witness).collect::<Vec<_>>().into_boxed_slice(),
         },
-        PatternSpace::Tuple(elements) => {
-            CoverageWitness::Tuple(elements.iter().map(first_coverage_witness).collect::<Vec<_>>().into_boxed_slice())
-        }
+        PatternSpace::Tuple(elements) => CoverageWitness::Tuple(elements.iter().map(first_coverage_witness).collect::<Vec<_>>().into_boxed_slice()),
         PatternSpace::List(list) => {
             let mut elements = list.prefix.iter().map(first_coverage_witness).collect::<Vec<_>>();
             if let Some(rest) = &list.rest {

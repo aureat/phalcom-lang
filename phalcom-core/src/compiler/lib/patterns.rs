@@ -434,10 +434,7 @@ impl<'vm> Compiler<'vm> {
                 }
                 Ok(())
             }
-            Pattern::Tuple { range, .. }
-            | Pattern::List { range, .. }
-            | Pattern::Record { range, .. }
-            | Pattern::Map { range, .. } => {
+            Pattern::Tuple { range, .. } | Pattern::List { range, .. } | Pattern::Record { range, .. } | Pattern::Map { range, .. } => {
                 let slot = self.reserve_pack_scratch("$destructure", *range)?;
                 self.emit(Bytecode::SetLocal(slot), *range);
                 self.compile_pattern_bind_from_slot(pattern, slot, mutable, as_global)

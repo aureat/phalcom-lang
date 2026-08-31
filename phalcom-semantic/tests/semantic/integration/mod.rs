@@ -1,5 +1,5 @@
-mod advisory;
 mod adt_associated;
+mod advisory;
 mod compiler_capabilities;
 mod declaration_knowledge;
 mod denotation;

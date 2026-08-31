@@ -1131,9 +1131,7 @@ pub struct LetBinding {
 #[derive(Debug, Clone)]
 pub enum Pattern {
     /// A first-class recursive wildcard `_` matching any value and binding nothing.
-    Wildcard {
-        range: SourceRange,
-    },
+    Wildcard { range: SourceRange },
     /// A single bound name — the non-destructuring case (`let x = …`).
     Name {
         /// The bound name.
@@ -1168,10 +1166,7 @@ pub enum Pattern {
     /// A rich variant pattern (singleton, exact call, selector gap, or whole family).
     Variant(VariantPattern),
     /// An or-pattern `p1 | p2 | ...` matching any alternative.
-    Or {
-        alternatives: Vec<Pattern>,
-        range: SourceRange,
-    },
+    Or { alternatives: Vec<Pattern>, range: SourceRange },
     /// An open record pattern such as `#{name: value}`.
     Record {
         /// Required field patterns.

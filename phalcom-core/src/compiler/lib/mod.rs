@@ -8,9 +8,9 @@
 //! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md),
 //! [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
 
+mod associated;
 mod class_decl;
 mod enum_decl;
-mod associated;
 mod error;
 mod expr;
 mod jumps;
