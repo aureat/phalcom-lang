@@ -23,6 +23,7 @@ pub enum LoweringSiteKind {
     AssociatedLookup,
     AssociatedInvoke,
     FamilyApplication,
+    Match,
 }
 
 /// Compiler-facing lowering attachment key.
@@ -154,6 +155,72 @@ pub struct EnumLoweringSpec {
     pub variants: Box<[VariantLoweringSpec]>,
 }
 
+/// Executable binding specification for an arm or pattern context.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableBindingSpec {
+    pub binding: phalcom_semantic::identity::BindingId,
+    pub name: Box<str>,
+    pub range: SourceRange,
+}
+
+/// Field projection for an exact variant candidate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableFieldProjection {
+    pub field_id: VariantFieldId,
+    pub slot: u16,
+    pub child: ExecutablePattern,
+}
+
+/// Exact resolved variant candidate in an executable pattern.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableVariantCandidate {
+    pub variant: VariantId,
+    pub fields: Box<[ExecutableFieldProjection]>,
+}
+
+/// Backend executable pattern structure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExecutablePattern {
+    Wildcard,
+    Binding {
+        binding_index: u32,
+        name: Box<str>,
+    },
+    Variant {
+        candidates: Box<[ExecutableVariantCandidate]>,
+    },
+    Or {
+        alternatives: Box<[ExecutablePattern]>,
+    },
+    Tuple {
+        elements: Box<[ExecutablePattern]>,
+    },
+    List {
+        elements: Box<[ExecutablePattern]>,
+        rest: Option<Box<ExecutablePattern>>,
+    },
+    Record {
+        entries: Box<[(Box<str>, ExecutablePattern)]>,
+    },
+    Map {
+        entries: Box<[(Box<str>, ExecutablePattern)]>,
+    },
+}
+
+/// Executable match arm lowering specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableMatchArm {
+    pub arm_index: u32,
+    pub pattern: ExecutablePattern,
+    pub bindings: Box<[ExecutableBindingSpec]>,
+}
+
+/// Match expression lowering specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MatchLoweringSpec {
+    pub arms: Box<[ExecutableMatchArm]>,
+}
+
 /// Complete compiled lowering semantics for a single module.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleLoweringSemantics {
@@ -163,6 +230,7 @@ pub struct ModuleLoweringSemantics {
     pub family_values: BTreeSet<LoweringSite>,
     pub family_application_sites: BTreeSet<LoweringSite>,
     pub family_applications: BTreeMap<LoweringSite, FamilyApplicationLoweringSpec>,
+    pub matches: BTreeMap<LoweringSite, MatchLoweringSpec>,
 }
 
 impl ModuleLoweringSemantics {
@@ -174,6 +242,7 @@ impl ModuleLoweringSemantics {
             family_values: BTreeSet::new(),
             family_application_sites: BTreeSet::new(),
             family_applications: BTreeMap::new(),
+            matches: BTreeMap::new(),
         }
     }
 }
@@ -185,6 +254,12 @@ pub enum ProjectionError {
     AmbiguousLoweringSiteAttachment(LoweringSite),
     #[error("missing source range for expression {0:?}")]
     MissingSourceRange(ExpressionId),
+    #[error("missing variant metadata for {0:?}")]
+    MissingVariantMetadata(VariantId),
+    #[error("missing field layout for field {0:?} in variant {1:?}")]
+    MissingFieldLayout(VariantFieldId, VariantId),
+    #[error("non-proven match reached executable lowering for expression {0:?}")]
+    NonProvenMatch(ExpressionId),
 }
 
 /// Projects formal snapshot products into an immutable `ModuleLoweringSemantics` bundle.
@@ -236,6 +311,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
     let mut family_values = BTreeSet::new();
     let mut family_application_sites = BTreeSet::new();
     let mut family_applications = BTreeMap::new();
+    let mut matches = BTreeMap::new();
 
     for (callable_id, analysis) in snapshot.callable_analyses.iter() {
         if callable_id.owner.module() != module {
@@ -285,6 +361,23 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
             }
             family_applications.insert(site, spec);
         }
+
+        // 3. Project Match expressions
+        for (expr_id, match_resolution) in analysis.match_resolutions.iter() {
+            let expr_analysis = analysis.expressions.get(expr_id);
+            let range = match expr_analysis {
+                Some(ea) => ea.range,
+                None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
+            };
+
+            let spec = project_match_resolution(match_resolution, snapshot)?;
+            let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::Match);
+
+            if matches.contains_key(&site) {
+                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+            }
+            matches.insert(site, spec);
+        }
     }
 
     Ok(ModuleLoweringSemantics {
@@ -294,7 +387,151 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
         family_values,
         family_application_sites,
         family_applications,
+        matches,
     })
+}
+
+fn project_match_resolution(
+    resolution: &phalcom_semantic::match_semantics::MatchResolution,
+    snapshot: &SemanticSnapshot,
+) -> Result<MatchLoweringSpec, ProjectionError> {
+    if !matches!(resolution.exhaustiveness, phalcom_semantic::match_semantics::ExhaustivenessResult::Proven) {
+        return Err(ProjectionError::NonProvenMatch(resolution.expression));
+    }
+
+    let mut arms = Vec::with_capacity(resolution.arms.len());
+    for arm in resolution.arms.iter() {
+        let bindings = arm
+            .bindings
+            .iter()
+            .map(|b| ExecutableBindingSpec {
+                binding: b.binding.clone(),
+                name: b.name.clone(),
+                range: b.source,
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        let pattern = project_pattern_resolution(&arm.pattern, &arm.bindings, snapshot)?;
+
+        arms.push(ExecutableMatchArm {
+            arm_index: arm.arm_index,
+            pattern,
+            bindings,
+        });
+    }
+
+    Ok(MatchLoweringSpec {
+        arms: arms.into_boxed_slice(),
+    })
+}
+
+fn project_pattern_resolution(
+    pattern: &phalcom_semantic::match_semantics::PatternResolution,
+    bindings: &[phalcom_semantic::match_semantics::PatternBindingResolution],
+    snapshot: &SemanticSnapshot,
+) -> Result<ExecutablePattern, ProjectionError> {
+    match pattern {
+        phalcom_semantic::match_semantics::PatternResolution::Wildcard => Ok(ExecutablePattern::Wildcard),
+        phalcom_semantic::match_semantics::PatternResolution::Binding { binding, name, .. } => {
+            let binding_index = bindings
+                .iter()
+                .position(|b| b.binding == *binding)
+                .unwrap_or(0) as u32;
+            Ok(ExecutablePattern::Binding {
+                binding_index,
+                name: name.clone(),
+            })
+        }
+        phalcom_semantic::match_semantics::PatternResolution::Variant(var_pat) => {
+            let mut candidates = Vec::with_capacity(var_pat.candidates.len());
+            for candidate in var_pat.candidates.iter() {
+                let var_info = snapshot.enum_semantics.variant_info(&candidate.variant);
+                let mut field_projections = Vec::with_capacity(candidate.fields.len());
+                for field in candidate.fields.iter() {
+                    let slot = if let Some(vinfo) = var_info {
+                        vinfo
+                            .fields
+                            .iter()
+                            .position(|f| f.id == field.field)
+                            .map(|idx| idx as u16)
+                            .ok_or_else(|| ProjectionError::MissingFieldLayout(field.field.clone(), candidate.variant.clone()))?
+                    } else {
+                        return Err(ProjectionError::MissingVariantMetadata(candidate.variant.clone()));
+                    };
+
+                    let child = project_pattern_resolution(&field.child, bindings, snapshot)?;
+                    field_projections.push(ExecutableFieldProjection {
+                        field_id: field.field.clone(),
+                        slot,
+                        child,
+                    });
+                }
+
+                candidates.push(ExecutableVariantCandidate {
+                    variant: candidate.variant.clone(),
+                    fields: field_projections.into_boxed_slice(),
+                });
+            }
+
+            Ok(ExecutablePattern::Variant {
+                candidates: candidates.into_boxed_slice(),
+            })
+        }
+        phalcom_semantic::match_semantics::PatternResolution::Or(or_pat) => {
+            let mut alts = Vec::with_capacity(or_pat.alternatives.len());
+            for alt in or_pat.alternatives.iter() {
+                alts.push(project_pattern_resolution(alt, bindings, snapshot)?);
+            }
+            Ok(ExecutablePattern::Or {
+                alternatives: alts.into_boxed_slice(),
+            })
+        }
+        phalcom_semantic::match_semantics::PatternResolution::Tuple(elements) => {
+            let mut elems = Vec::with_capacity(elements.len());
+            for elem in elements.iter() {
+                elems.push(project_pattern_resolution(elem, bindings, snapshot)?);
+            }
+            Ok(ExecutablePattern::Tuple {
+                elements: elems.into_boxed_slice(),
+            })
+        }
+        phalcom_semantic::match_semantics::PatternResolution::List(list_pat) => {
+            let mut elems = Vec::with_capacity(list_pat.prefix.len());
+            for elem in list_pat.prefix.iter() {
+                elems.push(project_pattern_resolution(elem, bindings, snapshot)?);
+            }
+            let rest = if let Some(r) = &list_pat.rest {
+                Some(Box::new(project_pattern_resolution(r, bindings, snapshot)?))
+            } else {
+                None
+            };
+            Ok(ExecutablePattern::List {
+                elements: elems.into_boxed_slice(),
+                rest,
+            })
+        }
+        phalcom_semantic::match_semantics::PatternResolution::Record(fields) => {
+            let mut entries = Vec::with_capacity(fields.len());
+            for f in fields.iter() {
+                let child = project_pattern_resolution(&f.child, bindings, snapshot)?;
+                entries.push((f.label.clone(), child));
+            }
+            Ok(ExecutablePattern::Record {
+                entries: entries.into_boxed_slice(),
+            })
+        }
+        phalcom_semantic::match_semantics::PatternResolution::Map(entries_pat) => {
+            let mut entries = Vec::with_capacity(entries_pat.len());
+            for e in entries_pat.iter() {
+                let child = project_pattern_resolution(&e.child, bindings, snapshot)?;
+                entries.push((e.key.clone(), child));
+            }
+            Ok(ExecutablePattern::Map {
+                entries: entries.into_boxed_slice(),
+            })
+        }
+    }
 }
 
 fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &SemanticSnapshot) -> (LoweringSiteKind, AssociatedLoweringSpec) {

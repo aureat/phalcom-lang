@@ -12,6 +12,7 @@ pub mod initialize;
 pub mod linkage;
 pub mod materialize;
 pub mod reflection_cache;
+pub mod reflection_metadata;
 pub mod registry;
 pub mod semantic_lowering;
 
@@ -24,7 +25,8 @@ pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRe
 pub use reflection_cache::ReflectionCache;
 pub use registry::{ModuleFailure, ModuleFailureRef, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleState, RuntimeProgramId};
 pub use semantic_lowering::{
-    AssociatedLoweringSpec, EnumLoweringSpec, ExecutableFamilyCandidate, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableFamilyEntry,
-    ExecutableFamilyTarget, ExecutableInvocationTarget, ExecutableRestMode, FamilyApplicationLoweringSpec, LoweringSite, LoweringSiteKind,
+    AssociatedLoweringSpec, EnumLoweringSpec, ExecutableBindingSpec, ExecutableFamilyCandidate, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor,
+    ExecutableFamilyEntry, ExecutableFamilyTarget, ExecutableFieldProjection, ExecutableInvocationTarget, ExecutableMatchArm, ExecutablePattern,
+    ExecutableRestMode, ExecutableVariantCandidate, FamilyApplicationLoweringSpec, LoweringSite, LoweringSiteKind, MatchLoweringSpec,
     ModuleLoweringSemantics, VariantFieldLoweringSpec, VariantLoweringSpec, build_module_lowering_semantics,
 };

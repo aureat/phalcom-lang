@@ -127,7 +127,11 @@ impl TypeSubstitution {
 }
 
 /// Builds a substitution from declaration generic signature and applied type arguments.
-pub fn substitution_for_applied(declarations: &DeclarationTypeTable, store: &TypeStore, applied: TypeId) -> Option<TypeSubstitution> {
+pub fn substitution_for_applied(declarations: &DeclarationTypeTable, store: &TypeStore, mut applied: TypeId) -> Option<TypeSubstitution> {
+    while let TypeData::ExactCase { enum_type, .. } = store.get(applied) {
+        applied = *enum_type;
+    }
+
     let (origin, arguments) = match store.get(applied) {
         TypeData::Applied { origin, arguments } => (*origin, arguments),
         _ => return None,

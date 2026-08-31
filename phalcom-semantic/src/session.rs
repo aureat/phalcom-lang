@@ -2094,7 +2094,11 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         SemanticTargetId::Binding(_) => AdvisoryOrigin::Binding(site.clone()),
         SemanticTargetId::Callable(_) => AdvisoryOrigin::CallSite(site.clone()),
         SemanticTargetId::Field(field) => AdvisoryOrigin::Field(field.clone()),
-        SemanticTargetId::Declaration(_) | SemanticTargetId::Module(_) | SemanticTargetId::Variant(_) => AdvisoryOrigin::Constraint(site.clone()),
+        SemanticTargetId::Declaration(_)
+        | SemanticTargetId::Module(_)
+        | SemanticTargetId::Variant(_)
+        | SemanticTargetId::VariantFamily(_)
+        | SemanticTargetId::VariantField(_) => AdvisoryOrigin::Constraint(site.clone()),
     };
     AdvisoryTargetResolution {
         target: target.clone(),

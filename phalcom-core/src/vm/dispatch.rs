@@ -2001,6 +2001,9 @@ impl VM {
                     let payload_val = self.case_payload_at(val, slot as usize)?;
                     self.stack.push(payload_val);
                 }
+                Bytecode::MatchInvariantFailure => {
+                    return Err(RuntimeError::Internal("statically exhaustive match reached runtime fallthrough".into()).into());
+                }
                 Bytecode::InvokeCompilerInternal(arity, selector_idx) => {
                     self.invoke_compiler_internal_at(callable, ip, arity, selector_idx)?;
                 }

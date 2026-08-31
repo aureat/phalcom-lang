@@ -6,6 +6,9 @@
 #[path = "language/mod.rs"]
 mod language;
 
+#[path = "../native_adt_runtime.rs"]
+mod native_adt_runtime;
+
 #[path = "compiler/semantic_boundary.rs"]
 mod compiler_semantic_boundary;
 #[path = "modules/compile.rs"]

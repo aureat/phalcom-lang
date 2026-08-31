@@ -1,6 +1,4 @@
-//! Snapshot-local source-site records.
-
-use crate::identity::{CallableId, DeclarationId, FieldId, SourceOwner, SourceSiteId};
+use crate::identity::{CallableId, DeclarationId, FieldId, SourceOwner, SourceSiteId, VariantFamilyId, VariantFieldId, VariantId};
 use phalcom_common::range::SourceRange;
 
 /// Kind of source location recorded in a compiler source index.
@@ -14,6 +12,12 @@ pub enum SourceSiteKind {
     Callable(CallableId),
     /// Field declaration site with canonical field identity.
     Field(FieldId),
+    /// Variant declaration site with canonical variant identity.
+    Variant(VariantId),
+    /// Variant family site with canonical variant family identity.
+    VariantFamily(VariantFamilyId),
+    /// Variant field declaration site with canonical field identity.
+    VariantField(VariantFieldId),
     /// Binding declaration site; target attachment is published separately.
     BindingDeclaration,
     /// Expression site attached to a formal expression product.

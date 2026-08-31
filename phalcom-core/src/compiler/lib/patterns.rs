@@ -1,4 +1,7 @@
 use crate::bytecode::Bytecode;
+use crate::modules::semantic_lowering::{
+    ExecutableBindingSpec, ExecutablePattern,
+};
 use crate::value::Value;
 use phalcom_ast::ast::{MapPatternKey, Pattern};
 use phalcom_common::range::SourceRange;
@@ -6,15 +9,227 @@ use phalcom_common::range::SourceRange;
 use super::Compiler;
 use super::error::CompilerError;
 
-// ── Destructuring `let`/`const` bindings (U14, open-questions.md Q7) ───────
-//
-// A destructuring pattern desugars to a **single** evaluation of the
-// initializer, then positional reads through the ordinary `at(_)` selector
-// `List`/`Tuple` already expose (ADR-0020) — no parallel `_0`/`_1`
-// accessor protocol. See [`docs/adr/accepted/0046-destructuring-bindings.md`] for
-// the full design record.
+/// Tracks local variable slots and staging scratch slots for a pattern execution frame.
+pub(crate) struct PatternExecutionFrame {
+    pub(crate) scope_start: u16,
+    pub(crate) visible_slots: Vec<u16>,
+    pub(crate) staging_slots: Vec<u16>,
+}
 
 impl<'vm> Compiler<'vm> {
+    /// Sets up visible locals and staging scratch slots for pattern bindings.
+    pub(crate) fn setup_pattern_frame(
+        &mut self,
+        bindings: &[ExecutableBindingSpec],
+        range: SourceRange,
+    ) -> Result<PatternExecutionFrame, CompilerError> {
+        let scope_start = self.functions.last().unwrap().num_locals as u16;
+        let mut visible_slots = Vec::with_capacity(bindings.len());
+        let mut staging_slots = Vec::with_capacity(bindings.len());
+
+        for binding in bindings {
+            let symbol = self.vm.interner.intern(&binding.name);
+            self.add_local(symbol, false)?;
+            let visible_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+            self.emit(Bytecode::ReserveScratchLocal(visible_slot), binding.range);
+            visible_slots.push(visible_slot);
+
+            let staging_slot = self.reserve_pack_scratch("$pattern_stage", binding.range)?;
+            staging_slots.push(staging_slot);
+        }
+
+        Ok(PatternExecutionFrame {
+            scope_start,
+            visible_slots,
+            staging_slots,
+        })
+    }
+
+    /// Commits staged binding values into visible locals upon complete pattern success.
+    pub(crate) fn commit_pattern_frame(
+        &mut self,
+        frame: &PatternExecutionFrame,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        for (visible_slot, staging_slot) in frame.visible_slots.iter().zip(frame.staging_slots.iter()) {
+            self.emit(Bytecode::GetLocal(*staging_slot), range);
+            self.emit(Bytecode::SetLocal(*visible_slot), range);
+            self.emit(Bytecode::Pop, range);
+        }
+        Ok(())
+    }
+
+    /// Emits test and staging code for an ExecutablePattern.
+    pub(crate) fn emit_executable_pattern(
+        &mut self,
+        pattern: &ExecutablePattern,
+        value_slot: u16,
+        frame: &PatternExecutionFrame,
+        failures: &mut Vec<usize>,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        match pattern {
+            ExecutablePattern::Wildcard => Ok(()),
+            ExecutablePattern::Binding { binding_index, .. } => {
+                if let Some(&stage_slot) = frame.staging_slots.get(*binding_index as usize) {
+                    self.emit(Bytecode::GetLocal(value_slot), range);
+                    self.emit(Bytecode::SetLocal(stage_slot), range);
+                    self.emit(Bytecode::Pop, range);
+                }
+                Ok(())
+            }
+            ExecutablePattern::Variant { candidates } => {
+                let mut candidate_success_jumps = Vec::new();
+                let candidate_count = candidates.len();
+
+                for (idx, candidate) in candidates.iter().enumerate() {
+                    let is_last = idx == candidate_count - 1;
+                    let var_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_variant_target(&candidate.variant, range)?;
+
+                    // Test IsVariant
+                    self.emit(Bytecode::GetLocal(value_slot), range);
+                    self.emit(Bytecode::IsVariant(var_idx), range);
+
+                    let next_candidate_or_fail = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+
+                    // Candidate matched: project fields
+                    let mut nested_failures = Vec::new();
+                    for field_proj in candidate.fields.iter() {
+                        if matches!(field_proj.child, ExecutablePattern::Wildcard) {
+                            continue;
+                        }
+
+                        if let ExecutablePattern::Binding { binding_index, .. } = &field_proj.child {
+                            if let Some(&stage_slot) = frame.staging_slots.get(*binding_index as usize) {
+                                self.emit(Bytecode::GetLocal(value_slot), range);
+                                self.emit(Bytecode::GetVariantPayload(field_proj.slot), range);
+                                self.emit(Bytecode::SetLocal(stage_slot), range);
+                                self.emit(Bytecode::Pop, range);
+                            }
+                            continue;
+                        }
+
+                        // Child is refutable or structured: extract to hidden temp and recurse
+                        let child_temp = self.reserve_pack_scratch("$variant_child", range)?;
+                        self.emit(Bytecode::GetLocal(value_slot), range);
+                        self.emit(Bytecode::GetVariantPayload(field_proj.slot), range);
+                        self.emit(Bytecode::SetLocal(child_temp), range);
+                        self.emit(Bytecode::Pop, range);
+
+                        self.emit_executable_pattern(
+                            &field_proj.child,
+                            child_temp,
+                            frame,
+                            &mut nested_failures,
+                            range,
+                        )?;
+                    }
+
+                    if !is_last {
+                        let succ_jump = self.emit_forward_jump(Bytecode::Jump, range);
+                        candidate_success_jumps.push(succ_jump);
+
+                        let next_label = self.chunk_len();
+                        self.patch_forward_jump_to(next_candidate_or_fail, next_label);
+                        for j in nested_failures {
+                            self.patch_forward_jump_to(j, next_label);
+                        }
+                    } else {
+                        failures.push(next_candidate_or_fail);
+                        failures.extend(nested_failures);
+                    }
+                }
+
+                let success_label = self.chunk_len();
+                for j in candidate_success_jumps {
+                    self.patch_forward_jump_to(j, success_label);
+                }
+
+                Ok(())
+            }
+            ExecutablePattern::Or { alternatives } => {
+                let mut alt_success_jumps = Vec::new();
+                let alt_count = alternatives.len();
+
+                for (idx, alt) in alternatives.iter().enumerate() {
+                    let is_last = idx == alt_count - 1;
+                    let mut alt_failures = Vec::new();
+
+                    self.emit_executable_pattern(alt, value_slot, frame, &mut alt_failures, range)?;
+
+                    if !is_last {
+                        let succ_jump = self.emit_forward_jump(Bytecode::Jump, range);
+                        alt_success_jumps.push(succ_jump);
+
+                        let next_alt_label = self.chunk_len();
+                        for j in alt_failures {
+                            self.patch_forward_jump_to(j, next_alt_label);
+                        }
+                    } else {
+                        failures.extend(alt_failures);
+                    }
+                }
+
+                let success_label = self.chunk_len();
+                for j in alt_success_jumps {
+                    self.patch_forward_jump_to(j, success_label);
+                }
+
+                Ok(())
+            }
+            ExecutablePattern::Tuple { elements } => {
+                self.emit_class_test(value_slot, "Tuple", failures, range);
+                self.emit_size_test(value_slot, elements.len(), false, failures, range);
+                for (index, element) in elements.iter().enumerate() {
+                    let child = self.emit_element_temp(value_slot, index, range)?;
+                    self.emit_executable_pattern(element, child, frame, failures, range)?;
+                }
+                Ok(())
+            }
+            ExecutablePattern::List { elements, rest } => {
+                self.emit_class_test(value_slot, "List", failures, range);
+                self.emit_size_test(value_slot, elements.len(), rest.is_some(), failures, range);
+                for (index, element) in elements.iter().enumerate() {
+                    let child = self.emit_element_temp(value_slot, index, range)?;
+                    self.emit_executable_pattern(element, child, frame, failures, range)?;
+                }
+                if let Some(rest_pattern) = rest {
+                    let child = self.emit_list_rest_temp(value_slot, elements.len(), range)?;
+                    self.emit_executable_pattern(rest_pattern, child, frame, failures, range)?;
+                }
+                Ok(())
+            }
+            ExecutablePattern::Record { entries } => {
+                self.emit_class_test(value_slot, "Record", failures, range);
+                for (label, child_pat) in entries.iter() {
+                    let key = Value::symbol(self.vm.interner.intern(label));
+                    let option = self.emit_lookup_temp(value_slot, key, range)?;
+                    self.emit_option_test(option, true, failures, range);
+                    let child = self.emit_option_value_temp(option, range)?;
+                    self.emit_executable_pattern(child_pat, child, frame, failures, range)?;
+                }
+                Ok(())
+            }
+            ExecutablePattern::Map { entries } => {
+                self.emit_class_test(value_slot, "Map", failures, range);
+                for (key_str, child_pat) in entries.iter() {
+                    let key = Value::symbol(self.vm.interner.intern(key_str));
+                    let option = self.emit_lookup_temp(value_slot, key, range)?;
+                    self.emit_option_test(option, true, failures, range);
+                    let child = self.emit_option_value_temp(option, range)?;
+                    self.emit_executable_pattern(child_pat, child, frame, failures, range)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Declares every binding leaf before a refutable match starts. This keeps
     /// failed matches from partially mutating user-visible locals and lets
     /// both branch bodies resolve the same lexical bindings.

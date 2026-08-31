@@ -51,10 +51,12 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
 }
 
 fn obvious_initializer_text(text: &str, range: SourceRange) -> bool {
-    let line_end = text[range.end..].find('\n').map_or(text.len(), |offset| range.end + offset);
-    let tail = &text[range.end..line_end];
+    let Some(after_range) = text.get(range.end..) else { return false };
+    let line_end = after_range.find('\n').map_or(text.len(), |offset| range.end + offset);
+    let Some(tail) = text.get(range.end..line_end) else { return false };
     let Some(equal) = tail.find('=') else { return false };
-    let value = tail[equal + 1..].trim_start();
+    let Some(after_equal) = tail.get(equal + 1..) else { return false };
+    let value = after_equal.trim_start();
     value.starts_with('"')
         || value.starts_with('\'')
         || value.chars().next().is_some_and(|character| character.is_ascii_digit() || character == '-')

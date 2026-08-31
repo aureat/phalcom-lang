@@ -55,6 +55,14 @@ impl CaseDiscriminant {
     }
 }
 
+/// Strategy for physical runtime representation of an enum.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeAdtRepresentation {
+    General,
+    NativeOption,
+    NativeResult,
+}
+
 /// Runtime shape of a variant.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeVariantShape {
@@ -68,6 +76,7 @@ pub struct RuntimeEnumDescriptor {
     pub semantic_owner: DeclarationId,
     pub runtime_id: RuntimeEnumId,
     pub root_class: ClassId,
+    pub representation: RuntimeAdtRepresentation,
     pub variants: Vec<RuntimeVariantId>,
 }
 
@@ -100,8 +109,18 @@ impl RuntimeAdtRegistry {
         Self::default()
     }
 
-    /// Registers a new enum root.
+    /// Registers a new enum root with default general representation.
     pub fn register_enum(&mut self, semantic_owner: DeclarationId, root_class: ClassId) -> RuntimeEnumId {
+        self.register_enum_with_representation(semantic_owner, root_class, RuntimeAdtRepresentation::General)
+    }
+
+    /// Registers a new enum root with an explicit representation strategy.
+    pub fn register_enum_with_representation(
+        &mut self,
+        semantic_owner: DeclarationId,
+        root_class: ClassId,
+        representation: RuntimeAdtRepresentation,
+    ) -> RuntimeEnumId {
         if let Some(&existing) = self.enum_by_declaration.get(&semantic_owner) {
             return existing;
         }
@@ -111,6 +130,7 @@ impl RuntimeAdtRegistry {
             semantic_owner: semantic_owner.clone(),
             runtime_id,
             root_class,
+            representation,
             variants: Vec::new(),
         };
 

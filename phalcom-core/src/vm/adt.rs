@@ -17,12 +17,21 @@ impl VM {
             }
         }
 
+        // Determine representation strategy
+        let representation = if spec.owner.name.as_ref() == "Option" {
+            crate::adt::RuntimeAdtRepresentation::NativeOption
+        } else if spec.owner.name.as_ref() == "Result" {
+            crate::adt::RuntimeAdtRepresentation::NativeResult
+        } else {
+            crate::adt::RuntimeAdtRepresentation::General
+        };
+
         // 1. Create root class (superclass = Object)
         let mut root_class = ClassObject::bare(&spec.owner.name);
         root_class.class = self.universe.classes.class_class;
         root_class.superclass = Some(self.universe.classes.object_class);
         let root_class_id = self.heap.alloc_class(root_class);
-        let enum_id = self.adt_registry.register_enum(spec.owner.clone(), root_class_id);
+        let enum_id = self.adt_registry.register_enum_with_representation(spec.owner.clone(), root_class_id, representation);
 
         // 2. Create hidden case behavior classes for each variant
         for (idx, var_spec) in spec.variants.iter().enumerate() {
@@ -108,6 +117,22 @@ impl VM {
                 return Some(case.variant);
             }
         }
+        if value.is_option() {
+            let option_decl = phalcom_modules::DeclarationId::new(phalcom_modules::ModuleId::core(), "Option".into());
+            if let Some(enum_id) = self.adt_registry.enum_by_declaration(&option_decl) {
+                if let Some(enum_desc) = self.adt_registry.enum_descriptor(enum_id) {
+                    for &v_id in &enum_desc.variants {
+                        if let Some(v_desc) = self.adt_registry.variant_descriptor(v_id) {
+                            if value.is_none() && v_desc.shape == RuntimeVariantShape::Singleton {
+                                return Some(v_id);
+                            } else if value.is_some() && v_desc.shape == RuntimeVariantShape::Constructor {
+                                return Some(v_id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         None
     }
 
@@ -126,6 +151,13 @@ impl VM {
                 return Some(case.payload.len());
             }
         }
+        if value.is_option() {
+            if value.is_none() {
+                return Some(0);
+            } else if value.is_some() {
+                return Some(1);
+            }
+        }
         None
     }
 
@@ -140,6 +172,17 @@ impl VM {
                     slot: index,
                     len: case.payload.len(),
                 });
+            }
+        }
+        if value.is_option() {
+            if value.is_none() {
+                return Err(RuntimeError::InvalidVariantPayloadSlot { slot: index, len: 0 });
+            } else if value.is_some() {
+                if index == 0 {
+                    return Ok(value.with_some_depth(value.some_depth_raw() - 1));
+                } else {
+                    return Err(RuntimeError::InvalidVariantPayloadSlot { slot: index, len: 1 });
+                }
             }
         }
         Err(RuntimeError::InvalidVariantPayloadSlot { slot: index, len: 0 })

@@ -15,6 +15,7 @@ mod error;
 mod expr;
 mod jumps;
 mod loops;
+mod match_expr;
 mod patterns;
 mod scope;
 mod state;

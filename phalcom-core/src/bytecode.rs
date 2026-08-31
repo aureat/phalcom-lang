@@ -94,6 +94,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "InvokeAssociatedFamilyPack",
     "IsVariant",
     "GetVariantPayload",
+    "MatchInvariantFailure",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -607,12 +608,15 @@ pub enum Bytecode {
     /// Extracts a payload slot from an AdtCaseObject (Part-5 primitive).
     /// 0: payload slot index.
     GetVariantPayload(u16),
+
+    /// Internal invariant failure when an exhaustive match falls through.
+    MatchInvariantFailure,
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 90;
+    pub const VARIANTS: usize = 91;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -713,6 +717,7 @@ impl Bytecode {
             Bytecode::InvokeAssociatedFamilyPack { .. } => 87,
             Bytecode::IsVariant(..) => 88,
             Bytecode::GetVariantPayload(..) => 89,
+            Bytecode::MatchInvariantFailure => 90,
         }
     }
 

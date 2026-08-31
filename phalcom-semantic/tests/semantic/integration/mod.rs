@@ -11,6 +11,7 @@ mod generic_adts;
 mod imported_resolution;
 mod metadata;
 mod native_conformance;
+mod native_enum_extraction;
 mod parameter_identity;
 mod presentation;
 mod source_index;

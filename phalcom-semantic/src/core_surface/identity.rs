@@ -16,6 +16,9 @@ pub struct CoreDeclarationIds {
     pub map: DeclarationId,
     pub function: DeclarationId,
     pub closure: DeclarationId,
+    pub option: DeclarationId,
+    pub result: DeclarationId,
+    pub ordering: DeclarationId,
 }
 
 impl Default for CoreDeclarationIds {
@@ -33,7 +36,10 @@ impl Default for CoreDeclarationIds {
             set: DeclarationId::new(module.clone(), "Set".into()),
             map: DeclarationId::new(module.clone(), "Map".into()),
             function: DeclarationId::new(module.clone(), "Function".into()),
-            closure: DeclarationId::new(module, "Closure".into()),
+            closure: DeclarationId::new(module.clone(), "Closure".into()),
+            option: DeclarationId::new(module.clone(), "Option".into()),
+            result: DeclarationId::new(module.clone(), "Result".into()),
+            ordering: DeclarationId::new(module, "Ordering".into()),
         }
     }
 }
@@ -45,5 +51,21 @@ impl CoreDeclarationIds {
 
     pub fn is_callable_supertype(&self, declaration: &DeclarationId) -> bool {
         declaration == &self.function || declaration == &self.closure || declaration == &self.object
+    }
+
+    pub fn is_option(&self, declaration: &DeclarationId) -> bool {
+        declaration == &self.option
+    }
+
+    pub fn is_result(&self, declaration: &DeclarationId) -> bool {
+        declaration == &self.result
+    }
+
+    pub fn is_ordering(&self, declaration: &DeclarationId) -> bool {
+        declaration == &self.ordering
+    }
+
+    pub fn is_core_adt(&self, declaration: &DeclarationId) -> bool {
+        self.is_option(declaration) || self.is_result(declaration) || self.is_ordering(declaration)
     }
 }

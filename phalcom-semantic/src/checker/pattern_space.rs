@@ -159,16 +159,16 @@ impl PatternSpace {
                 result.normalize()
             }
             (Self::Opaque(t1), Self::Opaque(t2)) => {
-                if t1 == t2 || is_subtype(store, hier, *t1, *t2) {
+                if t1 == t2 || (t1.index() < store.len() && t2.index() < store.len() && is_subtype(store, hier, *t1, *t2)) {
                     Self::Opaque(*t1)
-                } else if is_subtype(store, hier, *t2, *t1) {
+                } else if t1.index() < store.len() && t2.index() < store.len() && is_subtype(store, hier, *t2, *t1) {
                     Self::Opaque(*t2)
                 } else {
                     Self::Empty
                 }
             }
             (Self::Variant(v), Self::Opaque(t)) | (Self::Opaque(t), Self::Variant(v)) => {
-                if is_subtype(store, hier, v.exact_case, *t) {
+                if v.exact_case.index() < store.len() && t.index() < store.len() && is_subtype(store, hier, v.exact_case, *t) {
                     Self::Variant(v.clone()).normalize()
                 } else {
                     Self::Empty
@@ -225,18 +225,20 @@ impl PatternSpace {
             }
             (Self::Tuple(t), Self::Opaque(op)) | (Self::Opaque(op), Self::Tuple(t)) => {
                 // If the opaque type is a tuple with matching arity:
-                if let crate::types::store::TypeData::Tuple(elements) = store.get(*op).clone() {
-                    if elements.len() == t.len() {
-                        let mut inter_elements = Vec::with_capacity(t.len());
-                        for (field, elem) in t.iter().zip(elements.iter()) {
-                            let op_field = Self::Opaque(elem.ty);
-                            let inter = field.intersect(&op_field, store, hier);
-                            if inter.is_empty() {
-                                return Self::Empty;
+                if op.index() < store.len() {
+                    if let crate::types::store::TypeData::Tuple(elements) = store.get(*op).clone() {
+                        if elements.len() == t.len() {
+                            let mut inter_elements = Vec::with_capacity(t.len());
+                            for (field, elem) in t.iter().zip(elements.iter()) {
+                                let op_field = Self::Opaque(elem.ty);
+                                let inter = field.intersect(&op_field, store, hier);
+                                if inter.is_empty() {
+                                    return Self::Empty;
+                                }
+                                inter_elements.push(inter);
                             }
-                            inter_elements.push(inter);
+                            return Self::Tuple(inter_elements.into_boxed_slice()).normalize();
                         }
-                        return Self::Tuple(inter_elements.into_boxed_slice()).normalize();
                     }
                 }
                 Self::Empty
@@ -273,14 +275,14 @@ impl PatternSpace {
                 current.normalize()
             }
             (Self::Opaque(t1), Self::Opaque(t2)) => {
-                if t1 == t2 || is_subtype(store, hier, *t1, *t2) {
+                if t1 == t2 || (t1.index() < store.len() && t2.index() < store.len() && is_subtype(store, hier, *t1, *t2)) {
                     Self::Empty
                 } else {
                     Self::Opaque(*t1)
                 }
             }
             (Self::Variant(v), Self::Opaque(t)) => {
-                if is_subtype(store, hier, v.exact_case, *t) {
+                if v.exact_case.index() < store.len() && t.index() < store.len() && is_subtype(store, hier, v.exact_case, *t) {
                     Self::Empty
                 } else {
                     Self::Variant(v.clone())
@@ -288,7 +290,7 @@ impl PatternSpace {
             }
             (Self::Opaque(t), Self::Variant(v)) => {
                 // If opaque is a general type not resolved to finite enum cases:
-                if is_subtype(store, hier, *t, v.exact_case) {
+                if t.index() < store.len() && v.exact_case.index() < store.len() && is_subtype(store, hier, *t, v.exact_case) {
                     Self::Empty
                 } else {
                     Self::Opaque(*t)

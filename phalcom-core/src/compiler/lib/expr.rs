@@ -40,7 +40,7 @@ impl<'vm> Compiler<'vm> {
         Ok(slot)
     }
 
-    fn emit_release_scratch_range(&mut self, first_slot: u16, count: usize, range: SourceRange) {
+    pub(crate) fn emit_release_scratch_range(&mut self, first_slot: u16, count: usize, range: SourceRange) {
         for slot in (first_slot as usize..first_slot as usize + count).rev() {
             self.emit(Bytecode::ReleaseScratchLocal(slot as u16), range);
         }
@@ -1664,47 +1664,6 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-    fn compile_match_expr(&mut self, node: phalcom_ast::ast::MatchExpr) -> Result<(), CompilerError> {
-        let range = node.range;
-        self.begin_scope();
-        self.compile_expr(*node.value)?;
-        let value_slot = self.reserve_pack_scratch("$match_value", range)?;
-        self.emit(Bytecode::SetLocal(value_slot), range);
-        self.emit(Bytecode::Pop, range);
-
-        let mut end_jumps = Vec::new();
-
-        for arm in node.arms {
-            self.begin_scope();
-            let pattern_base = self.functions.last().unwrap().num_locals;
-            self.declare_pattern_locals(&arm.pattern, false)?;
-            let mut failures = Vec::new();
-            self.emit_pattern_match_tests(&arm.pattern, value_slot, &mut failures)?;
-            self.commit_pattern_bindings(&arm.pattern, value_slot)?;
-            let match_local_count = self.functions.last().unwrap().num_locals - pattern_base;
-            self.compile_expr(*arm.branch)?;
-            self.end_scope(arm.range);
-            self.emit_release_scratch_range(pattern_base as u16, match_local_count, arm.range);
-            let jump_end = self.emit_forward_jump(Bytecode::Jump, arm.range);
-            end_jumps.push(jump_end);
-
-            let next_arm_label = self.chunk_len();
-            for jump in failures {
-                self.patch_forward_jump_to(jump, next_arm_label);
-            }
-            self.emit_release_scratch_range(pattern_base as u16, match_local_count, arm.range);
-        }
-
-        self.emit(Bytecode::Nil, range);
-
-        let end_label = self.chunk_len();
-        for jump in end_jumps {
-            self.patch_forward_jump_to(jump, end_label);
-        }
-        self.emit_release_scratch_range(value_slot, 1, range);
-        self.end_scope(range);
-        Ok(())
-    }
 
     fn compile_product_label(
         &mut self,

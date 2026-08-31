@@ -428,6 +428,8 @@ pub enum SemanticTargetId {
     Field(FieldId),
     Module(ModuleId),
     Variant(VariantId),
+    VariantFamily(VariantFamilyId),
+    VariantField(VariantFieldId),
 }
 
 /// Snapshot-local binding identity for local variables/parameters.

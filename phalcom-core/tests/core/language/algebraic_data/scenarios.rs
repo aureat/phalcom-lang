@@ -91,7 +91,7 @@ fn adt_run_11_match_expression_produces_selected_branch_value() {
 
 #[test]
 fn adt_run_12_braced_arm_tail_is_branch_result() {
-    let source = "enum State { @variant Ready }\nlet result = match State::Ready { State::Ready => { let x = 40 x + 2 } }\n";
+    let source = "enum State { @variant Ready }\nlet result = match State::Ready { State::Ready => { let x = 40; x + 2 } }\n";
     let (vm, module) = run_inline(source).expect("braced match arm should run");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(42)));
 }

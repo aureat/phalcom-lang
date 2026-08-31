@@ -689,3 +689,44 @@ Variant construction and lookup live on the static associated `::` surface. Ordi
 Enum-root bodyful behavior is shared/default instance behavior. Enum-root signature-only behavior is a closed-enum requirement that every variant must satisfy.
 
 ADTs are not defined by boxing or any other physical representation. Runtime layout is an implementation concern so long as the observable semantics and static distinctions of this specification are preserved.
+
+---
+
+## 21. Native Core ADTs and Reflection (Part 06)
+
+### 21.1 Core sum types
+
+Core library sum types (`Option<T>`, `Result<T, E>`, `Ordering`) are canonical `@native enum` declarations:
+
+```phalcom
+@native
+enum Option<T> {
+    @variant Some(_ value: T)
+    @variant None
+}
+
+@native
+enum Result<T, E> {
+    @variant Ok(_ value: T)
+    @variant Error(_ error: E)
+}
+
+@native
+enum Ordering {
+    @variant Less
+    @variant Equal
+    @variant Greater
+}
+```
+
+The `@native` attribute indicates implementation provenance and runtime representation strategy; it does not grant alternate enum semantics. Core ADTs publish the same canonical declaration, type, match, and reflection products as user-declared enums.
+
+`Bool` remains a primitive finite domain and is not converted into an enum.
+
+### 21.2 ExactCase canonicalization and reflection
+
+Every exact variant instantiation produces a canonical `ExactCase` type in the type store. Specialized exact cases (such as `ExactCase(Some, Option<Int>)`) are canonical semantic types.
+
+Reflection operates through dedicated semantic metaobjects (`EnumReflection`, `VariantReflection`, `VariantFamilyReflection`, `VariantFieldReflection`, `ExactCaseTypeReflection`). Associated lookup (`::`) remains purely for value construction and member denotation, not reflection.
+
+`.class` on an ADT instance returns its runtime case behavior class, which is reflectable but distinct from the static `ExactCase` type and `VariantId` declaration identity.

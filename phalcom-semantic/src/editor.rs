@@ -342,6 +342,9 @@ impl<'a> EditorSemanticQuery<'a> {
             (SemanticTargetId::Declaration(expected), crate::source_index::SourceSiteKind::Declaration(actual)) => expected == actual,
             (SemanticTargetId::Callable(expected), crate::source_index::SourceSiteKind::Callable(actual)) => expected == actual,
             (SemanticTargetId::Field(expected), crate::source_index::SourceSiteKind::Field(actual)) => expected == actual,
+            (SemanticTargetId::Variant(expected), crate::source_index::SourceSiteKind::Variant(actual)) => expected == actual,
+            (SemanticTargetId::VariantFamily(expected), crate::source_index::SourceSiteKind::VariantFamily(actual)) => expected == actual,
+            (SemanticTargetId::VariantField(expected), crate::source_index::SourceSiteKind::VariantField(actual)) => expected == actual,
             (SemanticTargetId::Module(expected), crate::source_index::SourceSiteKind::Module) => {
                 matches!(&site.owner, SourceOwner::Module(actual) if actual == expected)
             }

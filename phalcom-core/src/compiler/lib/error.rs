@@ -338,6 +338,18 @@ pub enum CompilerError {
     #[error("internal: family application expression has no formal lowering record")]
     MissingFamilyApplicationResolution(SourceRange),
 
+    /// No formal lowering record for this match expression.
+    #[error("internal: match expression has no formal lowering record")]
+    MissingMatchLoweringSemantics(SourceRange),
+
+    /// Invalid executable pattern lowering.
+    #[error("internal: invalid executable pattern lowering")]
+    InvalidExecutablePattern(SourceRange),
+
+    /// Missing variant field layout.
+    #[error("internal: missing variant field layout for pattern")]
+    MissingVariantFieldLayout(SourceRange),
+
     /// Ambiguous lowering site attachment.
     #[error("internal: ambiguous lowering site attachment at {0:?}")]
     AmbiguousLoweringSiteAttachment(SourceRange),

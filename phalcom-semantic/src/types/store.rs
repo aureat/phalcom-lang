@@ -369,6 +369,16 @@ impl TypeStore {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.types.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.types.is_empty()
+    }
+
+    #[inline]
     pub fn get(&self, id: TypeId) -> &TypeData {
         &self.types[id.index()]
     }
@@ -772,6 +782,7 @@ impl TypeStore {
         match self.get(ty) {
             TypeData::Nominal { declaration } => Some(declaration),
             TypeData::Applied { origin, .. } => self.nominal_origin_declaration(*origin),
+            TypeData::ExactCase { enum_type, .. } => self.nominal_origin_declaration(*enum_type),
             _ => None,
         }
     }
@@ -784,12 +795,16 @@ impl TypeStore {
                 let decl = self.nominal_origin_declaration(*origin)?;
                 Some((decl.clone(), arguments.to_vec()))
             }
+            TypeData::ExactCase { enum_type, .. } => self.applied_nominal_parts(*enum_type),
             _ => None,
         }
     }
 
     /// Validates and interns a canonical exact static case type `ExactCase(variant, enum_type)`.
-    pub fn exact_case_type(&mut self, variant: &VariantId, enum_type: TypeId) -> Result<TypeId, ExactCaseTypeError> {
+    pub fn exact_case_type(&mut self, variant: &VariantId, mut enum_type: TypeId) -> Result<TypeId, ExactCaseTypeError> {
+        while let TypeData::ExactCase { enum_type: inner, .. } = self.get(enum_type) {
+            enum_type = *inner;
+        }
         let enum_kind = self.kind_of(enum_type);
         if enum_kind != KindId::TYPE {
             return Err(ExactCaseTypeError::EnumTypeMalformed);
