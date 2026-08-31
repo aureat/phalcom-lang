@@ -3,6 +3,7 @@ use std::sync::Arc;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::diagnostic::{DiagnosticCode, DiagnosticSeverity};
+use phalcom_semantic::match_semantics::PatternUsefulness;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -118,5 +119,43 @@ class Test {
         redundant.severity,
         DiagnosticSeverity::Error,
         "redundant patterns are compile errors, not advisory warnings"
+    );
+}
+
+#[test]
+fn redundant_arm_does_not_contribute_to_match_result() {
+    let source = r#"
+enum Choice {
+    @variant A -> Choice
+    @variant B -> Choice
+}
+
+class Test {
+    inspect(_ value: Choice) {
+        match value {
+            _ => 1
+            Choice::A => "unreachable"
+        }
+    }
+}
+"#;
+
+    let module = test_module();
+    let parsed = phalcom_ast::parse_source(source, 0).expect("source should parse cleanly");
+    let analysis = analyze_single_module(module, Arc::from(source), Arc::new(parsed));
+    let resolution = analysis
+        .snapshot
+        .callable_analyses
+        .values()
+        .flat_map(|callable| callable.match_resolutions.values())
+        .next()
+        .expect("match resolution");
+
+    assert_eq!(resolution.arms.len(), 2);
+    assert_eq!(resolution.arms[0].usefulness, PatternUsefulness::Useful);
+    assert_eq!(resolution.arms[1].usefulness, PatternUsefulness::Redundant);
+    assert_eq!(
+        resolution.result, resolution.arms[0].branch_result,
+        "a statically unreachable arm must not widen or weaken the match expression result"
     );
 }
