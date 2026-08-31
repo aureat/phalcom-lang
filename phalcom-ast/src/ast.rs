@@ -7,7 +7,7 @@
 //! `??`/`?.` are desugared to ordinary `Option` message sends by the parser
 //! (see [`crate::parser`]).
 
-use phalcom_common::range::SourceRange;
+pub use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
 
 #[derive(Debug, Default)]
@@ -1130,6 +1130,10 @@ pub struct LetBinding {
 /// behavior lives in the compiler's lowering, not in this node's shape.
 #[derive(Debug, Clone)]
 pub enum Pattern {
+    /// A first-class recursive wildcard `_` matching any value and binding nothing.
+    Wildcard {
+        range: SourceRange,
+    },
     /// A single bound name — the non-destructuring case (`let x = …`).
     Name {
         /// The bound name.
@@ -1161,14 +1165,11 @@ pub enum Pattern {
         /// The source span of the whole `[…]` pattern.
         range: SourceRange,
     },
-    /// A sealed/unit or payload-bearing variant pattern such as `None()` or
-    /// `Some(value)`.
-    Variant {
-        /// Constructor/variant class name.
-        constructor: String,
-        /// Positional payload patterns in declaration order.
-        arguments: Vec<Pattern>,
-        /// Source span of the complete constructor pattern.
+    /// A rich variant pattern (singleton, exact call, selector gap, or whole family).
+    Variant(VariantPattern),
+    /// An or-pattern `p1 | p2 | ...` matching any alternative.
+    Or {
+        alternatives: Vec<Pattern>,
         range: SourceRange,
     },
     /// An open record pattern such as `#{name: value}`.
@@ -1191,14 +1192,51 @@ impl Pattern {
     /// Returns this pattern's source span.
     pub fn range(&self) -> SourceRange {
         match self {
-            Pattern::Name { range, .. }
+            Pattern::Wildcard { range }
+            | Pattern::Name { range, .. }
             | Pattern::Tuple { range, .. }
             | Pattern::List { range, .. }
-            | Pattern::Variant { range, .. }
+            | Pattern::Or { range, .. }
             | Pattern::Record { range, .. }
             | Pattern::Map { range, .. } => *range,
+            Pattern::Variant(v) => v.range,
         }
     }
+}
+
+/// A qualified or contextual variant pattern matching a singleton, exact constructor/selector,
+/// selector pattern with gap, or whole family.
+#[derive(Debug, Clone)]
+pub struct VariantPattern {
+    pub owner: Option<StaticSymbolRef>,
+    pub base: String,
+    pub base_range: SourceRange,
+    pub mode: VariantPatternMode,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum VariantPatternMode {
+    Singleton,
+    ExactCall {
+        arguments: Vec<VariantPatternArgument>,
+    },
+    CallablePattern {
+        prefix: Vec<VariantPatternArgument>,
+        gap_range: SourceRange,
+        suffix: Vec<VariantPatternArgument>,
+    },
+    WholeFamily {
+        star_range: SourceRange,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct VariantPatternArgument {
+    pub label: Option<String>,
+    pub label_range: Option<SourceRange>,
+    pub pattern: Pattern,
+    pub range: SourceRange,
 }
 
 /// A required record field in a pattern.
@@ -1364,6 +1402,8 @@ pub enum Expr {
     IsMembership(Box<IsMembershipExpr>),
     /// A value-space type form expression (e.g. `List<Int>` or `<T> =>> Result<T, Error>`) (Spec 04).
     TypeForm(Box<TypeAnnotation>),
+    /// A pattern elimination match expression (Part 05.1).
+    Match(MatchExpr),
 }
 
 impl Expr {
@@ -1410,8 +1450,26 @@ impl Expr {
             Expr::Membership(e) => e.range,
             Expr::IsMembership(e) => e.range,
             Expr::TypeForm(t) => t.range,
+            Expr::Match(m) => m.range,
         }
     }
+}
+
+/// A pattern elimination match expression.
+#[derive(Debug, Clone)]
+pub struct MatchExpr {
+    pub value: Box<Expr>,
+    pub arms: Vec<MatchArm>,
+    pub range: SourceRange,
+}
+
+/// A single arm `pattern => branch` in a match expression.
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub branch: Box<Expr>,
+    pub arrow_range: SourceRange,
+    pub range: SourceRange,
 }
 
 /// Range bounds as written in source. Omitted bounds are structurally absent,

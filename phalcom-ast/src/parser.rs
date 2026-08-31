@@ -2159,11 +2159,27 @@ impl<'source> Parser<'source> {
             }
         }
         self.expect(&Token::RParen, &["\")\""])?;
-        Ok(Pattern::Variant {
-            constructor,
-            arguments,
-            range: (start..self.prev_end).into(),
-        })
+        let range: SourceRange = (start..self.prev_end).into();
+        Ok(Pattern::Variant(VariantPattern {
+            owner: None,
+            base: constructor,
+            base_range: (start..start).into(),
+            mode: VariantPatternMode::ExactCall {
+                arguments: arguments
+                    .into_iter()
+                    .map(|pattern| {
+                        let range = pattern.range();
+                        VariantPatternArgument {
+                            label: None,
+                            label_range: None,
+                            pattern,
+                            range,
+                        }
+                    })
+                    .collect(),
+            },
+            range,
+        }))
     }
 
     fn parse_pattern_label(&mut self) -> ParserResult<String> {
@@ -6600,7 +6616,7 @@ mod tests {
         let Statement::Expr { expr: Expr::IfLet(if_let), .. } = only_statement("if let Some(value) = option { value } else { None }") else {
             panic!("expected if let expression");
         };
-        assert!(matches!(if_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));
+        assert!(matches!(if_let.pattern, Pattern::Variant(VariantPattern { ref base, .. }) if base == "Some"));
 
         let Statement::Expr {
             expr: Expr::WhileLet(while_let),
@@ -6609,7 +6625,7 @@ mod tests {
         else {
             panic!("expected while let expression");
         };
-        assert!(matches!(while_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));
+        assert!(matches!(while_let.pattern, Pattern::Variant(VariantPattern { ref base, .. }) if base == "Some"));
     }
 
     /// Returns the single statement of a program that must parse cleanly.
