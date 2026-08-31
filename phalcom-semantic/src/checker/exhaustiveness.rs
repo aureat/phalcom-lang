@@ -15,14 +15,22 @@ pub fn build_initial_pattern_space(
 ) -> PatternSpace {
     let store_type = ctx.store.get(scrutinee_ty).clone();
     match store_type {
-        TypeData::ExactCase { variant, .. } => {
+        TypeData::ExactCase { variant, enum_type } => {
             let variant_id = ctx.store.variant_identity(variant).clone();
             let var_info = ctx.enum_table.and_then(|t| t.variants.get(&variant_id).cloned());
             if let Some(info) = var_info {
+                let substitution = crate::types::substitution::substitution_for_applied(
+                    ctx.declarations,
+                    ctx.store,
+                    enum_type,
+                );
                 let mut field_spaces = Vec::with_capacity(info.fields.len());
                 for f in info.fields.iter() {
                     let f_ty = f.declared_type.canonical_type().unwrap_or(ctx.store.unit());
-                    field_spaces.push(build_initial_pattern_space(ctx, f_ty));
+                    let f_ty = substitution
+                        .as_ref()
+                        .map_or(f_ty, |substitution| substitution.apply(ctx.store, f_ty));
+                    field_spaces.push(PatternSpace::Opaque(f_ty));
                 }
                 PatternSpace::Variant(VariantSpace {
                     variant: variant_id,
@@ -37,13 +45,18 @@ pub fn build_initial_pattern_space(
         TypeData::Tuple(elements) => {
             let mut element_spaces = Vec::with_capacity(elements.len());
             for elem in elements.iter() {
-                element_spaces.push(build_initial_pattern_space(ctx, elem.ty));
+                element_spaces.push(PatternSpace::Opaque(elem.ty));
             }
             PatternSpace::Tuple(element_spaces.into_boxed_slice())
         }
         _ => {
             if let Some(origin) = ctx.store.nominal_origin_declaration(scrutinee_ty).cloned() {
                 if let Some(enum_info) = ctx.enum_table.and_then(|t| t.enums.get(&origin).cloned()) {
+                    let substitution = crate::types::substitution::substitution_for_applied(
+                        ctx.declarations,
+                        ctx.store,
+                        scrutinee_ty,
+                    );
                     let mut variant_spaces = Vec::new();
                     for variant_id in enum_info.variants.iter() {
                         let Some(v_info) = ctx.enum_table.and_then(|t| t.variants.get(variant_id).cloned()) else { continue; };
@@ -62,7 +75,10 @@ pub fn build_initial_pattern_space(
                         let mut field_spaces = Vec::with_capacity(v_info.fields.len());
                         for f in v_info.fields.iter() {
                             let f_ty = f.declared_type.canonical_type().unwrap_or(ctx.store.unit());
-                            field_spaces.push(build_initial_pattern_space(ctx, f_ty));
+                            let f_ty = substitution
+                                .as_ref()
+                                .map_or(f_ty, |substitution| substitution.apply(ctx.store, f_ty));
+                            field_spaces.push(PatternSpace::Opaque(f_ty));
                         }
 
                         variant_spaces.push(PatternSpace::Variant(VariantSpace {

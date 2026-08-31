@@ -15,6 +15,7 @@ use crate::match_semantics::{
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
+use crate::types::store::TypeData;
 
 /// Resolves an AST pattern against an expected type and value space.
 pub fn resolve_pattern(
@@ -83,10 +84,13 @@ pub fn resolve_pattern(
             let mut tuple_res = Vec::with_capacity(elements.len());
             let mut element_spaces = Vec::with_capacity(elements.len());
 
-            for elem in elements {
-                let object_ty = ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(expected_ty);
-                let elem_expected_space = PatternSpace::Opaque(object_ty);
-                let (elem_res, elem_space) = resolve_pattern(ctx, elem, object_ty, &elem_expected_space, bindings);
+            for (i, elem) in elements.iter().enumerate() {
+                let elem_ty = match ctx.store.get(expected_ty) {
+                    TypeData::Tuple(elems) => elems.get(i).map(|e| e.ty).unwrap_or(expected_ty),
+                    _ => ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(expected_ty),
+                };
+                let elem_expected_space = PatternSpace::Opaque(elem_ty);
+                let (elem_res, elem_space) = resolve_pattern(ctx, elem, elem_ty, &elem_expected_space, bindings);
                 tuple_res.push(elem_res);
                 element_spaces.push(elem_space);
             }
@@ -97,17 +101,16 @@ pub fn resolve_pattern(
             )
         }
         Pattern::List { elements, rest, .. } => {
+            let elem_ty = ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(expected_ty);
             let mut prefix_res = Vec::with_capacity(elements.len());
             for elem in elements {
-                let object_ty = ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(expected_ty);
-                let elem_expected_space = PatternSpace::Opaque(object_ty);
-                let (elem_res, _) = resolve_pattern(ctx, elem, object_ty, &elem_expected_space, bindings);
+                let elem_expected_space = PatternSpace::Opaque(elem_ty);
+                let (elem_res, _) = resolve_pattern(ctx, elem, elem_ty, &elem_expected_space, bindings);
                 prefix_res.push(elem_res);
             }
             let rest_res = rest.as_ref().map(|r| {
-                let object_ty = ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(expected_ty);
-                let elem_expected_space = PatternSpace::Opaque(object_ty);
-                let (r_res, _) = resolve_pattern(ctx, r, object_ty, &elem_expected_space, bindings);
+                let elem_expected_space = PatternSpace::Opaque(elem_ty);
+                let (r_res, _) = resolve_pattern(ctx, r, elem_ty, &elem_expected_space, bindings);
                 Box::new(r_res)
             });
 
@@ -237,6 +240,7 @@ fn resolve_variant_pattern(
                 }
             };
 
+            let subst = crate::types::substitution::substitution_for_applied(ctx.declarations, ctx.store, expected_ty);
             let mut resolved_fields = Vec::new();
             let mut field_spaces = Vec::new();
 
@@ -251,7 +255,8 @@ fn resolve_variant_pattern(
                         };
 
                         let (field_id, field_type) = if let Some(f) = field_semantic {
-                            let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                            let f_raw = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                            let f_ty = if let Some(ref s) = subst { s.apply(ctx.store, f_raw) } else { f_raw };
                             (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
                         } else {
                             (
@@ -275,7 +280,8 @@ fn resolve_variant_pattern(
                 VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
                     // Initialize field_spaces for all variant fields with opaque wildcard spaces
                     for f in v_info.fields.iter() {
-                        let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                        let f_raw = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                        let f_ty = if let Some(ref s) = subst { s.apply(ctx.store, f_raw) } else { f_raw };
                         field_spaces.push(PatternSpace::Opaque(f_ty));
                     }
 
@@ -289,7 +295,8 @@ fn resolve_variant_pattern(
                         };
 
                         let (field_id, field_type) = if let Some(f) = field_semantic {
-                            let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                            let f_raw = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                            let f_ty = if let Some(ref s) = subst { s.apply(ctx.store, f_raw) } else { f_raw };
                             (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
                         } else {
                             (
@@ -322,7 +329,8 @@ fn resolve_variant_pattern(
                         };
 
                         let (field_id, field_type) = if let Some(f) = field_semantic {
-                            let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                            let f_raw = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                            let f_ty = if let Some(ref s) = subst { s.apply(ctx.store, f_raw) } else { f_raw };
                             (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
                         } else {
                             (
@@ -346,7 +354,8 @@ fn resolve_variant_pattern(
                 }
                 VariantPatternMode::Singleton | VariantPatternMode::WholeFamily { .. } => {
                     for (_i, f) in v_info.fields.iter().enumerate() {
-                        let f_ty = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                        let f_raw = f.declared_type.canonical_type().unwrap_or(expected_ty);
+                        let f_ty = if let Some(ref s) = subst { s.apply(ctx.store, f_raw) } else { f_raw };
                         field_spaces.push(PatternSpace::Opaque(f_ty));
                     }
                 }
