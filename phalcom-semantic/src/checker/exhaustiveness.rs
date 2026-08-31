@@ -4,8 +4,9 @@ use crate::checker::context::CheckingContext;
 use crate::checker::pattern_space::{PatternSpace, VariantSpace};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::match_semantics::{CoverageWitness, ExhaustivenessResult, PatternUsefulness};
+use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
 use crate::types::id::TypeId;
-use crate::types::store::TypeData;
+use crate::types::store::{TypeData, TypeStore};
 use std::collections::BTreeSet;
 
 const MAX_COVERAGE_WITNESSES: usize = 8;
@@ -188,6 +189,16 @@ pub fn finalize_match_exhaustiveness(
     }
 }
 
+/// Joins value results from reachable arms that complete normally. If no such
+/// arm exists, the match expression cannot complete normally and has `Never`.
+pub(crate) fn join_match_result_knowledge(store: &mut TypeStore, normal_branch_types: Vec<TypeKnowledge>) -> TypeKnowledge {
+    if normal_branch_types.is_empty() {
+        TypeKnowledge::established(store.never(), EvidenceOrigin::Flow)
+    } else {
+        crate::types::evidence::join_type_knowledge(store, normal_branch_types)
+    }
+}
+
 /// Evaluates ordered match-arm usefulness, residual space, and final exhaustiveness.
 ///
 /// `Impossible` is measured against the original scrutinee domain; `Redundant`
@@ -275,5 +286,34 @@ fn first_coverage_witness(space: &PatternSpace) -> CoverageWitness {
             }
             CoverageWitness::List(elements.into_boxed_slice())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn match_result_without_normal_branch_is_never() {
+        let mut store = TypeStore::new();
+        let result = join_match_result_knowledge(&mut store, Vec::new());
+
+        assert_eq!(result.ty(), Some(store.never()));
+        assert!(matches!(store.get(store.never()), TypeData::Never));
+    }
+
+    #[test]
+    fn match_result_with_normal_branches_joins_their_types() {
+        let mut store = TypeStore::new();
+        let unit = store.unit();
+        let result = join_match_result_knowledge(
+            &mut store,
+            vec![
+                TypeKnowledge::established(unit, EvidenceOrigin::Flow),
+                TypeKnowledge::established(unit, EvidenceOrigin::Flow),
+            ],
+        );
+
+        assert_eq!(result.ty(), Some(unit));
     }
 }
