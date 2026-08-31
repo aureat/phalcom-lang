@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/adts]
   pull_request:
 
 # Cancel superseded runs on the same ref to save CI minutes.
@@ -18,7 +18,7 @@ env:
 jobs:
   part-5-1-orchestration:
     name: Part 5.1 orchestration repair
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feat/adts'
+    if: github.ref == 'refs/heads/feat/adts'
     permissions:
       contents: write
     runs-on: ubuntu-latest
