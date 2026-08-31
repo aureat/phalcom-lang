@@ -17,6 +17,7 @@ pub mod flow;
 pub mod incident;
 pub mod inference;
 pub(crate) mod loop_analysis;
+pub mod pattern_space;
 pub mod result;
 pub mod statement;
 pub mod typed_expr;
@@ -44,6 +45,7 @@ pub use incident::{BindingContractSummary, InternalFailurePolicy, InternalSemant
 
 pub use flow::FlowState;
 pub use inference::{InferenceOutcome, InferenceSession, InferenceSupport, InferenceTerm};
+pub use pattern_space::{ListSpace, PatternSpace, VariantSpace};
 pub use result::TypeCheckReport;
 
 pub use control::StatementControl;
