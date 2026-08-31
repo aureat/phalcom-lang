@@ -10,27 +10,31 @@ use super::statement::check_statement;
 use super::typed_expr::TypedExpression;
 use crate::associated::AssociatedMemberId;
 use crate::checker::analysis::AnalysisStatus;
-use crate::checker::associated::{AssociatedResolution, AssociatedResolutionKind};
-use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
+use crate::checker::associated::{
+    AssociatedResolution, AssociatedResolutionKind, check_reification_underconstrained, resolve_associated_owner,
+    resolve_effective_associated_family, specialize_associated_member,
+};
+use crate::checker::binding::{reconcile_binding_relation, BindingConsistency, BindingWriteResult};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::FlowState;
 use crate::diagnostic::DiagnosticCode;
 use crate::dispatch::{CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
-use crate::identity::DeclarationId;
+use crate::identity::{DeclarationId, InvocationTargetId};
 use crate::types::denotation::{AssociatedValueDenotation, SemanticDenotation, ValueSemanticFact};
+use crate::types::environment::TypeView;
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, TypeId};
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
-use crate::types::relation::TypeHierarchy;
+use crate::types::relation::{is_subtype, TypeHierarchy};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
-    AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryExpr, BinaryOp, ComparisonChainExpr, Expr, GetPropertyExpr,
-    IndexExpr, IsMembershipExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MembershipExpr, MethodCallExpr, PackItem, PackLabel, Pattern,
-    ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr, Statement, SymbolExpr, SymbolLiteralKind, TupleLiteralEntry,
-    UnaryExpr, UnaryOp, UnqualifiedCallExpr,
+    AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, BinaryExpr, BinaryOp,
+    ComparisonChainExpr, Expr, GetPropertyExpr, IndexExpr, IsMembershipExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MembershipExpr,
+    MethodCallExpr, PackItem, PackLabel, Pattern, ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr, Statement,
+    SymbolExpr, SymbolLiteralKind, TupleLiteralEntry, UnaryExpr, UnaryOp, UnqualifiedCallExpr,
 };
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{Selector, SelectorSlot};
+use phalcom_common::selector::{Selector, SelectorBase, SelectorSlot};
 
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
 pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
@@ -241,7 +245,11 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 } else {
                     let ty = ctx.nominal_type_of(&decl);
                     TypedExpression::established(ty, EvidenceOrigin::DeclarationSemantics, *range)
+                        .with_denotation(SemanticDenotation::TypeForm(ty))
                 }
+            } else if let Some(param_ty) = ctx.resolve_type_parameter(value) {
+                TypedExpression::established(param_ty, EvidenceOrigin::DeclarationSemantics, *range)
+                    .with_denotation(SemanticDenotation::TypeForm(param_ty))
             } else {
                 TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
             }
@@ -702,92 +710,214 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
     }
 }
 
-fn associated_owner_declaration(store: &crate::types::store::TypeStore, mut form: TypeId) -> Option<DeclarationId> {
-    loop {
-        match store.get(form) {
-            TypeData::Nominal { declaration } => return Some(declaration.clone()),
-            TypeData::Applied { origin, .. } => form = *origin,
-            _ => return None,
-        }
-    }
-}
-
-/// Resolves the first concrete Part 3 associated form: an exact singleton getter.
-///
-/// This deliberately does not treat a getter as a zero-argument constructor. The
-/// remaining exact callable, whole-family, and direct-invocation cases each need
-/// their own specialization and escape-boundary handling.
-fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, _expected: &ExpectedType) -> TypedExpression {
+fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
-    let Some(SemanticDenotation::TypeForm(owner_form)) = receiver.denotation else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
-    let Some(lookup_owner) = associated_owner_declaration(ctx.store, owner_form) else {
+    let Ok(owner) = resolve_associated_owner(ctx, &receiver, lookup.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
 
-    let AssociatedMemberSyntax::Named(member) = &lookup.member else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
-    let AssociatedNamedMode::Getter { .. } = &member.mode else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
-    let Ok(selector) = Selector::getter(&member.base) else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
+    match &lookup.member {
+        AssociatedMemberSyntax::Named(member) => {
+            let base = SelectorBase::Named(member.base.clone());
+            let Ok(family) = resolve_effective_associated_family(ctx, &owner, &base, lookup.range) else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
 
-    let Some(surface) = ctx.associated_surface(&lookup_owner) else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
-    let Some(family) = surface.families.get(&selector.base) else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
-    let Some(variant) = family.members.iter().find_map(|member| match member {
-        AssociatedMemberId::Variant(variant) if variant.selector == selector => Some(variant.clone()),
-        AssociatedMemberId::Behavioral(_) | AssociatedMemberId::Variant(_) => None,
-    }) else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
-    let Some(variant_info) = ctx.variant_info(&variant) else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
-    if variant_info.shape != crate::enum_semantics::VariantShape::Singleton {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            match &member.mode {
+                AssociatedNamedMode::Getter { .. } => {
+                    let Ok(selector) = Selector::getter(&member.base) else {
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+                    let Some(member_id) = family.members.iter().find(|m| match m {
+                        AssociatedMemberId::Variant(v) => v.selector == selector,
+                        AssociatedMemberId::Behavioral(c) => c.selector == selector,
+                    }).cloned() else {
+                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AssociatedMemberMissing,
+                            format!("getter `{}` not found in associated family `{}`", selector, member.base),
+                            lookup.range,
+                        ));
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    let Ok(specialized) = specialize_associated_member(ctx, &owner, &member_id, lookup.range) else {
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    let Ok(value_type) = check_reification_underconstrained(ctx, specialized.value_type, expected, lookup.range) else {
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    if let Some(expression) = ctx.current_expression_id() {
+                        let kind = match specialized.target.clone() {
+                            Some(target) => AssociatedResolutionKind::ExactCallable {
+                                member: member_id.clone(),
+                                target,
+                                callable_type: value_type,
+                            },
+                            None => AssociatedResolutionKind::ExactValue {
+                                member: member_id.clone(),
+                                value_type,
+                            },
+                        };
+                        ctx.record_associated_resolution(
+                            expression,
+                            AssociatedResolution {
+                                owner_form: owner.owner_form,
+                                lookup_owner: owner.lookup_owner.clone(),
+                                family: family.id.clone(),
+                                kind,
+                            },
+                        );
+                    }
+
+                    TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(
+                        SemanticDenotation::AssociatedValue(AssociatedValueDenotation::exact(
+                            owner.owner_form,
+                            owner.lookup_owner,
+                            member_id,
+                            specialized.target,
+                        )),
+                    )
+                }
+                AssociatedNamedMode::Exact { residual, .. } => {
+                    let selector = match residual {
+                        AssociatedResidualSelectorSyntax::Method { slots, .. } => {
+                            let slot_objs: Vec<SelectorSlot> = slots.iter().map(|s| s.slot.clone()).collect();
+                            match Selector::method(&member.base, slot_objs) {
+                                Ok(sel) => sel,
+                                Err(_) => return TypedExpression::unknown(UnknownReason::UncheckedExpression),
+                            }
+                        }
+                        AssociatedResidualSelectorSyntax::Setter { .. } => {
+                            match Selector::setter(&member.base) {
+                                Ok(sel) => sel,
+                                Err(_) => return TypedExpression::unknown(UnknownReason::UncheckedExpression),
+                            }
+                        }
+                    };
+
+                    let Some(member_id) = family.members.iter().find(|m| match m {
+                        AssociatedMemberId::Variant(v) => v.selector == selector,
+                        AssociatedMemberId::Behavioral(c) => c.selector == selector,
+                    }).cloned() else {
+                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AssociatedMemberMissing,
+                            format!("exact member `{}` not found in associated family `{}`", selector, member.base),
+                            lookup.range,
+                        ));
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    let Ok(specialized) = specialize_associated_member(ctx, &owner, &member_id, lookup.range) else {
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    let Ok(value_type) = check_reification_underconstrained(ctx, specialized.value_type, expected, lookup.range) else {
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    let target = specialized.target.unwrap_or_else(|| {
+                        InvocationTargetId::Behavioral(crate::identity::CallableId::new(
+                            owner.lookup_owner.clone(),
+                            selector.clone(),
+                            crate::identity::DispatchSide::Class,
+                        ))
+                    });
+
+                    if let Some(expression) = ctx.current_expression_id() {
+                        ctx.record_associated_resolution(
+                            expression,
+                            AssociatedResolution {
+                                owner_form: owner.owner_form,
+                                lookup_owner: owner.lookup_owner.clone(),
+                                family: family.id.clone(),
+                                kind: AssociatedResolutionKind::ExactCallable {
+                                    member: member_id.clone(),
+                                    target: target.clone(),
+                                    callable_type: value_type,
+                                },
+                            },
+                        );
+                    }
+
+                    TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(
+                        SemanticDenotation::AssociatedValue(AssociatedValueDenotation::exact(
+                            owner.owner_form,
+                            owner.lookup_owner,
+                            member_id,
+                            Some(target),
+                        )),
+                    )
+                }
+                AssociatedNamedMode::Family { .. } => {
+                    let mut specialized_members = Vec::new();
+                    let mut family_member_types = Vec::new();
+                    let mut captured_members = Vec::new();
+
+                    for member_id in &family.members {
+                        if let Ok(spec) = specialize_associated_member(ctx, &owner, member_id, lookup.range) {
+                            let member_type = match spec.target {
+                                Some(_) => crate::types::family::FamilyMemberType::callable(spec.operation.clone(), spec.value_type),
+                                None => crate::types::family::FamilyMemberType::value(spec.operation.clone(), spec.value_type),
+                            };
+                            family_member_types.push(member_type);
+                            captured_members.push(crate::types::denotation::CapturedAssociatedMember {
+                                operation: spec.operation.clone(),
+                                member: member_id.clone(),
+                                target: spec.target.clone(),
+                            });
+                            specialized_members.push(spec);
+                        }
+                    }
+
+                    let Ok(family_type) = ctx.store.family_type(family_member_types) else {
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    let Ok(value_type) = check_reification_underconstrained(ctx, family_type, expected, lookup.range) else {
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    };
+
+                    if let Some(expression) = ctx.current_expression_id() {
+                        ctx.record_associated_resolution(
+                            expression,
+                            AssociatedResolution {
+                                owner_form: owner.owner_form,
+                                lookup_owner: owner.lookup_owner.clone(),
+                                family: family.id.clone(),
+                                kind: AssociatedResolutionKind::Family {
+                                    family_type: value_type,
+                                    members: specialized_members.into_boxed_slice(),
+                                },
+                            },
+                        );
+                    }
+
+                    TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(
+                        SemanticDenotation::AssociatedValue(AssociatedValueDenotation::family(
+                            owner.owner_form,
+                            owner.lookup_owner,
+                            family.id,
+                            captured_members,
+                        )),
+                    )
+                }
+            }
+        }
+        _ => TypedExpression::unknown(UnknownReason::UncheckedExpression),
     }
-
-    let value_type = variant_info.exact_case_template;
-    let associated_member = AssociatedMemberId::Variant(variant);
-    if let Some(expression) = ctx.current_expression_id() {
-        ctx.record_associated_resolution(
-            expression,
-            AssociatedResolution {
-                owner_form,
-                lookup_owner: lookup_owner.clone(),
-                family: family.id.clone(),
-                kind: AssociatedResolutionKind::ExactValue {
-                    member: associated_member.clone(),
-                    value_type,
-                },
-            },
-        );
-    }
-
-    TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(SemanticDenotation::AssociatedValue(
-        AssociatedValueDenotation::exact(owner_form, lookup_owner, associated_member, None),
-    ))
 }
 
-/// Resolves a concrete variant constructor selected by an exact static call
-/// shape. Dynamic shapes and generic owner specialization are intentionally
-/// deferred to the associated-family selection engine.
+/// Resolves a concrete variant constructor or behavioral method selected by an exact static call shape.
 fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &AssociatedInvokeExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &invoke.receiver, &ExpectedType::None);
-    let Some(SemanticDenotation::TypeForm(owner_form)) = receiver.denotation.clone() else {
+    let Ok(owner) = resolve_associated_owner(ctx, &receiver, invoke.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
-    let Some(lookup_owner) = associated_owner_declaration(ctx.store, owner_form) else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
+
     let arguments = application_arguments(&invoke.args);
     let StaticCallShape::Exact(slots) = static_call_shape(&arguments) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -795,60 +925,165 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
     let Ok(selector) = Selector::method(&invoke.base, slots) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
-    let (family_id, variant, signature, constructor_result_type) = {
-        let Some(surface) = ctx.associated_surface(&lookup_owner) else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let Some(family) = surface.families.get(&selector.base) else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let Some(variant) = family.members.iter().find_map(|member| match member {
-            AssociatedMemberId::Variant(variant) if variant.selector == selector => Some(variant.clone()),
-            AssociatedMemberId::Behavioral(_) | AssociatedMemberId::Variant(_) => None,
-        }) else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let Some(variant_info) = ctx.variant_info(&variant) else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let Some(constructor) = variant_info.constructor.as_ref() else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-        };
-        let parameters = constructor
-            .parameters
-            .iter()
-            .map(|parameter| {
-                let mut callable_parameter = crate::dispatch::CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge());
-                if let Some(label) = &parameter.external_label {
-                    callable_parameter = callable_parameter.with_label(label.to_string());
-                }
-                callable_parameter
-            })
-            .collect();
-        let constructor_result_type = constructor.exact_case_template;
-        let signature = CallableSignature::new(
-            selector,
-            parameters,
-            TypeKnowledge::established(constructor_result_type, EvidenceOrigin::ConstructorSemantics),
-        );
-        (family.id.clone(), variant, signature, constructor_result_type)
+    let base = SelectorBase::Named(invoke.base.clone());
+    let Ok(family) = resolve_effective_associated_family(ctx, &owner, &base, invoke.range) else {
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
-    let target = CallableApplicationTarget::variant_constructor(variant.clone(), signature);
+
+    let Some(member_id) = family.members.iter().find(|m| match m {
+        AssociatedMemberId::Variant(v) => v.selector == selector,
+        AssociatedMemberId::Behavioral(c) => c.selector == selector,
+    }).cloned() else {
+        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedCallShapeMissing,
+            format!("no associated member matching call shape `{}` on `{}`", selector, owner.lookup_owner.name),
+            invoke.range,
+        ));
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    };
+
+    let (target, fallback_result_type) = match &member_id {
+        AssociatedMemberId::Variant(variant) => {
+            let Some(variant_info) = ctx.variant_info(variant).cloned() else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
+            let Some(constructor) = variant_info.constructor else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
+
+            let mut env = crate::types::environment::TypeEnvironment::new();
+            for (idx, &arg) in owner.supplied_arguments.iter().enumerate() {
+                if let Some(param_id) = ctx.store.find_type_parameter_id(
+                    &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
+                    idx as u32,
+                ) {
+                    env.bind_param(param_id, arg);
+                }
+            }
+
+            // GADT check if owner type arguments were explicitly supplied
+            for (param_id, &constrained_ty) in &variant_info.case_environment.bindings {
+                if let Some(supplied) = env.get_param(*param_id) {
+                    let matches = is_subtype(ctx.store, ctx.hierarchy.inner(), supplied, constrained_ty)
+                        && is_subtype(ctx.store, ctx.hierarchy.inner(), constrained_ty, supplied);
+
+                    if !matches {
+                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AssociatedGadtOwnerConflict,
+                            format!(
+                                "GADT variant `{}` requires type parameter to be `{}` but owner specified `{}`",
+                                variant.selector,
+                                ctx.store.format_type(constrained_ty),
+                                ctx.store.format_type(supplied)
+                            ),
+                            invoke.range,
+                        ));
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    }
+                }
+            }
+
+            let parameters = constructor
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    let p_ty = parameter.declared_type.canonical_type().unwrap_or_else(|| ctx.store.unit());
+                    let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
+                        parameter.local_name.to_string(),
+                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                    );
+                    if let Some(label) = &parameter.external_label {
+                        callable_parameter = callable_parameter.with_label(label.to_string());
+                    }
+                    callable_parameter
+                })
+                .collect();
+            let constructor_result_type = TypeView::new(constructor.exact_case_template, env).materialize(ctx.store);
+            let signature = CallableSignature::new(
+                selector.clone(),
+                parameters,
+                TypeKnowledge::established(constructor_result_type, EvidenceOrigin::ConstructorSemantics),
+            );
+            (CallableApplicationTarget::variant_constructor(variant.clone(), signature), constructor_result_type)
+        }
+        AssociatedMemberId::Behavioral(callable) => {
+            let defining_decl = callable.declaration_owner();
+            let defining_args = crate::checker::associated::project_supertype_arguments(
+                ctx.store,
+                ctx.hierarchy.inner(),
+                &owner.lookup_owner,
+                &owner.supplied_arguments,
+                defining_decl,
+            );
+
+            let mut env = crate::types::environment::TypeEnvironment::new();
+            for (idx, &arg) in defining_args.iter().enumerate() {
+                if let Some(param_id) = ctx.store.find_type_parameter_id(
+                    &crate::types::parameter::TypeParameterOwner::Declaration(defining_decl.clone()),
+                    idx as u32,
+                ) {
+                    env.bind_param(param_id, arg);
+                }
+            }
+
+            let Some(surface) = ctx.dispatch.get().get_surface(defining_decl).cloned() else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
+            let class_surface = surface.surface(callable.side);
+            let Some(sig) = class_surface.callable_signatures.get(&callable.selector).cloned() else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
+
+            let return_ty = sig.return_type.ty().unwrap_or_else(|| ctx.store.unit());
+            let specialized_return = TypeView::new(return_ty, env.clone()).materialize(ctx.store);
+
+            let parameters: Vec<crate::dispatch::CallableParameter> = sig
+                .parameters
+                .iter()
+                .map(|p| {
+                    let param_ty = p.ty.ty().unwrap_or_else(|| ctx.store.unit());
+                    let specialized_param = TypeView::new(param_ty, env.clone()).materialize(ctx.store);
+                    let mut cp = crate::dispatch::CallableParameter::new(
+                        p.local_name.clone(),
+                        TypeKnowledge::established(specialized_param, EvidenceOrigin::CallableSignature),
+                    )
+                    .with_rest(p.rest);
+                    if let Some(label) = &p.external_label {
+                        cp = cp.with_label(label.clone());
+                    }
+                    cp
+                })
+                .collect();
+
+            let signature = CallableSignature::new(
+                selector.clone(),
+                parameters,
+                TypeKnowledge::established(specialized_return, EvidenceOrigin::CallableSignature),
+            );
+
+            (CallableApplicationTarget::exact(callable.clone(), signature), specialized_return)
+        }
+    };
+
     let Some(invocation_target) = target.target.clone() else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
+
     let premise = CallPremise::from_typed(ctx, &receiver);
     let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, invoke.range);
-    let result_type = result.knowledge.ty().unwrap_or(constructor_result_type);
+    let result_type = result.knowledge.ty().unwrap_or(fallback_result_type);
     if let Some(expression) = ctx.current_expression_id() {
         ctx.record_associated_resolution(
             expression,
             AssociatedResolution {
-                owner_form,
-                lookup_owner,
-                family: family_id,
+                owner_form: owner.owner_form,
+                lookup_owner: owner.lookup_owner,
+                family: family.id,
                 kind: AssociatedResolutionKind::StaticInvoke {
-                    member: AssociatedMemberId::Variant(variant),
+                    member: member_id,
                     target: invocation_target,
                     result_type,
                 },

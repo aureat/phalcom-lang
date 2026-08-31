@@ -536,13 +536,11 @@ impl TypeStore {
     pub fn family_type(&mut self, members: impl IntoIterator<Item = FamilyMemberType>) -> Result<TypeId, FamilyTypeError> {
         let member_vec: Vec<FamilyMemberType> = members.into_iter().collect();
         for member in &member_vec {
-            if member.member_kind == FamilyMemberTypeKind::Callable {
-                if !matches!(self.get(member.ty), TypeData::Callable(_)) {
-                    return Err(FamilyTypeError::CallableMemberNotCallable {
-                        operation: member.operation.clone(),
-                        ty: member.ty,
-                    });
-                }
+            if member.member_kind == FamilyMemberTypeKind::Callable && !matches!(self.get(member.ty), TypeData::Callable(_)) {
+                return Err(FamilyTypeError::CallableMemberNotCallable {
+                    operation: member.operation.clone(),
+                    ty: member.ty,
+                });
             }
         }
 

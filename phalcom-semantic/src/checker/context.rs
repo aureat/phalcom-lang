@@ -1689,6 +1689,10 @@ impl<'a> CheckingContext<'a> {
         self.resolver.resolve_type_name(&self.current_module, name, &[])
     }
 
+    pub fn resolve_type_parameter(&self, name: &str) -> Option<TypeId> {
+        self.resolver.resolve_type_parameter(name)
+    }
+
     pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> TypeId {
         record_declaration_shell_dependency(&self.semantic_dependencies, decl);
         if let Some(form) = self.declarations.form(decl) {
