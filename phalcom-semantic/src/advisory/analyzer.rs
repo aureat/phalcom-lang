@@ -382,6 +382,13 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             let _ = analyze_expr(&while_let.value, context);
             literal(context, context.builtins.boolean.clone(), range)
         }
+        Expr::Match(match_expr) => {
+            let _ = analyze_expr(&match_expr.value, context);
+            for arm in &match_expr.arms {
+                let _ = analyze_expr(&arm.branch, context);
+            }
+            unknown_at(context, range)
+        }
         Expr::SuperVar { .. } | Expr::ImplementationSelector { .. } | Expr::Ellipsis { .. } | Expr::TypeForm(_) => unknown_at(context, range),
     }
 }

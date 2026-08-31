@@ -656,6 +656,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         Expr::AssociatedLookup(lookup) => synthesize_associated_lookup(ctx, lookup, expected),
         Expr::AssociatedInvoke(invoke) => synthesize_associated_invoke(ctx, invoke, expected),
 
+        // --- 7.6 Match Expression ---
+        Expr::Match(match_expr) => synthesize_match_expr(ctx, match_expr, expected),
+
         // --- 8. Miscellaneous Expressions ---
         Expr::ComparisonChain(chain) => synthesize_comparison_chain(ctx, chain),
         Expr::Membership(m) => synthesize_membership_expr(ctx, m),
@@ -2608,3 +2611,25 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
         _ => {}
     }
 }
+
+pub fn synthesize_match_expr(
+    ctx: &mut CheckingContext<'_>,
+    match_expr: &phalcom_ast::ast::MatchExpr,
+    _expected: &ExpectedType,
+) -> TypedExpression {
+    let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
+    let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
+
+    let resolution = crate::match_semantics::MatchResolution {
+        expression: expr_id,
+        scrutinee: scrutinee_typed.knowledge.clone(),
+        initial_space: crate::match_semantics::PatternSpaceSummary::Empty,
+        arms: Vec::new().into_boxed_slice(),
+        result: scrutinee_typed.knowledge.clone(),
+        exhaustiveness: crate::match_semantics::ExhaustivenessResult::Proven,
+    };
+    ctx.record_match_resolution(expr_id, resolution);
+
+    TypedExpression::new(scrutinee_typed.knowledge)
+}
+

@@ -663,11 +663,25 @@ impl SourceScopeBuilder<'_> {
                     self.declare_pattern_with_annotation(scope, rest, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
-            Pattern::Variant { arguments, .. } => {
-                for argument in arguments {
-                    self.declare_pattern_with_annotation(scope, argument, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
+            Pattern::Wildcard { .. } => {}
+            Pattern::Or { alternatives, .. } => {
+                for alt in alternatives {
+                    self.declare_pattern_with_annotation(scope, alt, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
+            Pattern::Variant(variant) => match &variant.mode {
+                phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                    for argument in arguments {
+                        self.declare_pattern_with_annotation(scope, &argument.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
+                    }
+                }
+                phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                    for argument in prefix.iter().chain(suffix.iter()) {
+                        self.declare_pattern_with_annotation(scope, &argument.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
+                    }
+                }
+                phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => {}
+            },
             Pattern::Record { entries, .. } => {
                 for entry in entries {
                     self.declare_pattern_with_annotation(scope, &entry.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
@@ -829,6 +843,14 @@ impl SourceScopeBuilder<'_> {
             Expr::AssociatedInvoke(invoke) => {
                 self.visit_expr(scope, &invoke.receiver);
                 self.visit_pack_items(scope, &invoke.args);
+            }
+            Expr::Match(match_expr) => {
+                self.visit_expr(scope, &match_expr.value);
+                for arm in &match_expr.arms {
+                    let arm_scope = self.new_scope(scope, arm.range);
+                    self.declare_pattern(arm_scope, &arm.pattern, SourceBindingKind::Destructure, false);
+                    self.visit_expr(arm_scope, &arm.branch);
+                }
             }
             Expr::Int { .. }
             | Expr::Float { .. }

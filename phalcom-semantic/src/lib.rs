@@ -22,6 +22,7 @@ pub mod export;
 pub mod hierarchy_product;
 pub mod identity;
 pub mod invalidation;
+pub mod match_semantics;
 pub mod metadata;
 pub mod module_product;
 pub mod presentation;
@@ -89,6 +90,7 @@ pub use identity::{
     VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
+pub use match_semantics::*;
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use presentation::{
     AdvisoryPresenter, CallablePresentation, FieldPresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,

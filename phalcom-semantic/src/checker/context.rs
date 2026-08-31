@@ -315,6 +315,7 @@ pub struct CheckingContext<'a> {
     pub expressions: ExpressionAnalysisIndex,
     pub associated_resolutions: crate::checker::associated::AssociatedResolutionIndex,
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
+    pub match_resolutions: crate::match_semantics::MatchResolutionIndex,
     pub explanations: crate::explain::ExplanationArena,
     expression_owners: Vec<ExpressionId>,
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
@@ -395,6 +396,7 @@ impl<'a> CheckingContext<'a> {
             expressions: ExpressionAnalysisIndex::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
+            match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -463,6 +465,7 @@ impl<'a> CheckingContext<'a> {
             expressions: ExpressionAnalysisIndex::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
+            match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -510,6 +513,7 @@ impl<'a> CheckingContext<'a> {
             expressions: self.expressions.clone(),
             associated_resolutions: self.associated_resolutions.clone(),
             family_applications: self.family_applications.clone(),
+            match_resolutions: self.match_resolutions.clone(),
             explanations: self.explanations.clone(),
             expression_owners: self.expression_owners.clone(),
             expression_owned_causes: self.expression_owned_causes.clone(),
@@ -1776,6 +1780,7 @@ impl<'a> CheckingContext<'a> {
             },
             associated_resolutions: std::sync::Arc::new(self.associated_resolutions),
             family_applications: std::sync::Arc::new(self.family_applications),
+            match_resolutions: std::sync::Arc::new(self.match_resolutions),
             flow_graph,
             entry_flow,
             exits,
@@ -1797,6 +1802,10 @@ impl<'a> CheckingContext<'a> {
 
     pub fn record_family_application(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::FamilyApplicationResolution) {
         self.family_applications.insert(expr_id, resolution);
+    }
+
+    pub fn record_match_resolution(&mut self, expr_id: ExpressionId, resolution: crate::match_semantics::MatchResolution) {
+        self.match_resolutions.insert(expr_id, resolution);
     }
 
     pub fn record_enum_declaration_dependency(&self, decl: &DeclarationId) {

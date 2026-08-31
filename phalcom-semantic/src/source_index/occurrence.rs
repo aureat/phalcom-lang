@@ -520,6 +520,12 @@ impl OccurrenceBuilder<'_> {
                 self.expr(&membership.left, OccurrenceRole::Read);
                 self.expr(&membership.candidates, OccurrenceRole::Read);
             }
+            Expr::Match(match_expr) => {
+                self.expr(&match_expr.value, OccurrenceRole::Read);
+                for arm in &match_expr.arms {
+                    self.expr(&arm.branch, OccurrenceRole::Read);
+                }
+            }
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::String { .. }

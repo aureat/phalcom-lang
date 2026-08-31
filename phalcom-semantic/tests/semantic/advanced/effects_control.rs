@@ -35,6 +35,7 @@ fn mock_callable(expressions: BTreeMap<ExpressionId, ExpressionAnalysis>) -> Cal
         bindings: BTreeMap::new(),
         associated_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
+        match_resolutions: Arc::new(BTreeMap::new()),
         flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
         entry_flow: phalcom_semantic::checker::FlowStateSummary::default(),
         exits: phalcom_semantic::checker::BodyExitFacts::default(),

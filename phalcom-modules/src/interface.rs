@@ -383,9 +383,26 @@ impl InterfaceBuilder {
                 }
                 Ok(())
             }
-            Pattern::Variant { arguments, .. } => {
-                for argument in arguments {
-                    Self::collect_pattern_declarations(argument, is_const, namespace, declarations)?;
+            Pattern::Wildcard { .. } => Ok(()),
+            Pattern::Or { alternatives, .. } => {
+                for alt in alternatives {
+                    Self::collect_pattern_declarations(alt, is_const, namespace, declarations)?;
+                }
+                Ok(())
+            }
+            Pattern::Variant(variant) => {
+                match &variant.mode {
+                    phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                        for argument in arguments {
+                            Self::collect_pattern_declarations(&argument.pattern, is_const, namespace, declarations)?;
+                        }
+                    }
+                    phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                        for argument in prefix.iter().chain(suffix.iter()) {
+                            Self::collect_pattern_declarations(&argument.pattern, is_const, namespace, declarations)?;
+                        }
+                    }
+                    phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => {}
                 }
                 Ok(())
             }

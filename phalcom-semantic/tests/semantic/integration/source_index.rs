@@ -367,6 +367,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         )]),
         associated_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
+        match_resolutions: Arc::new(BTreeMap::new()),
         flow_graph: Arc::new(FlowGraph::default()),
         entry_flow: FlowStateSummary::default(),
         exits: Default::default(),
